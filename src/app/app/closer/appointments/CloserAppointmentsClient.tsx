@@ -1,10 +1,39 @@
 "use client";
 
-/* eslint-disable react-hooks/set-state-in-effect */
-
 import { useEffect, useMemo, useState } from "react";
 
-type Appointment = {
+type DocDTO = { id: string; title?: string | null; content?: string | null };
+
+function asRecord(value: unknown): Record<string, unknown> {
+  return value && typeof value === "object" ? (value as Record<string, unknown>) : {};
+}
+
+function getApiError(body: unknown): string | undefined {
+  const obj = asRecord(body);
+  return typeof obj.error === "string" ? obj.error : undefined;
+}
+
+function parseDoc(value: unknown): DocDTO | null {
+  const obj = asRecord(value);
+  const id = obj.id;
+  if (typeof id !== "string") return null;
+
+  const contentValue = obj.content;
+  const titleValue = obj.title;
+
+  const content =
+    typeof contentValue === "string" || contentValue === null ? contentValue : undefined;
+  const title = typeof titleValue === "string" || titleValue === null ? titleValue : undefined;
+
+  return { id, content, title };
+}
+
+function getDocFromBody(body: unknown): DocDTO | null {
+  const obj = asRecord(body);
+  return parseDoc(obj.doc);
+}
+
+export type CloserAppointment = {
   id: string;
   startAt: string;
   endAt: string;
@@ -27,9 +56,9 @@ type Appointment = {
 export default function CloserAppointmentsClient({
   initialAppointments,
 }: {
-  initialAppointments: Appointment[];
+  initialAppointments: CloserAppointment[];
 }) {
-  const [appointments, setAppointments] = useState<Appointment[]>(initialAppointments ?? []);
+  const [appointments, setAppointments] = useState<CloserAppointment[]>(initialAppointments ?? []);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [status, setStatus] = useState<string | null>(null);
@@ -66,9 +95,7 @@ export default function CloserAppointmentsClient({
 
   const [prepDraft, setPrepDraft] = useState<string>("");
 
-  const [closerScriptDoc, setCloserScriptDoc] = useState<
-    { id: string; title: string; content: string } | null
-  >(null);
+  const [closerScriptDoc, setCloserScriptDoc] = useState<DocDTO | null>(null);
   const [closerScriptDraft, setCloserScriptDraft] = useState<string>("");
   const [closerScriptTone, setCloserScriptTone] = useState<string>(
     "consultative, calm, confident",
@@ -115,7 +142,7 @@ export default function CloserAppointmentsClient({
     });
   }, [appointments, fromDate, leadSearch, outcomeFilter, statusFilter, toDate]);
 
-  function outcomeAccent(a: Appointment) {
+  function outcomeAccent(a: CloserAppointment) {
     const o = a.outcome?.outcome;
     if (o === "CLOSED") return "border-l-4 border-l-emerald-500";
     if (o === "FOLLOW_UP") return "border-l-4 border-l-amber-400";
@@ -132,12 +159,13 @@ export default function CloserAppointmentsClient({
         setError("Appointments request did not return JSON (likely redirected to login). Please refresh the page and sign in again.");
         return;
       }
-      const body = await res.json().catch(() => ({}));
+      type AppointmentsResponse = { appointments?: CloserAppointment[]; error?: string };
+      const body = (await res.json().catch(() => ({}))) as AppointmentsResponse;
       if (!res.ok) {
-        setError((body as any)?.error ?? `Failed to load appointments (${res.status})`);
+        setError(body?.error ?? `Failed to load appointments (${res.status})`);
         return;
       }
-      setAppointments((body as any)?.appointments ?? []);
+      setAppointments(body?.appointments ?? []);
     } catch {
       setError("Could not load appointments. Is the dev server running?");
     }
@@ -199,13 +227,12 @@ export default function CloserAppointmentsClient({
       if (!selected?.lead?.id) return;
 
       const res = await fetch(`/api/leads/closer-script?leadId=${selected.lead.id}`);
-      const body = await res.json().catch(() => ({}));
+      const body = (await res.json().catch(() => ({}))) as unknown;
       if (!res.ok) return;
-      const doc = (body as any)?.doc ?? null;
-      if (doc?.id) {
-        setCloserScriptDoc(doc);
-        setCloserScriptDraft(doc.content ?? "");
-      }
+      const doc = getDocFromBody(body);
+      if (!doc) return;
+      setCloserScriptDoc(doc);
+      setCloserScriptDraft(doc.content ?? "");
     }
 
     load().catch(() => null);
@@ -222,9 +249,16 @@ export default function CloserAppointmentsClient({
       fd.set("file", file);
 
       const up = await fetch("/api/uploads", { method: "POST", body: fd });
-      const upBody = await up.json().catch(() => ({}));
+      const upBody = (await up.json().catch(() => ({}))) as unknown;
       if (!up.ok) {
-        setError((upBody as any)?.error ?? "Upload failed");
+        setError(getApiError(upBody) ?? "Upload failed");
+        return;
+      }
+
+      const upObj = asRecord(upBody);
+      const url = typeof upObj.url === "string" ? upObj.url : null;
+      if (!url) {
+        setError("Upload succeeded but returned no URL");
         return;
       }
 
@@ -233,14 +267,14 @@ export default function CloserAppointmentsClient({
         headers: { "content-type": "application/json" },
         body: JSON.stringify({
           appointmentId: selected.id,
-          url: (upBody as any).url,
-          mimeType: (upBody as any).mimeType,
-          fileSize: (upBody as any).fileSize,
+          url,
+          mimeType: typeof upObj.mimeType === "string" ? upObj.mimeType : undefined,
+          fileSize: typeof upObj.fileSize === "number" ? upObj.fileSize : undefined,
         }),
       });
-      const attachBody = await attach.json().catch(() => ({}));
+      const attachBody = (await attach.json().catch(() => ({}))) as unknown;
       if (!attach.ok) {
-        setError((attachBody as any)?.error ?? "Failed to attach video");
+        setError(getApiError(attachBody) ?? "Failed to attach video");
         return;
       }
 
@@ -264,12 +298,14 @@ export default function CloserAppointmentsClient({
           headers: { "content-type": "application/json" },
           body: JSON.stringify({ content: closerScriptDraft }),
         });
-        const body = await res.json().catch(() => ({}));
+        const body = (await res.json().catch(() => ({}))) as unknown;
         if (!res.ok) {
-          setError((body as any)?.error ?? "Failed to save script");
+          setError(getApiError(body) ?? "Failed to save script");
           return;
         }
-        setCloserScriptDoc((body as any).doc ?? closerScriptDoc);
+
+        const doc = getDocFromBody(body);
+        if (doc) setCloserScriptDoc(doc);
       } else {
         const res = await fetch("/api/docs/create", {
           method: "POST",
@@ -281,12 +317,14 @@ export default function CloserAppointmentsClient({
             leadId: selected.lead.id,
           }),
         });
-        const body = await res.json().catch(() => ({}));
+        const body = (await res.json().catch(() => ({}))) as unknown;
         if (!res.ok) {
-          setError((body as any)?.error ?? "Failed to create script doc");
+          setError(getApiError(body) ?? "Failed to create script doc");
           return;
         }
-        if ((body as any)?.doc?.id) setCloserScriptDoc((body as any).doc);
+
+        const doc = getDocFromBody(body);
+        if (doc) setCloserScriptDoc(doc);
       }
 
       setStatus("Saved closer script");
@@ -313,15 +351,16 @@ export default function CloserAppointmentsClient({
         }),
       });
 
-      const body = await res.json().catch(() => ({}));
+      const body = (await res.json().catch(() => ({}))) as unknown;
       if (!res.ok) {
-        setError((body as any)?.error ?? "Failed to generate script");
+        setError(getApiError(body) ?? "Failed to generate script");
         return;
       }
 
-      if ((body as any)?.doc?.id) {
-        setCloserScriptDoc((body as any).doc);
-        setCloserScriptDraft((body as any).doc.content ?? "");
+      const doc = getDocFromBody(body);
+      if (doc) {
+        setCloserScriptDoc(doc);
+        setCloserScriptDraft(doc.content ?? "");
       }
 
       setStatus("Generated closer script");
@@ -341,9 +380,9 @@ export default function CloserAppointmentsClient({
       body: JSON.stringify({ content: prepDraft }),
     });
 
-    const body = await res.json().catch(() => ({}));
+    const body = (await res.json().catch(() => ({}))) as unknown;
     if (!res.ok) {
-      setError((body as any)?.error ?? "Failed to save prep pack");
+      setError(getApiError(body) ?? "Failed to save prep pack");
       return;
     }
 
@@ -380,9 +419,9 @@ export default function CloserAppointmentsClient({
       }),
     });
 
-    const body = await res.json().catch(() => ({}));
+    const body = (await res.json().catch(() => ({}))) as unknown;
     if (!res.ok) {
-      setError((body as any)?.error ?? "Failed to submit outcome");
+      setError(getApiError(body) ?? "Failed to submit outcome");
       return;
     }
 

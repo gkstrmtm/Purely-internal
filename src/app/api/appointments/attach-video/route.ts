@@ -36,11 +36,15 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
 
-  const appointmentVideo = (prisma as any).appointmentVideo as
-    | {
-        upsert: (args: any) => Promise<any>;
-      }
-    | undefined;
+  type AppointmentVideoDelegate = {
+    upsert: (args: {
+      where: { appointmentId: string };
+      update: { filePath: string; mimeType: string; fileSize: number };
+      create: { appointmentId: string; filePath: string; mimeType: string; fileSize: number };
+    }) => Promise<unknown>;
+  };
+  const appointmentVideo = (prisma as unknown as { appointmentVideo?: AppointmentVideoDelegate })
+    .appointmentVideo;
   if (!appointmentVideo?.upsert) {
     return NextResponse.json(
       {

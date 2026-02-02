@@ -1,6 +1,7 @@
 import { getServerSession } from "next-auth";
 
 import ManagerAppointmentsClient from "./ManagerAppointmentsClient";
+import type { ManagerAppointment } from "./ManagerAppointmentsClient";
 
 import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/db";
@@ -17,9 +18,13 @@ export default async function ManagerAppointmentsPage() {
   async function attachVideos<T extends { id: string }>(appts: T[]) {
     if (!appts.length) return appts;
 
-    const appointmentVideo = (prisma as any).appointmentVideo as
-      | { findMany: (args: any) => Promise<any[]> }
-      | undefined;
+    type AppointmentVideoRow = { appointmentId: string } & Record<string, unknown>;
+    type AppointmentVideoDelegate = {
+      findMany: (args: { where: { appointmentId: { in: string[] } } }) => Promise<AppointmentVideoRow[]>;
+    };
+
+    const appointmentVideo = (prisma as unknown as { appointmentVideo?: AppointmentVideoDelegate })
+      .appointmentVideo;
     if (!appointmentVideo?.findMany) {
       return appts.map((a) => ({ ...a, video: null }));
     }
@@ -47,5 +52,9 @@ export default async function ManagerAppointmentsPage() {
   });
 
   const initialAppointments = await attachVideos(appts);
-  return <ManagerAppointmentsClient initialAppointments={initialAppointments as any} />;
+  return (
+    <ManagerAppointmentsClient
+      initialAppointments={initialAppointments as unknown as ManagerAppointment[]}
+    />
+  );
 }

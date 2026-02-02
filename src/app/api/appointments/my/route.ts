@@ -13,9 +13,13 @@ export async function GET() {
   async function attachVideos<T extends { id: string }>(appts: T[]) {
     if (!appts.length) return appts;
 
-    const appointmentVideo = (prisma as any).appointmentVideo as
-      | { findMany: (args: any) => Promise<any[]> }
-      | undefined;
+    type AppointmentVideoRow = { appointmentId: string } & Record<string, unknown>;
+    type AppointmentVideoDelegate = {
+      findMany: (args: { where: { appointmentId: { in: string[] } } }) => Promise<AppointmentVideoRow[]>;
+    };
+
+    const appointmentVideo = (prisma as unknown as { appointmentVideo?: AppointmentVideoDelegate })
+      .appointmentVideo;
     if (!appointmentVideo?.findMany) {
       return appts.map((a) => ({ ...a, video: null }));
     }

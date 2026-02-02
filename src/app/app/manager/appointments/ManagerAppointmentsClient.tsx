@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 
-type Appointment = {
+export type ManagerAppointment = {
   id: string;
   startAt: string;
   endAt: string;
@@ -18,9 +18,9 @@ type Appointment = {
 export default function ManagerAppointmentsClient({
   initialAppointments,
 }: {
-  initialAppointments: Appointment[];
+  initialAppointments: ManagerAppointment[];
 }) {
-  const [appointments, setAppointments] = useState<Appointment[]>(initialAppointments ?? []);
+  const [appointments, setAppointments] = useState<ManagerAppointment[]>(initialAppointments ?? []);
   const [error, setError] = useState<string | null>(null);
 
   const [q, setQ] = useState<string>("");
@@ -34,12 +34,13 @@ export default function ManagerAppointmentsClient({
         setError("Appointments request did not return JSON (likely redirected to login). Please refresh the page and sign in again.");
         return;
       }
-      const body = await res.json().catch(() => ({}));
+      type AppointmentsResponse = { appointments?: ManagerAppointment[]; error?: string };
+      const body = (await res.json().catch(() => ({}))) as AppointmentsResponse;
       if (!res.ok) {
-        setError((body as any)?.error ?? `Failed to load appointments (${res.status})`);
+        setError(body?.error ?? `Failed to load appointments (${res.status})`);
         return;
       }
-      setAppointments((body as any)?.appointments ?? []);
+      setAppointments(body?.appointments ?? []);
       setError(null);
     } catch {
       setError("Could not load appointments. Is the dev server running?");
