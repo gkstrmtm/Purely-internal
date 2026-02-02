@@ -1,0 +1,319 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+enum Role {
+  DIALER
+  CLOSER
+  MANAGER
+  ADMIN
+}
+
+enum LeadStatus {
+  NEW
+  ASSIGNED
+  CALLED
+  DO_NOT_CALL
+  INVALID
+}
+
+enum CallDisposition {
+  NO_ANSWER
+  LEFT_VOICEMAIL
+  FOLLOW_UP
+  BOOKED
+  NOT_INTERESTED
+  BAD_NUMBER
+}
+
+enum AppointmentMethod {
+  PHONE
+  ZOOM
+  GOOGLE_MEET
+  IN_PERSON
+  OTHER
+}
+
+enum AppointmentStatus {
+  SCHEDULED
+  COMPLETED
+  CANCELED
+  NO_SHOW
+  RESCHEDULED
+}
+
+enum CloserOutcome {
+  CLOSED
+  FOLLOW_UP
+  LOST
+}
+
+enum ContractStatus {
+  DRAFT
+  SUBMITTED
+  APPROVED
+  REJECTED
+  SENT
+}
+
+model User {
+  id           String  @id @default(cuid())
+  email        String  @unique
+  name         String
+  passwordHash String
+  role         Role    @default(DIALER)
+  active       Boolean @default(true)
+  timeZone     String  @default("America/New_York")
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  leadAssignments LeadAssignment[]
+  callLogs        CallLog[]
+  scripts         Script[]
+  docs            Doc[]
+
+  availabilityBlocks   AvailabilityBlock[]
+  appointmentsAsSetter Appointment[]       @relation("Setter")
+  appointmentsAsCloser Appointment[]       @relation("Closer")
+
+  contractDrafts ContractDraft[]
+  approvals      Approval[]
+}
+
+model Lead {
+  id           String     @id @default(cuid())
+  businessName String
+  phone        String
+  website      String?
+  location     String?
+  niche        String?
+  notes        String?
+  status       LeadStatus @default(NEW)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  assignments  LeadAssignment[]
+  callLogs     CallLog[]
+  appointments Appointment[]
+  docs         Doc[]
+}
+
+model LeadAssignment {
+  id         String    @id @default(cuid())
+  leadId     String
+  userId     String
+  claimedAt  DateTime  @default(now())
+  releasedAt DateTime?
+
+  lead Lead @relation(fields: [leadId], references: [id])
+  user User @relation(fields: [userId], references: [id])
+
+  @@unique([leadId, releasedAt])
+  @@index([userId])
+  @@index([leadId])
+}
+
+model Script {
+  id         String  @id @default(cuid())
+  ownerId    String
+  title      String
+  content    String
+  isTemplate Boolean @default(false)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  owner User @relation(fields: [ownerId], references: [id])
+
+  @@index([ownerId])
+}
+
+model Doc {
+  id      String @id @default(cuid())
+  ownerId String
+  leadId  String?
+  title   String
+  content String
+  kind    String
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  owner User @relation(fields: [ownerId], references: [id])
+  lead  Lead? @relation(fields: [leadId], references: [id])
+
+  callLogTranscripts CallLog[]       @relation("CallLogTranscript")
+  appointmentPreps   Appointment[]   @relation("AppointmentPrep")
+  contractAiDocs     ContractDraft[] @relation("ContractAiDoc")
+
+  @@index([ownerId])
+  @@index([leadId])
+  @@unique([ownerId, leadId, kind])
+}
+
+model CallLog {
+  id          String          @id @default(cuid())
+  dialerId    String
+  leadId      String
+  disposition CallDisposition
+
+  contactName  String?
+  contactEmail String?
+  contactPhone String?
+  companyName  String?
+  method       AppointmentMethod?
+  methodOther  String?
+
+  notes       String?
+  followUpAt  DateTime?
+
+  createdAt DateTime @default(now())
+
+  dialer User @relation(fields: [dialerId], references: [id])
+  lead   Lead @relation(fields: [leadId], references: [id])
+
+  recording         CallRecording?
+  transcriptDocId   String?
+  transcriptDoc     Doc?           @relation("CallLogTranscript", fields: [transcriptDocId], references: [id])
+  bookedAppointment Appointment?
+
+  @@index([dialerId])
+  @@index([leadId])
+}
+
+model CallRecording {
+  id        String @id @default(cuid())
+  callLogId String @unique
+  filePath  String
+  mimeType  String
+  fileSize  Int
+
+  createdAt DateTime @default(now())
+
+  callLog CallLog @relation(fields: [callLogId], references: [id])
+}
+
+model AppointmentVideo {
+  id            String @id @default(cuid())
+  appointmentId String @unique
+  filePath      String
+  mimeType      String
+  fileSize      Int
+
+  createdAt DateTime @default(now())
+
+  appointment Appointment @relation(fields: [appointmentId], references: [id])
+}
+
+model AvailabilityBlock {
+  id      String   @id @default(cuid())
+  userId  String
+  startAt DateTime
+  endAt   DateTime
+
+  createdAt DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id])
+
+  @@index([userId, startAt])
+}
+
+model Appointment {
+  id       String            @id @default(cuid())
+  leadId   String
+  setterId String
+  closerId String
+  startAt  DateTime
+  endAt    DateTime
+  status   AppointmentStatus @default(SCHEDULED)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  lead   Lead @relation(fields: [leadId], references: [id])
+  setter User @relation("Setter", fields: [setterId], references: [id])
+  closer User @relation("Closer", fields: [closerId], references: [id])
+
+  callLogId String?  @unique
+  callLog   CallLog? @relation(fields: [callLogId], references: [id])
+
+  outcome   AppointmentOutcome?
+  prepDocId String?
+  prepDoc   Doc?                @relation("AppointmentPrep", fields: [prepDocId], references: [id])
+
+  loomUrl String?
+
+  video AppointmentVideo?
+
+  @@index([closerId, startAt])
+  @@index([setterId, startAt])
+}
+
+model AppointmentOutcome {
+  id            String        @id @default(cuid())
+  appointmentId String        @unique
+  outcome       CloserOutcome
+  notes         String?
+  revenueCents  Int?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  appointment Appointment @relation(fields: [appointmentId], references: [id])
+
+  contractDraft ContractDraft?
+}
+
+model ContractDraft {
+  id                   String         @id @default(cuid())
+  appointmentOutcomeId String         @unique
+  status               ContractStatus @default(DRAFT)
+
+  priceCents  Int
+  setupFeeCents   Int  @default(0)
+  monthlyFeeCents Int  @default(0)
+  termMonths      Int  @default(0)
+  servicesJson    Json?
+  servicesOther   String?
+  terms       String
+  services    String
+  clientEmail String?
+
+  aiDocId String?
+  aiDoc   Doc?    @relation("ContractAiDoc", fields: [aiDocId], references: [id])
+
+  submittedByUserId String
+  submittedByUser   User   @relation(fields: [submittedByUserId], references: [id])
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  approvals Approval[]
+
+  appointmentOutcome AppointmentOutcome @relation(fields: [appointmentOutcomeId], references: [id])
+
+  @@index([status])
+}
+
+model Approval {
+  id              String  @id @default(cuid())
+  contractDraftId String
+  reviewerId      String
+  decision        String
+  notes           String?
+
+  createdAt DateTime @default(now())
+
+  contractDraft ContractDraft @relation(fields: [contractDraftId], references: [id])
+  reviewer      User          @relation(fields: [reviewerId], references: [id])
+
+  @@index([contractDraftId])
+  @@index([reviewerId])
+}
