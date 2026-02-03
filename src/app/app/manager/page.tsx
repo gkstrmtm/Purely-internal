@@ -71,18 +71,29 @@ export default async function ManagerHome() {
     prisma.callLog.findMany({
       orderBy: { createdAt: "desc" },
       take: 8,
-      include: {
-        lead: true,
+      select: {
+        id: true,
+        createdAt: true,
+        disposition: true,
+        lead: { select: { businessName: true } },
         dialer: { select: { name: true, email: true } },
       },
     }),
     prisma.lead.findMany({
       orderBy: { createdAt: "desc" },
       take: 8,
-      include: {
+      select: {
+        id: true,
+        businessName: true,
+        niche: true,
+        location: true,
+        status: true,
         assignments: {
           where: { releasedAt: null },
-          include: { user: { select: { name: true, email: true } } },
+          select: {
+            claimedAt: true,
+            user: { select: { name: true, email: true } },
+          },
           orderBy: { claimedAt: "desc" },
           take: 1,
         },
@@ -92,11 +103,14 @@ export default async function ManagerHome() {
       where: { startAt: { gte: now } },
       orderBy: { startAt: "asc" },
       take: 8,
-      include: {
-        lead: true,
+      select: {
+        id: true,
+        startAt: true,
+        status: true,
+        lead: { select: { businessName: true } },
         setter: { select: { name: true, email: true } },
         closer: { select: { name: true, email: true } },
-        outcome: true,
+        outcome: { select: { outcome: true } },
       },
     }),
   ]);

@@ -3,6 +3,7 @@ import { redirect } from "next/navigation";
 
 import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/db";
+import { hasPublicColumn } from "@/lib/dbSchema";
 
 export default async function ManagerLeadsPage() {
   const session = await getServerSession(authOptions);
@@ -11,17 +12,39 @@ export default async function ManagerLeadsPage() {
   const role = session.user.role;
   if (role !== "MANAGER" && role !== "ADMIN") redirect("/app");
 
+  const [hasContactPhone, hasInterestedService] = await Promise.all([
+    hasPublicColumn("Lead", "contactPhone"),
+    hasPublicColumn("Lead", "interestedService"),
+  ]);
+
+  const leadSelect = {
+    id: true,
+    businessName: true,
+    phone: true,
+    contactName: true,
+    contactEmail: true,
+    ...(hasContactPhone ? { contactPhone: true } : {}),
+    ...(hasInterestedService ? { interestedService: true } : {}),
+    niche: true,
+    location: true,
+    source: true,
+    status: true,
+    createdAt: true,
+    assignments: {
+      where: { releasedAt: null },
+      select: {
+        claimedAt: true,
+        user: { select: { name: true, email: true } },
+      },
+      orderBy: { claimedAt: "desc" },
+      take: 1,
+    },
+  } as const;
+
   const leads = await prisma.lead.findMany({
     orderBy: { createdAt: "desc" },
     take: 200,
-    include: {
-      assignments: {
-        where: { releasedAt: null },
-        include: { user: { select: { name: true, email: true } } },
-        orderBy: { claimedAt: "desc" },
-        take: 1,
-      },
-    },
+    select: leadSelect,
   });
 
   return (
@@ -35,21 +58,28 @@ export default async function ManagerLeadsPage() {
             const assignment = l.assignments?.[0] ?? null;
             const assignedUser = assignment?.user ?? null;
 
+            const record = l as unknown as Record<string, unknown>;
+            const contactPhoneValue = record.contactPhone;
+            const interestedServiceValue = record.interestedService;
+            const contactPhone = typeof contactPhoneValue === "string" ? contactPhoneValue : null;
+            const interestedService =
+              typeof interestedServiceValue === "string" ? interestedServiceValue : null;
+
             return (
               <div key={l.id} className="rounded-2xl border border-zinc-200 p-4">
                 <div className="flex flex-col justify-between gap-2 sm:flex-row">
                   <div>
                     <div className="text-sm font-semibold text-brand-ink">{l.businessName}</div>
                     <div className="mt-1 text-xs text-zinc-600">{l.phone}</div>
-                    {[l.contactName, l.contactEmail, l.contactPhone].some(Boolean) ? (
+                    {[l.contactName, l.contactEmail, contactPhone].some(Boolean) ? (
                       <div className="mt-1 text-xs text-zinc-600">
-                        Contact: {[l.contactName, l.contactEmail, l.contactPhone]
+                        Contact: {[l.contactName, l.contactEmail, contactPhone]
                           .filter(Boolean)
                           .join(" • ")}
                       </div>
                     ) : null}
-                    {l.interestedService ? (
-                      <div className="mt-1 text-xs text-zinc-600">Interested in: {l.interestedService}</div>
+                    {interestedService ? (
+                      <div className="mt-1 text-xs text-zinc-600">Interested in: {interestedService}</div>
                     ) : null}
                     {l.source ? (
                       <div className="mt-1 text-xs text-zinc-600">Source: {l.source}</div>

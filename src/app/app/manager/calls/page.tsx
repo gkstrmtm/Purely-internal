@@ -14,11 +14,14 @@ export default async function ManagerCallsPage() {
   const calls = await prisma.callLog.findMany({
     orderBy: { createdAt: "desc" },
     take: 150,
-    include: {
-      lead: true,
+    select: {
+      id: true,
+      createdAt: true,
+      disposition: true,
+      lead: { select: { businessName: true, phone: true } },
       dialer: { select: { name: true, email: true } },
       transcriptDoc: { select: { id: true, title: true } },
-      recording: true,
+      recording: { select: { id: true } },
       bookedAppointment: { select: { id: true, startAt: true, status: true } },
     },
   });
