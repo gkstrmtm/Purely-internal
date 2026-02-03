@@ -5,6 +5,24 @@ import { getToken } from "next-auth/jwt";
 export async function middleware(req: NextRequest) {
   const token = await getToken({ req, secret: process.env.NEXTAUTH_SECRET });
 
+  const path = req.nextUrl.pathname;
+
+  // Keep the nicer /dashboard URL, but serve the existing /app routes.
+  // This is a rewrite (URL stays /dashboard), not a redirect.
+  if (path === "/dashboard" || path.startsWith("/dashboard/")) {
+    const url = req.nextUrl.clone();
+    url.pathname = path === "/dashboard" ? "/app" : path.replace("/dashboard", "/app");
+
+    if (!token) {
+      const login = req.nextUrl.clone();
+      login.pathname = "/login";
+      login.searchParams.set("from", req.nextUrl.pathname);
+      return NextResponse.redirect(login);
+    }
+
+    return NextResponse.rewrite(url);
+  }
+
   if (!token) {
     const url = req.nextUrl.clone();
     url.pathname = "/login";
@@ -13,7 +31,6 @@ export async function middleware(req: NextRequest) {
   }
 
   const role = (token as unknown as { role?: string }).role;
-  const path = req.nextUrl.pathname;
 
   if (path.startsWith("/app/dialer") && role === "CLOSER") {
     return NextResponse.redirect(new URL("/app/closer", req.url));
