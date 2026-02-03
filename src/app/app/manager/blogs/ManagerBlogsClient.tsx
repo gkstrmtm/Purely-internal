@@ -7,6 +7,9 @@ type Settings = {
   topicQueue: unknown;
   topicQueueCursor: number;
   lastWeeklyRunAt: string | null;
+  frequencyDays?: number;
+  publishHourUtc?: number;
+  publishMinuteUtc?: number;
 };
 
 type SettingsResponse = {
@@ -102,6 +105,8 @@ export default function ManagerBlogsClient() {
   const [runningDates, setRunningDates] = useState(false);
 
   const [weeklyEnabled, setWeeklyEnabled] = useState(true);
+  const [frequencyDays, setFrequencyDays] = useState(7);
+  const [publishHourUtc, setPublishHourUtc] = useState(14);
   const [topicQueueText, setTopicQueueText] = useState("");
 
   const [stats, setStats] = useState<SettingsResponse["stats"]>(undefined);
@@ -158,6 +163,12 @@ export default function ManagerBlogsClient() {
     const s = data.settings;
     if (s) {
       setWeeklyEnabled(!!s.weeklyEnabled);
+      if (typeof s.frequencyDays === "number" && Number.isFinite(s.frequencyDays)) {
+        setFrequencyDays(Math.min(30, Math.max(1, Math.floor(s.frequencyDays))));
+      }
+      if (typeof s.publishHourUtc === "number" && Number.isFinite(s.publishHourUtc)) {
+        setPublishHourUtc(Math.min(23, Math.max(0, Math.floor(s.publishHourUtc))));
+      }
       const topics = asStringArray(s.topicQueue);
       setTopicQueueText(topics.join("\n"));
     }
@@ -191,6 +202,8 @@ export default function ManagerBlogsClient() {
         method: "PATCH",
         body: JSON.stringify({
           weeklyEnabled,
+          frequencyDays,
+          publishHourUtc,
           topicQueue: parsedTopicQueue,
         }),
       });
@@ -214,6 +227,7 @@ export default function ManagerBlogsClient() {
         method: "PATCH",
         body: JSON.stringify({
           weeklyEnabled,
+          frequencyDays,
           topicQueue: parsedTopicQueue,
         }),
       });
@@ -437,12 +451,10 @@ export default function ManagerBlogsClient() {
       <div className="grid gap-6 lg:grid-cols-2">
         <div className="rounded-2xl border border-zinc-200 p-5">
           <div className="text-sm font-semibold text-brand-ink">
-            Weekly automation
-            <InfoTip text="Controls the weekly scheduled generation. Save settings updates the enabled flag and topic queue. Run weekly now runs immediately. Force ignores disabled/already-published checks." />
+            Automation schedule
+            <InfoTip text="Controls the scheduled generation cadence. Frequency sets how often a new post is created (daily / every 3 days / weekly). The cron runs regularly, but will only publish when due." />
           </div>
-          <p className="mt-1 text-xs text-zinc-600">
-            Controls the weekly Vercel cron behavior. When disabled, cron will skip without generating a post.
-          </p>
+          <p className="mt-1 text-xs text-zinc-600">Set how often automation publishes. When disabled, cron will skip without generating.</p>
 
           <label className="mt-4 flex items-center gap-3 text-sm">
             <input
@@ -451,8 +463,36 @@ export default function ManagerBlogsClient() {
               onChange={(e) => setWeeklyEnabled(e.target.checked)}
               className="h-4 w-4"
             />
-            Weekly generation enabled
+            Automation enabled
           </label>
+
+          <div className="mt-3 flex flex-wrap items-center gap-3 text-sm text-zinc-700">
+            <div className="text-xs text-zinc-600">Frequency</div>
+            <select
+              className="rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm"
+              value={String(frequencyDays)}
+              onChange={(e) => setFrequencyDays(Number.parseInt(e.target.value || "7", 10) || 7)}
+            >
+              <option value="1">Every day</option>
+              <option value="3">Every 3 days</option>
+              <option value="7">Weekly</option>
+            </select>
+          </div>
+
+          <div className="mt-3 flex flex-wrap items-center gap-3 text-sm text-zinc-700">
+            <div className="text-xs text-zinc-600">Publish time (UTC)</div>
+            <select
+              className="rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm"
+              value={String(publishHourUtc)}
+              onChange={(e) => setPublishHourUtc(Number.parseInt(e.target.value || "14", 10) || 14)}
+            >
+              {Array.from({ length: 24 }).map((_, h) => (
+                <option key={h} value={String(h)}>
+                  {String(h).padStart(2, "0")}:00 UTC
+                </option>
+              ))}
+            </select>
+          </div>
 
           <div className="mt-4 flex flex-wrap gap-2">
             <button
@@ -478,7 +518,7 @@ export default function ManagerBlogsClient() {
             >
               <span className="inline-flex items-center gap-2">
                 {runningWeekly ? <Spinner /> : null}
-                {runningWeekly ? "Generating…" : "Run weekly now"}
+                {runningWeekly ? "Generating…" : "Run now"}
               </span>
             </button>
           </div>

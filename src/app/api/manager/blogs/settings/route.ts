@@ -5,6 +5,8 @@ import { prisma } from "@/lib/db";
 import { requireManagerSession } from "@/lib/apiAuth";
 import {
   getBlogAutomationSettingsSafe,
+  setFrequencyDaysSafe,
+  setPublishTimeUtcSafe,
   setTopicQueueSafe,
   setWeeklyEnabledSafe,
 } from "@/lib/blogAutomation";
@@ -32,6 +34,8 @@ export async function GET() {
 const patchSchema = z.object({
   weeklyEnabled: z.boolean().optional(),
   topicQueue: z.array(z.string()).nullable().optional(),
+  frequencyDays: z.number().int().min(1).max(30).optional(),
+  publishHourUtc: z.number().int().min(0).max(23).optional(),
 });
 
 export async function PATCH(req: Request) {
@@ -46,6 +50,14 @@ export async function PATCH(req: Request) {
 
   if (typeof parsed.data.weeklyEnabled === "boolean") {
     await setWeeklyEnabledSafe(parsed.data.weeklyEnabled);
+  }
+
+  if (typeof parsed.data.frequencyDays === "number") {
+    await setFrequencyDaysSafe(parsed.data.frequencyDays);
+  }
+
+  if (typeof parsed.data.publishHourUtc === "number") {
+    await setPublishTimeUtcSafe(parsed.data.publishHourUtc, 0);
   }
 
   if (parsed.data.topicQueue !== undefined) {

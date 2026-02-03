@@ -44,23 +44,6 @@ function withSlugSuffix(baseSlug: string, suffix: string | null) {
   return `${trimmedBase}${fullSuffix}`.slice(0, 80);
 }
 
-function startOfWeekUtc(date: Date) {
-  const start = new Date(Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), date.getUTCDate()));
-  const day = start.getUTCDay(); // 0=Sun..6=Sat
-  const daysSinceMonday = (day + 6) % 7;
-  start.setUTCDate(start.getUTCDate() - daysSinceMonday);
-  start.setUTCHours(0, 0, 0, 0);
-  return start;
-}
-
-function weekKeyUtc(date: Date) {
-  const start = startOfWeekUtc(date);
-  const y = start.getUTCFullYear();
-  const m = String(start.getUTCMonth() + 1).padStart(2, "0");
-  const d = String(start.getUTCDate()).padStart(2, "0");
-  return `${y}-${m}-${d}`;
-}
-
 export function pickTopic(date: Date) {
   const topics = [
     "How to automate blogging without losing your voice",
@@ -75,7 +58,7 @@ export function pickTopic(date: Date) {
     "How to turn daily ops into helpful content",
   ];
 
-  const key = weekKeyUtc(date);
+  const key = isoDay(date);
   let hash = 0;
   for (let i = 0; i < key.length; i++) hash = (hash * 31 + key.charCodeAt(i)) >>> 0;
   return topics[hash % topics.length];
@@ -126,7 +109,7 @@ function uniqueNonEmptyStrings(items: unknown): string[] | undefined {
 
 export async function getBlogAutomationSettingsSafe() {
   try {
-    return await prisma.blogAutomationSettings.upsert({
+    const row = await prisma.blogAutomationSettings.upsert({
       where: { id: "singleton" },
       create: { id: "singleton" },
       update: {},
@@ -139,15 +122,27 @@ export async function getBlogAutomationSettingsSafe() {
         updatedAt: true,
       },
     });
+
+    const parsed = parseTopicQueuePayload(row.topicQueue);
+    return {
+      ...row,
+      topicQueue: parsed.topics,
+      frequencyDays: parsed.frequencyDays,
+      publishHourUtc: parsed.publishHourUtc,
+      publishMinuteUtc: parsed.publishMinuteUtc,
+    };
   } catch {
     // Table may not exist yet (prod before SQL is run). Treat as defaults.
     return {
       id: "singleton",
       weeklyEnabled: true,
-      topicQueue: null,
+      topicQueue: [],
       topicQueueCursor: 0,
       lastWeeklyRunAt: null,
       updatedAt: new Date(0),
+      frequencyDays: 7,
+      publishHourUtc: 14,
+      publishMinuteUtc: 0,
     };
   }
 }
@@ -172,13 +167,112 @@ function asStringArray(value: unknown): string[] {
     .filter(Boolean);
 }
 
+function normalizeFrequencyDays(value: unknown) {
+  const n = typeof value === "number" && Number.isFinite(value) ? Math.floor(value) : null;
+  if (!n) return 7;
+  return Math.min(30, Math.max(1, n));
+}
+
+function normalizePublishHourUtc(value: unknown) {
+  const n = typeof value === "number" && Number.isFinite(value) ? Math.floor(value) : null;
+  if (n === null) return 14;
+  return Math.min(23, Math.max(0, n));
+}
+
+function normalizePublishMinuteUtc(value: unknown) {
+  const n = typeof value === "number" && Number.isFinite(value) ? Math.floor(value) : null;
+  if (n === null) return 0;
+  return Math.min(59, Math.max(0, n));
+}
+
+function parseTopicQueuePayload(
+  value: unknown,
+): { topics: string[]; frequencyDays: number; publishHourUtc: number; publishMinuteUtc: number } {
+  // Backwards compatible:
+  // - legacy: topicQueue = ["topic1", "topic2"]
+  // - new: topicQueue = { topics: [...], frequencyDays: 7, publishHourUtc: 14, publishMinuteUtc: 0 }
+  if (Array.isArray(value)) {
+    return { topics: asStringArray(value), frequencyDays: 7, publishHourUtc: 14, publishMinuteUtc: 0 };
+  }
+
+  if (value && typeof value === "object") {
+    const rec = value as Record<string, unknown>;
+    const topics = asStringArray(rec.topics);
+    const frequencyDays = normalizeFrequencyDays(rec.frequencyDays);
+    const publishHourUtc = normalizePublishHourUtc(rec.publishHourUtc);
+    const publishMinuteUtc = normalizePublishMinuteUtc(rec.publishMinuteUtc);
+    return { topics, frequencyDays, publishHourUtc, publishMinuteUtc };
+  }
+
+  return { topics: [], frequencyDays: 7, publishHourUtc: 14, publishMinuteUtc: 0 };
+}
+
+function buildTopicQueuePayload(
+  topics: string[],
+  frequencyDays: number,
+  publishHourUtc: number,
+  publishMinuteUtc: number,
+) {
+  return {
+    topics,
+    frequencyDays: normalizeFrequencyDays(frequencyDays),
+    publishHourUtc: normalizePublishHourUtc(publishHourUtc),
+    publishMinuteUtc: normalizePublishMinuteUtc(publishMinuteUtc),
+  };
+}
+
 export async function setTopicQueueSafe(topics: string[]) {
   const cleaned = topics.map((t) => stripDoubleAsterisks(t).trim()).filter(Boolean);
   try {
+    const existing = await getBlogAutomationSettingsSafe();
+    const frequencyDays = normalizeFrequencyDays(existing.frequencyDays);
+    const publishHourUtc = normalizePublishHourUtc((existing as { publishHourUtc?: unknown }).publishHourUtc);
+    const publishMinuteUtc = normalizePublishMinuteUtc((existing as { publishMinuteUtc?: unknown }).publishMinuteUtc);
     await prisma.blogAutomationSettings.upsert({
       where: { id: "singleton" },
-      create: { id: "singleton", topicQueue: cleaned, topicQueueCursor: 0 },
-      update: { topicQueue: cleaned, topicQueueCursor: 0 },
+      create: {
+        id: "singleton",
+        topicQueue: buildTopicQueuePayload(cleaned, frequencyDays, publishHourUtc, publishMinuteUtc),
+        topicQueueCursor: 0,
+      },
+      update: {
+        topicQueue: buildTopicQueuePayload(cleaned, frequencyDays, publishHourUtc, publishMinuteUtc),
+        topicQueueCursor: 0,
+      },
+    });
+  } catch {
+    // ignore
+  }
+}
+
+export async function setFrequencyDaysSafe(frequencyDays: number) {
+  const days = normalizeFrequencyDays(frequencyDays);
+  try {
+    const existing = await getBlogAutomationSettingsSafe();
+    const topics = asStringArray(existing.topicQueue);
+    const publishHourUtc = normalizePublishHourUtc((existing as { publishHourUtc?: unknown }).publishHourUtc);
+    const publishMinuteUtc = normalizePublishMinuteUtc((existing as { publishMinuteUtc?: unknown }).publishMinuteUtc);
+    await prisma.blogAutomationSettings.upsert({
+      where: { id: "singleton" },
+      create: { id: "singleton", topicQueue: buildTopicQueuePayload(topics, days, publishHourUtc, publishMinuteUtc) },
+      update: { topicQueue: buildTopicQueuePayload(topics, days, publishHourUtc, publishMinuteUtc) },
+    });
+  } catch {
+    // ignore
+  }
+}
+
+export async function setPublishTimeUtcSafe(publishHourUtc: number, publishMinuteUtc = 0) {
+  const hour = normalizePublishHourUtc(publishHourUtc);
+  const minute = normalizePublishMinuteUtc(publishMinuteUtc);
+  try {
+    const existing = await getBlogAutomationSettingsSafe();
+    const topics = asStringArray(existing.topicQueue);
+    const frequencyDays = normalizeFrequencyDays(existing.frequencyDays);
+    await prisma.blogAutomationSettings.upsert({
+      where: { id: "singleton" },
+      create: { id: "singleton", topicQueue: buildTopicQueuePayload(topics, frequencyDays, hour, minute) },
+      update: { topicQueue: buildTopicQueuePayload(topics, frequencyDays, hour, minute) },
     });
   } catch {
     // ignore
@@ -341,23 +435,51 @@ async function createBlogPostFromDraft(draft: BlogDraft, publishedAt: Date) {
   throw new Error("Failed to create blog post: could not generate a unique slug");
 }
 
-export async function runWeeklyGeneration({ force = false }: { force?: boolean } = {}) {
+export async function runWeeklyGeneration(
+  { force = false, ignoreSchedule = false }: { force?: boolean; ignoreSchedule?: boolean } = {},
+) {
   const settings = await getBlogAutomationSettingsSafe();
   if (!settings.weeklyEnabled && !force) {
-    return { ok: true as const, skipped: true as const, reason: "Weekly generation disabled" };
+    return { ok: true as const, skipped: true as const, reason: "Automation disabled" };
   }
 
   const now = new Date();
-  const weekStart = startOfWeekUtc(now);
+  const publishHourUtc = normalizePublishHourUtc((settings as { publishHourUtc?: unknown }).publishHourUtc);
+  const publishMinuteUtc = normalizePublishMinuteUtc((settings as { publishMinuteUtc?: unknown }).publishMinuteUtc);
+
+  if (!force && !ignoreSchedule) {
+    const nowHour = now.getUTCHours();
+    const nowMinute = now.getUTCMinutes();
+    if (nowHour !== publishHourUtc || nowMinute !== publishMinuteUtc) {
+      return {
+        ok: true as const,
+        skipped: true as const,
+        reason: "Not scheduled time",
+        publishHourUtc,
+        publishMinuteUtc,
+      };
+    }
+  }
+
+  const frequencyDays = normalizeFrequencyDays(
+    settings && typeof settings === "object" && "frequencyDays" in settings ? (settings as { frequencyDays?: unknown }).frequencyDays : undefined,
+  );
+  const threshold = new Date(now.getTime() - frequencyDays * 24 * 60 * 60 * 1000);
 
   const existing = await prisma.blogPost.findFirst({
-    where: { publishedAt: { gte: weekStart } },
+    where: { publishedAt: { gt: threshold } },
     orderBy: { publishedAt: "desc" },
     select: { slug: true, publishedAt: true },
   });
 
   if (existing && !force) {
-    return { ok: true as const, skipped: true as const, reason: "Already published this week", existing };
+    return {
+      ok: true as const,
+      skipped: true as const,
+      reason: `Already published within last ${frequencyDays} day(s)`,
+      existing,
+      frequencyDays,
+    };
   }
 
   const queued = await takeNextQueuedTopic();

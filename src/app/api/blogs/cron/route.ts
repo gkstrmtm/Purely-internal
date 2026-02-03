@@ -28,7 +28,7 @@ export async function GET(req: Request) {
     return NextResponse.json(
       {
         ok: false,
-        error: "Weekly blog generation failed",
+        error: "Blog generation failed",
         details: e instanceof Error ? e.message : "Unknown error",
       },
       { status: 500 },

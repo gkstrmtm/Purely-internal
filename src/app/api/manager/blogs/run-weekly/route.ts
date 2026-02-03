@@ -17,13 +17,13 @@ export async function POST(req: Request) {
   if (!parsed.success) return NextResponse.json({ error: "Invalid payload" }, { status: 400 });
 
   try {
-    const result = await runWeeklyGeneration({ force: parsed.data.force });
+    const result = await runWeeklyGeneration({ force: parsed.data.force, ignoreSchedule: true });
     return NextResponse.json(result);
   } catch (e) {
     return NextResponse.json(
       {
         ok: false,
-        error: "Weekly generation failed",
+        error: "Blog generation failed",
         details: e instanceof Error ? e.message : "Unknown error",
       },
       { status: 500 },
