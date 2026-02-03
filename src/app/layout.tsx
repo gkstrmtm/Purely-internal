@@ -14,7 +14,25 @@ const geistMono = Geist_Mono({
 
 export const metadata: Metadata = {
   title: "Purely Automation",
-  description: "Internal call logging and appointment operations",
+  description: "Automation systems for businesses so you can focus on higher leverage tasks.",
+  metadataBase: new URL("https://purelyautomation.com"),
+  icons: {
+    icon: "/icon.svg",
+  },
+  openGraph: {
+    title: "Purely Automation",
+    description: "Automation systems for businesses so you can focus on higher leverage tasks.",
+    url: "/",
+    siteName: "Purely Automation",
+    images: [{ url: "/opengraph-image.svg", width: 1200, height: 630, alt: "Purely Automation" }],
+    type: "website",
+  },
+  twitter: {
+    card: "summary_large_image",
+    title: "Purely Automation",
+    description: "Automation systems for businesses so you can focus on higher leverage tasks.",
+    images: ["/opengraph-image.svg"],
+  },
 };
 
 export default function RootLayout({

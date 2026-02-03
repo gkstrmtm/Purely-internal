@@ -1,0 +1,16 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
+  <rect width="512" height="512" rx="120" fill="#ffffff"/>
+  <!-- Play mark inspired by provided asset -->
+  <path d="M160 110
+           C160 90 176 74 196 74
+           L196 74
+           C206 74 216 78 224 84
+           L388 190
+           C416 208 416 248 388 266
+           L224 372
+           C216 378 206 382 196 382
+           L196 382
+           C176 382 160 366 160 346
+           Z"
+        fill="none" stroke="#1d4ed8" stroke-width="44" stroke-linejoin="round" stroke-linecap="round"/>
+</svg>

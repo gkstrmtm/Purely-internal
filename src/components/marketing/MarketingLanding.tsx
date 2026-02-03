@@ -17,6 +17,261 @@ type DemoRequestResponse = {
   leadId: string;
 };
 
+function PlayMarkIcon({ className }: { className?: string }) {
+  return (
+    <svg
+      className={className}
+      viewBox="0 0 512 512"
+      fill="none"
+      xmlns="http://www.w3.org/2000/svg"
+      aria-hidden="true"
+      focusable="false"
+    >
+      <path
+        d="M160 110
+           C160 90 176 74 196 74
+           C206 74 216 78 224 84
+           L388 190
+           C416 208 416 248 388 266
+           L224 372
+           C216 378 206 382 196 382
+           C176 382 160 366 160 346
+           Z"
+        stroke="currentColor"
+        strokeWidth="44"
+        strokeLinejoin="round"
+        strokeLinecap="round"
+      />
+    </svg>
+  );
+}
+
+function FeatureIcon({ name }: { name: "phone" | "message" | "calendar" | "dispatch" | "chart" | "megaphone" | "target" | "dial" | "social" }) {
+  const common = "h-6 w-6 text-brand-blue";
+  switch (name) {
+    case "phone":
+      return (
+        <svg className={common} viewBox="0 0 24 24" fill="none" aria-hidden="true">
+          <path
+            d="M7.5 3.5h2.2c.6 0 1 .4 1 1 0 1 .2 2 .6 2.9.2.4.1.9-.2 1.2l-1.6 1.6c1.4 2.6 3.5 4.7 6.1 6.1l1.6-1.6c.3-.3.8-.4 1.2-.2.9.4 1.9.6 2.9.6.6 0 1 .4 1 1v2.2c0 .8-.7 1.5-1.5 1.5C10.2 21.8 2.2 13.8 2.2 5c0-.8.7-1.5 1.5-1.5H7.5Z"
+            stroke="currentColor"
+            strokeWidth="1.8"
+          />
+        </svg>
+      );
+    case "message":
+      return (
+        <svg className={common} viewBox="0 0 24 24" fill="none" aria-hidden="true">
+          <path
+            d="M4.5 5.5h15A2 2 0 0 1 21.5 7.5v8a2 2 0 0 1-2 2H9l-4.5 3v-3H4.5a2 2 0 0 1-2-2v-8a2 2 0 0 1 2-2Z"
+            stroke="currentColor"
+            strokeWidth="1.8"
+            strokeLinejoin="round"
+          />
+          <path d="M6.5 9h11" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
+          <path d="M6.5 12.5h8" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
+        </svg>
+      );
+    case "calendar":
+      return (
+        <svg className={common} viewBox="0 0 24 24" fill="none" aria-hidden="true">
+          <path
+            d="M7 3.5v3M17 3.5v3M4.5 7.5h15"
+            stroke="currentColor"
+            strokeWidth="1.8"
+            strokeLinecap="round"
+          />
+          <path
+            d="M6.5 5.5h11A3 3 0 0 1 20.5 8.5v10A3 3 0 0 1 17.5 21.5h-11A3 3 0 0 1 3.5 18.5v-10A3 3 0 0 1 6.5 5.5Z"
+            stroke="currentColor"
+            strokeWidth="1.8"
+          />
+        </svg>
+      );
+    case "dispatch":
+      return (
+        <svg className={common} viewBox="0 0 24 24" fill="none" aria-hidden="true">
+          <path
+            d="M3.5 7.5h10v10h-10v-10Z"
+            stroke="currentColor"
+            strokeWidth="1.8"
+            strokeLinejoin="round"
+          />
+          <path
+            d="M13.5 10.5h4l2 2v5h-6v-7Z"
+            stroke="currentColor"
+            strokeWidth="1.8"
+            strokeLinejoin="round"
+          />
+          <path d="M7 19.5a1.5 1.5 0 1 0 0-.01" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
+          <path d="M17 19.5a1.5 1.5 0 1 0 0-.01" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
+        </svg>
+      );
+    case "chart":
+      return (
+        <svg className={common} viewBox="0 0 24 24" fill="none" aria-hidden="true">
+          <path d="M5 19V6" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
+          <path d="M5 19h15" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
+          <path d="M8 16v-5" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
+          <path d="M12 16V8" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
+          <path d="M16 16v-3" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
+        </svg>
+      );
+    case "megaphone":
+      return (
+        <svg className={common} viewBox="0 0 24 24" fill="none" aria-hidden="true">
+          <path
+            d="M4.5 11.5v3.5c0 .8.7 1.5 1.5 1.5H7l1.5 3h2l-1.2-3h.7l9-3.5v-6l-9 3.5H6c-.8 0-1.5.7-1.5 1.5Z"
+            stroke="currentColor"
+            strokeWidth="1.8"
+            strokeLinejoin="round"
+          />
+          <path d="M20.5 9.5v5" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
+        </svg>
+      );
+    case "target":
+      return (
+        <svg className={common} viewBox="0 0 24 24" fill="none" aria-hidden="true">
+          <path
+            d="M12 21.5a9.5 9.5 0 1 1 9.5-9.5"
+            stroke="currentColor"
+            strokeWidth="1.8"
+            strokeLinecap="round"
+          />
+          <path
+            d="M12 17.5a5.5 5.5 0 1 1 5.5-5.5"
+            stroke="currentColor"
+            strokeWidth="1.8"
+            strokeLinecap="round"
+          />
+          <path d="M12 13.5a1.5 1.5 0 1 1 1.5-1.5" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
+          <path d="M13.5 10.5 21 3" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
+          <path d="M21 3v5" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
+          <path d="M21 3h-5" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
+        </svg>
+      );
+    case "dial":
+      return (
+        <svg className={common} viewBox="0 0 24 24" fill="none" aria-hidden="true">
+          <path
+            d="M12 21.5a9.5 9.5 0 1 1 9.5-9.5"
+            stroke="currentColor"
+            strokeWidth="1.8"
+            strokeLinecap="round"
+          />
+          <path d="M12 7v6l4 2" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
+        </svg>
+      );
+    case "social":
+      return (
+        <svg className={common} viewBox="0 0 24 24" fill="none" aria-hidden="true">
+          <path
+            d="M7.5 14.5a3 3 0 1 1 0-6 3 3 0 0 1 0 6Z"
+            stroke="currentColor"
+            strokeWidth="1.8"
+          />
+          <path
+            d="M16.5 21.5a3 3 0 1 1 0-6 3 3 0 0 1 0 6Z"
+            stroke="currentColor"
+            strokeWidth="1.8"
+          />
+          <path
+            d="M16.5 8.5a3 3 0 1 1 0-6 3 3 0 0 1 0 6Z"
+            stroke="currentColor"
+            strokeWidth="1.8"
+          />
+          <path
+            d="M10 10.5 14 7.5M10 12.5l4 3"
+            stroke="currentColor"
+            strokeWidth="1.8"
+            strokeLinecap="round"
+          />
+        </svg>
+      );
+  }
+}
+
+function AutomationHighlights() {
+  const items: Array<{ title: string; desc: string; icon: Parameters<typeof FeatureIcon>[0]["name"] }> = [
+    { title: "Reception on inbound calls, SMS, and email", desc: "Capture requests and route them instantly.", icon: "phone" },
+    { title: "Lead follow up and conversion", desc: "Automate reminders, outreach, and next steps.", icon: "message" },
+    { title: "Dispatching employees and contractors", desc: "Schedule, assign, and notify without manual work.", icon: "dispatch" },
+    { title: "Newsletters, blogs, and announcements", desc: "Publish and distribute content automatically.", icon: "megaphone" },
+    { title: "Dashboard metrics and growth patterns", desc: "Track outcomes and spot opportunities early.", icon: "chart" },
+    { title: "Lead capture and outbound acquisition", desc: "Forms, follow up, and outreach that stays consistent.", icon: "target" },
+    { title: "Outbound calling", desc: "Organize calling and logging so nothing slips.", icon: "dial" },
+    { title: "Social media presence and marketing", desc: "Keep your channels active with less effort.", icon: "social" },
+  ];
+
+  return (
+    <section className="mx-auto mt-12 max-w-6xl px-6">
+      <div className="mx-auto max-w-5xl rounded-[28px] bg-[#f7f5ef] p-8 shadow-sm">
+        <div className="text-center font-brand text-3xl text-brand-blue">what we automate</div>
+        <div className="mt-2 text-center text-base text-brand-ink">
+          Systems that keep your business moving while you focus on higher leverage work.
+        </div>
+
+        <div className="mt-8 grid grid-cols-1 gap-4 sm:grid-cols-2">
+          {items.map((item) => (
+            <div key={item.title} className="rounded-2xl bg-white p-5 shadow-sm">
+              <div className="flex items-start gap-3">
+                <div className="mt-0.5 grid h-10 w-10 place-items-center rounded-xl bg-brand-blue/10">
+                  <FeatureIcon name={item.icon} />
+                </div>
+                <div>
+                  <div className="text-base font-semibold text-zinc-900">{item.title}</div>
+                  <div className="mt-1 text-sm text-zinc-700">{item.desc}</div>
+                </div>
+              </div>
+            </div>
+          ))}
+        </div>
+      </div>
+    </section>
+  );
+}
+
+function FAQSection() {
+  const faqs = [
+    {
+      q: "What kinds of businesses is this for?",
+      a: "Any business that gets leads, schedules work, or follows up with customers. If you repeat the same steps every day, we can usually automate a big portion of it.",
+    },
+    {
+      q: "Do you replace our tools or connect to them?",
+      a: "Usually we connect to what you already use. We can also recommend a simpler stack if your current setup is fighting you.",
+    },
+    {
+      q: "How fast can we ship something useful?",
+      a: "We aim to deliver a first working automation quickly, then expand from there. Speed depends on how many systems we need to integrate and how clean your data is.",
+    },
+    {
+      q: "What do you need from us?",
+      a: "A clear definition of the workflow, access to the tools involved, and one person who can answer questions when edge cases pop up.",
+    },
+  ];
+
+  return (
+    <section className="mx-auto mt-12 max-w-6xl px-6 pb-4">
+      <div className="mx-auto max-w-5xl rounded-[28px] bg-white/95 p-8 shadow-sm">
+        <div className="text-center font-brand text-3xl text-brand-blue">faq</div>
+        <div className="mt-2 text-center text-base text-brand-ink">Quick answers to the common questions.</div>
+
+        <div className="mt-8 grid gap-3">
+          {faqs.map((f) => (
+            <details key={f.q} className="rounded-2xl bg-[#f7f5ef] px-5 py-4">
+              <summary className="cursor-pointer select-none text-base font-semibold text-zinc-900">
+                {f.q}
+              </summary>
+              <div className="mt-2 text-sm text-zinc-700">{f.a}</div>
+            </details>
+          ))}
+        </div>
+      </div>
+    </section>
+  );
+}
+
 function formatLocalDateTime(iso: string) {
   const d = new Date(iso);
   if (Number.isNaN(d.getTime())) return iso;
@@ -346,24 +601,32 @@ export function MarketingLanding() {
   return (
     <div className="min-h-screen bg-white text-zinc-900" style={{ fontFamily: "Arial, Helvetica, sans-serif" }}>
       <main>
-        <section className="mx-auto max-w-6xl px-6 pt-10">
-          <div className="py-6">
-            <div className="grid grid-cols-1 gap-10 md:grid-cols-2 md:items-center">
-              <div>
-                <Image
-                  src="/brand/purity-5.png"
-                  alt="Purely Automation"
-                  width={520}
-                  height={180}
-                  className="h-auto w-[420px] max-w-full object-contain"
-                  priority
-                />
-                <p className="mt-4 max-w-md font-brand text-lg text-brand-ink">
-                  let your computer handle the busywork,
-                  <br />
-                  so you can focus on moving levers
-                </p>
+        <section className="relative z-10 bg-white shadow-[0_18px_40px_rgba(0,0,0,0.08)]">
+          <div className="mx-auto max-w-6xl px-6 pt-10">
+            <div className="py-8">
+              <div className="grid grid-cols-1 gap-10 md:grid-cols-2 md:items-center">
+                <div>
+                  <Image
+                    src="/brand/purity-5.png"
+                    alt="Purely Automation"
+                    width={520}
+                    height={180}
+                    className="h-auto w-[420px] max-w-full object-contain"
+                    priority
+                  />
+                  <p className="mt-5 max-w-md font-brand text-xl text-brand-ink md:text-2xl">
+                    let your computer handle the busywork,
+                    <br />
+                    so you can focus on moving levers
+                  </p>
+                </div>
 
+                <div className="flex justify-center md:justify-end">
+                  <AutomationGraphic />
+                </div>
+              </div>
+
+              <div className="mt-10 flex justify-center">
                 <button
                   type="button"
                   onClick={() => {
@@ -372,25 +635,21 @@ export function MarketingLanding() {
                       formRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
                     }, 50);
                   }}
-                  className="mt-8 inline-flex items-center gap-3 rounded-xl border-2 border-zinc-800 bg-brand-pink px-6 py-3 font-brand text-lg text-brand-blue shadow-sm hover:bg-pink-300"
+                  className="inline-flex items-center gap-3 rounded-2xl bg-brand-pink px-7 py-4 font-brand text-xl font-bold text-brand-blue shadow-md hover:bg-pink-300 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/60 focus-visible:ring-offset-2 focus-visible:ring-offset-brand-blue"
                 >
                   <span>see it in action</span>
-                  <span className="grid h-8 w-10 place-items-center rounded-lg bg-brand-blue text-white">
-                    <svg viewBox="0 0 24 24" className="h-5 w-5" fill="currentColor">
-                      <path d="M8 5v14l11-7z" />
-                    </svg>
+                  <span className="grid h-9 w-9 place-items-center rounded-xl bg-white">
+                    <span className="text-brand-blue">
+                      <PlayMarkIcon className="h-6 w-6" />
+                    </span>
                   </span>
                 </button>
-              </div>
-
-              <div className="flex justify-center md:justify-end">
-                <AutomationGraphic />
               </div>
             </div>
           </div>
         </section>
 
-        <div className="mt-10 bg-brand-blue py-14">
+        <div className="bg-brand-blue py-14">
           <section ref={formRef} className="mx-auto max-w-6xl px-6">
             <div
               className={
@@ -426,9 +685,13 @@ export function MarketingLanding() {
             </div>
           </section>
 
+          <AutomationHighlights />
+
           <section id="book" ref={bookingRef} className="mx-auto mt-12 max-w-6xl px-6">
             <BookingWidget />
           </section>
+
+          <FAQSection />
         </div>
 
         <footer className="pb-10">
