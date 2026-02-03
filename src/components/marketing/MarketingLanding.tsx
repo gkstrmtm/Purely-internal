@@ -6,6 +6,8 @@ import { useEffect, useMemo, useRef, useState } from "react";
 
 const OPERATING_TIME_ZONE = "America/New_York";
 
+type SuggestedSlot = { startAt: string; endAt: string; closerCount: number };
+
 type DemoRequestPayload = {
   name: string;
   company: string;
@@ -415,23 +417,7 @@ function normalizePhone(inputRaw: string): { display: string; e164: string } | n
   return { display: `+${digits}`, e164: `+${digits}` };
 }
 
-function seededHasAvailability(d: Date) {
-  // Simple testing rule: every other day is "available".
-  const key = d.getFullYear() * 10000 + (d.getMonth() + 1) * 100 + d.getDate();
-  return key % 2 === 0;
-}
-
-function seededTimesForDay(d: Date) {
-  const ymd = toLocalYmd(d);
-  const [y, m, day] = ymd.split("-").map((x) => Number(x));
-  const base = zonedTimeToUtc({ year: y, month: m, day, hour: 9, minute: 0 }, OPERATING_TIME_ZONE);
-  const slots: string[] = [];
-  for (let i = 0; i < 16; i++) {
-    const t = new Date(base.getTime() + i * 30 * 60_000);
-    slots.push(t.toISOString());
-  }
-  return slots;
-}
+// Note: availability is loaded from the backend suggestions API.
 
 function getTimeZoneLabel() {
   try {
@@ -600,25 +586,39 @@ function BookingWidget({
   const [now, setNow] = useState(() => new Date());
   const minBookableAt = useMemo(() => new Date(now.getTime() + 30 * 60_000), [now]);
 
+  const [slots, setSlots] = useState<SuggestedSlot[]>([]);
+  const [slotsLoading, setSlotsLoading] = useState(false);
+  const [slotsError, setSlotsError] = useState<string | null>(null);
+
+  const slotsByLocalYmd = useMemo(() => {
+    const map = new Map<string, SuggestedSlot[]>();
+    for (const s of slots) {
+      const key = toLocalYmd(new Date(s.startAt));
+      const list = map.get(key) ?? [];
+      list.push(s);
+      map.set(key, list);
+    }
+    for (const [k, list] of map) {
+      list.sort((a, b) => new Date(a.startAt).getTime() - new Date(b.startAt).getTime());
+      map.set(k, list);
+    }
+    return map;
+  }, [slots]);
+
   const dayIsSelectable = useMemo(() => {
     return (d: Date) => {
       const isBeforeToday = toLocalYmd(d) < toLocalYmd(now);
       if (isBeforeToday) return false;
-      if (!seededHasAvailability(d)) return false;
-      return seededTimesForDay(d).some((t) => {
-        const dt = new Date(t);
+      const list = slotsByLocalYmd.get(toLocalYmd(d)) ?? [];
+      return list.some((s) => {
+        const dt = new Date(s.startAt);
         return !Number.isNaN(dt.getTime()) && dt.getTime() >= minBookableAt.getTime();
       });
     };
-  }, [now, minBookableAt]);
+  }, [now, minBookableAt, slotsByLocalYmd]);
 
   const [selectedDay, setSelectedDay] = useState<Date>(() => {
     const today = new Date();
-    const start = startOfWeek(today);
-    for (let i = 0; i < 7; i++) {
-      const d = addDays(start, i);
-      if (seededHasAvailability(d)) return d;
-    }
     return today;
   });
   const [step, setStep] = useState<"time" | "details" | "confirm">("time");
@@ -641,6 +641,45 @@ function BookingWidget({
     const id = setInterval(() => setNow(new Date()), 30_000);
     return () => clearInterval(id);
   }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    async function load() {
+      setSlotsLoading(true);
+      setSlotsError(null);
+      try {
+        const startAt = new Date(weekStart);
+        startAt.setHours(0, 0, 0, 0);
+
+        const url = new URL("/api/public/appointments/suggestions", window.location.origin);
+        url.searchParams.set("startAt", startAt.toISOString());
+        url.searchParams.set("days", "7");
+        url.searchParams.set("durationMinutes", "30");
+        url.searchParams.set("limit", "50");
+
+        const res = await fetch(url.toString(), { cache: "no-store" });
+        const json = (await res.json().catch(() => null)) as { slots?: SuggestedSlot[]; error?: string } | null;
+
+        if (!res.ok) throw new Error(json?.error || "Unable to load availability.");
+        const nextSlots = Array.isArray(json?.slots) ? json!.slots! : [];
+        if (!cancelled) setSlots(nextSlots);
+      } catch (e) {
+        const msg = e instanceof Error ? e.message : "Unable to load availability.";
+        if (!cancelled) {
+          setSlots([]);
+          setSlotsError(msg);
+        }
+      } finally {
+        if (!cancelled) setSlotsLoading(false);
+      }
+    }
+
+    void load();
+    return () => {
+      cancelled = true;
+    };
+  }, [weekStart]);
 
   useEffect(() => {
     // If the currently-selected day becomes invalid (time passed), move forward.
@@ -677,11 +716,12 @@ function BookingWidget({
     return Array.from({ length: 7 }, (_, i) => addDays(weekStart, i));
   }, [weekStart]);
 
-  const selectedIsAvailable = seededHasAvailability(selectedDay);
   const times = useMemo(() => {
-    if (!selectedIsAvailable) return [];
-    return seededTimesForDay(selectedDay);
-  }, [selectedDay, selectedIsAvailable]);
+    const list = slotsByLocalYmd.get(toLocalYmd(selectedDay)) ?? [];
+    return list.map((s) => s.startAt);
+  }, [selectedDay, slotsByLocalYmd]);
+
+  const selectedIsAvailable = times.length > 0;
 
   const userTimeZone = useMemo(() => getTimeZoneLabel(), []);
 
@@ -808,6 +848,12 @@ function BookingWidget({
       <div className="mt-2 text-center text-xs text-zinc-600">
         Times are shown in your local time ({userTimeZone}).
       </div>
+
+      {slotsError ? (
+        <div className="mx-auto mt-4 max-w-2xl rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 text-center text-sm text-rose-700">
+          {slotsError}
+        </div>
+      ) : null}
 
       {uiError ? (
         <div className="mx-auto mt-6 max-w-2xl rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 text-center text-sm text-rose-700">
@@ -981,7 +1027,7 @@ function BookingWidget({
           onClick={() => {
             const next = addDays(weekStart, -7);
             setWeekStart(next);
-            setSelectedDay(pickFirstAvailableDay(next));
+            setSelectedDay(next);
             setSelectedTime(null);
             setBooked(null);
             setStep("time");
@@ -998,7 +1044,7 @@ function BookingWidget({
           onClick={() => {
             const next = addDays(weekStart, 7);
             setWeekStart(next);
-            setSelectedDay(pickFirstAvailableDay(next));
+            setSelectedDay(next);
             setSelectedTime(null);
             setBooked(null);
             setStep("time");
@@ -1012,12 +1058,12 @@ function BookingWidget({
       <div className="mt-6 grid grid-cols-7 gap-2">
         {days.map((d) => {
           const isBeforeToday = toLocalYmd(d) < toLocalYmd(now);
-          const seeded = seededHasAvailability(d);
-          const hasFutureSlot = seededTimesForDay(d).some((t) => {
-            const dt = new Date(t);
+          const list = slotsByLocalYmd.get(toLocalYmd(d)) ?? [];
+          const hasFutureSlot = list.some((s) => {
+            const dt = new Date(s.startAt);
             return !Number.isNaN(dt.getTime()) && dt.getTime() >= minBookableAt.getTime();
           });
-          const available = seeded && !isBeforeToday && hasFutureSlot;
+          const available = !isBeforeToday && hasFutureSlot;
           const active = toLocalYmd(d) === toLocalYmd(selectedDay);
           return (
             <button
@@ -1048,6 +1094,9 @@ function BookingWidget({
 
       <div className="mt-8">
         <div className="text-center text-sm font-semibold text-brand-ink">times</div>
+        {slotsLoading ? (
+          <div className="mt-4 text-center text-sm text-zinc-700">Loading availability…</div>
+        ) : null}
         {!selectedIsAvailable ? (
           <div className="mt-4 text-center text-sm text-zinc-700">No availability this day.</div>
         ) : (
