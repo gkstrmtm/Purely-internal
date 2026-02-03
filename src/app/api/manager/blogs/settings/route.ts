@@ -11,6 +11,9 @@ import {
   setWeeklyEnabledSafe,
 } from "@/lib/blogAutomation";
 
+export const dynamic = "force-dynamic";
+export const revalidate = 0;
+
 export async function GET() {
   const auth = await requireManagerSession();
   if (!auth.ok) return NextResponse.json({ error: auth.status === 401 ? "Unauthorized" : "Forbidden" }, { status: auth.status });
@@ -23,7 +26,8 @@ export async function GET() {
     prisma.blogPost.findFirst({ orderBy: { publishedAt: "desc" }, select: { slug: true, publishedAt: true } }),
   ]);
 
-  return NextResponse.json({
+  return NextResponse.json(
+    {
     ok: true,
     buildSha,
     settings,
@@ -31,7 +35,13 @@ export async function GET() {
       totalPosts,
       latest,
     },
-  });
+    },
+    {
+      headers: {
+        "cache-control": "no-store, max-age=0",
+      },
+    },
+  );
 }
 
 const patchSchema = z.object({
