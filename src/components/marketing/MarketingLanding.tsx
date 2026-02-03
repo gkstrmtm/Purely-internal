@@ -1194,7 +1194,7 @@ export function MarketingLanding() {
 
   return (
     <div className="min-h-screen bg-white text-zinc-900" style={{ fontFamily: "Arial, Helvetica, sans-serif" }}>
-      <header className="fixed left-0 right-0 top-0 z-50 bg-brand-blue/35 shadow-md backdrop-blur-md">
+      <header className="fixed left-0 right-0 top-0 z-50 bg-brand-blue/55 shadow-md backdrop-blur-md">
         <div className="mx-auto flex h-14 max-w-6xl items-center justify-between px-6">
           <Link href="/" className="flex items-center gap-3">
             <Image
