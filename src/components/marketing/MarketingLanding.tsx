@@ -1132,7 +1132,6 @@ export function MarketingLanding() {
   const [error, setError] = useState<string | null>(null);
   const [requestId, setRequestId] = useState<string | null>(null);
   const [menuOpen, setMenuOpen] = useState(false);
-  const [scrolled, setScrolled] = useState(false);
   const [prefill, setPrefill] = useState<null | {
     name: string;
     company: string;
@@ -1143,13 +1142,6 @@ export function MarketingLanding() {
 
   const formRef = useRef<HTMLDivElement | null>(null);
   const bookingRef = useRef<HTMLDivElement | null>(null);
-
-  useEffect(() => {
-    const onScroll = () => setScrolled(window.scrollY > 0);
-    onScroll();
-    window.addEventListener("scroll", onScroll, { passive: true });
-    return () => window.removeEventListener("scroll", onScroll);
-  }, []);
 
   function scrollToCalendar() {
     const el = bookingRef.current;
@@ -1202,19 +1194,14 @@ export function MarketingLanding() {
 
   return (
     <div className="min-h-screen bg-white text-zinc-900" style={{ fontFamily: "Arial, Helvetica, sans-serif" }}>
-      <header
-        className={
-          "sticky top-0 z-50 shadow-md transition-colors " +
-          (scrolled ? "bg-brand-blue/28 backdrop-blur-md" : "bg-brand-blue")
-        }
-      >
+      <header className="fixed left-0 right-0 top-0 z-50 bg-brand-blue/35 shadow-md backdrop-blur-md">
         <div className="mx-auto flex h-14 max-w-6xl items-center justify-between px-6">
           <Link href="/" className="flex items-center gap-3">
             <Image
-              src="/brand/playmark-untitled6.svg"
+              src="/brand/Untitled%20design%20(6).png"
               alt="Purely Automation"
-              width={36}
-              height={36}
+              width={40}
+              height={40}
               className="h-9 w-9 object-contain"
               priority
             />
@@ -1281,6 +1268,8 @@ export function MarketingLanding() {
       </header>
 
       <main id="top">
+        {/* spacer bar so header feels solid at top */}
+        <div aria-hidden className="h-14 bg-brand-blue" />
         <section className="relative z-10 bg-white shadow-[0_18px_40px_rgba(0,0,0,0.08)]">
           <div className="mx-auto max-w-6xl px-6 pt-10">
             <div className="py-8">
