@@ -21,6 +21,8 @@ type BlogDraft = {
   seoKeywords?: string[];
 };
 
+type BlogDraftList = { posts: BlogDraft[] };
+
 function tryParseJson(text: string): unknown {
   const trimmed = text.trim();
   const fenced = trimmed.match(/^```(?:json)?\s*([\s\S]*?)\s*```$/i);
@@ -42,6 +44,14 @@ function assertDraft(value: unknown): BlogDraft {
     content: v.content.trim(),
     seoKeywords: Array.isArray(v.seoKeywords) ? v.seoKeywords.filter((k) => typeof k === "string") : undefined,
   };
+}
+
+function assertDraftList(value: unknown): BlogDraftList {
+  if (!value || typeof value !== "object") throw new Error("AI returned invalid JSON");
+  const v = value as Partial<BlogDraftList>;
+  if (!Array.isArray(v.posts)) throw new Error("AI draft missing posts[]");
+  const posts = v.posts.map((p) => assertDraft(p));
+  return { posts };
 }
 
 function pickTopic(date: Date) {
@@ -69,23 +79,40 @@ function parseIntParam(value: string | null, fallback: number) {
   return Number.isFinite(n) ? n : fallback;
 }
 
+function parseFloatParam(value: string | null, fallback: number) {
+  const n = value ? Number.parseFloat(value) : Number.NaN;
+  return Number.isFinite(n) ? n : fallback;
+}
+
+function uniqueNonEmptyStrings(items: unknown): string[] | undefined {
+  if (!Array.isArray(items)) return undefined;
+  const set = new Set<string>();
+  for (const item of items) {
+    if (typeof item !== "string") continue;
+    const trimmed = item.trim();
+    if (!trimmed) continue;
+    set.add(trimmed);
+  }
+  return set.size ? Array.from(set) : undefined;
+}
+
 export async function GET(req: Request) {
   const secret = process.env.BLOG_CRON_SECRET ?? process.env.MARKETING_CRON_SECRET;
-  if (secret) {
-    const url = new URL(req.url);
-    const provided =
-      req.headers.get("x-blog-cron-secret") ??
-      req.headers.get("x-marketing-cron-secret") ??
-      url.searchParams.get("secret");
+  const url = new URL(req.url);
+  const provided =
+    req.headers.get("x-blog-cron-secret") ??
+    req.headers.get("x-marketing-cron-secret") ??
+    url.searchParams.get("secret");
 
-    if (provided !== secret) {
-      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-    }
+  if (secret && provided !== secret) {
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
-  const url = new URL(req.url);
   const count = Math.min(20, Math.max(1, parseIntParam(url.searchParams.get("count"), 12)));
   const daysBetween = Math.min(31, Math.max(3, parseIntParam(url.searchParams.get("daysBetween"), 7)));
+  const offset = Math.min(count, Math.max(0, parseIntParam(url.searchParams.get("offset"), 0)));
+  const maxPerRequest = Math.min(10, Math.max(1, parseIntParam(url.searchParams.get("maxPerRequest"), 6)));
+  const timeBudgetSeconds = Math.min(25, Math.max(6, parseFloatParam(url.searchParams.get("timeBudgetSeconds"), 18)));
 
   // Backdate: newest is today, then every N days into the past.
   const now = new Date();
@@ -96,11 +123,16 @@ export async function GET(req: Request) {
     dates.push(d);
   }
 
+  const targetDates = dates.slice(offset, Math.min(count, offset + maxPerRequest));
+
   const created: Array<{ slug: string; title: string; publishedAt: string }> = [];
   const skipped: Array<{ date: string; reason: string }> = [];
 
-  for (const publishDate of dates) {
-    // Avoid duplicates: skip if a post already exists on the same day.
+  const startedAt = Date.now();
+
+  // Pre-filter out days that already have a post.
+  const pending: Date[] = [];
+  for (const publishDate of targetDates) {
     const dayStart = new Date(Date.UTC(publishDate.getUTCFullYear(), publishDate.getUTCMonth(), publishDate.getUTCDate()));
     const dayEnd = new Date(dayStart);
     dayEnd.setUTCDate(dayEnd.getUTCDate() + 1);
@@ -115,48 +147,98 @@ export async function GET(req: Request) {
       continue;
     }
 
-    const topic = pickTopic(publishDate);
+    pending.push(publishDate);
+  }
 
-    const system = [
-      "You write helpful business blog posts for owners and operators.",
-      "Write in a natural, human tone. Do not mention being an AI.",
-      "Do not use emojis.",
-      "Do not use em dashes. Avoid long, breathless sentences.",
-      "Avoid corporate buzzwords and cliches (for example: leverage, unlock, synergy, game changer, in today's world).",
-      "Use practical examples and simple language.",
-    ].join(" ");
+  if (pending.length === 0) {
+    const nextOffset = offset + targetDates.length;
+    const hasMore = nextOffset < count;
+    const nextUrl = hasMore
+      ? `${url.origin}${url.pathname}?count=${count}&daysBetween=${daysBetween}&offset=${nextOffset}&maxPerRequest=${maxPerRequest}` +
+        (provided ? `&secret=${encodeURIComponent(provided)}` : "")
+      : null;
 
-    const user = [
-      "Create one SEO-friendly blog post for Purely Automation.",
-      "Company positioning: Purely builds systems that automate blogging so businesses do not spend hours writing, editing, and publishing every week.",
-      `Topic: ${topic}`,
-      "Audience: small to mid-size service businesses and operators.",
-      "Requirements:",
-      "- Return ONLY valid JSON. No extra text.",
-      "- JSON keys: title, slug, excerpt, content, seoKeywords.",
-      "- slug must be URL-safe (lowercase, hyphens).",
-      "- excerpt must be 1 to 2 sentences.",
-      "- content must be plain text with headings using '## ' and optional bullet lists with '- '.",
-      "- End the post with a short call to action that tells readers to book a call on purelyautomation.com.",
-      "- No em dashes, no emojis.",
-    ].join("\n");
+    return NextResponse.json({ ok: true, createdCount: 0, skippedCount: skipped.length, created, skipped, nextOffset, hasMore, nextUrl });
+  }
 
-    const raw = await generateText({ system, user, model: process.env.AI_MODEL ?? "gpt-4o-mini" });
+  // Generate multiple posts in one AI call to reduce latency.
+  const plan = pending.map((d) => ({ date: d.toISOString().slice(0, 10), topic: pickTopic(d) }));
 
-    let draft: BlogDraft;
-    try {
-      draft = assertDraft(tryParseJson(raw));
-    } catch (e) {
-      return NextResponse.json(
-        {
-          ok: false,
-          error: "Failed to parse AI blog output",
-          details: e instanceof Error ? e.message : "Unknown error",
-          raw: raw.slice(0, 2000),
-        },
-        { status: 500 },
-      );
+  const system = [
+    "You write helpful business blog posts for owners and operators.",
+    "Write in a natural, human tone. Do not mention being an AI.",
+    "Do not use emojis.",
+    "Do not use em dashes. Avoid long, breathless sentences.",
+    "Avoid corporate buzzwords and cliches (for example: leverage, unlock, synergy, game changer, in today's world).",
+    "Use practical examples and simple language.",
+  ].join(" ");
+
+  const user = [
+    "Create SEO-friendly blog posts for Purely Automation.",
+    "Company positioning: Purely builds systems that automate blogging so businesses do not spend hours writing, editing, and publishing every week.",
+    "Audience: small to mid-size service businesses and operators.",
+    "Return ONLY valid JSON. No extra text.",
+    "JSON shape: { posts: [ { title, slug, excerpt, content, seoKeywords } ] }",
+    "Rules for each post:",
+    "- slug must be URL-safe (lowercase, hyphens).",
+    "- excerpt must be 1 to 2 sentences.",
+    "- content must be plain text with headings using '## ' and optional bullet lists with '- '.",
+    "- End the post with a short call to action that tells readers to book a call on purelyautomation.com.",
+    "- No em dashes, no emojis.",
+    "Create one post for each item below, in the same order:",
+    JSON.stringify(plan),
+  ].join("\n");
+
+  let raw = "";
+  try {
+    raw = await generateText({ system, user, model: process.env.AI_MODEL ?? "gpt-4o-mini" });
+  } catch (e) {
+    return NextResponse.json(
+      {
+        ok: false,
+        error: "AI request failed",
+        details: e instanceof Error ? e.message : "Unknown error",
+      },
+      { status: 500 },
+    );
+  }
+
+  let drafts: BlogDraft[];
+  try {
+    drafts = assertDraftList(tryParseJson(raw)).posts;
+  } catch (e) {
+    return NextResponse.json(
+      {
+        ok: false,
+        error: "Failed to parse AI blog output",
+        details: e instanceof Error ? e.message : "Unknown error",
+        raw: raw.slice(0, 2000),
+      },
+      { status: 500 },
+    );
+  }
+
+  if (drafts.length < pending.length) {
+    return NextResponse.json(
+      {
+        ok: false,
+        error: "AI returned fewer posts than requested",
+        requested: pending.length,
+        received: drafts.length,
+      },
+      { status: 500 },
+    );
+  }
+
+  const limitedDrafts = drafts.slice(0, pending.length);
+
+  for (let i = 0; i < pending.length; i++) {
+    if ((Date.now() - startedAt) / 1000 > timeBudgetSeconds) {
+      break;
     }
+
+    const publishDate = pending[i];
+    const draft = limitedDrafts[i];
 
     const proposedSlug = slugify(draft.slug || draft.title);
     let finalSlug = proposedSlug || `automation-${publishDate.toISOString().slice(0, 10)}`;
@@ -172,7 +254,7 @@ export async function GET(req: Request) {
         title: draft.title,
         excerpt: draft.excerpt,
         content: draft.content,
-        seoKeywords: draft.seoKeywords ?? Prisma.DbNull,
+        seoKeywords: uniqueNonEmptyStrings(draft.seoKeywords) ?? Prisma.DbNull,
         publishedAt: publishDate,
       },
       select: { slug: true, title: true, publishedAt: true },
@@ -185,5 +267,23 @@ export async function GET(req: Request) {
     });
   }
 
-  return NextResponse.json({ ok: true, createdCount: created.length, skippedCount: skipped.length, created, skipped });
+  const nextOffset = offset + targetDates.length;
+  const hasMore = nextOffset < count;
+  const nextUrl = hasMore
+    ? `${url.origin}${url.pathname}?count=${count}&daysBetween=${daysBetween}&offset=${nextOffset}&maxPerRequest=${maxPerRequest}` +
+      (provided ? `&secret=${encodeURIComponent(provided)}` : "")
+    : null;
+
+  return NextResponse.json({
+    ok: true,
+    createdCount: created.length,
+    skippedCount: skipped.length,
+    created,
+    skipped,
+    offset,
+    nextOffset,
+    hasMore,
+    nextUrl,
+    elapsedMs: Date.now() - startedAt,
+  });
 }
