@@ -2,7 +2,7 @@
 
 import Image from "next/image";
 import Link from "next/link";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 
 type DemoRequestPayload = {
   name: string;
@@ -17,12 +17,6 @@ type DemoRequestResponse = {
   leadId: string;
 };
 
-type Slot = {
-  startAt: string;
-  endAt: string;
-  closerCount: number;
-};
-
 function formatLocalDateTime(iso: string) {
   const d = new Date(iso);
   if (Number.isNaN(d.getTime())) return iso;
@@ -35,6 +29,13 @@ function formatLocalDateTime(iso: string) {
   }).format(d);
 }
 
+function formatLocalMonthDay(d: Date) {
+  return new Intl.DateTimeFormat(undefined, {
+    month: "short",
+    day: "numeric",
+  }).format(d);
+}
+
 function toLocalYmd(d: Date) {
   return new Intl.DateTimeFormat("en-CA", {
     year: "numeric",
@@ -43,10 +44,35 @@ function toLocalYmd(d: Date) {
   }).format(d);
 }
 
-function startOfLocalDayIso(ymd: string) {
-  // ymd is YYYY-MM-DD from <input type="date">.
-  const local = new Date(`${ymd}T00:00:00`);
-  return local.toISOString();
+function addDays(d: Date, days: number) {
+  const x = new Date(d);
+  x.setDate(x.getDate() + days);
+  return x;
+}
+
+function startOfWeek(d: Date) {
+  const x = new Date(d);
+  x.setHours(0, 0, 0, 0);
+  const day = x.getDay();
+  const mondayBased = (day + 6) % 7;
+  return addDays(x, -mondayBased);
+}
+
+function seededHasAvailability(d: Date) {
+  // Simple testing rule: every other day is "available".
+  const key = d.getFullYear() * 10000 + (d.getMonth() + 1) * 100 + d.getDate();
+  return key % 2 === 0;
+}
+
+function seededTimesForDay(d: Date) {
+  const base = new Date(d);
+  base.setHours(9, 0, 0, 0);
+  const slots: string[] = [];
+  for (let i = 0; i < 16; i++) {
+    const t = new Date(base.getTime() + i * 30 * 60_000);
+    slots.push(t.toISOString());
+  }
+  return slots;
 }
 
 function AutomationGraphic() {
@@ -54,12 +80,10 @@ function AutomationGraphic() {
     <div className="relative h-full w-full overflow-hidden rounded-3xl bg-transparent">
       <div className="relative mx-auto max-w-md">
         <div className="relative">
-          <div className="font-brand text-3xl text-brand-ink">automation</div>
-
           <div className="mt-6 space-y-6">
             <div className="relative">
               <div className="h-10 w-40 rounded-xl bg-zinc-800/85" />
-              <div className="absolute right-0 top-1 h-10 w-44 rounded-xl bg-brand-blue" />
+              <div className="absolute right-0 top-1 h-10 w-44 rounded-xl bg-zinc-800/85" />
               <svg
                 className="absolute left-40 top-1 h-10 w-20"
                 viewBox="0 0 100 50"
@@ -156,141 +180,125 @@ function AutomationGraphic() {
   );
 }
 
-function BookingWidget({ requestId }: { requestId: string }) {
-  const [ymd, setYmd] = useState(() => toLocalYmd(new Date()));
-  const [loading, setLoading] = useState(false);
-  const [slots, setSlots] = useState<Slot[]>([]);
-  const [error, setError] = useState<string | null>(null);
-  const [booking, setBooking] = useState<string | null>(null);
+function BookingWidget() {
+  const [weekStart, setWeekStart] = useState(() => startOfWeek(new Date()));
+  const [selectedDay, setSelectedDay] = useState<Date>(() => {
+    const today = new Date();
+    const start = startOfWeek(today);
+    for (let i = 0; i < 7; i++) {
+      const d = addDays(start, i);
+      if (seededHasAvailability(d)) return d;
+    }
+    return today;
+  });
   const [booked, setBooked] = useState<null | { startAt: string }>(null);
 
-  const filteredSlots = useMemo(() => {
-    return slots.filter((s) => {
-      const d = new Date(s.startAt);
-      if (Number.isNaN(d.getTime())) return false;
-      return toLocalYmd(d) === ymd;
-    });
-  }, [slots, ymd]);
-
-  const loadSlots = useCallback(async (nextYmd: string) => {
-    setError(null);
-    setLoading(true);
-    setBooked(null);
-
-    try {
-      const startAt = startOfLocalDayIso(nextYmd);
-      const res = await fetch(
-        `/api/public/appointments/suggestions?startAt=${encodeURIComponent(startAt)}&days=2&durationMinutes=30&limit=40`,
-        { cache: "no-store" },
-      );
-      const json = await res.json().catch(() => null);
-      if (!res.ok) throw new Error(json?.error || "Failed to load slots");
-      setSlots((json?.slots as Slot[]) ?? []);
-    } catch (e) {
-      setSlots([]);
-      setError(e instanceof Error ? e.message : "Failed to load slots");
-    } finally {
-      setLoading(false);
+  function pickFirstAvailableDay(start: Date) {
+    for (let i = 0; i < 7; i++) {
+      const d = addDays(start, i);
+      if (seededHasAvailability(d)) return d;
     }
-  }, []);
+    return start;
+  }
 
-  const book = useCallback(
-    async (startAt: string) => {
-    setError(null);
-    setBooking(startAt);
+  const days = useMemo(() => {
+    return Array.from({ length: 7 }, (_, i) => addDays(weekStart, i));
+  }, [weekStart]);
 
-    try {
-      const res = await fetch("/api/public/appointments/book", {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({ requestId, startAt, durationMinutes: 30 }),
-      });
-      const json = await res.json().catch(() => null);
-      if (!res.ok) throw new Error(json?.error || "Booking failed");
-      setBooked({ startAt: json?.appointment?.startAt ?? startAt });
-    } catch (e) {
-      setError(e instanceof Error ? e.message : "Booking failed");
-    } finally {
-      setBooking(null);
-    }
-    },
-    [requestId],
-  );
-
-  useEffect(() => {
-    void loadSlots(ymd);
-  }, [loadSlots, ymd]);
+  const selectedIsAvailable = seededHasAvailability(selectedDay);
+  const times = useMemo(() => {
+    if (!selectedIsAvailable) return [];
+    return seededTimesForDay(selectedDay);
+  }, [selectedDay, selectedIsAvailable]);
 
   return (
-    <section className="rounded-3xl border border-zinc-200 bg-white p-6 shadow-sm">
-      <div className="flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between">
-        <div>
-          <h3 className="text-xl font-semibold text-zinc-900">Book a call</h3>
-          <p className="mt-1 text-sm text-zinc-600">
-            Pick a date and choose an available time.
-          </p>
-        </div>
-
-        <label className="grid gap-2">
-          <span className="text-xs font-semibold text-zinc-600">Date</span>
-          <input
-            type="date"
-            value={ymd}
-            onChange={(e) => {
-              setYmd(e.target.value);
-            }}
-            className="h-11 rounded-2xl border border-zinc-300 bg-white px-4 text-sm text-zinc-900"
-          />
-        </label>
+    <section className="mx-auto max-w-4xl rounded-[28px] bg-[#f7f5ef] p-8 shadow-sm">
+      <div className="text-center font-brand text-3xl text-brand-blue">book a call</div>
+      <div className="mt-2 text-center font-brand text-lg text-brand-ink">
+        choose a day and pick a time
       </div>
 
-      {error ? (
-        <div className="mt-4 rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">
-          {error}
-        </div>
-      ) : null}
-
       {booked ? (
-        <div className="mt-4 rounded-2xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-800">
+        <div className="mx-auto mt-6 max-w-2xl rounded-2xl bg-emerald-50 px-4 py-3 text-center text-sm text-emerald-800">
           Confirmed for {formatLocalDateTime(booked.startAt)}.
         </div>
       ) : null}
 
-      <div className="mt-5">
-        <div className="text-xs font-semibold text-zinc-600">Times</div>
+      <div className="mt-8 flex items-center justify-between">
+        <button
+          type="button"
+          onClick={() => {
+            const next = addDays(weekStart, -7);
+            setWeekStart(next);
+            setSelectedDay(pickFirstAvailableDay(next));
+            setBooked(null);
+          }}
+          className="rounded-xl bg-zinc-800 px-4 py-2 font-brand text-base text-white hover:bg-zinc-900"
+        >
+          prev
+        </button>
+        <div className="font-brand text-lg text-brand-ink">
+          {formatLocalMonthDay(days[0])} to {formatLocalMonthDay(days[6])}
+        </div>
+        <button
+          type="button"
+          onClick={() => {
+            const next = addDays(weekStart, 7);
+            setWeekStart(next);
+            setSelectedDay(pickFirstAvailableDay(next));
+            setBooked(null);
+          }}
+          className="rounded-xl bg-zinc-800 px-4 py-2 font-brand text-base text-white hover:bg-zinc-900"
+        >
+          next
+        </button>
+      </div>
 
-        {loading ? (
-          <div className="mt-3 text-sm text-zinc-600">Loading availability...</div>
-        ) : filteredSlots.length === 0 ? (
-          <div className="mt-3 text-sm text-zinc-600">
-            No times found for this date. Try another day.
-          </div>
+      <div className="mt-6 grid grid-cols-7 gap-2">
+        {days.map((d) => {
+          const available = seededHasAvailability(d);
+          const active = toLocalYmd(d) === toLocalYmd(selectedDay);
+          return (
+            <button
+              key={d.toISOString()}
+              type="button"
+              disabled={!available}
+              onClick={() => {
+                setBooked(null);
+                setSelectedDay(d);
+              }}
+              className={
+                "rounded-xl px-2 py-3 text-center font-brand text-base transition " +
+                (available
+                  ? active
+                    ? "bg-brand-blue text-white"
+                    : "bg-white text-zinc-900 hover:bg-zinc-50"
+                  : "cursor-not-allowed bg-white/50 text-zinc-400")
+              }
+            >
+              <div className="text-sm">{new Intl.DateTimeFormat(undefined, { weekday: "short" }).format(d)}</div>
+              <div className="text-xl">{d.getDate()}</div>
+            </button>
+          );
+        })}
+      </div>
+
+      <div className="mt-8">
+        <div className="text-center font-brand text-xl text-brand-ink">times</div>
+        {!selectedIsAvailable ? (
+          <div className="mt-4 text-center text-sm text-zinc-700">No availability this day.</div>
         ) : (
-          <div className="mt-3 grid grid-cols-1 gap-2 sm:grid-cols-2">
-            {filteredSlots.map((s) => {
-              const isBusy = booking === s.startAt;
-              return (
-                <button
-                  key={s.startAt}
-                  type="button"
-                  disabled={!!booking}
-                  onClick={() => void book(s.startAt)}
-                  className={
-                    "flex items-center justify-between rounded-2xl border px-4 py-3 text-left text-sm transition " +
-                    (isBusy
-                      ? "border-zinc-200 bg-zinc-50 text-zinc-500"
-                      : "border-zinc-200 bg-white hover:bg-zinc-50")
-                  }
-                >
-                  <div className="font-semibold text-zinc-900">
-                    {formatLocalDateTime(s.startAt)}
-                  </div>
-                  <div className="text-xs text-zinc-500">
-                    {s.closerCount} available
-                  </div>
-                </button>
-              );
-            })}
+          <div className="mt-4 grid grid-cols-1 gap-2 sm:grid-cols-2">
+            {times.map((t) => (
+              <button
+                key={t}
+                type="button"
+                onClick={() => setBooked({ startAt: t })}
+                className="rounded-xl bg-white px-4 py-3 text-left font-brand text-lg text-zinc-900 hover:bg-zinc-50"
+              >
+                {formatLocalDateTime(t)}
+              </button>
+            ))}
           </div>
         )}
       </div>
@@ -339,7 +347,7 @@ export function MarketingLanding() {
     <div className="min-h-screen bg-[#f7f5ef] text-zinc-900">
       <main>
         <section className="mx-auto max-w-6xl px-6 pt-10">
-          <div className="rounded-[28px] border-2 border-brand-blue bg-[#f7f5ef] p-8">
+          <div className="rounded-[28px] bg-white p-8 shadow-sm">
             <div className="grid grid-cols-1 gap-10 md:grid-cols-2 md:items-center">
               <div>
                 <Image
@@ -382,17 +390,17 @@ export function MarketingLanding() {
           </div>
         </section>
 
-        <section ref={formRef} className="mx-auto max-w-6xl px-6 py-10">
-          <div className="relative">
+        <div className="mt-10 bg-[#fb7185] py-14">
+          <section ref={formRef} className="mx-auto max-w-6xl px-6">
             <div
               className={
-                "mx-auto max-w-4xl overflow-hidden rounded-[28px] border-2 border-brand-blue bg-[#f7f5ef] transition-all " +
-                (expanded ? "max-h-[900px]" : "max-h-0 border-transparent")
+                "mx-auto max-w-4xl overflow-hidden rounded-[28px] bg-[#f7f5ef] shadow-sm transition-all " +
+                (expanded ? "max-h-[1200px] opacity-100" : "max-h-0 opacity-0")
               }
             >
-              <div className="px-8 pb-8 pt-10">
+              <div className="px-8 pb-10 pt-10">
                 <div className="text-center font-brand text-3xl text-brand-blue">
-                  were going to send you some stuff
+                  we&apos;re going to send you some stuff
                 </div>
                 <div className="mt-2 text-center font-brand text-lg text-brand-ink">let us know:</div>
 
@@ -409,54 +417,26 @@ export function MarketingLanding() {
                   />
 
                   {requestId ? (
-                    <div className="mt-6 rounded-2xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-800">
+                    <div className="mt-6 rounded-2xl bg-emerald-50 px-4 py-3 text-center text-sm text-emerald-800">
                       Thanks. Your request is in.
                     </div>
                   ) : null}
                 </div>
               </div>
             </div>
+          </section>
 
-            {!expanded ? (
-              <div className="flex justify-center">
-                <button
-                  type="button"
-                  onClick={() => {
-                    setExpanded(true);
-                    setTimeout(() => {
-                      formRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
-                    }, 50);
-                  }}
-                  className="rounded-xl border-2 border-zinc-800 bg-brand-pink px-6 py-3 font-brand text-lg text-brand-blue shadow-sm hover:bg-pink-300"
-                >
-                  see it in action
-                </button>
-              </div>
-            ) : null}
-          </div>
-        </section>
-
-        <section id="book" ref={bookingRef} className="mx-auto max-w-6xl px-6 pb-16">
-          {requestId ? (
-            <BookingWidget requestId={requestId} />
-          ) : (
-            <div className="mx-auto max-w-4xl rounded-[28px] border-2 border-brand-blue bg-[#f7f5ef] p-6 text-sm text-zinc-700">
-              Submit the form to unlock booking.
-            </div>
-          )}
-        </section>
+          <section id="book" ref={bookingRef} className="mx-auto mt-12 max-w-6xl px-6">
+            <BookingWidget />
+          </section>
+        </div>
 
         <footer className="pb-10">
           <div className="mx-auto flex max-w-6xl flex-col gap-2 px-6 text-sm text-zinc-600 sm:flex-row sm:items-center sm:justify-between">
             <div>Purely Automation</div>
-            <div className="flex gap-4">
-              <Link className="hover:text-zinc-900" href="/dashboard">
-                Dashboard
-              </Link>
-              <Link className="hover:text-zinc-900" href="/login">
-                Login
-              </Link>
-            </div>
+            <Link className="hover:text-zinc-900" href="/login">
+              employee? log in here
+            </Link>
           </div>
         </footer>
       </main>
