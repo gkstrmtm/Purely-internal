@@ -3,6 +3,37 @@ import { z } from "zod";
 
 import { prisma } from "@/lib/db";
 
+async function sendInternalEmail(subject: string, body: string) {
+  const apiKey = process.env.SENDGRID_API_KEY;
+  const fromEmail = process.env.SENDGRID_FROM_EMAIL;
+  if (!apiKey || !fromEmail) return;
+
+  await fetch("https://api.sendgrid.com/v3/mail/send", {
+    method: "POST",
+    headers: {
+      authorization: `Bearer ${apiKey}`,
+      "content-type": "application/json",
+    },
+    body: JSON.stringify({
+      personalizations: [{ to: [{ email: "purestayservice@gmail.com" }] }],
+      from: { email: fromEmail, name: "Purely Automation" },
+      subject,
+      content: [{ type: "text/plain", value: body }],
+    }),
+  }).catch(() => null);
+}
+
+function formatInTimeZone(date: Date, timeZone: string) {
+  return new Intl.DateTimeFormat(undefined, {
+    timeZone,
+    weekday: "short",
+    month: "short",
+    day: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+  }).format(date);
+}
+
 const bodySchema = z.object({
   requestId: z.string().min(1),
   startAt: z.string().min(1),
@@ -156,6 +187,38 @@ export async function POST(req: Request) {
       setter: { select: { name: true, email: true } },
     },
   });
+
+  // Best-effort internal notification.
+  try {
+    const marketing = await prisma.marketingDemoRequest.findUnique({
+      where: { id: parsed.data.requestId },
+      select: { name: true, company: true, email: true, phone: true },
+    });
+
+    const subject = `New booking: ${formatInTimeZone(startAt, "America/New_York")} ET`;
+    const body = [
+      "A call was just booked.",
+      "",
+      `When (ET): ${formatInTimeZone(startAt, "America/New_York")}`,
+      `When (ISO): ${startAt.toISOString()}`,
+      `Duration: ${parsed.data.durationMinutes} minutes`,
+      "",
+      marketing
+        ? `Name: ${marketing.name}\nCompany: ${marketing.company}\nEmail: ${marketing.email}\nPhone: ${marketing.phone ?? ""}`
+        : "Marketing request: (not found)",
+      "",
+      `Closer: ${appointment.closer?.name ?? ""} (${appointment.closer?.email ?? ""})`,
+      `Setter: ${appointment.setter?.name ?? ""} (${appointment.setter?.email ?? ""})`,
+      "",
+      `LeadId: ${appointment.leadId}`,
+      `RequestId: ${parsed.data.requestId}`,
+      `AppointmentId: ${appointment.id}`,
+    ].join("\n");
+
+    await sendInternalEmail(subject, body);
+  } catch {
+    // Swallow internal-email failures.
+  }
 
   return NextResponse.json({ appointment });
 }

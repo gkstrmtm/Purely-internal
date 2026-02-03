@@ -2,7 +2,9 @@
 
 import Image from "next/image";
 import Link from "next/link";
-import { useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
+
+const OPERATING_TIME_ZONE = "America/New_York";
 
 type DemoRequestPayload = {
   name: string;
@@ -447,14 +449,64 @@ function seededHasAvailability(d: Date) {
 }
 
 function seededTimesForDay(d: Date) {
-  const base = new Date(d);
-  base.setHours(9, 0, 0, 0);
+  const ymd = toLocalYmd(d);
+  const [y, m, day] = ymd.split("-").map((x) => Number(x));
+  const base = zonedTimeToUtc({ year: y, month: m, day, hour: 9, minute: 0 }, OPERATING_TIME_ZONE);
   const slots: string[] = [];
   for (let i = 0; i < 16; i++) {
     const t = new Date(base.getTime() + i * 30 * 60_000);
     slots.push(t.toISOString());
   }
   return slots;
+}
+
+function getTimeZoneLabel() {
+  try {
+    return Intl.DateTimeFormat().resolvedOptions().timeZone;
+  } catch {
+    return "your local time";
+  }
+}
+
+function formatPartsInTimeZone(d: Date, timeZone: string) {
+  const parts = new Intl.DateTimeFormat("en-US", {
+    timeZone,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+    hour12: false,
+  }).formatToParts(d);
+
+  const map = new Map(parts.map((p) => [p.type, p.value] as const));
+  return {
+    year: Number(map.get("year")),
+    month: Number(map.get("month")),
+    day: Number(map.get("day")),
+    hour: Number(map.get("hour")),
+    minute: Number(map.get("minute")),
+    second: Number(map.get("second")),
+  };
+}
+
+function zonedTimeToUtc(
+  input: { year: number; month: number; day: number; hour: number; minute: number },
+  timeZone: string,
+) {
+  // Two-pass conversion for DST correctness.
+  const desiredUtcAsIf = Date.UTC(input.year, input.month - 1, input.day, input.hour, input.minute, 0);
+
+  let guess = new Date(desiredUtcAsIf);
+  for (let i = 0; i < 2; i++) {
+    const p = formatPartsInTimeZone(guess, timeZone);
+    const guessUtcAsIf = Date.UTC(p.year, p.month - 1, p.day, p.hour, p.minute, p.second);
+    const diff = desiredUtcAsIf - guessUtcAsIf;
+    guess = new Date(guess.getTime() + diff);
+  }
+
+  return guess;
 }
 
 function AutomationGraphic() {
@@ -565,11 +617,28 @@ function AutomationGraphic() {
 function BookingWidget({
   initialRequestId,
   onRequestId,
+  prefill,
 }: {
   initialRequestId: string | null;
   onRequestId?: (id: string) => void;
+  prefill?: Partial<{ name: string; company: string; email: string; phone: string; goals: string }> | null;
 }) {
   const [weekStart, setWeekStart] = useState(() => startOfWeek(new Date()));
+  const [now, setNow] = useState(() => new Date());
+  const minBookableAt = useMemo(() => new Date(now.getTime() + 30 * 60_000), [now]);
+
+  const dayIsSelectable = useMemo(() => {
+    return (d: Date) => {
+      const isBeforeToday = toLocalYmd(d) < toLocalYmd(now);
+      if (isBeforeToday) return false;
+      if (!seededHasAvailability(d)) return false;
+      return seededTimesForDay(d).some((t) => {
+        const dt = new Date(t);
+        return !Number.isNaN(dt.getTime()) && dt.getTime() >= minBookableAt.getTime();
+      });
+    };
+  }, [now, minBookableAt]);
+
   const [selectedDay, setSelectedDay] = useState<Date>(() => {
     const today = new Date();
     const start = startOfWeek(today);
@@ -595,10 +664,38 @@ function BookingWidget({
   const [phoneE164, setPhoneE164] = useState<string | null>(null);
   const [goals, setGoals] = useState("");
 
+  useEffect(() => {
+    const id = setInterval(() => setNow(new Date()), 30_000);
+    return () => clearInterval(id);
+  }, []);
+
+  useEffect(() => {
+    // If the currently-selected day becomes invalid (time passed), move forward.
+    if (dayIsSelectable(selectedDay)) return;
+    for (let i = 0; i < 14; i++) {
+      const d = addDays(startOfWeek(now), i);
+      if (dayIsSelectable(d)) {
+        setSelectedDay(d);
+        setWeekStart(startOfWeek(d));
+        break;
+      }
+    }
+  }, [now, dayIsSelectable, selectedDay]);
+
+  useEffect(() => {
+    if (step !== "details") return;
+
+    if (!name.trim() && prefill?.name) setName(prefill.name);
+    if (!company.trim() && prefill?.company) setCompany(prefill.company);
+    if (!email.trim() && prefill?.email) setEmail(prefill.email);
+    if (!phone.trim() && prefill?.phone) setPhone(prefill.phone);
+    if (!goals.trim() && prefill?.goals) setGoals(prefill.goals);
+  }, [step, prefill, name, company, email, phone, goals]);
+
   function pickFirstAvailableDay(start: Date) {
     for (let i = 0; i < 7; i++) {
       const d = addDays(start, i);
-      if (seededHasAvailability(d)) return d;
+      if (dayIsSelectable(d)) return d;
     }
     return start;
   }
@@ -612,6 +709,8 @@ function BookingWidget({
     if (!selectedIsAvailable) return [];
     return seededTimesForDay(selectedDay);
   }, [selectedDay, selectedIsAvailable]);
+
+  const userTimeZone = useMemo(() => getTimeZoneLabel(), []);
 
   async function createDemoRequestIfNeeded() {
     if (effectiveRequestId) return effectiveRequestId;
@@ -681,19 +780,7 @@ function BookingWidget({
       return;
     }
 
-    if (!effectiveRequestId) {
-      setStep("details");
-      return;
-    }
-
-    setBusy(true);
-    try {
-      await bookSelectedTime(effectiveRequestId);
-    } catch (e) {
-      setUiError(e instanceof Error ? e.message : "We could not book that time. Please try again.");
-    } finally {
-      setBusy(false);
-    }
+    setStep("details");
   }
 
   async function handleSubmitDetails(e: React.FormEvent<HTMLFormElement>) {
@@ -713,7 +800,7 @@ function BookingWidget({
 
     setBusy(true);
     try {
-      const id = await createDemoRequestIfNeeded();
+      const id = effectiveRequestId ?? (await createDemoRequestIfNeeded());
       await bookSelectedTime(id);
     } catch (e) {
       setUiError(e instanceof Error ? e.message : "Please check your details and try again.");
@@ -722,11 +809,31 @@ function BookingWidget({
     }
   }
 
+  const timeItems = useMemo(() => {
+    return times.map((t) => {
+      const dt = new Date(t);
+      const disabled = Number.isNaN(dt.getTime()) || dt.getTime() < minBookableAt.getTime();
+      return { t, disabled };
+    });
+  }, [times, minBookableAt]);
+
+  useEffect(() => {
+    if (!selectedTime) return;
+    const dt = new Date(selectedTime);
+    if (!Number.isNaN(dt.getTime()) && dt.getTime() < minBookableAt.getTime()) {
+      setSelectedTime(null);
+    }
+  }, [selectedTime, minBookableAt]);
+
   return (
     <section className="mx-auto max-w-4xl rounded-[28px] bg-[#f7f5ef] p-8 shadow-sm">
       <div className="text-center font-brand text-3xl text-brand-blue">book a call</div>
       <div className="mt-2 text-center text-base text-brand-ink">
         choose a day and pick a time
+      </div>
+
+      <div className="mt-2 text-center text-xs text-zinc-600">
+        Times are shown in your local time ({userTimeZone}). Our team operates in Eastern Time.
       </div>
 
       {uiError ? (
@@ -746,6 +853,7 @@ function BookingWidget({
                 setBooked(null);
                 setSelectedTime(null);
                 setUiError(null);
+                setBusy(false);
                 setStep("time");
               }}
               className="h-10 rounded-xl bg-zinc-800 px-5 text-sm font-semibold text-white hover:bg-zinc-900"
@@ -892,7 +1000,7 @@ function BookingWidget({
         </div>
       ) : null}
 
-      {step !== "confirm" ? (
+      {step === "time" ? (
         <>
       <div className="mt-8 flex items-center justify-between">
         <button
@@ -907,7 +1015,7 @@ function BookingWidget({
           }}
           className="rounded-xl bg-zinc-800 px-4 py-2 text-sm font-semibold text-white hover:bg-zinc-900"
         >
-          prev
+          last week
         </button>
         <div className="text-sm font-semibold text-brand-ink">
           {formatLocalMonthDay(days[0])} to {formatLocalMonthDay(days[6])}
@@ -924,13 +1032,19 @@ function BookingWidget({
           }}
           className="rounded-xl bg-zinc-800 px-4 py-2 text-sm font-semibold text-white hover:bg-zinc-900"
         >
-          next
+          next week
         </button>
       </div>
 
       <div className="mt-6 grid grid-cols-7 gap-2">
         {days.map((d) => {
-          const available = seededHasAvailability(d);
+          const isBeforeToday = toLocalYmd(d) < toLocalYmd(now);
+          const seeded = seededHasAvailability(d);
+          const hasFutureSlot = seededTimesForDay(d).some((t) => {
+            const dt = new Date(t);
+            return !Number.isNaN(dt.getTime()) && dt.getTime() >= minBookableAt.getTime();
+          });
+          const available = seeded && !isBeforeToday && hasFutureSlot;
           const active = toLocalYmd(d) === toLocalYmd(selectedDay);
           return (
             <button
@@ -964,18 +1078,24 @@ function BookingWidget({
         {!selectedIsAvailable ? (
           <div className="mt-4 text-center text-sm text-zinc-700">No availability this day.</div>
         ) : (
-          <div className="mt-4 grid grid-cols-1 gap-2 sm:grid-cols-2">
-            {times.map((t) => (
+          <div className="mt-4 grid grid-cols-1 gap-2 sm:grid-cols-2 md:grid-cols-3">
+            {timeItems.map(({ t, disabled }) => (
               <button
                 key={t}
                 type="button"
+                disabled={disabled}
                 onClick={() => {
+                  if (disabled) return;
                   setSelectedTime(t);
                   setUiError(null);
                 }}
                 className={
                   "rounded-xl px-4 py-3 text-left text-sm font-semibold transition " +
-                  (selectedTime === t ? "bg-brand-blue text-white" : "bg-white text-zinc-900 hover:bg-zinc-50")
+                  (disabled
+                    ? "cursor-not-allowed bg-white/50 text-zinc-400"
+                    : selectedTime === t
+                      ? "bg-brand-blue text-white"
+                      : "bg-white text-zinc-900 hover:bg-zinc-50")
                 }
               >
                 {formatLocalDateTime(t)}
@@ -995,7 +1115,7 @@ function BookingWidget({
                 (!selectedTime || busy ? "cursor-not-allowed bg-zinc-300" : "bg-brand-blue hover:bg-blue-700")
               }
             >
-              {effectiveRequestId ? (busy ? "booking..." : "book") : "next"}
+              next
             </button>
           </div>
         ) : null}
@@ -1011,6 +1131,13 @@ export function MarketingLanding() {
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [requestId, setRequestId] = useState<string | null>(null);
+  const [prefill, setPrefill] = useState<null | {
+    name: string;
+    company: string;
+    email: string;
+    phone: string;
+    goals?: string;
+  }>(null);
 
   const formRef = useRef<HTMLDivElement | null>(null);
   const bookingRef = useRef<HTMLDivElement | null>(null);
@@ -1038,6 +1165,13 @@ export function MarketingLanding() {
 
       const id = (json as DemoRequestResponse).requestId;
       setRequestId(id);
+      setPrefill({
+        name: payload.name,
+        company: payload.company,
+        email: payload.email,
+        phone: payload.phone,
+        goals: payload.goals,
+      });
       setExpanded(false);
 
       // Wait for the form collapse transition/layout to settle, then scroll precisely.
@@ -1149,7 +1283,11 @@ export function MarketingLanding() {
           <WhyChoosePurely />
 
           <section id="book" ref={bookingRef} className="mx-auto mt-12 max-w-6xl px-6 scroll-mt-4">
-            <BookingWidget initialRequestId={requestId} onRequestId={(id) => setRequestId(id)} />
+            <BookingWidget
+              initialRequestId={requestId}
+              onRequestId={(id) => setRequestId(id)}
+              prefill={prefill}
+            />
           </section>
 
           <WhatToExpect />

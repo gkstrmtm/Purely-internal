@@ -3,6 +3,26 @@ import { z } from "zod";
 
 import { prisma } from "@/lib/db";
 
+async function sendInternalEmail(subject: string, body: string) {
+  const apiKey = process.env.SENDGRID_API_KEY;
+  const fromEmail = process.env.SENDGRID_FROM_EMAIL;
+  if (!apiKey || !fromEmail) return;
+
+  await fetch("https://api.sendgrid.com/v3/mail/send", {
+    method: "POST",
+    headers: {
+      authorization: `Bearer ${apiKey}`,
+      "content-type": "application/json",
+    },
+    body: JSON.stringify({
+      personalizations: [{ to: [{ email: "purestayservice@gmail.com" }] }],
+      from: { email: fromEmail, name: "Purely Automation" },
+      subject,
+      content: [{ type: "text/plain", value: body }],
+    }),
+  }).catch(() => null);
+}
+
 const bodySchema = z.object({
   name: z.string().trim().min(1).max(120),
   company: z.string().trim().min(1).max(160),
@@ -116,6 +136,30 @@ export async function POST(req: Request) {
   }
 
   await prisma.marketingMessage.createMany({ data: messages });
+
+  // Best-effort internal notification.
+  try {
+    const subject = "New demo request";
+    const body = [
+      "A new demo request was submitted.",
+      "",
+      `Name: ${name}`,
+      `Company: ${company}`,
+      `Email: ${email}`,
+      `Phone: ${normalizedPhone}`,
+      goals?.trim() ? `Goals: ${goals.trim()}` : null,
+      `Opted in: ${optedIn ? "yes" : "no"}`,
+      "",
+      `LeadId: ${lead.id}`,
+      `RequestId: ${request.id}`,
+    ]
+      .filter(Boolean)
+      .join("\n");
+
+    await sendInternalEmail(subject, body);
+  } catch {
+    // Swallow internal-email failures.
+  }
 
   return NextResponse.json({ requestId: request.id, leadId: lead.id });
 }
