@@ -357,6 +357,21 @@ export async function runBackfillBatch(params: BackfillParams) {
 
   const startedAt = Date.now();
 
+  if (targetDates.length === 0) {
+    return {
+      ok: true as const,
+      message: offset >= count ? "Nothing to do: offset is at the end of this range." : "Nothing to do: no target dates selected.",
+      createdCount: 0,
+      skippedCount: 0,
+      created,
+      skipped,
+      offset,
+      nextOffset: offset,
+      hasMore: false,
+      elapsedMs: Date.now() - startedAt,
+    };
+  }
+
   const pending: Date[] = [];
   for (const publishDate of targetDates) {
     const { dayStart, dayEnd } = dayRangeUtc(publishDate);

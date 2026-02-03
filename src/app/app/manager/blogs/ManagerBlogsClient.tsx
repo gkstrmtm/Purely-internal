@@ -95,6 +95,8 @@ export default function ManagerBlogsClient() {
       .filter(Boolean);
   }, [datesText]);
 
+  const backfillAtEnd = backfillOffset >= backfillCount;
+
   async function refresh() {
     setError(null);
     const data = await jsonFetch<SettingsResponse>("/api/manager/blogs/settings", { method: "GET" });
@@ -156,6 +158,12 @@ export default function ManagerBlogsClient() {
   async function runBackfill() {
     setError(null);
     setLastResult(null);
+
+    if (backfillAtEnd) {
+      setError("Backfill offset is at the end of the range. Set offset to 0 (or increase count) and run again.");
+      return;
+    }
+
     const data = await jsonFetch<BackfillResponse>("/api/manager/blogs/backfill", {
       method: "POST",
       body: JSON.stringify({
@@ -342,12 +350,20 @@ export default function ManagerBlogsClient() {
 
         <div className="mt-4 flex flex-wrap gap-2">
           <button
-            className="rounded-2xl bg-[color:var(--color-brand-blue)] px-4 py-2 text-sm font-bold text-white hover:bg-blue-700"
+            className={
+              backfillAtEnd
+                ? "rounded-2xl bg-zinc-300 px-4 py-2 text-sm font-bold text-white"
+                : "rounded-2xl bg-[color:var(--color-brand-blue)] px-4 py-2 text-sm font-bold text-white hover:bg-blue-700"
+            }
             onClick={() => runBackfill().catch((e) => setError(e instanceof Error ? e.message : "Backfill failed"))}
+            disabled={backfillAtEnd}
           >
             Run backfill batch
           </button>
-          <div className="text-xs text-zinc-600">Tip: after each run, offset auto-advances to nextOffset.</div>
+          <div className="text-xs text-zinc-600">
+            Tip: after each run, offset auto-advances to nextOffset.
+            {backfillAtEnd ? " (Offset is at end — set offset to 0 to run again.)" : ""}
+          </div>
         </div>
       </div>
 
