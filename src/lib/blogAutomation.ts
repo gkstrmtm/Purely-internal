@@ -107,6 +107,31 @@ function uniqueNonEmptyStrings(items: unknown): string[] | undefined {
   return set.size ? Array.from(set) : undefined;
 }
 
+function isMissingTableError(err: unknown, tableName: string) {
+  const rec = (err && typeof err === "object" ? (err as Record<string, unknown>) : null) ?? null;
+  const code = typeof rec?.code === "string" ? rec.code : undefined;
+  const message = typeof rec?.message === "string" ? rec.message : "";
+  return code === "P2021" || message.toLowerCase().includes(`table \`${tableName.toLowerCase()}\``);
+}
+
+export async function ensureBlogAutomationSettingsTableSafe() {
+  try {
+    await prisma.$executeRawUnsafe(`
+      CREATE TABLE IF NOT EXISTS "BlogAutomationSettings" (
+        "id" TEXT PRIMARY KEY DEFAULT 'singleton',
+        "weeklyEnabled" BOOLEAN NOT NULL DEFAULT true,
+        "topicQueue" JSONB,
+        "topicQueueCursor" INTEGER NOT NULL DEFAULT 0,
+        "lastWeeklyRunAt" TIMESTAMPTZ,
+        "createdAt" TIMESTAMPTZ NOT NULL DEFAULT now(),
+        "updatedAt" TIMESTAMPTZ NOT NULL DEFAULT now()
+      );
+    `);
+  } catch {
+    // ignore
+  }
+}
+
 export async function getBlogAutomationSettingsSafe() {
   try {
     const row = await prisma.blogAutomationSettings.upsert({
@@ -131,8 +156,37 @@ export async function getBlogAutomationSettingsSafe() {
       publishHourUtc: parsed.publishHourUtc,
       publishMinuteUtc: parsed.publishMinuteUtc,
     };
-  } catch {
-    // Table may not exist yet (prod before SQL is run). Treat as defaults.
+  } catch (e) {
+    if (isMissingTableError(e, "BlogAutomationSettings")) {
+      await ensureBlogAutomationSettingsTableSafe();
+      try {
+        const row = await prisma.blogAutomationSettings.upsert({
+          where: { id: "singleton" },
+          create: { id: "singleton" },
+          update: {},
+          select: {
+            id: true,
+            weeklyEnabled: true,
+            topicQueue: true,
+            topicQueueCursor: true,
+            lastWeeklyRunAt: true,
+            updatedAt: true,
+          },
+        });
+
+        const parsed = parseTopicQueuePayload(row.topicQueue);
+        return {
+          ...row,
+          topicQueue: parsed.topics,
+          frequencyDays: parsed.frequencyDays,
+          publishHourUtc: parsed.publishHourUtc,
+          publishMinuteUtc: parsed.publishMinuteUtc,
+        };
+      } catch {
+        // fall through to defaults
+      }
+    }
+
     return {
       id: "singleton",
       weeklyEnabled: true,

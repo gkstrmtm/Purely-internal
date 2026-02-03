@@ -3,7 +3,7 @@ import { z } from "zod";
 
 import { prisma } from "@/lib/db";
 import { requireManagerSession } from "@/lib/apiAuth";
-import { getBlogAutomationSettingsSafe } from "@/lib/blogAutomation";
+import { ensureBlogAutomationSettingsTableSafe, getBlogAutomationSettingsSafe } from "@/lib/blogAutomation";
 import { stripDoubleAsterisks } from "@/lib/blog";
 
 export const dynamic = "force-dynamic";
@@ -83,20 +83,44 @@ export async function PATCH(req: Request) {
 
     const resetCursor = parsed.data.topicQueue !== undefined;
 
-    await prisma.blogAutomationSettings.upsert({
-      where: { id: "singleton" },
-      create: {
-        id: "singleton",
-        weeklyEnabled: nextWeeklyEnabled,
-        topicQueue: topicQueuePayload,
-        topicQueueCursor: 0,
-      },
-      update: {
-        weeklyEnabled: nextWeeklyEnabled,
-        topicQueue: topicQueuePayload,
-        ...(resetCursor ? { topicQueueCursor: 0 } : {}),
-      },
-    });
+    try {
+      await prisma.blogAutomationSettings.upsert({
+        where: { id: "singleton" },
+        create: {
+          id: "singleton",
+          weeklyEnabled: nextWeeklyEnabled,
+          topicQueue: topicQueuePayload,
+          topicQueueCursor: 0,
+        },
+        update: {
+          weeklyEnabled: nextWeeklyEnabled,
+          topicQueue: topicQueuePayload,
+          ...(resetCursor ? { topicQueueCursor: 0 } : {}),
+        },
+      });
+    } catch (e) {
+      const rec = (e && typeof e === "object" ? (e as Record<string, unknown>) : null) ?? null;
+      const code = typeof rec?.code === "string" ? rec.code : undefined;
+      const message = typeof rec?.message === "string" ? rec.message : "";
+      const isMissing = code === "P2021" || message.toLowerCase().includes("blogautomationsettings");
+      if (!isMissing) throw e;
+
+      await ensureBlogAutomationSettingsTableSafe();
+      await prisma.blogAutomationSettings.upsert({
+        where: { id: "singleton" },
+        create: {
+          id: "singleton",
+          weeklyEnabled: nextWeeklyEnabled,
+          topicQueue: topicQueuePayload,
+          topicQueueCursor: 0,
+        },
+        update: {
+          weeklyEnabled: nextWeeklyEnabled,
+          topicQueue: topicQueuePayload,
+          ...(resetCursor ? { topicQueueCursor: 0 } : {}),
+        },
+      });
+    }
 
     const settings = await getBlogAutomationSettingsSafe();
     return NextResponse.json({ ok: true, settings });
