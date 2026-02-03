@@ -23,6 +23,8 @@ type BackfillResponse = {
   ok?: boolean;
   error?: string;
   details?: string;
+  message?: string;
+  anchor?: "NOW" | "OLDEST_POST";
   createdCount?: number;
   skippedCount?: number;
   nextOffset?: number;
@@ -57,9 +59,43 @@ async function jsonFetch<T>(url: string, init?: RequestInit): Promise<T> {
   return data;
 }
 
+function Spinner({ className }: { className?: string }) {
+  return (
+    <svg
+      className={className ?? "h-4 w-4 animate-spin"}
+      viewBox="0 0 24 24"
+      fill="none"
+      xmlns="http://www.w3.org/2000/svg"
+      aria-hidden="true"
+    >
+      <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+      <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 0 1 8-8v4a4 4 0 0 0-4 4H4z" />
+    </svg>
+  );
+}
+
+function InfoTip({ text }: { text: string }) {
+  return (
+    <span
+      className="ml-2 inline-flex h-5 w-5 cursor-help items-center justify-center rounded-full border border-zinc-200 bg-white text-xs font-bold text-zinc-600"
+      title={text}
+      aria-label={text}
+    >
+      i
+    </span>
+  );
+}
+
 export default function ManagerBlogsClient() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+
+  const [savingSettings, setSavingSettings] = useState(false);
+  const [runningWeekly, setRunningWeekly] = useState(false);
+  const [savingQueue, setSavingQueue] = useState(false);
+  const [suggestingTopics, setSuggestingTopics] = useState(false);
+  const [runningBackfill, setRunningBackfill] = useState(false);
+  const [runningDates, setRunningDates] = useState(false);
 
   const [weeklyEnabled, setWeeklyEnabled] = useState(true);
   const [topicQueueText, setTopicQueueText] = useState("");
@@ -134,26 +170,55 @@ export default function ManagerBlogsClient() {
   async function saveSettings() {
     setError(null);
     setLastResult(null);
-    const data = await jsonFetch<SettingsResponse>("/api/manager/blogs/settings", {
-      method: "PATCH",
-      body: JSON.stringify({
-        weeklyEnabled,
-        topicQueue: parsedTopicQueue,
-      }),
-    });
-    setLastResult(data);
-    await refresh();
+    setSavingSettings(true);
+    try {
+      const data = await jsonFetch<SettingsResponse>("/api/manager/blogs/settings", {
+        method: "PATCH",
+        body: JSON.stringify({
+          weeklyEnabled,
+          topicQueue: parsedTopicQueue,
+        }),
+      });
+      setLastResult(data);
+      await refresh();
+    } finally {
+      setSavingSettings(false);
+    }
+  }
+
+  async function saveQueueOnly() {
+    setError(null);
+    setLastResult(null);
+    setSavingQueue(true);
+    try {
+      const data = await jsonFetch<SettingsResponse>("/api/manager/blogs/settings", {
+        method: "PATCH",
+        body: JSON.stringify({
+          weeklyEnabled,
+          topicQueue: parsedTopicQueue,
+        }),
+      });
+      setLastResult(data);
+      await refresh();
+    } finally {
+      setSavingQueue(false);
+    }
   }
 
   async function runWeekly() {
     setError(null);
     setLastResult(null);
-    const data = await jsonFetch<unknown>("/api/manager/blogs/run-weekly", {
-      method: "POST",
-      body: JSON.stringify({ force: forceWeekly }),
-    });
-    setLastResult(data);
-    await refresh();
+    setRunningWeekly(true);
+    try {
+      const data = await jsonFetch<unknown>("/api/manager/blogs/run-weekly", {
+        method: "POST",
+        body: JSON.stringify({ force: forceWeekly }),
+      });
+      setLastResult(data);
+      await refresh();
+    } finally {
+      setRunningWeekly(false);
+    }
   }
 
   async function runBackfill() {
@@ -165,43 +230,58 @@ export default function ManagerBlogsClient() {
       return;
     }
 
-    const data = await jsonFetch<BackfillResponse>("/api/manager/blogs/backfill", {
-      method: "POST",
-      body: JSON.stringify({
-        count: backfillCount,
-        daysBetween: backfillDaysBetween,
-        offset: backfillOffset,
-        maxPerRequest: backfillMaxPerRequest,
-        timeBudgetSeconds: backfillTimeBudget,
-        anchor: backfillAnchor,
-      }),
-    });
-    setLastResult(data);
-    if (typeof data?.nextOffset === "number") setBackfillOffset(data.nextOffset);
-    await refresh();
+    setRunningBackfill(true);
+    try {
+      const data = await jsonFetch<BackfillResponse>("/api/manager/blogs/backfill", {
+        method: "POST",
+        body: JSON.stringify({
+          count: backfillCount,
+          daysBetween: backfillDaysBetween,
+          offset: backfillOffset,
+          maxPerRequest: backfillMaxPerRequest,
+          timeBudgetSeconds: backfillTimeBudget,
+          anchor: backfillAnchor,
+        }),
+      });
+      setLastResult(data);
+      if (typeof data?.nextOffset === "number") setBackfillOffset(data.nextOffset);
+      await refresh();
+    } finally {
+      setRunningBackfill(false);
+    }
   }
 
   async function runDates() {
     setError(null);
     setLastResult(null);
-    const data = await jsonFetch<unknown>("/api/manager/blogs/dates", {
-      method: "POST",
-      body: JSON.stringify({ dates: parsedDates }),
-    });
-    setLastResult(data);
-    await refresh();
+    setRunningDates(true);
+    try {
+      const data = await jsonFetch<unknown>("/api/manager/blogs/dates", {
+        method: "POST",
+        body: JSON.stringify({ dates: parsedDates }),
+      });
+      setLastResult(data);
+      await refresh();
+    } finally {
+      setRunningDates(false);
+    }
   }
 
   async function runSuggestTopics() {
     setError(null);
     setLastResult(null);
-    const data = await jsonFetch<SuggestTopicsResponse>("/api/manager/blogs/suggest-topics", {
-      method: "POST",
-      body: JSON.stringify({ count: topicSuggestCount, seed: topicSeed, storeAsQueue: true }),
-    });
-    setLastResult(data);
-    if (Array.isArray(data?.topics)) setTopicQueueText(data.topics.join("\n"));
-    await refresh();
+    setSuggestingTopics(true);
+    try {
+      const data = await jsonFetch<SuggestTopicsResponse>("/api/manager/blogs/suggest-topics", {
+        method: "POST",
+        body: JSON.stringify({ count: topicSuggestCount, seed: topicSeed, storeAsQueue: true }),
+      });
+      setLastResult(data);
+      if (Array.isArray(data?.topics)) setTopicQueueText(data.topics.join("\n"));
+      await refresh();
+    } finally {
+      setSuggestingTopics(false);
+    }
   }
 
   if (loading) {
@@ -234,7 +314,10 @@ export default function ManagerBlogsClient() {
 
       <div className="grid gap-6 lg:grid-cols-2">
         <div className="rounded-2xl border border-zinc-200 p-5">
-          <div className="text-sm font-semibold text-brand-ink">Weekly automation</div>
+          <div className="text-sm font-semibold text-brand-ink">
+            Weekly automation
+            <InfoTip text="Controls the weekly scheduled generation. Save settings updates the enabled flag and topic queue. Run weekly now runs immediately. Force ignores disabled/already-published checks." />
+          </div>
           <p className="mt-1 text-xs text-zinc-600">
             Controls the weekly Vercel cron behavior. When disabled, cron will skip without generating a post.
           </p>
@@ -253,8 +336,12 @@ export default function ManagerBlogsClient() {
             <button
               className="rounded-2xl bg-[color:var(--color-brand-blue)] px-4 py-2 text-sm font-bold text-white hover:bg-blue-700"
               onClick={() => saveSettings().catch((e) => setError(e instanceof Error ? e.message : "Save failed"))}
+              disabled={savingSettings}
             >
-              Save settings
+              <span className="inline-flex items-center gap-2">
+                {savingSettings ? <Spinner /> : null}
+                {savingSettings ? "Saving…" : "Save settings"}
+              </span>
             </button>
 
             <label className="flex items-center gap-2 text-sm text-zinc-700">
@@ -265,14 +352,21 @@ export default function ManagerBlogsClient() {
             <button
               className="rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm font-semibold hover:bg-zinc-50"
               onClick={() => runWeekly().catch((e) => setError(e instanceof Error ? e.message : "Run failed"))}
+              disabled={runningWeekly}
             >
-              Run weekly now
+              <span className="inline-flex items-center gap-2">
+                {runningWeekly ? <Spinner /> : null}
+                {runningWeekly ? "Generating…" : "Run weekly now"}
+              </span>
             </button>
           </div>
         </div>
 
         <div className="rounded-2xl border border-zinc-200 p-5">
-          <div className="text-sm font-semibold text-brand-ink">Topic queue</div>
+          <div className="text-sm font-semibold text-brand-ink">
+            Topic queue
+            <InfoTip text="Optional topics (one per line). Weekly runs consume in order. Suggest topics generates ideas and stores them as the queue." />
+          </div>
           <p className="mt-1 text-xs text-zinc-600">
             Optional list of future topics. Weekly runs will consume topics in order.
           </p>
@@ -287,16 +381,24 @@ export default function ManagerBlogsClient() {
           <div className="mt-3 flex flex-wrap gap-2">
             <button
               className="rounded-2xl bg-[color:var(--color-brand-blue)] px-4 py-2 text-sm font-bold text-white hover:bg-blue-700"
-              onClick={() => saveSettings().catch((e) => setError(e instanceof Error ? e.message : "Save failed"))}
+              onClick={() => saveQueueOnly().catch((e) => setError(e instanceof Error ? e.message : "Save failed"))}
+              disabled={savingQueue}
             >
-              Save queue
+              <span className="inline-flex items-center gap-2">
+                {savingQueue ? <Spinner /> : null}
+                {savingQueue ? "Saving…" : "Save queue"}
+              </span>
             </button>
 
             <button
               className="rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm font-semibold hover:bg-zinc-50"
               onClick={() => runSuggestTopics().catch((e) => setError(e instanceof Error ? e.message : "Suggest failed"))}
+              disabled={suggestingTopics}
             >
-              Suggest topics
+              <span className="inline-flex items-center gap-2">
+                {suggestingTopics ? <Spinner /> : null}
+                {suggestingTopics ? "Generating…" : "Suggest topics"}
+              </span>
             </button>
 
             <div className="flex items-center gap-2 text-sm text-zinc-700">
@@ -322,7 +424,10 @@ export default function ManagerBlogsClient() {
       </div>
 
       <div className="rounded-2xl border border-zinc-200 p-5">
-        <div className="text-sm font-semibold text-brand-ink">Backfill (batch)</div>
+        <div className="text-sm font-semibold text-brand-ink">
+          Backfill (batch)
+          <InfoTip text="Backfill creates older posts in safe batches. Anchor=where you start (today vs earlier than oldest post). Count=total range size. Offset=where you are in that range. Max per request=batch size per click. Days between=spacing. Time budget=stop early to avoid timeouts." />
+        </div>
         <p className="mt-1 text-xs text-zinc-600">
           Creates older posts spaced by daysBetween. Increase Count to go further back in time. Uses offset + maxPerRequest so you can run safely in batches.
         </p>
@@ -370,9 +475,12 @@ export default function ManagerBlogsClient() {
                 : "rounded-2xl bg-[color:var(--color-brand-blue)] px-4 py-2 text-sm font-bold text-white hover:bg-blue-700"
             }
             onClick={() => runBackfill().catch((e) => setError(e instanceof Error ? e.message : "Backfill failed"))}
-            disabled={backfillAtEnd}
+            disabled={backfillAtEnd || runningBackfill}
           >
-            Run backfill batch
+            <span className="inline-flex items-center gap-2">
+              {runningBackfill ? <Spinner /> : null}
+              {runningBackfill ? "Generating…" : "Run backfill batch"}
+            </span>
           </button>
           <div className="text-xs text-zinc-600">
             Tip: after each run, offset auto-advances to nextOffset.
@@ -382,7 +490,10 @@ export default function ManagerBlogsClient() {
       </div>
 
       <div className="rounded-2xl border border-zinc-200 p-5">
-        <div className="text-sm font-semibold text-brand-ink">Generate for specific dates</div>
+        <div className="text-sm font-semibold text-brand-ink">
+          Generate for specific dates
+          <InfoTip text="Generates posts for the exact dates you list (one per line). If a date already has a post, it will be skipped." />
+        </div>
         <p className="mt-1 text-xs text-zinc-600">One date per line (YYYY-MM-DD). Posts won’t be duplicated if a date already has a post.</p>
 
         <textarea
@@ -395,8 +506,12 @@ export default function ManagerBlogsClient() {
           <button
             className="rounded-2xl bg-[color:var(--color-brand-blue)] px-4 py-2 text-sm font-bold text-white hover:bg-blue-700"
             onClick={() => runDates().catch((e) => setError(e instanceof Error ? e.message : "Generate failed"))}
+            disabled={runningDates}
           >
-            Generate for dates
+            <span className="inline-flex items-center gap-2">
+              {runningDates ? <Spinner /> : null}
+              {runningDates ? "Generating…" : "Generate for dates"}
+            </span>
           </button>
         </div>
       </div>
