@@ -4,7 +4,7 @@ Internal ops dashboard for dialers/closers/managers: leads, calls, appointments,
 
 ## Local dev
 
-1) Create `.env.local` based on `.env.example`.
+1) Create `.env` based on `.env.example`.
 2) Apply schema + seed demo data:
 
 ```bash
