@@ -17,19 +17,22 @@ export async function POST(req: Request) {
   const auth = await requireManagerSession();
   if (!auth.ok) return NextResponse.json({ error: auth.status === 401 ? "Unauthorized" : "Forbidden" }, { status: auth.status });
 
+  const buildSha = process.env.VERCEL_GIT_COMMIT_SHA ?? null;
+
   const json = await req.json().catch(() => null);
   const parsed = bodySchema.safeParse(json ?? {});
   if (!parsed.success) return NextResponse.json({ error: "Invalid payload" }, { status: 400 });
 
   try {
     const result = await runBackfillBatch(parsed.data);
-    return NextResponse.json(result);
+    return NextResponse.json({ ...result, buildSha });
   } catch (e) {
     return NextResponse.json(
       {
         ok: false,
         error: "Backfill failed",
         details: e instanceof Error ? e.message : "Unknown error",
+        buildSha,
       },
       { status: 500 },
     );

@@ -280,8 +280,15 @@ async function createBlogPostFromDraft(draft: BlogDraft, publishedAt: Date) {
   const baseSlug = slugify(draft.slug || draft.title) || `automation-${isoDay(publishedAt)}`;
   const dayKey = isoDay(publishedAt).replace(/-/g, "");
 
-  for (let attempt = 0; attempt < 20; attempt++) {
-    const suffix = attempt === 0 ? null : attempt === 1 ? dayKey : `${dayKey}-${attempt}`;
+  for (let attempt = 0; attempt < 30; attempt++) {
+    const suffix =
+      attempt === 0
+        ? null
+        : attempt === 1
+          ? dayKey
+          : attempt < 10
+            ? `${dayKey}-${attempt}`
+            : `${dayKey}-${attempt}-${Math.random().toString(36).slice(2, 8)}`;
     const candidateSlug = withSlugSuffix(baseSlug, suffix);
 
     try {
@@ -299,10 +306,14 @@ async function createBlogPostFromDraft(draft: BlogDraft, publishedAt: Date) {
 
       return record;
     } catch (e) {
-      if (e instanceof Prisma.PrismaClientKnownRequestError && e.code === "P2002") {
-        const target = (e.meta as { target?: unknown } | undefined)?.target;
+      const anyErr = e as unknown;
+      const rec = (anyErr && typeof anyErr === "object" ? (anyErr as Record<string, unknown>) : null) ?? null;
+      const code = typeof rec?.code === "string" ? rec.code : undefined;
+      if (code === "P2002") {
+        const meta = rec?.meta && typeof rec.meta === "object" ? (rec.meta as Record<string, unknown>) : null;
+        const target = meta?.target;
         const targetText = Array.isArray(target) ? target.join(",") : typeof target === "string" ? target : "";
-        if (targetText.includes("slug")) continue;
+        if (targetText.includes("slug") || targetText === "") continue;
       }
       throw e;
     }
