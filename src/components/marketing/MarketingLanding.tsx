@@ -214,7 +214,7 @@ function BookingWidget() {
   return (
     <section className="mx-auto max-w-4xl rounded-[28px] bg-[#f7f5ef] p-8 shadow-sm">
       <div className="text-center font-brand text-3xl text-brand-blue">book a call</div>
-      <div className="mt-2 text-center font-brand text-lg text-brand-ink">
+      <div className="mt-2 text-center text-base text-brand-ink">
         choose a day and pick a time
       </div>
 
@@ -233,11 +233,11 @@ function BookingWidget() {
             setSelectedDay(pickFirstAvailableDay(next));
             setBooked(null);
           }}
-          className="rounded-xl bg-zinc-800 px-4 py-2 font-brand text-base text-white hover:bg-zinc-900"
+          className="rounded-xl bg-zinc-800 px-4 py-2 text-sm font-semibold text-white hover:bg-zinc-900"
         >
           prev
         </button>
-        <div className="font-brand text-lg text-brand-ink">
+        <div className="text-sm font-semibold text-brand-ink">
           {formatLocalMonthDay(days[0])} to {formatLocalMonthDay(days[6])}
         </div>
         <button
@@ -248,7 +248,7 @@ function BookingWidget() {
             setSelectedDay(pickFirstAvailableDay(next));
             setBooked(null);
           }}
-          className="rounded-xl bg-zinc-800 px-4 py-2 font-brand text-base text-white hover:bg-zinc-900"
+          className="rounded-xl bg-zinc-800 px-4 py-2 text-sm font-semibold text-white hover:bg-zinc-900"
         >
           next
         </button>
@@ -268,7 +268,7 @@ function BookingWidget() {
                 setSelectedDay(d);
               }}
               className={
-                "rounded-xl px-2 py-3 text-center font-brand text-base transition " +
+                "rounded-xl px-2 py-3 text-center text-sm font-semibold transition " +
                 (available
                   ? active
                     ? "bg-brand-blue text-white"
@@ -276,15 +276,15 @@ function BookingWidget() {
                   : "cursor-not-allowed bg-white/50 text-zinc-400")
               }
             >
-              <div className="text-sm">{new Intl.DateTimeFormat(undefined, { weekday: "short" }).format(d)}</div>
-              <div className="text-xl">{d.getDate()}</div>
+              <div>{new Intl.DateTimeFormat(undefined, { weekday: "short" }).format(d)}</div>
+              <div className="text-lg">{d.getDate()}</div>
             </button>
           );
         })}
       </div>
 
       <div className="mt-8">
-        <div className="text-center font-brand text-xl text-brand-ink">times</div>
+        <div className="text-center text-sm font-semibold text-brand-ink">times</div>
         {!selectedIsAvailable ? (
           <div className="mt-4 text-center text-sm text-zinc-700">No availability this day.</div>
         ) : (
@@ -294,7 +294,7 @@ function BookingWidget() {
                 key={t}
                 type="button"
                 onClick={() => setBooked({ startAt: t })}
-                className="rounded-xl bg-white px-4 py-3 text-left font-brand text-lg text-zinc-900 hover:bg-zinc-50"
+                className="rounded-xl bg-white px-4 py-3 text-left text-sm font-semibold text-zinc-900 hover:bg-zinc-50"
               >
                 {formatLocalDateTime(t)}
               </button>
@@ -344,10 +344,10 @@ export function MarketingLanding() {
   }
 
   return (
-    <div className="min-h-screen bg-[#f7f5ef] text-zinc-900">
+    <div className="min-h-screen bg-white text-zinc-900" style={{ fontFamily: "Arial, Helvetica, sans-serif" }}>
       <main>
         <section className="mx-auto max-w-6xl px-6 pt-10">
-          <div className="rounded-[28px] bg-white p-8 shadow-sm">
+          <div className="py-6">
             <div className="grid grid-cols-1 gap-10 md:grid-cols-2 md:items-center">
               <div>
                 <Image
@@ -390,7 +390,7 @@ export function MarketingLanding() {
           </div>
         </section>
 
-        <div className="mt-10 bg-[#fb7185] py-14">
+        <div className="mt-10 bg-brand-blue py-14">
           <section ref={formRef} className="mx-auto max-w-6xl px-6">
             <div
               className={
@@ -402,7 +402,7 @@ export function MarketingLanding() {
                 <div className="text-center font-brand text-3xl text-brand-blue">
                   we&apos;re going to send you some stuff
                 </div>
-                <div className="mt-2 text-center font-brand text-lg text-brand-ink">let us know:</div>
+                <div className="mt-2 text-center text-base text-brand-ink">let us know:</div>
 
                 <div className="mt-10">
                   <DemoRequestForm
@@ -488,36 +488,36 @@ function DemoRequestForm({
     >
       <div className="grid grid-cols-1 gap-x-16 gap-y-10 sm:grid-cols-2">
         <label className="grid gap-3">
-          <span className="font-brand text-lg text-brand-ink">your name</span>
+          <span className="text-sm font-semibold text-brand-ink">your name</span>
           <input
             value={name}
             onChange={(e) => setName(e.target.value)}
             disabled={disabled}
-            className="h-12 rounded-lg border-2 border-zinc-800 bg-[#a9bdf0] px-4 font-brand text-lg text-zinc-900 placeholder:text-zinc-700"
+            className="h-12 rounded-lg border-2 border-zinc-800 bg-[#a9bdf0] px-4 text-base font-semibold text-zinc-900 placeholder:text-zinc-700"
             placeholder=""
             autoComplete="name"
           />
         </label>
 
         <label className="grid gap-3">
-          <span className="font-brand text-lg text-brand-ink">your company</span>
+          <span className="text-sm font-semibold text-brand-ink">your company</span>
           <input
             value={company}
             onChange={(e) => setCompany(e.target.value)}
             disabled={disabled}
-            className="h-12 rounded-lg border-2 border-zinc-800 bg-[#a9bdf0] px-4 font-brand text-lg text-zinc-900 placeholder:text-zinc-700"
+            className="h-12 rounded-lg border-2 border-zinc-800 bg-[#a9bdf0] px-4 text-base font-semibold text-zinc-900 placeholder:text-zinc-700"
             placeholder=""
             autoComplete="organization"
           />
         </label>
 
         <label className="grid gap-3">
-          <span className="font-brand text-lg text-brand-ink">your email</span>
+          <span className="text-sm font-semibold text-brand-ink">your email</span>
           <input
             value={email}
             onChange={(e) => setEmail(e.target.value)}
             disabled={disabled}
-            className="h-12 rounded-lg border-2 border-zinc-800 bg-[#a9bdf0] px-4 font-brand text-lg text-zinc-900 placeholder:text-zinc-700"
+            className="h-12 rounded-lg border-2 border-zinc-800 bg-[#a9bdf0] px-4 text-base font-semibold text-zinc-900 placeholder:text-zinc-700"
             placeholder=""
             type="email"
             autoComplete="email"
@@ -525,12 +525,12 @@ function DemoRequestForm({
         </label>
 
         <label className="grid gap-3">
-          <span className="font-brand text-lg text-brand-ink">your phone number</span>
+          <span className="text-sm font-semibold text-brand-ink">your phone number</span>
           <input
             value={phone}
             onChange={(e) => setPhone(e.target.value)}
             disabled={disabled}
-            className="h-12 rounded-lg border-2 border-zinc-800 bg-[#a9bdf0] px-4 font-brand text-lg text-zinc-900 placeholder:text-zinc-700"
+            className="h-12 rounded-lg border-2 border-zinc-800 bg-[#a9bdf0] px-4 text-base font-semibold text-zinc-900 placeholder:text-zinc-700"
             placeholder=""
             autoComplete="tel"
           />
@@ -538,7 +538,7 @@ function DemoRequestForm({
       </div>
 
       <div className="grid gap-4 text-center">
-        <div className="font-brand text-xl text-brand-ink">opting in for sms and email?</div>
+        <div className="text-base font-semibold text-brand-ink">opting in for sms and email?</div>
         <div className="flex flex-col items-center justify-center gap-3 sm:flex-row">
           <button
             type="button"
@@ -551,7 +551,7 @@ function DemoRequestForm({
               setOptedIn(false);
               onCancel();
             }}
-            className="h-11 rounded-xl bg-zinc-800 px-6 font-brand text-lg text-white hover:bg-zinc-900"
+            className="h-11 rounded-xl bg-zinc-800 px-6 text-sm font-semibold text-white hover:bg-zinc-900"
           >
             no, cancel demo
           </button>
@@ -561,7 +561,7 @@ function DemoRequestForm({
             disabled={!canSubmit}
             onClick={() => setOptedIn(true)}
             className={
-              "h-11 rounded-xl px-6 font-brand text-lg text-white transition " +
+              "h-11 rounded-xl px-6 text-sm font-semibold text-white transition " +
               (canSubmit ? "bg-brand-blue hover:bg-blue-700" : "cursor-not-allowed bg-zinc-300")
             }
           >
