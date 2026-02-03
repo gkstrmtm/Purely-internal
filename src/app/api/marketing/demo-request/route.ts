@@ -7,9 +7,27 @@ const bodySchema = z.object({
   name: z.string().trim().min(1).max(120),
   company: z.string().trim().min(1).max(160),
   email: z.string().trim().email().max(200),
-  phone: z.string().trim().min(7).max(40).optional(),
+  phone: z.string().trim().max(40).optional(),
   optedIn: z.boolean().optional().default(false),
 });
+
+function normalizePhoneForStorage(inputRaw: string) {
+  const input = inputRaw.trim();
+  if (!input) return null;
+
+  const hasPlus = input.startsWith("+");
+  const digits = input.replace(/\D/g, "");
+
+  // Basic sanity: most valid numbers are 10-15 digits.
+  if (digits.length < 10 || digits.length > 15) return null;
+
+  if (!hasPlus) {
+    if (digits.length === 10) return `+1${digits}`;
+    if (digits.length === 11 && digits.startsWith("1")) return `+${digits}`;
+  }
+
+  return `+${digits}`;
+}
 
 function buildEmailBody(name: string) {
   return [
@@ -31,17 +49,29 @@ export async function POST(req: Request) {
   const json = await req.json().catch(() => null);
   const parsed = bodySchema.safeParse(json);
   if (!parsed.success) {
-    return NextResponse.json({ error: "Invalid payload" }, { status: 400 });
+    const first = parsed.error.issues?.[0];
+    const field = first?.path?.[0];
+
+    let message = "Please check your details and try again.";
+    if (field === "name") message = "Please enter your name.";
+    if (field === "company") message = "Please enter your company name.";
+    if (field === "email") message = "Please enter a valid email address.";
+
+    return NextResponse.json({ error: message }, { status: 400 });
   }
 
   const { name, company, email, phone, optedIn } = parsed.data;
+  const normalizedPhone = phone ? normalizePhoneForStorage(phone) : null;
+  if (phone && !normalizedPhone) {
+    return NextResponse.json({ error: "Please enter a valid phone number." }, { status: 400 });
+  }
 
   // Always create a new lead for marketing requests.
   // (Lead fields are not unique; avoiding upsert prevents runtime errors.)
   const lead = await prisma.lead.create({
     data: {
       businessName: company,
-      phone: phone ?? "unknown",
+      phone: normalizedPhone ?? "unknown",
       contactName: name,
       contactEmail: email,
       source: "MARKETING",
@@ -51,8 +81,8 @@ export async function POST(req: Request) {
 
   const request = await prisma.marketingDemoRequest.upsert({
     where: { leadId: lead.id },
-    update: { name, company, email, phone: phone ?? null, optedIn },
-    create: { leadId: lead.id, name, company, email, phone: phone ?? null, optedIn },
+    update: { name, company, email, phone: normalizedPhone ?? null, optedIn },
+    create: { leadId: lead.id, name, company, email, phone: normalizedPhone ?? null, optedIn },
   });
 
   const now = new Date();
@@ -72,12 +102,12 @@ export async function POST(req: Request) {
     { requestId: request.id, channel: "EMAIL", to: email, body: emailBody, sendAt: followUpAt },
   ];
 
-  if (optedIn && phone) {
-    messages.push({ requestId: request.id, channel: "SMS", to: phone, body: smsBody, sendAt: now });
+  if (optedIn && normalizedPhone) {
+    messages.push({ requestId: request.id, channel: "SMS", to: normalizedPhone, body: smsBody, sendAt: now });
     messages.push({
       requestId: request.id,
       channel: "SMS",
-      to: phone,
+      to: normalizedPhone,
       body: smsBody,
       sendAt: followUpAt,
     });

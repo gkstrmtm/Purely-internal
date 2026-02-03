@@ -408,6 +408,37 @@ function startOfWeek(d: Date) {
   return addDays(x, -mondayBased);
 }
 
+function normalizePhone(inputRaw: string): { display: string; e164: string } | null {
+  const input = inputRaw.trim();
+  if (!input) return null;
+
+  const hasPlus = input.startsWith("+");
+  const digits = input.replace(/\D/g, "");
+
+  // Basic sanity check: most valid numbers are 10-15 digits.
+  if (digits.length < 10 || digits.length > 15) return null;
+
+  // US-friendly formatting when user enters a 10-digit number (or 11 with leading 1).
+  if (!hasPlus) {
+    if (digits.length === 10) {
+      return {
+        display: `(${digits.slice(0, 3)}) ${digits.slice(3, 6)}-${digits.slice(6)}`,
+        e164: `+1${digits}`,
+      };
+    }
+    if (digits.length === 11 && digits.startsWith("1")) {
+      const d = digits.slice(1);
+      return {
+        display: `(${d.slice(0, 3)}) ${d.slice(3, 6)}-${d.slice(6)}`,
+        e164: `+${digits}`,
+      };
+    }
+  }
+
+  // Fallback: keep international digits.
+  return { display: `+${digits}`, e164: `+${digits}` };
+}
+
 function seededHasAvailability(d: Date) {
   // Simple testing rule: every other day is "available".
   const key = d.getFullYear() * 10000 + (d.getMonth() + 1) * 100 + d.getDate();
@@ -665,6 +696,13 @@ export function MarketingLanding() {
   const formRef = useRef<HTMLDivElement | null>(null);
   const bookingRef = useRef<HTMLDivElement | null>(null);
 
+  function scrollToCalendar() {
+    const el = bookingRef.current;
+    if (!el) return;
+    const y = window.scrollY + el.getBoundingClientRect().top - 16;
+    window.scrollTo({ top: y, behavior: "smooth" });
+  }
+
   async function submit(payload: DemoRequestPayload) {
     setSubmitting(true);
     setError(null);
@@ -683,11 +721,18 @@ export function MarketingLanding() {
       setRequestId(id);
       setExpanded(false);
 
+      // Wait for the form collapse transition/layout to settle, then scroll precisely.
       setTimeout(() => {
-        bookingRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
-      }, 50);
+        scrollToCalendar();
+        setTimeout(scrollToCalendar, 250);
+      }, 350);
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Submit failed");
+      const msg = e instanceof Error ? e.message : "Something went wrong. Please try again.";
+      if (/invalid payload|zod|prisma|error code/i.test(msg)) {
+        setError("Please check your details and try again.");
+      } else {
+        setError(msg || "Something went wrong. Please try again.");
+      }
     } finally {
       setSubmitting(false);
     }
@@ -733,7 +778,7 @@ export function MarketingLanding() {
                   className="inline-flex items-center gap-3 rounded-2xl bg-brand-pink px-7 py-4 font-brand text-xl font-bold text-brand-blue shadow-md hover:bg-pink-300 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/60 focus-visible:ring-offset-2 focus-visible:ring-offset-brand-blue"
                 >
                   <span>see it in action</span>
-                  <span className="grid h-9 w-9 place-items-center rounded-xl bg-white">
+                  <span className="grid h-9 w-9 place-items-center rounded-xl bg-transparent">
                     <span className="text-brand-blue">
                       <PlayMarkIcon className="h-6 w-6" />
                     </span>
@@ -784,7 +829,7 @@ export function MarketingLanding() {
 
           <WhyChoosePurely />
 
-          <section id="book" ref={bookingRef} className="mx-auto mt-12 max-w-6xl px-6">
+          <section id="book" ref={bookingRef} className="mx-auto mt-12 max-w-6xl px-6 scroll-mt-4">
             <BookingWidget />
           </section>
 
@@ -825,6 +870,7 @@ function DemoRequestForm({
   const [company, setCompany] = useState("");
   const [email, setEmail] = useState("");
   const [phone, setPhone] = useState("");
+  const [phoneE164, setPhoneE164] = useState<string | null>(null);
 
   // Keep the API field name but match the UI from the mock.
   const [optedIn, setOptedIn] = useState(true);
@@ -838,14 +884,38 @@ function DemoRequestForm({
   return (
     <form
       className="grid gap-10"
+      autoComplete="on"
       onSubmit={(e) => {
+        const form = e.currentTarget;
         e.preventDefault();
+
+        if (!form.checkValidity()) {
+          form.reportValidity();
+          return;
+        }
         if (!canSubmit) return;
+
+        const normalized = phone.trim() ? normalizePhone(phone) : null;
+        if (phone.trim() && !normalized) {
+          const input = form.querySelector<HTMLInputElement>("input[name='tel']");
+          input?.setCustomValidity("Please enter a valid phone number.");
+          form.reportValidity();
+          input?.focus();
+          return;
+        }
+
+        if (normalized) {
+          setPhone(normalized.display);
+          setPhoneE164(normalized.e164);
+        }
+
+        const finalPhone = normalized?.e164 ?? phoneE164 ?? phone;
+
         void onSubmit({
-          name,
-          company,
-          email,
-          phone: phone.trim() ? phone.trim() : undefined,
+          name: name.trim(),
+          company: company.trim(),
+          email: email.trim(),
+          phone: finalPhone.trim() ? finalPhone.trim() : undefined,
           optedIn,
         });
       }}
@@ -854,30 +924,41 @@ function DemoRequestForm({
         <label className="grid gap-3">
           <span className="text-sm font-semibold text-brand-ink">your name</span>
           <input
+            name="name"
+            type="text"
             value={name}
             onChange={(e) => setName(e.target.value)}
             disabled={disabled}
             className="h-12 rounded-lg border-2 border-zinc-800 bg-[#a9bdf0] px-4 text-base font-semibold text-zinc-900 placeholder:text-zinc-700"
             placeholder=""
             autoComplete="name"
+            required
+            onInvalid={(e) => e.currentTarget.setCustomValidity("Please enter your name.")}
+            onInput={(e) => e.currentTarget.setCustomValidity("")}
           />
         </label>
 
         <label className="grid gap-3">
           <span className="text-sm font-semibold text-brand-ink">your company</span>
           <input
+            name="organization"
+            type="text"
             value={company}
             onChange={(e) => setCompany(e.target.value)}
             disabled={disabled}
             className="h-12 rounded-lg border-2 border-zinc-800 bg-[#a9bdf0] px-4 text-base font-semibold text-zinc-900 placeholder:text-zinc-700"
             placeholder=""
             autoComplete="organization"
+            required
+            onInvalid={(e) => e.currentTarget.setCustomValidity("Please enter your company name.")}
+            onInput={(e) => e.currentTarget.setCustomValidity("")}
           />
         </label>
 
         <label className="grid gap-3">
           <span className="text-sm font-semibold text-brand-ink">your email</span>
           <input
+            name="email"
             value={email}
             onChange={(e) => setEmail(e.target.value)}
             disabled={disabled}
@@ -885,18 +966,53 @@ function DemoRequestForm({
             placeholder=""
             type="email"
             autoComplete="email"
+            inputMode="email"
+            spellCheck={false}
+            required
+            onInvalid={(e) => e.currentTarget.setCustomValidity("Please enter a valid email address.")}
+            onInput={(e) => e.currentTarget.setCustomValidity("")}
           />
         </label>
 
         <label className="grid gap-3">
           <span className="text-sm font-semibold text-brand-ink">your phone number</span>
           <input
+            name="tel"
             value={phone}
-            onChange={(e) => setPhone(e.target.value)}
+            onChange={(e) => {
+              setPhone(e.target.value);
+              setPhoneE164(null);
+            }}
             disabled={disabled}
             className="h-12 rounded-lg border-2 border-zinc-800 bg-[#a9bdf0] px-4 text-base font-semibold text-zinc-900 placeholder:text-zinc-700"
             placeholder=""
+            type="tel"
+            inputMode="tel"
             autoComplete="tel"
+            onBlur={(e) => {
+              const raw = e.currentTarget.value;
+              if (!raw.trim()) {
+                e.currentTarget.setCustomValidity("");
+                setPhoneE164(null);
+                return;
+              }
+
+              const normalized = normalizePhone(raw);
+              if (!normalized) {
+                e.currentTarget.setCustomValidity("Please enter a valid phone number.");
+                return;
+              }
+
+              e.currentTarget.setCustomValidity("");
+              setPhone(normalized.display);
+              setPhoneE164(normalized.e164);
+            }}
+            onInvalid={(e) => {
+              if (e.currentTarget.value.trim()) {
+                e.currentTarget.setCustomValidity("Please enter a valid phone number.");
+              }
+            }}
+            onInput={(e) => e.currentTarget.setCustomValidity("")}
           />
         </label>
       </div>
@@ -912,6 +1028,7 @@ function DemoRequestForm({
               setCompany("");
               setEmail("");
               setPhone("");
+              setPhoneE164(null);
               setOptedIn(false);
               onCancel();
             }}
