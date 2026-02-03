@@ -24,12 +24,16 @@ type BackfillResponse = {
   error?: string;
   details?: string;
   message?: string;
+  stoppedEarly?: boolean;
   anchor?: "NOW" | "OLDEST_POST";
+  targetDates?: string[];
+  pendingCount?: number;
   createdCount?: number;
   skippedCount?: number;
   nextOffset?: number;
   hasMore?: boolean;
   nextUrl?: string | null;
+  buildSha?: string | null;
 };
 
 type SuggestTopicsResponse = {
@@ -244,19 +248,53 @@ export default function ManagerBlogsClient() {
 
     setRunningBackfill(true);
     try {
-      const data = await jsonFetch<BackfillResponse>("/api/manager/blogs/backfill", {
-        method: "POST",
-        body: JSON.stringify({
-          count: backfillCount,
-          daysBetween: backfillDaysBetween,
-          offset: backfillOffset,
-          maxPerRequest: backfillMaxPerRequest,
-          timeBudgetSeconds: backfillTimeBudget,
-          anchor: backfillAnchor,
-        }),
-      });
-      setLastResult(data);
-      if (typeof data?.nextOffset === "number") setBackfillOffset(data.nextOffset);
+      let offset = backfillOffset;
+      let safety = 0;
+      let totalCreated = 0;
+      let totalSkipped = 0;
+
+      while (safety < 200) {
+        safety++;
+        const data = await jsonFetch<BackfillResponse>("/api/manager/blogs/backfill", {
+          method: "POST",
+          body: JSON.stringify({
+            count: backfillCount,
+            daysBetween: backfillDaysBetween,
+            offset,
+            // Keep requests reliable; the loop continues until the window is done.
+            maxPerRequest: 1,
+            timeBudgetSeconds: backfillTimeBudget,
+            anchor: backfillAnchor,
+          }),
+        });
+
+        totalCreated += typeof data.createdCount === "number" ? data.createdCount : 0;
+        totalSkipped += typeof data.skippedCount === "number" ? data.skippedCount : 0;
+
+        setLastResult({
+          ...data,
+          autoProgress: {
+            totalCreated,
+            totalSkipped,
+            currentOffset: offset,
+            count: backfillCount,
+          },
+        });
+
+        const nextOffset = typeof data?.nextOffset === "number" ? data.nextOffset : offset;
+        if (nextOffset <= offset) {
+          setError("Backfill did not advance offset; stopping to avoid an infinite loop.");
+          break;
+        }
+
+        offset = nextOffset;
+        setBackfillOffset(offset);
+
+        if (data.stoppedEarly) break;
+        if (data.hasMore === false) break;
+        if (offset >= backfillCount) break;
+      }
+
       await refresh();
     } catch (e) {
       const msg = e instanceof Error ? e.message : "Backfill failed";

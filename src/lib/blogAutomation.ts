@@ -218,12 +218,23 @@ function blogSystemPrompt() {
   ].join(" ");
 }
 
-function blogUserPromptForOne(topic: string) {
+function blogUserPromptForOne(
+  topic: string,
+  opts?: {
+    avoidTitles?: string[];
+    avoidSlugs?: string[];
+  },
+) {
+  const avoidTitles = (opts?.avoidTitles ?? []).filter(Boolean).slice(0, 25);
+  const avoidSlugs = (opts?.avoidSlugs ?? []).filter(Boolean).slice(0, 25);
+
   return [
     "Create one SEO-friendly blog post for Purely Automation.",
     "Company positioning: Purely builds systems that automate blogging so businesses do not spend hours writing, editing, and publishing every week.",
     `Topic: ${topic}`,
     "Audience: small to mid-size service businesses and operators.",
+    avoidTitles.length ? `Do NOT reuse any of these titles (write a different title): ${avoidTitles.join(" | ")}` : null,
+    avoidSlugs.length ? `Do NOT reuse any of these slugs (write a different slug): ${avoidSlugs.join(" | ")}` : null,
     "Requirements:",
     "- Return ONLY valid JSON. No extra text.",
     "- JSON keys: title, slug, excerpt, content, seoKeywords.",
@@ -233,7 +244,9 @@ function blogUserPromptForOne(topic: string) {
     "- Do not use markdown emphasis like **bold** or *italics*. Do not include asterisks for styling.",
     "- End the post with a short call to action that tells readers to book a call on purelyautomation.com.",
     "- No em dashes, no emojis.",
-  ].join("\n");
+  ]
+    .filter(Boolean)
+    .join("\n");
 }
 
 function blogUserPromptForMany(plan: Array<{ date: string; topic: string }>) {
@@ -255,10 +268,16 @@ function blogUserPromptForMany(plan: Array<{ date: string; topic: string }>) {
   ].join("\n");
 }
 
-export async function generateOneDraft(topic: string) {
+export async function generateOneDraft(
+  topic: string,
+  opts?: {
+    avoidTitles?: string[];
+    avoidSlugs?: string[];
+  },
+) {
   const raw = await generateText({
     system: blogSystemPrompt(),
-    user: blogUserPromptForOne(topic),
+    user: blogUserPromptForOne(topic, opts),
     model: process.env.AI_MODEL ?? "gpt-4o-mini",
   });
 
@@ -424,6 +443,9 @@ export async function runBackfillBatch(params: BackfillParams) {
   let stoppedEarly = false;
   let stopReason: string | null = null;
 
+  const avoidTitles = new Set<string>();
+  const avoidSlugs = new Set<string>();
+
   const targetDateStrings = targetDates.map((d) => isoDay(d));
 
   if (targetDates.length === 0) {
@@ -468,7 +490,22 @@ export async function runBackfillBatch(params: BackfillParams) {
 
       const topic = pickTopic(publishDate);
       try {
-        const draft = await generateOneDraft(topic);
+        let draft = await generateOneDraft(topic, {
+          avoidTitles: Array.from(avoidTitles),
+          avoidSlugs: Array.from(avoidSlugs),
+        });
+
+        // If the draft would collide on slug, ask the AI once to propose a different title/slug.
+        const proposedSlug = slugify(draft.slug || draft.title) || `automation-${isoDay(publishDate)}`;
+        const slugExists = await prisma.blogPost.findUnique({ where: { slug: proposedSlug }, select: { id: true } });
+        if (slugExists || avoidTitles.has(draft.title) || avoidSlugs.has(proposedSlug)) {
+          avoidTitles.add(draft.title);
+          avoidSlugs.add(proposedSlug);
+          draft = await generateOneDraft(topic, {
+            avoidTitles: Array.from(avoidTitles),
+            avoidSlugs: Array.from(avoidSlugs),
+          });
+        }
 
         if ((Date.now() - startedAt) / 1000 > timeBudgetSeconds) {
           stoppedEarly = true;
@@ -477,6 +514,8 @@ export async function runBackfillBatch(params: BackfillParams) {
         }
 
         const record = await createBlogPostFromDraft(draft, publishDate);
+        avoidTitles.add(record.title);
+        avoidSlugs.add(record.slug);
         created.push({
           slug: record.slug,
           title: record.title,
