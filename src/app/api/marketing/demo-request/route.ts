@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
+import { Prisma } from "@prisma/client";
 
 import { prisma } from "@/lib/db";
 
@@ -66,6 +67,48 @@ function buildSmsBody() {
   return "Purely Automation demo: book a call on the site when you are ready.";
 }
 
+function getMissingColumnFromP2022(err: unknown) {
+  if (!(err instanceof Prisma.PrismaClientKnownRequestError)) return null;
+  if (err.code !== "P2022") return null;
+
+  const meta = err.meta as unknown as { column?: string } | undefined;
+  const raw = meta?.column;
+  if (raw) return raw.includes(".") ? raw.split(".").pop() ?? raw : raw;
+
+  const match = /The column `([^`]+)` does not exist/i.exec(err.message);
+  const fromMessage = match?.[1] ?? null;
+  if (!fromMessage) return null;
+  return fromMessage.includes(".") ? fromMessage.split(".").pop() ?? fromMessage : fromMessage;
+}
+
+async function createLeadResilient(data: Record<string, unknown>) {
+  const working: Record<string, unknown> = { ...data };
+
+  for (let i = 0; i < 10; i++) {
+    try {
+      return await prisma.lead.create({
+        data: working as never,
+        // IMPORTANT: older databases may be missing optional columns that exist in Prisma schema.
+        // Selecting only id prevents Prisma from trying to RETURN missing columns.
+        select: { id: true },
+      });
+    } catch (err) {
+      const missing = getMissingColumnFromP2022(err);
+      if (!missing) throw err;
+
+      if (missing in working) {
+        delete working[missing];
+        continue;
+      }
+
+      throw err;
+    }
+  }
+
+  // Last-ditch fallback: try the bare minimum.
+  return await prisma.lead.create({ data: working as never, select: { id: true } });
+}
+
 export async function POST(req: Request) {
   try {
     const json = await req.json().catch(() => null);
@@ -93,17 +136,14 @@ export async function POST(req: Request) {
 
     // Always create a new lead for marketing requests.
     // (Lead fields are not unique; avoiding upsert prevents runtime errors.)
-    const lead = await prisma.lead.create({
-      data: {
-        businessName: company,
-        phone: normalizedPhone,
-        contactName: name,
-        contactEmail: email,
-        contactPhone: normalizedPhone,
-        interestedService: interestedService,
-        source: "MARKETING",
-        notes: goals?.trim() ? `Marketing demo request\nGoals: ${goals.trim()}` : "Marketing demo request",
-      },
+    const lead = await createLeadResilient({
+      businessName: company,
+      phone: normalizedPhone,
+      contactName: name,
+      contactEmail: email,
+      interestedService: interestedService,
+      source: "MARKETING",
+      notes: goals?.trim() ? `Marketing demo request\nGoals: ${goals.trim()}` : "Marketing demo request",
     });
 
     const request = await prisma.marketingDemoRequest.upsert({
@@ -172,7 +212,8 @@ export async function POST(req: Request) {
     }
 
     return NextResponse.json({ requestId: request.id, leadId: lead.id });
-  } catch {
+  } catch (err) {
+    console.error("/api/marketing/demo-request failed", err);
     // Ensure the client always receives JSON (not a generic HTML 500).
     return NextResponse.json(
       { error: "Submit failed. Please try again." },
