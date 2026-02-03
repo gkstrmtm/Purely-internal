@@ -84,9 +84,14 @@ function pickTopic(date: Date) {
 }
 
 export async function GET(req: Request) {
-  const secret = process.env.BLOG_CRON_SECRET;
+  const secret = process.env.BLOG_CRON_SECRET ?? process.env.MARKETING_CRON_SECRET;
   if (secret) {
-    const provided = req.headers.get("x-blog-cron-secret");
+    const url = new URL(req.url);
+    const provided =
+      req.headers.get("x-blog-cron-secret") ??
+      req.headers.get("x-marketing-cron-secret") ??
+      url.searchParams.get("secret");
+
     if (provided !== secret) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
