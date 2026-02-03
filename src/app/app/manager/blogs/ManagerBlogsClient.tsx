@@ -116,6 +116,17 @@ export default function ManagerBlogsClient() {
   const [backfillTimeBudget, setBackfillTimeBudget] = useState(60);
   const [backfillAnchor, setBackfillAnchor] = useState<"NOW" | "OLDEST_POST">("OLDEST_POST");
 
+  const [backfillProgress, setBackfillProgress] = useState<{
+    running: boolean;
+    processed: number;
+    count: number;
+    created: number;
+    skipped: number;
+    lastBuildSha?: string | null;
+    stoppedEarly?: boolean;
+    message?: string;
+  } | null>(null);
+
   const [datesText, setDatesText] = useState("2025-08-01\n2025-08-08\n2025-08-15");
 
   const [topicSuggestCount, setTopicSuggestCount] = useState(25);
@@ -240,6 +251,7 @@ export default function ManagerBlogsClient() {
   async function runBackfill() {
     setError(null);
     setLastResult(null);
+    setBackfillProgress(null);
 
     if (backfillAtEnd) {
       setError("Backfill offset is at the end of the range. Set offset to 0 (or increase count) and run again.");
@@ -252,6 +264,14 @@ export default function ManagerBlogsClient() {
       let safety = 0;
       let totalCreated = 0;
       let totalSkipped = 0;
+
+      setBackfillProgress({
+        running: true,
+        processed: Math.min(backfillCount, Math.max(0, offset)),
+        count: backfillCount,
+        created: 0,
+        skipped: 0,
+      });
 
       while (safety < 200) {
         safety++;
@@ -284,11 +304,32 @@ export default function ManagerBlogsClient() {
         const nextOffset = typeof data?.nextOffset === "number" ? data.nextOffset : offset;
         if (nextOffset <= offset) {
           setError("Backfill did not advance offset; stopping to avoid an infinite loop.");
+          setBackfillProgress((p) =>
+            p
+              ? {
+                  ...p,
+                  running: false,
+                  stoppedEarly: true,
+                  message: "Stopped: offset did not advance.",
+                }
+              : p,
+          );
           break;
         }
 
         offset = nextOffset;
         setBackfillOffset(offset);
+
+        setBackfillProgress({
+          running: true,
+          processed: Math.min(backfillCount, Math.max(0, offset)),
+          count: backfillCount,
+          created: totalCreated,
+          skipped: totalSkipped,
+          lastBuildSha: data.buildSha ?? null,
+          stoppedEarly: !!data.stoppedEarly,
+          message: data.message,
+        });
 
         if (data.stoppedEarly) break;
         if (data.hasMore === false) break;
@@ -300,8 +341,27 @@ export default function ManagerBlogsClient() {
       const msg = e instanceof Error ? e.message : "Backfill failed";
       setError(msg);
       setLastResult({ ok: false, error: msg });
+      setBackfillProgress((p) =>
+        p
+          ? {
+              ...p,
+              running: false,
+              stoppedEarly: true,
+              message: msg,
+            }
+          : {
+              running: false,
+              processed: 0,
+              count: backfillCount,
+              created: 0,
+              skipped: 0,
+              stoppedEarly: true,
+              message: msg,
+            },
+      );
     } finally {
       setRunningBackfill(false);
+      setBackfillProgress((p) => (p ? { ...p, running: false } : p));
     }
   }
 
@@ -544,6 +604,20 @@ export default function ManagerBlogsClient() {
               {runningBackfill ? "Generating…" : "Run backfill batch"}
             </span>
           </button>
+
+          {backfillProgress ? (
+            <div className="flex flex-col justify-center text-xs text-zinc-600">
+              <div className="font-semibold text-zinc-800">
+                {backfillProgress.running ? "Backfill running" : "Backfill status"}: {backfillProgress.processed}/{backfillProgress.count} done
+              </div>
+              <div>
+                Created: {backfillProgress.created} • Skipped: {backfillProgress.skipped}
+                {backfillProgress.stoppedEarly ? " • Stopped early" : ""}
+              </div>
+              {backfillProgress.message ? <div className="text-zinc-500">{backfillProgress.message}</div> : null}
+            </div>
+          ) : null}
+
           <div className="text-xs text-zinc-600">
             Tip: after each run, offset auto-advances to nextOffset.
             {backfillAtEnd ? " (Offset is at end — set offset to 0 to run again.)" : ""}
