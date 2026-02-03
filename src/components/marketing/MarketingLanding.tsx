@@ -20,34 +20,7 @@ type DemoRequestResponse = {
   leadId: string;
 };
 
-function PlayMarkIcon({ className }: { className?: string }) {
-  return (
-    <svg
-      className={className}
-      viewBox="0 0 512 512"
-      fill="none"
-      xmlns="http://www.w3.org/2000/svg"
-      aria-hidden="true"
-      focusable="false"
-    >
-      <path
-        d="M160 110
-           C160 90 176 74 196 74
-           C206 74 216 78 224 84
-           L388 190
-           C416 208 416 248 388 266
-           L224 372
-           C216 378 206 382 196 382
-           C176 382 160 366 160 346
-           Z"
-        stroke="currentColor"
-        strokeWidth="44"
-        strokeLinejoin="round"
-        strokeLinecap="round"
-      />
-    </svg>
-  );
-}
+const PLAY_MARK_ICON_SRC = "/brand/play_white_removed_everywhere%20(1).png";
 
 function FeatureIcon({ name }: { name: "phone" | "message" | "calendar" | "dispatch" | "chart" | "megaphone" | "target" | "dial" | "social" }) {
   const common = "h-6 w-6 text-brand-blue";
@@ -1308,9 +1281,7 @@ export function MarketingLanding() {
                 >
                   <span>see it in action</span>
                   <span className="grid h-9 w-9 place-items-center rounded-xl bg-transparent">
-                    <span className="text-brand-blue">
-                      <PlayMarkIcon className="h-6 w-6" />
-                    </span>
+                    <Image src={PLAY_MARK_ICON_SRC} alt="" width={24} height={24} className="h-6 w-6" priority />
                   </span>
                 </button>
               </div>
