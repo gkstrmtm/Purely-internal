@@ -32,6 +32,18 @@ function slugify(input: string) {
     .slice(0, 80);
 }
 
+function withSlugSuffix(baseSlug: string, suffix: string | null) {
+  const cleanBase = baseSlug.replace(/^-+|-+$/g, "") || "automation";
+  if (!suffix) return cleanBase.slice(0, 80);
+
+  const cleanSuffix = suffix.replace(/^-+|-+$/g, "");
+  const fullSuffix = `-${cleanSuffix}`;
+
+  const maxBaseLen = Math.max(1, 80 - fullSuffix.length);
+  const trimmedBase = cleanBase.slice(0, maxBaseLen).replace(/-+$/g, "");
+  return `${trimmedBase}${fullSuffix}`.slice(0, 80);
+}
+
 function startOfWeekUtc(date: Date) {
   const start = new Date(Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), date.getUTCDate()));
   const day = start.getUTCDay(); // 0=Sun..6=Sat
@@ -265,27 +277,38 @@ export async function generateManyDrafts(plan: Array<{ date: string; topic: stri
 }
 
 async function createBlogPostFromDraft(draft: BlogDraft, publishedAt: Date) {
-  const proposedSlug = slugify(draft.slug || draft.title);
-  let finalSlug = proposedSlug || `automation-${publishedAt.toISOString().slice(0, 10)}`;
+  const baseSlug = slugify(draft.slug || draft.title) || `automation-${isoDay(publishedAt)}`;
+  const dayKey = isoDay(publishedAt).replace(/-/g, "");
 
-  const collision = await prisma.blogPost.findUnique({ where: { slug: finalSlug }, select: { id: true } });
-  if (collision) {
-    finalSlug = `${finalSlug}-${String(publishedAt.getUTCHours()).padStart(2, "0")}${String(publishedAt.getUTCMinutes()).padStart(2, "0")}`;
+  for (let attempt = 0; attempt < 20; attempt++) {
+    const suffix = attempt === 0 ? null : attempt === 1 ? dayKey : `${dayKey}-${attempt}`;
+    const candidateSlug = withSlugSuffix(baseSlug, suffix);
+
+    try {
+      const record = await prisma.blogPost.create({
+        data: {
+          slug: candidateSlug,
+          title: draft.title,
+          excerpt: draft.excerpt,
+          content: draft.content,
+          seoKeywords: uniqueNonEmptyStrings(draft.seoKeywords) ?? Prisma.DbNull,
+          publishedAt,
+        },
+        select: { slug: true, title: true, publishedAt: true },
+      });
+
+      return record;
+    } catch (e) {
+      if (e instanceof Prisma.PrismaClientKnownRequestError && e.code === "P2002") {
+        const target = (e.meta as { target?: unknown } | undefined)?.target;
+        const targetText = Array.isArray(target) ? target.join(",") : typeof target === "string" ? target : "";
+        if (targetText.includes("slug")) continue;
+      }
+      throw e;
+    }
   }
 
-  const record = await prisma.blogPost.create({
-    data: {
-      slug: finalSlug,
-      title: draft.title,
-      excerpt: draft.excerpt,
-      content: draft.content,
-      seoKeywords: uniqueNonEmptyStrings(draft.seoKeywords) ?? Prisma.DbNull,
-      publishedAt,
-    },
-    select: { slug: true, title: true, publishedAt: true },
-  });
-
-  return record;
+  throw new Error("Failed to create blog post: could not generate a unique slug");
 }
 
 export async function runWeeklyGeneration({ force = false }: { force?: boolean } = {}) {
