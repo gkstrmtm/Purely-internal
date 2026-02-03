@@ -5,8 +5,8 @@ import { requireManagerSession } from "@/lib/apiAuth";
 import { runBackfillBatch } from "@/lib/blogAutomation";
 
 const bodySchema = z.object({
-  count: z.number().int().min(1).max(60).default(12),
-  daysBetween: z.number().int().min(1).max(120).default(7),
+  count: z.number().int().min(1).max(3650).default(12),
+  daysBetween: z.number().int().min(1).max(365).default(7),
   offset: z.number().int().min(0).default(0),
   maxPerRequest: z.number().int().min(1).max(20).default(6),
   timeBudgetSeconds: z.number().min(5).max(60).default(18),

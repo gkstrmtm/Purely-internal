@@ -322,7 +322,7 @@ export default function ManagerBlogsClient() {
       <div className="rounded-2xl border border-zinc-200 p-5">
         <div className="text-sm font-semibold text-brand-ink">Backfill (batch)</div>
         <p className="mt-1 text-xs text-zinc-600">
-          Creates older posts spaced by daysBetween. Uses offset + maxPerRequest so you can run safely in batches.
+          Creates older posts spaced by daysBetween. Increase Count to go further back in time. Uses offset + maxPerRequest so you can run safely in batches.
         </p>
 
         <div className="mt-4 grid gap-3 sm:grid-cols-5">

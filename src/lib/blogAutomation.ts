@@ -336,8 +336,8 @@ function dayRangeUtc(date: Date) {
 }
 
 export async function runBackfillBatch(params: BackfillParams) {
-  const count = Math.min(60, Math.max(1, params.count));
-  const daysBetween = Math.min(120, Math.max(1, params.daysBetween));
+  const count = Math.min(3650, Math.max(1, params.count));
+  const daysBetween = Math.min(365, Math.max(1, params.daysBetween));
   const offset = Math.min(count, Math.max(0, params.offset));
   const maxPerRequest = Math.min(20, Math.max(1, params.maxPerRequest));
   const timeBudgetSeconds = Math.min(60, Math.max(5, params.timeBudgetSeconds));
