@@ -36,26 +36,39 @@ export async function POST(req: Request) {
   const json = await req.json().catch(() => null);
   const parsed = bodySchema.safeParse(json);
   if (!parsed.success) {
-    return NextResponse.json({ error: "Invalid payload" }, { status: 400 });
+    const first = parsed.error.issues?.[0];
+    const field = first?.path?.[0];
+
+    let message = "Please check your details and try again.";
+    if (field === "requestId") message = "We could not find your request. Please try again.";
+    if (field === "startAt") message = "Please choose a time and try again.";
+    if (field === "durationMinutes") message = "Please choose a time and try again.";
+
+    return NextResponse.json({ error: message }, { status: 400 });
   }
 
   const request = await prisma.marketingDemoRequest.findUnique({
     where: { id: parsed.data.requestId },
     select: { id: true, leadId: true },
   });
-  if (!request) return NextResponse.json({ error: "Not found" }, { status: 404 });
+  if (!request) {
+    return NextResponse.json(
+      { error: "We could not find your request. Please try again." },
+      { status: 404 },
+    );
+  }
 
   const setterId = await getMarketingSetterId();
   if (!setterId) {
     return NextResponse.json(
-      { error: "Missing marketing setter user. Set MARKETING_SETTER_EMAIL." },
+      { error: "Booking is temporarily unavailable. Please try again soon." },
       { status: 500 },
     );
   }
 
   const startAt = new Date(parsed.data.startAt);
   if (Number.isNaN(startAt.getTime())) {
-    return NextResponse.json({ error: "Invalid startAt" }, { status: 400 });
+    return NextResponse.json({ error: "Please choose a valid time." }, { status: 400 });
   }
 
   const endAt = new Date(startAt.getTime() + parsed.data.durationMinutes * 60_000);
@@ -80,7 +93,10 @@ export async function POST(req: Request) {
   const eligible = closers.filter((c) => eligibleCloserIds.has(c.id));
 
   if (eligible.length === 0) {
-    return NextResponse.json({ error: "No closers available for that time" }, { status: 409 });
+    return NextResponse.json(
+      { error: "That time just became unavailable. Please choose a different time." },
+      { status: 409 },
+    );
   }
 
   // Remove closers with conflicting scheduled appointments.
@@ -101,7 +117,7 @@ export async function POST(req: Request) {
   const noConflict = eligible.filter((c) => !conflictSet.has(c.id));
   if (noConflict.length === 0) {
     return NextResponse.json(
-      { error: "All eligible closers are booked at that time" },
+      { error: "That time just became unavailable. Please choose a different time." },
       { status: 409 },
     );
   }

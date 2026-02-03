@@ -7,7 +7,8 @@ const bodySchema = z.object({
   name: z.string().trim().min(1).max(120),
   company: z.string().trim().min(1).max(160),
   email: z.string().trim().email().max(200),
-  phone: z.string().trim().max(40).optional(),
+  phone: z.string().trim().min(1).max(40),
+  goals: z.string().trim().max(400).optional(),
   optedIn: z.boolean().optional().default(false),
 });
 
@@ -56,13 +57,14 @@ export async function POST(req: Request) {
     if (field === "name") message = "Please enter your name.";
     if (field === "company") message = "Please enter your company name.";
     if (field === "email") message = "Please enter a valid email address.";
+    if (field === "phone") message = "Please enter a valid phone number.";
 
     return NextResponse.json({ error: message }, { status: 400 });
   }
 
-  const { name, company, email, phone, optedIn } = parsed.data;
-  const normalizedPhone = phone ? normalizePhoneForStorage(phone) : null;
-  if (phone && !normalizedPhone) {
+  const { name, company, email, phone, goals, optedIn } = parsed.data;
+  const normalizedPhone = normalizePhoneForStorage(phone);
+  if (!normalizedPhone) {
     return NextResponse.json({ error: "Please enter a valid phone number." }, { status: 400 });
   }
 
@@ -71,18 +73,18 @@ export async function POST(req: Request) {
   const lead = await prisma.lead.create({
     data: {
       businessName: company,
-      phone: normalizedPhone ?? "unknown",
+      phone: normalizedPhone,
       contactName: name,
       contactEmail: email,
       source: "MARKETING",
-      notes: "Marketing demo request",
+      notes: goals?.trim() ? `Marketing demo request\nGoals: ${goals.trim()}` : "Marketing demo request",
     },
   });
 
   const request = await prisma.marketingDemoRequest.upsert({
     where: { leadId: lead.id },
-    update: { name, company, email, phone: normalizedPhone ?? null, optedIn },
-    create: { leadId: lead.id, name, company, email, phone: normalizedPhone ?? null, optedIn },
+    update: { name, company, email, phone: normalizedPhone, optedIn },
+    create: { leadId: lead.id, name, company, email, phone: normalizedPhone, optedIn },
   });
 
   const now = new Date();
@@ -102,7 +104,7 @@ export async function POST(req: Request) {
     { requestId: request.id, channel: "EMAIL", to: email, body: emailBody, sendAt: followUpAt },
   ];
 
-  if (optedIn && normalizedPhone) {
+  if (optedIn) {
     messages.push({ requestId: request.id, channel: "SMS", to: normalizedPhone, body: smsBody, sendAt: now });
     messages.push({
       requestId: request.id,
