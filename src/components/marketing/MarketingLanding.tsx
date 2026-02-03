@@ -272,6 +272,101 @@ function FAQSection() {
   );
 }
 
+function WhyChoosePurely() {
+  const items = [
+    {
+      title: "Built around your workflow",
+      desc: "We map your exact process and automate the steps that waste time and attention.",
+      icon: "target" as const,
+    },
+    {
+      title: "Integrations that actually stick",
+      desc: "Connect forms, email, SMS, calendars, CRMs, and internal tools so handoffs stay consistent.",
+      icon: "message" as const,
+    },
+    {
+      title: "Fast iterations",
+      desc: "Ship a useful automation quickly, then improve it based on real usage and edge cases.",
+      icon: "dial" as const,
+    },
+    {
+      title: "Clear visibility",
+      desc: "Simple reporting so you can see what is working and where leads are getting stuck.",
+      icon: "chart" as const,
+    },
+  ];
+
+  return (
+    <section className="mx-auto mt-12 max-w-6xl px-6">
+      <div className="mx-auto max-w-5xl rounded-[28px] bg-white/95 p-8 shadow-sm">
+        <div className="text-center font-brand text-3xl text-brand-blue">why choose purely</div>
+        <div className="mt-2 text-center text-base text-brand-ink">
+          Clean systems that save time and compound.
+        </div>
+
+        <div className="mt-8 grid grid-cols-1 gap-4 sm:grid-cols-2">
+          {items.map((item) => (
+            <div key={item.title} className="rounded-2xl bg-[#f7f5ef] p-6 shadow-sm">
+              <div className="flex items-start gap-3">
+                <div className="mt-0.5 grid h-10 w-10 place-items-center rounded-xl bg-brand-blue/10">
+                  <FeatureIcon name={item.icon} />
+                </div>
+                <div>
+                  <div className="text-base font-semibold text-zinc-900">{item.title}</div>
+                  <div className="mt-1 text-sm text-zinc-700">{item.desc}</div>
+                </div>
+              </div>
+            </div>
+          ))}
+        </div>
+      </div>
+    </section>
+  );
+}
+
+function WhatToExpect() {
+  const steps = [
+    {
+      title: "We learn your workflow",
+      desc: "A quick call to understand your steps, tools, and what needs to happen automatically.",
+      icon: "phone" as const,
+    },
+    {
+      title: "We build the first automation",
+      desc: "We connect the pieces and ship a working version you can use right away.",
+      icon: "dispatch" as const,
+    },
+    {
+      title: "We refine and expand",
+      desc: "We tighten edge cases, add reporting, and scale out to the next workflows.",
+      icon: "chart" as const,
+    },
+  ];
+
+  return (
+    <section className="mx-auto mt-12 max-w-6xl px-6">
+      <div className="mx-auto max-w-5xl rounded-[28px] bg-[#f7f5ef] p-8 shadow-sm">
+        <div className="text-center font-brand text-3xl text-brand-blue">what to expect</div>
+        <div className="mt-2 text-center text-base text-brand-ink">
+          A simple process that gets results.
+        </div>
+
+        <div className="mt-8 grid grid-cols-1 gap-4 md:grid-cols-3">
+          {steps.map((s) => (
+            <div key={s.title} className="rounded-2xl bg-white p-6 shadow-sm">
+              <div className="grid h-11 w-11 place-items-center rounded-2xl bg-brand-blue/10">
+                <FeatureIcon name={s.icon} />
+              </div>
+              <div className="mt-4 text-base font-semibold text-zinc-900">{s.title}</div>
+              <div className="mt-2 text-sm text-zinc-700">{s.desc}</div>
+            </div>
+          ))}
+        </div>
+      </div>
+    </section>
+  );
+}
+
 function formatLocalDateTime(iso: string) {
   const d = new Date(iso);
   if (Number.isNaN(d.getTime())) return iso;
@@ -687,19 +782,25 @@ export function MarketingLanding() {
 
           <AutomationHighlights />
 
+          <WhyChoosePurely />
+
           <section id="book" ref={bookingRef} className="mx-auto mt-12 max-w-6xl px-6">
             <BookingWidget />
           </section>
+
+          <WhatToExpect />
 
           <FAQSection />
         </div>
 
         <footer className="pb-10">
-          <div className="mx-auto flex max-w-6xl flex-col gap-2 px-6 text-sm text-zinc-600 sm:flex-row sm:items-center sm:justify-between">
-            <div>Purely Automation</div>
-            <Link className="hover:text-zinc-900" href="/login">
-              employee? log in here
-            </Link>
+          <div className="mx-auto max-w-6xl px-6 pt-10">
+            <div className="flex flex-col items-center justify-between gap-3 border-t border-zinc-200 pt-8 text-base font-semibold text-zinc-700 sm:flex-row">
+              <div>© {new Date().getFullYear()} Purely Automation. All rights reserved.</div>
+              <Link className="underline underline-offset-4 hover:text-zinc-900" href="/login">
+                employee? log in here
+              </Link>
+            </div>
           </div>
         </footer>
       </main>

@@ -1,6 +1,5 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
-  <rect width="512" height="512" rx="120" fill="#ffffff"/>
-  <!-- Play mark inspired by provided asset -->
+  <!-- Transparent background play mark -->
   <path d="M160 110
            C160 90 176 74 196 74
            L196 74
