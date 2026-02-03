@@ -1194,8 +1194,19 @@ export function MarketingLanding() {
 
   return (
     <div className="min-h-screen bg-white text-zinc-900" style={{ fontFamily: "Arial, Helvetica, sans-serif" }}>
-      <header className="fixed left-0 right-0 top-0 z-50 bg-brand-blue shadow-md">
+      <header className="sticky top-0 z-50 bg-brand-blue/85 shadow-md backdrop-blur-md">
         <div className="mx-auto flex h-14 max-w-6xl items-center justify-between px-6">
+          <Link href="/" className="flex items-center gap-3">
+            <Image
+              src="/brand/purity-5.png"
+              alt="Purely Automation"
+              width={140}
+              height={44}
+              className="h-8 w-auto object-contain"
+              priority
+            />
+          </Link>
+
           <div className="relative">
             <button
               type="button"
@@ -1212,8 +1223,8 @@ export function MarketingLanding() {
             </button>
 
             {menuOpen ? (
-              <div className="absolute left-0 mt-2 w-56 overflow-hidden rounded-2xl bg-white shadow-lg ring-1 ring-black/10">
-                <nav className="grid">
+              <div className="absolute right-0 top-full w-64 overflow-hidden rounded-b-2xl bg-brand-blue/95 shadow-lg ring-1 ring-white/15">
+                <nav className="grid border-t border-white/15">
                   {[
                     { href: "#top", label: "top" },
                     { href: "#demo", label: "see it in action" },
@@ -1227,28 +1238,36 @@ export function MarketingLanding() {
                       key={item.href}
                       href={item.href}
                       onClick={() => setMenuOpen(false)}
-                      className="px-4 py-3 text-sm font-semibold text-zinc-900 hover:bg-zinc-50"
+                      className="px-4 py-3 text-sm font-semibold text-white/95 hover:bg-white/10"
                     >
                       {item.label}
                     </a>
                   ))}
+
+                  <div className="h-px bg-white/15" />
+
+                  <Link
+                    href="/blogs"
+                    onClick={() => setMenuOpen(false)}
+                    className="px-4 py-3 text-sm font-semibold text-white/95 hover:bg-white/10"
+                  >
+                    automated blogs
+                  </Link>
+                  <Link
+                    href="/login"
+                    onClick={() => setMenuOpen(false)}
+                    className="px-4 py-3 text-sm font-semibold text-white/95 hover:bg-white/10"
+                  >
+                    employee login
+                  </Link>
                 </nav>
               </div>
             ) : null}
           </div>
-
-          <div className="flex items-center gap-4">
-            <Link className="text-sm font-semibold text-white/95 hover:text-white" href="/blogs">
-              automated blogs
-            </Link>
-            <Link className="text-sm font-semibold text-white/95 hover:text-white" href="/login">
-              employee login
-            </Link>
-          </div>
         </div>
       </header>
 
-      <main id="top" className="pt-14">
+      <main id="top">
         <section className="relative z-10 bg-white shadow-[0_18px_40px_rgba(0,0,0,0.08)]">
           <div className="mx-auto max-w-6xl px-6 pt-10">
             <div className="py-8">
