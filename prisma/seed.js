@@ -36,6 +36,16 @@ function addMinutes(d, m) {
 }
 
 async function main() {
+  const seedDemo =
+    process.env.SEED_DEMO_DATA === "1" ||
+    process.env.SEED_DEMO_DATA === "true" ||
+    process.env.SEED_DEMO_DATA === "yes";
+
+  if (!seedDemo) {
+    console.log("Seed skipped (set SEED_DEMO_DATA=1 to enable demo seeding).");
+    return;
+  }
+
   const inviteCode = process.env.SIGNUP_INVITE_CODE ?? "purely-dev";
 
   const adminEmail = (process.env.SEED_ADMIN_EMAIL ?? "admin@purelyautomation.dev").toLowerCase();

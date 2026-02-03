@@ -91,10 +91,13 @@ model Lead {
   id           String     @id @default(cuid())
   businessName String
   phone        String
+  contactName  String?
+  contactEmail String?
   website      String?
   location     String?
   niche        String?
   notes        String?
+  source       String?
   status       LeadStatus @default(NEW)
 
   createdAt DateTime @default(now())
@@ -104,6 +107,56 @@ model Lead {
   callLogs     CallLog[]
   appointments Appointment[]
   docs         Doc[]
+
+  marketingDemoRequest MarketingDemoRequest?
+}
+
+enum MarketingChannel {
+  EMAIL
+  SMS
+}
+
+enum MarketingMessageStatus {
+  PENDING
+  PROCESSING
+  SENT
+  SKIPPED
+  FAILED
+}
+
+model MarketingDemoRequest {
+  id      String @id @default(cuid())
+  leadId  String @unique
+  name    String
+  company String
+  email   String
+  phone   String?
+  optedIn Boolean @default(false)
+
+  createdAt DateTime @default(now())
+
+  lead     Lead              @relation(fields: [leadId], references: [id])
+  messages MarketingMessage[]
+}
+
+model MarketingMessage {
+  id        String @id @default(cuid())
+  requestId String
+
+  channel MarketingChannel
+  to      String
+  body    String
+  sendAt  DateTime
+
+  status MarketingMessageStatus @default(PENDING)
+  sentAt  DateTime?
+  error   String?
+
+  createdAt DateTime @default(now())
+
+  request MarketingDemoRequest @relation(fields: [requestId], references: [id])
+
+  @@index([status, sendAt])
 }
 
 model LeadAssignment {
