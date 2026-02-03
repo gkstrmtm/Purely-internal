@@ -1132,6 +1132,7 @@ export function MarketingLanding() {
   const [error, setError] = useState<string | null>(null);
   const [requestId, setRequestId] = useState<string | null>(null);
   const [menuOpen, setMenuOpen] = useState(false);
+  const [scrolled, setScrolled] = useState(false);
   const [prefill, setPrefill] = useState<null | {
     name: string;
     company: string;
@@ -1142,6 +1143,13 @@ export function MarketingLanding() {
 
   const formRef = useRef<HTMLDivElement | null>(null);
   const bookingRef = useRef<HTMLDivElement | null>(null);
+
+  useEffect(() => {
+    const onScroll = () => setScrolled(window.scrollY > 0);
+    onScroll();
+    window.addEventListener("scroll", onScroll, { passive: true });
+    return () => window.removeEventListener("scroll", onScroll);
+  }, []);
 
   function scrollToCalendar() {
     const el = bookingRef.current;
@@ -1194,11 +1202,16 @@ export function MarketingLanding() {
 
   return (
     <div className="min-h-screen bg-white text-zinc-900" style={{ fontFamily: "Arial, Helvetica, sans-serif" }}>
-      <header className="sticky top-0 z-50 bg-brand-blue/55 shadow-md backdrop-blur-md">
+      <header
+        className={
+          "sticky top-0 z-50 shadow-md transition-colors " +
+          (scrolled ? "bg-brand-blue/28 backdrop-blur-md" : "bg-brand-blue")
+        }
+      >
         <div className="mx-auto flex h-14 max-w-6xl items-center justify-between px-6">
           <Link href="/" className="flex items-center gap-3">
             <Image
-              src="/icon.svg"
+              src="/brand/playmark-untitled6.svg"
               alt="Purely Automation"
               width={36}
               height={36}
