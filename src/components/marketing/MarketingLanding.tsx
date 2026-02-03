@@ -207,7 +207,7 @@ function AutomationHighlights() {
   ];
 
   return (
-    <section className="mx-auto mt-12 max-w-6xl px-6">
+    <section id="automate" className="mx-auto mt-12 max-w-6xl scroll-mt-24 px-6">
       <div className="mx-auto max-w-5xl rounded-[28px] bg-[#f7f5ef] p-8 shadow-sm">
         <div className="text-center font-brand text-3xl text-brand-blue">what we automate</div>
         <div className="mt-2 text-center text-base text-brand-ink">
@@ -255,7 +255,7 @@ function FAQSection() {
   ];
 
   return (
-    <section className="mx-auto mt-12 max-w-6xl px-6 pb-4">
+    <section id="faq" className="mx-auto mt-12 max-w-6xl scroll-mt-24 px-6 pb-4">
       <div className="mx-auto max-w-5xl rounded-[28px] bg-white/95 p-8 shadow-sm">
         <div className="text-center font-brand text-3xl text-brand-blue">faq</div>
         <div className="mt-2 text-center text-base text-brand-ink">Quick answers to the common questions.</div>
@@ -300,7 +300,7 @@ function WhyChoosePurely() {
   ];
 
   return (
-    <section className="mx-auto mt-12 max-w-6xl px-6">
+    <section id="why" className="mx-auto mt-12 max-w-6xl scroll-mt-24 px-6">
       <div className="mx-auto max-w-5xl rounded-[28px] bg-white/95 p-8 shadow-sm">
         <div className="text-center font-brand text-3xl text-brand-blue">why choose purely</div>
         <div className="mt-2 text-center text-base text-brand-ink">
@@ -347,7 +347,7 @@ function WhatToExpect() {
   ];
 
   return (
-    <section className="mx-auto mt-12 max-w-6xl px-6">
+    <section id="process" className="mx-auto mt-12 max-w-6xl scroll-mt-24 px-6">
       <div className="mx-auto max-w-5xl rounded-[28px] bg-[#f7f5ef] p-8 shadow-sm">
         <div className="text-center font-brand text-3xl text-brand-blue">what to expect</div>
         <div className="mt-2 text-center text-base text-brand-ink">
@@ -833,7 +833,7 @@ function BookingWidget({
       </div>
 
       <div className="mt-2 text-center text-xs text-zinc-600">
-        Times are shown in your local time ({userTimeZone}). Our team operates in Eastern Time.
+        Times are shown in your local time ({userTimeZone}).
       </div>
 
       {uiError ? (
@@ -1131,6 +1131,7 @@ export function MarketingLanding() {
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [requestId, setRequestId] = useState<string | null>(null);
+  const [menuOpen, setMenuOpen] = useState(false);
   const [prefill, setPrefill] = useState<null | {
     name: string;
     company: string;
@@ -1193,7 +1194,61 @@ export function MarketingLanding() {
 
   return (
     <div className="min-h-screen bg-white text-zinc-900" style={{ fontFamily: "Arial, Helvetica, sans-serif" }}>
-      <main>
+      <header className="fixed left-0 right-0 top-0 z-50 bg-brand-blue shadow-md">
+        <div className="mx-auto flex h-14 max-w-6xl items-center justify-between px-6">
+          <div className="relative">
+            <button
+              type="button"
+              onClick={() => setMenuOpen((v) => !v)}
+              aria-label="Open menu"
+              aria-expanded={menuOpen}
+              className="grid h-10 w-10 place-items-center rounded-xl bg-white/10 text-white hover:bg-white/15 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/60"
+            >
+              <svg width="22" height="22" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+                <path d="M4 7h16" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
+                <path d="M4 12h16" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
+                <path d="M4 17h16" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
+              </svg>
+            </button>
+
+            {menuOpen ? (
+              <div className="absolute left-0 mt-2 w-56 overflow-hidden rounded-2xl bg-white shadow-lg ring-1 ring-black/10">
+                <nav className="grid">
+                  {[
+                    { href: "#top", label: "top" },
+                    { href: "#demo", label: "see it in action" },
+                    { href: "#automate", label: "what we automate" },
+                    { href: "#why", label: "why choose purely" },
+                    { href: "#book", label: "book a call" },
+                    { href: "#process", label: "what to expect" },
+                    { href: "#faq", label: "faq" },
+                  ].map((item) => (
+                    <a
+                      key={item.href}
+                      href={item.href}
+                      onClick={() => setMenuOpen(false)}
+                      className="px-4 py-3 text-sm font-semibold text-zinc-900 hover:bg-zinc-50"
+                    >
+                      {item.label}
+                    </a>
+                  ))}
+                </nav>
+              </div>
+            ) : null}
+          </div>
+
+          <div className="flex items-center gap-4">
+            <Link className="text-sm font-semibold text-white/95 hover:text-white" href="/blogs">
+              automated blogs
+            </Link>
+            <Link className="text-sm font-semibold text-white/95 hover:text-white" href="/login">
+              employee login
+            </Link>
+          </div>
+        </div>
+      </header>
+
+      <main id="top" className="pt-14">
         <section className="relative z-10 bg-white shadow-[0_18px_40px_rgba(0,0,0,0.08)]">
           <div className="mx-auto max-w-6xl px-6 pt-10">
             <div className="py-8">
@@ -1243,7 +1298,7 @@ export function MarketingLanding() {
         </section>
 
         <div className="bg-brand-blue py-14">
-          <section ref={formRef} className="mx-auto max-w-6xl px-6">
+          <section id="demo" ref={formRef} className="mx-auto max-w-6xl scroll-mt-24 px-6">
             <div
               className={
                 "mx-auto max-w-4xl overflow-hidden rounded-[28px] bg-[#f7f5ef] shadow-sm transition-all " +
@@ -1282,7 +1337,7 @@ export function MarketingLanding() {
 
           <WhyChoosePurely />
 
-          <section id="book" ref={bookingRef} className="mx-auto mt-12 max-w-6xl px-6 scroll-mt-4">
+          <section id="book" ref={bookingRef} className="mx-auto mt-12 max-w-6xl scroll-mt-24 px-6">
             <BookingWidget
               initialRequestId={requestId}
               onRequestId={(id) => setRequestId(id)}
