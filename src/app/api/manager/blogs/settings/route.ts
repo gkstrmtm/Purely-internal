@@ -15,6 +15,8 @@ export async function GET() {
   const auth = await requireManagerSession();
   if (!auth.ok) return NextResponse.json({ error: auth.status === 401 ? "Unauthorized" : "Forbidden" }, { status: auth.status });
 
+  const buildSha = process.env.VERCEL_GIT_COMMIT_SHA ?? null;
+
   const [settings, totalPosts, latest] = await Promise.all([
     getBlogAutomationSettingsSafe(),
     prisma.blogPost.count(),
@@ -23,6 +25,7 @@ export async function GET() {
 
   return NextResponse.json({
     ok: true,
+    buildSha,
     settings,
     stats: {
       totalPosts,

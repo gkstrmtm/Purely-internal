@@ -15,6 +15,7 @@ type Settings = {
 type SettingsResponse = {
   ok?: boolean;
   error?: string;
+  buildSha?: string | null;
   settings?: Settings;
   stats?: {
     totalPosts: number;
@@ -110,6 +111,7 @@ export default function ManagerBlogsClient() {
   const [topicQueueText, setTopicQueueText] = useState("");
 
   const [stats, setStats] = useState<SettingsResponse["stats"]>(undefined);
+  const [buildSha, setBuildSha] = useState<string | null>(null);
   const [lastResult, setLastResult] = useState<unknown>(null);
 
   const [forceWeekly, setForceWeekly] = useState(false);
@@ -159,6 +161,7 @@ export default function ManagerBlogsClient() {
     const data = await jsonFetch<SettingsResponse>("/api/manager/blogs/settings", { method: "GET" });
 
     setStats(data.stats);
+    setBuildSha(typeof data.buildSha === "string" ? data.buildSha : null);
 
     const s = data.settings;
     if (s) {
@@ -437,6 +440,7 @@ export default function ManagerBlogsClient() {
             <div className="mt-1 text-xs text-zinc-600">
               Total posts: {stats?.totalPosts ?? "—"}
               {stats?.latest?.slug ? ` • Latest: ${stats.latest.slug}` : ""}
+              {buildSha ? ` • Build: ${buildSha.slice(0, 8)}` : ""}
             </div>
           </div>
           <button
