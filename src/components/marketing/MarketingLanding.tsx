@@ -1194,15 +1194,15 @@ export function MarketingLanding() {
 
   return (
     <div className="min-h-screen bg-white text-zinc-900" style={{ fontFamily: "Arial, Helvetica, sans-serif" }}>
-      <header className="sticky top-0 z-50 bg-brand-blue/85 shadow-md backdrop-blur-md">
+      <header className="sticky top-0 z-50 bg-brand-blue/55 shadow-md backdrop-blur-md">
         <div className="mx-auto flex h-14 max-w-6xl items-center justify-between px-6">
           <Link href="/" className="flex items-center gap-3">
             <Image
-              src="/brand/purity-5.png"
+              src="/icon.svg"
               alt="Purely Automation"
-              width={140}
-              height={44}
-              className="h-8 w-auto object-contain"
+              width={36}
+              height={36}
+              className="h-9 w-9 object-contain"
               priority
             />
           </Link>
