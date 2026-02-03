@@ -93,6 +93,8 @@ model Lead {
   phone        String
   contactName  String?
   contactEmail String?
+  contactPhone String?
+  interestedService String?
   website      String?
   location     String?
   niche        String?
@@ -386,4 +388,20 @@ model BlogPost {
   updatedAt DateTime @updatedAt
 
   @@index([publishedAt])
+}
+
+model BlogAutomationSettings {
+  id String @id @default("singleton")
+
+  weeklyEnabled Boolean @default(true)
+
+  // Optional manager-curated list of future topics. When present,
+  // the weekly cron will use topics in order via topicQueueCursor.
+  topicQueue       Json?
+  topicQueueCursor Int  @default(0)
+
+  lastWeeklyRunAt DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 }

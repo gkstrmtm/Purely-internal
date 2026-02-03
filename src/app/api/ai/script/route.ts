@@ -30,7 +30,11 @@ export async function POST(req: Request) {
   const tweak = parsed.data.tweak?.trim();
 
   const userPrompt = [
-    `Write an outbound cold-call script for this business:`,
+    "Write an outbound cold-call script for a phone call.",
+    "You are calling FROM: Purely Automation. Always say the company name exactly as 'Purely Automation'.",
+    "Who you are talking to: the business itself. Address them as the business name (not a person's name) unless they volunteer a personal name.",
+    "Open with a direct line like: 'Hi, is this <Business Name>? This is <First Name> calling from Purely Automation.'",
+    "Do not claim you were referred or have prior context unless explicitly provided.",
     `Business: ${lead.businessName}`,
     lead.niche ? `Niche: ${lead.niche}` : "",
     lead.location ? `Location: ${lead.location}` : "",

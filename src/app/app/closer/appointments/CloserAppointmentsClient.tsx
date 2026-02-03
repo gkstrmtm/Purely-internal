@@ -43,6 +43,11 @@ export type CloserAppointment = {
     id: string;
     businessName: string;
     phone: string;
+    contactName?: string | null;
+    contactEmail?: string | null;
+    contactPhone?: string | null;
+    interestedService?: string | null;
+    source?: string | null;
     niche?: string | null;
     location?: string | null;
     website?: string | null;
@@ -589,6 +594,19 @@ export default function CloserAppointmentsClient({
               <div className="rounded-2xl border border-zinc-200 p-4">
                 <div className="text-sm font-semibold">{selected.lead.businessName}</div>
                 <div className="mt-1 text-xs text-zinc-600">{selected.lead.phone}</div>
+                {[selected.lead.contactName, selected.lead.contactEmail, selected.lead.contactPhone].some(Boolean) ? (
+                  <div className="mt-1 text-xs text-zinc-600">
+                    Contact: {[selected.lead.contactName, selected.lead.contactEmail, selected.lead.contactPhone]
+                      .filter(Boolean)
+                      .join(" • ")}
+                  </div>
+                ) : null}
+                {selected.lead.interestedService ? (
+                  <div className="mt-1 text-xs text-zinc-600">Interested in: {selected.lead.interestedService}</div>
+                ) : null}
+                {selected.lead.source ? (
+                  <div className="mt-1 text-xs text-zinc-600">Source: {selected.lead.source}</div>
+                ) : null}
                 <div className="mt-1 text-xs text-zinc-600">
                   {[selected.lead.niche, selected.lead.location].filter(Boolean).join(" • ")}
                 </div>

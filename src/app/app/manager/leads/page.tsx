@@ -41,6 +41,19 @@ export default async function ManagerLeadsPage() {
                   <div>
                     <div className="text-sm font-semibold text-brand-ink">{l.businessName}</div>
                     <div className="mt-1 text-xs text-zinc-600">{l.phone}</div>
+                    {[l.contactName, l.contactEmail, l.contactPhone].some(Boolean) ? (
+                      <div className="mt-1 text-xs text-zinc-600">
+                        Contact: {[l.contactName, l.contactEmail, l.contactPhone]
+                          .filter(Boolean)
+                          .join(" • ")}
+                      </div>
+                    ) : null}
+                    {l.interestedService ? (
+                      <div className="mt-1 text-xs text-zinc-600">Interested in: {l.interestedService}</div>
+                    ) : null}
+                    {l.source ? (
+                      <div className="mt-1 text-xs text-zinc-600">Source: {l.source}</div>
+                    ) : null}
                     <div className="mt-1 text-xs text-zinc-600">
                       {(l.niche ?? "") + (l.niche && l.location ? " • " : "") + (l.location ?? "")}
                     </div>

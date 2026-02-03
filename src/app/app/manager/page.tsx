@@ -124,6 +124,13 @@ export default async function ManagerHome() {
             >
               View appointments
             </Link>
+
+            <Link
+              className="inline-flex items-center justify-center rounded-2xl border border-zinc-200 bg-white px-5 py-3 text-base font-semibold text-brand-ink hover:bg-zinc-50"
+              href="/app/manager/blogs"
+            >
+              Blog automation
+            </Link>
             <Link
               className="inline-flex items-center justify-center rounded-2xl border border-zinc-200 bg-white px-5 py-3 text-base font-semibold text-brand-ink hover:bg-zinc-50"
               href="/app/dialer"

@@ -20,7 +20,7 @@ function NavLinks({ items }: { items: NavItem[] }) {
   const pathname = usePathname();
 
   return (
-    <nav className="hidden flex-nowrap items-center gap-2 overflow-x-auto whitespace-nowrap text-base sm:flex">
+    <nav className="flex flex-nowrap items-center gap-2 overflow-x-auto whitespace-nowrap text-sm sm:text-base">
       {items.map((item) => {
         const active = isActive(pathname, item.href);
         return (
@@ -58,7 +58,7 @@ function ManagerViewSwitcher() {
   ];
 
   return (
-    <div className="hidden flex-nowrap items-center gap-1 overflow-x-auto whitespace-nowrap rounded-2xl border border-zinc-200 bg-white p-1 sm:flex">
+    <div className="flex flex-nowrap items-center gap-1 overflow-x-auto whitespace-nowrap rounded-2xl border border-zinc-200 bg-white p-1">
       {items.map((i) => {
         const isOn =
           (active === "manager" && i.href === "/app/manager") ||
@@ -109,6 +109,7 @@ export function AppTopNav({ role }: { role?: string }) {
 
   const managerItems: NavItem[] = [
     { href: "/app/manager", label: "Dashboard" },
+    { href: "/app/manager/blogs", label: "Blogs" },
     { href: "/app/manager/leads", label: "Leads" },
     { href: "/app/manager/calls", label: "Calls" },
     { href: "/app/manager/appointments", label: "Appointments" },

@@ -89,6 +89,20 @@ export async function POST(req: Request) {
   const followUpAt = followUpAtIso ? new Date(followUpAtIso) : null;
 
   const log = await prisma.$transaction(async (tx) => {
+    if (contactName || contactEmail || contactPhone) {
+      await tx.lead.update({
+        where: { id: leadId },
+        data: {
+          contactName: contactName ? contactName.trim() : undefined,
+          contactEmail: contactEmail ? contactEmail.trim() : undefined,
+          contactPhone: contactPhone ? contactPhone.trim() : undefined,
+          source: lead.source ?? "DIALER",
+        },
+      });
+    } else if (!lead.source) {
+      await tx.lead.update({ where: { id: leadId }, data: { source: "DIALER" } });
+    }
+
     const created = await tx.callLog.create({
       data: {
         dialerId: userId,

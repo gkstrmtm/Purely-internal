@@ -45,14 +45,22 @@ export async function POST(req: Request) {
   const tweak = parsed.data.tweak?.trim();
   const prep = (parsed.data.prepContent ?? appt.prepDoc?.content ?? "").trim();
 
+  const contactLine = appt.lead.contactName
+    ? `Contact: ${appt.lead.contactName}${appt.lead.contactEmail ? ` (${appt.lead.contactEmail})` : ""}${appt.lead.contactPhone ? ` • ${appt.lead.contactPhone}` : ""}`
+    : "Contact: (not provided)";
+
   const userPrompt = [
     "Write a discovery / closer call script for a sales meeting.",
     "This is NOT a cold outbound opener — assume the meeting is booked and you are the closer.",
+    "You are calling FROM: Purely Automation. Always say the company name exactly as 'Purely Automation'.",
+    "If a contact person's name is provided, use it naturally in the script.",
     "",
     `Business: ${appt.lead.businessName}`,
     appt.lead.niche ? `Niche: ${appt.lead.niche}` : "",
     appt.lead.location ? `Location: ${appt.lead.location}` : "",
     appt.lead.website ? `Website: ${appt.lead.website}` : "",
+    contactLine,
+    appt.lead.interestedService ? `Interested in: ${appt.lead.interestedService}` : "",
     "",
     appt.setter?.name ? `Setter: ${appt.setter.name} (${appt.setter.email})` : "",
     appt.closer?.name ? `Closer: ${appt.closer.name} (${appt.closer.email})` : "",

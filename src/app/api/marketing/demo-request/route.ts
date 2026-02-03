@@ -88,6 +88,8 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: "Please enter a valid phone number." }, { status: 400 });
   }
 
+  const interestedService = goals?.trim() ? goals.trim() : null;
+
   // Always create a new lead for marketing requests.
   // (Lead fields are not unique; avoiding upsert prevents runtime errors.)
   const lead = await prisma.lead.create({
@@ -96,6 +98,8 @@ export async function POST(req: Request) {
       phone: normalizedPhone,
       contactName: name,
       contactEmail: email,
+      contactPhone: normalizedPhone,
+      interestedService: interestedService,
       source: "MARKETING",
       notes: goals?.trim() ? `Marketing demo request\nGoals: ${goals.trim()}` : "Marketing demo request",
     },

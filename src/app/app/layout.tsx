@@ -1,10 +1,18 @@
 import Link from "next/link";
 import Image from "next/image";
 import { getServerSession } from "next-auth";
+import type { Metadata } from "next";
 
 import { AppTopNav } from "@/components/AppTopNav";
 import { SignOutButton } from "@/components/SignOutButton";
 import { authOptions } from "@/lib/auth";
+
+export const metadata: Metadata = {
+  icons: {
+    icon: [{ url: "/brand/purity-5.png", type: "image/png" }],
+    apple: [{ url: "/brand/purity-5.png", type: "image/png" }],
+  },
+};
 
 export default async function AppLayout({
   children,
