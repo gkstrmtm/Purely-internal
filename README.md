@@ -34,7 +34,13 @@ Open http://localhost:3000
 
 - Build Command: `npm run vercel-build`
 
-First deploy will run `prisma db push` and create tables.
+Deploy the DB schema separately (recommended):
+
+```bash
+npm run db:deploy
+```
+
+Vercel builds do not require direct DB connectivity.
 
 ## Demo users (seed)
 
