@@ -387,6 +387,8 @@ export async function runBackfillBatch(params: BackfillParams) {
 
   const created: Array<{ slug: string; title: string; publishedAt: string }> = [];
   const skipped: Array<{ date: string; reason: string }> = [];
+  let stoppedEarly = false;
+  let stopReason: string | null = null;
 
   if (targetDates.length === 0) {
     return {
@@ -427,7 +429,11 @@ export async function runBackfillBatch(params: BackfillParams) {
     const limitedDrafts = drafts.slice(0, pending.length);
 
     for (let i = 0; i < pending.length; i++) {
-      if ((Date.now() - startedAt) / 1000 > timeBudgetSeconds) break;
+      if ((Date.now() - startedAt) / 1000 > timeBudgetSeconds) {
+        stoppedEarly = true;
+        stopReason = "Time budget exceeded before creating all posts. Increase Time budget (s) or lower Max per request and run again.";
+        break;
+      }
       const publishDate = pending[i];
       const draft = limitedDrafts[i];
 
@@ -440,12 +446,17 @@ export async function runBackfillBatch(params: BackfillParams) {
     }
   }
 
-  const nextOffset = offset + targetDates.length;
+  // Only advance offset past dates we actually handled.
+  // If we stop early due to time budget, we want the next run to retry remaining pending dates.
+  const handledInThisRun = created.length + skipped.length;
+  const nextOffset = offset + handledInThisRun;
   const hasMore = nextOffset < count;
 
   return {
     ok: true as const,
     anchor,
+    message: stopReason ?? undefined,
+    stoppedEarly: stoppedEarly || undefined,
     createdCount: created.length,
     skippedCount: skipped.length,
     created,
