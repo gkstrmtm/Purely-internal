@@ -20,7 +20,7 @@ function NavLinks({ items }: { items: NavItem[] }) {
   const pathname = usePathname();
 
   return (
-    <nav className="hidden items-center gap-2 text-base sm:flex">
+    <nav className="hidden flex-nowrap items-center gap-2 overflow-x-auto whitespace-nowrap text-base sm:flex">
       {items.map((item) => {
         const active = isActive(pathname, item.href);
         return (
@@ -58,7 +58,7 @@ function ManagerViewSwitcher() {
   ];
 
   return (
-    <div className="hidden items-center gap-1 rounded-2xl border border-zinc-200 bg-white p-1 sm:flex">
+    <div className="hidden flex-nowrap items-center gap-1 overflow-x-auto whitespace-nowrap rounded-2xl border border-zinc-200 bg-white p-1 sm:flex">
       {items.map((i) => {
         const isOn =
           (active === "manager" && i.href === "/app/manager") ||
@@ -122,7 +122,7 @@ export function AppTopNav({ role }: { role?: string }) {
         : managerItems;
 
     return (
-      <div className="flex items-center gap-3">
+      <div className="flex min-w-0 items-center gap-3">
         <ManagerViewSwitcher />
         <NavLinks items={sectionItems} />
       </div>
