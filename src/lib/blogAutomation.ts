@@ -20,6 +20,7 @@ type BackfillParams = {
   offset: number;
   maxPerRequest: number;
   timeBudgetSeconds: number;
+  anchor?: "NOW" | "OLDEST_POST";
 };
 
 function slugify(input: string) {
@@ -341,21 +342,51 @@ export async function runBackfillBatch(params: BackfillParams) {
   const offset = Math.min(count, Math.max(0, params.offset));
   const maxPerRequest = Math.min(20, Math.max(1, params.maxPerRequest));
   const timeBudgetSeconds = Math.min(60, Math.max(5, params.timeBudgetSeconds));
+  const anchor = params.anchor ?? "NOW";
 
   const now = new Date();
-  const dates: Date[] = [];
-  for (let i = count - 1; i >= 0; i--) {
-    const d = new Date(now);
-    d.setUTCDate(d.getUTCDate() - i * daysBetween);
-    dates.push(d);
-  }
+  const startedAt = Date.now();
 
-  const targetDates = dates.slice(offset, Math.min(count, offset + maxPerRequest));
+  let targetDates: Date[] = [];
+
+  if (anchor === "OLDEST_POST") {
+    const oldest = await prisma.blogPost.aggregate({
+      _min: { publishedAt: true },
+    });
+
+    const anchorDateRaw = oldest._min.publishedAt ?? now;
+    const anchorDate = new Date(
+      Date.UTC(
+        anchorDateRaw.getUTCFullYear(),
+        anchorDateRaw.getUTCMonth(),
+        anchorDateRaw.getUTCDate(),
+        10,
+        0,
+        0,
+        0,
+      ),
+    );
+
+    const endExclusive = Math.min(count, offset + maxPerRequest);
+    for (let idx = offset; idx < endExclusive; idx++) {
+      const step = idx + 1; // 1 = one step earlier than anchor
+      const d = new Date(anchorDate);
+      d.setUTCDate(d.getUTCDate() - step * daysBetween);
+      targetDates.push(d);
+    }
+  } else {
+    const dates: Date[] = [];
+    for (let i = count - 1; i >= 0; i--) {
+      const d = new Date(now);
+      d.setUTCDate(d.getUTCDate() - i * daysBetween);
+      dates.push(d);
+    }
+
+    targetDates = dates.slice(offset, Math.min(count, offset + maxPerRequest));
+  }
 
   const created: Array<{ slug: string; title: string; publishedAt: string }> = [];
   const skipped: Array<{ date: string; reason: string }> = [];
-
-  const startedAt = Date.now();
 
   if (targetDates.length === 0) {
     return {
@@ -365,6 +396,7 @@ export async function runBackfillBatch(params: BackfillParams) {
       skippedCount: 0,
       created,
       skipped,
+      anchor,
       offset,
       nextOffset: offset,
       hasMore: false,
@@ -413,6 +445,7 @@ export async function runBackfillBatch(params: BackfillParams) {
 
   return {
     ok: true as const,
+    anchor,
     createdCount: created.length,
     skippedCount: skipped.length,
     created,

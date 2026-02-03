@@ -74,6 +74,7 @@ export default function ManagerBlogsClient() {
   const [backfillOffset, setBackfillOffset] = useState(0);
   const [backfillMaxPerRequest, setBackfillMaxPerRequest] = useState(6);
   const [backfillTimeBudget, setBackfillTimeBudget] = useState(18);
+  const [backfillAnchor, setBackfillAnchor] = useState<"NOW" | "OLDEST_POST">("OLDEST_POST");
 
   const [datesText, setDatesText] = useState("2025-08-01\n2025-08-08\n2025-08-15");
 
@@ -172,6 +173,7 @@ export default function ManagerBlogsClient() {
         offset: backfillOffset,
         maxPerRequest: backfillMaxPerRequest,
         timeBudgetSeconds: backfillTimeBudget,
+        anchor: backfillAnchor,
       }),
     });
     setLastResult(data);
@@ -324,6 +326,18 @@ export default function ManagerBlogsClient() {
         <p className="mt-1 text-xs text-zinc-600">
           Creates older posts spaced by daysBetween. Increase Count to go further back in time. Uses offset + maxPerRequest so you can run safely in batches.
         </p>
+
+        <div className="mt-4 flex flex-wrap items-center gap-3 text-sm text-zinc-700">
+          <label className="text-xs text-zinc-600">Anchor</label>
+          <select
+            className="rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm"
+            value={backfillAnchor}
+            onChange={(e) => setBackfillAnchor((e.target.value as "NOW" | "OLDEST_POST") ?? "OLDEST_POST")}
+          >
+            <option value="OLDEST_POST">Oldest existing post (keep going further back)</option>
+            <option value="NOW">Today (fills recent history)</option>
+          </select>
+        </div>
 
         <div className="mt-4 grid gap-3 sm:grid-cols-5">
           <label className="text-xs text-zinc-600">

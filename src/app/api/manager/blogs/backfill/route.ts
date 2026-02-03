@@ -10,6 +10,7 @@ const bodySchema = z.object({
   offset: z.number().int().min(0).default(0),
   maxPerRequest: z.number().int().min(1).max(20).default(6),
   timeBudgetSeconds: z.number().min(5).max(60).default(18),
+  anchor: z.enum(["NOW", "OLDEST_POST"]).default("OLDEST_POST"),
 });
 
 export async function POST(req: Request) {
