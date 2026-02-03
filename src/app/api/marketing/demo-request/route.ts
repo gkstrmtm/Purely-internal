@@ -67,103 +67,116 @@ function buildSmsBody() {
 }
 
 export async function POST(req: Request) {
-  const json = await req.json().catch(() => null);
-  const parsed = bodySchema.safeParse(json);
-  if (!parsed.success) {
-    const first = parsed.error.issues?.[0];
-    const field = first?.path?.[0];
-
-    let message = "Please check your details and try again.";
-    if (field === "name") message = "Please enter your name.";
-    if (field === "company") message = "Please enter your company name.";
-    if (field === "email") message = "Please enter a valid email address.";
-    if (field === "phone") message = "Please enter a valid phone number.";
-
-    return NextResponse.json({ error: message }, { status: 400 });
-  }
-
-  const { name, company, email, phone, goals, optedIn } = parsed.data;
-  const normalizedPhone = normalizePhoneForStorage(phone);
-  if (!normalizedPhone) {
-    return NextResponse.json({ error: "Please enter a valid phone number." }, { status: 400 });
-  }
-
-  const interestedService = goals?.trim() ? goals.trim() : null;
-
-  // Always create a new lead for marketing requests.
-  // (Lead fields are not unique; avoiding upsert prevents runtime errors.)
-  const lead = await prisma.lead.create({
-    data: {
-      businessName: company,
-      phone: normalizedPhone,
-      contactName: name,
-      contactEmail: email,
-      contactPhone: normalizedPhone,
-      interestedService: interestedService,
-      source: "MARKETING",
-      notes: goals?.trim() ? `Marketing demo request\nGoals: ${goals.trim()}` : "Marketing demo request",
-    },
-  });
-
-  const request = await prisma.marketingDemoRequest.upsert({
-    where: { leadId: lead.id },
-    update: { name, company, email, phone: normalizedPhone, optedIn },
-    create: { leadId: lead.id, name, company, email, phone: normalizedPhone, optedIn },
-  });
-
-  const now = new Date();
-  const followUpAt = new Date(now.getTime() + 5 * 60_000);
-
-  const emailBody = buildEmailBody(name);
-  const smsBody = buildSmsBody();
-
-  const messages: Array<{
-    requestId: string;
-    channel: "EMAIL" | "SMS";
-    to: string;
-    body: string;
-    sendAt: Date;
-  }> = [
-    { requestId: request.id, channel: "EMAIL", to: email, body: emailBody, sendAt: now },
-    { requestId: request.id, channel: "EMAIL", to: email, body: emailBody, sendAt: followUpAt },
-  ];
-
-  if (optedIn) {
-    messages.push({ requestId: request.id, channel: "SMS", to: normalizedPhone, body: smsBody, sendAt: now });
-    messages.push({
-      requestId: request.id,
-      channel: "SMS",
-      to: normalizedPhone,
-      body: smsBody,
-      sendAt: followUpAt,
-    });
-  }
-
-  await prisma.marketingMessage.createMany({ data: messages });
-
-  // Best-effort internal notification.
   try {
-    const subject = "New demo request";
-    const body = [
-      "A new demo request was submitted.",
-      "",
-      `Name: ${name}`,
-      `Company: ${company}`,
-      `Email: ${email}`,
-      `Phone: ${normalizedPhone}`,
-      goals?.trim() ? `Goals: ${goals.trim()}` : null,
-      `Opted in: ${optedIn ? "yes" : "no"}`,
-      "",
-      `LeadId: ${lead.id}`,
-      `RequestId: ${request.id}`,
-    ]
-      .filter(Boolean)
-      .join("\n");
+    const json = await req.json().catch(() => null);
+    const parsed = bodySchema.safeParse(json);
+    if (!parsed.success) {
+      const first = parsed.error.issues?.[0];
+      const field = first?.path?.[0];
 
-    await sendInternalEmail(subject, body);
+      let message = "Please check your details and try again.";
+      if (field === "name") message = "Please enter your name.";
+      if (field === "company") message = "Please enter your company name.";
+      if (field === "email") message = "Please enter a valid email address.";
+      if (field === "phone") message = "Please enter a valid phone number.";
+
+      return NextResponse.json({ error: message }, { status: 400 });
+    }
+
+    const { name, company, email, phone, goals, optedIn } = parsed.data;
+    const normalizedPhone = normalizePhoneForStorage(phone);
+    if (!normalizedPhone) {
+      return NextResponse.json({ error: "Please enter a valid phone number." }, { status: 400 });
+    }
+
+    const interestedService = goals?.trim() ? goals.trim() : null;
+
+    // Always create a new lead for marketing requests.
+    // (Lead fields are not unique; avoiding upsert prevents runtime errors.)
+    const lead = await prisma.lead.create({
+      data: {
+        businessName: company,
+        phone: normalizedPhone,
+        contactName: name,
+        contactEmail: email,
+        contactPhone: normalizedPhone,
+        interestedService: interestedService,
+        source: "MARKETING",
+        notes: goals?.trim() ? `Marketing demo request\nGoals: ${goals.trim()}` : "Marketing demo request",
+      },
+    });
+
+    const request = await prisma.marketingDemoRequest.upsert({
+      where: { leadId: lead.id },
+      update: { name, company, email, phone: normalizedPhone, optedIn },
+      create: { leadId: lead.id, name, company, email, phone: normalizedPhone, optedIn },
+    });
+
+    const now = new Date();
+    const followUpAt = new Date(now.getTime() + 5 * 60_000);
+
+    const emailBody = buildEmailBody(name);
+    const smsBody = buildSmsBody();
+
+    const messages: Array<{
+      requestId: string;
+      channel: "EMAIL" | "SMS";
+      to: string;
+      body: string;
+      sendAt: Date;
+    }> = [
+      { requestId: request.id, channel: "EMAIL", to: email, body: emailBody, sendAt: now },
+      { requestId: request.id, channel: "EMAIL", to: email, body: emailBody, sendAt: followUpAt },
+    ];
+
+    if (optedIn) {
+      messages.push({ requestId: request.id, channel: "SMS", to: normalizedPhone, body: smsBody, sendAt: now });
+      messages.push({
+        requestId: request.id,
+        channel: "SMS",
+        to: normalizedPhone,
+        body: smsBody,
+        sendAt: followUpAt,
+      });
+    }
+
+    // Best-effort: the form submission should succeed even if follow-up scheduling breaks.
+    try {
+      await prisma.marketingMessage.createMany({ data: messages });
+    } catch {
+      // Swallow message-scheduling failures.
+    }
+
+    // Best-effort internal notification.
+    try {
+      const subject = "New demo request";
+      const body = [
+        "A new demo request was submitted.",
+        "",
+        `Name: ${name}`,
+        `Company: ${company}`,
+        `Email: ${email}`,
+        `Phone: ${normalizedPhone}`,
+        goals?.trim() ? `Goals: ${goals.trim()}` : null,
+        `Opted in: ${optedIn ? "yes" : "no"}`,
+        "",
+        `LeadId: ${lead.id}`,
+        `RequestId: ${request.id}`,
+      ]
+        .filter(Boolean)
+        .join("\n");
+
+      await sendInternalEmail(subject, body);
+    } catch {
+      // Swallow internal-email failures.
+    }
+
+    return NextResponse.json({ requestId: request.id, leadId: lead.id });
   } catch {
-    // Swallow internal-email failures.
+    // Ensure the client always receives JSON (not a generic HTML 500).
+    return NextResponse.json(
+      { error: "Submit failed. Please try again." },
+      { status: 500 },
+    );
   }
-
-  return NextResponse.json({ requestId: request.id, leadId: lead.id });
 }
