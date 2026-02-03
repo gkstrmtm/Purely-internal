@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 
 import { Prisma } from "@prisma/client";
 import { generateText } from "@/lib/ai";
+import { stripDoubleAsterisks } from "@/lib/blog";
 import { prisma } from "@/lib/db";
 
 function slugify(input: string) {
@@ -38,10 +39,10 @@ function assertDraft(value: unknown): BlogDraft {
   if (!v.content || typeof v.content !== "string") throw new Error("AI draft missing content");
 
   return {
-    title: v.title.trim(),
+    title: stripDoubleAsterisks(v.title.trim()),
     slug: v.slug && typeof v.slug === "string" ? v.slug.trim() : undefined,
-    excerpt: v.excerpt.trim(),
-    content: v.content.trim(),
+    excerpt: stripDoubleAsterisks(v.excerpt.trim()),
+    content: stripDoubleAsterisks(v.content.trim()),
     seoKeywords: Array.isArray(v.seoKeywords) ? v.seoKeywords.filter((k) => typeof k === "string") : undefined,
   };
 }
@@ -183,6 +184,7 @@ export async function GET(req: Request) {
     "- slug must be URL-safe (lowercase, hyphens).",
     "- excerpt must be 1 to 2 sentences.",
     "- content must be plain text with headings using '## ' and optional bullet lists with '- '.",
+    "- Do not use markdown emphasis like **bold** or *italics*. Do not include asterisks for styling.",
     "- End the post with a short call to action that tells readers to book a call on purelyautomation.com.",
     "- No em dashes, no emojis.",
     "Create one post for each item below, in the same order:",

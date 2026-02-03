@@ -4,12 +4,16 @@ export type BlogBlock =
   | { type: "p"; text: string }
   | { type: "ul"; items: string[] };
 
+export function stripDoubleAsterisks(input: string): string {
+  return input.replace(/\*\*/g, "");
+}
+
 function normalizeLine(line: string): string {
   return line.replace(/\s+/g, " ").trim();
 }
 
 export function parseBlogContent(content: string): BlogBlock[] {
-  const lines = content.replace(/\r\n/g, "\n").split("\n");
+  const lines = stripDoubleAsterisks(content).replace(/\r\n/g, "\n").split("\n");
   const blocks: BlogBlock[] = [];
 
   let paragraph: string[] = [];
