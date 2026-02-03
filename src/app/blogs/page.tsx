@@ -2,6 +2,7 @@ import Image from "next/image";
 import Link from "next/link";
 
 import { prisma } from "@/lib/db";
+import { hasPublicColumn } from "@/lib/dbSchema";
 import { buildBlogCtaText, formatBlogDate } from "@/lib/blog";
 
 export const dynamic = "force-dynamic";
@@ -29,7 +30,9 @@ export default async function BlogsIndexPage(props: PageProps) {
 
   let posts: Array<{ slug: string; title: string; excerpt: string; publishedAt: Date }> = [];
   try {
+    const hasArchivedAt = await hasPublicColumn("BlogPost", "archivedAt");
     posts = await prisma.blogPost.findMany({
+      ...(hasArchivedAt ? { where: { archivedAt: null } } : {}),
       orderBy: { publishedAt: "desc" },
       take,
       skip,

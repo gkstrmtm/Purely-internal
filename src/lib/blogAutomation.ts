@@ -3,6 +3,7 @@ import { Prisma } from "@prisma/client";
 import { generateText } from "@/lib/ai";
 import { stripDoubleAsterisks } from "@/lib/blog";
 import { prisma } from "@/lib/db";
+import { hasPublicColumn } from "@/lib/dbSchema";
 
 export type BlogDraft = {
   title: string;
@@ -373,16 +374,20 @@ function blogUserPromptForOne(
     avoidSlugs?: string[];
   },
 ) {
-  const avoidTitles = (opts?.avoidTitles ?? []).filter(Boolean).slice(0, 25);
-  const avoidSlugs = (opts?.avoidSlugs ?? []).filter(Boolean).slice(0, 25);
+  const avoidTitles = (opts?.avoidTitles ?? []).filter(Boolean).slice(0, 120);
+  const avoidSlugs = (opts?.avoidSlugs ?? []).filter(Boolean).slice(0, 120);
 
   return [
     "Create one SEO-friendly blog post for Purely Automation.",
     "Company positioning: Purely builds systems that automate blogging so businesses do not spend hours writing, editing, and publishing every week.",
     `Topic: ${topic}`,
     "Audience: small to mid-size service businesses and operators.",
-    avoidTitles.length ? `Do NOT reuse any of these titles (write a different title): ${avoidTitles.join(" | ")}` : null,
-    avoidSlugs.length ? `Do NOT reuse any of these slugs (write a different slug): ${avoidSlugs.join(" | ")}` : null,
+    avoidTitles.length
+      ? `Do NOT reuse any of these titles (write a different title). Existing titles: ${JSON.stringify(avoidTitles)}`
+      : null,
+    avoidSlugs.length
+      ? `Do NOT reuse any of these slugs (write a different slug). Existing slugs: ${JSON.stringify(avoidSlugs)}`
+      : null,
     "Requirements:",
     "- Return ONLY valid JSON. No extra text.",
     "- JSON keys: title, slug, excerpt, content, seoKeywords.",
@@ -397,11 +402,22 @@ function blogUserPromptForOne(
     .join("\n");
 }
 
-function blogUserPromptForMany(plan: Array<{ date: string; topic: string }>) {
+function blogUserPromptForMany(
+  plan: Array<{ date: string; topic: string }>,
+  opts?: {
+    avoidTitles?: string[];
+    avoidSlugs?: string[];
+  },
+) {
+  const avoidTitles = (opts?.avoidTitles ?? []).filter(Boolean).slice(0, 80);
+  const avoidSlugs = (opts?.avoidSlugs ?? []).filter(Boolean).slice(0, 80);
+
   return [
     "Create SEO-friendly blog posts for Purely Automation.",
     "Company positioning: Purely builds systems that automate blogging so businesses do not spend hours writing, editing, and publishing every week.",
     "Audience: small to mid-size service businesses and operators.",
+    avoidTitles.length ? `Do NOT reuse any of these titles. Existing titles: ${JSON.stringify(avoidTitles)}` : null,
+    avoidSlugs.length ? `Do NOT reuse any of these slugs. Existing slugs: ${JSON.stringify(avoidSlugs)}` : null,
     "Return ONLY valid JSON. No extra text.",
     "JSON shape: { posts: [ { title, slug, excerpt, content, seoKeywords } ] }",
     "Rules for each post:",
@@ -413,7 +429,9 @@ function blogUserPromptForMany(plan: Array<{ date: string; topic: string }>) {
     "- No em dashes, no emojis.",
     "Create one post for each item below, in the same order:",
     JSON.stringify(plan),
-  ].join("\n");
+  ]
+    .filter(Boolean)
+    .join("\n");
 }
 
 export async function generateOneDraft(
@@ -432,10 +450,16 @@ export async function generateOneDraft(
   return assertDraft(tryParseJson(raw));
 }
 
-export async function generateManyDrafts(plan: Array<{ date: string; topic: string }>) {
+export async function generateManyDrafts(
+  plan: Array<{ date: string; topic: string }>,
+  opts?: {
+    avoidTitles?: string[];
+    avoidSlugs?: string[];
+  },
+) {
   const raw = await generateText({
     system: blogSystemPrompt(),
-    user: blogUserPromptForMany(plan),
+    user: blogUserPromptForMany(plan, opts),
     model: process.env.AI_MODEL ?? "gpt-4o-mini",
   });
 
@@ -443,7 +467,83 @@ export async function generateManyDrafts(plan: Array<{ date: string; topic: stri
   return drafts;
 }
 
+async function blogPostNonArchivedWhere(): Promise<Prisma.BlogPostWhereInput> {
+  const hasArchivedAt = await hasPublicColumn("BlogPost", "archivedAt");
+  return hasArchivedAt ? { archivedAt: null } : {};
+}
+
+function normalizeTitleKey(title: string) {
+  return String(title || "")
+    .toLowerCase()
+    .trim()
+    .replace(/\s+/g, " ");
+}
+
+async function getExistingAvoidLists(max: number) {
+  const where = await blogPostNonArchivedWhere();
+  const rows = await prisma.blogPost.findMany({
+    where,
+    orderBy: { publishedAt: "desc" },
+    take: Math.min(2000, Math.max(0, max)),
+    select: { title: true, slug: true },
+  });
+
+  return {
+    titles: rows.map((r) => r.title).filter(Boolean),
+    slugs: rows.map((r) => r.slug).filter(Boolean),
+  };
+}
+
+async function titleExistsInsensitive(title: string) {
+  const baseWhere = await blogPostNonArchivedWhere();
+  const found = await prisma.blogPost.findFirst({
+    where: {
+      ...baseWhere,
+      title: { equals: title, mode: "insensitive" },
+    },
+    select: { id: true },
+  });
+  return Boolean(found);
+}
+
+async function generateUniqueDraft(topic: string, opts?: { avoidTitles?: string[]; avoidSlugs?: string[] }) {
+  const avoidTitles = new Set((opts?.avoidTitles ?? []).filter(Boolean));
+  const avoidSlugs = new Set((opts?.avoidSlugs ?? []).filter(Boolean));
+
+  let lastDraft: BlogDraft | null = null;
+  for (let attempt = 0; attempt < 4; attempt++) {
+    const draft = await generateOneDraft(topic, {
+      avoidTitles: Array.from(avoidTitles),
+      avoidSlugs: Array.from(avoidSlugs),
+    });
+    lastDraft = draft;
+
+    const proposedSlug = slugify(draft.slug || draft.title);
+    const titleKey = normalizeTitleKey(draft.title);
+
+    const [dupTitle, dupSlug] = await Promise.all([
+      titleKey ? titleExistsInsensitive(draft.title) : Promise.resolve(false),
+      proposedSlug
+        ? prisma.blogPost.findUnique({ where: { slug: proposedSlug }, select: { id: true } }).then(Boolean).catch(() => false)
+        : Promise.resolve(false),
+    ]);
+
+    if (!dupTitle && !dupSlug && !avoidTitles.has(draft.title) && (!proposedSlug || !avoidSlugs.has(proposedSlug))) {
+      return draft;
+    }
+
+    avoidTitles.add(draft.title);
+    if (proposedSlug) avoidSlugs.add(proposedSlug);
+  }
+
+  return lastDraft ?? (await generateOneDraft(topic, opts));
+}
+
 async function createBlogPostFromDraft(draft: BlogDraft, publishedAt: Date) {
+  if (await titleExistsInsensitive(draft.title)) {
+    throw new Error(`Duplicate title detected: ${draft.title}`);
+  }
+
   const baseSlug = slugify(draft.slug || draft.title) || `automation-${isoDay(publishedAt)}`;
   const dayKey = isoDay(publishedAt).replace(/-/g, "");
 
@@ -520,8 +620,10 @@ export async function runWeeklyGeneration(
   );
   const threshold = new Date(now.getTime() - frequencyDays * 24 * 60 * 60 * 1000);
 
+  const nonArchivedWhere = await blogPostNonArchivedWhere();
+
   const existing = await prisma.blogPost.findFirst({
-    where: { publishedAt: { gt: threshold } },
+    where: { ...nonArchivedWhere, publishedAt: { gt: threshold } },
     orderBy: { publishedAt: "desc" },
     select: { slug: true, publishedAt: true },
   });
@@ -539,8 +641,35 @@ export async function runWeeklyGeneration(
   const queued = await takeNextQueuedTopic();
   const topic = queued.topic ?? pickTopic(now);
 
-  const draft = await generateOneDraft(topic);
-  const created = await createBlogPostFromDraft(draft, now);
+  const existingAvoid = await getExistingAvoidLists(600);
+  let created: { slug: string; title: string; publishedAt: Date } | null = null;
+  let lastDraft: BlogDraft | null = null;
+  const extraAvoidTitles: string[] = [];
+  const extraAvoidSlugs: string[] = [];
+
+  for (let attempt = 0; attempt < 4; attempt++) {
+    lastDraft = await generateUniqueDraft(topic, {
+      avoidTitles: [...existingAvoid.titles, ...extraAvoidTitles],
+      avoidSlugs: [...existingAvoid.slugs, ...extraAvoidSlugs],
+    });
+
+    try {
+      created = await createBlogPostFromDraft(lastDraft, now);
+      break;
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : "";
+      if (msg.toLowerCase().includes("duplicate title")) {
+        extraAvoidTitles.push(lastDraft.title);
+        extraAvoidSlugs.push(slugify(lastDraft.slug || lastDraft.title));
+        continue;
+      }
+      throw e;
+    }
+  }
+
+  if (!created) {
+    throw new Error(`Failed to create a unique blog post title after retries${lastDraft ? ` (last title: ${lastDraft.title})` : ""}`);
+  }
 
   try {
     await prisma.blogAutomationSettings.update({
@@ -579,7 +708,9 @@ export async function runBackfillBatch(params: BackfillParams) {
   let targetDates: Date[] = [];
 
   if (anchor === "OLDEST_POST") {
+    const nonArchivedWhere = await blogPostNonArchivedWhere();
     const oldest = await prisma.blogPost.aggregate({
+      where: nonArchivedWhere,
       _min: { publishedAt: true },
     });
 
@@ -621,6 +752,13 @@ export async function runBackfillBatch(params: BackfillParams) {
 
   const avoidTitles = new Set<string>();
   const avoidSlugs = new Set<string>();
+  try {
+    const existingAvoid = await getExistingAvoidLists(1200);
+    for (const t of existingAvoid.titles) avoidTitles.add(t);
+    for (const s of existingAvoid.slugs) avoidSlugs.add(s);
+  } catch {
+    // ignore
+  }
 
   const targetDateStrings = targetDates.map((d) => isoDay(d));
 
@@ -641,10 +779,11 @@ export async function runBackfillBatch(params: BackfillParams) {
   }
 
   const pending: Date[] = [];
+  const nonArchivedWhere = await blogPostNonArchivedWhere();
   for (const publishDate of targetDates) {
     const { dayStart, dayEnd } = dayRangeUtc(publishDate);
     const already = await prisma.blogPost.findFirst({
-      where: { publishedAt: { gte: dayStart, lt: dayEnd } },
+      where: { ...nonArchivedWhere, publishedAt: { gte: dayStart, lt: dayEnd } },
       select: { id: true },
     });
 
@@ -666,21 +805,32 @@ export async function runBackfillBatch(params: BackfillParams) {
 
       const topic = pickTopic(publishDate);
       try {
-        let draft = await generateOneDraft(topic, {
-          avoidTitles: Array.from(avoidTitles),
-          avoidSlugs: Array.from(avoidSlugs),
-        });
-
-        // If the draft would collide on slug, ask the AI once to propose a different title/slug.
-        const proposedSlug = slugify(draft.slug || draft.title) || `automation-${isoDay(publishDate)}`;
-        const slugExists = await prisma.blogPost.findUnique({ where: { slug: proposedSlug }, select: { id: true } });
-        if (slugExists || avoidTitles.has(draft.title) || avoidSlugs.has(proposedSlug)) {
-          avoidTitles.add(draft.title);
-          avoidSlugs.add(proposedSlug);
-          draft = await generateOneDraft(topic, {
+        let draft: BlogDraft | null = null;
+        let record: { slug: string; title: string; publishedAt: Date } | null = null;
+        for (let attempt = 0; attempt < 3; attempt++) {
+          draft = await generateUniqueDraft(topic, {
             avoidTitles: Array.from(avoidTitles),
             avoidSlugs: Array.from(avoidSlugs),
           });
+
+          const proposedSlug = slugify(draft.slug || draft.title) || `automation-${isoDay(publishDate)}`;
+          avoidTitles.add(draft.title);
+          avoidSlugs.add(proposedSlug);
+
+          try {
+            record = await createBlogPostFromDraft(draft, publishDate);
+            break;
+          } catch (e) {
+            const msg = e instanceof Error ? e.message : "";
+            if (msg.toLowerCase().includes("duplicate title")) {
+              continue;
+            }
+            throw e;
+          }
+        }
+
+        if (!record) {
+          throw new Error("Failed to create unique post after retries");
         }
 
         if ((Date.now() - startedAt) / 1000 > timeBudgetSeconds) {
@@ -689,7 +839,6 @@ export async function runBackfillBatch(params: BackfillParams) {
           break;
         }
 
-        const record = await createBlogPostFromDraft(draft, publishDate);
         avoidTitles.add(record.title);
         avoidSlugs.add(record.slug);
         created.push({
@@ -753,10 +902,11 @@ export async function runGenerateForDates(dateStrings: string[]) {
   const skipped: Array<{ date: string; reason: string }> = [];
 
   const pending: Date[] = [];
+  const nonArchivedWhere = await blogPostNonArchivedWhere();
   for (const publishDate of dates) {
     const { dayStart, dayEnd } = dayRangeUtc(publishDate);
     const already = await prisma.blogPost.findFirst({
-      where: { publishedAt: { gte: dayStart, lt: dayEnd } },
+      where: { ...nonArchivedWhere, publishedAt: { gte: dayStart, lt: dayEnd } },
       select: { id: true },
     });
 
@@ -770,16 +920,52 @@ export async function runGenerateForDates(dateStrings: string[]) {
 
   if (pending.length) {
     const plan = pending.map((d) => ({ date: isoDay(d), topic: pickTopic(d) }));
-    const drafts = await generateManyDrafts(plan);
+    const existingAvoid = await getExistingAvoidLists(1500).catch(() => ({ titles: [], slugs: [] }));
+    const drafts = await generateManyDrafts(plan, {
+      avoidTitles: existingAvoid.titles,
+      avoidSlugs: existingAvoid.slugs,
+    });
     const limitedDrafts = drafts.slice(0, pending.length);
 
+    const seenTitles = new Set<string>(existingAvoid.titles);
+    const seenTitleKeys = new Set<string>(existingAvoid.titles.map(normalizeTitleKey));
+    const seenSlugs = new Set<string>(existingAvoid.slugs);
+
     for (let i = 0; i < pending.length; i++) {
-      const record = await createBlogPostFromDraft(limitedDrafts[i], pending[i]);
-      created.push({
-        slug: record.slug,
-        title: record.title,
-        publishedAt: record.publishedAt.toISOString(),
-      });
+      const publishDate = pending[i];
+      const baseDraft = limitedDrafts[i];
+      if (!baseDraft) {
+        skipped.push({ date: isoDay(publishDate), reason: "AI did not return enough drafts" });
+        continue;
+      }
+
+      try {
+        let draft = baseDraft;
+        for (let attempt = 0; attempt < 3; attempt++) {
+          const titleKey = normalizeTitleKey(draft.title);
+          const proposedSlug = slugify(draft.slug || draft.title);
+          const dup = (titleKey && seenTitleKeys.has(titleKey)) || (proposedSlug && seenSlugs.has(proposedSlug));
+          if (!dup) break;
+
+          draft = await generateUniqueDraft(plan[i].topic, {
+            avoidTitles: Array.from(seenTitles).slice(0, 800),
+            avoidSlugs: Array.from(seenSlugs).slice(0, 800),
+          });
+        }
+
+        const record = await createBlogPostFromDraft(draft, publishDate);
+        seenTitles.add(record.title);
+        seenTitleKeys.add(normalizeTitleKey(record.title));
+        seenSlugs.add(record.slug);
+        created.push({
+          slug: record.slug,
+          title: record.title,
+          publishedAt: record.publishedAt.toISOString(),
+        });
+      } catch (e) {
+        const msg = e instanceof Error ? e.message : "Unknown error";
+        skipped.push({ date: isoDay(publishDate), reason: `Failed to generate/create: ${msg}` });
+      }
     }
   }
 

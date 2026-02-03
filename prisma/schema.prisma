@@ -384,10 +384,13 @@ model BlogPost {
 
   publishedAt DateTime @default(now())
 
+  archivedAt DateTime?
+
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
   @@index([publishedAt])
+  @@index([archivedAt])
 }
 
 model BlogAutomationSettings {

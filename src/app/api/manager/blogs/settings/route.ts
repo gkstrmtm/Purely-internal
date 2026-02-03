@@ -4,6 +4,7 @@ import { z } from "zod";
 import { prisma } from "@/lib/db";
 import { requireManagerSession } from "@/lib/apiAuth";
 import { ensureBlogAutomationSettingsTableSafe, getBlogAutomationSettingsSafe } from "@/lib/blogAutomation";
+import { hasPublicColumn } from "@/lib/dbSchema";
 import { stripDoubleAsterisks } from "@/lib/blog";
 
 export const dynamic = "force-dynamic";
@@ -15,10 +16,13 @@ export async function GET() {
 
   const buildSha = process.env.VERCEL_GIT_COMMIT_SHA ?? null;
 
+  const hasArchivedAt = await hasPublicColumn("BlogPost", "archivedAt");
+  const whereNonArchived = hasArchivedAt ? { archivedAt: null } : undefined;
+
   const [settings, totalPosts, latest] = await Promise.all([
     getBlogAutomationSettingsSafe(),
-    prisma.blogPost.count(),
-    prisma.blogPost.findFirst({ orderBy: { publishedAt: "desc" }, select: { slug: true, publishedAt: true } }),
+    prisma.blogPost.count(whereNonArchived ? { where: whereNonArchived } : undefined),
+    prisma.blogPost.findFirst({ where: whereNonArchived, orderBy: { publishedAt: "desc" }, select: { slug: true, publishedAt: true } }),
   ]);
 
   return NextResponse.json(

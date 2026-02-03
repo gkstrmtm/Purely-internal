@@ -3,6 +3,7 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 
 import { prisma } from "@/lib/db";
+import { hasPublicColumn } from "@/lib/dbSchema";
 import { buildBlogCtaText, formatBlogDate, parseBlogContent } from "@/lib/blog";
 
 export const dynamic = "force-dynamic";
@@ -14,10 +15,10 @@ export async function generateMetadata(props: PageProps) {
   const { slug } = await props.params;
 
   try {
-    const post = await prisma.blogPost.findUnique({
-      where: { slug },
-      select: { title: true, excerpt: true },
-    });
+    const hasArchivedAt = await hasPublicColumn("BlogPost", "archivedAt");
+    const post = hasArchivedAt
+      ? await prisma.blogPost.findFirst({ where: { slug, archivedAt: null }, select: { title: true, excerpt: true } })
+      : await prisma.blogPost.findUnique({ where: { slug }, select: { title: true, excerpt: true } });
 
     if (!post) return {};
 
@@ -45,10 +46,16 @@ export default async function BlogPostPage(props: PageProps) {
     | null = null;
 
   try {
-    post = await prisma.blogPost.findUnique({
-      where: { slug },
-      select: { slug: true, title: true, excerpt: true, content: true, publishedAt: true },
-    });
+    const hasArchivedAt = await hasPublicColumn("BlogPost", "archivedAt");
+    post = hasArchivedAt
+      ? await prisma.blogPost.findFirst({
+          where: { slug, archivedAt: null },
+          select: { slug: true, title: true, excerpt: true, content: true, publishedAt: true },
+        })
+      : await prisma.blogPost.findUnique({
+          where: { slug },
+          select: { slug: true, title: true, excerpt: true, content: true, publishedAt: true },
+        });
   } catch {
     post = null;
   }

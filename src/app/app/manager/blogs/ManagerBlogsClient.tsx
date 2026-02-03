@@ -47,6 +47,31 @@ type SuggestTopicsResponse = {
   topics?: string[];
 };
 
+type ManagerPostRow = {
+  id: string;
+  slug: string;
+  title: string;
+  publishedAt: string;
+  archivedAt?: string | null;
+};
+
+type PostsResponse = {
+  ok?: boolean;
+  error?: string;
+  details?: string;
+  hasArchivedAt?: boolean;
+  posts?: ManagerPostRow[];
+};
+
+type BulkActionResponse = {
+  ok?: boolean;
+  error?: string;
+  details?: string;
+  action?: "archive" | "delete";
+  updated?: number;
+  deleted?: number;
+};
+
 function asStringArray(value: unknown): string[] {
   if (!Array.isArray(value)) return [];
   return value.filter((x) => typeof x === "string") as string[];
@@ -113,6 +138,13 @@ export default function ManagerBlogsClient() {
   const [stats, setStats] = useState<SettingsResponse["stats"]>(undefined);
   const [buildSha, setBuildSha] = useState<string | null>(null);
   const [lastResult, setLastResult] = useState<unknown>(null);
+
+  const [posts, setPosts] = useState<ManagerPostRow[]>([]);
+  const [postsLoading, setPostsLoading] = useState(false);
+  const [postsError, setPostsError] = useState<string | null>(null);
+  const [includeArchived, setIncludeArchived] = useState(false);
+  const [selectedPostIds, setSelectedPostIds] = useState<Record<string, boolean>>({});
+  const [bulkWorking, setBulkWorking] = useState<"archive" | "delete" | null>(null);
 
   const [forceWeekly, setForceWeekly] = useState(false);
 
@@ -181,6 +213,74 @@ export default function ManagerBlogsClient() {
     }
   }, [applySettings]);
 
+  const refreshPosts = useCallback(
+    async (opts?: { includeArchived?: boolean }) => {
+      const wantArchived = typeof opts?.includeArchived === "boolean" ? opts.includeArchived : includeArchived;
+      setPostsLoading(true);
+      setPostsError(null);
+      try {
+        const url = `/api/manager/blogs/posts?take=250&includeArchived=${wantArchived ? "1" : "0"}&ts=${Date.now()}`;
+        const data = await jsonFetch<PostsResponse>(url, { method: "GET" });
+        setPosts(Array.isArray(data.posts) ? data.posts : []);
+      } catch (e) {
+        setPosts([]);
+        setPostsError(e instanceof Error ? e.message : "Failed to load posts");
+      } finally {
+        setPostsLoading(false);
+      }
+    },
+    [includeArchived],
+  );
+
+  const selectedIds = useMemo(() => Object.keys(selectedPostIds).filter((id) => selectedPostIds[id]), [selectedPostIds]);
+
+  const togglePost = useCallback((id: string) => {
+    setSelectedPostIds((prev) => ({ ...prev, [id]: !prev[id] }));
+  }, []);
+
+  const toggleAllPosts = useCallback(() => {
+    setSelectedPostIds((prev) => {
+      const anySelected = posts.some((p) => prev[p.id]);
+      if (anySelected) return {};
+      const next: Record<string, boolean> = {};
+      for (const p of posts) next[p.id] = true;
+      return next;
+    });
+  }, [posts]);
+
+  const runBulk = useCallback(
+    async (action: "archive" | "delete") => {
+      const ids = selectedIds;
+      if (!ids.length) return;
+
+      if (action === "delete") {
+        const ok = window.confirm(`Delete ${ids.length} post(s) permanently? This cannot be undone.`);
+        if (!ok) return;
+      }
+
+      setBulkWorking(action);
+      setLastResult(null);
+      setError(null);
+      try {
+        const res = await jsonFetch<BulkActionResponse>(`/api/manager/blogs/posts/bulk`, {
+          method: "POST",
+          body: JSON.stringify({ action, ids }),
+        });
+        setLastResult(res);
+        setSelectedPostIds({});
+        await refreshPosts();
+        await refresh();
+      } catch (e) {
+        const msg = e instanceof Error ? e.message : "Bulk action failed";
+        setError(msg);
+        setLastResult({ ok: false, error: msg });
+      } finally {
+        setBulkWorking(null);
+      }
+    },
+    [refresh, refreshPosts, selectedIds],
+  );
+
   useEffect(() => {
     let alive = true;
     (async () => {
@@ -199,6 +299,21 @@ export default function ManagerBlogsClient() {
       alive = false;
     };
   }, [refresh]);
+
+  useEffect(() => {
+    let alive = true;
+    (async () => {
+      try {
+        if (!alive) return;
+        await refreshPosts({ includeArchived });
+      } catch {
+        // refreshPosts already sets state
+      }
+    })();
+    return () => {
+      alive = false;
+    };
+  }, [includeArchived, refreshPosts]);
 
   async function saveSettings() {
     setError(null);
@@ -590,6 +705,132 @@ export default function ManagerBlogsClient() {
               onChange={(e) => setTopicSeed(e.target.value)}
             />
           </div>
+        </div>
+      </div>
+
+      <div className="rounded-2xl border border-zinc-200 p-5">
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div className="text-sm font-semibold text-brand-ink">
+            Existing posts
+            <InfoTip text="Select posts to archive (hide from /blogs) or delete permanently." />
+          </div>
+
+          <label className="inline-flex items-center gap-2 text-xs text-zinc-600">
+            <input
+              type="checkbox"
+              className="h-4 w-4 rounded border-zinc-300"
+              checked={includeArchived}
+              onChange={(e) => setIncludeArchived(e.target.checked)}
+            />
+            Show archived
+          </label>
+        </div>
+
+        <div className="mt-3 flex flex-wrap items-center gap-2">
+          <button
+            className="rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm font-semibold hover:bg-zinc-50"
+            onClick={() => refreshPosts()}
+            disabled={postsLoading}
+          >
+            <span className="inline-flex items-center gap-2">
+              {postsLoading ? <Spinner /> : null}
+              {postsLoading ? "Loading…" : "Refresh list"}
+            </span>
+          </button>
+
+          <button
+            className="rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm font-semibold hover:bg-zinc-50"
+            onClick={() => toggleAllPosts()}
+            disabled={posts.length === 0}
+          >
+            Select all / none
+          </button>
+
+          <button
+            className="rounded-2xl bg-[color:var(--color-brand-blue)] px-4 py-2 text-sm font-bold text-white hover:bg-blue-700 disabled:opacity-50"
+            onClick={() => runBulk("archive")}
+            disabled={bulkWorking !== null || selectedIds.length === 0}
+          >
+            <span className="inline-flex items-center gap-2">
+              {bulkWorking === "archive" ? <Spinner /> : null}
+              {bulkWorking === "archive" ? "Archiving…" : `Archive (${selectedIds.length})`}
+            </span>
+          </button>
+
+          <button
+            className="rounded-2xl border border-red-200 bg-white px-4 py-2 text-sm font-semibold text-red-700 hover:bg-red-50 disabled:opacity-50"
+            onClick={() => runBulk("delete")}
+            disabled={bulkWorking !== null || selectedIds.length === 0}
+          >
+            <span className="inline-flex items-center gap-2">
+              {bulkWorking === "delete" ? <Spinner /> : null}
+              {bulkWorking === "delete" ? "Deleting…" : `Delete (${selectedIds.length})`}
+            </span>
+          </button>
+        </div>
+
+        {postsError ? <div className="mt-3 text-xs text-red-700">{postsError}</div> : null}
+
+        <div className="mt-4 max-h-[420px] overflow-auto rounded-2xl border border-zinc-200">
+          {posts.length === 0 ? (
+            <div className="p-4 text-sm text-zinc-600">No posts found.</div>
+          ) : (
+            <table className="w-full text-left text-sm">
+              <thead className="sticky top-0 bg-zinc-50 text-xs font-semibold text-zinc-600">
+                <tr>
+                  <th className="w-10 p-3">
+                    <input
+                      type="checkbox"
+                      className="h-4 w-4 rounded border-zinc-300"
+                      checked={posts.length > 0 && posts.every((p) => Boolean(selectedPostIds[p.id]))}
+                      onChange={() => toggleAllPosts()}
+                      aria-label="Select all"
+                    />
+                  </th>
+                  <th className="p-3">Title</th>
+                  <th className="p-3">Slug</th>
+                  <th className="p-3">Published</th>
+                  <th className="p-3">Status</th>
+                </tr>
+              </thead>
+              <tbody>
+                {posts.map((p) => {
+                  const archived = Boolean(p.archivedAt);
+                  return (
+                    <tr key={p.id} className={archived ? "bg-zinc-50" : "bg-white"}>
+                      <td className="p-3 align-top">
+                        <input
+                          type="checkbox"
+                          className="h-4 w-4 rounded border-zinc-300"
+                          checked={Boolean(selectedPostIds[p.id])}
+                          onChange={() => togglePost(p.id)}
+                          aria-label={`Select ${p.title}`}
+                        />
+                      </td>
+                      <td className="p-3 align-top">
+                        <div className={archived ? "text-zinc-500 line-through" : "text-zinc-900"}>{p.title}</div>
+                      </td>
+                      <td className="p-3 align-top text-xs text-zinc-600">{p.slug}</td>
+                      <td className="p-3 align-top text-xs text-zinc-600">
+                        {p.publishedAt ? new Date(p.publishedAt).toLocaleString() : ""}
+                      </td>
+                      <td className="p-3 align-top text-xs">
+                        {archived ? (
+                          <span className="rounded-full bg-zinc-200 px-2 py-1 text-zinc-700">archived</span>
+                        ) : (
+                          <span className="rounded-full bg-green-100 px-2 py-1 text-green-700">active</span>
+                        )}
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          )}
+        </div>
+
+        <div className="mt-2 text-xs text-zinc-600">
+          Archive hides a post from /blogs (soft delete). Delete removes it permanently.
         </div>
       </div>
 
