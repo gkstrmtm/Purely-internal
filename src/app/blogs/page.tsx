@@ -4,20 +4,35 @@ import Link from "next/link";
 import { prisma } from "@/lib/db";
 import { buildBlogCtaText, formatBlogDate } from "@/lib/blog";
 
+export const dynamic = "force-dynamic";
+export const revalidate = 0;
+
 export const metadata = {
   title: "Automated Blogs | Purely Automation",
   description:
     "Purely builds systems that automate blogging so you can keep up with SEO without spending hours writing, editing, and publishing.",
 };
 
-export default async function BlogsIndexPage() {
+type PageProps = {
+  searchParams?: Promise<{ page?: string }>;
+};
+
+export default async function BlogsIndexPage(props: PageProps) {
   const cta = buildBlogCtaText();
+
+  const spUnknown: unknown = (await props.searchParams?.catch(() => ({}))) ?? {};
+  const sp = spUnknown && typeof spUnknown === "object" ? (spUnknown as Record<string, unknown>) : {};
+  const pageRaw = typeof sp.page === "string" ? sp.page : "1";
+  const page = Math.max(1, Number.parseInt(pageRaw || "1", 10) || 1);
+  const take = 50;
+  const skip = (page - 1) * take;
 
   let posts: Array<{ slug: string; title: string; excerpt: string; publishedAt: Date }> = [];
   try {
     posts = await prisma.blogPost.findMany({
       orderBy: { publishedAt: "desc" },
-      take: 50,
+      take,
+      skip,
       select: { slug: true, title: true, excerpt: true, publishedAt: true },
     });
   } catch {
@@ -126,6 +141,28 @@ export default async function BlogsIndexPage() {
                     </Link>
                   ))
                 )}
+              </div>
+
+              <div className="mt-10 flex items-center justify-between">
+                <Link
+                  href={page > 1 ? `/blogs?page=${page - 1}` : "/blogs"}
+                  className={`rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm font-semibold hover:bg-zinc-50 ${
+                    page <= 1 ? "pointer-events-none opacity-50" : ""
+                  }`}
+                >
+                  newer
+                </Link>
+
+                <div className="text-xs font-semibold text-zinc-500">page {page}</div>
+
+                <Link
+                  href={`/blogs?page=${page + 1}`}
+                  className={`rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm font-semibold hover:bg-zinc-50 ${
+                    posts.length < take ? "pointer-events-none opacity-50" : ""
+                  }`}
+                >
+                  older
+                </Link>
               </div>
             </div>
 

@@ -5,6 +5,9 @@ import { notFound } from "next/navigation";
 import { prisma } from "@/lib/db";
 import { buildBlogCtaText, formatBlogDate, parseBlogContent } from "@/lib/blog";
 
+export const dynamic = "force-dynamic";
+export const revalidate = 0;
+
 type PageProps = { params: Promise<{ slug: string }> };
 
 export async function generateMetadata(props: PageProps) {
