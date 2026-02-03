@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 
 type Settings = {
   weeklyEnabled: boolean;
@@ -156,26 +156,30 @@ export default function ManagerBlogsClient() {
 
   const backfillAtEnd = backfillOffset >= backfillCount;
 
-  async function refresh() {
+  const applySettings = useCallback((s: Settings) => {
+    setWeeklyEnabled(!!s.weeklyEnabled);
+    if (typeof s.frequencyDays === "number" && Number.isFinite(s.frequencyDays)) {
+      setFrequencyDays(Math.min(30, Math.max(1, Math.floor(s.frequencyDays))));
+    }
+    if (typeof s.publishHourUtc === "number" && Number.isFinite(s.publishHourUtc)) {
+      setPublishHourUtc(Math.min(23, Math.max(0, Math.floor(s.publishHourUtc))));
+    }
+    const topics = asStringArray(s.topicQueue);
+    setTopicQueueText(topics.join("\n"));
+  }, []);
+
+  const refresh = useCallback(async () => {
     setError(null);
-    const data = await jsonFetch<SettingsResponse>("/api/manager/blogs/settings", { method: "GET" });
+    const data = await jsonFetch<SettingsResponse>(`/api/manager/blogs/settings?ts=${Date.now()}`, { method: "GET" });
 
     setStats(data.stats);
     setBuildSha(typeof data.buildSha === "string" ? data.buildSha : null);
 
     const s = data.settings;
     if (s) {
-      setWeeklyEnabled(!!s.weeklyEnabled);
-      if (typeof s.frequencyDays === "number" && Number.isFinite(s.frequencyDays)) {
-        setFrequencyDays(Math.min(30, Math.max(1, Math.floor(s.frequencyDays))));
-      }
-      if (typeof s.publishHourUtc === "number" && Number.isFinite(s.publishHourUtc)) {
-        setPublishHourUtc(Math.min(23, Math.max(0, Math.floor(s.publishHourUtc))));
-      }
-      const topics = asStringArray(s.topicQueue);
-      setTopicQueueText(topics.join("\n"));
+      applySettings(s);
     }
-  }
+  }, [applySettings]);
 
   useEffect(() => {
     let alive = true;
@@ -194,7 +198,7 @@ export default function ManagerBlogsClient() {
     return () => {
       alive = false;
     };
-  }, []);
+  }, [refresh]);
 
   async function saveSettings() {
     setError(null);
@@ -211,7 +215,7 @@ export default function ManagerBlogsClient() {
         }),
       });
       setLastResult(data);
-      await refresh();
+      if (data.settings) applySettings(data.settings);
     } catch (e) {
       const msg = e instanceof Error ? e.message : "Save failed";
       setError(msg);
@@ -235,7 +239,7 @@ export default function ManagerBlogsClient() {
         }),
       });
       setLastResult(data);
-      await refresh();
+      if (data.settings) applySettings(data.settings);
     } catch (e) {
       const msg = e instanceof Error ? e.message : "Save failed";
       setError(msg);
