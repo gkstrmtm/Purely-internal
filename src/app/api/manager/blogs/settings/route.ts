@@ -3,13 +3,8 @@ import { z } from "zod";
 
 import { prisma } from "@/lib/db";
 import { requireManagerSession } from "@/lib/apiAuth";
-import {
-  getBlogAutomationSettingsSafe,
-  setFrequencyDaysSafe,
-  setPublishTimeUtcSafe,
-  setTopicQueueSafe,
-  setWeeklyEnabledSafe,
-} from "@/lib/blogAutomation";
+import { getBlogAutomationSettingsSafe } from "@/lib/blogAutomation";
+import { stripDoubleAsterisks } from "@/lib/blog";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
@@ -61,26 +56,57 @@ export async function PATCH(req: Request) {
     return NextResponse.json({ error: "Invalid payload" }, { status: 400 });
   }
 
-  if (typeof parsed.data.weeklyEnabled === "boolean") {
-    await setWeeklyEnabledSafe(parsed.data.weeklyEnabled);
-  }
+  try {
+    const current = await getBlogAutomationSettingsSafe();
+    const nextWeeklyEnabled = typeof parsed.data.weeklyEnabled === "boolean" ? parsed.data.weeklyEnabled : current.weeklyEnabled;
+    const nextFrequencyDays = typeof parsed.data.frequencyDays === "number" ? parsed.data.frequencyDays : current.frequencyDays;
+    const nextPublishHourUtc =
+      typeof parsed.data.publishHourUtc === "number" ? parsed.data.publishHourUtc : (current as { publishHourUtc?: number }).publishHourUtc ?? 14;
 
-  if (typeof parsed.data.frequencyDays === "number") {
-    await setFrequencyDaysSafe(parsed.data.frequencyDays);
-  }
+    const nextTopicsRaw =
+      parsed.data.topicQueue === undefined
+        ? (Array.isArray(current.topicQueue) ? current.topicQueue : [])
+        : parsed.data.topicQueue === null
+          ? []
+          : parsed.data.topicQueue;
 
-  if (typeof parsed.data.publishHourUtc === "number") {
-    await setPublishTimeUtcSafe(parsed.data.publishHourUtc, 0);
-  }
+    const cleanedTopics = nextTopicsRaw
+      .map((t) => stripDoubleAsterisks(String(t ?? "")).trim())
+      .filter(Boolean);
 
-  if (parsed.data.topicQueue !== undefined) {
-    if (parsed.data.topicQueue === null) {
-      await setTopicQueueSafe([]);
-    } else {
-      await setTopicQueueSafe(parsed.data.topicQueue);
-    }
-  }
+    const topicQueuePayload = {
+      topics: cleanedTopics,
+      frequencyDays: nextFrequencyDays,
+      publishHourUtc: nextPublishHourUtc,
+      publishMinuteUtc: 0,
+    };
 
-  const settings = await getBlogAutomationSettingsSafe();
-  return NextResponse.json({ ok: true, settings });
+    const resetCursor = parsed.data.topicQueue !== undefined;
+
+    await prisma.blogAutomationSettings.upsert({
+      where: { id: "singleton" },
+      create: {
+        id: "singleton",
+        weeklyEnabled: nextWeeklyEnabled,
+        topicQueue: topicQueuePayload,
+        topicQueueCursor: 0,
+      },
+      update: {
+        weeklyEnabled: nextWeeklyEnabled,
+        topicQueue: topicQueuePayload,
+        ...(resetCursor ? { topicQueueCursor: 0 } : {}),
+      },
+    });
+
+    const settings = await getBlogAutomationSettingsSafe();
+    return NextResponse.json({ ok: true, settings });
+  } catch (e) {
+    return NextResponse.json(
+      {
+        error: "Failed to update settings",
+        details: e instanceof Error ? e.message : "Unknown error",
+      },
+      { status: 500 },
+    );
+  }
 }
