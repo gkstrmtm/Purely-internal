@@ -390,6 +390,8 @@ export async function runBackfillBatch(params: BackfillParams) {
   let stoppedEarly = false;
   let stopReason: string | null = null;
 
+  const targetDateStrings = targetDates.map((d) => isoDay(d));
+
   if (targetDates.length === 0) {
     return {
       ok: true as const,
@@ -423,26 +425,33 @@ export async function runBackfillBatch(params: BackfillParams) {
   }
 
   if (pending.length) {
-    const plan = pending.map((d) => ({ date: isoDay(d), topic: pickTopic(d) }));
-    const drafts = await generateManyDrafts(plan);
-
-    const limitedDrafts = drafts.slice(0, pending.length);
-
-    for (let i = 0; i < pending.length; i++) {
+    for (const publishDate of pending) {
       if ((Date.now() - startedAt) / 1000 > timeBudgetSeconds) {
         stoppedEarly = true;
-        stopReason = "Time budget exceeded before creating all posts. Increase Time budget (s) or lower Max per request and run again.";
+        stopReason = "Time budget exceeded. Lower Max per request or increase Time budget (s) and run again.";
         break;
       }
-      const publishDate = pending[i];
-      const draft = limitedDrafts[i];
 
-      const record = await createBlogPostFromDraft(draft, publishDate);
-      created.push({
-        slug: record.slug,
-        title: record.title,
-        publishedAt: record.publishedAt.toISOString(),
-      });
+      const topic = pickTopic(publishDate);
+      try {
+        const draft = await generateOneDraft(topic);
+
+        if ((Date.now() - startedAt) / 1000 > timeBudgetSeconds) {
+          stoppedEarly = true;
+          stopReason = "Time budget exceeded before saving the generated post. Lower Max per request or increase Time budget (s) and run again.";
+          break;
+        }
+
+        const record = await createBlogPostFromDraft(draft, publishDate);
+        created.push({
+          slug: record.slug,
+          title: record.title,
+          publishedAt: record.publishedAt.toISOString(),
+        });
+      } catch (e) {
+        const msg = e instanceof Error ? e.message : "Unknown error";
+        skipped.push({ date: isoDay(publishDate), reason: `Failed to generate/create: ${msg}` });
+      }
     }
   }
 
@@ -457,6 +466,8 @@ export async function runBackfillBatch(params: BackfillParams) {
     anchor,
     message: stopReason ?? undefined,
     stoppedEarly: stoppedEarly || undefined,
+    targetDates: targetDateStrings,
+    pendingCount: pending.length,
     createdCount: created.length,
     skippedCount: skipped.length,
     created,

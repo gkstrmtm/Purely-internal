@@ -108,8 +108,8 @@ export default function ManagerBlogsClient() {
   const [backfillCount, setBackfillCount] = useState(20);
   const [backfillDaysBetween, setBackfillDaysBetween] = useState(7);
   const [backfillOffset, setBackfillOffset] = useState(0);
-  const [backfillMaxPerRequest, setBackfillMaxPerRequest] = useState(6);
-  const [backfillTimeBudget, setBackfillTimeBudget] = useState(18);
+  const [backfillMaxPerRequest, setBackfillMaxPerRequest] = useState(1);
+  const [backfillTimeBudget, setBackfillTimeBudget] = useState(60);
   const [backfillAnchor, setBackfillAnchor] = useState<"NOW" | "OLDEST_POST">("OLDEST_POST");
 
   const [datesText, setDatesText] = useState("2025-08-01\n2025-08-08\n2025-08-15");
@@ -181,6 +181,10 @@ export default function ManagerBlogsClient() {
       });
       setLastResult(data);
       await refresh();
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : "Save failed";
+      setError(msg);
+      setLastResult({ ok: false, error: msg });
     } finally {
       setSavingSettings(false);
     }
@@ -200,6 +204,10 @@ export default function ManagerBlogsClient() {
       });
       setLastResult(data);
       await refresh();
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : "Save failed";
+      setError(msg);
+      setLastResult({ ok: false, error: msg });
     } finally {
       setSavingQueue(false);
     }
@@ -216,6 +224,10 @@ export default function ManagerBlogsClient() {
       });
       setLastResult(data);
       await refresh();
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : "Run failed";
+      setError(msg);
+      setLastResult({ ok: false, error: msg });
     } finally {
       setRunningWeekly(false);
     }
@@ -246,6 +258,10 @@ export default function ManagerBlogsClient() {
       setLastResult(data);
       if (typeof data?.nextOffset === "number") setBackfillOffset(data.nextOffset);
       await refresh();
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : "Backfill failed";
+      setError(msg);
+      setLastResult({ ok: false, error: msg });
     } finally {
       setRunningBackfill(false);
     }
@@ -262,6 +278,10 @@ export default function ManagerBlogsClient() {
       });
       setLastResult(data);
       await refresh();
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : "Generate failed";
+      setError(msg);
+      setLastResult({ ok: false, error: msg });
     } finally {
       setRunningDates(false);
     }
@@ -279,6 +299,10 @@ export default function ManagerBlogsClient() {
       setLastResult(data);
       if (Array.isArray(data?.topics)) setTopicQueueText(data.topics.join("\n"));
       await refresh();
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : "Suggest failed";
+      setError(msg);
+      setLastResult({ ok: false, error: msg });
     } finally {
       setSuggestingTopics(false);
     }
@@ -335,7 +359,7 @@ export default function ManagerBlogsClient() {
           <div className="mt-4 flex flex-wrap gap-2">
             <button
               className="rounded-2xl bg-[color:var(--color-brand-blue)] px-4 py-2 text-sm font-bold text-white hover:bg-blue-700"
-              onClick={() => saveSettings().catch((e) => setError(e instanceof Error ? e.message : "Save failed"))}
+              onClick={() => saveSettings()}
               disabled={savingSettings}
             >
               <span className="inline-flex items-center gap-2">
@@ -351,7 +375,7 @@ export default function ManagerBlogsClient() {
 
             <button
               className="rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm font-semibold hover:bg-zinc-50"
-              onClick={() => runWeekly().catch((e) => setError(e instanceof Error ? e.message : "Run failed"))}
+              onClick={() => runWeekly()}
               disabled={runningWeekly}
             >
               <span className="inline-flex items-center gap-2">
@@ -381,7 +405,7 @@ export default function ManagerBlogsClient() {
           <div className="mt-3 flex flex-wrap gap-2">
             <button
               className="rounded-2xl bg-[color:var(--color-brand-blue)] px-4 py-2 text-sm font-bold text-white hover:bg-blue-700"
-              onClick={() => saveQueueOnly().catch((e) => setError(e instanceof Error ? e.message : "Save failed"))}
+              onClick={() => saveQueueOnly()}
               disabled={savingQueue}
             >
               <span className="inline-flex items-center gap-2">
@@ -392,7 +416,7 @@ export default function ManagerBlogsClient() {
 
             <button
               className="rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm font-semibold hover:bg-zinc-50"
-              onClick={() => runSuggestTopics().catch((e) => setError(e instanceof Error ? e.message : "Suggest failed"))}
+              onClick={() => runSuggestTopics()}
               disabled={suggestingTopics}
             >
               <span className="inline-flex items-center gap-2">
@@ -474,7 +498,7 @@ export default function ManagerBlogsClient() {
                 ? "rounded-2xl bg-zinc-300 px-4 py-2 text-sm font-bold text-white"
                 : "rounded-2xl bg-[color:var(--color-brand-blue)] px-4 py-2 text-sm font-bold text-white hover:bg-blue-700"
             }
-            onClick={() => runBackfill().catch((e) => setError(e instanceof Error ? e.message : "Backfill failed"))}
+            onClick={() => runBackfill()}
             disabled={backfillAtEnd || runningBackfill}
           >
             <span className="inline-flex items-center gap-2">
@@ -505,7 +529,7 @@ export default function ManagerBlogsClient() {
         <div className="mt-3 flex flex-wrap gap-2">
           <button
             className="rounded-2xl bg-[color:var(--color-brand-blue)] px-4 py-2 text-sm font-bold text-white hover:bg-blue-700"
-            onClick={() => runDates().catch((e) => setError(e instanceof Error ? e.message : "Generate failed"))}
+            onClick={() => runDates()}
             disabled={runningDates}
           >
             <span className="inline-flex items-center gap-2">

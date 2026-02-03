@@ -5,11 +5,11 @@ import { requireManagerSession } from "@/lib/apiAuth";
 import { runBackfillBatch } from "@/lib/blogAutomation";
 
 const bodySchema = z.object({
-  count: z.number().int().min(1).max(3650).default(12),
+  count: z.number().int().min(1).max(3650).default(20),
   daysBetween: z.number().int().min(1).max(365).default(7),
   offset: z.number().int().min(0).default(0),
-  maxPerRequest: z.number().int().min(1).max(20).default(6),
-  timeBudgetSeconds: z.number().min(5).max(60).default(18),
+  maxPerRequest: z.number().int().min(1).max(20).default(1),
+  timeBudgetSeconds: z.number().min(5).max(60).default(60),
   anchor: z.enum(["NOW", "OLDEST_POST"]).default("OLDEST_POST"),
 });
 
