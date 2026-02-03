@@ -94,9 +94,10 @@ export default async function BlogsIndexPage() {
               <div className="mt-8 grid gap-6">
                 {posts.length === 0 ? (
                   <div className="rounded-3xl border border-zinc-200 bg-zinc-50 p-8">
-                    <div className="text-lg font-semibold text-zinc-900">Posts are coming soon.</div>
+                    <div className="text-lg font-semibold text-zinc-900">New posts are coming soon.</div>
                     <div className="mt-2 text-sm text-zinc-600">
-                      If you&apos;re seeing this in production, the database table may still need to be deployed.
+                      Check back shortly. If you want this kind of consistency without the weekly writing time, book a
+                      call.
                     </div>
                     <div className="mt-5">
                       <Link
@@ -147,10 +148,6 @@ export default async function BlogsIndexPage() {
                       {cta.button}
                     </Link>
                   </div>
-                </div>
-
-                <div className="mt-6 text-xs text-zinc-500">
-                  Tip: If you want this running weekly, set `AI_API_KEY` and `BLOG_CRON_SECRET` in Vercel.
                 </div>
               </div>
             </aside>

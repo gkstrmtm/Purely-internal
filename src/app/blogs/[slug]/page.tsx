@@ -149,8 +149,8 @@ export default async function BlogPostPage(props: PageProps) {
           </div>
 
           <div className="mt-10 text-xs text-zinc-500">
-            Disclaimer: This post is published by an automated blogging workflow. If you want the exact workflow for
-            your business, book a call.
+            Purely builds systems that publish helpful content like this on a schedule. If you want the same for your
+            business, book a call.
           </div>
         </div>
       </main>
