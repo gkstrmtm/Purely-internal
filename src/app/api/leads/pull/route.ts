@@ -106,10 +106,16 @@ export async function POST(req: Request) {
       });
     }
 
-    let leads = await findPool();
+    type PoolLead = Awaited<ReturnType<typeof findPool>>[number];
 
-    // If the DB pool is short, optionally source real leads from Google Places.
-    if (leads.length < count && hasPlacesKey()) {
+    let leads: PoolLead[] = [];
+
+    const canSourcePlaces = hasPlacesKey();
+    let sourced = false;
+
+    // Prefer web-sourcing when configured (this is the intended "AI pull" behavior).
+    // We still de-dupe by phone and we still assign through LeadAssignment.
+    if (canSourcePlaces) {
       const queryParts = [
         nicheTerms.length ? nicheTerms[0] : "service business",
         locationTerms.length ? `in ${locationTerms[0]}` : "",
@@ -117,7 +123,7 @@ export async function POST(req: Request) {
       const query = queryParts.join(" ");
 
       try {
-        const candidates = await placesTextSearch(query, Math.min(20, Math.max(10, count * 2)));
+        const candidates = await placesTextSearch(query, Math.min(40, Math.max(15, count * 3)));
         const placeIds = candidates.map((c) => c.place_id);
 
         // Concurrency-limited details fetch.
@@ -168,36 +174,52 @@ export async function POST(req: Request) {
               select: { id: true },
             });
             existingPhones.add(phone);
+            sourced = true;
           } catch {
             // Ignore individual create failures.
           }
         }
-
-        leads = await findPool();
       } catch {
         // Ignore sourcing failures; fall back to existing DB pool.
       }
     }
 
+    leads = await findPool();
+
+    // If nothing matched, give a clearer error when sourcing is not configured.
+    if (leads.length === 0 && !canSourcePlaces) {
+      return NextResponse.json(
+        {
+          error:
+            "Lead sourcing is not configured (missing GOOGLE_PLACES_API_KEY / GOOGLE_MAPS_API_KEY). Add the key in Vercel env vars to enable web lead pulls.",
+        },
+        { status: 500 },
+      );
+    }
+
     const picked = leads.slice(0, count);
 
     if (picked.length === 0) {
-      return NextResponse.json({ leads: [], assigned: 0 });
+      return NextResponse.json({ leads: [], assigned: 0, source: canSourcePlaces ? "PLACES" : "DB" });
     }
 
     await prisma.leadAssignment.createMany({
-      data: picked.map((lead) => ({ leadId: lead.id, userId })),
+      data: picked.map((lead: PoolLead) => ({ leadId: lead.id, userId })),
       skipDuplicates: true,
     });
 
     if (hasStatus) {
       await prisma.lead.updateMany({
-        where: { id: { in: picked.map((l) => l.id) } },
+        where: { id: { in: picked.map((l: PoolLead) => l.id) } },
         data: { status: "ASSIGNED" },
       });
     }
 
-    return NextResponse.json({ leads: picked, assigned: picked.length });
+    return NextResponse.json({
+      leads: picked,
+      assigned: picked.length,
+      source: canSourcePlaces ? (sourced ? "DB+PLACES" : "PLACES") : "DB",
+    });
   } catch (err) {
     console.error("/api/leads/pull failed", err);
     return NextResponse.json({ error: "Failed to pull leads" }, { status: 500 });
