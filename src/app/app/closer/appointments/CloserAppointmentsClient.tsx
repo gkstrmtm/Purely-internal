@@ -8,6 +8,8 @@ function toDatetimeLocalValue(iso: string) {
   return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
 }
 
+type SuggestionSlot = { startAt: string; endAt: string; closerCount: number };
+
 type DocDTO = { id: string; title?: string | null; content?: string | null };
 
 function asRecord(value: unknown): Record<string, unknown> {
@@ -82,6 +84,10 @@ export default function CloserAppointmentsClient({
   const [rescheduleBusy, setRescheduleBusy] = useState<boolean>(false);
   const [rescheduleError, setRescheduleError] = useState<string | null>(null);
 
+  const [rescheduleSuggestBusy, setRescheduleSuggestBusy] = useState<boolean>(false);
+  const [rescheduleSuggestIncludeUnavailable, setRescheduleSuggestIncludeUnavailable] = useState<boolean>(false);
+  const [rescheduleSuggestions, setRescheduleSuggestions] = useState<SuggestionSlot[] | null>(null);
+
   const [leadSearch, setLeadSearch] = useState<string>("");
 
   const [statusFilter, setStatusFilter] = useState<"ANY" | "SCHEDULED" | "COMPLETED">("ANY");
@@ -138,6 +144,36 @@ export default function CloserAppointmentsClient({
     );
     setRescheduleDurationMinutes(dur);
     setRescheduleConfirmAddAvailability(false);
+    setRescheduleSuggestions(null);
+  }
+
+  async function loadRescheduleSuggestions() {
+    const startAt = new Date(rescheduleStartLocal);
+    if (Number.isNaN(startAt.getTime())) {
+      setRescheduleError("Invalid date/time");
+      return;
+    }
+
+    setRescheduleSuggestBusy(true);
+    setRescheduleError(null);
+    try {
+      const qs = new URLSearchParams({
+        startAt: startAt.toISOString(),
+        days: "7",
+        durationMinutes: String(rescheduleDurationMinutes),
+        limit: "18",
+        includeUnavailable: rescheduleSuggestIncludeUnavailable ? "true" : "false",
+      });
+      const res = await fetch(`/api/appointments/suggestions?${qs.toString()}`);
+      const body = (await res.json().catch(() => ({}))) as { slots?: SuggestionSlot[]; error?: string };
+      if (!res.ok) {
+        setRescheduleError(body?.error ?? "Failed to load suggestions");
+        return;
+      }
+      setRescheduleSuggestions(body.slots ?? []);
+    } finally {
+      setRescheduleSuggestBusy(false);
+    }
   }
 
   async function saveReschedule() {
@@ -720,6 +756,62 @@ export default function CloserAppointmentsClient({
 
                 {rescheduleOpen ? (
                   <div className="mt-3 rounded-2xl border border-zinc-200 bg-zinc-50 p-3">
+                    <div className="rounded-2xl border border-zinc-200 bg-white p-3">
+                      <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+                        <div>
+                          <div className="text-xs font-medium text-zinc-900">Suggested times</div>
+                          <div className="mt-1 text-xs text-zinc-500">
+                            {rescheduleSuggestIncludeUnavailable
+                              ? "Showing all times (including unavailable)."
+                              : "Showing only times within your availability (no conflicts)."}
+                          </div>
+                        </div>
+                        <div className="flex flex-wrap gap-2">
+                          <label className="flex items-center gap-2 text-xs text-zinc-700">
+                            <input
+                              type="checkbox"
+                              checked={rescheduleSuggestIncludeUnavailable}
+                              onChange={(e) => setRescheduleSuggestIncludeUnavailable(e.target.checked)}
+                            />
+                            Show unavailable times
+                          </label>
+                          <button
+                            className="rounded-xl border border-zinc-200 bg-white px-3 py-2 text-xs hover:bg-zinc-50 disabled:opacity-60"
+                            type="button"
+                            disabled={rescheduleSuggestBusy || rescheduleBusy}
+                            onClick={() => loadRescheduleSuggestions()}
+                          >
+                            {rescheduleSuggestBusy ? "Loading…" : "Suggest times"}
+                          </button>
+                        </div>
+                      </div>
+
+                      {rescheduleSuggestions ? (
+                        rescheduleSuggestions.length ? (
+                          <div className="mt-2 grid grid-cols-1 gap-2 sm:grid-cols-2">
+                            {rescheduleSuggestions.map((s) => {
+                              const ok = s.closerCount > 0;
+                              const label = `${new Date(s.startAt).toLocaleString()}${ok ? "" : " (outside availability)"}`;
+                              return (
+                                <button
+                                  key={s.startAt}
+                                  type="button"
+                                  className={`rounded-xl border px-3 py-2 text-left text-xs hover:bg-zinc-50 ${
+                                    ok ? "border-zinc-200 bg-white" : "border-amber-200 bg-amber-50"
+                                  }`}
+                                  onClick={() => setRescheduleStartLocal(toDatetimeLocalValue(s.startAt))}
+                                >
+                                  {label}
+                                </button>
+                              );
+                            })}
+                          </div>
+                        ) : (
+                          <div className="mt-2 text-xs text-zinc-500">No suggestions found.</div>
+                        )
+                      ) : null}
+                    </div>
+
                     <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
                       <div className="sm:col-span-2">
                         <label className="text-xs font-medium text-zinc-700">New start time</label>

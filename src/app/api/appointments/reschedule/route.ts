@@ -105,7 +105,7 @@ export async function POST(req: Request) {
       }
     }
 
-    // Coverage check; only the closer themselves can override missing coverage.
+    // Coverage check; closer can override for themselves, and managers/admins can override when explicitly confirmed.
     const coverage = await prisma.availabilityBlock.findFirst({
       where: {
         userId: targetCloserId,
@@ -115,10 +115,12 @@ export async function POST(req: Request) {
       select: { id: true },
     });
 
-    const isCloserSelfOverride =
-      role === "CLOSER" && userId === targetCloserId && parsed.data.confirmAddAvailability;
+    const wantsOverride = Boolean(parsed.data.confirmAddAvailability);
+    const isCloserSelfOverride = role === "CLOSER" && userId === targetCloserId && wantsOverride;
+    const isManagerOverride = (role === "MANAGER" || role === "ADMIN") && wantsOverride;
+    const canOverrideCoverage = isCloserSelfOverride || isManagerOverride;
 
-    if (!coverage && !isCloserSelfOverride) {
+    if (!coverage && !canOverrideCoverage) {
       return NextResponse.json(
         { error: "That closer is not available at that time. Pick another closer or time." },
         { status: 409 },
@@ -126,7 +128,7 @@ export async function POST(req: Request) {
     }
 
     // If closer confirms override, add a block for exactly that slot.
-    if (!coverage && isCloserSelfOverride) {
+    if (!coverage && canOverrideCoverage) {
       await prisma.availabilityBlock.create({
         data: { userId: targetCloserId, startAt, endAt },
         select: { id: true },

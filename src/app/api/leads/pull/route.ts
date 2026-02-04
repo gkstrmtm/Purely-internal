@@ -149,13 +149,49 @@ export async function POST(req: Request) {
           : [];
         const existingPhones = new Set(existing.map((e) => e.phone));
 
+        const preferLocal = nicheTerms.length === 0;
+        const chainPatterns: RegExp[] = [
+          /\bwalmart\b/i,
+          /\bverizon\b/i,
+          /\bat\&t\b|\bat\s*&\s*t\b|\batt\b/i,
+          /\bt-?mobile\b/i,
+          /\bcomcast\b|\bxfinity\b/i,
+          /\bspectrum\b/i,
+          /\btarget\b/i,
+          /\bcostco\b/i,
+          /\bhome\s+depot\b/i,
+          /\blowe'?s\b/i,
+          /\bstarbucks\b/i,
+          /\bmcdonald'?s\b/i,
+          /\bsubway\b/i,
+          /\bwalgreens\b/i,
+          /\bcvs\b/i,
+          /\bbest\s+buy\b/i,
+          /\bamazon\b/i,
+        ];
+
+        function looksLikeBigChain(name: string | undefined | null) {
+          if (!name) return false;
+          return chainPatterns.some((re) => re.test(name));
+        }
+
+        const localDetails: Array<Awaited<ReturnType<typeof placeDetails>>> = [];
+        const chainDetails: Array<Awaited<ReturnType<typeof placeDetails>>> = [];
         for (const d of details) {
+          if (preferLocal && looksLikeBigChain(d.name)) chainDetails.push(d);
+          else localDetails.push(d);
+        }
+
+        const maxCreates = Math.min(120, Math.max(30, count * 4));
+        let created = 0;
+
+        async function tryCreateFromPlace(d: Awaited<ReturnType<typeof placeDetails>>) {
           const phone = normalizePhoneForStorage(
             d.international_phone_number || d.formatted_phone_number || "",
           );
-          if (!phone) continue;
-          if (existingPhones.has(phone)) continue;
-          if (!d.name?.trim()) continue;
+          if (!phone) return false;
+          if (existingPhones.has(phone)) return false;
+          if (!d.name?.trim()) return false;
 
           const data: Record<string, unknown> = {
             businessName: d.name.trim(),
@@ -169,14 +205,30 @@ export async function POST(req: Request) {
           if (hasStatus) data.status = "NEW";
 
           try {
-            await prisma.lead.create({
-              data: data as never,
-              select: { id: true },
-            });
+            await prisma.lead.create({ data: data as never, select: { id: true } });
             existingPhones.add(phone);
-            sourced = true;
+            return true;
           } catch {
-            // Ignore individual create failures.
+            return false;
+          }
+        }
+
+        for (const d of localDetails) {
+          if (created >= maxCreates) break;
+          if (await tryCreateFromPlace(d)) {
+            created++;
+            sourced = true;
+          }
+        }
+
+        // If we didn't get enough local candidates (or niche was unspecified), allow big chains as a fallback.
+        if (preferLocal && created < Math.max(10, Math.ceil(count / 2))) {
+          for (const d of chainDetails) {
+            if (created >= maxCreates) break;
+            if (await tryCreateFromPlace(d)) {
+              created++;
+              sourced = true;
+            }
           }
         }
       } catch {

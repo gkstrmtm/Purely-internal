@@ -6,6 +6,8 @@ import { useEffect, useMemo, useState } from "react";
 
 type CloserOption = { id: string; name: string | null; email: string };
 
+type SuggestionSlot = { startAt: string; endAt: string; closerCount: number };
+
 function toDatetimeLocalValue(iso: string) {
   const d = new Date(iso);
   const pad = (n: number) => String(n).padStart(2, "0");
@@ -32,6 +34,10 @@ export default function DialerAppointmentsPage() {
   const [editCloserId, setEditCloserId] = useState<string>("");
   const [editBusy, setEditBusy] = useState<boolean>(false);
   const [editError, setEditError] = useState<string | null>(null);
+
+  const [suggestBusy, setSuggestBusy] = useState<boolean>(false);
+  const [suggestIncludeUnavailable, setSuggestIncludeUnavailable] = useState<boolean>(false);
+  const [suggestions, setSuggestions] = useState<SuggestionSlot[] | null>(null);
 
   const [leadSearch, setLeadSearch] = useState<string>("");
 
@@ -70,6 +76,36 @@ export default function DialerAppointmentsPage() {
     setEditDuration(dur);
     setEditClosers(null);
     setEditCloserId("");
+    setSuggestions(null);
+  }
+
+  async function loadSuggestions() {
+    setEditError(null);
+    const startAt = new Date(editStartLocal);
+    if (Number.isNaN(startAt.getTime())) {
+      setEditError("Invalid date/time");
+      return;
+    }
+
+    setSuggestBusy(true);
+    try {
+      const qs = new URLSearchParams({
+        startAt: startAt.toISOString(),
+        days: "7",
+        durationMinutes: String(editDuration),
+        limit: "18",
+        includeUnavailable: suggestIncludeUnavailable ? "true" : "false",
+      });
+      const res = await fetch(`/api/appointments/suggestions?${qs.toString()}`);
+      const body = (await res.json().catch(() => ({}))) as { slots?: SuggestionSlot[]; error?: string };
+      if (!res.ok) {
+        setEditError(body?.error ?? "Failed to load suggestions");
+        return;
+      }
+      setSuggestions(body.slots ?? []);
+    } finally {
+      setSuggestBusy(false);
+    }
   }
 
   async function checkClosers(a: Appointment) {
@@ -313,6 +349,63 @@ export default function DialerAppointmentsPage() {
 
                 {editingId === a.id ? (
                   <div className="mt-3 rounded-2xl border border-zinc-200 bg-zinc-50 p-3">
+                    <div className="rounded-2xl border border-zinc-200 bg-white p-3">
+                      <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+                        <div>
+                          <div className="text-xs font-medium text-zinc-900">Suggested times</div>
+                          <div className="mt-1 text-xs text-zinc-500">
+                            {suggestIncludeUnavailable
+                              ? "Showing all times (including unavailable)."
+                              : "Showing only times with at least one available closer."}
+                          </div>
+                        </div>
+                        <div className="flex flex-wrap gap-2">
+                          <label className="flex items-center gap-2 text-xs text-zinc-700">
+                            <input
+                              type="checkbox"
+                              checked={suggestIncludeUnavailable}
+                              onChange={(e) => setSuggestIncludeUnavailable(e.target.checked)}
+                            />
+                            Show unavailable times
+                          </label>
+                          <button
+                            className="rounded-xl border border-zinc-200 bg-white px-3 py-2 text-xs hover:bg-zinc-50 disabled:opacity-60"
+                            type="button"
+                            disabled={suggestBusy || editBusy}
+                            onClick={() => loadSuggestions()}
+                          >
+                            {suggestBusy ? "Loading…" : "Suggest times"}
+                          </button>
+                        </div>
+                      </div>
+
+                      {suggestions ? (
+                        suggestions.length ? (
+                          <div className="mt-2 grid grid-cols-1 gap-2 sm:grid-cols-2">
+                            {suggestions.map((s) => {
+                              const label = `${new Date(s.startAt).toLocaleString()} (${s.closerCount} closer${s.closerCount === 1 ? "" : "s"} free)`;
+                              return (
+                                <button
+                                  key={s.startAt}
+                                  type="button"
+                                  className={`rounded-xl border px-3 py-2 text-left text-xs hover:bg-zinc-50 ${
+                                    s.closerCount > 0
+                                      ? "border-zinc-200 bg-white"
+                                      : "border-amber-200 bg-amber-50"
+                                  }`}
+                                  onClick={() => setEditStartLocal(toDatetimeLocalValue(s.startAt))}
+                                >
+                                  {label}
+                                </button>
+                              );
+                            })}
+                          </div>
+                        ) : (
+                          <div className="mt-2 text-xs text-zinc-500">No suggestions found.</div>
+                        )
+                      ) : null}
+                    </div>
+
                     <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
                       <div className="sm:col-span-2">
                         <label className="text-xs font-medium text-zinc-700">New start time</label>

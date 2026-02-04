@@ -9,6 +9,7 @@ const querySchema = z.object({
   startAt: z.string().min(1),
   durationMinutes: z.coerce.number().int().min(10).max(180).default(30),
   excludeAppointmentId: z.string().optional(),
+  includeUnavailable: z.coerce.boolean().optional(),
 });
 
 function overlaps(aStart: Date, aEnd: Date, bStart: Date, bEnd: Date) {
@@ -25,6 +26,7 @@ export async function GET(req: Request) {
     startAt: url.searchParams.get("startAt") ?? "",
     durationMinutes: url.searchParams.get("durationMinutes") ?? undefined,
     excludeAppointmentId: url.searchParams.get("excludeAppointmentId") ?? undefined,
+    includeUnavailable: url.searchParams.get("includeUnavailable") ?? undefined,
   });
   if (!parsed.success) {
     return NextResponse.json({ error: "Invalid query" }, { status: 400 });
@@ -56,14 +58,14 @@ export async function GET(req: Request) {
 
   const eligibleByCoverage = new Set(blocks.map((b) => b.userId));
   const covered = closers.filter((c) => eligibleByCoverage.has(c.id));
-  if (covered.length === 0) return NextResponse.json({ closers: [] });
+  if (covered.length === 0 && !parsed.data.includeUnavailable) return NextResponse.json({ closers: [] });
 
   const conflicts = await prisma.appointment.findMany({
     where: {
       id: parsed.data.excludeAppointmentId
         ? { not: parsed.data.excludeAppointmentId }
         : undefined,
-      closerId: { in: covered.map((c) => c.id) },
+      closerId: { in: (parsed.data.includeUnavailable ? closers : covered).map((c) => c.id) },
       status: { in: ["SCHEDULED", "RESCHEDULED"] },
       startAt: { lt: endAt },
       endAt: { gt: startAt },
@@ -76,6 +78,23 @@ export async function GET(req: Request) {
     if (overlaps(startAt, endAt, c.startAt, c.endAt)) conflictSet.add(c.closerId);
   }
 
-  const available = covered.filter((c) => !conflictSet.has(c.id));
-  return NextResponse.json({ closers: available });
+  const includeUnavailable = Boolean(parsed.data.includeUnavailable);
+
+  if (!includeUnavailable) {
+    const available = covered.filter((c) => !conflictSet.has(c.id));
+    return NextResponse.json({ closers: available });
+  }
+
+  const annotated = closers.map((c) => {
+    const hasCoverage = eligibleByCoverage.has(c.id);
+    const hasConflict = conflictSet.has(c.id);
+    return {
+      ...c,
+      hasCoverage,
+      hasConflict,
+      isAvailable: hasCoverage && !hasConflict,
+    };
+  });
+
+  return NextResponse.json({ closers: annotated });
 }

@@ -42,7 +42,14 @@ type BulkResponse = {
   deleted?: number;
 };
 
-type CloserOption = { id: string; name: string | null; email: string };
+type CloserOption = {
+  id: string;
+  name: string | null;
+  email: string;
+  isAvailable?: boolean;
+  hasCoverage?: boolean;
+  hasConflict?: boolean;
+};
 
 function asRecord(value: unknown): Record<string, unknown> {
   return value && typeof value === "object" ? (value as Record<string, unknown>) : {};
@@ -100,6 +107,12 @@ export default function ManagerLeadsClient({
   const [reassignUserId, setReassignUserId] = useState<string>("");
 
   const [closerOptionsByLeadId, setCloserOptionsByLeadId] = useState<Record<string, CloserOption[]>>(
+    {},
+  );
+  const [showUnavailableClosersByLeadId, setShowUnavailableClosersByLeadId] = useState<Record<string, boolean>>(
+    {},
+  );
+  const [overrideAvailabilityByLeadId, setOverrideAvailabilityByLeadId] = useState<Record<string, boolean>>(
     {},
   );
   const [closerSelectionByLeadId, setCloserSelectionByLeadId] = useState<Record<string, string>>(
@@ -235,10 +248,12 @@ export default function ManagerLeadsClient({
     setStatus(null);
 
     try {
+      const includeUnavailable = Boolean(showUnavailableClosersByLeadId[lead.id]);
       const qs = new URLSearchParams({
         startAt: appt.startAt,
         durationMinutes: String(durationMinutes),
         excludeAppointmentId: appt.id,
+        includeUnavailable: includeUnavailable ? "true" : "false",
       });
 
       const res = await jsonFetch<{ closers?: CloserOption[] }>(
@@ -256,7 +271,7 @@ export default function ManagerLeadsClient({
     } finally {
       setCloserWorkingLeadId(null);
     }
-  }, [closerSelectionByLeadId]);
+  }, [closerSelectionByLeadId, showUnavailableClosersByLeadId]);
 
   const assignCloserForLead = useCallback(
     async (lead: LeadRow) => {
@@ -269,6 +284,15 @@ export default function ManagerLeadsClient({
       const closerId = closerSelectionByLeadId[lead.id];
       if (!closerId) {
         setError("Pick a closer first.");
+        return;
+      }
+
+      const options = closerOptionsByLeadId[lead.id] ?? [];
+      const selected = options.find((o) => o.id === closerId) ?? null;
+      const override = Boolean(overrideAvailabilityByLeadId[lead.id]);
+      const isAvailable = selected?.isAvailable;
+      if (isAvailable === false && !override) {
+        setError("That closer is unavailable at the selected time. Enable override or pick another closer/time.");
         return;
       }
 
@@ -289,6 +313,7 @@ export default function ManagerLeadsClient({
             startAt: appt.startAt,
             durationMinutes,
             closerId,
+            confirmAddAvailability: override ? true : undefined,
           }),
         });
         const body = (await res.json().catch(() => ({}))) as unknown;
@@ -303,7 +328,7 @@ export default function ManagerLeadsClient({
         setCloserWorkingLeadId(null);
       }
     },
-    [closerSelectionByLeadId, refresh],
+    [closerOptionsByLeadId, closerSelectionByLeadId, overrideAvailabilityByLeadId, refresh],
   );
 
   return (
@@ -420,6 +445,8 @@ export default function ManagerLeadsClient({
             const appt = l.appointments?.[0] ?? null;
             const closerOptions = closerOptionsByLeadId[l.id] ?? null;
             const selectedCloserId = closerSelectionByLeadId[l.id] ?? "";
+            const showUnavailable = Boolean(showUnavailableClosersByLeadId[l.id]);
+            const overrideAvailability = Boolean(overrideAvailabilityByLeadId[l.id]);
 
             return (
               <div key={l.id} className="rounded-2xl border border-zinc-200 p-4">
@@ -463,6 +490,20 @@ export default function ManagerLeadsClient({
                           </div>
 
                           <div className="mt-3 flex flex-col gap-2">
+                            <label className="flex items-center gap-2 text-xs text-zinc-700">
+                              <input
+                                type="checkbox"
+                                checked={showUnavailable}
+                                onChange={(e) =>
+                                  setShowUnavailableClosersByLeadId((prev) => ({
+                                    ...prev,
+                                    [l.id]: e.target.checked,
+                                  }))
+                                }
+                              />
+                              Show unavailable closers too
+                            </label>
+
                             <button
                               className="rounded-xl border border-zinc-200 bg-white px-3 py-2 text-xs hover:bg-zinc-50 disabled:opacity-60"
                               type="button"
@@ -487,17 +528,32 @@ export default function ManagerLeadsClient({
                                   >
                                     {closerOptions.map((c) => (
                                       <option key={c.id} value={c.id}>
-                                        {(c.name ?? "(no name)") + " — " + c.email}
+                                        {(c.name ?? "(no name)") + " — " + c.email + (c.isAvailable === false ? " (unavailable)" : "")}
                                       </option>
                                     ))}
                                   </select>
+
+                                  <label className="flex items-center gap-2 text-xs text-zinc-700">
+                                    <input
+                                      type="checkbox"
+                                      checked={overrideAvailability}
+                                      onChange={(e) =>
+                                        setOverrideAvailabilityByLeadId((prev) => ({
+                                          ...prev,
+                                          [l.id]: e.target.checked,
+                                        }))
+                                      }
+                                    />
+                                    Override availability (adds a closer availability block)
+                                  </label>
+
                                   <button
                                     className="rounded-xl bg-zinc-900 px-3 py-2 text-xs font-medium text-white hover:bg-zinc-800 disabled:opacity-60"
                                     type="button"
                                     onClick={() => assignCloserForLead(l)}
                                     disabled={closerWorkingLeadId === l.id || !selectedCloserId}
                                   >
-                                    Assign closer
+                                    {closerWorkingLeadId === l.id ? "Assigning…" : "Assign closer"}
                                   </button>
                                 </div>
                               ) : (
@@ -515,8 +571,8 @@ export default function ManagerLeadsClient({
                       <div>Status: {l.status ?? ""}</div>
                       <div className="mt-1">
                         {assignedUser
-                          ? `Assigned: ${assignedUser.name ?? "(no name)"} (${assignedUser.email ?? ""})`
-                          : "Assigned: (unassigned)"}
+                          ? `Dialer assigned: ${assignedUser.name ?? "(no name)"} (${assignedUser.email ?? ""})`
+                          : "Dialer assigned: (unassigned)"}
                       </div>
                       {assignment?.claimedAt ? (
                         <div className="mt-1">Claimed: {new Date(assignment.claimedAt).toLocaleString()}</div>

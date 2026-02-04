@@ -10,6 +10,8 @@ const querySchema = z.object({
   days: z.coerce.number().int().min(1).max(30).default(7),
   durationMinutes: z.coerce.number().int().min(10).max(180).default(30),
   limit: z.coerce.number().int().min(1).max(50).default(12),
+  includeUnavailable: z.coerce.boolean().optional(),
+  closerId: z.string().optional(),
 });
 
 function overlaps(aStart: Date, aEnd: Date, bStart: Date, bEnd: Date) {
@@ -30,7 +32,7 @@ export async function GET(req: Request) {
   const userId = session?.user?.id;
   const role = session?.user?.role;
   if (!userId) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  if (role !== "DIALER" && role !== "ADMIN" && role !== "MANAGER") {
+  if (role !== "DIALER" && role !== "ADMIN" && role !== "MANAGER" && role !== "CLOSER") {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
 
@@ -40,6 +42,8 @@ export async function GET(req: Request) {
     days: url.searchParams.get("days") ?? undefined,
     durationMinutes: url.searchParams.get("durationMinutes") ?? undefined,
     limit: url.searchParams.get("limit") ?? undefined,
+    includeUnavailable: url.searchParams.get("includeUnavailable") ?? undefined,
+    closerId: url.searchParams.get("closerId") ?? undefined,
   });
 
   if (!parsed.success) {
@@ -53,11 +57,28 @@ export async function GET(req: Request) {
   const alignedStart = alignToNextHalfHour(safeStart);
   const rangeEnd = new Date(alignedStart.getTime() + parsed.data.days * 24 * 60 * 60_000);
 
-  const closers = await prisma.user.findMany({
-    where: { role: "CLOSER", active: true },
-    select: { id: true },
-  });
-  const closerIds = closers.map((c) => c.id);
+  let closerIds: string[] = [];
+
+  // Closer role can only request suggestions for themselves.
+  if (role === "CLOSER") {
+    closerIds = [userId];
+  } else if (parsed.data.closerId) {
+    const closer = await prisma.user.findUnique({
+      where: { id: parsed.data.closerId },
+      select: { id: true, role: true, active: true },
+    });
+    if (!closer || closer.role !== "CLOSER" || !closer.active) {
+      return NextResponse.json({ error: "Closer not found" }, { status: 404 });
+    }
+    closerIds = [closer.id];
+  } else {
+    const closers = await prisma.user.findMany({
+      where: { role: "CLOSER", active: true },
+      select: { id: true },
+    });
+    closerIds = closers.map((c) => c.id);
+  }
+
   if (closerIds.length === 0) return NextResponse.json({ slots: [] });
 
   const blocks = await prisma.availabilityBlock.findMany({
@@ -111,6 +132,7 @@ export async function GET(req: Request) {
 
   const slots: Array<{ startAt: string; endAt: string; closerCount: number }> = [];
   const durationMs = parsed.data.durationMinutes * 60_000;
+  const includeUnavailable = Boolean(parsed.data.includeUnavailable);
 
   for (
     let cur = new Date(alignedStart);
@@ -126,7 +148,7 @@ export async function GET(req: Request) {
       closerCount++;
     }
 
-    if (closerCount > 0) {
+    if (includeUnavailable || closerCount > 0) {
       slots.push({ startAt: cur.toISOString(), endAt: end.toISOString(), closerCount });
       if (slots.length >= parsed.data.limit) break;
     }

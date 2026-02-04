@@ -134,9 +134,25 @@ export async function POST(req: Request) {
         }
 
         await safeVoid(() => tx.leadAssignment.deleteMany({ where: { leadId: { in: leadIds } } }));
-        await safeVoid(() =>
-          tx.marketingDemoRequest.deleteMany({ where: { leadId: { in: leadIds } } }),
+
+        // MarketingDemoRequest has dependent MarketingMessage rows.
+        // Delete messages first to avoid FK violations.
+        const demoRequests = await safe(
+          () =>
+            tx.marketingDemoRequest.findMany({
+              where: { leadId: { in: leadIds } },
+              select: { id: true },
+            }),
+          [],
         );
+        const demoRequestIds = demoRequests.map((r) => r.id);
+        if (demoRequestIds.length) {
+          await safeVoid(() =>
+            tx.marketingMessage.deleteMany({ where: { requestId: { in: demoRequestIds } } }),
+          );
+        }
+
+        await safeVoid(() => tx.marketingDemoRequest.deleteMany({ where: { leadId: { in: leadIds } } }));
         await safeVoid(() => tx.doc.deleteMany({ where: { leadId: { in: leadIds } } }));
 
         const result = await tx.lead.deleteMany({ where: { id: { in: leadIds } } });

@@ -2,7 +2,16 @@
 
 import { useEffect, useMemo, useState } from "react";
 
-type CloserOption = { id: string; name: string | null; email: string };
+type CloserOption = {
+  id: string;
+  name: string | null;
+  email: string;
+  isAvailable?: boolean;
+  hasCoverage?: boolean;
+  hasConflict?: boolean;
+};
+
+type SuggestionSlot = { startAt: string; endAt: string; closerCount: number };
 
 function toDatetimeLocalValue(iso: string) {
   const d = new Date(iso);
@@ -37,7 +46,13 @@ export default function ManagerAppointmentsClient({
   const [editClosers, setEditClosers] = useState<CloserOption[] | null>(null);
   const [editCloserId, setEditCloserId] = useState<string>("");
   const [editBusy, setEditBusy] = useState<boolean>(false);
+  const [closersBusy, setClosersBusy] = useState<boolean>(false);
   const [editMsg, setEditMsg] = useState<string | null>(null);
+
+  const [overrideAvailability, setOverrideAvailability] = useState<boolean>(false);
+  const [suggestBusy, setSuggestBusy] = useState<boolean>(false);
+  const [suggestIncludeUnavailable, setSuggestIncludeUnavailable] = useState<boolean>(false);
+  const [suggestions, setSuggestions] = useState<SuggestionSlot[] | null>(null);
 
   const [q, setQ] = useState<string>("");
   const [statusFilter, setStatusFilter] = useState<"ANY" | "SCHEDULED" | "COMPLETED">("ANY");
@@ -112,14 +127,54 @@ export default function ManagerAppointmentsClient({
     setEditDuration(dur);
     setEditCloserId("");
     setEditClosers(null);
+    setOverrideAvailability(false);
+    setSuggestions(null);
   }
 
   async function checkClosersForCurrentEdit(appt: ManagerAppointment) {
-    const startIso = new Date(editStartLocal).toISOString();
-    const closers = await loadAvailableClosers(appt, startIso, editDuration);
-    setEditClosers(closers);
-    if (closers.length && !editCloserId) {
-      setEditCloserId(closers[0]!.id);
+    const startAt = new Date(editStartLocal);
+    if (Number.isNaN(startAt.getTime())) {
+      setError("Invalid date/time");
+      return;
+    }
+    setClosersBusy(true);
+    try {
+      const closers = await loadAvailableClosers(appt, startAt.toISOString(), editDuration);
+      setEditClosers(closers);
+      if (closers.length && !editCloserId) {
+        setEditCloserId(closers[0]!.id);
+      }
+    } finally {
+      setClosersBusy(false);
+    }
+  }
+
+  async function loadSuggestions() {
+    const startAt = new Date(editStartLocal);
+    if (Number.isNaN(startAt.getTime())) {
+      setError("Invalid date/time");
+      return;
+    }
+
+    setSuggestBusy(true);
+    setError(null);
+    try {
+      const qs = new URLSearchParams({
+        startAt: startAt.toISOString(),
+        days: "7",
+        durationMinutes: String(editDuration),
+        limit: "18",
+        includeUnavailable: suggestIncludeUnavailable ? "true" : "false",
+      });
+      const res = await fetch(`/api/appointments/suggestions?${qs.toString()}`);
+      const body = (await res.json().catch(() => ({}))) as { slots?: SuggestionSlot[]; error?: string };
+      if (!res.ok) {
+        setError(body?.error ?? "Failed to load suggestions");
+        return;
+      }
+      setSuggestions(body.slots ?? []);
+    } finally {
+      setSuggestBusy(false);
     }
   }
 
@@ -140,6 +195,7 @@ export default function ManagerAppointmentsClient({
         durationMinutes: editDuration,
       };
       if (editCloserId) payload.closerId = editCloserId;
+      if (overrideAvailability) payload.confirmAddAvailability = true;
 
       const res = await fetch("/api/appointments/reschedule", {
         method: "POST",
@@ -290,6 +346,63 @@ export default function ManagerAppointmentsClient({
                     </div>
                   </div>
 
+                  <div className="mt-3 rounded-2xl border border-zinc-200 bg-white p-3">
+                    <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+                      <div>
+                        <div className="text-xs font-medium text-zinc-900">Suggested times</div>
+                        <div className="mt-1 text-xs text-zinc-500">
+                          {suggestIncludeUnavailable
+                            ? "Showing all times (including unavailable)."
+                            : "Showing only times with at least one available closer."}
+                        </div>
+                      </div>
+                      <div className="flex flex-wrap gap-2">
+                        <label className="flex items-center gap-2 text-xs text-zinc-700">
+                          <input
+                            type="checkbox"
+                            checked={suggestIncludeUnavailable}
+                            onChange={(e) => setSuggestIncludeUnavailable(e.target.checked)}
+                          />
+                          Show unavailable times
+                        </label>
+                        <button
+                          className="rounded-xl border border-zinc-200 bg-white px-3 py-2 text-xs hover:bg-zinc-50 disabled:opacity-60"
+                          type="button"
+                          disabled={suggestBusy || editBusy}
+                          onClick={() => loadSuggestions()}
+                        >
+                          {suggestBusy ? "Loading…" : "Suggest times"}
+                        </button>
+                      </div>
+                    </div>
+
+                    {suggestions ? (
+                      suggestions.length ? (
+                        <div className="mt-2 grid grid-cols-1 gap-2 sm:grid-cols-2">
+                          {suggestions.map((s) => {
+                            const label = `${new Date(s.startAt).toLocaleString()} (${s.closerCount} closer${s.closerCount === 1 ? "" : "s"} free)`;
+                            return (
+                              <button
+                                key={s.startAt}
+                                type="button"
+                                className={`rounded-xl border px-3 py-2 text-left text-xs hover:bg-zinc-50 ${
+                                  s.closerCount > 0
+                                    ? "border-zinc-200 bg-white"
+                                    : "border-amber-200 bg-amber-50"
+                                }`}
+                                onClick={() => setEditStartLocal(toDatetimeLocalValue(s.startAt))}
+                              >
+                                {label}
+                              </button>
+                            );
+                          })}
+                        </div>
+                      ) : (
+                        <div className="mt-2 text-xs text-zinc-500">No suggestions found.</div>
+                      )
+                    ) : null}
+                  </div>
+
                   <div className="mt-3 flex flex-col gap-2 sm:flex-row sm:items-end">
                     <div className="flex-1">
                       <label className="text-xs font-medium text-zinc-700">Optional: pick a closer</label>
@@ -301,7 +414,7 @@ export default function ManagerAppointmentsClient({
                         <option value="">Keep current closer</option>
                         {(editClosers ?? []).map((c) => (
                           <option key={c.id} value={c.id}>
-                            {(c.name ?? "(no name)") + " — " + c.email}
+                            {(c.name ?? "(no name)") + " — " + c.email + (c.isAvailable === false ? " (unavailable)" : "")}
                           </option>
                         ))}
                       </select>
@@ -312,11 +425,24 @@ export default function ManagerAppointmentsClient({
                     <button
                       className="rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm hover:bg-zinc-50 disabled:opacity-60"
                       type="button"
-                      disabled={editBusy}
+                      disabled={editBusy || closersBusy}
                       onClick={() => checkClosersForCurrentEdit(a)}
                     >
-                      Check closers
+                      {closersBusy ? "Checking…" : "Check closers"}
                     </button>
+                  </div>
+
+                  <div className="mt-3 flex items-start gap-2">
+                    <input
+                      id={`overrideAvailability-${a.id}`}
+                      type="checkbox"
+                      className="mt-1"
+                      checked={overrideAvailability}
+                      onChange={(e) => setOverrideAvailability(e.target.checked)}
+                    />
+                    <label htmlFor={`overrideAvailability-${a.id}`} className="text-xs text-zinc-700">
+                      Override availability if needed (adds an availability block for the selected closer and time)
+                    </label>
                   </div>
 
                   <div className="mt-3 flex flex-wrap gap-2">
