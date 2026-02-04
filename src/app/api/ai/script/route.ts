@@ -4,6 +4,7 @@ import { z } from "zod";
 
 import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/db";
+import { hasPublicColumn } from "@/lib/dbSchema";
 import { generateText } from "@/lib/ai";
 
 const bodySchema = z.object({
@@ -23,7 +24,22 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: "Invalid payload" }, { status: 400 });
   }
 
-  const lead = await prisma.lead.findUnique({ where: { id: parsed.data.leadId } });
+  const [hasWebsite, hasLocation, hasNiche] = await Promise.all([
+    hasPublicColumn("Lead", "website"),
+    hasPublicColumn("Lead", "location"),
+    hasPublicColumn("Lead", "niche"),
+  ]);
+
+  const lead = await prisma.lead.findUnique({
+    where: { id: parsed.data.leadId },
+    select: {
+      id: true,
+      businessName: true,
+      ...(hasNiche ? { niche: true } : {}),
+      ...(hasLocation ? { location: true } : {}),
+      ...(hasWebsite ? { website: true } : {}),
+    } as const,
+  });
   if (!lead) return NextResponse.json({ error: "Lead not found" }, { status: 404 });
 
   const tone = parsed.data.tone?.trim() || "confident, concise, friendly";

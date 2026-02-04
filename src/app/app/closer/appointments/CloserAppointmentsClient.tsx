@@ -54,7 +54,7 @@ export type CloserAppointment = {
   };
   setter: { name: string; email: string };
   prepDoc?: { id: string; title: string; content: string; kind: string } | null;
-  outcome?: { outcome: string; revenueCents?: number | null; notes?: string | null } | null;
+  outcome?: { outcome: string; notes?: string | null } | null;
   video?: { filePath: string; mimeType: string; fileSize: number; createdAt: string } | null;
 };
 
@@ -79,7 +79,6 @@ export default function CloserAppointmentsClient({
 
   const [outcome, setOutcome] = useState<"CLOSED" | "FOLLOW_UP" | "LOST">("CLOSED");
   const [notes, setNotes] = useState("");
-  const [revenueDollars, setRevenueDollars] = useState<number>(0);
   const [loomUrl, setLoomUrl] = useState("");
   const [videoBusy, setVideoBusy] = useState<boolean>(false);
 
@@ -99,6 +98,7 @@ export default function CloserAppointmentsClient({
   });
 
   const [prepDraft, setPrepDraft] = useState<string>("");
+  const [prepBusy, setPrepBusy] = useState<boolean>(false);
 
   const [closerScriptDoc, setCloserScriptDoc] = useState<DocDTO | null>(null);
   const [closerScriptDraft, setCloserScriptDraft] = useState<string>("");
@@ -206,9 +206,6 @@ export default function CloserAppointmentsClient({
     }
 
     setNotes(current?.outcome?.notes ?? "");
-    setRevenueDollars(
-      typeof current?.outcome?.revenueCents === "number" ? current.outcome.revenueCents / 100 : 0,
-    );
     setLoomUrl(current?.loomUrl ?? "");
 
     setSetupFeeDollars(0);
@@ -395,6 +392,37 @@ export default function CloserAppointmentsClient({
     await refresh();
   }
 
+  async function generatePrepPack() {
+    if (!selected) return;
+    setError(null);
+    setStatus(null);
+    setPrepBusy(true);
+
+    try {
+      const res = await fetch("/api/ai/appointment-prep-pack", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          appointmentId: selected.id,
+          existingContent: prepDraft || undefined,
+        }),
+      });
+
+      const body = (await res.json().catch(() => ({}))) as unknown;
+      if (!res.ok) {
+        setError(getApiError(body) ?? "Failed to generate prep pack");
+        return;
+      }
+
+      const doc = getDocFromBody(body);
+      if (doc?.content) setPrepDraft(doc.content);
+      setStatus(selected.prepDoc ? "Regenerated prep pack" : "Generated prep pack");
+      await refresh();
+    } finally {
+      setPrepBusy(false);
+    }
+  }
+
   async function submitDisposition() {
     if (!selected) return;
     setError(null);
@@ -411,7 +439,6 @@ export default function CloserAppointmentsClient({
         appointmentId: selected.id,
         outcome,
         notes,
-        revenueDollars: outcome === "CLOSED" ? revenueDollars : undefined,
         loomUrl: loomUrl || undefined,
 
         setupFeeDollars: outcome === "CLOSED" ? setupFeeDollars : undefined,
@@ -432,7 +459,6 @@ export default function CloserAppointmentsClient({
 
     setSelectedId(null);
     setNotes("");
-    setRevenueDollars(0);
     setLoomUrl("");
 
     setSetupFeeDollars(0);
@@ -618,6 +644,20 @@ export default function CloserAppointmentsClient({
                     <div className="text-sm font-semibold">Prep pack</div>
                     <div className="mt-1 text-xs text-zinc-600">Context + prompts for this meeting.</div>
                   </div>
+                  <div className="flex gap-2">
+                    <button
+                      className="rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm hover:bg-zinc-50 disabled:opacity-60"
+                      type="button"
+                      disabled={!selected || prepBusy}
+                      onClick={generatePrepPack}
+                    >
+                      {prepBusy
+                        ? "Working…"
+                        : selected.prepDoc
+                          ? "Regenerate"
+                          : "Generate prep pack"}
+                    </button>
+                  </div>
                 </div>
 
                 {selected.prepDoc ? (
@@ -639,7 +679,9 @@ export default function CloserAppointmentsClient({
                     </div>
                   </div>
                 ) : (
-                  <div className="mt-3 text-xs text-zinc-500">No prep pack yet.</div>
+                  <div className="mt-3 text-xs text-zinc-500">
+                    No prep pack yet. Click “Generate prep pack” to create one.
+                  </div>
                 )}
               </div>
 
@@ -707,11 +749,6 @@ export default function CloserAppointmentsClient({
               {selected.outcome ? (
                 <div className="mt-4 rounded-2xl border border-zinc-200 bg-zinc-50 p-4 text-sm">
                   <div className="font-medium">Existing outcome: {selected.outcome.outcome}</div>
-                  {typeof selected.outcome.revenueCents === "number" ? (
-                    <div className="mt-1 text-zinc-600">
-                      Revenue: ${(selected.outcome.revenueCents / 100).toFixed(2)}
-                    </div>
-                  ) : null}
                   {selected.outcome.notes ? (
                     <div className="mt-2 whitespace-pre-wrap text-zinc-600">{selected.outcome.notes}</div>
                   ) : null}
@@ -730,18 +767,6 @@ export default function CloserAppointmentsClient({
                     <option value="FOLLOW_UP">Follow up</option>
                     <option value="LOST">Lost</option>
                   </select>
-                </div>
-
-                <div>
-                  <label className="text-sm font-medium">Revenue (if closed)</label>
-                  <input
-                    className="mt-1 w-full rounded-xl border border-zinc-200 px-3 py-2 text-sm outline-none focus:border-zinc-400"
-                    type="number"
-                    min={0}
-                    value={revenueDollars}
-                    onChange={(e) => setRevenueDollars(Number(e.target.value))}
-                    disabled={outcome !== "CLOSED"}
-                  />
                 </div>
 
                 <div>

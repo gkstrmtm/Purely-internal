@@ -29,6 +29,12 @@ export default function DialerLeadsPage() {
   const [leads, setLeads] = useState<Lead[]>([]);
   const [loading, setLoading] = useState(true);
 
+  const [pulling, setPulling] = useState(false);
+  const [pullProgress, setPullProgress] = useState<{ current: number; total: number } | null>(
+    null,
+  );
+  const [newLeadIds, setNewLeadIds] = useState<Set<string>>(() => new Set());
+
   const [niche, setNiche] = useState("");
   const [location, setLocation] = useState("");
   const [pullCount, setPullCount] = useState(25);
@@ -44,16 +50,27 @@ export default function DialerLeadsPage() {
     [leads, activeLeadId],
   );
 
+  const displayLeads = useMemo(() => {
+    if (newLeadIds.size === 0) return leads;
+    const pinned: Lead[] = [];
+    const rest: Lead[] = [];
+    for (const lead of leads) {
+      if (newLeadIds.has(lead.id)) pinned.push(lead);
+      else rest.push(lead);
+    }
+    return [...pinned, ...rest];
+  }, [leads, newLeadIds]);
+
   const filteredLeads = useMemo(() => {
     const q = leadSearch.trim().toLowerCase();
-    if (!q) return leads;
-    return leads.filter((l) => {
+    if (!q) return displayLeads;
+    return displayLeads.filter((l) => {
       const hay = [l.businessName, l.phone, l.niche ?? "", l.location ?? "", l.website ?? ""]
         .join(" ")
         .toLowerCase();
       return hay.includes(q);
     });
-  }, [leads, leadSearch]);
+  }, [displayLeads, leadSearch]);
 
   const [doc, setDoc] = useState<{ id: string; title: string; content: string } | null>(
     null,
@@ -61,6 +78,9 @@ export default function DialerLeadsPage() {
   const [prepDoc, setPrepDoc] = useState<{ id: string; title: string; content: string } | null>(
     null,
   );
+  const [pullError, setPullError] = useState<string | null>(null);
+  const [pullStatus, setPullStatus] = useState<string | null>(null);
+
   const [error, setError] = useState<string | null>(null);
   const [status, setStatus] = useState<string | null>(null);
 
@@ -76,8 +96,14 @@ export default function DialerLeadsPage() {
 
   async function refresh() {
     setLoading(true);
-    const res = await fetch("/api/leads/my");
-    const body = await res.json();
+    const res = await fetch("/api/leads/my?mode=assigned&take=250");
+    const body = await res.json().catch(() => ({}));
+    if (!res.ok) {
+      setLeads([]);
+      setLoading(false);
+      setPullError(body?.error ?? "Failed to load leads");
+      return;
+    }
     setLeads(body.leads ?? []);
     setLoading(false);
   }
@@ -175,19 +201,71 @@ export default function DialerLeadsPage() {
   }
 
   async function pullLeads() {
-    setError(null);
-    setStatus(null);
+    setPullError(null);
+    setPullStatus(null);
+    if (pulling) return;
+    setPulling(true);
+    const beforeIds = new Set(leads.map((l) => l.id));
+    const total = Math.max(1, pullCount);
+    setPullProgress({ current: 1, total });
+
+    const startedAt = Date.now();
+    const tickMs = 450;
+    const interval = setInterval(() => {
+      setPullProgress((prev) => {
+        if (!prev) return prev;
+        const next = Math.min(prev.total, prev.current + 1);
+        // Stop at total-1 until the server responds, so we don't show a fake "done".
+        const cap = Math.max(1, prev.total - 1);
+        return { ...prev, current: Math.min(next, cap) };
+      });
+    }, tickMs);
+
     const res = await fetch("/api/leads/pull", {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({ niche, location, count: pullCount }),
     });
     const body = await res.json().catch(() => ({}));
+    clearInterval(interval);
     if (!res.ok) {
-      setError(body?.error ?? "Failed to pull leads");
+      setPulling(false);
+      setPullProgress(null);
+      setPullError(body?.error ?? "Failed to pull leads");
       return;
     }
+
+    const assigned = typeof body?.assigned === "number" ? body.assigned : 0;
+    setPullProgress({ current: assigned, total });
+
+    // Keep the progress visible briefly so users can see the result.
+    const minVisibleMs = 1200;
+    const elapsed = Date.now() - startedAt;
+    if (elapsed < minVisibleMs) {
+      await new Promise((r) => setTimeout(r, minVisibleMs - elapsed));
+    }
+
     await refresh();
+
+    const pulledIds: string[] = Array.isArray(body?.leads)
+      ? body.leads.map((l: { id?: string }) => l?.id).filter(Boolean)
+      : [];
+    const newlyAdded = pulledIds.filter((id) => !beforeIds.has(id));
+    if (newlyAdded.length) {
+      setNewLeadIds(new Set(newlyAdded));
+      // Auto-select the newest pulled lead.
+      setActiveLeadId(newlyAdded[0] ?? null);
+    } else {
+      setNewLeadIds(new Set());
+    }
+
+    setPullStatus(
+      assigned > 0
+        ? `Pulled ${assigned} lead${assigned === 1 ? "" : "s"}`
+        : "No new leads matched those filters",
+    );
+    setPulling(false);
+    setTimeout(() => setPullProgress(null), 1500);
   }
 
   async function generateScript() {
@@ -454,21 +532,36 @@ export default function DialerLeadsPage() {
                   className="rounded-xl bg-zinc-900 px-4 py-2 text-sm font-medium text-white hover:bg-zinc-800"
                   onClick={pullLeads}
                   type="button"
+                  disabled={pulling}
                 >
-                  Pull
+                  {pulling ? "Pulling…" : "Pull"}
                 </button>
                 <button
                   className="rounded-xl border border-zinc-200 bg-white px-4 py-2 text-sm font-medium text-zinc-900 hover:bg-zinc-50"
                   onClick={refresh}
                   type="button"
+                  disabled={pulling}
                 >
                   Refresh
                 </button>
               </div>
 
-              {error ? (
+              {pullProgress ? (
+                <div className="rounded-xl bg-zinc-50 px-3 py-2 text-sm text-zinc-700">
+                  Pulling {Math.min(pullProgress.current, pullProgress.total)} out of {pullProgress.total}
+                  …
+                </div>
+              ) : null}
+
+              {pullStatus ? (
+                <div className="rounded-xl bg-emerald-50 px-3 py-2 text-sm text-emerald-800">
+                  {pullStatus}
+                </div>
+              ) : null}
+
+              {pullError ? (
                 <div className="rounded-xl bg-red-50 px-3 py-2 text-sm text-red-700">
-                  {error}
+                  {pullError}
                 </div>
               ) : null}
             </div>
@@ -496,15 +589,33 @@ export default function DialerLeadsPage() {
                   key={lead.id}
                   className={`w-full rounded-2xl border p-4 text-left transition-colors ${
                     activeLeadId === lead.id
-                      ? "border-zinc-400 bg-zinc-50"
-                      : "border-zinc-200 hover:bg-zinc-50"
+                      ? newLeadIds.has(lead.id)
+                        ? "border-rose-400 bg-rose-50"
+                        : "border-zinc-400 bg-zinc-50"
+                      : newLeadIds.has(lead.id)
+                        ? "border-rose-300 bg-rose-50 hover:bg-rose-50"
+                        : "border-zinc-200 hover:bg-zinc-50"
                   }`}
                   onClick={() => {
                     setActiveLeadId(lead.id);
+                    if (newLeadIds.has(lead.id)) {
+                      setNewLeadIds((prev) => {
+                        const next = new Set(prev);
+                        next.delete(lead.id);
+                        return next;
+                      });
+                    }
                   }}
                   type="button"
                 >
-                  <div className="text-sm font-semibold">{lead.businessName}</div>
+                  <div className="flex items-center justify-between gap-3">
+                    <div className="text-sm font-semibold">{lead.businessName}</div>
+                    {newLeadIds.has(lead.id) ? (
+                      <span className="rounded-full bg-rose-100 px-2 py-0.5 text-[11px] font-semibold text-rose-700">
+                        New
+                      </span>
+                    ) : null}
+                  </div>
                   <div className="mt-1 text-xs text-zinc-600">{lead.phone}</div>
                   <div className="mt-1 text-xs text-zinc-600">
                     {[lead.niche, lead.location].filter(Boolean).join(" • ")}

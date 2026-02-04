@@ -9,7 +9,6 @@ const bodySchema = z.object({
   appointmentId: z.string().min(1),
   outcome: z.enum(["CLOSED", "FOLLOW_UP", "LOST"]),
   notes: z.string().optional(),
-  revenueDollars: z.number().min(0).optional(),
   loomUrl: z.string().url().optional(),
 
   // Contract / close details (only used when outcome=CLOSED)
@@ -46,11 +45,6 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
 
-  const revenueCents =
-    typeof parsed.data.revenueDollars === "number"
-      ? Math.round(parsed.data.revenueDollars * 100)
-      : null;
-
   const setupFeeCents =
     typeof parsed.data.setupFeeDollars === "number"
       ? Math.round(parsed.data.setupFeeDollars * 100)
@@ -74,68 +68,79 @@ export async function POST(req: Request) {
   const termsText =
     parsed.data.terms?.trim() || (termMonths > 0 ? `Term: ${termMonths} months` : "TBD");
 
-  const updated = await prisma.$transaction(async (tx) => {
-    const appt = await tx.appointment.update({
-      where: { id: appointment.id },
-      data: {
-        status: "COMPLETED",
-        loomUrl: parsed.data.loomUrl ?? appointment.loomUrl,
-      },
-    });
-
-    const outcome = await tx.appointmentOutcome.upsert({
-      where: { appointmentId: appointment.id },
-      update: {
-        outcome: parsed.data.outcome,
-        notes: parsed.data.notes,
-        revenueCents: revenueCents ?? undefined,
-      },
-      create: {
-        appointmentId: appointment.id,
-        outcome: parsed.data.outcome,
-        notes: parsed.data.notes,
-        revenueCents,
-      },
-    });
-
-    if (parsed.data.outcome === "CLOSED") {
-      const priceCents = monthlyFeeCents > 0 ? monthlyFeeCents : revenueCents ?? 0;
-      await tx.contractDraft.upsert({
-        where: { appointmentOutcomeId: outcome.id },
-        update: {
-          status: "DRAFT",
-          priceCents,
-          setupFeeCents,
-          monthlyFeeCents,
-          termMonths,
-          servicesJson: servicesSelected.length > 0 ? servicesSelected : undefined,
-          servicesOther,
-          terms: termsText,
-          services: servicesText,
-          clientEmail: parsed.data.clientEmail ?? null,
-          submittedByUserId: userId,
-        },
-        create: {
-          appointmentOutcomeId: outcome.id,
-          status: "DRAFT",
-          priceCents,
-          setupFeeCents,
-          monthlyFeeCents,
-          termMonths,
-          servicesJson: servicesSelected.length > 0 ? servicesSelected : undefined,
-          servicesOther,
-          terms: termsText,
-          services: servicesText,
-          clientEmail: parsed.data.clientEmail ?? null,
-          submittedByUserId: userId,
+  try {
+    const updated = await prisma.$transaction(async (tx) => {
+      const appt = await tx.appointment.update({
+        where: { id: appointment.id },
+        data: {
+          status: "COMPLETED",
+          loomUrl: parsed.data.loomUrl ?? appointment.loomUrl,
         },
       });
-    } else {
-      await tx.contractDraft.deleteMany({ where: { appointmentOutcomeId: outcome.id } });
+
+      const outcome = await tx.appointmentOutcome.upsert({
+        where: { appointmentId: appointment.id },
+        update: {
+          outcome: parsed.data.outcome,
+          notes: parsed.data.notes,
+        },
+        create: {
+          appointmentId: appointment.id,
+          outcome: parsed.data.outcome,
+          notes: parsed.data.notes,
+        },
+      });
+
+      if (parsed.data.outcome === "CLOSED") {
+        if (monthlyFeeCents <= 0) {
+          throw new Error("Monthly fee is required when outcome is CLOSED");
+        }
+
+        const priceCents = monthlyFeeCents;
+        await tx.contractDraft.upsert({
+          where: { appointmentOutcomeId: outcome.id },
+          update: {
+            status: "DRAFT",
+            priceCents,
+            setupFeeCents,
+            monthlyFeeCents,
+            termMonths,
+            servicesJson: servicesSelected.length > 0 ? servicesSelected : undefined,
+            servicesOther,
+            terms: termsText,
+            services: servicesText,
+            clientEmail: parsed.data.clientEmail ?? null,
+            submittedByUserId: userId,
+          },
+          create: {
+            appointmentOutcomeId: outcome.id,
+            status: "DRAFT",
+            priceCents,
+            setupFeeCents,
+            monthlyFeeCents,
+            termMonths,
+            servicesJson: servicesSelected.length > 0 ? servicesSelected : undefined,
+            servicesOther,
+            terms: termsText,
+            services: servicesText,
+            clientEmail: parsed.data.clientEmail ?? null,
+            submittedByUserId: userId,
+          },
+        });
+      } else {
+        await tx.contractDraft.deleteMany({ where: { appointmentOutcomeId: outcome.id } });
+      }
+
+      return { appt, outcome };
+    });
+
+    return NextResponse.json(updated);
+  } catch (err) {
+    const message = err instanceof Error ? err.message : "Disposition failed";
+    const status = message.includes("Monthly fee is required") ? 400 : 500;
+    if (status === 500) {
+      console.error("/api/appointments/disposition failed", err);
     }
-
-    return { appt, outcome };
-  });
-
-  return NextResponse.json(updated);
+    return NextResponse.json({ error: message }, { status });
+  }
 }

@@ -17,6 +17,10 @@ export default async function CloserAppointmentsPage() {
     return <CloserAppointmentsClient initialAppointments={[]} />;
   }
 
+  if (role !== "CLOSER" && role !== "MANAGER" && role !== "ADMIN") {
+    return <CloserAppointmentsClient initialAppointments={[]} />;
+  }
+
   async function attachVideos<T extends { id: string }>(appts: T[]) {
     if (!appts.length) return appts;
 
@@ -81,7 +85,7 @@ export default async function CloserAppointmentsPage() {
       lead: { select: leadSelect },
       setter: { select: { name: true, email: true } },
       prepDoc: { select: { id: true, title: true, content: true, kind: true } },
-      outcome: { select: { outcome: true, revenueCents: true, notes: true } },
+      outcome: { select: { outcome: true, notes: true } },
     },
     orderBy: { startAt: "desc" },
     take: 100,
