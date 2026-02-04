@@ -4,6 +4,8 @@ import { z } from "zod";
 
 import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/db";
+import { hasPublicColumn } from "@/lib/dbSchema";
+import { deriveInterestedServiceFromNotes } from "@/lib/leadDerived";
 
 const bodySchema = z.object({
   leadId: z.string().min(1),
@@ -16,28 +18,56 @@ function overlaps(aStart: Date, aEnd: Date, bStart: Date, bEnd: Date) {
 }
 
 export async function POST(req: Request) {
-  const session = await getServerSession(authOptions);
-  const setterId = session?.user?.id;
-  const role = session?.user?.role;
-  if (!setterId) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  if (role !== "DIALER" && role !== "ADMIN" && role !== "MANAGER") {
-    return NextResponse.json({ error: "Forbidden" }, { status: 403 });
-  }
+  try {
+    const session = await getServerSession(authOptions);
+    const setterId = session?.user?.id;
+    const role = session?.user?.role;
+    if (!setterId) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    if (role !== "DIALER" && role !== "ADMIN" && role !== "MANAGER") {
+      return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+    }
 
-  const json = await req.json().catch(() => null);
-  const parsed = bodySchema.safeParse(json);
-  if (!parsed.success) {
-    return NextResponse.json({ error: "Invalid payload" }, { status: 400 });
-  }
+    const json = await req.json().catch(() => null);
+    const parsed = bodySchema.safeParse(json);
+    if (!parsed.success) {
+      return NextResponse.json({ error: "Invalid payload" }, { status: 400 });
+    }
 
-  const lead = await prisma.lead.findUnique({ where: { id: parsed.data.leadId } });
-  if (!lead) return NextResponse.json({ error: "Lead not found" }, { status: 404 });
+    const [hasContactPhone, hasInterestedService, hasNotes, hasWebsite, hasLocation, hasNiche] =
+      await Promise.all([
+      hasPublicColumn("Lead", "contactPhone"),
+      hasPublicColumn("Lead", "interestedService"),
+      hasPublicColumn("Lead", "notes"),
+      hasPublicColumn("Lead", "website"),
+      hasPublicColumn("Lead", "location"),
+      hasPublicColumn("Lead", "niche"),
+    ]);
 
-  const startAt = new Date(parsed.data.startAt);
-  if (Number.isNaN(startAt.getTime())) {
-    return NextResponse.json({ error: "Invalid startAt" }, { status: 400 });
-  }
-  const endAt = new Date(startAt.getTime() + parsed.data.durationMinutes * 60_000);
+    const leadSelect = {
+      id: true,
+      businessName: true,
+      phone: true,
+      contactName: true,
+      contactEmail: true,
+      ...(hasWebsite ? { website: true } : {}),
+      ...(hasNiche ? { niche: true } : {}),
+      ...(hasLocation ? { location: true } : {}),
+      ...(hasContactPhone ? { contactPhone: true } : {}),
+      ...(hasInterestedService ? { interestedService: true } : {}),
+      ...(hasNotes ? { notes: true } : {}),
+    } as const;
+
+    const lead = await prisma.lead.findUnique({
+      where: { id: parsed.data.leadId },
+      select: leadSelect,
+    });
+    if (!lead) return NextResponse.json({ error: "Lead not found" }, { status: 404 });
+
+    const startAt = new Date(parsed.data.startAt);
+    if (Number.isNaN(startAt.getTime())) {
+      return NextResponse.json({ error: "Invalid startAt" }, { status: 400 });
+    }
+    const endAt = new Date(startAt.getTime() + parsed.data.durationMinutes * 60_000);
 
   // Find available closers:
   const closers = await prisma.user.findMany({
@@ -110,20 +140,46 @@ export async function POST(req: Request) {
     if (curr < best) chosen = c;
   }
 
-  const appointment = await prisma.appointment.create({
-    data: {
-      leadId: lead.id,
-      setterId,
-      closerId: chosen.id,
-      startAt,
-      endAt,
-    },
-    include: {
-      lead: true,
-      closer: { select: { name: true, email: true } },
-      setter: { select: { name: true, email: true } },
-    },
-  });
+    const appointment = await prisma.appointment.create({
+      data: {
+        leadId: lead.id,
+        setterId,
+        closerId: chosen.id,
+        startAt,
+        endAt,
+      },
+      select: {
+        id: true,
+        leadId: true,
+        startAt: true,
+        endAt: true,
+        status: true,
+        lead: { select: leadSelect },
+        closer: { select: { name: true, email: true } },
+        setter: { select: { name: true, email: true } },
+      },
+    });
 
-  return NextResponse.json({ appointment });
+    const leadRec = appointment.lead as unknown as Record<string, unknown>;
+    const notes = leadRec.notes;
+    const interestedServiceRaw = leadRec.interestedService;
+    const interestedService =
+      typeof interestedServiceRaw === "string" && interestedServiceRaw.trim()
+        ? interestedServiceRaw
+        : deriveInterestedServiceFromNotes(notes);
+
+    const contactPhoneRaw = leadRec.contactPhone;
+    const contactPhone =
+      typeof contactPhoneRaw === "string" && contactPhoneRaw.trim() ? contactPhoneRaw : null;
+
+    return NextResponse.json({
+      appointment: {
+        ...appointment,
+        lead: { ...appointment.lead, contactPhone, interestedService },
+      },
+    });
+  } catch (err) {
+    console.error("/api/appointments/book failed", err);
+    return NextResponse.json({ error: "Failed to book meeting" }, { status: 500 });
+  }
 }

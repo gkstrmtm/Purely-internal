@@ -4,6 +4,7 @@ import { redirect } from "next/navigation";
 import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/db";
 import { hasPublicColumn } from "@/lib/dbSchema";
+import { deriveInterestedServiceFromNotes } from "@/lib/leadDerived";
 
 export default async function ManagerLeadsPage() {
   const session = await getServerSession(authOptions);
@@ -17,6 +18,8 @@ export default async function ManagerLeadsPage() {
     hasPublicColumn("Lead", "interestedService"),
   ]);
 
+  const hasNotes = await hasPublicColumn("Lead", "notes");
+
   const leadSelect = {
     id: true,
     businessName: true,
@@ -25,6 +28,7 @@ export default async function ManagerLeadsPage() {
     contactEmail: true,
     ...(hasContactPhone ? { contactPhone: true } : {}),
     ...(hasInterestedService ? { interestedService: true } : {}),
+    ...(hasNotes ? { notes: true } : {}),
     niche: true,
     location: true,
     source: true,
@@ -61,9 +65,12 @@ export default async function ManagerLeadsPage() {
             const record = l as unknown as Record<string, unknown>;
             const contactPhoneValue = record.contactPhone;
             const interestedServiceValue = record.interestedService;
+            const notesValue = record.notes;
             const contactPhone = typeof contactPhoneValue === "string" ? contactPhoneValue : null;
             const interestedService =
-              typeof interestedServiceValue === "string" ? interestedServiceValue : null;
+              typeof interestedServiceValue === "string" && interestedServiceValue.trim()
+                ? interestedServiceValue
+                : deriveInterestedServiceFromNotes(notesValue);
 
             return (
               <div key={l.id} className="rounded-2xl border border-zinc-200 p-4">

@@ -8,7 +8,7 @@ export type ManagerAppointment = {
   endAt: string;
   status: string;
   loomUrl?: string | null;
-  lead: { id: string; businessName: string; phone: string };
+  lead: { id: string; businessName: string; phone: string; interestedService?: string | null };
   setter: { name: string; email: string };
   closer?: { name: string; email: string } | null;
   outcome?: { outcome: string; notes?: string | null; revenueCents?: number | null } | null;
@@ -62,6 +62,7 @@ export default function ManagerAppointmentsClient({
       const hay = [
         a.lead.businessName,
         a.lead.phone,
+        a.lead.interestedService ?? "",
         a.setter.name,
         a.setter.email,
         a.closer?.name ?? "",
@@ -130,6 +131,11 @@ export default function ManagerAppointmentsClient({
               <div>
                 <div className="text-sm font-semibold">{a.lead.businessName}</div>
                 <div className="mt-1 text-xs text-zinc-600">{a.lead.phone}</div>
+                {a.lead.interestedService ? (
+                  <div className="mt-1 text-xs text-zinc-600">
+                    Interested in: {a.lead.interestedService}
+                  </div>
+                ) : null}
                 <div className="mt-1 text-xs text-zinc-600">
                   {new Date(a.startAt).toLocaleString()} • {a.status}
                   {a.outcome?.outcome ? ` • ${a.outcome.outcome}` : ""}

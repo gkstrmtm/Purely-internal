@@ -5,6 +5,8 @@ import { z } from "zod";
 import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/db";
 import { generateText } from "@/lib/ai";
+import { hasPublicColumn } from "@/lib/dbSchema";
+import { deriveInterestedServiceFromNotes } from "@/lib/leadDerived";
 
 const bodySchema = z.object({
   appointmentId: z.string().min(1),
@@ -25,10 +27,37 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: "Invalid payload" }, { status: 400 });
   }
 
+  const [hasContactPhone, hasInterestedService, hasNotes, hasWebsite, hasLocation, hasNiche] =
+    await Promise.all([
+    hasPublicColumn("Lead", "contactPhone"),
+    hasPublicColumn("Lead", "interestedService"),
+    hasPublicColumn("Lead", "notes"),
+      hasPublicColumn("Lead", "website"),
+      hasPublicColumn("Lead", "location"),
+      hasPublicColumn("Lead", "niche"),
+    ]);
+
+  const leadSelect = {
+    id: true,
+    businessName: true,
+    phone: true,
+    contactName: true,
+    contactEmail: true,
+    ...(hasWebsite ? { website: true } : {}),
+    ...(hasLocation ? { location: true } : {}),
+    ...(hasNiche ? { niche: true } : {}),
+    ...(hasContactPhone ? { contactPhone: true } : {}),
+    ...(hasInterestedService ? { interestedService: true } : {}),
+    ...(hasNotes ? { notes: true } : {}),
+  } as const;
+
   const appt = await prisma.appointment.findUnique({
     where: { id: parsed.data.appointmentId },
-    include: {
-      lead: true,
+    select: {
+      id: true,
+      leadId: true,
+      closerId: true,
+      lead: { select: leadSelect },
       prepDoc: { select: { id: true, title: true, content: true, kind: true } },
       setter: { select: { name: true, email: true } },
       closer: { select: { name: true, email: true } },
@@ -45,8 +74,18 @@ export async function POST(req: Request) {
   const tweak = parsed.data.tweak?.trim();
   const prep = (parsed.data.prepContent ?? appt.prepDoc?.content ?? "").trim();
 
+  const leadRec = appt.lead as unknown as Record<string, unknown>;
+  const contactPhoneValue = leadRec.contactPhone;
+  const contactPhone = typeof contactPhoneValue === "string" ? contactPhoneValue : null;
+
+  const interestedServiceValue = leadRec.interestedService;
+  const interestedService =
+    typeof interestedServiceValue === "string" && interestedServiceValue.trim()
+      ? interestedServiceValue
+      : deriveInterestedServiceFromNotes(leadRec.notes);
+
   const contactLine = appt.lead.contactName
-    ? `Contact: ${appt.lead.contactName}${appt.lead.contactEmail ? ` (${appt.lead.contactEmail})` : ""}${appt.lead.contactPhone ? ` • ${appt.lead.contactPhone}` : ""}`
+    ? `Contact: ${appt.lead.contactName}${appt.lead.contactEmail ? ` (${appt.lead.contactEmail})` : ""}${contactPhone ? ` • ${contactPhone}` : ""}`
     : "Contact: (not provided)";
 
   const userPrompt = [
@@ -60,7 +99,7 @@ export async function POST(req: Request) {
     appt.lead.location ? `Location: ${appt.lead.location}` : "",
     appt.lead.website ? `Website: ${appt.lead.website}` : "",
     contactLine,
-    appt.lead.interestedService ? `Interested in: ${appt.lead.interestedService}` : "",
+    interestedService ? `Interested in: ${interestedService}` : "",
     "",
     appt.setter?.name ? `Setter: ${appt.setter.name} (${appt.setter.email})` : "",
     appt.closer?.name ? `Closer: ${appt.closer.name} (${appt.closer.email})` : "",

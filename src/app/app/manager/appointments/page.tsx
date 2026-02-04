@@ -5,6 +5,8 @@ import type { ManagerAppointment } from "./ManagerAppointmentsClient";
 
 import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/db";
+import { hasPublicColumn } from "@/lib/dbSchema";
+import { deriveInterestedServiceFromNotes } from "@/lib/leadDerived";
 
 export default async function ManagerAppointmentsPage() {
   const session = await getServerSession(authOptions);
@@ -41,17 +43,44 @@ export default async function ManagerAppointmentsPage() {
   }
 
   const appts = await prisma.appointment.findMany({
-    include: {
-      lead: { select: { id: true, businessName: true, phone: true } },
+    select: {
+      id: true,
+      startAt: true,
+      endAt: true,
+      status: true,
+      loomUrl: true,
+      lead: {
+        select: {
+          id: true,
+          businessName: true,
+          phone: true,
+          ...(await hasPublicColumn("Lead", "interestedService")
+            ? { interestedService: true }
+            : {}),
+          ...(await hasPublicColumn("Lead", "notes") ? { notes: true } : {}),
+        } as const,
+      },
       setter: { select: { name: true, email: true } },
       closer: { select: { name: true, email: true } },
-      outcome: true,
+      outcome: { select: { outcome: true, notes: true, revenueCents: true } },
     },
     orderBy: { startAt: "desc" },
     take: 200,
   });
 
-  const initialAppointments = await attachVideos(appts);
+  const normalized = appts.map((a) => {
+    const leadRec = a.lead as unknown as Record<string, unknown>;
+    const interestedServiceRaw = leadRec.interestedService;
+    const interestedService =
+      typeof interestedServiceRaw === "string" && interestedServiceRaw.trim()
+        ? interestedServiceRaw
+        : deriveInterestedServiceFromNotes(leadRec.notes);
+
+    const lead = { ...a.lead, interestedService };
+    return { ...a, lead };
+  });
+
+  const initialAppointments = await attachVideos(normalized);
   return (
     <ManagerAppointmentsClient
       initialAppointments={initialAppointments as unknown as ManagerAppointment[]}

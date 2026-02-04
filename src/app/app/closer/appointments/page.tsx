@@ -5,6 +5,8 @@ import type { CloserAppointment } from "./CloserAppointmentsClient";
 
 import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/db";
+import { hasPublicColumn } from "@/lib/dbSchema";
+import { deriveInterestedServiceFromNotes } from "@/lib/leadDerived";
 
 export default async function CloserAppointmentsPage() {
   const session = await getServerSession(authOptions);
@@ -43,19 +45,73 @@ export default async function CloserAppointmentsPage() {
   // For closers: only their appointments. For managers/admin: all.
   const where = role === "CLOSER" ? { closerId: userId } : undefined;
 
+  const [hasContactPhone, hasInterestedService, hasNotes, hasSource, hasWebsite, hasLocation, hasNiche] = await Promise.all([
+    hasPublicColumn("Lead", "contactPhone"),
+    hasPublicColumn("Lead", "interestedService"),
+    hasPublicColumn("Lead", "notes"),
+    hasPublicColumn("Lead", "source"),
+    hasPublicColumn("Lead", "website"),
+    hasPublicColumn("Lead", "location"),
+    hasPublicColumn("Lead", "niche"),
+  ]);
+
+  const leadSelect = {
+    id: true,
+    businessName: true,
+    phone: true,
+    contactName: true,
+    contactEmail: true,
+    ...(hasWebsite ? { website: true } : {}),
+    ...(hasLocation ? { location: true } : {}),
+    ...(hasNiche ? { niche: true } : {}),
+    ...(hasContactPhone ? { contactPhone: true } : {}),
+    ...(hasInterestedService ? { interestedService: true } : {}),
+    ...(hasNotes ? { notes: true } : {}),
+    ...(hasSource ? { source: true } : {}),
+  } as const;
+
   const appts = await prisma.appointment.findMany({
     where,
-    include: {
-      lead: true,
+    select: {
+      id: true,
+      startAt: true,
+      endAt: true,
+      status: true,
+      loomUrl: true,
+      lead: { select: leadSelect },
       setter: { select: { name: true, email: true } },
       prepDoc: { select: { id: true, title: true, content: true, kind: true } },
-      outcome: true,
+      outcome: { select: { outcome: true, revenueCents: true, notes: true } },
     },
     orderBy: { startAt: "desc" },
     take: 100,
   });
 
-  const initialAppointments = await attachVideos(appts);
+  const normalized = appts.map((a) => {
+    const leadRec = a.lead as unknown as Record<string, unknown>;
+    const notes = leadRec.notes;
+    const interestedServiceRaw = leadRec.interestedService;
+
+    const interestedService =
+      typeof interestedServiceRaw === "string" && interestedServiceRaw.trim()
+        ? interestedServiceRaw
+        : deriveInterestedServiceFromNotes(notes);
+
+    const contactPhoneValue = leadRec.contactPhone;
+    const contactPhone =
+      typeof contactPhoneValue === "string" && contactPhoneValue.trim() ? contactPhoneValue : null;
+
+    return {
+      ...a,
+      lead: {
+        ...(a.lead ?? {}),
+        contactPhone,
+        interestedService,
+      },
+    };
+  });
+
+  const initialAppointments = await attachVideos(normalized);
   return (
     <CloserAppointmentsClient
       initialAppointments={initialAppointments as unknown as CloserAppointment[]}
