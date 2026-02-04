@@ -40,7 +40,17 @@ export async function GET() {
     }
 
     const assignments = await prisma.leadAssignment.findMany({
-      where: { userId, releasedAt: null },
+      where: {
+        userId,
+        releasedAt: null,
+        lead: {
+          appointments: {
+            none: {
+              status: { in: ["SCHEDULED", "RESCHEDULED"] },
+            },
+          },
+        },
+      },
       orderBy: { claimedAt: "desc" },
       take: 50,
       select: {

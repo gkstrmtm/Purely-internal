@@ -6,6 +6,7 @@ import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/db";
 import { hasPublicColumn } from "@/lib/dbSchema";
 import { deriveInterestedServiceFromNotes } from "@/lib/leadDerived";
+import { buildPrepPackBase } from "@/lib/prepPack";
 
 const bodySchema = z.object({
   leadId: z.string().min(1),
@@ -159,6 +160,69 @@ export async function POST(req: Request) {
         setter: { select: { name: true, email: true } },
       },
     });
+
+    // Ensure closer has a prep pack attached to this appointment.
+    try {
+      const leadRec = lead as unknown as Record<string, unknown>;
+      const base = buildPrepPackBase({
+        businessName: lead.businessName,
+        phone: lead.phone,
+        website: (leadRec.website as string | null | undefined) ?? null,
+        location: (leadRec.location as string | null | undefined) ?? null,
+        niche: (leadRec.niche as string | null | undefined) ?? null,
+        contactName: (lead.contactName as string | null | undefined) ?? null,
+        contactEmail: (lead.contactEmail as string | null | undefined) ?? null,
+        contactPhone: (leadRec.contactPhone as string | null | undefined) ?? null,
+        interestedService: (appointment.lead as unknown as Record<string, unknown>)
+          .interestedService as string | null | undefined,
+        notes: (leadRec.notes as string | null | undefined) ?? null,
+      });
+
+      const dialerPrep = await prisma.doc.findFirst({
+        where: { leadId: lead.id, kind: "LEAD_PREP_PACK" },
+        orderBy: { updatedAt: "desc" },
+        select: { content: true },
+      });
+
+      const content = dialerPrep?.content?.trim() ? dialerPrep.content : base;
+
+      const existingPrep = await prisma.doc.findFirst({
+        where: { ownerId: chosen.id, leadId: lead.id, kind: "APPOINTMENT_PREP" },
+        select: { id: true },
+      });
+
+      const prepDocId =
+        existingPrep?.id ??
+        (
+          await prisma.doc.create({
+            data: {
+              ownerId: chosen.id,
+              leadId: lead.id,
+              title: `Prep pack – ${lead.businessName}`,
+              kind: "APPOINTMENT_PREP",
+              content,
+            },
+            select: { id: true },
+          })
+        ).id;
+
+      await prisma.appointment.update({
+        where: { id: appointment.id },
+        data: { prepDocId },
+      });
+    } catch {
+      // Best-effort.
+    }
+
+    // Booked leads should not remain visible to dialers.
+    try {
+      await prisma.leadAssignment.updateMany({
+        where: { leadId: appointment.leadId, releasedAt: null },
+        data: { releasedAt: new Date() },
+      });
+    } catch {
+      // Best-effort.
+    }
 
     const leadRec = appointment.lead as unknown as Record<string, unknown>;
     const notes = leadRec.notes;

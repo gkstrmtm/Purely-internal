@@ -3,6 +3,7 @@ import { z } from "zod";
 import { Prisma } from "@prisma/client";
 
 import { prisma } from "@/lib/db";
+import { normalizePhoneForStorage } from "@/lib/phone";
 
 async function sendInternalEmail(subject: string, body: string) {
   const apiKey = process.env.SENDGRID_API_KEY;
@@ -33,22 +34,46 @@ const bodySchema = z.object({
   optedIn: z.boolean().optional().default(false),
 });
 
-function normalizePhoneForStorage(inputRaw: string) {
-  const input = inputRaw.trim();
-  if (!input) return null;
+async function pickDialerIdRoundRobin() {
+  const dialers = await prisma.user.findMany({
+    where: { role: "DIALER", active: true },
+    select: { id: true },
+    orderBy: { createdAt: "asc" },
+  });
 
-  const hasPlus = input.startsWith("+");
-  const digits = input.replace(/\D/g, "");
+  if (dialers.length === 0) return null;
 
-  // Basic sanity: most valid numbers are 10-15 digits.
-  if (digits.length < 10 || digits.length > 15) return null;
+  const counts = await prisma.leadAssignment.groupBy({
+    by: ["userId"],
+    where: { releasedAt: null, userId: { in: dialers.map((d) => d.id) } },
+    _count: { _all: true },
+  });
 
-  if (!hasPlus) {
-    if (digits.length === 10) return `+1${digits}`;
-    if (digits.length === 11 && digits.startsWith("1")) return `+${digits}`;
+  const countMap = new Map(counts.map((c) => [c.userId, c._count._all] as const));
+
+  let chosen = dialers[0];
+  for (const d of dialers) {
+    const curr = countMap.get(d.id) ?? 0;
+    const best = countMap.get(chosen.id) ?? 0;
+    if (curr < best) chosen = d;
   }
 
-  return `+${digits}`;
+  return chosen.id;
+}
+
+async function assignLeadToDialer(leadId: string) {
+  const dialerId = await pickDialerIdRoundRobin();
+  if (!dialerId) return;
+
+  await prisma.leadAssignment.createMany({
+    data: [{ leadId, userId: dialerId }],
+    skipDuplicates: true,
+  });
+
+  await prisma.lead.updateMany({
+    where: { id: leadId },
+    data: { status: "ASSIGNED" },
+  });
 }
 
 function buildEmailBody(name: string) {
@@ -151,6 +176,14 @@ export async function POST(req: Request) {
       update: { name, company, email, phone: normalizedPhone, optedIn },
       create: { leadId: lead.id, name, company, email, phone: normalizedPhone, optedIn },
     });
+
+    // Route: demo-form-only leads should go to a dialer unless they book a call.
+    // Booking flow releases dialer assignments when an appointment is created.
+    try {
+      await assignLeadToDialer(lead.id);
+    } catch {
+      // Best-effort; do not fail the marketing form if assignment fails.
+    }
 
     const now = new Date();
     const followUpAt = new Date(now.getTime() + 5 * 60_000);

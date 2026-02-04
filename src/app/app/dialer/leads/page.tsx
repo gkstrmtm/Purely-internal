@@ -58,6 +58,9 @@ export default function DialerLeadsPage() {
   const [doc, setDoc] = useState<{ id: string; title: string; content: string } | null>(
     null,
   );
+  const [prepDoc, setPrepDoc] = useState<{ id: string; title: string; content: string } | null>(
+    null,
+  );
   const [error, setError] = useState<string | null>(null);
   const [status, setStatus] = useState<string | null>(null);
 
@@ -97,6 +100,7 @@ export default function DialerLeadsPage() {
     setError(null);
     setStatus(null);
     setDoc(null);
+    setPrepDoc(null);
     setTemplateTitle("");
     setSelectedTemplateId("");
     setBookResult(null);
@@ -119,6 +123,19 @@ export default function DialerLeadsPage() {
     })().catch(() => {
       if (!cancelled) setError("Failed to load script");
     });
+
+    (async () => {
+      const res = await fetch(`/api/leads/prep-pack?leadId=${encodeURIComponent(activeLeadId)}`);
+      const body = await res.json().catch(() => ({}));
+      if (cancelled) return;
+
+      if (!res.ok) {
+        // Non-fatal; prep packs are optional.
+        return;
+      }
+
+      setPrepDoc(body.doc);
+    })().catch(() => null);
 
     return () => {
       cancelled = true;
@@ -228,6 +245,43 @@ export default function DialerLeadsPage() {
     }
     setStatus("Saved as template");
     await refreshTemplates();
+  }
+
+  async function generatePrepPack() {
+    if (!activeLead) return;
+    setError(null);
+    setStatus(null);
+
+    const res = await fetch("/api/ai/prep-pack", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ leadId: activeLead.id }),
+    });
+    const body = await res.json().catch(() => ({}));
+    if (!res.ok) {
+      setError(body?.error ?? "Failed to generate prep pack");
+      return;
+    }
+    setPrepDoc(body.doc);
+    setStatus("Generated prep pack");
+  }
+
+  async function savePrepPack() {
+    if (!prepDoc) return;
+    setError(null);
+    setStatus(null);
+
+    const res = await fetch(`/api/docs/${prepDoc.id}`, {
+      method: "PATCH",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ content: prepDoc.content }),
+    });
+    const body = await res.json().catch(() => ({}));
+    if (!res.ok) {
+      setError(body?.error ?? "Failed to save prep pack");
+      return;
+    }
+    setStatus("Saved prep pack");
   }
 
   async function loadTemplate() {
@@ -536,6 +590,47 @@ export default function DialerLeadsPage() {
               />
               {doc ? (
                 <div className="mt-2 text-xs text-zinc-600">Saved as doc: {doc.title}</div>
+              ) : null}
+            </div>
+
+            <div className="mt-6 rounded-2xl border border-zinc-200 p-4">
+              <div className="flex items-start justify-between gap-3">
+                <div>
+                  <div className="text-sm font-semibold">Prep pack</div>
+                  <div className="mt-1 text-xs text-zinc-600">
+                    Generate a closer-ready prep pack for this lead.
+                  </div>
+                </div>
+                <div className="flex gap-2">
+                  <button
+                    className="rounded-xl bg-zinc-900 px-3 py-2 text-sm font-medium text-white hover:bg-zinc-800 disabled:opacity-60"
+                    disabled={!activeLead}
+                    onClick={generatePrepPack}
+                    type="button"
+                  >
+                    Generate
+                  </button>
+                  <button
+                    className="rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm hover:bg-zinc-50 disabled:opacity-60"
+                    disabled={!prepDoc}
+                    onClick={savePrepPack}
+                    type="button"
+                  >
+                    Save
+                  </button>
+                </div>
+              </div>
+
+              <textarea
+                className="mt-3 h-56 w-full rounded-2xl border border-zinc-200 bg-white p-3 font-mono text-sm leading-6 outline-none focus:border-zinc-400"
+                value={prepDoc?.content ?? ""}
+                onChange={(e) =>
+                  setPrepDoc((d) => (d ? { ...d, content: e.target.value } : d))
+                }
+                placeholder={activeLead ? "Generate a prep pack" : "Select a lead first"}
+              />
+              {prepDoc ? (
+                <div className="mt-2 text-xs text-zinc-600">Saved as doc: {prepDoc.title}</div>
               ) : null}
             </div>
 
