@@ -72,7 +72,7 @@ export async function GET(req: Request) {
   const appts = await prisma.appointment.findMany({
     where: {
       closerId: { in: closerIds },
-      status: "SCHEDULED",
+      status: { in: ["SCHEDULED", "RESCHEDULED"] },
       startAt: { lt: rangeEnd },
       endAt: { gt: alignedStart },
     },

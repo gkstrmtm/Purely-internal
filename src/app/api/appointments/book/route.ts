@@ -100,7 +100,7 @@ export async function POST(req: Request) {
   const conflicts = await prisma.appointment.findMany({
     where: {
       closerId: { in: eligible.map((c) => c.id) },
-      status: "SCHEDULED",
+      status: { in: ["SCHEDULED", "RESCHEDULED"] },
       OR: [
         { startAt: { lt: endAt }, endAt: { gt: startAt } },
       ],
@@ -126,7 +126,7 @@ export async function POST(req: Request) {
     by: ["closerId"],
     where: {
       closerId: { in: noConflict.map((c) => c.id) },
-      status: "SCHEDULED",
+      status: { in: ["SCHEDULED", "RESCHEDULED"] },
       startAt: { gte: new Date(Date.now() - 1 * 24 * 60 * 60_000) },
     },
     _count: { _all: true },

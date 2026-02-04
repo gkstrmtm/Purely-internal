@@ -17,7 +17,8 @@ export async function GET(req: Request) {
 
   const url = new URL(req.url);
   const takeRaw = url.searchParams.get("take");
-  const take = Math.max(1, Math.min(500, takeRaw ? Number(takeRaw) : 200));
+  const takeParsed = takeRaw ? Number(takeRaw) : undefined;
+  const take = Math.max(1, Math.min(500, Number.isFinite(takeParsed as number) ? (takeParsed as number) : 200));
 
   const [hasContactPhone, hasInterestedService, hasNotes] = await Promise.all([
     hasPublicColumn("Lead", "contactPhone"),
@@ -47,6 +48,18 @@ export async function GET(req: Request) {
       },
       orderBy: { claimedAt: "desc" },
       take: 1,
+    },
+    appointments: {
+      where: { status: { in: ["SCHEDULED", "RESCHEDULED"] as Array<"SCHEDULED" | "RESCHEDULED"> } },
+      orderBy: { startAt: "desc" },
+      take: 1,
+      select: {
+        id: true,
+        startAt: true,
+        endAt: true,
+        status: true,
+        closer: { select: { id: true, name: true, email: true } },
+      },
     },
   } as const;
 

@@ -20,6 +20,14 @@ type LeadRow = {
     claimedAt?: string | null;
     user?: { name?: string | null; email?: string | null } | null;
   }>;
+
+  appointments?: Array<{
+    id: string;
+    startAt: string;
+    endAt: string;
+    status: string;
+    closer?: { id: string; name?: string | null; email?: string | null } | null;
+  }>;
 };
 
 type DialerRow = { id: string; name: string | null; email: string; role: string };
@@ -33,6 +41,8 @@ type BulkResponse = {
   updated?: number;
   deleted?: number;
 };
+
+type CloserOption = { id: string; name: string | null; email: string };
 
 function asRecord(value: unknown): Record<string, unknown> {
   return value && typeof value === "object" ? (value as Record<string, unknown>) : {};
@@ -88,6 +98,14 @@ export default function ManagerLeadsClient({
   const [selectedLeadIds, setSelectedLeadIds] = useState<Record<string, boolean>>({});
   const [bulkWorking, setBulkWorking] = useState<"delete" | "unassign" | "reassign" | null>(null);
   const [reassignUserId, setReassignUserId] = useState<string>("");
+
+  const [closerOptionsByLeadId, setCloserOptionsByLeadId] = useState<Record<string, CloserOption[]>>(
+    {},
+  );
+  const [closerSelectionByLeadId, setCloserSelectionByLeadId] = useState<Record<string, string>>(
+    {},
+  );
+  const [closerWorkingLeadId, setCloserWorkingLeadId] = useState<string | null>(null);
 
   const selectedIds = useMemo(
     () => Object.keys(selectedLeadIds).filter((id) => selectedLeadIds[id]),
@@ -201,6 +219,93 @@ export default function ManagerLeadsClient({
     [refresh, reassignUserId, selectedIds],
   );
 
+  const loadAvailableClosersForLead = useCallback(async (lead: LeadRow) => {
+    const appt = lead.appointments?.[0] ?? null;
+    if (!appt) {
+      setError("This lead has no scheduled call to assign.");
+      return;
+    }
+
+    const startAt = new Date(appt.startAt);
+    const endAt = new Date(appt.endAt);
+    const durationMinutes = Math.max(10, Math.round((endAt.getTime() - startAt.getTime()) / 60_000));
+
+    setCloserWorkingLeadId(lead.id);
+    setError(null);
+    setStatus(null);
+
+    try {
+      const qs = new URLSearchParams({
+        startAt: appt.startAt,
+        durationMinutes: String(durationMinutes),
+        excludeAppointmentId: appt.id,
+      });
+
+      const res = await jsonFetch<{ closers?: CloserOption[] }>(
+        `/api/appointments/available-closers?${qs.toString()}`,
+      );
+      const options = res.closers ?? [];
+      setCloserOptionsByLeadId((prev) => ({ ...prev, [lead.id]: options }));
+
+      if (!closerSelectionByLeadId[lead.id] && options.length) {
+        setCloserSelectionByLeadId((prev) => ({ ...prev, [lead.id]: options[0]!.id }));
+      }
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : "Failed to load available closers";
+      setError(msg);
+    } finally {
+      setCloserWorkingLeadId(null);
+    }
+  }, [closerSelectionByLeadId]);
+
+  const assignCloserForLead = useCallback(
+    async (lead: LeadRow) => {
+      const appt = lead.appointments?.[0] ?? null;
+      if (!appt) {
+        setError("This lead has no scheduled call to assign.");
+        return;
+      }
+
+      const closerId = closerSelectionByLeadId[lead.id];
+      if (!closerId) {
+        setError("Pick a closer first.");
+        return;
+      }
+
+      const startAt = new Date(appt.startAt);
+      const endAt = new Date(appt.endAt);
+      const durationMinutes = Math.max(10, Math.round((endAt.getTime() - startAt.getTime()) / 60_000));
+
+      setCloserWorkingLeadId(lead.id);
+      setError(null);
+      setStatus(null);
+
+      try {
+        const res = await fetch("/api/appointments/reschedule", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({
+            appointmentId: appt.id,
+            startAt: appt.startAt,
+            durationMinutes,
+            closerId,
+          }),
+        });
+        const body = (await res.json().catch(() => ({}))) as unknown;
+        if (!res.ok) {
+          setError(getApiError(body) ?? "Failed to assign closer");
+          return;
+        }
+
+        setStatus("Assigned closer.");
+        await refresh();
+      } finally {
+        setCloserWorkingLeadId(null);
+      }
+    },
+    [closerSelectionByLeadId, refresh],
+  );
+
   return (
     <div className="mx-auto max-w-5xl px-6 py-10">
       <div className="rounded-3xl border border-zinc-200 bg-white p-8 shadow-sm">
@@ -312,6 +417,9 @@ export default function ManagerLeadsClient({
           {filtered.map((l) => {
             const assignment = l.assignments?.[0] ?? null;
             const assignedUser = assignment?.user ?? null;
+            const appt = l.appointments?.[0] ?? null;
+            const closerOptions = closerOptionsByLeadId[l.id] ?? null;
+            const selectedCloserId = closerSelectionByLeadId[l.id] ?? "";
 
             return (
               <div key={l.id} className="rounded-2xl border border-zinc-200 p-4">
@@ -342,6 +450,65 @@ export default function ManagerLeadsClient({
                       <div className="mt-1 text-xs text-zinc-600">
                         {(l.niche ?? "") + (l.niche && l.location ? " • " : "") + (l.location ?? "")}
                       </div>
+
+                      {appt ? (
+                        <div className="mt-3 rounded-2xl border border-zinc-200 bg-zinc-50 p-3">
+                          <div className="text-xs font-medium text-zinc-900">Booked call</div>
+                          <div className="mt-1 text-xs text-zinc-700">
+                            {new Date(appt.startAt).toLocaleString()} ({appt.status})
+                          </div>
+                          <div className="mt-1 text-xs text-zinc-700">
+                            Current closer: {appt.closer?.name ?? "(unknown)"}
+                            {appt.closer?.email ? ` (${appt.closer.email})` : ""}
+                          </div>
+
+                          <div className="mt-3 flex flex-col gap-2">
+                            <button
+                              className="rounded-xl border border-zinc-200 bg-white px-3 py-2 text-xs hover:bg-zinc-50 disabled:opacity-60"
+                              type="button"
+                              onClick={() => loadAvailableClosersForLead(l)}
+                              disabled={closerWorkingLeadId === l.id}
+                            >
+                              {closerWorkingLeadId === l.id ? "Loading…" : "Load available closers"}
+                            </button>
+
+                            {closerOptions ? (
+                              closerOptions.length ? (
+                                <div className="flex flex-col gap-2">
+                                  <select
+                                    className="w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-xs outline-none focus:border-zinc-400"
+                                    value={selectedCloserId}
+                                    onChange={(e) =>
+                                      setCloserSelectionByLeadId((prev) => ({
+                                        ...prev,
+                                        [l.id]: e.target.value,
+                                      }))
+                                    }
+                                  >
+                                    {closerOptions.map((c) => (
+                                      <option key={c.id} value={c.id}>
+                                        {(c.name ?? "(no name)") + " — " + c.email}
+                                      </option>
+                                    ))}
+                                  </select>
+                                  <button
+                                    className="rounded-xl bg-zinc-900 px-3 py-2 text-xs font-medium text-white hover:bg-zinc-800 disabled:opacity-60"
+                                    type="button"
+                                    onClick={() => assignCloserForLead(l)}
+                                    disabled={closerWorkingLeadId === l.id || !selectedCloserId}
+                                  >
+                                    Assign closer
+                                  </button>
+                                </div>
+                              ) : (
+                                <div className="text-xs text-zinc-500">
+                                  No closers available at that time.
+                                </div>
+                              )
+                            ) : null}
+                          </div>
+                        </div>
+                      ) : null}
                     </div>
 
                     <div className="text-xs text-zinc-600">

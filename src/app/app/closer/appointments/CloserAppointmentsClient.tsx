@@ -2,6 +2,12 @@
 
 import { useEffect, useMemo, useState } from "react";
 
+function toDatetimeLocalValue(iso: string) {
+  const d = new Date(iso);
+  const pad = (n: number) => String(n).padStart(2, "0");
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+}
+
 type DocDTO = { id: string; title?: string | null; content?: string | null };
 
 function asRecord(value: unknown): Record<string, unknown> {
@@ -68,6 +74,14 @@ export default function CloserAppointmentsClient({
   const [error, setError] = useState<string | null>(null);
   const [status, setStatus] = useState<string | null>(null);
 
+  const [rescheduleOpen, setRescheduleOpen] = useState<boolean>(false);
+  const [rescheduleStartLocal, setRescheduleStartLocal] = useState<string>("");
+  const [rescheduleDurationMinutes, setRescheduleDurationMinutes] = useState<number>(30);
+  const [rescheduleConfirmAddAvailability, setRescheduleConfirmAddAvailability] =
+    useState<boolean>(false);
+  const [rescheduleBusy, setRescheduleBusy] = useState<boolean>(false);
+  const [rescheduleError, setRescheduleError] = useState<string | null>(null);
+
   const [leadSearch, setLeadSearch] = useState<string>("");
 
   const [statusFilter, setStatusFilter] = useState<"ANY" | "SCHEDULED" | "COMPLETED">("ANY");
@@ -110,6 +124,61 @@ export default function CloserAppointmentsClient({
 
   const selected = appointments.find((a) => a.id === selectedId) ?? null;
   const selectedPrepContent = selected?.prepDoc?.content ?? "";
+
+  function beginReschedule() {
+    if (!selected) return;
+    setRescheduleError(null);
+    setRescheduleOpen(true);
+    setRescheduleStartLocal(toDatetimeLocalValue(selected.startAt));
+    const dur = Math.max(
+      10,
+      Math.round(
+        (new Date(selected.endAt).getTime() - new Date(selected.startAt).getTime()) / 60000,
+      ),
+    );
+    setRescheduleDurationMinutes(dur);
+    setRescheduleConfirmAddAvailability(false);
+  }
+
+  async function saveReschedule() {
+    if (!selected) return;
+    setRescheduleBusy(true);
+    setRescheduleError(null);
+    setError(null);
+    setStatus(null);
+
+    try {
+      const startAt = new Date(rescheduleStartLocal);
+      if (Number.isNaN(startAt.getTime())) {
+        setRescheduleError("Invalid date/time");
+        return;
+      }
+
+      const payload: Record<string, unknown> = {
+        appointmentId: selected.id,
+        startAt: startAt.toISOString(),
+        durationMinutes: rescheduleDurationMinutes,
+      };
+      if (rescheduleConfirmAddAvailability) payload.confirmAddAvailability = true;
+
+      const res = await fetch("/api/appointments/reschedule", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+
+      const body = (await res.json().catch(() => ({}))) as unknown;
+      if (!res.ok) {
+        setRescheduleError(getApiError(body) ?? "Failed to reschedule");
+        return;
+      }
+
+      setRescheduleOpen(false);
+      await refresh();
+    } finally {
+      setRescheduleBusy(false);
+    }
+  }
 
   const filtered = useMemo(() => {
     const from = fromDate ? new Date(fromDate + "T00:00:00") : null;
@@ -186,6 +255,8 @@ export default function CloserAppointmentsClient({
   useEffect(() => {
     setStatus(null);
     setError(null);
+    setRescheduleOpen(false);
+    setRescheduleError(null);
     setPrepDraft(selectedPrepContent);
 
     setCloserScriptDoc(null);
@@ -636,6 +707,84 @@ export default function CloserAppointmentsClient({
                 <div className="mt-1 text-xs text-zinc-600">
                   {[selected.lead.niche, selected.lead.location].filter(Boolean).join(" • ")}
                 </div>
+
+                <div className="mt-3 flex flex-wrap gap-2">
+                  <button
+                    className="rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm hover:bg-zinc-50"
+                    type="button"
+                    onClick={beginReschedule}
+                  >
+                    Reschedule
+                  </button>
+                </div>
+
+                {rescheduleOpen ? (
+                  <div className="mt-3 rounded-2xl border border-zinc-200 bg-zinc-50 p-3">
+                    <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+                      <div className="sm:col-span-2">
+                        <label className="text-xs font-medium text-zinc-700">New start time</label>
+                        <input
+                          className="mt-1 w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm outline-none focus:border-zinc-400"
+                          type="datetime-local"
+                          value={rescheduleStartLocal}
+                          onChange={(e) => setRescheduleStartLocal(e.target.value)}
+                        />
+                      </div>
+                      <div>
+                        <label className="text-xs font-medium text-zinc-700">Duration (min)</label>
+                        <input
+                          className="mt-1 w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm outline-none focus:border-zinc-400"
+                          type="number"
+                          min={10}
+                          max={180}
+                          value={rescheduleDurationMinutes}
+                          onChange={(e) => setRescheduleDurationMinutes(Number(e.target.value))}
+                        />
+                      </div>
+                    </div>
+
+                    <div className="mt-3 flex items-start gap-2">
+                      <input
+                        id={`confirmAddAvailability-${selected.id}`}
+                        type="checkbox"
+                        className="mt-1"
+                        checked={rescheduleConfirmAddAvailability}
+                        onChange={(e) => setRescheduleConfirmAddAvailability(e.target.checked)}
+                      />
+                      <label
+                        htmlFor={`confirmAddAvailability-${selected.id}`}
+                        className="text-xs text-zinc-700"
+                      >
+                        If your availability doesn’t cover the new time, confirm to add availability for this exact slot
+                      </label>
+                    </div>
+
+                    <div className="mt-3 flex flex-wrap gap-2">
+                      <button
+                        className="rounded-xl bg-zinc-900 px-3 py-2 text-xs font-medium text-white hover:bg-zinc-800 disabled:opacity-60"
+                        type="button"
+                        disabled={rescheduleBusy}
+                        onClick={saveReschedule}
+                      >
+                        {rescheduleBusy ? "Saving…" : "Save"}
+                      </button>
+                      <button
+                        className="rounded-xl border border-zinc-200 bg-white px-3 py-2 text-xs hover:bg-zinc-50 disabled:opacity-60"
+                        type="button"
+                        disabled={rescheduleBusy}
+                        onClick={() => setRescheduleOpen(false)}
+                      >
+                        Cancel
+                      </button>
+                    </div>
+
+                    {rescheduleError ? (
+                      <div className="mt-3 rounded-xl bg-red-50 px-3 py-2 text-xs text-red-700">
+                        {rescheduleError}
+                      </div>
+                    ) : null}
+                  </div>
+                ) : null}
               </div>
 
               <div className="mt-4 rounded-2xl border border-zinc-200 p-4">

@@ -45,6 +45,18 @@ export default async function ManagerLeadsPage() {
       orderBy: { claimedAt: "desc" },
       take: 1,
     },
+    appointments: {
+      where: { status: { in: ["SCHEDULED", "RESCHEDULED"] as Array<"SCHEDULED" | "RESCHEDULED"> } },
+      orderBy: { startAt: "desc" },
+      take: 1,
+      select: {
+        id: true,
+        startAt: true,
+        endAt: true,
+        status: true,
+        closer: { select: { id: true, name: true, email: true } },
+      },
+    },
   } as const;
 
   const leads = await prisma.lead.findMany({
@@ -79,6 +91,11 @@ export default async function ManagerLeadsPage() {
       contactPhone,
       interestedService,
       notes: typeof notesValue === "string" ? notesValue : null,
+      appointments: (l.appointments ?? []).map((a) => ({
+        ...a,
+        startAt: a.startAt instanceof Date ? a.startAt.toISOString() : (a.startAt as unknown as string),
+        endAt: a.endAt instanceof Date ? a.endAt.toISOString() : (a.endAt as unknown as string),
+      })),
       assignments: assignment
         ? [
             {
