@@ -64,161 +64,173 @@ async function getMarketingSetterId() {
 }
 
 export async function POST(req: Request) {
-  const json = await req.json().catch(() => null);
-  const parsed = bodySchema.safeParse(json);
-  if (!parsed.success) {
-    const first = parsed.error.issues?.[0];
-    const field = first?.path?.[0];
+  try {
+    const json = await req.json().catch(() => null);
+    const parsed = bodySchema.safeParse(json);
+    if (!parsed.success) {
+      const first = parsed.error.issues?.[0];
+      const field = first?.path?.[0];
 
-    let message = "Please check your details and try again.";
-    if (field === "requestId") message = "We could not find your request. Please try again.";
-    if (field === "startAt") message = "Please choose a time and try again.";
-    if (field === "durationMinutes") message = "Please choose a time and try again.";
+      let message = "Please check your details and try again.";
+      if (field === "requestId") message = "We could not find your request. Please try again.";
+      if (field === "startAt") message = "Please choose a time and try again.";
+      if (field === "durationMinutes") message = "Please choose a time and try again.";
 
-    return NextResponse.json({ error: message }, { status: 400 });
-  }
+      return NextResponse.json({ error: message }, { status: 400 });
+    }
 
-  const request = await prisma.marketingDemoRequest.findUnique({
-    where: { id: parsed.data.requestId },
-    select: { id: true, leadId: true },
-  });
-  if (!request) {
+    const request = await prisma.marketingDemoRequest.findUnique({
+      where: { id: parsed.data.requestId },
+      select: { id: true, leadId: true },
+    });
+    if (!request) {
+      return NextResponse.json(
+        { error: "We could not find your request. Please try again." },
+        { status: 404 },
+      );
+    }
+
+    const setterId = await getMarketingSetterId();
+    if (!setterId) {
+      return NextResponse.json(
+        { error: "Booking is temporarily unavailable. Please try again soon." },
+        { status: 500 },
+      );
+    }
+
+    const startAt = new Date(parsed.data.startAt);
+    if (Number.isNaN(startAt.getTime())) {
+      return NextResponse.json({ error: "Please choose a valid time." }, { status: 400 });
+    }
+
+    const endAt = new Date(startAt.getTime() + parsed.data.durationMinutes * 60_000);
+
+    // Find available closers:
+    const closers = await prisma.user.findMany({
+      where: { role: "CLOSER", active: true },
+      select: { id: true, name: true },
+    });
+
+    // Preload their availability blocks that could contain the slot.
+    const blocks = await prisma.availabilityBlock.findMany({
+      where: {
+        userId: { in: closers.map((c) => c.id) },
+        startAt: { lte: startAt },
+        endAt: { gte: endAt },
+      },
+      select: { userId: true },
+    });
+
+    const eligibleCloserIds = new Set(blocks.map((b) => b.userId));
+    const eligible = closers.filter((c) => eligibleCloserIds.has(c.id));
+
+    if (eligible.length === 0) {
+      return NextResponse.json(
+        { error: "That time just became unavailable. Please choose a different time." },
+        { status: 409 },
+      );
+    }
+
+    // Remove closers with conflicting scheduled appointments.
+    const conflicts = await prisma.appointment.findMany({
+      where: {
+        closerId: { in: eligible.map((c) => c.id) },
+        status: "SCHEDULED",
+        OR: [{ startAt: { lt: endAt }, endAt: { gt: startAt } }],
+      },
+      select: { closerId: true, startAt: true, endAt: true },
+    });
+
+    const conflictSet = new Set<string>();
+    for (const c of conflicts) {
+      if (overlaps(startAt, endAt, c.startAt, c.endAt)) conflictSet.add(c.closerId);
+    }
+
+    const noConflict = eligible.filter((c) => !conflictSet.has(c.id));
+    if (noConflict.length === 0) {
+      return NextResponse.json(
+        { error: "That time just became unavailable. Please choose a different time." },
+        { status: 409 },
+      );
+    }
+
+    // Fairness: choose closer with lowest scheduled count.
+    const counts = await prisma.appointment.groupBy({
+      by: ["closerId"],
+      where: {
+        closerId: { in: noConflict.map((c) => c.id) },
+        status: "SCHEDULED",
+        startAt: { gte: new Date(Date.now() - 1 * 24 * 60 * 60_000) },
+      },
+      _count: { _all: true },
+    });
+
+    const countMap = new Map(counts.map((c) => [c.closerId, c._count._all] as const));
+
+    let chosen = noConflict[0];
+    for (const c of noConflict) {
+      const curr = countMap.get(c.id) ?? 0;
+      const best = countMap.get(chosen.id) ?? 0;
+      if (curr < best) chosen = c;
+    }
+
+    const appointment = await prisma.appointment.create({
+      data: {
+        leadId: request.leadId,
+        setterId,
+        closerId: chosen.id,
+        startAt,
+        endAt,
+      },
+      // Avoid selecting Lead columns here; older DBs may be missing some Lead fields.
+      select: {
+        id: true,
+        leadId: true,
+        startAt: true,
+        endAt: true,
+        closer: { select: { name: true, email: true } },
+        setter: { select: { name: true, email: true } },
+      },
+    });
+
+    // Best-effort internal notification.
+    try {
+      const marketing = await prisma.marketingDemoRequest.findUnique({
+        where: { id: parsed.data.requestId },
+        select: { name: true, company: true, email: true, phone: true },
+      });
+
+      const subject = `New booking: ${formatInTimeZone(startAt, "America/New_York")} ET`;
+      const body = [
+        "A call was just booked.",
+        "",
+        `When (ET): ${formatInTimeZone(startAt, "America/New_York")}`,
+        `When (ISO): ${startAt.toISOString()}`,
+        `Duration: ${parsed.data.durationMinutes} minutes`,
+        "",
+        marketing
+          ? `Name: ${marketing.name}\nCompany: ${marketing.company}\nEmail: ${marketing.email}\nPhone: ${marketing.phone ?? ""}`
+          : "Marketing request: (not found)",
+        "",
+        `Closer: ${appointment.closer?.name ?? ""} (${appointment.closer?.email ?? ""})`,
+        `Setter: ${appointment.setter?.name ?? ""} (${appointment.setter?.email ?? ""})`,
+        "",
+        `LeadId: ${appointment.leadId}`,
+        `RequestId: ${parsed.data.requestId}`,
+        `AppointmentId: ${appointment.id}`,
+      ].join("\n");
+
+      await sendInternalEmail(subject, body);
+    } catch {
+      // Swallow internal-email failures.
+    }
+
+    return NextResponse.json({ appointment });
+  } catch (err) {
+    console.error("/api/public/appointments/book failed", err);
     return NextResponse.json(
-      { error: "We could not find your request. Please try again." },
-      { status: 404 },
-    );
-  }
-
-  const setterId = await getMarketingSetterId();
-  if (!setterId) {
-    return NextResponse.json(
-      { error: "Booking is temporarily unavailable. Please try again soon." },
+      { error: "We could not book that time. Please try again." },
       { status: 500 },
     );
   }
-
-  const startAt = new Date(parsed.data.startAt);
-  if (Number.isNaN(startAt.getTime())) {
-    return NextResponse.json({ error: "Please choose a valid time." }, { status: 400 });
-  }
-
-  const endAt = new Date(startAt.getTime() + parsed.data.durationMinutes * 60_000);
-
-  // Find available closers:
-  const closers = await prisma.user.findMany({
-    where: { role: "CLOSER", active: true },
-    select: { id: true, name: true },
-  });
-
-  // Preload their availability blocks that could contain the slot.
-  const blocks = await prisma.availabilityBlock.findMany({
-    where: {
-      userId: { in: closers.map((c) => c.id) },
-      startAt: { lte: startAt },
-      endAt: { gte: endAt },
-    },
-    select: { userId: true },
-  });
-
-  const eligibleCloserIds = new Set(blocks.map((b) => b.userId));
-  const eligible = closers.filter((c) => eligibleCloserIds.has(c.id));
-
-  if (eligible.length === 0) {
-    return NextResponse.json(
-      { error: "That time just became unavailable. Please choose a different time." },
-      { status: 409 },
-    );
-  }
-
-  // Remove closers with conflicting scheduled appointments.
-  const conflicts = await prisma.appointment.findMany({
-    where: {
-      closerId: { in: eligible.map((c) => c.id) },
-      status: "SCHEDULED",
-      OR: [{ startAt: { lt: endAt }, endAt: { gt: startAt } }],
-    },
-    select: { closerId: true, startAt: true, endAt: true },
-  });
-
-  const conflictSet = new Set<string>();
-  for (const c of conflicts) {
-    if (overlaps(startAt, endAt, c.startAt, c.endAt)) conflictSet.add(c.closerId);
-  }
-
-  const noConflict = eligible.filter((c) => !conflictSet.has(c.id));
-  if (noConflict.length === 0) {
-    return NextResponse.json(
-      { error: "That time just became unavailable. Please choose a different time." },
-      { status: 409 },
-    );
-  }
-
-  // Fairness: choose closer with lowest scheduled count.
-  const counts = await prisma.appointment.groupBy({
-    by: ["closerId"],
-    where: {
-      closerId: { in: noConflict.map((c) => c.id) },
-      status: "SCHEDULED",
-      startAt: { gte: new Date(Date.now() - 1 * 24 * 60 * 60_000) },
-    },
-    _count: { _all: true },
-  });
-
-  const countMap = new Map(counts.map((c) => [c.closerId, c._count._all] as const));
-
-  let chosen = noConflict[0];
-  for (const c of noConflict) {
-    const curr = countMap.get(c.id) ?? 0;
-    const best = countMap.get(chosen.id) ?? 0;
-    if (curr < best) chosen = c;
-  }
-
-  const appointment = await prisma.appointment.create({
-    data: {
-      leadId: request.leadId,
-      setterId,
-      closerId: chosen.id,
-      startAt,
-      endAt,
-    },
-    include: {
-      lead: true,
-      closer: { select: { name: true, email: true } },
-      setter: { select: { name: true, email: true } },
-    },
-  });
-
-  // Best-effort internal notification.
-  try {
-    const marketing = await prisma.marketingDemoRequest.findUnique({
-      where: { id: parsed.data.requestId },
-      select: { name: true, company: true, email: true, phone: true },
-    });
-
-    const subject = `New booking: ${formatInTimeZone(startAt, "America/New_York")} ET`;
-    const body = [
-      "A call was just booked.",
-      "",
-      `When (ET): ${formatInTimeZone(startAt, "America/New_York")}`,
-      `When (ISO): ${startAt.toISOString()}`,
-      `Duration: ${parsed.data.durationMinutes} minutes`,
-      "",
-      marketing
-        ? `Name: ${marketing.name}\nCompany: ${marketing.company}\nEmail: ${marketing.email}\nPhone: ${marketing.phone ?? ""}`
-        : "Marketing request: (not found)",
-      "",
-      `Closer: ${appointment.closer?.name ?? ""} (${appointment.closer?.email ?? ""})`,
-      `Setter: ${appointment.setter?.name ?? ""} (${appointment.setter?.email ?? ""})`,
-      "",
-      `LeadId: ${appointment.leadId}`,
-      `RequestId: ${parsed.data.requestId}`,
-      `AppointmentId: ${appointment.id}`,
-    ].join("\n");
-
-    await sendInternalEmail(subject, body);
-  } catch {
-    // Swallow internal-email failures.
-  }
-
-  return NextResponse.json({ appointment });
 }
