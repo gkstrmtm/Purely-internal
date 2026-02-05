@@ -503,7 +503,7 @@ export function PortalBookingClient() {
 
   if (loading) {
     return (
-      <div className="mx-auto w-full max-w-6xl rounded-3xl border border-zinc-200 bg-white p-6 text-sm text-zinc-600">
+      <div className="mx-auto w-full max-w-7xl rounded-3xl border border-zinc-200 bg-white p-6 text-sm text-zinc-600">
         Loading…
       </div>
     );
@@ -513,7 +513,7 @@ export function PortalBookingClient() {
 
   if (!unlocked) {
     return (
-      <div className="mx-auto w-full max-w-6xl">
+      <div className="mx-auto w-full max-w-7xl">
         <div className="rounded-3xl border border-zinc-200 bg-white p-8">
           <div className="inline-flex items-center gap-2 rounded-full bg-[color:rgba(251,113,133,0.14)] px-3 py-1 text-xs font-semibold text-[color:var(--color-brand-pink)]">
             Locked
@@ -557,7 +557,7 @@ export function PortalBookingClient() {
   ).sort((a, b) => new Date(a.startAt).getTime() - new Date(b.startAt).getTime());
 
   return (
-    <div className="mx-auto w-full max-w-6xl">
+    <div className="mx-auto w-full max-w-7xl">
       <div className="flex flex-col items-start justify-between gap-3 sm:flex-row sm:items-end">
         <div>
           <h1 className="text-2xl font-bold text-brand-ink sm:text-3xl">Booking Automation</h1>
@@ -592,11 +592,11 @@ export function PortalBookingClient() {
 
       {topTab === "appointments" ? (
         <div className="mt-6 grid grid-cols-1 gap-4 lg:grid-cols-12">
-          <div className="rounded-3xl border border-zinc-200 bg-white p-6 lg:col-span-8">
+          <div className="rounded-3xl border border-zinc-200 bg-white p-6 lg:col-span-9">
             <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
               <div>
                 <div className="text-sm font-semibold text-zinc-900">Calendar</div>
-                <div className="mt-1 text-sm text-zinc-600">See bookings and open availability together.</div>
+                <div className="mt-1 text-sm text-zinc-600">See bookings in a weekly or monthly view.</div>
               </div>
 
               <div className="flex flex-wrap items-center gap-2">
@@ -678,8 +678,9 @@ export function PortalBookingClient() {
             </div>
 
             {appointmentsView === "week" ? (
-              <div className="mt-5 grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-7">
-                {weekDays.map((day) => {
+              <div className="mt-5 -mx-2 overflow-x-auto px-2">
+                <div className="grid min-w-max grid-flow-col auto-cols-[minmax(210px,1fr)] gap-3">
+                  {weekDays.map((day) => {
                   const ymd = toYmd(day);
                   const selected = focusYmd === ymd;
                   const isToday = toYmd(new Date()) === ymd;
@@ -691,12 +692,8 @@ export function PortalBookingClient() {
                     .filter((b) => toYmd(new Date(b.startAt)) === ymd)
                     .sort((a, b) => new Date(a.startAt).getTime() - new Date(b.startAt).getTime());
 
-                  const dayBlocks = blocks
-                    .filter((b) => new Date(b.startAt) < dayEnd && new Date(b.endAt) > dayStart)
-                    .sort((a, b) => new Date(a.startAt).getTime() - new Date(b.startAt).getTime());
-
                   const cardBase =
-                    "h-[420px] rounded-3xl border p-4 text-left transition-colors focus:outline-none focus:ring-2 focus:ring-blue-200";
+                    "h-[420px] w-[240px] rounded-3xl border p-4 text-left transition-colors focus:outline-none focus:ring-2 focus:ring-blue-200";
                   const cardCls = selected
                     ? `${cardBase} border-blue-300 bg-blue-50/70`
                     : `${cardBase} border-zinc-200 bg-white hover:bg-zinc-50`;
@@ -719,62 +716,37 @@ export function PortalBookingClient() {
                         ) : null}
                       </div>
 
-                      <div className="mt-2 flex flex-wrap gap-2">
-                        <div className="rounded-full bg-zinc-100 px-2 py-0.5 text-[11px] font-medium text-zinc-700">
+                      <div className="mt-2">
+                        <div className="inline-flex rounded-full bg-zinc-100 px-2 py-0.5 text-[11px] font-medium text-zinc-700">
                           {dayBookings.length} booking{dayBookings.length === 1 ? "" : "s"}
-                        </div>
-                        <div className="rounded-full bg-emerald-50 px-2 py-0.5 text-[11px] font-medium text-emerald-800">
-                          {dayBlocks.length} block{dayBlocks.length === 1 ? "" : "s"}
                         </div>
                       </div>
 
-                      <div className="mt-3 flex h-[340px] flex-col gap-3 overflow-hidden">
-                        <div className="min-h-0 flex-1 overflow-auto">
-                          <div className="text-[11px] font-semibold uppercase tracking-wide text-zinc-500">Bookings</div>
-                          {dayBookings.length ? (
-                            <div className="mt-2 space-y-1.5">
-                              {dayBookings.map((b) => (
-                                <div key={b.id} className="rounded-2xl border border-zinc-200 bg-white px-3 py-2">
-                                  <div className="truncate text-xs font-semibold text-zinc-900">
-                                    {new Date(b.startAt).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}{" "}
-                                    <span className="font-normal text-zinc-500">·</span>{" "}
-                                    {b.contactName}
-                                  </div>
-                                  <div className="truncate text-[11px] text-zinc-500">{b.contactEmail}</div>
+                      <div className="mt-3 h-[340px] overflow-auto">
+                        <div className="text-[11px] font-semibold uppercase tracking-wide text-zinc-500">Bookings</div>
+                        {dayBookings.length ? (
+                          <div className="mt-2 space-y-1.5">
+                            {dayBookings.map((b) => (
+                              <div key={b.id} className="rounded-2xl border border-zinc-200 bg-white px-3 py-2">
+                                <div className="truncate text-xs font-semibold text-zinc-900">
+                                  {new Date(b.startAt).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}{" "}
+                                  <span className="font-normal text-zinc-500">·</span>{" "}
+                                  {b.contactName}
                                 </div>
-                              ))}
-                            </div>
-                          ) : (
-                            <div className="mt-2 rounded-2xl border border-dashed border-zinc-200 bg-zinc-50 px-3 py-2 text-xs text-zinc-500">
-                              No bookings
-                            </div>
-                          )}
-                        </div>
-
-                        <div className="min-h-0 flex-1 overflow-auto">
-                          <div className="text-[11px] font-semibold uppercase tracking-wide text-zinc-500">Availability</div>
-                          {dayBlocks.length ? (
-                            <div className="mt-2 space-y-1.5">
-                              {dayBlocks.map((b) => (
-                                <div
-                                  key={b.id}
-                                  className="rounded-2xl border border-emerald-100 bg-emerald-50/60 px-3 py-2 text-xs font-medium text-emerald-900"
-                                >
-                                  {new Date(b.startAt).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}–
-                                  {new Date(b.endAt).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}
-                                </div>
-                              ))}
-                            </div>
-                          ) : (
-                            <div className="mt-2 rounded-2xl border border-dashed border-zinc-200 bg-zinc-50 px-3 py-2 text-xs text-zinc-500">
-                              No availability
-                            </div>
-                          )}
-                        </div>
+                                <div className="truncate text-[11px] text-zinc-500">{b.contactEmail}</div>
+                              </div>
+                            ))}
+                          </div>
+                        ) : (
+                          <div className="mt-2 rounded-2xl border border-dashed border-zinc-200 bg-zinc-50 px-3 py-2 text-xs text-zinc-500">
+                            No bookings
+                          </div>
+                        )}
                       </div>
                     </button>
                   );
-                })}
+                  })}
+                </div>
               </div>
             ) : (
               <div className="mt-5">
@@ -844,7 +816,7 @@ export function PortalBookingClient() {
             )}
           </div>
 
-          <div className="rounded-3xl border border-zinc-200 bg-white p-6 lg:col-span-4">
+          <div className="rounded-3xl border border-zinc-200 bg-white p-6 lg:col-span-3">
             <div className="flex items-center justify-between gap-3">
               <div>
                 <div className="text-sm font-semibold text-zinc-900">Appointments</div>
