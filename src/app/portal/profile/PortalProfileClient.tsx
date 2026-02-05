@@ -2,8 +2,13 @@
 
 import { useEffect, useMemo, useState } from "react";
 
+import { BusinessProfileForm } from "./BusinessProfileForm";
+import { formatPhoneForDisplay, normalizePhoneStrict } from "@/lib/phone";
+
 type Me = {
-  user: { email: string; name: string; role: string };
+  ok?: boolean;
+  error?: string;
+  user: { email: string; name: string; role: string; phone?: string | null } | null;
 };
 
 export function PortalProfileClient() {
@@ -14,8 +19,14 @@ export function PortalProfileClient() {
 
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
+  const [phone, setPhone] = useState("");
   const [currentPassword, setCurrentPassword] = useState("");
   const [savingContact, setSavingContact] = useState(false);
+
+  const phoneValidation = useMemo(() => {
+    const res = normalizePhoneStrict(phone);
+    return res;
+  }, [phone]);
 
   const [pwCurrent, setPwCurrent] = useState("");
   const [pwNext, setPwNext] = useState("");
@@ -26,9 +37,28 @@ export function PortalProfileClient() {
     if (!me) return false;
     const nextName = name.trim();
     const nextEmail = email.trim().toLowerCase();
-    const changed = nextName !== (me.user.name ?? "") || nextEmail !== (me.user.email ?? "").toLowerCase();
-    return changed && currentPassword.trim().length >= 6 && nextName.length >= 2 && nextEmail.length >= 3;
-  }, [me, name, email, currentPassword]);
+    const nextPhoneRaw = phone.trim();
+
+    const nextPhoneRes = normalizePhoneStrict(nextPhoneRaw);
+    if (!nextPhoneRes.ok) return false;
+    const nextPhone = nextPhoneRes.e164 ?? "";
+
+    const curName = me.user?.name ?? "";
+    const curEmail = (me.user?.email ?? "").toLowerCase();
+    const curPhone = (me.user?.phone ?? "").trim();
+
+    const wantsNameChange = nextName !== curName;
+    const wantsEmailChange = nextEmail !== curEmail;
+    const wantsPhoneChange = nextPhone !== curPhone;
+
+    if (!wantsNameChange && !wantsEmailChange && !wantsPhoneChange) return false;
+
+    if (wantsNameChange || wantsEmailChange) {
+      return currentPassword.trim().length >= 6 && nextName.length >= 2 && nextEmail.length >= 3;
+    }
+
+    return true;
+  }, [me, name, email, phone, currentPassword]);
 
   const canSavePassword = useMemo(() => {
     return (
@@ -42,13 +72,17 @@ export function PortalProfileClient() {
   useEffect(() => {
     let mounted = true;
     (async () => {
-      const res = await fetch("/api/customer/me", { cache: "no-store" });
+      const res = await fetch("/api/portal/profile", { cache: "no-store" });
       if (!mounted) return;
       if (res.ok) {
         const json = (await res.json()) as Me;
         setMe(json);
-        setName(json.user.name ?? "");
-        setEmail(json.user.email ?? "");
+        setName(json.user?.name ?? "");
+        setEmail(json.user?.email ?? "");
+        setPhone(formatPhoneForDisplay(json.user?.phone ?? ""));
+      } else {
+        const json = (await res.json().catch(() => ({}))) as { error?: string };
+        setError(json.error ?? "Unable to load profile");
       }
       setLoading(false);
     })();
@@ -58,22 +92,48 @@ export function PortalProfileClient() {
   }, []);
 
   async function saveContact() {
-    if (!canSaveContact || !me) return;
+    if (!canSaveContact || !me?.user) return;
     setSavingContact(true);
     setError(null);
     setNotice(null);
 
+    const nextName = name.trim();
+    const nextEmail = email.trim().toLowerCase();
+    const nextPhoneRaw = phone.trim();
+    const nextPhoneRes = normalizePhoneStrict(nextPhoneRaw);
+    if (!nextPhoneRes.ok) {
+      setSavingContact(false);
+      setError(nextPhoneRes.error);
+      return;
+    }
+    const nextPhone = nextPhoneRes.e164 ?? "";
+
+    const curName = me.user.name ?? "";
+    const curEmail = (me.user.email ?? "").toLowerCase();
+    const curPhone = (me.user.phone ?? "").trim();
+
+    const wantsNameChange = nextName !== curName;
+    const wantsEmailChange = nextEmail !== curEmail;
+    const wantsPhoneChange = nextPhone !== curPhone;
+
+    const payload: Record<string, unknown> = {};
+    if (wantsNameChange) payload.name = nextName;
+    if (wantsEmailChange) payload.email = nextEmail;
+    if (wantsPhoneChange) payload.phone = nextPhone;
+    if (wantsNameChange || wantsEmailChange) payload.currentPassword = currentPassword;
+
     const res = await fetch("/api/portal/profile", {
       method: "PUT",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({
-        name: name.trim(),
-        email: email.trim().toLowerCase(),
-        currentPassword,
-      }),
+      body: JSON.stringify(payload),
     });
 
-    const json = (await res.json().catch(() => ({}))) as { ok?: boolean; error?: string; note?: string; user?: { name?: string; email?: string } };
+    const json = (await res.json().catch(() => ({}))) as {
+      ok?: boolean;
+      error?: string;
+      note?: string;
+      user?: { name?: string; email?: string; phone?: string | null; role?: string } | null;
+    };
     setSavingContact(false);
 
     if (!res.ok || !json.ok) {
@@ -81,8 +141,18 @@ export function PortalProfileClient() {
       return;
     }
 
-    setMe({ user: { ...me.user, name: json.user?.name ?? name.trim(), email: json.user?.email ?? email.trim() } });
+    setMe({
+      ok: true,
+      user: {
+        ...me.user,
+        name: json.user?.name ?? nextName,
+        email: json.user?.email ?? nextEmail,
+        phone: json.user?.phone ?? nextPhone,
+        role: json.user?.role ?? me.user.role,
+      },
+    });
     setCurrentPassword("");
+    setPhone(formatPhoneForDisplay(json.user?.phone ?? nextPhone));
     setNotice(json.note ?? "Saved. You may need to sign out/in to refresh your session.");
   }
 
@@ -128,8 +198,9 @@ export function PortalProfileClient() {
           Loading…
         </div>
       ) : (
-        <div className="mt-6 grid grid-cols-1 gap-4 lg:grid-cols-3">
-          <div className="rounded-3xl border border-zinc-200 bg-white p-6 lg:col-span-2">
+        <div className="mt-6 space-y-4">
+          <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
+            <div className="rounded-3xl border border-zinc-200 bg-white p-6 lg:col-span-2">
             <div className="text-sm font-semibold text-zinc-900">Contact</div>
             <div className="mt-4 grid grid-cols-1 gap-4 sm:grid-cols-2">
               <div>
@@ -150,8 +221,21 @@ export function PortalProfileClient() {
                   placeholder="you@example.com"
                 />
               </div>
+              <div>
+                <label className="text-xs font-semibold text-zinc-600">Phone (optional)</label>
+                <input
+                  value={phone}
+                  onChange={(e) => setPhone(e.target.value)}
+                  onBlur={() => setPhone(formatPhoneForDisplay(phone))}
+                  className="mt-1 w-full rounded-2xl border border-zinc-200 bg-white px-4 py-3 text-sm outline-none focus:border-zinc-300"
+                  placeholder="+1 (555) 123-4567"
+                />
+                {!phoneValidation.ok ? (
+                  <div className="mt-1 text-xs text-red-700">{phoneValidation.error}</div>
+                ) : null}
+              </div>
               <div className="sm:col-span-2">
-                <label className="text-xs font-semibold text-zinc-600">Confirm with current password</label>
+                <label className="text-xs font-semibold text-zinc-600">Current password (required for name/email changes)</label>
                 <input
                   value={currentPassword}
                   onChange={(e) => setCurrentPassword(e.target.value)}
@@ -232,17 +316,24 @@ export function PortalProfileClient() {
             </div>
           </div>
 
-          <div className="rounded-3xl border border-zinc-200 bg-white p-6">
-            <div className="text-sm font-semibold text-zinc-900">Security</div>
-            <div className="mt-2 text-sm text-zinc-600">
-              Keep your account secure.
-            </div>
-            <div className="mt-5 space-y-2 text-sm text-zinc-700">
-              <div>• Use a strong password</div>
-              <div>• Don’t share logins</div>
-              <div>• Sign out on shared devices</div>
+            <div className="rounded-3xl border border-zinc-200 bg-white p-6">
+              <div className="text-sm font-semibold text-zinc-900">Security</div>
+              <div className="mt-2 text-sm text-zinc-600">
+                Keep your account secure.
+              </div>
+              <div className="mt-5 space-y-2 text-sm text-zinc-700">
+                <div>• Use a strong password</div>
+                <div>• Don’t share logins</div>
+                <div>• Sign out on shared devices</div>
+              </div>
             </div>
           </div>
+
+          <BusinessProfileForm
+            title="Business info"
+            description="Update your business details and branding anytime."
+            onSaved={() => setNotice("Business info saved.")}
+          />
         </div>
       )}
     </div>

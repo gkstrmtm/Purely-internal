@@ -5,19 +5,85 @@ import { prisma } from "@/lib/db";
 import { requireClientSession } from "@/lib/apiAuth";
 import { verifyPassword } from "@/lib/password";
 import { getOrCreateStripeCustomerId, isStripeConfigured, stripePost } from "@/lib/stripeFetch";
+import { normalizePhoneStrict } from "@/lib/phone";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
+
+const PROFILE_EXTRAS_SERVICE_SLUG = "profile";
+
+async function getProfilePhone(ownerId: string): Promise<string | null> {
+  const row = await prisma.portalServiceSetup.findUnique({
+    where: { ownerId_serviceSlug: { ownerId, serviceSlug: PROFILE_EXTRAS_SERVICE_SLUG } },
+    select: { dataJson: true },
+  });
+
+  const rec = row?.dataJson && typeof row.dataJson === "object" && !Array.isArray(row.dataJson)
+    ? (row.dataJson as Record<string, unknown>)
+    : null;
+
+  const raw = rec?.phone;
+  if (typeof raw !== "string") return null;
+
+  const parsed = normalizePhoneStrict(raw);
+  return parsed.ok ? parsed.e164 : null;
+}
+
+async function setProfilePhone(ownerId: string, phone: string | null): Promise<string | null> {
+  const existing = await prisma.portalServiceSetup.findUnique({
+    where: { ownerId_serviceSlug: { ownerId, serviceSlug: PROFILE_EXTRAS_SERVICE_SLUG } },
+    select: { dataJson: true },
+  });
+
+  const base =
+    existing?.dataJson && typeof existing.dataJson === "object" && !Array.isArray(existing.dataJson)
+      ? (existing.dataJson as Record<string, unknown>)
+      : {};
+
+  const next: any = { ...base, version: 1 };
+  if (phone) next.phone = phone;
+  else delete next.phone;
+
+  const row = await prisma.portalServiceSetup.upsert({
+    where: { ownerId_serviceSlug: { ownerId, serviceSlug: PROFILE_EXTRAS_SERVICE_SLUG } },
+    create: {
+      ownerId,
+      serviceSlug: PROFILE_EXTRAS_SERVICE_SLUG,
+      status: "COMPLETE",
+      dataJson: next,
+    },
+    update: {
+      status: "COMPLETE",
+      dataJson: next,
+    },
+    select: { dataJson: true },
+  });
+
+  const rec = row.dataJson && typeof row.dataJson === "object" && !Array.isArray(row.dataJson)
+    ? (row.dataJson as Record<string, unknown>)
+    : null;
+
+  const raw = rec?.phone;
+  if (typeof raw !== "string") return null;
+
+  const parsed = normalizePhoneStrict(raw);
+  return parsed.ok ? parsed.e164 : null;
+}
 
 const updateSchema = z
   .object({
     name: z.string().trim().min(2).max(120).optional(),
     email: z.string().trim().email().optional(),
-    currentPassword: z.string().min(6),
+    phone: z.string().trim().max(32).optional(),
+    currentPassword: z.string().min(6).optional(),
   })
-  .refine((v) => Boolean(v.name || v.email), {
+  .refine((v) => Boolean(v.name || v.email || v.phone), {
     message: "Provide at least one field to update",
     path: ["name"],
+  })
+  .refine((v) => Boolean(v.currentPassword) || (!v.name && !v.email), {
+    message: "Current password is required to update name or email",
+    path: ["currentPassword"],
   });
 
 export async function GET() {
@@ -35,7 +101,9 @@ export async function GET() {
     select: { id: true, name: true, email: true, role: true, updatedAt: true },
   });
 
-  return NextResponse.json({ ok: true, user });
+  const phone = await getProfilePhone(userId);
+
+  return NextResponse.json({ ok: true, user: user ? { ...user, phone } : null });
 }
 
 export async function PUT(req: Request) {
@@ -58,14 +126,27 @@ export async function PUT(req: Request) {
 
   const userId = auth.session.user.id;
 
+  const phoneProvided = parsed.data.phone !== undefined;
+  let nextPhone: string | null = null;
+  if (phoneProvided) {
+    const parsedPhone = normalizePhoneStrict(parsed.data.phone ?? "");
+    if (!parsedPhone.ok) {
+      return NextResponse.json({ error: parsedPhone.error }, { status: 400 });
+    }
+    nextPhone = parsedPhone.e164;
+  }
+
   const current = await prisma.user.findUnique({
     where: { id: userId },
-    select: { id: true, name: true, email: true, passwordHash: true },
+    select: { id: true, name: true, email: true, role: true, updatedAt: true, passwordHash: true },
   });
   if (!current) return NextResponse.json({ error: "Not found" }, { status: 404 });
 
-  const ok = await verifyPassword(parsed.data.currentPassword, current.passwordHash);
-  if (!ok) return NextResponse.json({ error: "Current password is incorrect" }, { status: 400 });
+  const wantsToUpdateNameOrEmail = Boolean(parsed.data.name || parsed.data.email);
+  if (wantsToUpdateNameOrEmail) {
+    const ok = await verifyPassword(parsed.data.currentPassword ?? "", current.passwordHash);
+    if (!ok) return NextResponse.json({ error: "Current password is incorrect" }, { status: 400 });
+  }
 
   const nextEmail = parsed.data.email ? parsed.data.email.toLowerCase().trim() : undefined;
   if (nextEmail && nextEmail !== current.email.toLowerCase()) {
@@ -75,12 +156,21 @@ export async function PUT(req: Request) {
     }
   }
 
-  const updated = await prisma.user.update({
+  if (parsed.data.name || nextEmail) {
+    await prisma.user.update({
+      where: { id: userId },
+      data: {
+        ...(parsed.data.name ? { name: parsed.data.name.trim() } : {}),
+        ...(nextEmail ? { email: nextEmail } : {}),
+      },
+      select: { id: true },
+    });
+  }
+
+  const phone = phoneProvided ? await setProfilePhone(userId, nextPhone) : await getProfilePhone(userId);
+
+  const user = await prisma.user.findUnique({
     where: { id: userId },
-    data: {
-      ...(parsed.data.name ? { name: parsed.data.name.trim() } : {}),
-      ...(nextEmail ? { email: nextEmail } : {}),
-    },
     select: { id: true, name: true, email: true, role: true, updatedAt: true },
   });
 
@@ -94,5 +184,9 @@ export async function PUT(req: Request) {
     }
   }
 
-  return NextResponse.json({ ok: true, user: updated, note: "Sign out and back in to refresh your session." });
+  return NextResponse.json({
+    ok: true,
+    user: user ? { ...user, phone } : null,
+    note: wantsToUpdateNameOrEmail ? "Sign out and back in to refresh your session." : "Saved.",
+  });
 }
