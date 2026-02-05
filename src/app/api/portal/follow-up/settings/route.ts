@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 
 import { requireClientSession } from "@/lib/apiAuth";
+import { prisma } from "@/lib/db";
 import {
   getFollowUpServiceData,
   parseFollowUpSettings,
@@ -22,10 +23,21 @@ export async function GET() {
   }
 
   const ownerId = auth.session.user.id;
-  const [data, calendars] = await Promise.all([
+  const [data, calendars, site] = await Promise.all([
     getFollowUpServiceData(ownerId),
     getBookingCalendarsConfig(ownerId).catch(() => ({ version: 1, calendars: [] })),
+    prisma.portalBookingSite
+      .findUnique({ where: { ownerId }, select: { notificationEmails: true } })
+      .catch(() => null),
   ]);
+
+  const siteNotificationEmails = Array.isArray((site as any)?.notificationEmails)
+    ? (((site as any).notificationEmails as unknown) as unknown[])
+        .filter((x) => typeof x === "string")
+        .map((x) => String(x).trim())
+        .filter((x) => x.includes("@"))
+        .slice(0, 20)
+    : [];
 
   const builtinVariables = [
     "contactName",
@@ -33,6 +45,7 @@ export async function GET() {
     "contactPhone",
     "businessName",
     "bookingTitle",
+    "calendarTitle",
     "when",
     "timeZone",
     "startAt",
@@ -43,7 +56,13 @@ export async function GET() {
     ok: true,
     settings: data.settings,
     queue: data.queue.slice(0, 60),
-    calendars: (calendars.calendars ?? []).map((c) => ({ id: c.id, title: c.title, enabled: Boolean(c.enabled) })),
+    calendars: (calendars.calendars ?? []).map((c) => ({
+      id: c.id,
+      title: c.title,
+      enabled: Boolean(c.enabled),
+      notificationEmails: Array.isArray(c.notificationEmails) ? c.notificationEmails : undefined,
+    })),
+    siteNotificationEmails,
     builtinVariables,
   });
 }
@@ -70,13 +89,27 @@ export async function PUT(req: Request) {
   const next = await setFollowUpSettings(ownerId, normalized);
   const data = await getFollowUpServiceData(ownerId);
 
-  const calendars = await getBookingCalendarsConfig(ownerId).catch(() => ({ version: 1, calendars: [] }));
+  const [calendars, site] = await Promise.all([
+    getBookingCalendarsConfig(ownerId).catch(() => ({ version: 1, calendars: [] })),
+    prisma.portalBookingSite
+      .findUnique({ where: { ownerId }, select: { notificationEmails: true } })
+      .catch(() => null),
+  ]);
+
+  const siteNotificationEmails = Array.isArray((site as any)?.notificationEmails)
+    ? (((site as any).notificationEmails as unknown) as unknown[])
+        .filter((x) => typeof x === "string")
+        .map((x) => String(x).trim())
+        .filter((x) => x.includes("@"))
+        .slice(0, 20)
+    : [];
   const builtinVariables = [
     "contactName",
     "contactEmail",
     "contactPhone",
     "businessName",
     "bookingTitle",
+    "calendarTitle",
     "when",
     "timeZone",
     "startAt",
@@ -87,7 +120,13 @@ export async function PUT(req: Request) {
     ok: true,
     settings: next,
     queue: data.queue.slice(0, 60),
-    calendars: (calendars.calendars ?? []).map((c) => ({ id: c.id, title: c.title, enabled: Boolean(c.enabled) })),
+    calendars: (calendars.calendars ?? []).map((c) => ({
+      id: c.id,
+      title: c.title,
+      enabled: Boolean(c.enabled),
+      notificationEmails: Array.isArray(c.notificationEmails) ? c.notificationEmails : undefined,
+    })),
+    siteNotificationEmails,
     builtinVariables,
   });
 }

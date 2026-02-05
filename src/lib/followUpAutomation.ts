@@ -1,13 +1,28 @@
 import { prisma } from "@/lib/db";
 import { getBookingCalendarsConfig } from "@/lib/bookingCalendars";
+import { normalizePhoneForStorage } from "@/lib/phone";
 
 export type FollowUpChannel = "EMAIL" | "SMS";
+
+export type FollowUpAudience = "CONTACT" | "INTERNAL";
+
+export type FollowUpInternalRecipients =
+  | {
+      mode: "BOOKING_NOTIFICATION_EMAILS";
+    }
+  | {
+      mode: "CUSTOM";
+      emails?: string[];
+      phones?: string[];
+    };
 
 export type FollowUpTemplate = {
   id: string;
   name: string;
   enabled: boolean;
   delayMinutes: number;
+  audience?: FollowUpAudience;
+  internalRecipients?: FollowUpInternalRecipients;
   channels: {
     email: boolean;
     sms: boolean;
@@ -74,6 +89,40 @@ function normalizeString(v: unknown, fallback: string, max = 5000) {
   return (typeof v === "string" ? v : fallback).slice(0, max);
 }
 
+function normalizeEmailList(v: unknown, max: number) {
+  const list = Array.isArray(v) ? v : [];
+  const out: string[] = [];
+  const seen = new Set<string>();
+  const emailLike = /^[^@\s]+@[^@\s]+\.[^@\s]+$/;
+  for (const item of list) {
+    if (typeof item !== "string") continue;
+    const s = item.trim().toLowerCase();
+    if (!s) continue;
+    if (!emailLike.test(s)) continue;
+    if (seen.has(s)) continue;
+    seen.add(s);
+    out.push(s);
+    if (out.length >= max) break;
+  }
+  return out;
+}
+
+function normalizePhoneList(v: unknown, max: number) {
+  const list = Array.isArray(v) ? v : [];
+  const out: string[] = [];
+  const seen = new Set<string>();
+  for (const item of list) {
+    if (typeof item !== "string") continue;
+    const normalized = normalizePhoneForStorage(item);
+    if (!normalized) continue;
+    if (seen.has(normalized)) continue;
+    seen.add(normalized);
+    out.push(normalized);
+    if (out.length >= max) break;
+  }
+  return out;
+}
+
 function normalizeId(v: unknown, fallback: string) {
   const raw = typeof v === "string" ? v.trim() : "";
   const cleaned = raw.replace(/[^a-zA-Z0-9_-]+/g, "-").replace(/^-+|-+$/g, "");
@@ -90,6 +139,7 @@ function normalizeStringRecord(v: unknown, maxEntries: number, maxKeyLen: number
     "contactPhone",
     "businessName",
     "bookingTitle",
+    "calendarTitle",
     "startAt",
     "endAt",
     "when",
@@ -125,6 +175,7 @@ export function defaultFollowUpSettings(): FollowUpSettings {
         name: "Quick thank you",
         enabled: true,
         delayMinutes: 60,
+        audience: "CONTACT",
         channels: { email: true, sms: false },
         email: {
           subjectTemplate: "Thanks for meeting, {contactName}",
@@ -147,6 +198,7 @@ export function defaultFollowUpSettings(): FollowUpSettings {
         name: "Feedback request",
         enabled: false,
         delayMinutes: 60 * 24,
+        audience: "CONTACT",
         channels: { email: true, sms: false },
         email: {
           subjectTemplate: "Quick question about our call",
@@ -169,6 +221,7 @@ export function defaultFollowUpSettings(): FollowUpSettings {
         name: "Next steps",
         enabled: false,
         delayMinutes: 60 * 3,
+        audience: "CONTACT",
         channels: { email: true, sms: false },
         email: {
           subjectTemplate: "Next steps",
@@ -192,6 +245,7 @@ export function defaultFollowUpSettings(): FollowUpSettings {
         name: "Review / testimonial",
         enabled: false,
         delayMinutes: 60 * 24 * 3,
+        audience: "CONTACT",
         channels: { email: true, sms: false },
         email: {
           subjectTemplate: "Would you be open to a quick review?",
@@ -207,6 +261,31 @@ export function defaultFollowUpSettings(): FollowUpSettings {
         },
         sms: {
           bodyTemplate: "If our call helped, would you be open to leaving a quick review for {businessName}? — {businessName}",
+        },
+      },
+      {
+        id: "internal_summary",
+        name: "Internal summary",
+        enabled: false,
+        delayMinutes: 0,
+        audience: "INTERNAL",
+        internalRecipients: { mode: "BOOKING_NOTIFICATION_EMAILS" },
+        channels: { email: true, sms: false },
+        email: {
+          subjectTemplate: "Appointment finished: {contactName}",
+          bodyTemplate: [
+            "Internal notification for {businessName}",
+            "",
+            "Contact: {contactName}",
+            "Email: {contactEmail}",
+            "Phone: {contactPhone}",
+            "",
+            "Calendar: {calendarTitle}",
+            "When: {when}",
+          ].join("\n"),
+        },
+        sms: {
+          bodyTemplate: "Appointment finished: {contactName} • {calendarTitle} • {when}",
         },
       },
     ],
@@ -248,6 +327,7 @@ export function parseFollowUpSettings(value: unknown): FollowUpSettings {
       name: "Default follow-up",
       enabled: true,
       delayMinutes: clampInt(settingsRaw.delayMinutes, 60, 0, 60 * 24 * 30),
+      audience: "CONTACT",
       channels: {
         email: normalizeBool(channelsRaw.email, true),
         sms: normalizeBool(channelsRaw.sms, false),
@@ -305,11 +385,33 @@ export function parseFollowUpSettings(value: unknown): FollowUpSettings {
       ? (item.sms as Record<string, unknown>)
       : {};
 
+    const audience: FollowUpAudience = item.audience === "INTERNAL" ? "INTERNAL" : "CONTACT";
+    const internalRecipientsRaw =
+      item.internalRecipients && typeof item.internalRecipients === "object" && !Array.isArray(item.internalRecipients)
+        ? (item.internalRecipients as Record<string, unknown>)
+        : {};
+    const internalRecipients: FollowUpInternalRecipients | undefined = (() => {
+      if (audience !== "INTERNAL") return undefined;
+      const mode = internalRecipientsRaw.mode === "CUSTOM" ? "CUSTOM" : "BOOKING_NOTIFICATION_EMAILS";
+      if (mode === "CUSTOM") {
+        const emails = normalizeEmailList(internalRecipientsRaw.emails, 20);
+        const phones = normalizePhoneList(internalRecipientsRaw.phones, 20);
+        return {
+          mode: "CUSTOM",
+          emails: emails.length ? emails : undefined,
+          phones: phones.length ? phones : undefined,
+        };
+      }
+      return { mode: "BOOKING_NOTIFICATION_EMAILS" };
+    })();
+
     const t: FollowUpTemplate = {
       id,
       name,
       enabled: normalizeBool(item.enabled, true),
       delayMinutes: clampInt(item.delayMinutes, 60, 0, 60 * 24 * 30),
+      audience,
+      internalRecipients,
       channels: {
         email: normalizeBool(channelsRaw.email, true),
         sms: normalizeBool(channelsRaw.sms, false),
@@ -493,7 +595,10 @@ export async function scheduleFollowUpsForBooking(
   bookingId: string,
   ctx?: { calendarId?: string },
 ): Promise<{ ok: true; scheduled: number } | { ok: false; reason: string }> {
-  const site = await prisma.portalBookingSite.findUnique({ where: { ownerId }, select: { id: true, title: true, timeZone: true } });
+  const site = await prisma.portalBookingSite.findUnique({
+    where: { ownerId },
+    select: { id: true, title: true, timeZone: true, notificationEmails: true },
+  });
   if (!site) return { ok: false, reason: "Booking site not found" };
 
   const booking = await prisma.portalBooking.findUnique({ where: { id: bookingId } });
@@ -523,9 +628,18 @@ export async function scheduleFollowUpsForBooking(
   }
 
   const calendars = calendarId ? await getBookingCalendarsConfig(ownerId).catch(() => null) : null;
-  const calendarTitle = calendarId ? calendars?.calendars?.find((c) => c.id === calendarId)?.title : null;
+  const calendar = calendarId ? calendars?.calendars?.find((c) => c.id === calendarId) : null;
+  const calendarTitle = calendar?.title ?? null;
   const bookingTitle = calendarTitle?.trim() || site.title;
   const when = `${formatInTimeZone(new Date(bookingRow.startAt), site.timeZone)} (${site.timeZone})`;
+
+  const siteNotificationEmails = Array.isArray((site as any).notificationEmails)
+    ? (((site as any).notificationEmails as unknown) as unknown[])
+        .filter((x) => typeof x === "string")
+        .map((x) => String(x).trim().toLowerCase())
+        .filter((x) => x.includes("@"))
+        .slice(0, 20)
+    : [];
 
   const vars: Record<string, string> = {
     contactName: String(bookingRow.contactName || "").trim(),
@@ -533,6 +647,7 @@ export async function scheduleFollowUpsForBooking(
     contactPhone: String(bookingRow.contactPhone || "").trim(),
     businessName,
     bookingTitle,
+    calendarTitle: calendarTitle?.trim() || bookingTitle,
     timeZone: site.timeZone,
     startAt: new Date(bookingRow.startAt).toISOString(),
     endAt: new Date(bookingRow.endAt).toISOString(),
@@ -553,11 +668,17 @@ export async function scheduleFollowUpsForBooking(
   const desiredKeys = new Set<string>();
 
   function upsert(template: FollowUpTemplate, channel: FollowUpChannel, to: string, subject: string | undefined, body: string, sendAt: Date) {
-    const desiredKey = `${bookingRow.id}:${template.id}:${channel}`;
+    const toKey = String(to || "").trim().toLowerCase();
+    const desiredKey = `${bookingRow.id}:${template.id}:${channel}:${toKey}`;
     desiredKeys.add(desiredKey);
 
     const existingIndex = nextQueue.findIndex(
-      (x) => x.bookingId === bookingRow.id && x.templateId === template.id && x.channel === channel && x.status === "PENDING",
+      (x) =>
+        x.bookingId === bookingRow.id &&
+        x.templateId === template.id &&
+        x.channel === channel &&
+        String(x.to || "").trim().toLowerCase() === toKey &&
+        x.status === "PENDING",
     );
     const base: FollowUpQueueItem = {
       id: existingIndex >= 0 ? nextQueue[existingIndex]!.id : randomId("fu"),
@@ -584,7 +705,7 @@ export async function scheduleFollowUpsForBooking(
     const q = nextQueue[i]!;
     if (q.bookingId !== bookingRow.id) continue;
     if (q.status !== "PENDING") continue;
-    const key = `${q.bookingId}:${q.templateId}:${q.channel}`;
+    const key = `${q.bookingId}:${q.templateId}:${q.channel}:${String(q.to || "").trim().toLowerCase()}`;
     // We'll keep it for now; after scheduling we cancel anything not in desiredKeys.
     // (No-op here.)
   }
@@ -596,14 +717,46 @@ export async function scheduleFollowUpsForBooking(
 
     const sendAt = new Date(new Date(bookingRow.endAt).getTime() + template.delayMinutes * 60_000);
 
-    if (template.channels.email && bookingRow.contactEmail) {
+    const audience: FollowUpAudience = template.audience === "INTERNAL" ? "INTERNAL" : "CONTACT";
+
+    const internal = (() => {
+      if (audience !== "INTERNAL") return { emails: [] as string[], phones: [] as string[] };
+
+      const cfg = template.internalRecipients;
+      if (cfg?.mode === "CUSTOM") {
+        const emails = Array.isArray(cfg.emails) ? normalizeEmailList(cfg.emails, 20) : [];
+        const phones = Array.isArray(cfg.phones) ? normalizePhoneList(cfg.phones, 20) : [];
+        return { emails, phones };
+      }
+
+      const calendarEmails = Array.isArray((calendar as any)?.notificationEmails)
+        ? (((calendar as any).notificationEmails as unknown) as string[])
+        : [];
+      const emails = calendarEmails.length ? calendarEmails : siteNotificationEmails;
+      return { emails, phones: [] as string[] };
+    })();
+
+    if (template.channels.email) {
       const subject = renderTemplate(template.email.subjectTemplate, vars).slice(0, 120);
       const body = renderTemplate(template.email.bodyTemplate, vars).slice(0, 5000);
-      upsert(template, "EMAIL", bookingRow.contactEmail, subject, body, sendAt);
+      if (audience === "CONTACT") {
+        if (bookingRow.contactEmail) upsert(template, "EMAIL", bookingRow.contactEmail, subject, body, sendAt);
+      } else {
+        for (const email of internal.emails) {
+          upsert(template, "EMAIL", email, subject, body, sendAt);
+        }
+      }
     }
-    if (template.channels.sms && bookingRow.contactPhone) {
+
+    if (template.channels.sms) {
       const body = renderTemplate(template.sms.bodyTemplate, vars).slice(0, 900);
-      upsert(template, "SMS", bookingRow.contactPhone, undefined, body, sendAt);
+      if (audience === "CONTACT") {
+        if (bookingRow.contactPhone) upsert(template, "SMS", bookingRow.contactPhone, undefined, body, sendAt);
+      } else {
+        for (const phone of internal.phones) {
+          upsert(template, "SMS", phone, undefined, body, sendAt);
+        }
+      }
     }
   }
 
@@ -612,7 +765,7 @@ export async function scheduleFollowUpsForBooking(
     const q = nextQueue[i]!;
     if (q.bookingId !== bookingRow.id) continue;
     if (q.status !== "PENDING") continue;
-    const key = `${q.bookingId}:${q.templateId}:${q.channel}`;
+    const key = `${q.bookingId}:${q.templateId}:${q.channel}:${String(q.to || "").trim().toLowerCase()}`;
     if (!desiredKeys.has(key)) {
       nextQueue[i] = { ...q, status: "CANCELED" };
     }
