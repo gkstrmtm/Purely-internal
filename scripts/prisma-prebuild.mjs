@@ -10,12 +10,6 @@ function run(cmd, args, opts = {}) {
   if (res.status !== 0) process.exit(res.status ?? 1);
 }
 
-// Only attempt migrations when a database is configured.
-if (!process.env.DATABASE_URL) {
-  console.log("[prebuild] DATABASE_URL not set; skipping prisma migrate/generate.");
-  process.exit(0);
-}
-
 const shouldRun = Boolean(process.env.VERCEL || process.env.CI || process.env.RUN_PRISMA_MIGRATIONS === "1");
 if (!shouldRun) {
   console.log("[prebuild] Not running on Vercel/CI; skipping prisma migrate/generate.");
@@ -25,13 +19,26 @@ if (!shouldRun) {
 const isVercel = Boolean(process.env.VERCEL);
 const forceMigrations = process.env.RUN_PRISMA_MIGRATIONS === "1";
 const directUrl = process.env.DIRECT_URL;
+const databaseUrl = process.env.DATABASE_URL;
+
+// `prisma generate` does not require a live database connection, but deployments DO require the
+// generated client to exist. Always generate on Vercel/CI.
+console.log("[prebuild] Running prisma generate...");
+run("npx", ["prisma", "generate"], { timeoutMs: 180_000 });
 
 // Prisma migrations are often slow/unreliable through poolers (pgbouncer). On Vercel we prefer a
 // direct connection for migrate deploy. If DIRECT_URL isn't available, we skip migrations to
 // avoid long/hanging builds.
 if (forceMigrations) {
-  console.log("[prebuild] RUN_PRISMA_MIGRATIONS=1: running prisma migrate deploy...");
-  run("npx", ["prisma", "migrate", "deploy"], { timeoutMs: 180_000 });
+  if (!directUrl && !databaseUrl) {
+    console.log("[prebuild] RUN_PRISMA_MIGRATIONS=1 but no DATABASE_URL/DIRECT_URL set; skipping prisma migrate deploy.");
+  } else {
+    console.log("[prebuild] RUN_PRISMA_MIGRATIONS=1: running prisma migrate deploy...");
+    run("npx", ["prisma", "migrate", "deploy"], {
+      timeoutMs: 180_000,
+      env: directUrl ? { ...process.env, DATABASE_URL: directUrl } : process.env,
+    });
+  }
 } else if (directUrl) {
   console.log("[prebuild] Running prisma migrate deploy (using DIRECT_URL)...");
   run("npx", ["prisma", "migrate", "deploy"], {
@@ -43,6 +50,3 @@ if (forceMigrations) {
 } else {
   console.log("[prebuild] Skipping prisma migrate deploy (no DIRECT_URL). Set RUN_PRISMA_MIGRATIONS=1 to force.");
 }
-
-console.log("[prebuild] Running prisma generate...");
-run("npx", ["prisma", "generate"], { timeoutMs: 180_000 });
