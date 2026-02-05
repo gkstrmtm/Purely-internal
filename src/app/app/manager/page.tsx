@@ -4,6 +4,7 @@ import Link from "next/link";
 
 import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/db";
+import PortalDemoSeeder from "./PortalDemoSeeder";
 
 function fmtMoney(cents: number) {
   const dollars = (cents ?? 0) / 100;
@@ -203,6 +204,8 @@ export default async function ManagerHome() {
             Last updated: {now.toLocaleString()} (week range starts {weekAgo.toLocaleDateString()})
           </div>
         </div>
+
+        <PortalDemoSeeder />
 
         <div className="mt-8 grid grid-cols-1 gap-4 sm:grid-cols-3">
           <div className="rounded-3xl border border-zinc-200 bg-white p-6">

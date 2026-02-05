@@ -6,9 +6,20 @@ import { getOrCreateStripeCustomerId, isStripeConfigured, stripeGet } from "@/li
 
 type ModuleKey = "blog" | "booking" | "crm";
 
+const DEFAULT_DEMO_PORTAL_FULL_EMAIL = "demo-full@purelyautomation.dev";
+const DEFAULT_DEMO_PORTAL_LIMITED_EMAIL = "demo-limited@purelyautomation.dev";
+
 function demoEntitlementsByEmail(email: string): Record<ModuleKey, boolean> | null {
-  const fullEmail = (process.env.DEMO_PORTAL_FULL_EMAIL ?? "").toLowerCase().trim();
-  const limitedEmail = (process.env.DEMO_PORTAL_LIMITED_EMAIL ?? "").toLowerCase().trim();
+  const fullEmail = (
+    process.env.DEMO_PORTAL_FULL_EMAIL ?? DEFAULT_DEMO_PORTAL_FULL_EMAIL
+  )
+    .toLowerCase()
+    .trim();
+  const limitedEmail = (
+    process.env.DEMO_PORTAL_LIMITED_EMAIL ?? DEFAULT_DEMO_PORTAL_LIMITED_EMAIL
+  )
+    .toLowerCase()
+    .trim();
   const normalized = email.toLowerCase().trim();
 
   if (fullEmail && normalized === fullEmail) {

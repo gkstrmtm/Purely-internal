@@ -8,7 +8,7 @@ export async function middleware(req: NextRequest) {
   const path = req.nextUrl.pathname;
 
   // Public portal home (marketing)
-  if (path === "/portal") {
+  if (path === "/portal" || path === "/portal/") {
     return NextResponse.next();
   }
 
