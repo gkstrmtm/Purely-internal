@@ -7,30 +7,86 @@ export async function middleware(req: NextRequest) {
 
   const path = req.nextUrl.pathname;
 
-  // Public portal home (marketing)
-  if (path === "/portal" || path === "/portal/") {
+  const isPortalMarketingHome = path === "/portal" || path === "/portal/";
+  const isPortalPublicAuth = path === "/portal/login" || path === "/portal/get-started";
+
+  const isPortalApp = path === "/portal/app" || path.startsWith("/portal/app/");
+  const isLegacyPortalAppRoute =
+    path === "/portal/services" ||
+    path.startsWith("/portal/services/") ||
+    path === "/portal/billing" ||
+    path.startsWith("/portal/billing/") ||
+    path === "/portal/profile" ||
+    path.startsWith("/portal/profile/") ||
+    path === "/portal/modules" ||
+    path.startsWith("/portal/modules/");
+
+  function requireClientOrAdmin() {
+    if (!token) {
+      const url = req.nextUrl.clone();
+      url.pathname = "/portal/login";
+      return url;
+    }
+    const role = (token as unknown as { role?: string }).role;
+    if (role !== "CLIENT" && role !== "ADMIN") {
+      return new URL("/app", req.url);
+    }
+    return null;
+  }
+
+  // Public portal home (marketing) should remain accessible even when signed in.
+  if (isPortalMarketingHome) {
     return NextResponse.next();
   }
 
   // Public portal auth pages
-  if (path === "/portal/login" || path === "/portal/get-started") {
+  if (isPortalPublicAuth) {
     return NextResponse.next();
   }
 
-  // Client portal (separate from internal /app dashboard)
-  if (path.startsWith("/portal/")) {
-    if (!token) {
-      const url = req.nextUrl.clone();
-      url.pathname = "/portal/login";
-      url.searchParams.set("from", req.nextUrl.pathname);
-      return NextResponse.redirect(url);
+  // Redirect legacy authenticated portal URLs to the new /portal/app/* tree.
+  if (isLegacyPortalAppRoute) {
+    const guard = requireClientOrAdmin();
+    if (guard) {
+      if (guard.pathname === "/portal/login") {
+        let target = path;
+        if (path === "/portal/modules" || path.startsWith("/portal/modules/")) {
+          target = "/portal/app/services";
+        } else if (path.startsWith("/portal/services")) {
+          target = path.replace("/portal/services", "/portal/app/services");
+        } else if (path.startsWith("/portal/billing")) {
+          target = path.replace("/portal/billing", "/portal/app/billing");
+        } else if (path.startsWith("/portal/profile")) {
+          target = path.replace("/portal/profile", "/portal/app/profile");
+        }
+        guard.searchParams.set("from", target);
+      }
+      return NextResponse.redirect(guard);
     }
 
-    const role = (token as unknown as { role?: string }).role;
-    if (role !== "CLIENT" && role !== "ADMIN") {
-      return NextResponse.redirect(new URL("/app", req.url));
+    if (path === "/portal/modules" || path.startsWith("/portal/modules/")) {
+      return NextResponse.redirect(new URL("/portal/app/services", req.url));
     }
+    if (path.startsWith("/portal/services")) {
+      return NextResponse.redirect(new URL(path.replace("/portal/services", "/portal/app/services"), req.url));
+    }
+    if (path.startsWith("/portal/billing")) {
+      return NextResponse.redirect(new URL(path.replace("/portal/billing", "/portal/app/billing"), req.url));
+    }
+    if (path.startsWith("/portal/profile")) {
+      return NextResponse.redirect(new URL(path.replace("/portal/profile", "/portal/app/profile"), req.url));
+    }
+  }
 
+  // Authenticated client portal (new URL tree)
+  if (isPortalApp) {
+    const guard = requireClientOrAdmin();
+    if (guard) {
+      if (guard.pathname === "/portal/login") {
+        guard.searchParams.set("from", path);
+      }
+      return NextResponse.redirect(guard);
+    }
     return NextResponse.next();
   }
 
@@ -49,7 +105,7 @@ export async function middleware(req: NextRequest) {
 
     const role = (token as unknown as { role?: string }).role;
     if (role === "CLIENT") {
-      return NextResponse.redirect(new URL("/portal", req.url));
+      return NextResponse.redirect(new URL("/portal/app", req.url));
     }
 
     return NextResponse.rewrite(url);
@@ -67,14 +123,14 @@ export async function middleware(req: NextRequest) {
   // The client portal should not live under the employee dashboard route tree.
   if (path === "/app/customer" || path.startsWith("/app/customer/")) {
     if (role === "CLIENT") {
-      return NextResponse.redirect(new URL("/portal", req.url));
+      return NextResponse.redirect(new URL("/portal/app", req.url));
     }
     return NextResponse.redirect(new URL("/app", req.url));
   }
 
   // Clients should never land in the internal employee dashboard
   if (role === "CLIENT") {
-    return NextResponse.redirect(new URL("/portal", req.url));
+    return NextResponse.redirect(new URL("/portal/app", req.url));
   }
 
   if (path.startsWith("/app/dialer") && role === "CLOSER") {

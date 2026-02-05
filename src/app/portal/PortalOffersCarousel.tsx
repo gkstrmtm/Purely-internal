@@ -32,7 +32,7 @@ export function PortalOffersCarousel() {
       },
       {
         title: "Billing and access",
-        description: "See what’s active, update payment, and add modules fast.",
+        description: "See what’s active, update payment, and add services fast.",
         tone: "blue",
       },
       {
@@ -51,7 +51,7 @@ export function PortalOffersCarousel() {
         tone: "blue",
       },
       {
-        title: "Add modules anytime",
+        title: "Add services anytime",
         description: "Turn on the next piece when you want it.",
         tone: "ink",
       },
@@ -136,7 +136,7 @@ export function PortalOffersCarousel() {
         <div>
           <div className="text-base font-semibold text-brand-ink">What you can activate</div>
           <div className="mt-1 text-sm text-zinc-600">
-            Add modules as you grow. Your portal always shows what’s live.
+            Add services as you grow. Your portal always shows what’s live.
           </div>
         </div>
       </div>

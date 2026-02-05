@@ -62,7 +62,7 @@ export function PortalDashboardClient() {
     const res = await fetch("/api/billing/create-portal-session", {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ returnPath: "/portal" }),
+      body: JSON.stringify({ returnPath: "/portal/app" }),
     });
     if (!res.ok) {
       const body = await res.json().catch(() => ({}));
@@ -78,7 +78,7 @@ export function PortalDashboardClient() {
     const res = await fetch("/api/billing/checkout-module", {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ module, successPath: "/portal", cancelPath: "/portal" }),
+      body: JSON.stringify({ module, successPath: "/portal/app", cancelPath: "/portal/app" }),
     });
     if (!res.ok) {
       const body = await res.json().catch(() => ({}));
@@ -138,7 +138,7 @@ export function PortalDashboardClient() {
       </Card>
 
       <div className="sm:col-span-2">
-        <Card title="Your modules">
+        <Card title="Your services">
           <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
             {modules.map((m) => (
               <div
@@ -154,7 +154,7 @@ export function PortalDashboardClient() {
                   <div>
                     <div className="text-sm font-semibold text-zinc-900">{m.name}</div>
                     <div className="mt-1 text-xs text-zinc-600">
-                      {m.enabled ? "Included in your plan" : "Not enabled"}
+                      {m.enabled ? "Included in your plan" : "Not active"}
                     </div>
                   </div>
                   {!m.enabled ? (
@@ -171,7 +171,7 @@ export function PortalDashboardClient() {
                 {!m.enabled ? (
                   <div className="mt-3 text-xs text-zinc-600">
                     {data.billing.configured
-                      ? "Upgrade to unlock this module."
+                      ? "Upgrade to unlock this service."
                       : "Billing is not configured yet."}
                   </div>
                 ) : null}
@@ -180,7 +180,7 @@ export function PortalDashboardClient() {
           </div>
 
           <div className="mt-4 rounded-2xl border border-zinc-200 bg-white p-4 text-xs text-zinc-600">
-            Next: wire each enabled module to its setup + automation controls.
+            Next: wire each enabled service to its setup + automation controls.
           </div>
         </Card>
       </div>

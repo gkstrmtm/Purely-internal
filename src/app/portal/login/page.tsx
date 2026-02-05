@@ -8,7 +8,7 @@ import { useState } from "react";
 export default function PortalLoginPage() {
   const router = useRouter();
   const searchParams = useSearchParams();
-  const from = searchParams.get("from") || "/portal";
+  const from = searchParams.get("from") || "/portal/app";
 
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");

@@ -13,31 +13,6 @@ export const metadata: Metadata = {
   },
 };
 
-function PortalTopNav() {
-  return (
-    <nav className="flex flex-nowrap items-center gap-2 overflow-x-auto whitespace-nowrap text-sm sm:text-base">
-      <Link
-        href="/portal"
-        className="rounded-xl px-3 py-2 font-medium text-zinc-600 hover:bg-zinc-100 hover:text-zinc-900"
-      >
-        Dashboard
-      </Link>
-      <Link
-        href="/portal/modules"
-        className="rounded-xl px-3 py-2 font-medium text-zinc-600 hover:bg-zinc-100 hover:text-zinc-900"
-      >
-        Modules
-      </Link>
-      <Link
-        href="/portal/billing"
-        className="rounded-xl px-3 py-2 font-medium text-zinc-600 hover:bg-zinc-100 hover:text-zinc-900"
-      >
-        Billing
-      </Link>
-    </nav>
-  );
-}
-
 function PortalPublicNav() {
   return (
     <nav className="flex flex-nowrap items-center gap-2 overflow-x-auto whitespace-nowrap text-sm sm:text-base">
@@ -63,36 +38,38 @@ export default async function PortalLayout({
   children: React.ReactNode;
 }) {
   const session = await getServerSession(authOptions);
-  const isAuthed =
+  const canOpenPortalApp =
     session?.user?.role === "CLIENT" || session?.user?.role === "ADMIN";
 
   return (
     <div className="min-h-screen bg-brand-mist text-brand-ink">
       <header className="sticky top-0 z-10 border-b border-zinc-200 bg-white/80 backdrop-blur">
-        <div className="mx-auto flex max-w-5xl items-center gap-6 px-6 py-4">
-          <div className="flex min-w-0 flex-1 items-center gap-4">
-            <Link href="/portal" className="flex shrink-0 items-center gap-3">
-              <Image
-                src="/brand/purity-5.png"
-                alt="Purely Automation"
-                width={190}
-                height={58}
-                className="h-10 w-auto shrink-0 object-contain sm:h-11"
-                priority
-              />
-            </Link>
+        <div className="mx-auto flex max-w-6xl items-center justify-between gap-6 px-6 py-4">
+          <Link href="/portal" className="flex shrink-0 items-center gap-3">
+            <Image
+              src="/brand/purity-5.png"
+              alt="Purely Automation"
+              width={190}
+              height={58}
+              className="h-10 w-auto shrink-0 object-contain sm:h-11"
+              priority
+            />
+          </Link>
 
-            <div className="min-w-0 flex-1">
-              {isAuthed ? <PortalTopNav /> : null}
-            </div>
-          </div>
-
-          <div className="flex flex-none items-center gap-3">
-            {isAuthed ? (
+          <div className="flex items-center gap-3">
+            {session?.user ? (
               <>
                 <div className="hidden text-sm text-zinc-600 sm:block">
                   {session?.user?.email}
                 </div>
+                {canOpenPortalApp ? (
+                  <Link
+                    href="/portal/app"
+                    className="rounded-xl bg-brand-ink px-3 py-2 text-sm font-semibold text-white hover:opacity-95"
+                  >
+                    Open portal
+                  </Link>
+                ) : null}
                 <SignOutButton />
               </>
             ) : (
@@ -101,6 +78,7 @@ export default async function PortalLayout({
           </div>
         </div>
       </header>
+
       {children}
     </div>
   );

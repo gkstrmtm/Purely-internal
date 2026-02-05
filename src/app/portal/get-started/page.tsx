@@ -45,7 +45,7 @@ export default function PortalGetStartedPage() {
       return;
     }
 
-    router.push("/portal");
+    router.push("/portal/app");
     router.refresh();
   }
 

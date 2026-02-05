@@ -2,8 +2,9 @@ import { getServerSession } from "next-auth";
 import { redirect } from "next/navigation";
 
 import { authOptions } from "@/lib/auth";
+import { PortalProfileClient } from "@/app/portal/profile/PortalProfileClient";
 
-export default async function PortalModulesPage() {
+export default async function PortalAppProfilePage() {
   const session = await getServerSession(authOptions);
   if (!session?.user) redirect("/portal/login");
 
@@ -11,5 +12,5 @@ export default async function PortalModulesPage() {
     redirect("/app");
   }
 
-  redirect("/portal/app/services");
+  return <PortalProfileClient />;
 }
