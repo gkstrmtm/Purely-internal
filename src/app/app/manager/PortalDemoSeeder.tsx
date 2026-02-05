@@ -14,7 +14,10 @@ export default function PortalDemoSeeder() {
 
   async function readErrorMessage(res: Response) {
     const text = await res.text().catch(() => "");
-    if (!text) return "Unable to seed demo accounts";
+    if (!text) {
+      const vercelId = res.headers.get("x-vercel-id");
+      return `Unable to seed demo accounts (HTTP ${res.status})${vercelId ? ` • Vercel: ${vercelId}` : ""}`;
+    }
 
     try {
       const json = JSON.parse(text);
@@ -36,11 +39,18 @@ export default function PortalDemoSeeder() {
     setError(null);
     setResult(null);
 
-    const res = await fetch("/api/manager/portal/seed-demo", {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({}),
-    });
+    let res: Response;
+    try {
+      res = await fetch("/api/manager/portal/seed-demo", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({}),
+      });
+    } catch (e) {
+      setLoading(false);
+      setError(e instanceof Error ? e.message : "Network error while seeding demo accounts");
+      return;
+    }
 
     if (!res.ok) {
       setLoading(false);

@@ -37,7 +37,7 @@ export default async function PortalDashboardPage() {
                 </Link>
                 <Link
                   href="/portal/login"
-                  className="inline-flex items-center justify-center rounded-2xl bg-[color:var(--color-brand-pink)] px-6 py-3 text-base font-semibold text-[color:var(--color-brand-blue)] hover:opacity-95"
+                  className="inline-flex items-center justify-center rounded-2xl bg-[color:var(--color-brand-pink)] px-6 py-3 text-base font-semibold text-brand-ink hover:opacity-95"
                 >
                   Sign in
                 </Link>
@@ -85,7 +85,6 @@ export default async function PortalDashboardPage() {
                   The portal is where you manage what you’re running today and what you want to add next.
                 </p>
               </div>
-              <div className="text-xs text-zinc-500">Works great on mobile.</div>
             </div>
 
             <div className="mt-6 grid grid-cols-1 gap-4 sm:grid-cols-3">
@@ -119,9 +118,6 @@ export default async function PortalDashboardPage() {
                 <div className="mt-1 text-sm text-zinc-600">
                   Start lean, then add modules as you grow.
                 </div>
-              </div>
-              <div className="text-xs text-zinc-500">
-                Prices shown are examples. Final pricing is set at checkout.
               </div>
             </div>
 
@@ -196,9 +192,6 @@ export default async function PortalDashboardPage() {
               </div>
             </div>
 
-            <div className="mt-4 rounded-2xl border border-[color:rgba(251,113,133,0.22)] bg-[color:rgba(251,113,133,0.08)] p-4 text-xs text-zinc-700">
-              You’ll always see exactly what you have access to inside the portal. Add modules whenever you’re ready.
-            </div>
           </div>
         </section>
 

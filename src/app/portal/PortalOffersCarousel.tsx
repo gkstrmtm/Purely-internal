@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useRef } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 
 type Offer = {
   title: string;
@@ -10,6 +10,8 @@ type Offer = {
 
 export function PortalOffersCarousel() {
   const scrollerRef = useRef<HTMLDivElement | null>(null);
+  const intervalRef = useRef<number | null>(null);
+  const [active, setActive] = useState(0);
 
   const offers = useMemo<Offer[]>(
     () => [
@@ -33,17 +35,88 @@ export function PortalOffersCarousel() {
         description: "See what’s active, update payment, and add modules fast.",
         tone: "blue",
       },
+      {
+        title: "Onboarding help",
+        description: "Get set up fast with a clear path to launch.",
+        tone: "ink",
+      },
+      {
+        title: "Content planning",
+        description: "Keep topics organized and publishing steady.",
+        tone: "coral",
+      },
+      {
+        title: "Reporting snapshots",
+        description: "Simple visibility into what’s running and saving time.",
+        tone: "blue",
+      },
+      {
+        title: "Add modules anytime",
+        description: "Turn on the next piece when you want it.",
+        tone: "ink",
+      },
     ],
     [],
   );
 
-  function scrollByCards(direction: -1 | 1) {
+  const loopOffers = useMemo(() => [...offers, ...offers], [offers]);
+
+  function getStepPx() {
+    const el = scrollerRef.current;
+    if (!el) return 360 + 16;
+    const card = el.querySelector<HTMLElement>("[data-carousel-card='true']");
+    const cardWidth = card?.offsetWidth ?? 360;
+    return cardWidth + 16;
+  }
+
+  function normalizeScroll() {
     const el = scrollerRef.current;
     if (!el) return;
-    const card = el.querySelector<HTMLElement>("[data-carousel-card='true']");
-    const cardWidth = card?.offsetWidth ?? 320;
-    el.scrollBy({ left: direction * (cardWidth + 16), behavior: "smooth" });
+    const step = getStepPx();
+    const loopWidth = step * offers.length;
+
+    if (loopWidth <= 0) return;
+
+    // Keep scrollLeft within the first loop so it feels infinite.
+    if (el.scrollLeft >= loopWidth) {
+      el.scrollLeft = el.scrollLeft - loopWidth;
+    }
   }
+
+  function setActiveFromScroll() {
+    const el = scrollerRef.current;
+    if (!el) return;
+    const step = getStepPx();
+    const idx = Math.round(el.scrollLeft / step);
+    setActive(((idx % offers.length) + offers.length) % offers.length);
+  }
+
+  function stopAuto() {
+    if (intervalRef.current) {
+      window.clearInterval(intervalRef.current);
+      intervalRef.current = null;
+    }
+  }
+
+  function startAuto() {
+    stopAuto();
+    if (typeof window === "undefined") return;
+    const reduce = window.matchMedia?.("(prefers-reduced-motion: reduce)")?.matches;
+    if (reduce) return;
+
+    intervalRef.current = window.setInterval(() => {
+      const el = scrollerRef.current;
+      if (!el) return;
+      const step = getStepPx();
+      el.scrollBy({ left: step, behavior: "smooth" });
+    }, 3200);
+  }
+
+  useEffect(() => {
+    startAuto();
+    return () => stopAuto();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const toneClasses: Record<Offer["tone"], string> = {
     blue: "border-[color:rgba(29,78,216,0.20)] bg-[color:rgba(29,78,216,0.06)]",
@@ -66,34 +139,23 @@ export function PortalOffersCarousel() {
             Add modules as you grow. Your portal always shows what’s live.
           </div>
         </div>
-
-        <div className="hidden gap-2 sm:flex">
-          <button
-            type="button"
-            onClick={() => scrollByCards(-1)}
-            className="rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm font-semibold text-brand-ink hover:bg-zinc-50"
-            aria-label="Scroll left"
-          >
-            Prev
-          </button>
-          <button
-            type="button"
-            onClick={() => scrollByCards(1)}
-            className="rounded-xl bg-brand-ink px-3 py-2 text-sm font-semibold text-white hover:opacity-95"
-            aria-label="Scroll right"
-          >
-            Next
-          </button>
-        </div>
       </div>
 
       <div
         ref={scrollerRef}
+        onScroll={() => {
+          normalizeScroll();
+          setActiveFromScroll();
+        }}
+        onMouseEnter={() => stopAuto()}
+        onMouseLeave={() => startAuto()}
+        onTouchStart={() => stopAuto()}
+        onTouchEnd={() => startAuto()}
         className="mt-5 flex snap-x snap-mandatory gap-4 overflow-x-auto pb-3 [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
       >
-        {offers.map((o) => (
+        {loopOffers.map((o, i) => (
           <div
-            key={o.title}
+            key={`${o.title}-${i}`}
             data-carousel-card="true"
             className={`min-w-[85%] snap-start rounded-3xl border p-6 sm:min-w-[360px] ${toneClasses[o.tone]}`}
           >
@@ -104,26 +166,31 @@ export function PortalOffersCarousel() {
         ))}
       </div>
 
-      <div className="mt-2 flex items-center justify-between text-xs text-zinc-500 sm:hidden">
-        <div>Swipe to see more</div>
-        <div className="flex gap-2">
-          <button
-            type="button"
-            onClick={() => scrollByCards(-1)}
-            className="rounded-lg border border-zinc-200 bg-white px-2 py-1 font-semibold text-brand-ink"
-            aria-label="Scroll left"
-          >
-            Prev
-          </button>
-          <button
-            type="button"
-            onClick={() => scrollByCards(1)}
-            className="rounded-lg bg-brand-ink px-2 py-1 font-semibold text-white"
-            aria-label="Scroll right"
-          >
-            Next
-          </button>
-        </div>
+      <div className="mt-3 flex items-center gap-2">
+        {offers.map((_, i) => {
+          const isActive = i === active;
+          return (
+            <button
+              key={i}
+              type="button"
+              aria-label={`Go to slide ${i + 1}`}
+              className={`h-2.5 w-2.5 rounded-full transition ${
+                isActive
+                  ? "bg-[color:var(--color-brand-blue)]"
+                  : "bg-zinc-300 hover:bg-zinc-400"
+              }`}
+              onClick={() => {
+                const el = scrollerRef.current;
+                if (!el) return;
+                const step = getStepPx();
+                const loopWidth = step * offers.length;
+                const base = Math.floor(el.scrollLeft / loopWidth) * loopWidth;
+                el.scrollTo({ left: base + i * step, behavior: "smooth" });
+              }}
+            />
+          );
+        })}
+        <div className="ml-2 text-xs text-zinc-500">Swipe to browse</div>
       </div>
     </div>
   );
