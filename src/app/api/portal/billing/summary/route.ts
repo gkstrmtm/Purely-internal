@@ -7,7 +7,10 @@ export const dynamic = "force-dynamic";
 export const revalidate = 0;
 
 type StripeSubscription = {
+  id: string;
   status: string;
+  cancel_at_period_end?: boolean;
+  current_period_end?: number;
   currency?: string;
   items?: {
     data?: Array<{
@@ -70,7 +73,18 @@ export async function GET() {
       monthlyCents += unit * qty;
     }
 
-    return NextResponse.json({ ok: true, configured: true, monthlyCents, currency });
+    return NextResponse.json({
+      ok: true,
+      configured: true,
+      monthlyCents,
+      currency,
+      subscription: {
+        id: active.id,
+        status: String(active.status),
+        cancelAtPeriodEnd: Boolean(active.cancel_at_period_end),
+        currentPeriodEnd: typeof active.current_period_end === "number" ? active.current_period_end : null,
+      },
+    });
   } catch (e) {
     return NextResponse.json(
       {

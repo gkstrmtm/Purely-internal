@@ -90,6 +90,8 @@ model User {
   portalServiceSetups PortalServiceSetup[]
   businessProfile     BusinessProfile?
   clientBlogSite      ClientBlogSite?
+
+  portalBookingSite   PortalBookingSite?
 }
 
 model Lead {
@@ -505,4 +507,53 @@ model ClientBlogPost {
   @@unique([siteId, slug])
   @@index([siteId, status, publishedAt])
   @@index([siteId, archivedAt])
+}
+
+enum PortalBookingStatus {
+  SCHEDULED
+  CANCELED
+}
+
+model PortalBookingSite {
+  id String @id @default(cuid())
+
+  ownerId String @unique
+  slug    String @unique
+
+  enabled         Boolean @default(false)
+  title           String  @default("Book a call")
+  description     String?
+  durationMinutes Int     @default(30)
+  timeZone        String  @default("America/New_York")
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  owner    User            @relation(fields: [ownerId], references: [id])
+  bookings PortalBooking[]
+}
+
+model PortalBooking {
+  id String @id @default(cuid())
+
+  siteId String
+
+  startAt DateTime
+  endAt   DateTime
+  status  PortalBookingStatus @default(SCHEDULED)
+
+  contactName  String
+  contactEmail String
+  contactPhone String?
+  notes        String?
+
+  canceledAt DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  site PortalBookingSite @relation(fields: [siteId], references: [id])
+
+  @@index([siteId, startAt])
+  @@index([siteId, status, startAt])
 }

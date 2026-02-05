@@ -13,7 +13,18 @@ type Me = {
 
 type BillingSummary =
   | { ok: true; configured: false }
-  | { ok: true; configured: true; monthlyCents: number; currency: string }
+  | {
+      ok: true;
+      configured: true;
+      monthlyCents: number;
+      currency: string;
+      subscription?: {
+        id: string;
+        status: string;
+        cancelAtPeriodEnd: boolean;
+        currentPeriodEnd: number | null;
+      };
+    }
   | { ok: false; configured: boolean; error?: string; details?: string };
 
 function formatMoney(cents: number, currency: string) {
@@ -29,6 +40,7 @@ export function PortalBillingClient() {
   const [summary, setSummary] = useState<BillingSummary | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
+  const [actionBusy, setActionBusy] = useState<string | null>(null);
 
   useEffect(() => {
     let mounted = true;
@@ -66,6 +78,7 @@ export function PortalBillingClient() {
 
   async function manage() {
     setError(null);
+    setActionBusy("manage");
     const res = await fetch("/api/billing/create-portal-session", {
       method: "POST",
       headers: { "content-type": "application/json" },
@@ -74,10 +87,39 @@ export function PortalBillingClient() {
     if (!res.ok) {
       const body = await res.json().catch(() => ({}));
       setError(body?.error ?? "Unable to open billing portal");
+      setActionBusy(null);
       return;
     }
     const json = (await res.json()) as { url: string };
     window.location.href = json.url;
+  }
+
+  async function refreshSummary() {
+    const res = await fetch("/api/portal/billing/summary", { cache: "no-store" });
+    if (!res.ok) {
+      setSummary(null);
+      return;
+    }
+    setSummary((await res.json().catch(() => null)) as BillingSummary | null);
+  }
+
+  async function cancelSubscription(immediate: boolean) {
+    setError(null);
+    setActionBusy(immediate ? "cancel-now" : "cancel");
+    const res = await fetch("/api/portal/billing/cancel", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ immediate }),
+    });
+    const body = await res.json().catch(() => ({}));
+    if (!res.ok) {
+      setError(body?.error ?? "Unable to cancel subscription");
+      setActionBusy(null);
+      return;
+    }
+
+    await refreshSummary();
+    setActionBusy(null);
   }
 
   if (loading) {
@@ -107,6 +149,13 @@ export function PortalBillingClient() {
       ? summary.error ?? "Unable to load summary"
       : "Shown once billing is connected.";
 
+  const sub = summary && "ok" in summary && summary.ok === true && summary.configured ? summary.subscription : undefined;
+  const hasActiveSub = Boolean(sub?.id && ["active", "trialing", "past_due"].includes(String(sub.status)));
+  const periodEndText =
+    sub?.currentPeriodEnd && typeof sub.currentPeriodEnd === "number"
+      ? new Date(sub.currentPeriodEnd * 1000).toLocaleDateString()
+      : null;
+
   return (
     <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
       <div className="rounded-3xl border border-zinc-200 bg-white p-6 lg:col-span-2">
@@ -114,16 +163,18 @@ export function PortalBillingClient() {
           <div>
             <div className="text-sm font-semibold text-zinc-900">Payment</div>
             <div className="mt-1 text-sm text-zinc-600">
-              Change payment info, view invoices, and manage your subscription.
+              Manage your subscription right here. Card updates and invoices use Stripe’s secure hosted flow.
             </div>
           </div>
-          <button
-            className="rounded-2xl bg-brand-ink px-4 py-2 text-sm font-semibold text-white hover:opacity-95 disabled:opacity-60"
-            onClick={manage}
-            disabled={!status?.configured}
-          >
-            Change payment info
-          </button>
+          <div className="flex flex-col gap-2 sm:flex-row">
+            <button
+              className="rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm font-semibold text-brand-ink hover:bg-zinc-50 disabled:opacity-60"
+              onClick={manage}
+              disabled={!status?.configured || actionBusy === "manage"}
+            >
+              {actionBusy === "manage" ? "Opening…" : "Update card / invoices"}
+            </button>
+          </div>
         </div>
 
         <div className="mt-6 grid grid-cols-1 gap-4 sm:grid-cols-2">
@@ -137,6 +188,52 @@ export function PortalBillingClient() {
             <div className="mt-1 text-lg font-bold text-brand-ink">—</div>
             <div className="mt-1 text-xs text-zinc-500">Usage-based services will show here.</div>
           </div>
+        </div>
+
+        <div className="mt-6 rounded-2xl border border-zinc-200 bg-zinc-50 p-4">
+          <div className="text-sm font-semibold text-zinc-900">Subscription</div>
+          <div className="mt-1 text-sm text-zinc-600">
+            {hasActiveSub ? (
+              <>
+                Status: <span className="font-medium text-zinc-800">{String(sub?.status)}</span>
+                {sub?.cancelAtPeriodEnd ? (
+                  <span className="ml-2 rounded-full bg-amber-100 px-2 py-0.5 text-xs font-semibold text-amber-900">
+                    Canceling
+                  </span>
+                ) : null}
+                {periodEndText ? <div className="mt-1 text-xs text-zinc-500">Renews/ends: {periodEndText}</div> : null}
+              </>
+            ) : (
+              "No active subscription."
+            )}
+          </div>
+
+          {hasActiveSub ? (
+            <div className="mt-4 flex flex-col gap-2 sm:flex-row">
+              <button
+                type="button"
+                className="rounded-2xl bg-brand-ink px-4 py-2 text-sm font-semibold text-white hover:opacity-95 disabled:opacity-60"
+                disabled={!status?.configured || Boolean(sub?.cancelAtPeriodEnd) || actionBusy !== null}
+                onClick={() => cancelSubscription(false)}
+              >
+                {sub?.cancelAtPeriodEnd ? "Cancel scheduled" : "Cancel at period end"}
+              </button>
+              <button
+                type="button"
+                className="rounded-2xl border border-red-200 bg-white px-4 py-2 text-sm font-semibold text-red-700 hover:bg-red-50 disabled:opacity-60"
+                disabled={!status?.configured || actionBusy !== null}
+                onClick={() => {
+                  const ok = window.confirm(
+                    "Cancel immediately? This ends access right away. Click OK to confirm.",
+                  );
+                  if (!ok) return;
+                  void cancelSubscription(true);
+                }}
+              >
+                Cancel now
+              </button>
+            </div>
+          ) : null}
         </div>
       </div>
 

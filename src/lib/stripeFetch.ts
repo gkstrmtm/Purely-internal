@@ -77,6 +77,27 @@ export async function stripePost<T>(path: string, params: Record<string, unknown
   return json as T;
 }
 
+export async function stripeDelete<T>(path: string): Promise<T> {
+  const key = stripeKey();
+  if (!key) throw new Error("Stripe is not configured");
+
+  const res = await fetch(`https://api.stripe.com${path}` as string, {
+    method: "DELETE",
+    headers: {
+      authorization: `Bearer ${key}`,
+    },
+  });
+
+  const json = (await res.json().catch(() => ({}))) as StripeErrorResponse & T;
+
+  if (!res.ok) {
+    const msg = json?.error?.message ?? `Stripe error (${res.status})`;
+    throw new Error(msg);
+  }
+
+  return json as T;
+}
+
 export async function getOrCreateStripeCustomerId(email: string) {
   const list = await stripeGet<{ data: Array<{ id: string }> }>("/v1/customers", {
     email,

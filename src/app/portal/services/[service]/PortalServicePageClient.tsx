@@ -185,6 +185,26 @@ export function PortalServicePageClient({ slug }: { slug: string }) {
                 </Link>
               </div>
             </div>
+          ) : slug === "booking" ? (
+            <div className="mt-3">
+              <div className="text-sm text-zinc-600">
+                Publish a booking link, set availability, and capture appointments.
+              </div>
+              <div className="mt-5 flex flex-col gap-3 sm:flex-row">
+                <Link
+                  href="/portal/app/services/booking"
+                  className="inline-flex items-center justify-center rounded-2xl bg-brand-ink px-5 py-3 text-sm font-semibold text-white hover:opacity-95"
+                >
+                  Open Booking
+                </Link>
+                <Link
+                  href="/portal/app/onboarding"
+                  className="inline-flex items-center justify-center rounded-2xl border border-zinc-200 bg-white px-5 py-3 text-sm font-semibold text-brand-ink hover:bg-zinc-50"
+                >
+                  Onboarding
+                </Link>
+              </div>
+            </div>
           ) : (
             <div className="mt-3">
               <div className="text-sm text-zinc-600">

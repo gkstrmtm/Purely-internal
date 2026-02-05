@@ -42,7 +42,7 @@ export async function POST(req: Request) {
   const userId = session?.user?.id;
   const role = session?.user?.role;
   if (!userId) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  if (role !== "CLOSER" && role !== "ADMIN" && role !== "MANAGER") {
+    if (role !== "CLOSER" && role !== "ADMIN" && role !== "MANAGER" && role !== "CLIENT") {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
 
@@ -70,7 +70,7 @@ export async function PUT(req: Request) {
   const userId = session?.user?.id;
   const role = session?.user?.role;
   if (!userId) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  if (role !== "CLOSER" && role !== "ADMIN" && role !== "MANAGER") {
+  if (role !== "CLOSER" && role !== "ADMIN" && role !== "MANAGER" && role !== "CLIENT") {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
 

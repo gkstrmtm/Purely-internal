@@ -52,7 +52,9 @@ Stripe setup checklist:
 1) In Stripe (test mode first), create 3 Products (or 1 product with 3 prices) with recurring monthly Prices.
 2) Copy the Price IDs (they look like `price_...`) into the env vars above.
 3) Create a restricted API key (recommended) or use your secret key for now and set it as `STRIPE_SECRET_KEY`.
-4) In Stripe → Settings → Billing → Customer portal, enable the customer portal (required for the “Manage billing” button).
+4) (Optional) In Stripe → Settings → Billing → Customer portal, enable the customer portal.
+	- This is only used for the Stripe-hosted screens (payment method updates, invoices).
+	- Subscription cancellation is supported inside the portal UI (it calls Stripe from our backend).
 
 Note: this repo currently reads subscription state live from Stripe; it does not require webhooks to unlock entitlements.
 
@@ -82,6 +84,19 @@ The customer portal has a per-client blog automation scheduler that generates dr
 - Auth: set `BLOG_CRON_SECRET` (or `MARKETING_CRON_SECRET`) and call with header `x-blog-cron-secret: <secret>`
 
 Configure Vercel Cron to hit that endpoint on a cadence (e.g., every hour). The endpoint will only generate when a client is due.
+
+## Booking automation (portal)
+
+Booking Automation gives each client a public booking link backed by their own availability blocks.
+
+- Portal settings: `GET/PUT /api/portal/booking/settings`
+- Portal bookings list: `GET /api/portal/booking/bookings`
+- Owner cancel booking: `POST /api/portal/booking/bookings/[bookingId]/cancel`
+- Public booking page: `/book/[slug]`
+- Public booking APIs:
+	- `GET /api/public/booking/[slug]/settings`
+	- `GET /api/public/booking/[slug]/suggestions`
+	- `POST /api/public/booking/[slug]/book`
 
 ## Public marketing landing
 
