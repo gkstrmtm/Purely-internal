@@ -16,6 +16,15 @@ type Post = {
   updatedAt: string;
 };
 
+function uiSlugify(input: string): string {
+  return String(input || "")
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    .slice(0, 120);
+}
+
 function parseKeywords(text: string): string[] {
   const raw = text
     .split(/\n|,/g)
@@ -40,9 +49,19 @@ function formatDate(value: string | null) {
   return Number.isFinite(d.getTime()) ? d.toLocaleString() : "";
 }
 
+function formatLastSaved(updatedAt: string | null | undefined) {
+  if (!updatedAt) return "";
+  const d = new Date(updatedAt);
+  if (!Number.isFinite(d.getTime())) return "";
+  const diffMs = Date.now() - d.getTime();
+  const diffMin = Math.max(0, Math.floor(diffMs / 60000));
+  if (diffMin < 60) return diffMin <= 1 ? "just now" : `${diffMin} minutes ago`;
+  return d.toLocaleString();
+}
+
 export function PortalBlogPostClient({ postId }: { postId: string }) {
   const [loading, setLoading] = useState(true);
-  const [working, setWorking] = useState<"save" | "publish" | "delete" | "archive" | null>(null);
+  const [working, setWorking] = useState<"save" | "publish" | "delete" | "archive" | "generate" | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   const contentRef = useRef<HTMLTextAreaElement | null>(null);
@@ -60,6 +79,20 @@ export function PortalBlogPostClient({ postId }: { postId: string }) {
   const [imageUrl, setImageUrl] = useState<string | null>(null);
 
   const keywords = useMemo(() => parseKeywords(keywordsText), [keywordsText]);
+
+  const isDirty = useMemo(() => {
+    if (!post) return false;
+    const baseChanged =
+      title !== (post.title ?? "") ||
+      slug !== (post.slug ?? "") ||
+      excerpt !== (post.excerpt ?? "") ||
+      content !== (post.content ?? "");
+
+    const prevKw = Array.isArray(post.seoKeywords) ? post.seoKeywords : [];
+    const prevText = prevKw.join("\n");
+    const kwChanged = keywordsText !== prevText;
+    return baseChanged || kwChanged;
+  }, [content, excerpt, keywordsText, post, slug, title]);
 
   const refresh = useCallback(async () => {
     setLoading(true);
@@ -89,14 +122,14 @@ export function PortalBlogPostClient({ postId }: { postId: string }) {
     void refresh();
   }, [refresh]);
 
-  async function save() {
+  async function saveInternal(): Promise<Post | null> {
     if (!title.trim()) {
       setError("Title is required");
-      return;
+      return null;
     }
     if (!slug.trim()) {
       setError("Slug is required");
-      return;
+      return null;
     }
 
     setWorking("save");
@@ -119,14 +152,32 @@ export function PortalBlogPostClient({ postId }: { postId: string }) {
 
     if (!res.ok || !json.ok || !json.post) {
       setError(json.error ?? "Unable to save changes");
-      return;
+      return null;
     }
 
     setPost(json.post);
     setSlug(json.post.slug);
+    return json.post;
+  }
+
+  async function save() {
+    await saveInternal();
   }
 
   async function publish() {
+    if (!post) return;
+
+    if (isDirty) {
+      const shouldSave = window.confirm(
+        "You have unsaved changes.\n\nOK = Save changes, then publish\nCancel = Publish the last saved version",
+      );
+
+      if (shouldSave) {
+        const saved = await saveInternal();
+        if (!saved) return;
+      }
+    }
+
     setWorking("publish");
     setError(null);
 
@@ -144,6 +195,65 @@ export function PortalBlogPostClient({ postId }: { postId: string }) {
     }
 
     await refresh();
+  }
+
+  async function generateWithAi() {
+    if (!post) return;
+    if (post.status !== "DRAFT") {
+      setError("AI generation is only available for drafts.");
+      return;
+    }
+
+    if (working !== null) return;
+
+    if (isDirty || title.trim() || excerpt.trim() || content.trim()) {
+      const ok = window.confirm(
+        "Generate with AI will overwrite the editor fields (title, excerpt, content, keywords).\n\nYou can cancel if you want to save first.",
+      );
+      if (!ok) return;
+    }
+
+    const topic = window.prompt("Optional topic for this post (leave blank for best guess):", title.trim());
+    if (topic === null) return;
+
+    setWorking("generate");
+    setError(null);
+
+    const res = await fetch(`/api/portal/blogs/posts/${postId}/generate`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ topic: topic.trim() || undefined }),
+    });
+
+    const json = (await res.json().catch(() => ({}))) as {
+      ok?: boolean;
+      draft?: { title: string; excerpt: string; content: string; seoKeywords?: string[] };
+      estimatedCredits?: number;
+      error?: string;
+    };
+
+    setWorking(null);
+
+    if (!res.ok || !json.ok || !json.draft) {
+      setError(json.error ?? "Unable to generate post");
+      return;
+    }
+
+    const nextTitle = json.draft.title ?? "";
+    const nextExcerpt = json.draft.excerpt ?? "";
+    const nextContent = json.draft.content ?? "";
+    const nextKeywords = Array.isArray(json.draft.seoKeywords) ? json.draft.seoKeywords : [];
+
+    const oldSuggested = uiSlugify(title);
+    const currentSlug = slug.trim();
+    const shouldReplaceSlug = !currentSlug || (oldSuggested && currentSlug === oldSuggested);
+    const nextSuggested = uiSlugify(nextTitle);
+
+    setTitle(nextTitle);
+    setExcerpt(nextExcerpt);
+    setContent(nextContent);
+    setKeywordsText(nextKeywords.join("\n"));
+    if (shouldReplaceSlug && nextSuggested) setSlug(nextSuggested);
   }
 
   async function toggleArchive() {
@@ -268,6 +378,8 @@ export function PortalBlogPostClient({ postId }: { postId: string }) {
             Status: {post.status === "PUBLISHED" ? "Published" : "Draft"}
             {post.publishedAt ? ` • Published ${formatDate(post.publishedAt)}` : ""}
             {post.archivedAt ? ` • Archived ${formatDate(post.archivedAt)}` : ""}
+            {post.updatedAt ? ` • Last saved ${formatLastSaved(post.updatedAt)}` : ""}
+            {isDirty ? " • Unsaved changes" : ""}
           </div>
         </div>
 
@@ -278,6 +390,14 @@ export function PortalBlogPostClient({ postId }: { postId: string }) {
           >
             Export Markdown
           </a>
+          <button
+            type="button"
+            onClick={generateWithAi}
+            disabled={working !== null || post.status !== "DRAFT"}
+            className="inline-flex items-center justify-center rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm font-semibold text-brand-ink hover:bg-zinc-50 disabled:opacity-60"
+          >
+            {working === "generate" ? "Generating…" : "Generate with AI"}
+          </button>
           <button
             type="button"
             onClick={save}

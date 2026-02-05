@@ -27,10 +27,12 @@ export async function generateMetadata(props: PageProps) {
   try {
     const canUseSlugColumn = await hasPublicColumn("ClientBlogSite", "slug");
     const site = canUseSlugColumn
-      ? await prisma.clientBlogSite.findFirst({
-          where: { OR: [{ slug: siteSlug }, { id: siteSlug }] },
-          select: { name: true, ownerId: true },
-        })
+      ? await prisma.clientBlogSite.findFirst(
+          {
+            where: { OR: [{ slug: siteSlug }, { id: siteSlug }] },
+            select: { name: true, ownerId: true },
+          } as any,
+        )
       : await prisma.clientBlogSite.findUnique({
           where: { id: siteSlug },
           select: { name: true, ownerId: true },
@@ -65,10 +67,12 @@ export default async function ClientBlogsIndexPage(props: PageProps) {
 
   const canUseSlugColumn = await hasPublicColumn("ClientBlogSite", "slug");
   const site = canUseSlugColumn
-    ? await prisma.clientBlogSite.findFirst({
-        where: { OR: [{ slug: siteSlug }, { id: siteSlug }] },
-        select: { id: true, name: true, ownerId: true, slug: true },
-      })
+    ? await prisma.clientBlogSite.findFirst(
+        {
+          where: { OR: [{ slug: siteSlug }, { id: siteSlug }] },
+          select: { id: true, name: true, ownerId: true, slug: true },
+        } as any,
+      )
     : await prisma.clientBlogSite.findUnique({
         where: { id: siteSlug },
         select: { id: true, name: true, ownerId: true },
@@ -117,6 +121,8 @@ export default async function ClientBlogsIndexPage(props: PageProps) {
     ["--client-text" as any]: brandText,
   } as CSSProperties;
 
+  const coralCta = "#fb7185";
+
   return (
     <div className="min-h-screen bg-white" style={themeStyle}>
       <header className="border-b border-zinc-200 bg-white/80 backdrop-blur">
@@ -131,15 +137,6 @@ export default async function ClientBlogsIndexPage(props: PageProps) {
               </div>
             )}
           </Link>
-
-          <div className="flex items-center gap-3">
-            <Link
-              href="/"
-              className="hidden rounded-xl px-3 py-2 text-sm font-semibold text-zinc-700 hover:bg-zinc-100 sm:inline"
-            >
-              powered by purely automation
-            </Link>
-          </div>
         </div>
       </header>
 
@@ -155,7 +152,7 @@ export default async function ClientBlogsIndexPage(props: PageProps) {
                 <Link
                   href={`/${siteHandle}/blogs`}
                   className="inline-flex items-center justify-center rounded-2xl px-6 py-3 text-base font-extrabold shadow-md"
-                  style={{ backgroundColor: "var(--client-accent)", color: "var(--client-primary)" }}
+                  style={{ backgroundColor: coralCta, color: "#fff" }}
                 >
                   browse posts
                 </Link>
@@ -239,14 +236,14 @@ export default async function ClientBlogsIndexPage(props: PageProps) {
 
                 <div className="mt-6 rounded-2xl p-5" style={{ backgroundColor: "rgba(29,78,216,0.06)" }}>
                   <div className="text-sm font-bold" style={{ color: "var(--client-text)" }}>
-                    powered by purely automation
+                    want a blog like this?
                   </div>
                   <p className="mt-2 text-sm text-zinc-700">This blog is hosted and managed by Purely Automation.</p>
                   <div className="mt-4">
                     <Link
                       href="/"
                       className="inline-flex items-center rounded-2xl px-4 py-2 text-sm font-extrabold shadow-sm"
-                      style={{ backgroundColor: "var(--client-accent)", color: "var(--client-primary)" }}
+                      style={{ backgroundColor: coralCta, color: "#fff" }}
                     >
                       learn more
                     </Link>
@@ -260,7 +257,16 @@ export default async function ClientBlogsIndexPage(props: PageProps) {
 
       <footer className="border-t border-zinc-200 bg-white">
         <div className="mx-auto flex max-w-6xl flex-col gap-4 px-6 py-10 sm:flex-row sm:items-center sm:justify-between">
-          <div className="text-sm text-zinc-600">© {new Date().getFullYear()} {brandName}</div>
+          <div className="text-sm text-zinc-600">
+            © {new Date().getFullYear()} {brandName}
+            <span className="ml-2 text-zinc-400">•</span>
+            <span className="ml-2">
+              Powered by{" "}
+              <Link href="/" className="font-semibold hover:underline" style={{ color: "var(--client-primary)" }}>
+                Purely Automation
+              </Link>
+            </span>
+          </div>
           <div className="flex items-center gap-4">
             <Link href="/" className="text-sm font-semibold hover:underline" style={{ color: "var(--client-primary)" }}>
               purelyautomation.com

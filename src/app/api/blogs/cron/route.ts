@@ -11,9 +11,12 @@ export async function GET(req: Request) {
 
   if (secret) {
     const url = new URL(req.url);
+    const authz = req.headers.get("authorization") ?? "";
+    const bearer = authz.toLowerCase().startsWith("bearer ") ? authz.slice(7).trim() : null;
     const provided =
       req.headers.get("x-blog-cron-secret") ??
       req.headers.get("x-marketing-cron-secret") ??
+      bearer ??
       url.searchParams.get("secret");
 
     if (provided !== secret) {

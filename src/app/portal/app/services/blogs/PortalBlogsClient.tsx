@@ -36,6 +36,7 @@ type AutomationSettings = {
   autoPublish: boolean;
   lastGeneratedAt: string | null;
   nextDueAt: string | null;
+  lastRunAt?: string | null;
 };
 
 function formatDate(value: string | null) {
@@ -53,12 +54,13 @@ export function PortalBlogsClient() {
   const [error, setError] = useState<string | null>(null);
 
   const [siteName, setSiteName] = useState("");
+  const [siteSlug, setSiteSlug] = useState("");
   const [siteSaving, setSiteSaving] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
 
   const [autoEnabled, setAutoEnabled] = useState(false);
   const [autoFrequencyDays, setAutoFrequencyDays] = useState(7);
-  const [autoTopicsText, setAutoTopicsText] = useState("");
+  const [autoTopics, setAutoTopics] = useState<string[]>([]);
   const [autoPublish, setAutoPublish] = useState(false);
   const [autoSaving, setAutoSaving] = useState(false);
 
@@ -71,10 +73,16 @@ export function PortalBlogsClient() {
     return `${window.location.origin}/${handle}/blogs`;
   }, [site?.id, site?.slug]);
 
-  function topicsTextToArray(text: string): string[] {
-    const raw = String(text || "")
-      .split(/\n|,/g)
-      .map((x) => x.trim())
+  const publicBlogUrlPreview = useMemo(() => {
+    const handle = siteSlug.trim() || site?.slug || site?.id;
+    if (!handle) return null;
+    if (typeof window === "undefined") return `/${handle}/blogs`;
+    return `${window.location.origin}/${handle}/blogs`;
+  }, [site?.id, site?.slug, siteSlug]);
+
+  function sanitizeTopics(items: string[]): string[] {
+    const raw = (Array.isArray(items) ? items : [])
+      .map((x) => String(x || "").trim())
       .filter(Boolean);
     const seen = new Set<string>();
     const out: string[] = [];
@@ -88,9 +96,11 @@ export function PortalBlogsClient() {
     return out;
   }
 
-  function topicsArrayToText(items: string[]): string {
-    return Array.isArray(items) ? items.join("\n") : "";
-  }
+  const creditsPerWeekEstimate = useMemo(() => {
+    const freq = Math.max(1, Math.floor(Number(autoFrequencyDays) || 7));
+    const postsPerWeek = Math.ceil(7 / freq);
+    return Math.max(0, postsPerWeek - 1);
+  }, [autoFrequencyDays]);
 
   async function refreshAll() {
     setLoading(true);
@@ -123,6 +133,7 @@ export function PortalBlogsClient() {
     const s = siteJson.site ?? null;
     setSite(s);
     setSiteName(s?.name ?? "");
+    setSiteSlug(s?.slug ?? "");
 
     setPosts(Array.isArray(postsJson.posts) ? postsJson.posts : []);
 
@@ -134,7 +145,7 @@ export function PortalBlogsClient() {
           ? autoJson.settings.frequencyDays
           : 7,
       );
-      setAutoTopicsText(topicsArrayToText(autoJson.settings.topics ?? []));
+      setAutoTopics(sanitizeTopics((autoJson.settings.topics ?? []) as any));
       setAutoPublish(Boolean(autoJson.settings.autoPublish));
     }
 
@@ -157,7 +168,7 @@ export function PortalBlogsClient() {
     const res = await fetch("/api/portal/blogs/site", {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ name: siteName || "My Blog" }),
+      body: JSON.stringify({ name: siteName || "My Blog", slug: siteSlug }),
     });
     const json = (await res.json().catch(() => ({}))) as { ok?: boolean; site?: Site; error?: string };
     setSiteSaving(false);
@@ -181,7 +192,7 @@ export function PortalBlogsClient() {
     const res = await fetch("/api/portal/blogs/site", {
       method: "PUT",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ name: siteName }),
+      body: JSON.stringify({ name: siteName, slug: siteSlug }),
     });
 
     const json = (await res.json().catch(() => ({}))) as { ok?: boolean; site?: Site; error?: string };
@@ -222,7 +233,7 @@ export function PortalBlogsClient() {
     setAutoSaving(true);
     setError(null);
 
-    const topics = topicsTextToArray(autoTopicsText);
+    const topics = sanitizeTopics(autoTopics);
     const res = await fetch("/api/portal/blogs/automation/settings", {
       method: "PUT",
       headers: { "content-type": "application/json" },
@@ -418,18 +429,31 @@ export function PortalBlogsClient() {
               </div>
 
               <div>
+                <label className="text-xs font-semibold text-zinc-600">Blog URL slug</label>
+                <input
+                  value={siteSlug}
+                  onChange={(e) => setSiteSlug(e.target.value)}
+                  className="mt-1 w-full rounded-2xl border border-zinc-200 bg-white px-4 py-3 text-sm outline-none focus:border-zinc-300"
+                  placeholder="home2smart"
+                />
+                <div className="mt-1 text-xs text-zinc-500">
+                  Your public blog will be at {publicBlogUrlPreview ?? "…"}. Leave blank to use your business name.
+                </div>
+              </div>
+
+              <div>
                 <label className="text-xs font-semibold text-zinc-600">Hosted blog link</label>
                 <div className="mt-1 flex flex-col gap-3 sm:flex-row sm:items-center">
                   <div className="min-w-0 flex-1 rounded-2xl border border-zinc-200 bg-zinc-50 px-4 py-3 text-sm text-zinc-800">
-                    <div className="truncate">{publicBlogUrl ?? "Create your blog workspace to get a link."}</div>
+                    <div className="truncate">{publicBlogUrlPreview ?? "Create your blog workspace to get a link."}</div>
                   </div>
                   <button
                     type="button"
                     className="inline-flex items-center justify-center rounded-2xl bg-brand-ink px-4 py-3 text-sm font-semibold text-white hover:opacity-95 disabled:opacity-60"
-                    disabled={!publicBlogUrl}
+                    disabled={!publicBlogUrlPreview}
                     onClick={async () => {
-                      if (!publicBlogUrl) return;
-                      await navigator.clipboard.writeText(publicBlogUrl);
+                      if (!publicBlogUrlPreview) return;
+                      await navigator.clipboard.writeText(publicBlogUrlPreview);
                     }}
                   >
                     Copy
@@ -493,17 +517,59 @@ export function PortalBlogsClient() {
                       <div className="text-sm text-zinc-600">days per post</div>
                     </div>
                     <div className="mt-1 text-xs text-zinc-500">Example: 7 = weekly, 14 = every 2 weeks.</div>
+                    {Number(autoFrequencyDays) < 7 ? (
+                      <div className="mt-2 rounded-2xl border border-amber-200 bg-amber-50 p-3 text-xs text-amber-800">
+                        More often than weekly uses credits. Estimated: {creditsPerWeekEstimate} credit{creditsPerWeekEstimate === 1 ? "" : "s"} / week.
+                      </div>
+                    ) : null}
                   </div>
 
                   <div>
                     <label className="text-xs font-semibold text-zinc-600">Topics (optional)</label>
-                    <textarea
-                      value={autoTopicsText}
-                      onChange={(e) => setAutoTopicsText(e.target.value)}
-                      className="mt-1 min-h-[90px] w-full rounded-2xl border border-zinc-200 bg-white px-4 py-3 text-sm outline-none focus:border-zinc-300"
-                      placeholder="Local SEO tips\nHow to choose a contractor\nCommon mistakes customers make"
-                    />
-                    <div className="mt-1 text-xs text-zinc-500">One per line (or comma-separated).</div>
+                    <div className="mt-1 space-y-2">
+                      {autoTopics.length === 0 ? (
+                        <div className="rounded-2xl border border-zinc-200 bg-zinc-50 px-4 py-3 text-sm text-zinc-600">
+                          Add a few topics to guide what gets generated.
+                        </div>
+                      ) : null}
+
+                      {autoTopics.map((t, idx) => (
+                        <div key={idx} className="flex items-center gap-2">
+                          <input
+                            value={t}
+                            onChange={(e) => {
+                              const next = [...autoTopics];
+                              next[idx] = e.target.value;
+                              setAutoTopics(next);
+                            }}
+                            className="w-full rounded-2xl border border-zinc-200 bg-white px-4 py-3 text-sm outline-none focus:border-zinc-300"
+                            placeholder={idx === 0 ? "Local SEO tips" : "Another topic"}
+                          />
+                          <button
+                            type="button"
+                            className="rounded-2xl border border-zinc-200 bg-white px-3 py-3 text-sm font-semibold text-zinc-700 hover:bg-zinc-50"
+                            onClick={() => {
+                              const next = autoTopics.filter((_, i) => i !== idx);
+                              setAutoTopics(next);
+                            }}
+                            aria-label="Remove topic"
+                          >
+                            Remove
+                          </button>
+                        </div>
+                      ))}
+
+                      <button
+                        type="button"
+                        className="inline-flex items-center justify-center rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm font-semibold text-brand-ink hover:bg-zinc-50"
+                        onClick={() => setAutoTopics((prev) => [...prev, ""])}
+                      >
+                        + Add topic
+                      </button>
+                    </div>
+                    <div className="mt-1 text-xs text-zinc-500">
+                      Topics in queue: {sanitizeTopics(autoTopics).length}
+                    </div>
                   </div>
 
                   <label className="flex items-center justify-between gap-3 text-sm">
@@ -529,8 +595,11 @@ export function PortalBlogsClient() {
                   </button>
 
                   {automation ? (
-                    <div className="mt-2 text-xs text-zinc-600">
-                      Next due: {automation.nextDueAt ? formatDate(automation.nextDueAt) : "—"}
+                    <div className="mt-2 space-y-1 text-xs text-zinc-600">
+                      <div>Last generated: {automation.lastGeneratedAt ? formatDate(automation.lastGeneratedAt) : "—"}</div>
+                      <div>Next due: {automation.nextDueAt ? formatDate(automation.nextDueAt) : "—"}</div>
+                      <div>Scheduler last ran: {automation.lastRunAt ? formatDate(automation.lastRunAt) : "—"}</div>
+                      <div className="text-zinc-500">Scheduler checks about hourly. If Next due is in the past, a new post should appear within ~1 hour.</div>
                     </div>
                   ) : null}
                 </div>

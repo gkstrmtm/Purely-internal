@@ -13,6 +13,7 @@ export const revalidate = 0;
 const upsertSchema = z.object({
   name: z.string().trim().min(2).max(120),
   primaryDomain: z.string().trim().max(253).optional().or(z.literal("")),
+  slug: z.string().trim().min(3).max(80).optional().or(z.literal("")),
 });
 
 function normalizeDomain(raw: string | null | undefined) {
@@ -36,7 +37,7 @@ async function ensurePublicSlug(ownerId: string, desiredName: string, canUseSlug
 
   let slug = desired;
   if (canUseSlugColumn) {
-    const collision = await prisma.clientBlogSite.findUnique({ where: { slug } });
+    const collision = (await (prisma.clientBlogSite as any).findUnique({ where: { slug } })) as any;
     if (collision && collision.ownerId !== ownerId) {
       slug = `${desired}-${ownerId.slice(0, 6)}`;
     }
@@ -75,7 +76,7 @@ export async function GET() {
 
   if (site && canUseSlugColumn && !currentSlug) {
     const slug = await ensurePublicSlug(ownerId, site.name, true);
-    site = (await prisma.clientBlogSite.update({
+    site = (await (prisma.clientBlogSite as any).update({
       where: { ownerId },
       data: { slug },
       select: {
@@ -119,6 +120,16 @@ export async function POST(req: Request) {
   const ownerId = auth.session.user.id;
   const canUseSlugColumn = await hasPublicColumn("ClientBlogSite", "slug");
 
+  const slugFieldProvided = Object.prototype.hasOwnProperty.call(parsed.data, "slug");
+  const rawSlug = typeof parsed.data.slug === "string" ? parsed.data.slug.trim() : "";
+  const requestedSlug = rawSlug.length ? slugify(rawSlug) : null;
+  if (slugFieldProvided && requestedSlug && !canUseSlugColumn) {
+    return NextResponse.json(
+      { error: "Custom slugs aren’t available yet (database migration pending)." },
+      { status: 409 },
+    );
+  }
+
   const existing = (await prisma.clientBlogSite.findUnique({
     where: { ownerId },
     select: {
@@ -136,18 +147,18 @@ export async function POST(req: Request) {
     const currentSlug = (existing as any)?.slug as string | null | undefined;
     if (canUseSlugColumn && !currentSlug) {
       const slug = await ensurePublicSlug(ownerId, existing.name, true);
-      const updated = (await prisma.clientBlogSite.update({
-          where: { ownerId },
-          data: { slug },
-          select: {
-            id: true,
-            name: true,
-            slug: true,
-            primaryDomain: true,
-            verifiedAt: true,
-            verificationToken: true,
-            updatedAt: true,
-          },
+      const updated = (await (prisma.clientBlogSite as any).update({
+        where: { ownerId },
+        data: { slug },
+        select: {
+          id: true,
+          name: true,
+          slug: true,
+          primaryDomain: true,
+          verifiedAt: true,
+          verificationToken: true,
+          updatedAt: true,
+        },
       })) as any;
       return NextResponse.json({ ok: true, site: updated });
     }
@@ -162,9 +173,19 @@ export async function POST(req: Request) {
   }
 
   const token = crypto.randomBytes(18).toString("hex");
-  const slug = await ensurePublicSlug(ownerId, parsed.data.name.trim(), canUseSlugColumn);
 
-  const created = (await prisma.clientBlogSite.create({
+  const slug = requestedSlug
+    ? requestedSlug
+    : await ensurePublicSlug(ownerId, parsed.data.name.trim(), canUseSlugColumn);
+
+  if (canUseSlugColumn && slug) {
+    const collision = (await (prisma.clientBlogSite as any).findUnique({ where: { slug }, select: { ownerId: true } })) as any;
+    if (collision && collision.ownerId !== ownerId) {
+      return NextResponse.json({ error: "That blog link is already taken." }, { status: 409 });
+    }
+  }
+
+  const created = (await (prisma.clientBlogSite as any).create({
       data: {
         ownerId,
         name: parsed.data.name.trim(),
@@ -210,6 +231,16 @@ export async function PUT(req: Request) {
   const ownerId = auth.session.user.id;
   const canUseSlugColumn = await hasPublicColumn("ClientBlogSite", "slug");
 
+  const slugFieldProvided = Object.prototype.hasOwnProperty.call(parsed.data, "slug");
+  const rawSlug = typeof parsed.data.slug === "string" ? parsed.data.slug.trim() : "";
+  const requestedSlug = rawSlug.length ? slugify(rawSlug) : null;
+  if (slugFieldProvided && requestedSlug && !canUseSlugColumn) {
+    return NextResponse.json(
+      { error: "Custom slugs aren’t available yet (database migration pending)." },
+      { status: 409 },
+    );
+  }
+
   const primaryDomain = normalizeDomain(parsed.data.primaryDomain);
   const name = parsed.data.name.trim();
 
@@ -220,24 +251,56 @@ export async function PUT(req: Request) {
 
   const domainChanged = (existing?.primaryDomain ?? null) !== primaryDomain;
 
-  const updated = (await prisma.clientBlogSite.upsert({
+  let nextSlug: string | null | undefined = undefined;
+  if (canUseSlugColumn && slugFieldProvided) {
+    if (requestedSlug) {
+      nextSlug = requestedSlug;
+    } else {
+      nextSlug = await ensurePublicSlug(ownerId, name, true);
+    }
+
+    const current = (await (prisma.clientBlogSite as any).findUnique({ where: { ownerId }, select: { slug: true } })) as any;
+    const currentSlug = (current as any)?.slug as string | null | undefined;
+    if (nextSlug && nextSlug !== currentSlug) {
+      const collision = (await (prisma.clientBlogSite as any).findUnique({
+        where: { slug: nextSlug },
+        select: { ownerId: true },
+      })) as any;
+      if (collision && collision.ownerId !== ownerId) {
+        return NextResponse.json({ error: "That blog link is already taken." }, { status: 409 });
+      }
+    }
+  }
+
+  const updated = (await (prisma.clientBlogSite as any).upsert({
     where: { ownerId },
     create: {
       ownerId,
       name,
-      ...(canUseSlugColumn ? { slug: await ensurePublicSlug(ownerId, name, true) } : {}),
+      ...(canUseSlugColumn
+        ? { slug: nextSlug ?? requestedSlug ?? (await ensurePublicSlug(ownerId, name, true)) }
+        : {}),
       primaryDomain,
       verificationToken: crypto.randomBytes(18).toString("hex"),
       verifiedAt: null,
     },
     update: {
       name,
-      ...(await (async () => {
-        if (!canUseSlugColumn) return {};
-        const existing = await prisma.clientBlogSite.findUnique({ where: { ownerId }, select: { slug: true } });
-        if ((existing as any)?.slug) return {};
-        return { slug: await ensurePublicSlug(ownerId, name, true) };
-      })()),
+      ...(canUseSlugColumn
+        ? {
+            ...(nextSlug !== undefined ? { slug: nextSlug } : {}),
+            ...(nextSlug === undefined
+              ? await (async () => {
+                  const existing = (await (prisma.clientBlogSite as any).findUnique({
+                    where: { ownerId },
+                    select: { slug: true },
+                  })) as any;
+                  if ((existing as any)?.slug) return {};
+                  return { slug: await ensurePublicSlug(ownerId, name, true) };
+                })()
+              : {}),
+          }
+        : {}),
       primaryDomain,
       ...(domainChanged
         ? {

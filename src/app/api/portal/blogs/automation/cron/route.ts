@@ -53,6 +53,14 @@ function msDays(n: number) {
   return n * 24 * 60 * 60 * 1000;
 }
 
+function isStaleLastRunAt(lastRunAt: string | undefined, now: Date) {
+  if (!lastRunAt) return true;
+  const d = new Date(lastRunAt);
+  if (!Number.isFinite(d.getTime())) return true;
+  // Avoid hammering the DB: only bump this every ~6 hours.
+  return now.getTime() - d.getTime() > 6 * 60 * 60 * 1000;
+}
+
 export async function GET(req: Request) {
   const isProd = process.env.NODE_ENV === "production";
   const secret = process.env.BLOG_CRON_SECRET ?? process.env.MARKETING_CRON_SECRET;
@@ -62,9 +70,12 @@ export async function GET(req: Request) {
 
   if (secret) {
     const url = new URL(req.url);
+    const authz = req.headers.get("authorization") ?? "";
+    const bearer = authz.toLowerCase().startsWith("bearer ") ? authz.slice(7).trim() : null;
     const provided =
       req.headers.get("x-blog-cron-secret") ??
       req.headers.get("x-marketing-cron-secret") ??
+      bearer ??
       url.searchParams.get("secret");
 
     if (provided !== secret) {
@@ -100,7 +111,20 @@ export async function GET(req: Request) {
 
     if (last?.createdAt) {
       const dueAt = new Date(last.createdAt.getTime() + msDays(s.frequencyDays));
-      if (dueAt > now) continue;
+      if (dueAt > now) {
+        if (isStaleLastRunAt(s.lastRunAt, now)) {
+          const nextJson: StoredSettings = {
+            enabled: s.enabled,
+            frequencyDays: s.frequencyDays,
+            topics: s.topics,
+            cursor: s.cursor,
+            autoPublish: s.autoPublish,
+            lastRunAt: now.toISOString(),
+          };
+          await prisma.portalServiceSetup.update({ where: { id: setup.id }, data: { dataJson: nextJson } });
+        }
+        continue;
+      }
     }
 
     eligible += 1;

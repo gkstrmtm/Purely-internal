@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 
 type Site = {
+  enabled: boolean;
   slug: string;
   title: string;
   description?: string | null;
@@ -190,6 +191,13 @@ export function PublicBookingClient({ slug }: { slug: string }) {
   useEffect(() => {
     // When changing months, reset selection and load a fresh 30-day window.
     if (!site) return;
+    if (!site.enabled) {
+      setSlots([]);
+      setSelected(null);
+      setSelectedDate(null);
+      setStep("date");
+      return;
+    }
     setSelected(null);
     setSelectedDate(null);
     setStep("date");
@@ -199,6 +207,10 @@ export function PublicBookingClient({ slug }: { slug: string }) {
 
   async function book() {
     if (!selected) return;
+    if (!site?.enabled) {
+      setError("This booking link isn’t accepting bookings yet.");
+      return;
+    }
     setBookingBusy(true);
     setError(null);
 
@@ -230,22 +242,26 @@ export function PublicBookingClient({ slug }: { slug: string }) {
 
   if (loading) {
     return (
-      <div className="mx-auto max-w-3xl px-6 py-12">
-        <div className="rounded-3xl border border-zinc-200 bg-white p-6 text-sm text-zinc-600">Loading…</div>
+      <div className="min-h-screen bg-[#f5f9ff]">
+        <div className="mx-auto max-w-3xl px-6 py-12">
+          <div className="rounded-3xl border border-zinc-200 bg-white p-6 text-sm text-zinc-600">Loading…</div>
+        </div>
       </div>
     );
   }
 
   if (error && !site) {
     return (
-      <div className="mx-auto max-w-3xl px-6 py-12">
-        <div className="rounded-3xl border border-zinc-200 bg-white p-6">
-          <div className="text-base font-semibold text-brand-ink">Booking page not found</div>
-          <div className="mt-2 text-sm text-zinc-600">{error}</div>
-          <div className="mt-6">
-            <Link href="/" className="text-sm font-semibold text-brand-ink hover:underline">
-              Back to Purely Automation
-            </Link>
+      <div className="min-h-screen bg-[#f5f9ff]">
+        <div className="mx-auto max-w-3xl px-6 py-12">
+          <div className="rounded-3xl border border-zinc-200 bg-white p-6">
+            <div className="text-base font-semibold text-brand-ink">Booking page not found</div>
+            <div className="mt-2 text-sm text-zinc-600">{error}</div>
+            <div className="mt-6">
+              <Link href="/" className="text-sm font-semibold text-brand-ink hover:underline">
+                Back to Purely Automation
+              </Link>
+            </div>
           </div>
         </div>
       </div>
@@ -255,39 +271,43 @@ export function PublicBookingClient({ slug }: { slug: string }) {
   if (success && site) {
     return (
       <div
-        className="mx-auto max-w-3xl px-6 py-12"
+        className="min-h-screen bg-[#f5f9ff]"
         style={{
           ["--booking-primary" as any]: theme.primary,
           ["--booking-accent" as any]: theme.accent,
           ["--booking-text" as any]: theme.text,
         }}
       >
-        <div className="rounded-3xl border border-zinc-200 bg-white p-8">
-          <div className="text-xs font-semibold uppercase tracking-wide text-emerald-700">Booked</div>
-          <div className="mt-3 flex items-center gap-3">
-            {site.logoUrl ? (
-              // eslint-disable-next-line @next/next/no-img-element
-              <img src={site.logoUrl} alt={site.businessName ?? site.title} className="h-9 w-auto" />
+        <div className="mx-auto max-w-3xl px-6 py-12">
+          <div className="rounded-3xl border border-zinc-200 bg-white p-8">
+            <div className="text-xs font-semibold uppercase tracking-wide text-emerald-700">Booked</div>
+            <div className="mt-3 flex items-center gap-3">
+              {site.logoUrl ? (
+                // eslint-disable-next-line @next/next/no-img-element
+                <img src={site.logoUrl} alt={site.businessName ?? site.title} className="h-9 w-auto" />
+              ) : null}
+              <h1 className="text-2xl font-bold" style={{ color: "var(--booking-text)" }}>
+                You’re all set.
+              </h1>
+            </div>
+            <p className="mt-3 text-sm text-zinc-600">
+              {new Date(success.startAt).toLocaleString()} ({site.durationMinutes} minutes)
+            </p>
+            {site.meetingLocation ? (
+              <div className="mt-2 text-sm text-zinc-600">Location: {site.meetingLocation}</div>
             ) : null}
-            <h1 className="text-2xl font-bold" style={{ color: "var(--booking-text)" }}>
-              You’re all set.
-            </h1>
-          </div>
-          <p className="mt-3 text-sm text-zinc-600">
-            {new Date(success.startAt).toLocaleString()} ({site.durationMinutes} minutes)
-          </p>
-          {site.meetingLocation ? <div className="mt-2 text-sm text-zinc-600">Location: {site.meetingLocation}</div> : null}
-          {site.meetingDetails ? <div className="mt-1 text-sm text-zinc-600">{site.meetingDetails}</div> : null}
-          <div className="mt-6 text-sm text-zinc-600">You can close this window.</div>
+            {site.meetingDetails ? <div className="mt-1 text-sm text-zinc-600">{site.meetingDetails}</div> : null}
+            <div className="mt-6 text-sm text-zinc-600">You can close this window.</div>
 
-          <div className="mt-8 border-t border-zinc-200 pt-6 text-center text-xs text-zinc-600">
-            <Link href="/" className="font-semibold hover:underline" style={{ color: "var(--booking-primary)" }}>
-              Powered by Purely Automation
-            </Link>
-            <span className="px-2">•</span>
-            <Link href="/#demo" className="font-semibold hover:underline" style={{ color: "var(--booking-primary)" }}>
-              Create your own booking link
-            </Link>
+            <div className="mt-8 border-t border-zinc-200 pt-6 text-center text-xs text-zinc-600">
+              <Link href="/" className="font-semibold hover:underline" style={{ color: "var(--booking-primary)" }}>
+                Powered by Purely Automation
+              </Link>
+              <span className="px-2">•</span>
+              <Link href="/#demo" className="font-semibold hover:underline" style={{ color: "var(--booking-primary)" }}>
+                Create your own booking link
+              </Link>
+            </div>
           </div>
         </div>
       </div>
@@ -296,7 +316,7 @@ export function PublicBookingClient({ slug }: { slug: string }) {
 
   return (
     <div
-      className="mx-auto max-w-5xl px-6 py-12"
+      className="min-h-screen bg-[#f5f9ff]"
       style={{
         // CSS variables for themed colors
         ["--booking-primary" as any]: theme.primary,
@@ -304,7 +324,13 @@ export function PublicBookingClient({ slug }: { slug: string }) {
         ["--booking-text" as any]: theme.text,
       }}
     >
-      <div className="rounded-3xl border border-zinc-200 bg-white p-8">
+      <div className="mx-auto max-w-5xl px-6 py-12">
+        <div className="rounded-3xl border border-zinc-200 bg-white p-8">
+          {!site?.enabled ? (
+            <div className="mb-6 rounded-2xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-800">
+              This booking link isn’t accepting bookings yet.
+            </div>
+          ) : null}
         <div className="flex items-start justify-between gap-4">
           <div className="min-w-0">
             <div className="flex items-center gap-3">
@@ -544,6 +570,7 @@ export function PublicBookingClient({ slug }: { slug: string }) {
           <Link href="/#demo" className="font-semibold hover:underline" style={{ color: "var(--booking-primary)" }}>
             Create your own booking link
           </Link>
+        </div>
         </div>
       </div>
     </div>
