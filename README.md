@@ -47,6 +47,15 @@ Optional (Portal billing + entitlements):
 
 If these are missing, the portal still works, but billing UI will show as not configured and entitlements will stay locked (unless using demo emails).
 
+Stripe setup checklist:
+
+1) In Stripe (test mode first), create 3 Products (or 1 product with 3 prices) with recurring monthly Prices.
+2) Copy the Price IDs (they look like `price_...`) into the env vars above.
+3) Create a restricted API key (recommended) or use your secret key for now and set it as `STRIPE_SECRET_KEY`.
+4) In Stripe → Settings → Billing → Customer portal, enable the customer portal (required for the “Manage billing” button).
+
+Note: this repo currently reads subscription state live from Stripe; it does not require webhooks to unlock entitlements.
+
 3) In Vercel → Project → Settings → Build & Development Settings:
 
 - Build Command: `npm run vercel-build`
@@ -64,6 +73,15 @@ SEED_DEMO_DATA=1 npm run db:seed
 ```
 
 Vercel builds do not require direct DB connectivity.
+
+## Blog automation cron (portal)
+
+The customer portal has a per-client blog automation scheduler that generates drafts on a schedule.
+
+- Endpoint: `GET /api/portal/blogs/automation/cron`
+- Auth: set `BLOG_CRON_SECRET` (or `MARKETING_CRON_SECRET`) and call with header `x-blog-cron-secret: <secret>`
+
+Configure Vercel Cron to hit that endpoint on a cadence (e.g., every hour). The endpoint will only generate when a client is due.
 
 ## Public marketing landing
 

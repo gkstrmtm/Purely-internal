@@ -28,6 +28,15 @@ type PostRow = {
   updatedAt: string;
 };
 
+type AutomationSettings = {
+  enabled: boolean;
+  frequencyDays: number;
+  topics: string[];
+  autoPublish: boolean;
+  lastGeneratedAt: string | null;
+  nextDueAt: string | null;
+};
+
 function formatDate(value: string | null) {
   if (!value) return "";
   const d = new Date(value);
@@ -38,6 +47,7 @@ export function PortalBlogsClient() {
   const [me, setMe] = useState<Me | null>(null);
   const [site, setSite] = useState<Site | null>(null);
   const [posts, setPosts] = useState<PostRow[]>([]);
+  const [automation, setAutomation] = useState<AutomationSettings | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -45,6 +55,12 @@ export function PortalBlogsClient() {
   const [domain, setDomain] = useState("");
   const [siteSaving, setSiteSaving] = useState(false);
   const [verifying, setVerifying] = useState(false);
+
+  const [autoEnabled, setAutoEnabled] = useState(false);
+  const [autoFrequencyDays, setAutoFrequencyDays] = useState(7);
+  const [autoTopicsText, setAutoTopicsText] = useState("");
+  const [autoPublish, setAutoPublish] = useState(false);
+  const [autoSaving, setAutoSaving] = useState(false);
 
   const entitled = Boolean(me?.entitlements?.blog);
 
@@ -56,19 +72,51 @@ export function PortalBlogsClient() {
     };
   }, [site?.primaryDomain, site?.verificationToken]);
 
+  function topicsTextToArray(text: string): string[] {
+    const raw = String(text || "")
+      .split(/\n|,/g)
+      .map((x) => x.trim())
+      .filter(Boolean);
+    const seen = new Set<string>();
+    const out: string[] = [];
+    for (const item of raw) {
+      const key = item.toLowerCase();
+      if (seen.has(key)) continue;
+      seen.add(key);
+      out.push(item);
+      if (out.length >= 50) break;
+    }
+    return out;
+  }
+
+  function topicsArrayToText(items: string[]): string {
+    return Array.isArray(items) ? items.join("\n") : "";
+  }
+
+  async function copy(text: string) {
+    try {
+      await navigator.clipboard.writeText(text);
+      setError(null);
+    } catch {
+      setError("Unable to copy. Your browser may block clipboard access.");
+    }
+  }
+
   async function refreshAll() {
     setLoading(true);
     setError(null);
 
-    const [meRes, siteRes, postsRes] = await Promise.all([
+    const [meRes, siteRes, postsRes, autoRes] = await Promise.all([
       fetch("/api/customer/me", { cache: "no-store" }),
       fetch("/api/portal/blogs/site", { cache: "no-store" }),
       fetch("/api/portal/blogs/posts?take=100", { cache: "no-store" }),
+      fetch("/api/portal/blogs/automation/settings", { cache: "no-store" }),
     ]);
 
     const meJson = (await meRes.json().catch(() => ({}))) as Partial<Me>;
     const siteJson = (await siteRes.json().catch(() => ({}))) as { site?: Site | null; error?: string };
     const postsJson = (await postsRes.json().catch(() => ({}))) as { posts?: PostRow[]; error?: string };
+    const autoJson = (await autoRes.json().catch(() => ({}))) as { settings?: AutomationSettings; error?: string };
 
     if (!meRes.ok) {
       setError((meJson as { error?: string })?.error ?? "Unable to load account");
@@ -88,6 +136,18 @@ export function PortalBlogsClient() {
     setDomain(s?.primaryDomain ?? "");
 
     setPosts(Array.isArray(postsJson.posts) ? postsJson.posts : []);
+
+    if (autoRes.ok && autoJson.settings) {
+      setAutomation(autoJson.settings);
+      setAutoEnabled(Boolean(autoJson.settings.enabled));
+      setAutoFrequencyDays(
+        typeof autoJson.settings.frequencyDays === "number" && Number.isFinite(autoJson.settings.frequencyDays)
+          ? autoJson.settings.frequencyDays
+          : 7,
+      );
+      setAutoTopicsText(topicsArrayToText(autoJson.settings.topics ?? []));
+      setAutoPublish(Boolean(autoJson.settings.autoPublish));
+    }
 
     setLoading(false);
   }
@@ -191,6 +251,33 @@ export function PortalBlogsClient() {
     }
 
     window.location.href = `/portal/app/services/blogs/${json.post.id}`;
+  }
+
+  async function saveAutomation() {
+    setAutoSaving(true);
+    setError(null);
+
+    const topics = topicsTextToArray(autoTopicsText);
+    const res = await fetch("/api/portal/blogs/automation/settings", {
+      method: "PUT",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        enabled: Boolean(autoEnabled),
+        frequencyDays: Math.min(30, Math.max(1, Math.floor(Number(autoFrequencyDays) || 7))),
+        topics,
+        autoPublish: Boolean(autoPublish),
+      }),
+    });
+
+    const json = (await res.json().catch(() => ({}))) as { ok?: boolean; error?: string; settings?: Partial<AutomationSettings> };
+    setAutoSaving(false);
+
+    if (!res.ok || !json.ok) {
+      setError(json.error ?? "Unable to save automation settings");
+      return;
+    }
+
+    await refreshAll();
   }
 
   if (loading) {
@@ -321,7 +408,7 @@ export function PortalBlogsClient() {
 
         <div className="rounded-3xl border border-zinc-200 bg-white p-6">
           <div className="text-sm font-semibold text-zinc-900">Blog settings</div>
-          <div className="mt-2 text-sm text-zinc-600">Name, optional domain, and verification.</div>
+          <div className="mt-2 text-sm text-zinc-600">Name, optional domain, and automation schedule.</div>
 
           <div className="mt-4 space-y-3">
             <div>
@@ -342,7 +429,10 @@ export function PortalBlogsClient() {
                 className="mt-1 w-full rounded-2xl border border-zinc-200 bg-white px-4 py-3 text-sm outline-none focus:border-zinc-300"
                 placeholder="blog.example.com"
               />
-              <div className="mt-1 text-xs text-zinc-500">We’ll verify DNS now; attaching the domain in Vercel can be done after verification.</div>
+              <div className="mt-1 text-xs text-zinc-500">
+                Optional. If you want to prove you own this domain (and prep for hosted publishing later), add the TXT record below and verify.
+                If you’re publishing on WordPress/Webflow/Shopify/etc., you can skip this.
+              </div>
             </div>
 
             <div className="flex flex-col gap-3">
@@ -371,10 +461,29 @@ export function PortalBlogsClient() {
                   <div className="text-xs font-semibold text-zinc-600">DNS verification</div>
                   <div className="mt-2 text-xs text-zinc-600">Add this TXT record:</div>
                   <div className="mt-2 rounded-xl border border-zinc-200 bg-white p-3 text-xs">
-                    <div className="text-zinc-500">Name</div>
-                    <div className="mt-0.5 font-mono text-zinc-900">{verification.recordName}</div>
-                    <div className="mt-2 text-zinc-500">Value</div>
-                    <div className="mt-0.5 font-mono text-zinc-900">{verification.expected}</div>
+                    <div className="flex items-center justify-between gap-2">
+                      <div className="text-zinc-500">Name</div>
+                      <button
+                        type="button"
+                        onClick={() => copy(verification.recordName)}
+                        className="rounded-lg border border-zinc-200 bg-white px-2 py-1 text-[11px] font-semibold text-brand-ink hover:bg-zinc-50"
+                      >
+                        Copy
+                      </button>
+                    </div>
+                    <div className="mt-0.5 break-all font-mono text-zinc-900">{verification.recordName}</div>
+
+                    <div className="mt-3 flex items-center justify-between gap-2">
+                      <div className="text-zinc-500">Value</div>
+                      <button
+                        type="button"
+                        onClick={() => copy(verification.expected)}
+                        className="rounded-lg border border-zinc-200 bg-white px-2 py-1 text-[11px] font-semibold text-brand-ink hover:bg-zinc-50"
+                      >
+                        Copy
+                      </button>
+                    </div>
+                    <div className="mt-0.5 break-all font-mono text-zinc-900">{verification.expected}</div>
                   </div>
 
                   <div className="mt-3 flex items-center justify-between gap-3">
@@ -392,10 +501,84 @@ export function PortalBlogsClient() {
                   </div>
 
                   <div className="mt-3 text-xs text-zinc-500">
-                    DNS can take a few minutes to propagate. If you want us to fully attach the domain in Vercel, send support the verified domain.
+                    DNS can take a few minutes to propagate. We recommend Vercel for simple hosting (free tier), but this verification works with any DNS provider.
                   </div>
                 </div>
               ) : null}
+
+              <div className="mt-6 rounded-2xl border border-zinc-200 bg-zinc-50 p-4">
+                <div className="text-sm font-semibold text-zinc-900">Automation schedule</div>
+                <div className="mt-1 text-sm text-zinc-600">
+                  Set it once, and we’ll generate posts on schedule. You can export to anywhere.
+                </div>
+
+                <div className="mt-4 space-y-3">
+                  <label className="flex items-center justify-between gap-3 text-sm">
+                    <span className="font-semibold text-zinc-800">Enable automation</span>
+                    <input
+                      type="checkbox"
+                      checked={autoEnabled}
+                      onChange={(e) => setAutoEnabled(e.target.checked)}
+                      className="h-5 w-5"
+                    />
+                  </label>
+
+                  <div>
+                    <label className="text-xs font-semibold text-zinc-600">Frequency</label>
+                    <div className="mt-1 flex items-center gap-2">
+                      <input
+                        type="number"
+                        min={1}
+                        max={30}
+                        value={autoFrequencyDays}
+                        onChange={(e) => setAutoFrequencyDays(Number(e.target.value))}
+                        className="w-24 rounded-2xl border border-zinc-200 bg-white px-4 py-3 text-sm outline-none focus:border-zinc-300"
+                      />
+                      <div className="text-sm text-zinc-600">days per post</div>
+                    </div>
+                    <div className="mt-1 text-xs text-zinc-500">Example: 7 = weekly, 14 = every 2 weeks.</div>
+                  </div>
+
+                  <div>
+                    <label className="text-xs font-semibold text-zinc-600">Topics (optional)</label>
+                    <textarea
+                      value={autoTopicsText}
+                      onChange={(e) => setAutoTopicsText(e.target.value)}
+                      className="mt-1 min-h-[90px] w-full rounded-2xl border border-zinc-200 bg-white px-4 py-3 text-sm outline-none focus:border-zinc-300"
+                      placeholder="Local SEO tips\nHow to choose a contractor\nCommon mistakes customers make"
+                    />
+                    <div className="mt-1 text-xs text-zinc-500">One per line (or comma-separated).</div>
+                  </div>
+
+                  <label className="flex items-center justify-between gap-3 text-sm">
+                    <span className="font-semibold text-zinc-800">Auto-publish (optional)</span>
+                    <input
+                      type="checkbox"
+                      checked={autoPublish}
+                      onChange={(e) => setAutoPublish(e.target.checked)}
+                      className="h-5 w-5"
+                    />
+                  </label>
+                  <div className="text-xs text-zinc-500">
+                    Auto-publish marks posts as “Published” in this portal (and backdates when catching up). If you publish elsewhere, keep this off and export.
+                  </div>
+
+                  <button
+                    type="button"
+                    onClick={saveAutomation}
+                    disabled={autoSaving}
+                    className="mt-2 inline-flex w-full items-center justify-center rounded-2xl bg-[color:var(--color-brand-blue)] px-5 py-3 text-sm font-semibold text-white hover:opacity-95 disabled:opacity-60"
+                  >
+                    {autoSaving ? "Saving…" : "Save automation"}
+                  </button>
+
+                  {automation ? (
+                    <div className="mt-2 text-xs text-zinc-600">
+                      Next due: {automation.nextDueAt ? formatDate(automation.nextDueAt) : "—"}
+                    </div>
+                  ) : null}
+                </div>
+              </div>
             </div>
           </div>
         </div>
