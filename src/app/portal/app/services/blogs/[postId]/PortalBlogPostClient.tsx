@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 type Post = {
   id: string;
@@ -45,6 +45,8 @@ export function PortalBlogPostClient({ postId }: { postId: string }) {
   const [working, setWorking] = useState<"save" | "publish" | "delete" | "archive" | null>(null);
   const [error, setError] = useState<string | null>(null);
 
+  const contentRef = useRef<HTMLTextAreaElement | null>(null);
+
   const [post, setPost] = useState<Post | null>(null);
 
   const [title, setTitle] = useState("");
@@ -52,6 +54,10 @@ export function PortalBlogPostClient({ postId }: { postId: string }) {
   const [excerpt, setExcerpt] = useState("");
   const [content, setContent] = useState("");
   const [keywordsText, setKeywordsText] = useState("");
+
+  const [imageBusy, setImageBusy] = useState(false);
+  const [imageAlt, setImageAlt] = useState("");
+  const [imageUrl, setImageUrl] = useState<string | null>(null);
 
   const keywords = useMemo(() => parseKeywords(keywordsText), [keywordsText]);
 
@@ -189,6 +195,33 @@ export function PortalBlogPostClient({ postId }: { postId: string }) {
     window.location.href = "/portal/app/services/blogs";
   }
 
+  function insertIntoContent(snippet: string) {
+    const textarea = contentRef.current;
+    if (!textarea) {
+      setContent((prev) => (prev ? `${prev}\n\n${snippet}\n` : `${snippet}\n`));
+      return;
+    }
+
+    const start = textarea.selectionStart ?? content.length;
+    const end = textarea.selectionEnd ?? content.length;
+
+    setContent((prev) => {
+      const before = prev.slice(0, start);
+      const after = prev.slice(end);
+      const needsLeadingNewline = before.length > 0 && !before.endsWith("\n");
+      const needsTrailingNewline = after.length > 0 && !after.startsWith("\n");
+      const prefix = needsLeadingNewline ? "\n" : "";
+      const suffix = needsTrailingNewline ? "\n" : "";
+      return `${before}${prefix}${snippet}${suffix}${after}`;
+    });
+
+    requestAnimationFrame(() => {
+      textarea.focus();
+      const cursor = start + snippet.length;
+      textarea.setSelectionRange(cursor, cursor);
+    });
+  }
+
   if (loading) {
     return (
       <div className="mx-auto w-full max-w-6xl">
@@ -305,6 +338,7 @@ export function PortalBlogPostClient({ postId }: { postId: string }) {
               <textarea
                 value={content}
                 onChange={(e) => setContent(e.target.value)}
+                ref={contentRef}
                 className="mt-1 min-h-[320px] w-full rounded-2xl border border-zinc-200 bg-white px-4 py-3 font-mono text-sm outline-none focus:border-zinc-300"
                 placeholder="Write in Markdown or plain text. Export will download Markdown."
               />
@@ -325,6 +359,77 @@ export function PortalBlogPostClient({ postId }: { postId: string }) {
               placeholder="roofing\nlead generation\nlocal SEO"
             />
             <div className="mt-1 text-xs text-zinc-500">Parsed keywords: {keywords.length}</div>
+          </div>
+
+          <div className="mt-6 border-t border-zinc-200 pt-4">
+            <div className="text-sm font-semibold text-zinc-900">Images</div>
+            <div className="mt-2 text-sm text-zinc-600">Upload an image and insert it into your content as Markdown.</div>
+
+            <div className="mt-4 space-y-3">
+              <div>
+                <label className="text-xs font-semibold text-zinc-600">Alt text (optional)</label>
+                <input
+                  value={imageAlt}
+                  onChange={(e) => setImageAlt(e.target.value)}
+                  className="mt-1 w-full rounded-2xl border border-zinc-200 bg-white px-4 py-3 text-sm outline-none focus:border-zinc-300"
+                  placeholder="Team photo, product screenshot, etc."
+                />
+              </div>
+
+              {imageUrl ? (
+                <div className="overflow-hidden rounded-2xl border border-zinc-200 bg-zinc-50">
+                  {/* eslint-disable-next-line @next/next/no-img-element */}
+                  <img src={imageUrl} alt={imageAlt || "Uploaded image"} className="h-40 w-full object-cover" />
+                </div>
+              ) : null}
+
+              <div className="flex flex-col gap-3">
+                <label className="inline-flex cursor-pointer items-center justify-center rounded-2xl border border-zinc-200 bg-white px-4 py-3 text-sm font-semibold text-brand-ink hover:bg-zinc-50">
+                  {imageBusy ? "Uploading…" : "Upload image"}
+                  <input
+                    type="file"
+                    accept="image/*"
+                    className="hidden"
+                    disabled={imageBusy}
+                    onChange={async (e) => {
+                      const file = e.target.files?.[0];
+                      if (!file) return;
+                      setImageBusy(true);
+                      setError(null);
+                      try {
+                        const fd = new FormData();
+                        fd.set("file", file);
+                        const up = await fetch("/api/uploads", { method: "POST", body: fd });
+                        const upBody = (await up.json().catch(() => ({}))) as { url?: string; error?: string };
+                        if (!up.ok || !upBody.url) {
+                          setError(upBody.error ?? "Upload failed");
+                          return;
+                        }
+                        setImageUrl(upBody.url);
+                      } finally {
+                        setImageBusy(false);
+                        if (e.target) e.target.value = "";
+                      }
+                    }}
+                  />
+                </label>
+
+                <button
+                  type="button"
+                  disabled={!imageUrl}
+                  onClick={() => {
+                    if (!imageUrl) return;
+                    const alt = imageAlt.trim() || "image";
+                    insertIntoContent(`![${alt}](${imageUrl})`);
+                  }}
+                  className="inline-flex items-center justify-center rounded-2xl bg-brand-ink px-4 py-3 text-sm font-semibold text-white hover:opacity-95 disabled:cursor-not-allowed disabled:opacity-50"
+                >
+                  Insert into content
+                </button>
+              </div>
+
+              {imageUrl ? <div className="text-xs text-zinc-500">Inserted as: ![alt]({imageUrl})</div> : null}
+            </div>
           </div>
 
           <div className="mt-6 border-t border-zinc-200 pt-4">

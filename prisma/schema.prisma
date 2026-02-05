@@ -452,6 +452,11 @@ model BusinessProfile {
   targetCustomer String?
   brandVoice     String?
 
+  logoUrl        String?
+  brandPrimaryHex String?
+  brandAccentHex  String?
+  brandTextHex    String?
+
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
@@ -468,6 +473,9 @@ model ClientBlogSite {
 
   ownerId String @unique
   name    String
+
+  // Public slug hosted under /<slug>/blogs
+  slug    String? @unique
 
   // Optional custom domain the customer wants to use.
   primaryDomain      String?
@@ -525,6 +533,13 @@ model PortalBookingSite {
   description     String?
   durationMinutes Int     @default(30)
   timeZone        String  @default("America/New_York")
+
+  photoUrl           String?
+  notificationEmails Json?
+  appointmentPurpose String?
+  toneDirection      String?
+  meetingLocation    String?
+  meetingDetails     String?
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt

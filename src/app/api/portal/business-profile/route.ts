@@ -16,6 +16,26 @@ const upsertSchema = z.object({
   primaryGoals: z.array(z.string().trim().min(1)).max(10).optional(),
   targetCustomer: z.string().trim().max(240).optional().or(z.literal("")),
   brandVoice: z.string().trim().max(240).optional().or(z.literal("")),
+
+  logoUrl: z.string().trim().max(500).optional().or(z.literal("")),
+  brandPrimaryHex: z
+    .string()
+    .trim()
+    .regex(/^#([0-9a-fA-F]{3}|[0-9a-fA-F]{6})$/, "Primary color must be a hex code like #1d4ed8")
+    .optional()
+    .or(z.literal("")),
+  brandAccentHex: z
+    .string()
+    .trim()
+    .regex(/^#([0-9a-fA-F]{3}|[0-9a-fA-F]{6})$/, "Accent color must be a hex code like #fb7185")
+    .optional()
+    .or(z.literal("")),
+  brandTextHex: z
+    .string()
+    .trim()
+    .regex(/^#([0-9a-fA-F]{3}|[0-9a-fA-F]{6})$/, "Text color must be a hex code like #0f172a")
+    .optional()
+    .or(z.literal("")),
 });
 
 function emptyToNull(value: string | undefined) {
@@ -44,6 +64,10 @@ export async function GET() {
       primaryGoals: true,
       targetCustomer: true,
       brandVoice: true,
+      logoUrl: true,
+      brandPrimaryHex: true,
+      brandAccentHex: true,
+      brandTextHex: true,
       updatedAt: true,
     },
   });
@@ -79,6 +103,11 @@ export async function PUT(req: Request) {
       primaryGoals: parsed.data.primaryGoals?.length ? parsed.data.primaryGoals : undefined,
       targetCustomer: emptyToNull(parsed.data.targetCustomer),
       brandVoice: emptyToNull(parsed.data.brandVoice),
+
+      logoUrl: emptyToNull(parsed.data.logoUrl),
+      brandPrimaryHex: emptyToNull(parsed.data.brandPrimaryHex),
+      brandAccentHex: emptyToNull(parsed.data.brandAccentHex),
+      brandTextHex: emptyToNull(parsed.data.brandTextHex),
     },
     update: {
       businessName: parsed.data.businessName.trim(),
@@ -88,6 +117,11 @@ export async function PUT(req: Request) {
       primaryGoals: parsed.data.primaryGoals?.length ? parsed.data.primaryGoals : Prisma.DbNull,
       targetCustomer: emptyToNull(parsed.data.targetCustomer),
       brandVoice: emptyToNull(parsed.data.brandVoice),
+
+      logoUrl: emptyToNull(parsed.data.logoUrl),
+      brandPrimaryHex: emptyToNull(parsed.data.brandPrimaryHex),
+      brandAccentHex: emptyToNull(parsed.data.brandAccentHex),
+      brandTextHex: emptyToNull(parsed.data.brandTextHex),
     },
     select: {
       businessName: true,
@@ -97,6 +131,10 @@ export async function PUT(req: Request) {
       primaryGoals: true,
       targetCustomer: true,
       brandVoice: true,
+      logoUrl: true,
+      brandPrimaryHex: true,
+      brandAccentHex: true,
+      brandTextHex: true,
       updatedAt: true,
     },
   });

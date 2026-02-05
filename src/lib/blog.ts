@@ -1,6 +1,7 @@
 export type BlogBlock =
   | { type: "h2"; text: string }
   | { type: "h3"; text: string }
+  | { type: "img"; alt: string; src: string }
   | { type: "p"; text: string }
   | { type: "ul"; items: string[] };
 
@@ -51,6 +52,14 @@ export function parseBlogContent(content: string): BlogBlock[] {
       flushList();
       flushParagraph();
       blocks.push({ type: "h3", text: trimmed.slice(4).trim() });
+      continue;
+    }
+
+    const imgMatch = trimmed.match(/^!\[(.*?)\]\((.+?)\)\s*$/);
+    if (imgMatch) {
+      flushList();
+      flushParagraph();
+      blocks.push({ type: "img", alt: imgMatch[1].trim(), src: imgMatch[2].trim() });
       continue;
     }
 

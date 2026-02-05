@@ -10,6 +10,11 @@ type BusinessProfile = {
   primaryGoals: unknown;
   targetCustomer: string | null;
   brandVoice: string | null;
+
+  logoUrl?: string | null;
+  brandPrimaryHex?: string | null;
+  brandAccentHex?: string | null;
+  brandTextHex?: string | null;
   updatedAt?: string;
 };
 
@@ -51,6 +56,12 @@ export function BusinessProfileForm({
   const [targetCustomer, setTargetCustomer] = useState("");
   const [brandVoice, setBrandVoice] = useState("");
 
+  const [logoUrl, setLogoUrl] = useState("");
+  const [brandPrimaryHex, setBrandPrimaryHex] = useState("");
+  const [brandAccentHex, setBrandAccentHex] = useState("");
+  const [brandTextHex, setBrandTextHex] = useState("");
+  const [logoBusy, setLogoBusy] = useState(false);
+
   const canSave = useMemo(() => businessName.trim().length >= 2, [businessName]);
 
   useEffect(() => {
@@ -76,6 +87,11 @@ export function BusinessProfileForm({
         setPrimaryGoalsText(goalsToText(p.primaryGoals));
         setTargetCustomer(p.targetCustomer ?? "");
         setBrandVoice(p.brandVoice ?? "");
+
+        setLogoUrl(p.logoUrl ?? "");
+        setBrandPrimaryHex(p.brandPrimaryHex ?? "");
+        setBrandAccentHex(p.brandAccentHex ?? "");
+        setBrandTextHex(p.brandTextHex ?? "");
       }
 
       setLoading(false);
@@ -101,6 +117,11 @@ export function BusinessProfileForm({
         primaryGoals: textToGoals(primaryGoalsText),
         targetCustomer,
         brandVoice,
+
+        logoUrl,
+        brandPrimaryHex,
+        brandAccentHex,
+        brandTextHex,
       }),
     });
 
@@ -133,6 +154,54 @@ export function BusinessProfileForm({
       {error ? <div className="mt-3 text-sm text-red-700">{error}</div> : null}
 
       <div className="mt-5 grid grid-cols-1 gap-4 sm:grid-cols-2">
+        <div className="sm:col-span-2">
+          <label className="text-xs font-semibold text-zinc-600">Logo (optional)</label>
+          <div className="mt-2 flex flex-col gap-3 sm:flex-row sm:items-center">
+            <div className="flex min-w-0 flex-1 items-center gap-3">
+              <div className="h-12 w-12 overflow-hidden rounded-2xl border border-zinc-200 bg-zinc-50">
+                {logoUrl ? (
+                  // eslint-disable-next-line @next/next/no-img-element
+                  <img src={logoUrl} alt="Logo" className="h-full w-full object-cover" />
+                ) : null}
+              </div>
+              <div className="min-w-0">
+                <div className="truncate text-xs text-zinc-500">{logoUrl ? logoUrl : "No logo uploaded"}</div>
+                <div className="mt-1 text-xs text-zinc-500">Recommended: square image, under 2MB.</div>
+              </div>
+            </div>
+
+            <label className="inline-flex cursor-pointer items-center justify-center rounded-2xl border border-zinc-200 bg-white px-4 py-3 text-sm font-semibold text-brand-ink hover:bg-zinc-50">
+              {logoBusy ? "Uploading…" : "Upload"}
+              <input
+                type="file"
+                accept="image/*"
+                className="hidden"
+                disabled={logoBusy}
+                onChange={async (e) => {
+                  const file = e.target.files?.[0];
+                  if (!file) return;
+                  setLogoBusy(true);
+                  setError(null);
+                  try {
+                    const fd = new FormData();
+                    fd.set("file", file);
+                    const up = await fetch("/api/uploads", { method: "POST", body: fd });
+                    const upBody = (await up.json().catch(() => ({}))) as { url?: string; error?: string };
+                    if (!up.ok || !upBody.url) {
+                      setError(upBody.error ?? "Upload failed");
+                      return;
+                    }
+                    setLogoUrl(upBody.url);
+                  } finally {
+                    setLogoBusy(false);
+                    if (e.target) e.target.value = "";
+                  }
+                }}
+              />
+            </label>
+          </div>
+        </div>
+
         <div className="sm:col-span-2">
           <label className="text-xs font-semibold text-zinc-600">Business name</label>
           <input
@@ -202,6 +271,47 @@ export function BusinessProfileForm({
             className="mt-1 w-full rounded-2xl border border-zinc-200 bg-white px-4 py-3 text-sm outline-none focus:border-zinc-300"
             placeholder="Professional, friendly, short paragraphs"
           />
+        </div>
+
+        <div>
+          <label className="text-xs font-semibold text-zinc-600">Brand primary color (optional)</label>
+          <div className="mt-1 flex items-center gap-2">
+            <input
+              value={brandPrimaryHex}
+              onChange={(e) => setBrandPrimaryHex(e.target.value)}
+              className="w-full rounded-2xl border border-zinc-200 bg-white px-4 py-3 text-sm outline-none focus:border-zinc-300"
+              placeholder="#1d4ed8"
+            />
+            <div className="h-10 w-10 rounded-2xl border border-zinc-200" style={{ background: brandPrimaryHex || "#1d4ed8" }} />
+          </div>
+        </div>
+
+        <div>
+          <label className="text-xs font-semibold text-zinc-600">Brand accent color (optional)</label>
+          <div className="mt-1 flex items-center gap-2">
+            <input
+              value={brandAccentHex}
+              onChange={(e) => setBrandAccentHex(e.target.value)}
+              className="w-full rounded-2xl border border-zinc-200 bg-white px-4 py-3 text-sm outline-none focus:border-zinc-300"
+              placeholder="#fb7185"
+            />
+            <div className="h-10 w-10 rounded-2xl border border-zinc-200" style={{ background: brandAccentHex || "#fb7185" }} />
+          </div>
+        </div>
+
+        <div className="sm:col-span-2">
+          <label className="text-xs font-semibold text-zinc-600">Text color (optional)</label>
+          <div className="mt-1 flex items-center gap-2">
+            <input
+              value={brandTextHex}
+              onChange={(e) => setBrandTextHex(e.target.value)}
+              className="w-full rounded-2xl border border-zinc-200 bg-white px-4 py-3 text-sm outline-none focus:border-zinc-300"
+              placeholder="#0f172a"
+            />
+            <div className="flex h-10 items-center rounded-2xl border border-zinc-200 bg-white px-3 text-xs" style={{ color: brandTextHex || "#0f172a" }}>
+              Aa
+            </div>
+          </div>
         </div>
       </div>
 

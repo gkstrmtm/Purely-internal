@@ -4,6 +4,7 @@ import crypto from "crypto";
 
 import { prisma } from "@/lib/db";
 import { requireClientSession } from "@/lib/apiAuth";
+import { slugify } from "@/lib/slugify";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
@@ -23,6 +24,24 @@ function normalizeDomain(raw: string | null | undefined) {
   return d.length ? d : null;
 }
 
+async function ensurePublicSlug(ownerId: string, desiredName: string) {
+  const profile = await prisma.businessProfile.findUnique({
+    where: { ownerId },
+    select: { businessName: true },
+  });
+
+  const base = slugify(profile?.businessName ?? desiredName) || "blog";
+  const desired = base.length >= 3 ? base : "blog";
+
+  let slug = desired;
+  const collision = await prisma.clientBlogSite.findUnique({ where: { slug } });
+  if (collision && collision.ownerId !== ownerId) {
+    slug = `${desired}-${ownerId.slice(0, 6)}`;
+  }
+
+  return slug;
+}
+
 export async function GET() {
   const auth = await requireClientSession();
   if (!auth.ok) {
@@ -33,17 +52,36 @@ export async function GET() {
   }
 
   const ownerId = auth.session.user.id;
-  const site = await prisma.clientBlogSite.findUnique({
+  let site = await prisma.clientBlogSite.findUnique({
     where: { ownerId },
     select: {
       id: true,
       name: true,
+      slug: true,
       primaryDomain: true,
       verifiedAt: true,
       verificationToken: true,
       updatedAt: true,
     },
   });
+
+  // Backfill slug for older sites.
+  if (site && !site.slug) {
+    const slug = await ensurePublicSlug(ownerId, site.name);
+    site = await prisma.clientBlogSite.update({
+      where: { ownerId },
+      data: { slug },
+      select: {
+        id: true,
+        name: true,
+        slug: true,
+        primaryDomain: true,
+        verifiedAt: true,
+        verificationToken: true,
+        updatedAt: true,
+      },
+    });
+  }
 
   return NextResponse.json({ ok: true, site });
 }
@@ -71,17 +109,20 @@ export async function POST(req: Request) {
   }
 
   const token = crypto.randomBytes(18).toString("hex");
+  const slug = await ensurePublicSlug(ownerId, parsed.data.name.trim());
 
   const created = await prisma.clientBlogSite.create({
     data: {
       ownerId,
       name: parsed.data.name.trim(),
+      slug,
       primaryDomain: normalizeDomain(parsed.data.primaryDomain),
       verificationToken: token,
     },
     select: {
       id: true,
       name: true,
+      slug: true,
       primaryDomain: true,
       verifiedAt: true,
       verificationToken: true,
@@ -124,12 +165,18 @@ export async function PUT(req: Request) {
     create: {
       ownerId,
       name,
+      slug: await ensurePublicSlug(ownerId, name),
       primaryDomain,
       verificationToken: crypto.randomBytes(18).toString("hex"),
       verifiedAt: null,
     },
     update: {
       name,
+      ...(await (async () => {
+        const existing = await prisma.clientBlogSite.findUnique({ where: { ownerId }, select: { slug: true } });
+        if (existing?.slug) return {};
+        return { slug: await ensurePublicSlug(ownerId, name) };
+      })()),
       primaryDomain,
       ...(domainChanged
         ? {
@@ -141,6 +188,7 @@ export async function PUT(req: Request) {
     select: {
       id: true,
       name: true,
+      slug: true,
       primaryDomain: true,
       verifiedAt: true,
       verificationToken: true,

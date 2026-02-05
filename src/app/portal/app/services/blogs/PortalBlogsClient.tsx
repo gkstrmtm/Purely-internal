@@ -12,6 +12,7 @@ type Me = {
 type Site = {
   id: string;
   name: string;
+  slug: string | null;
   primaryDomain: string | null;
   verificationToken: string;
   verifiedAt: string | null;
@@ -52,9 +53,7 @@ export function PortalBlogsClient() {
   const [error, setError] = useState<string | null>(null);
 
   const [siteName, setSiteName] = useState("");
-  const [domain, setDomain] = useState("");
   const [siteSaving, setSiteSaving] = useState(false);
-  const [verifying, setVerifying] = useState(false);
 
   const [autoEnabled, setAutoEnabled] = useState(false);
   const [autoFrequencyDays, setAutoFrequencyDays] = useState(7);
@@ -64,13 +63,11 @@ export function PortalBlogsClient() {
 
   const entitled = Boolean(me?.entitlements?.blog);
 
-  const verification = useMemo(() => {
-    if (!site?.primaryDomain) return null;
-    return {
-      recordName: `_purelyautomation.${site.primaryDomain}`,
-      expected: `verify=${site.verificationToken}`,
-    };
-  }, [site?.primaryDomain, site?.verificationToken]);
+  const publicBlogUrl = useMemo(() => {
+    if (!site?.slug) return null;
+    if (typeof window === "undefined") return `/${site.slug}/blogs`;
+    return `${window.location.origin}/${site.slug}/blogs`;
+  }, [site?.slug]);
 
   function topicsTextToArray(text: string): string[] {
     const raw = String(text || "")
@@ -91,15 +88,6 @@ export function PortalBlogsClient() {
 
   function topicsArrayToText(items: string[]): string {
     return Array.isArray(items) ? items.join("\n") : "";
-  }
-
-  async function copy(text: string) {
-    try {
-      await navigator.clipboard.writeText(text);
-      setError(null);
-    } catch {
-      setError("Unable to copy. Your browser may block clipboard access.");
-    }
   }
 
   async function refreshAll() {
@@ -133,7 +121,6 @@ export function PortalBlogsClient() {
     const s = siteJson.site ?? null;
     setSite(s);
     setSiteName(s?.name ?? "");
-    setDomain(s?.primaryDomain ?? "");
 
     setPosts(Array.isArray(postsJson.posts) ? postsJson.posts : []);
 
@@ -163,7 +150,7 @@ export function PortalBlogsClient() {
     const res = await fetch("/api/portal/blogs/site", {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ name: siteName || "My Blog", primaryDomain: domain }),
+      body: JSON.stringify({ name: siteName || "My Blog" }),
     });
     const json = (await res.json().catch(() => ({}))) as { ok?: boolean; site?: Site; error?: string };
     setSiteSaving(false);
@@ -175,7 +162,6 @@ export function PortalBlogsClient() {
 
     setSite(json.site);
     setSiteName(json.site.name);
-    setDomain(json.site.primaryDomain ?? "");
     await refreshAll();
   }
 
@@ -188,7 +174,7 @@ export function PortalBlogsClient() {
     const res = await fetch("/api/portal/blogs/site", {
       method: "PUT",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ name: siteName, primaryDomain: domain }),
+      body: JSON.stringify({ name: siteName }),
     });
 
     const json = (await res.json().catch(() => ({}))) as { ok?: boolean; site?: Site; error?: string };
@@ -200,34 +186,6 @@ export function PortalBlogsClient() {
     }
 
     setSite(json.site);
-    await refreshAll();
-  }
-
-  async function verifyDomain() {
-    if (!site?.primaryDomain) return;
-
-    setVerifying(true);
-    setError(null);
-
-    const res = await fetch("/api/portal/blogs/site/verify", {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({ domain: site.primaryDomain }),
-    });
-
-    const json = (await res.json().catch(() => ({}))) as { ok?: boolean; verified?: boolean; error?: string };
-    setVerifying(false);
-
-    if (!res.ok) {
-      setError((json as { error?: string })?.error ?? "Unable to verify domain");
-      return;
-    }
-
-    if (!json.verified) {
-      setError(json.error ?? "TXT record not found yet (DNS can take a bit to propagate)");
-      return;
-    }
-
     await refreshAll();
   }
 
@@ -408,7 +366,7 @@ export function PortalBlogsClient() {
 
         <div className="rounded-3xl border border-zinc-200 bg-white p-6">
           <div className="text-sm font-semibold text-zinc-900">Blog settings</div>
-          <div className="mt-2 text-sm text-zinc-600">Name, optional domain, and automation schedule.</div>
+          <div className="mt-2 text-sm text-zinc-600">Hosted blog link and automation schedule.</div>
 
           <div className="mt-4 space-y-3">
             <div>
@@ -422,16 +380,25 @@ export function PortalBlogsClient() {
             </div>
 
             <div>
-              <label className="text-xs font-semibold text-zinc-600">Custom domain (optional)</label>
-              <input
-                value={domain}
-                onChange={(e) => setDomain(e.target.value)}
-                className="mt-1 w-full rounded-2xl border border-zinc-200 bg-white px-4 py-3 text-sm outline-none focus:border-zinc-300"
-                placeholder="blog.example.com"
-              />
+              <label className="text-xs font-semibold text-zinc-600">Hosted blog link</label>
+              <div className="mt-1 flex flex-col gap-3 sm:flex-row sm:items-center">
+                <div className="min-w-0 flex-1 rounded-2xl border border-zinc-200 bg-zinc-50 px-4 py-3 text-sm text-zinc-800">
+                  <div className="truncate">{publicBlogUrl ?? "Create your blog workspace to get a link."}</div>
+                </div>
+                <button
+                  type="button"
+                  className="inline-flex items-center justify-center rounded-2xl bg-brand-ink px-4 py-3 text-sm font-semibold text-white hover:opacity-95 disabled:opacity-60"
+                  disabled={!publicBlogUrl}
+                  onClick={async () => {
+                    if (!publicBlogUrl) return;
+                    await navigator.clipboard.writeText(publicBlogUrl);
+                  }}
+                >
+                  Copy
+                </button>
+              </div>
               <div className="mt-1 text-xs text-zinc-500">
-                Optional. If you want to prove you own this domain (and prep for hosted publishing later), add the TXT record below and verify.
-                If you’re publishing on WordPress/Webflow/Shopify/etc., you can skip this.
+                This is your public blog hosted on Purely Automation. If you also want to publish elsewhere, use “Export Markdown”.
               </div>
             </div>
 
@@ -455,56 +422,6 @@ export function PortalBlogsClient() {
                   {siteSaving ? "Saving…" : "Save settings"}
                 </button>
               )}
-
-              {site?.primaryDomain && verification ? (
-                <div className="rounded-2xl border border-zinc-200 bg-zinc-50 p-4">
-                  <div className="text-xs font-semibold text-zinc-600">DNS verification</div>
-                  <div className="mt-2 text-xs text-zinc-600">Add this TXT record:</div>
-                  <div className="mt-2 rounded-xl border border-zinc-200 bg-white p-3 text-xs">
-                    <div className="flex items-center justify-between gap-2">
-                      <div className="text-zinc-500">Name</div>
-                      <button
-                        type="button"
-                        onClick={() => copy(verification.recordName)}
-                        className="rounded-lg border border-zinc-200 bg-white px-2 py-1 text-[11px] font-semibold text-brand-ink hover:bg-zinc-50"
-                      >
-                        Copy
-                      </button>
-                    </div>
-                    <div className="mt-0.5 break-all font-mono text-zinc-900">{verification.recordName}</div>
-
-                    <div className="mt-3 flex items-center justify-between gap-2">
-                      <div className="text-zinc-500">Value</div>
-                      <button
-                        type="button"
-                        onClick={() => copy(verification.expected)}
-                        className="rounded-lg border border-zinc-200 bg-white px-2 py-1 text-[11px] font-semibold text-brand-ink hover:bg-zinc-50"
-                      >
-                        Copy
-                      </button>
-                    </div>
-                    <div className="mt-0.5 break-all font-mono text-zinc-900">{verification.expected}</div>
-                  </div>
-
-                  <div className="mt-3 flex items-center justify-between gap-3">
-                    <div className="text-xs text-zinc-600">
-                      Status: {site.verifiedAt ? <span className="font-semibold text-emerald-700">Verified</span> : <span className="font-semibold">Not verified</span>}
-                    </div>
-                    <button
-                      type="button"
-                      onClick={verifyDomain}
-                      disabled={verifying}
-                      className="rounded-xl border border-zinc-200 bg-white px-3 py-2 text-xs font-semibold text-brand-ink hover:bg-zinc-50 disabled:opacity-60"
-                    >
-                      {verifying ? "Checking…" : "Verify"}
-                    </button>
-                  </div>
-
-                  <div className="mt-3 text-xs text-zinc-500">
-                    DNS can take a few minutes to propagate. We recommend Vercel for simple hosting (free tier), but this verification works with any DNS provider.
-                  </div>
-                </div>
-              ) : null}
 
               <div className="mt-6 rounded-2xl border border-zinc-200 bg-zinc-50 p-4">
                 <div className="text-sm font-semibold text-zinc-900">Automation schedule</div>

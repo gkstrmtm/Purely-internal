@@ -1,0 +1,251 @@
+import Link from "next/link";
+import { notFound } from "next/navigation";
+import type { CSSProperties } from "react";
+
+import { prisma } from "@/lib/db";
+import { formatBlogDate } from "@/lib/blog";
+
+export const dynamic = "force-dynamic";
+export const revalidate = 0;
+
+type PageProps = {
+  params: Promise<{ siteSlug: string }>;
+  searchParams?: Promise<{ page?: string }>;
+};
+
+function normalizeHex(value: string | null | undefined): string | null {
+  if (!value) return null;
+  const v = value.trim();
+  if (!/^#([0-9a-fA-F]{6})$/.test(v)) return null;
+  return v;
+}
+
+export async function generateMetadata(props: PageProps) {
+  const { siteSlug } = await props.params;
+
+  try {
+    const site = await prisma.clientBlogSite.findUnique({
+      where: { slug: siteSlug },
+      select: { name: true, ownerId: true },
+    });
+    if (!site) return {};
+
+    const profile = await prisma.businessProfile.findUnique({
+      where: { ownerId: site.ownerId },
+      select: { businessName: true },
+    });
+
+    const name = profile?.businessName || site.name;
+
+    return {
+      title: `${name} | Blogs`,
+      description: `Latest blog posts from ${name}.`,
+    };
+  } catch {
+    return {};
+  }
+}
+
+export default async function ClientBlogsIndexPage(props: PageProps) {
+  const { siteSlug } = await props.params;
+
+  const spUnknown: unknown = (await props.searchParams?.catch(() => ({}))) ?? {};
+  const sp = spUnknown && typeof spUnknown === "object" ? (spUnknown as Record<string, unknown>) : {};
+  const pageRaw = typeof sp.page === "string" ? sp.page : "1";
+  const page = Math.max(1, Number.parseInt(pageRaw || "1", 10) || 1);
+  const take = 50;
+  const skip = (page - 1) * take;
+
+  const site = await prisma.clientBlogSite.findUnique({
+    where: { slug: siteSlug },
+    select: { id: true, name: true, ownerId: true, slug: true },
+  });
+
+  if (!site || !site.slug) notFound();
+
+  const profile = await prisma.businessProfile.findUnique({
+    where: { ownerId: site.ownerId },
+    select: {
+      businessName: true,
+      logoUrl: true,
+      brandPrimaryHex: true,
+      brandAccentHex: true,
+      brandTextHex: true,
+    },
+  });
+
+  const brandPrimary = normalizeHex(profile?.brandPrimaryHex) ?? "#1d4ed8";
+  const brandAccent = normalizeHex(profile?.brandAccentHex) ?? "#f472b6";
+  const brandText = normalizeHex(profile?.brandTextHex) ?? "#18181b";
+
+  const posts = await prisma.clientBlogPost.findMany({
+    where: { siteId: site.id, status: "PUBLISHED", archivedAt: null },
+    orderBy: [{ publishedAt: "desc" }, { updatedAt: "desc" }],
+    take,
+    skip,
+    select: { slug: true, title: true, excerpt: true, publishedAt: true, updatedAt: true },
+  });
+
+  const brandName = profile?.businessName || site.name;
+  const logoUrl = profile?.logoUrl || null;
+
+  const themeStyle = {
+    ["--client-primary" as any]: brandPrimary,
+    ["--client-accent" as any]: brandAccent,
+    ["--client-text" as any]: brandText,
+  } as CSSProperties;
+
+  return (
+    <div className="min-h-screen bg-white" style={themeStyle}>
+      <header className="border-b border-zinc-200 bg-white/80 backdrop-blur">
+        <div className="mx-auto flex max-w-6xl items-center justify-between px-6 py-4">
+          <Link href={`/${site.slug}/blogs`} className="flex items-center gap-3">
+            {logoUrl ? (
+              // eslint-disable-next-line @next/next/no-img-element
+              <img src={logoUrl} alt={brandName} className="h-10 w-auto" />
+            ) : (
+              <div className="text-lg font-bold" style={{ color: "var(--client-text)" }}>
+                {brandName}
+              </div>
+            )}
+          </Link>
+
+          <div className="flex items-center gap-3">
+            <Link
+              href="/"
+              className="hidden rounded-xl px-3 py-2 text-sm font-semibold text-zinc-700 hover:bg-zinc-100 sm:inline"
+            >
+              powered by purely automation
+            </Link>
+          </div>
+        </div>
+      </header>
+
+      <main>
+        <section style={{ backgroundColor: "var(--client-primary)" }}>
+          <div className="mx-auto max-w-6xl px-6 py-14">
+            <div className="max-w-3xl">
+              <div className="font-brand text-4xl text-white sm:text-5xl">blogs</div>
+              <p className="mt-4 text-lg leading-relaxed text-white/90">
+                The latest posts from {brandName}.
+              </p>
+              <div className="mt-8 flex flex-wrap items-center gap-3">
+                <Link
+                  href={`/${site.slug}/blogs`}
+                  className="inline-flex items-center justify-center rounded-2xl px-6 py-3 text-base font-extrabold shadow-md"
+                  style={{ backgroundColor: "var(--client-accent)", color: "var(--client-primary)" }}
+                >
+                  browse posts
+                </Link>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <section className="mx-auto max-w-6xl px-6 py-14">
+          <div className="grid gap-8 lg:grid-cols-[1fr_320px]">
+            <div>
+              <div className="font-brand text-3xl" style={{ color: "var(--client-primary)" }}>
+                latest posts
+              </div>
+              <p className="mt-2 max-w-2xl text-sm text-zinc-600">Fresh updates and helpful ideas.</p>
+
+              <div className="mt-8 grid gap-6">
+                {posts.length === 0 ? (
+                  <div className="rounded-3xl border border-zinc-200 bg-zinc-50 p-8">
+                    <div className="text-lg font-semibold" style={{ color: "var(--client-text)" }}>
+                      New posts are coming soon.
+                    </div>
+                    <div className="mt-2 text-sm text-zinc-600">Check back shortly.</div>
+                  </div>
+                ) : (
+                  posts.map((post) => (
+                    <Link
+                      key={post.slug}
+                      href={`/${site.slug}/blogs/${post.slug}`}
+                      className="group rounded-3xl border border-zinc-200 bg-white p-7 shadow-sm transition hover:-translate-y-0.5 hover:border-zinc-300 hover:shadow-md"
+                    >
+                      <div className="text-xs font-semibold uppercase tracking-wide text-zinc-500">
+                        {formatBlogDate(post.publishedAt ?? post.updatedAt)}
+                      </div>
+                      <div
+                        className="mt-2 font-brand text-2xl group-hover:underline"
+                        style={{ color: "var(--client-primary)" }}
+                      >
+                        {post.title}
+                      </div>
+                      <div className="mt-3 text-sm leading-relaxed text-zinc-700">{post.excerpt}</div>
+                      <div className="mt-5 text-sm font-bold" style={{ color: "var(--client-primary)" }}>
+                        read more
+                      </div>
+                    </Link>
+                  ))
+                )}
+              </div>
+
+              <div className="mt-10 flex items-center justify-between">
+                <Link
+                  href={page > 1 ? `/${site.slug}/blogs?page=${page - 1}` : `/${site.slug}/blogs`}
+                  className={`rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm font-semibold hover:bg-zinc-50 ${
+                    page <= 1 ? "pointer-events-none opacity-50" : ""
+                  }`}
+                >
+                  newer
+                </Link>
+
+                <div className="text-xs font-semibold text-zinc-500">page {page}</div>
+
+                <Link
+                  href={`/${site.slug}/blogs?page=${page + 1}`}
+                  className={`rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm font-semibold hover:bg-zinc-50 ${
+                    posts.length < take ? "pointer-events-none opacity-50" : ""
+                  }`}
+                >
+                  older
+                </Link>
+              </div>
+            </div>
+
+            <aside className="lg:pt-1">
+              <div className="sticky top-6 rounded-3xl border border-zinc-200 bg-white p-7 shadow-sm">
+                <div className="font-brand text-2xl" style={{ color: "var(--client-primary)" }}>
+                  about
+                </div>
+                <p className="mt-3 text-sm leading-relaxed text-zinc-700">
+                  {brandName} shares updates, guides, and helpful ideas here.
+                </p>
+
+                <div className="mt-6 rounded-2xl p-5" style={{ backgroundColor: "rgba(29,78,216,0.06)" }}>
+                  <div className="text-sm font-bold" style={{ color: "var(--client-text)" }}>
+                    powered by purely automation
+                  </div>
+                  <p className="mt-2 text-sm text-zinc-700">This blog is hosted and managed by Purely Automation.</p>
+                  <div className="mt-4">
+                    <Link
+                      href="/"
+                      className="inline-flex items-center rounded-2xl px-4 py-2 text-sm font-extrabold shadow-sm"
+                      style={{ backgroundColor: "var(--client-accent)", color: "var(--client-primary)" }}
+                    >
+                      learn more
+                    </Link>
+                  </div>
+                </div>
+              </div>
+            </aside>
+          </div>
+        </section>
+      </main>
+
+      <footer className="border-t border-zinc-200 bg-white">
+        <div className="mx-auto flex max-w-6xl flex-col gap-4 px-6 py-10 sm:flex-row sm:items-center sm:justify-between">
+          <div className="text-sm text-zinc-600">© {new Date().getFullYear()} {brandName}</div>
+          <div className="flex items-center gap-4">
+            <Link href="/" className="text-sm font-semibold hover:underline" style={{ color: "var(--client-primary)" }}>
+              purelyautomation.com
+            </Link>
+          </div>
+        </div>
+      </footer>
+    </div>
+  );
+}

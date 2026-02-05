@@ -122,6 +122,14 @@ export default async function BlogPostPage(props: PageProps) {
                   </h3>
                 );
               }
+              if (b.type === "img") {
+                return (
+                  <div key={idx} className="overflow-hidden rounded-3xl border border-zinc-200 bg-zinc-50">
+                    {/* eslint-disable-next-line @next/next/no-img-element */}
+                    <img src={b.src} alt={b.alt || ""} className="h-auto w-full object-cover" />
+                  </div>
+                );
+              }
               if (b.type === "ul") {
                 return (
                   <ul key={idx} className="list-disc space-y-2 pl-6 text-sm leading-relaxed text-zinc-700">
