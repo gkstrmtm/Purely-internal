@@ -54,6 +54,7 @@ export function PortalBlogsClient() {
 
   const [siteName, setSiteName] = useState("");
   const [siteSaving, setSiteSaving] = useState(false);
+  const [settingsOpen, setSettingsOpen] = useState(false);
 
   const [autoEnabled, setAutoEnabled] = useState(false);
   const [autoFrequencyDays, setAutoFrequencyDays] = useState(7);
@@ -142,6 +143,11 @@ export function PortalBlogsClient() {
   useEffect(() => {
     void refreshAll();
   }, []);
+
+  useEffect(() => {
+    // If a site exists, collapse settings by default.
+    setSettingsOpen(!site);
+  }, [site]);
 
   async function createSite() {
     setSiteSaving(true);
@@ -368,22 +374,12 @@ export function PortalBlogsClient() {
           <div className="text-sm font-semibold text-zinc-900">Blog settings</div>
           <div className="mt-2 text-sm text-zinc-600">Hosted blog link and automation schedule.</div>
 
-          <div className="mt-4 space-y-3">
-            <div>
-              <label className="text-xs font-semibold text-zinc-600">Blog name</label>
-              <input
-                value={siteName}
-                onChange={(e) => setSiteName(e.target.value)}
-                className="mt-1 w-full rounded-2xl border border-zinc-200 bg-white px-4 py-3 text-sm outline-none focus:border-zinc-300"
-                placeholder="My Company Blog"
-              />
-            </div>
-
-            <div>
-              <label className="text-xs font-semibold text-zinc-600">Hosted blog link</label>
-              <div className="mt-1 flex flex-col gap-3 sm:flex-row sm:items-center">
-                <div className="min-w-0 flex-1 rounded-2xl border border-zinc-200 bg-zinc-50 px-4 py-3 text-sm text-zinc-800">
-                  <div className="truncate">{publicBlogUrl ?? "Create your blog workspace to get a link."}</div>
+          {site ? (
+            <div className="mt-4 rounded-2xl border border-zinc-200 bg-zinc-50 p-4">
+              <div className="text-xs font-semibold text-zinc-600">Hosted blog link</div>
+              <div className="mt-2 flex flex-col gap-3 sm:flex-row sm:items-center">
+                <div className="min-w-0 flex-1 rounded-2xl border border-zinc-200 bg-white px-4 py-3 text-sm text-zinc-800">
+                  <div className="truncate">{publicBlogUrl ?? "—"}</div>
                 </div>
                 <button
                   type="button"
@@ -397,31 +393,73 @@ export function PortalBlogsClient() {
                   Copy
                 </button>
               </div>
-              <div className="mt-1 text-xs text-zinc-500">
-                This is your public blog hosted on Purely Automation. If you also want to publish elsewhere, use “Export Markdown”.
-              </div>
-            </div>
 
-            <div className="flex flex-col gap-3">
-              {!site ? (
-                <button
-                  type="button"
-                  onClick={createSite}
-                  disabled={siteSaving || !siteName.trim()}
-                  className="inline-flex items-center justify-center rounded-2xl bg-brand-ink px-5 py-3 text-sm font-semibold text-white hover:opacity-95 disabled:opacity-60"
-                >
-                  {siteSaving ? "Creating…" : "Create blog workspace"}
-                </button>
-              ) : (
-                <button
-                  type="button"
-                  onClick={saveSite}
-                  disabled={siteSaving || !siteName.trim()}
-                  className="inline-flex items-center justify-center rounded-2xl bg-brand-ink px-5 py-3 text-sm font-semibold text-white hover:opacity-95 disabled:opacity-60"
-                >
-                  {siteSaving ? "Saving…" : "Save settings"}
-                </button>
-              )}
+              <button
+                type="button"
+                onClick={() => setSettingsOpen((v) => !v)}
+                className="mt-3 inline-flex items-center justify-center rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm font-semibold text-brand-ink hover:bg-zinc-50"
+              >
+                {settingsOpen ? "Hide settings" : "Edit settings"}
+              </button>
+            </div>
+          ) : null}
+
+          {settingsOpen ? (
+            <div className="mt-4 space-y-3">
+              <div>
+                <label className="text-xs font-semibold text-zinc-600">Blog name</label>
+                <input
+                  value={siteName}
+                  onChange={(e) => setSiteName(e.target.value)}
+                  className="mt-1 w-full rounded-2xl border border-zinc-200 bg-white px-4 py-3 text-sm outline-none focus:border-zinc-300"
+                  placeholder="My Company Blog"
+                />
+              </div>
+
+              <div>
+                <label className="text-xs font-semibold text-zinc-600">Hosted blog link</label>
+                <div className="mt-1 flex flex-col gap-3 sm:flex-row sm:items-center">
+                  <div className="min-w-0 flex-1 rounded-2xl border border-zinc-200 bg-zinc-50 px-4 py-3 text-sm text-zinc-800">
+                    <div className="truncate">{publicBlogUrl ?? "Create your blog workspace to get a link."}</div>
+                  </div>
+                  <button
+                    type="button"
+                    className="inline-flex items-center justify-center rounded-2xl bg-brand-ink px-4 py-3 text-sm font-semibold text-white hover:opacity-95 disabled:opacity-60"
+                    disabled={!publicBlogUrl}
+                    onClick={async () => {
+                      if (!publicBlogUrl) return;
+                      await navigator.clipboard.writeText(publicBlogUrl);
+                    }}
+                  >
+                    Copy
+                  </button>
+                </div>
+                <div className="mt-1 text-xs text-zinc-500">
+                  This is your public blog hosted on Purely Automation. If you also want to publish elsewhere, use “Export Markdown”.
+                </div>
+              </div>
+
+              <div className="flex flex-col gap-3">
+                {!site ? (
+                  <button
+                    type="button"
+                    onClick={createSite}
+                    disabled={siteSaving || !siteName.trim()}
+                    className="inline-flex items-center justify-center rounded-2xl bg-brand-ink px-5 py-3 text-sm font-semibold text-white hover:opacity-95 disabled:opacity-60"
+                  >
+                    {siteSaving ? "Creating…" : "Create blog workspace"}
+                  </button>
+                ) : (
+                  <button
+                    type="button"
+                    onClick={saveSite}
+                    disabled={siteSaving || !siteName.trim()}
+                    className="inline-flex items-center justify-center rounded-2xl bg-brand-ink px-5 py-3 text-sm font-semibold text-white hover:opacity-95 disabled:opacity-60"
+                  >
+                    {siteSaving ? "Saving…" : "Save settings"}
+                  </button>
+                )}
+              </div>
 
               <div className="mt-6 rounded-2xl border border-zinc-200 bg-zinc-50 p-4">
                 <div className="text-sm font-semibold text-zinc-900">Automation schedule</div>
@@ -497,7 +535,7 @@ export function PortalBlogsClient() {
                 </div>
               </div>
             </div>
-          </div>
+          ) : null}
         </div>
       </div>
     </div>

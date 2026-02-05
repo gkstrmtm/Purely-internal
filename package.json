@@ -4,6 +4,7 @@
   "private": true,
   "scripts": {
     "dev": "next dev",
+    "prebuild": "node scripts/prisma-prebuild.mjs",
     "build": "next build",
     "start": "next start",
     "lint": "eslint",
@@ -13,7 +14,7 @@
     "db:migrate": "prisma migrate dev",
     "db:seed": "prisma db seed",
     "db:deploy": "prisma db push && prisma db seed",
-    "vercel-build": "prisma generate && next build",
+    "vercel-build": "prisma migrate deploy && prisma generate && next build",
     "blogs:cleanup-asterisks": "node prisma/cleanup-blog-asterisks.js"
   },
   "prisma": {

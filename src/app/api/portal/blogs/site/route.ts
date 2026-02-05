@@ -103,9 +103,39 @@ export async function POST(req: Request) {
 
   const ownerId = auth.session.user.id;
 
-  const existing = await prisma.clientBlogSite.findUnique({ where: { ownerId }, select: { id: true } });
+  const existing = await prisma.clientBlogSite.findUnique({
+    where: { ownerId },
+    select: {
+      id: true,
+      name: true,
+      slug: true,
+      primaryDomain: true,
+      verifiedAt: true,
+      verificationToken: true,
+      updatedAt: true,
+    },
+  });
   if (existing) {
-    return NextResponse.json({ error: "Blog site already exists" }, { status: 409 });
+    // Treat create as idempotent: a customer can only have one site, so just return it.
+    if (!existing.slug) {
+      const slug = await ensurePublicSlug(ownerId, existing.name);
+      const updated = await prisma.clientBlogSite.update({
+        where: { ownerId },
+        data: { slug },
+        select: {
+          id: true,
+          name: true,
+          slug: true,
+          primaryDomain: true,
+          verifiedAt: true,
+          verificationToken: true,
+          updatedAt: true,
+        },
+      });
+      return NextResponse.json({ ok: true, site: updated });
+    }
+
+    return NextResponse.json({ ok: true, site: existing });
   }
 
   const token = crypto.randomBytes(18).toString("hex");

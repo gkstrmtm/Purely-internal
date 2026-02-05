@@ -18,7 +18,20 @@ const putSchema = z.object({
 });
 
 async function ensureSite(ownerId: string) {
-  const existing = await prisma.portalBookingSite.findUnique({ where: { ownerId } });
+  const existing = await prisma.portalBookingSite.findUnique({
+    where: { ownerId },
+    select: {
+      id: true,
+      ownerId: true,
+      slug: true,
+      enabled: true,
+      title: true,
+      description: true,
+      durationMinutes: true,
+      timeZone: true,
+      updatedAt: true,
+    },
+  });
   if (existing) return existing;
 
   const [user, profile] = await Promise.all([
@@ -45,6 +58,17 @@ async function ensureSite(ownerId: string) {
       timeZone: user?.timeZone ?? "America/New_York",
       durationMinutes: 30,
       enabled: false,
+    },
+    select: {
+      id: true,
+      ownerId: true,
+      slug: true,
+      enabled: true,
+      title: true,
+      description: true,
+      durationMinutes: true,
+      timeZone: true,
+      updatedAt: true,
     },
   });
 }
@@ -113,6 +137,17 @@ export async function PUT(req: Request) {
       durationMinutes: parsed.data.durationMinutes ?? undefined,
       timeZone: parsed.data.timeZone ?? undefined,
       slug: nextSlug ?? undefined,
+    },
+    select: {
+      id: true,
+      ownerId: true,
+      slug: true,
+      enabled: true,
+      title: true,
+      description: true,
+      durationMinutes: true,
+      timeZone: true,
+      updatedAt: true,
     },
   });
 
