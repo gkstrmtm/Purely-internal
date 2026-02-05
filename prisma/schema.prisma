@@ -86,6 +86,10 @@ model User {
 
   contractDrafts ContractDraft[]
   approvals      Approval[]
+
+  portalServiceSetups PortalServiceSetup[]
+  businessProfile     BusinessProfile?
+  clientBlogSite      ClientBlogSite?
 }
 
 model Lead {
@@ -408,4 +412,97 @@ model BlogAutomationSettings {
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
+}
+
+enum PortalServiceSetupStatus {
+  NOT_STARTED
+  IN_PROGRESS
+  COMPLETE
+}
+
+model PortalServiceSetup {
+  id String @id @default(cuid())
+
+  ownerId    String
+  serviceSlug String
+  status     PortalServiceSetupStatus @default(NOT_STARTED)
+  dataJson   Json?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  owner User @relation(fields: [ownerId], references: [id])
+
+  @@unique([ownerId, serviceSlug])
+  @@index([ownerId])
+}
+
+model BusinessProfile {
+  id String @id @default(cuid())
+
+  ownerId String @unique
+
+  businessName   String
+  websiteUrl     String?
+  industry       String?
+  businessModel  String?
+  primaryGoals   Json?
+  targetCustomer String?
+  brandVoice     String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  owner User @relation(fields: [ownerId], references: [id])
+}
+
+enum ClientBlogPostStatus {
+  DRAFT
+  PUBLISHED
+}
+
+model ClientBlogSite {
+  id String @id @default(cuid())
+
+  ownerId String @unique
+  name    String
+
+  // Optional custom domain the customer wants to use.
+  primaryDomain      String?
+  verificationToken  String
+  verifiedAt         DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  owner User @relation(fields: [ownerId], references: [id])
+  posts ClientBlogPost[]
+
+  @@index([ownerId])
+  @@index([primaryDomain])
+}
+
+model ClientBlogPost {
+  id String @id @default(cuid())
+
+  siteId  String
+  status  ClientBlogPostStatus @default(DRAFT)
+
+  slug    String
+  title   String
+  excerpt String
+  content String
+  seoKeywords Json?
+
+  publishedAt DateTime?
+  archivedAt  DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  site ClientBlogSite @relation(fields: [siteId], references: [id])
+
+  @@unique([siteId, slug])
+  @@index([siteId, status, publishedAt])
+  @@index([siteId, archivedAt])
 }

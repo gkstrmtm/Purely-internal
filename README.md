@@ -38,6 +38,15 @@ Open http://localhost:3000
 - `NEXTAUTH_SECRET` (generate with `openssl rand -base64 32`)
 - `SIGNUP_INVITE_CODE` (required; choose any value)
 
+Optional (Portal billing + entitlements):
+
+- `STRIPE_SECRET_KEY` (Stripe secret key; enables billing actions)
+- `STRIPE_PRICE_BLOG_AUTOMATION` (Stripe Price ID for Automated Blogs)
+- `STRIPE_PRICE_BOOKING_AUTOMATION` (Stripe Price ID for Booking Automation)
+- `STRIPE_PRICE_CRM_AUTOMATION` (Stripe Price ID for Follow-up Automation)
+
+If these are missing, the portal still works, but billing UI will show as not configured and entitlements will stay locked (unless using demo emails).
+
 3) In Vercel → Project → Settings → Build & Development Settings:
 
 - Build Command: `npm run vercel-build`
@@ -89,3 +98,7 @@ Seeding creates demo users if missing:
 - Dialer: `dialer@purelyautomation.dev` / `dialer1234`
 - Closer: `closer@purelyautomation.dev` / `closer1234`
 - Manager: `manager@purelyautomation.dev` / `manager1234`
+
+### Portal demo users (optional)
+
+The customer portal can unlock demo entitlements by email (see `DEMO_PORTAL_FULL_EMAIL` / `DEMO_PORTAL_LIMITED_EMAIL`).

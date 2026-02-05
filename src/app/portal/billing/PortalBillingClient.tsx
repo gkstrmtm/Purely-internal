@@ -11,18 +11,32 @@ type Me = {
   billing: { configured: boolean };
 };
 
+type BillingSummary =
+  | { ok: true; configured: false }
+  | { ok: true; configured: true; monthlyCents: number; currency: string }
+  | { ok: false; configured: boolean; error?: string; details?: string };
+
+function formatMoney(cents: number, currency: string) {
+  const value = typeof cents === "number" && Number.isFinite(cents) ? cents : 0;
+  const curr = (currency || "usd").toUpperCase();
+  const amount = (value / 100).toFixed(2);
+  return `${curr} ${amount}`;
+}
+
 export function PortalBillingClient() {
   const [status, setStatus] = useState<BillingStatus | null>(null);
   const [me, setMe] = useState<Me | null>(null);
+  const [summary, setSummary] = useState<BillingSummary | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
     let mounted = true;
     (async () => {
-      const [billingRes, meRes] = await Promise.all([
+      const [billingRes, meRes, summaryRes] = await Promise.all([
         fetch("/api/billing/status", { cache: "no-store" }),
         fetch("/api/customer/me", { cache: "no-store" }),
+        fetch("/api/portal/billing/summary", { cache: "no-store" }),
       ]);
       if (!mounted) return;
       if (!billingRes.ok) {
@@ -36,6 +50,13 @@ export function PortalBillingClient() {
       if (meRes.ok) {
         setMe((await meRes.json()) as Me);
       }
+
+      if (summaryRes.ok) {
+        setSummary((await summaryRes.json().catch(() => null)) as BillingSummary | null);
+      } else {
+        setSummary(null);
+      }
+
       setLoading(false);
     })();
     return () => {
@@ -75,6 +96,17 @@ export function PortalBillingClient() {
     );
   }
 
+  const monthlyText =
+    summary && summary.configured && "monthlyCents" in summary && "currency" in summary
+      ? formatMoney(summary.monthlyCents, summary.currency)
+      : "—";
+
+  const monthlyNote = !status?.configured
+    ? "Stripe isn’t configured on this environment yet."
+    : summary && "ok" in summary && summary.ok === false
+      ? summary.error ?? "Unable to load summary"
+      : "Shown once billing is connected.";
+
   return (
     <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
       <div className="rounded-3xl border border-zinc-200 bg-white p-6 lg:col-span-2">
@@ -97,8 +129,8 @@ export function PortalBillingClient() {
         <div className="mt-6 grid grid-cols-1 gap-4 sm:grid-cols-2">
           <div className="rounded-2xl border border-zinc-200 bg-zinc-50 p-4">
             <div className="text-xs text-zinc-500">Monthly payment</div>
-            <div className="mt-1 text-lg font-bold text-brand-ink">—</div>
-            <div className="mt-1 text-xs text-zinc-500">Shown after billing is connected.</div>
+            <div className="mt-1 text-lg font-bold text-brand-ink">{monthlyText}</div>
+            <div className="mt-1 text-xs text-zinc-500">{monthlyNote}</div>
           </div>
           <div className="rounded-2xl border border-zinc-200 bg-zinc-50 p-4">
             <div className="text-xs text-zinc-500">Credits</div>

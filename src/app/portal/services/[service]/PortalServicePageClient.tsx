@@ -165,13 +165,56 @@ export function PortalServicePageClient({ slug }: { slug: string }) {
       <div className="mt-6 grid grid-cols-1 gap-4 lg:grid-cols-3">
         <div className="rounded-3xl border border-zinc-200 bg-white p-6 lg:col-span-2">
           <div className="text-sm font-semibold text-zinc-900">Overview</div>
-          <div className="mt-2 text-sm text-zinc-600">
-            This area will hold your settings, history, and results.
-          </div>
+          {slug === "blogs" ? (
+            <div className="mt-3">
+              <div className="text-sm text-zinc-600">
+                Manage drafts, export Markdown, and connect an optional custom domain.
+              </div>
+              <div className="mt-5 flex flex-col gap-3 sm:flex-row">
+                <Link
+                  href="/portal/app/services/blogs"
+                  className="inline-flex items-center justify-center rounded-2xl bg-brand-ink px-5 py-3 text-sm font-semibold text-white hover:opacity-95"
+                >
+                  Open Blogs
+                </Link>
+                <Link
+                  href="/portal/app/onboarding"
+                  className="inline-flex items-center justify-center rounded-2xl border border-zinc-200 bg-white px-5 py-3 text-sm font-semibold text-brand-ink hover:bg-zinc-50"
+                >
+                  Onboarding
+                </Link>
+              </div>
+            </div>
+          ) : (
+            <div className="mt-3">
+              <div className="text-sm text-zinc-600">
+                We’re rolling out service-specific setup screens.
+              </div>
 
-          <div className="mt-6 rounded-2xl border border-zinc-200 bg-zinc-50 p-4 text-sm text-zinc-700">
-            Coming next: service setup and controls.
-          </div>
+              <div className="mt-5 flex flex-col gap-3 sm:flex-row">
+                <Link
+                  href="/portal/app/onboarding"
+                  className="inline-flex items-center justify-center rounded-2xl bg-brand-ink px-5 py-3 text-sm font-semibold text-white hover:opacity-95"
+                >
+                  Complete onboarding
+                </Link>
+                <Link
+                  href="/portal/app/billing"
+                  className="inline-flex items-center justify-center rounded-2xl border border-zinc-200 bg-white px-5 py-3 text-sm font-semibold text-brand-ink hover:bg-zinc-50"
+                >
+                  Billing
+                </Link>
+              </div>
+
+              <div className="mt-6 rounded-2xl border border-zinc-200 bg-zinc-50 p-4 text-sm text-zinc-700">
+                Need this service live faster? Email{" "}
+                <a className="font-semibold text-brand-ink hover:underline" href="mailto:support@purelyautomation.dev">
+                  support@purelyautomation.dev
+                </a>
+                .
+              </div>
+            </div>
+          )}
         </div>
 
         <div className="rounded-3xl border border-zinc-200 bg-white p-6">

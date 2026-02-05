@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 
 type ModuleKey = "blog" | "booking" | "crm";
@@ -179,8 +180,32 @@ export function PortalDashboardClient() {
             ))}
           </div>
 
-          <div className="mt-4 rounded-2xl border border-zinc-200 bg-white p-4 text-xs text-zinc-600">
-            Next: wire each enabled service to its setup + automation controls.
+          <div className="mt-4 flex flex-col gap-3 rounded-2xl border border-zinc-200 bg-white p-4 text-sm text-zinc-700 sm:flex-row sm:items-center sm:justify-between">
+            <div>
+              Next step: complete onboarding so services can personalize outputs.
+            </div>
+            <div className="flex flex-col gap-2 sm:flex-row">
+              <Link
+                href="/portal/app/onboarding"
+                className="inline-flex items-center justify-center rounded-2xl bg-brand-ink px-4 py-2 text-xs font-semibold text-white hover:opacity-95"
+              >
+                Open onboarding
+              </Link>
+              {data.entitlements.blog ? (
+                <Link
+                  href="/portal/app/services/blogs"
+                  className="inline-flex items-center justify-center rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-xs font-semibold text-brand-ink hover:bg-zinc-50"
+                >
+                  Open blogs
+                </Link>
+              ) : null}
+              <Link
+                href="/portal/app/billing"
+                className="inline-flex items-center justify-center rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-xs font-semibold text-brand-ink hover:bg-zinc-50"
+              >
+                Billing
+              </Link>
+            </div>
           </div>
         </Card>
       </div>
