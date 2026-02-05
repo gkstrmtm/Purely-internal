@@ -22,9 +22,16 @@ type Site = {
 
   form?: {
     version: 1;
+    thankYouMessage?: string;
     phone: { enabled: boolean; required: boolean };
     notes: { enabled: boolean; required: boolean };
-    questions: { id: string; label: string; required: boolean; kind: "short" | "long" }[];
+    questions: {
+      id: string;
+      label: string;
+      required: boolean;
+      kind: "short" | "long" | "single_choice" | "multiple_choice";
+      options?: string[];
+    }[];
   };
 };
 
@@ -104,7 +111,7 @@ export function PublicBookingClient({ slug }: { slug: string }) {
   const [email, setEmail] = useState("");
   const [phone, setPhone] = useState("");
   const [notes, setNotes] = useState("");
-  const [answers, setAnswers] = useState<Record<string, string>>({});
+  const [answers, setAnswers] = useState<Record<string, string | string[]>>({});
 
   const [loading, setLoading] = useState(true);
   const [slotsLoading, setSlotsLoading] = useState(false);
@@ -121,7 +128,13 @@ export function PublicBookingClient({ slug }: { slug: string }) {
     if (form?.notes?.enabled && form.notes.required && !notes.trim()) return false;
     if (form?.questions?.length) {
       for (const q of form.questions) {
-        if (q.required && !(answers[q.id] ?? "").trim()) return false;
+        const a = answers[q.id];
+        if (!q.required) continue;
+        if (q.kind === "multiple_choice") {
+          if (!Array.isArray(a) || a.length === 0) return false;
+          continue;
+        }
+        if (typeof a !== "string" || !a.trim()) return false;
       }
     }
     return true;
@@ -241,7 +254,16 @@ export function PublicBookingClient({ slug }: { slug: string }) {
     }
     if (form?.questions?.length) {
       for (const q of form.questions) {
-        if (q.required && !(answers[q.id] ?? "").trim()) {
+        const a = answers[q.id];
+        if (!q.required) continue;
+        if (q.kind === "multiple_choice") {
+          if (!Array.isArray(a) || a.length === 0) {
+            setError(`Please answer: ${q.label}`);
+            return;
+          }
+          continue;
+        }
+        if (typeof a !== "string" || !a.trim()) {
           setError(`Please answer: ${q.label}`);
           return;
         }
@@ -307,6 +329,7 @@ export function PublicBookingClient({ slug }: { slug: string }) {
   }
 
   if (success && site) {
+    const thankYou = (site.form?.thankYouMessage ?? "").trim();
     return (
       <div
         className="min-h-screen bg-[#f5f9ff]"
@@ -335,7 +358,9 @@ export function PublicBookingClient({ slug }: { slug: string }) {
               <div className="mt-2 text-sm text-zinc-600">Location: {site.meetingLocation}</div>
             ) : null}
             {site.meetingDetails ? <div className="mt-1 text-sm text-zinc-600">{site.meetingDetails}</div> : null}
-            <div className="mt-6 text-sm text-zinc-600">You can close this window.</div>
+            <div className="mt-6 text-sm text-zinc-700">
+              {thankYou ? thankYou : "You can close this window."}
+            </div>
 
             <div className="mt-8 border-t border-zinc-200 pt-6 text-center text-xs text-zinc-600">
               <Link href="/" className="font-semibold hover:underline" style={{ color: "var(--booking-primary)" }}>
@@ -596,14 +621,61 @@ export function PublicBookingClient({ slug }: { slug: string }) {
                     <textarea
                       className="h-28 w-full resize-none rounded-2xl border border-zinc-200 bg-white px-4 py-3 text-sm text-zinc-900 placeholder:text-zinc-400"
                       placeholder={q.required ? `${q.label}` : `${q.label} (optional)`}
-                      value={answers[q.id] ?? ""}
+                      value={typeof answers[q.id] === "string" ? (answers[q.id] as string) : ""}
                       onChange={(e) => setAnswers((prev) => ({ ...prev, [q.id]: e.target.value }))}
                     />
+                  ) : q.kind === "single_choice" ? (
+                    <div className="rounded-2xl border border-zinc-200 bg-white px-4 py-3">
+                      <div className="text-sm font-semibold text-zinc-900">{q.label}</div>
+                      <div className="mt-2 space-y-2">
+                        {(Array.isArray(q.options) ? q.options : []).map((opt) => {
+                          const current = typeof answers[q.id] === "string" ? (answers[q.id] as string) : "";
+                          const checked = current === opt;
+                          return (
+                            <label key={opt} className="flex items-center gap-2 text-sm text-zinc-800">
+                              <input
+                                type="radio"
+                                name={`q-${q.id}`}
+                                checked={checked}
+                                onChange={() => setAnswers((prev) => ({ ...prev, [q.id]: opt }))}
+                              />
+                              <span>{opt}</span>
+                            </label>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  ) : q.kind === "multiple_choice" ? (
+                    <div className="rounded-2xl border border-zinc-200 bg-white px-4 py-3">
+                      <div className="text-sm font-semibold text-zinc-900">{q.label}</div>
+                      <div className="mt-2 space-y-2">
+                        {(Array.isArray(q.options) ? q.options : []).map((opt) => {
+                          const current = Array.isArray(answers[q.id]) ? (answers[q.id] as string[]) : [];
+                          const checked = current.includes(opt);
+                          return (
+                            <label key={opt} className="flex items-center gap-2 text-sm text-zinc-800">
+                              <input
+                                type="checkbox"
+                                checked={checked}
+                                onChange={() => {
+                                  setAnswers((prev) => {
+                                    const list = Array.isArray(prev[q.id]) ? ([...(prev[q.id] as string[])] as string[]) : [];
+                                    const next = list.includes(opt) ? list.filter((x) => x !== opt) : [...list, opt];
+                                    return { ...prev, [q.id]: next };
+                                  });
+                                }}
+                              />
+                              <span>{opt}</span>
+                            </label>
+                          );
+                        })}
+                      </div>
+                    </div>
                   ) : (
                     <input
                       className="w-full rounded-2xl border border-zinc-200 bg-white px-4 py-3 text-sm text-zinc-900 placeholder:text-zinc-400"
                       placeholder={q.required ? `${q.label}` : `${q.label} (optional)`}
-                      value={answers[q.id] ?? ""}
+                      value={typeof answers[q.id] === "string" ? (answers[q.id] as string) : ""}
                       onChange={(e) => setAnswers((prev) => ({ ...prev, [q.id]: e.target.value }))}
                     />
                   )}

@@ -6,6 +6,11 @@ import { prisma } from "@/lib/db";
 import { requireClientSession } from "@/lib/apiAuth";
 import { slugify } from "@/lib/slugify";
 import { hasPublicColumn } from "@/lib/dbSchema";
+import {
+  ensureStoredBlogSiteSlug,
+  getStoredBlogSiteSlug,
+  setStoredBlogSiteSlug,
+} from "@/lib/blogSiteSlug";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
@@ -91,12 +96,21 @@ export async function GET() {
     })) as any;
   }
 
+  // Migration-free fallback: store slug in PortalServiceSetup JSON.
+  let fallbackSlug: string | null = null;
+  if (site && !canUseSlugColumn) {
+    fallbackSlug = await getStoredBlogSiteSlug(ownerId);
+    if (!fallbackSlug) {
+      fallbackSlug = await ensureStoredBlogSiteSlug(ownerId, site.name);
+    }
+  }
+
   return NextResponse.json({
     ok: true,
     site: site
       ? {
           ...(site as any),
-          slug: canUseSlugColumn ? ((site as any).slug ?? null) : null,
+          slug: canUseSlugColumn ? ((site as any).slug ?? null) : fallbackSlug,
         }
       : null,
   });
@@ -123,11 +137,21 @@ export async function POST(req: Request) {
   const slugFieldProvided = Object.prototype.hasOwnProperty.call(parsed.data, "slug");
   const rawSlug = typeof parsed.data.slug === "string" ? parsed.data.slug.trim() : "";
   const requestedSlug = rawSlug.length ? slugify(rawSlug) : null;
-  if (slugFieldProvided && requestedSlug && !canUseSlugColumn) {
-    return NextResponse.json(
-      { error: "Custom slugs aren’t available yet (database migration pending)." },
-      { status: 409 },
-    );
+
+  // If slug column is missing, persist slug in PortalServiceSetup JSON instead.
+  if (slugFieldProvided && !canUseSlugColumn) {
+    try {
+      if (requestedSlug) {
+        await setStoredBlogSiteSlug(ownerId, requestedSlug);
+      } else {
+        await ensureStoredBlogSiteSlug(ownerId, parsed.data.name.trim());
+      }
+    } catch (e) {
+      return NextResponse.json(
+        { error: e instanceof Error ? e.message : "That blog link is already taken." },
+        { status: 409 },
+      );
+    }
   }
 
   const existing = (await prisma.clientBlogSite.findUnique({
@@ -185,7 +209,9 @@ export async function POST(req: Request) {
       ok: true,
       site: {
         ...(updated as any),
-        slug: canUseSlugColumn ? ((updated as any).slug ?? null) : null,
+        slug: canUseSlugColumn
+          ? ((updated as any).slug ?? null)
+          : (await getStoredBlogSiteSlug(ownerId)),
       },
     });
   }
@@ -195,6 +221,20 @@ export async function POST(req: Request) {
   const slug = requestedSlug
     ? requestedSlug
     : await ensurePublicSlug(ownerId, parsed.data.name.trim(), canUseSlugColumn);
+
+  if (!canUseSlugColumn) {
+    // Ensure we have a migration-free slug stored.
+    try {
+      if (requestedSlug) {
+        await setStoredBlogSiteSlug(ownerId, requestedSlug);
+      } else {
+        await ensureStoredBlogSiteSlug(ownerId, parsed.data.name.trim());
+      }
+    } catch {
+      // If requested is taken, fall back to generated slug.
+      await ensureStoredBlogSiteSlug(ownerId, parsed.data.name.trim());
+    }
+  }
 
   if (canUseSlugColumn && slug) {
     const collision = (await (prisma.clientBlogSite as any).findUnique({ where: { slug }, select: { ownerId: true } })) as any;
@@ -226,7 +266,9 @@ export async function POST(req: Request) {
     ok: true,
     site: {
       ...(created as any),
-      slug: canUseSlugColumn ? ((created as any).slug ?? null) : null,
+      slug: canUseSlugColumn
+        ? ((created as any).slug ?? null)
+        : (await getStoredBlogSiteSlug(ownerId)),
     },
   });
 }
@@ -252,11 +294,19 @@ export async function PUT(req: Request) {
   const slugFieldProvided = Object.prototype.hasOwnProperty.call(parsed.data, "slug");
   const rawSlug = typeof parsed.data.slug === "string" ? parsed.data.slug.trim() : "";
   const requestedSlug = rawSlug.length ? slugify(rawSlug) : null;
-  if (slugFieldProvided && requestedSlug && !canUseSlugColumn) {
-    return NextResponse.json(
-      { error: "Custom slugs aren’t available yet (database migration pending)." },
-      { status: 409 },
-    );
+  if (slugFieldProvided && !canUseSlugColumn) {
+    try {
+      if (requestedSlug) {
+        await setStoredBlogSiteSlug(ownerId, requestedSlug);
+      } else {
+        await ensureStoredBlogSiteSlug(ownerId, parsed.data.name.trim());
+      }
+    } catch (e) {
+      return NextResponse.json(
+        { error: e instanceof Error ? e.message : "That blog link is already taken." },
+        { status: 409 },
+      );
+    }
   }
 
   const primaryDomain = normalizeDomain(parsed.data.primaryDomain);
@@ -342,7 +392,9 @@ export async function PUT(req: Request) {
     ok: true,
     site: {
       ...(updated as any),
-      slug: canUseSlugColumn ? ((updated as any).slug ?? null) : null,
+      slug: canUseSlugColumn
+        ? ((updated as any).slug ?? null)
+        : (await getStoredBlogSiteSlug(ownerId)),
     },
   });
 }

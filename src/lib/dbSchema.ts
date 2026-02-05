@@ -16,6 +16,7 @@ export async function hasPublicColumn(tableName: string, columnName: string): Pr
 
   if (cached && now - cached.checkedAt < CACHE_TTL_MS) return cached.exists;
 
+  // Primary check: information_schema.
   try {
     const rows = await prisma.$queryRaw<Array<{ exists: boolean }>>`
       select exists(
@@ -31,7 +32,28 @@ export async function hasPublicColumn(tableName: string, columnName: string): Pr
     columnCache.set(cacheKey, { checkedAt: now, exists });
     return exists;
   } catch {
-    columnCache.set(cacheKey, { checkedAt: now, exists: false });
-    return false;
+    // Fallback check: pg_catalog (more reliable on some hosted Postgres setups).
+    try {
+      const rows = await prisma.$queryRaw<Array<{ exists: boolean }>>`
+        select exists(
+          select 1
+          from pg_attribute a
+          join pg_class c on c.oid = a.attrelid
+          join pg_namespace n on n.oid = c.relnamespace
+          where n.nspname = 'public'
+            and lower(c.relname) = lower(${tableName})
+            and lower(a.attname) = lower(${columnName})
+            and a.attnum > 0
+            and not a.attisdropped
+        ) as "exists";
+      `;
+
+      const exists = Boolean(rows?.[0]?.exists);
+      columnCache.set(cacheKey, { checkedAt: now, exists });
+      return exists;
+    } catch {
+      columnCache.set(cacheKey, { checkedAt: now, exists: false });
+      return false;
+    }
   }
 }

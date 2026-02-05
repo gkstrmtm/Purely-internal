@@ -5,6 +5,7 @@ import type { CSSProperties } from "react";
 import { prisma } from "@/lib/db";
 import { formatBlogDate, parseBlogContent } from "@/lib/blog";
 import { hasPublicColumn } from "@/lib/dbSchema";
+import { findOwnerIdByStoredBlogSiteSlug } from "@/lib/blogSiteSlug";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
@@ -28,10 +29,19 @@ export async function generateMetadata(props: PageProps) {
           where: { OR: [{ slug: siteSlug }, { id: siteSlug }] },
           select: { id: true, ownerId: true, name: true, slug: true },
         })
-      : await prisma.clientBlogSite.findUnique({
-          where: { id: siteSlug },
-          select: { id: true, ownerId: true, name: true },
-        });
+      : await (async () => {
+          const byId = await prisma.clientBlogSite.findUnique({
+            where: { id: siteSlug },
+            select: { id: true, ownerId: true, name: true },
+          });
+          if (byId) return byId;
+          const ownerId = await findOwnerIdByStoredBlogSiteSlug(siteSlug);
+          if (!ownerId) return null;
+          return prisma.clientBlogSite.findUnique({
+            where: { ownerId },
+            select: { id: true, ownerId: true, name: true },
+          });
+        })();
 
     if (!site) return {};
 
@@ -67,14 +77,23 @@ export default async function ClientBlogPostPage(props: PageProps) {
         where: { OR: [{ slug: siteSlug }, { id: siteSlug }] },
         select: { id: true, name: true, ownerId: true, slug: true },
       })
-    : await prisma.clientBlogSite.findUnique({
-        where: { id: siteSlug },
-        select: { id: true, name: true, ownerId: true },
-      });
+    : await (async () => {
+        const byId = await prisma.clientBlogSite.findUnique({
+          where: { id: siteSlug },
+          select: { id: true, name: true, ownerId: true },
+        });
+        if (byId) return byId;
+        const ownerId = await findOwnerIdByStoredBlogSiteSlug(siteSlug);
+        if (!ownerId) return null;
+        return prisma.clientBlogSite.findUnique({
+          where: { ownerId },
+          select: { id: true, name: true, ownerId: true },
+        });
+      })();
 
   if (!site) notFound();
 
-  const siteHandle = (site as any).slug ?? (site as any).id;
+  const siteHandle = canUseSlugColumn ? ((site as any).slug ?? (site as any).id) : siteSlug;
 
   const [hasLogoUrl, hasPrimaryHex, hasAccentHex, hasTextHex] = await Promise.all([
     hasPublicColumn("BusinessProfile", "logoUrl"),

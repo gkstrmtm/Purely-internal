@@ -5,9 +5,16 @@ import { useEffect, useMemo, useState } from "react";
 
 type BookingFormConfig = {
   version: 1;
+  thankYouMessage?: string;
   phone: { enabled: boolean; required: boolean };
   notes: { enabled: boolean; required: boolean };
-  questions: { id: string; label: string; required: boolean; kind: "short" | "long" }[];
+  questions: {
+    id: string;
+    label: string;
+    required: boolean;
+    kind: "short" | "long" | "single_choice" | "multiple_choice";
+    options?: string[];
+  }[];
 };
 
 type Site = {
@@ -67,6 +74,13 @@ export function PortalBookingClient() {
 
   const [form, setForm] = useState<BookingFormConfig | null>(null);
   const [formSaving, setFormSaving] = useState(false);
+
+  const [contactOpen, setContactOpen] = useState(false);
+  const [contactBooking, setContactBooking] = useState<Booking | null>(null);
+  const [contactMessage, setContactMessage] = useState("");
+  const [contactSendEmail, setContactSendEmail] = useState(true);
+  const [contactSendSms, setContactSendSms] = useState(false);
+  const [contactBusy, setContactBusy] = useState(false);
 
   const bookingUrl = useMemo(() => {
     if (!site?.slug) return null;
@@ -183,6 +197,47 @@ export function PortalBookingClient() {
     }
     await refreshAll();
     setStatus("Canceled booking");
+  }
+
+  async function sendFollowUp() {
+    if (!contactBooking) return;
+    const msg = contactMessage.trim();
+    if (!msg) {
+      setError("Please enter a message.");
+      return;
+    }
+    if (!contactSendEmail && !contactSendSms) {
+      setError("Choose Email and/or Text.");
+      return;
+    }
+
+    setContactBusy(true);
+    setError(null);
+    setStatus(null);
+
+    const res = await fetch(`/api/portal/booking/bookings/${contactBooking.id}/contact`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        message: msg,
+        sendEmail: contactSendEmail,
+        sendSms: contactSendSms,
+      }),
+    });
+    const body = await res.json().catch(() => ({}));
+    setContactBusy(false);
+
+    if (!res.ok) {
+      setError(getApiError(body) ?? "Failed to send follow-up");
+      return;
+    }
+
+    setContactOpen(false);
+    setContactBooking(null);
+    setContactMessage("");
+    setContactSendEmail(true);
+    setContactSendSms(false);
+    setStatus("Sent follow-up");
   }
 
   function makeId(label: string) {
@@ -382,6 +437,19 @@ export function PortalBookingClient() {
                   </div>
                   {b.notes ? <div className="mt-2 text-sm text-zinc-600">{b.notes}</div> : null}
                   <div className="mt-3 flex justify-end">
+                    <button
+                      type="button"
+                      className="mr-2 rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm hover:bg-zinc-50"
+                      onClick={() => {
+                        setContactBooking(b);
+                        setContactMessage("");
+                        setContactSendEmail(true);
+                        setContactSendSms(Boolean(b.contactPhone));
+                        setContactOpen(true);
+                      }}
+                    >
+                      Send follow-up
+                    </button>
                     <button
                       type="button"
                       className="rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm hover:bg-zinc-50"
@@ -600,6 +668,19 @@ export function PortalBookingClient() {
           </div>
         ) : (
           <div className="mt-4 space-y-4">
+            <label className="block rounded-2xl border border-zinc-200 bg-zinc-50 px-4 py-3 text-sm">
+              <div className="font-medium text-zinc-800">Thank-you message</div>
+              <textarea
+                className="mt-2 min-h-[90px] w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm"
+                placeholder="Thanks — you’re booked! We'll see you soon."
+                value={form.thankYouMessage ?? ""}
+                disabled={formSaving}
+                onChange={(e) => setForm({ ...form, thankYouMessage: e.target.value })}
+                onBlur={() => void saveForm(form)}
+              />
+              <div className="mt-2 text-xs text-zinc-500">Shown after a successful booking.</div>
+            </label>
+
             <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
               <label className="flex items-center justify-between gap-3 rounded-2xl border border-zinc-200 bg-zinc-50 px-4 py-3 text-sm">
                 <span className="font-medium text-zinc-800">Ask for phone</span>
@@ -652,7 +733,7 @@ export function PortalBookingClient() {
 
             <div className="rounded-2xl border border-zinc-200 bg-zinc-50 p-4">
               <div className="text-sm font-semibold text-zinc-900">Custom questions</div>
-              <div className="mt-1 text-xs text-zinc-600">Add extra questions like a simple Google Form.</div>
+              <div className="mt-1 text-xs text-zinc-600">Add extra questions to your booking form.</div>
 
               <div className="mt-3 space-y-2">
                 {form.questions.length === 0 ? (
@@ -683,13 +764,23 @@ export function PortalBookingClient() {
                         disabled={formSaving}
                         onChange={(e) => {
                           const next = [...form.questions];
-                          next[idx] = { ...q, kind: (e.target.value as any) || "short" };
+                          const kind = ((e.target.value as any) || "short") as BookingFormConfig["questions"][number]["kind"];
+                          const hasOptions = kind === "single_choice" || kind === "multiple_choice";
+                          next[idx] = {
+                            ...q,
+                            kind,
+                            ...(hasOptions
+                              ? { options: Array.isArray(q.options) && q.options.length ? q.options : ["Option 1", "Option 2"] }
+                              : { options: undefined }),
+                          };
                           setForm({ ...form, questions: next });
                         }}
                         onBlur={() => void saveForm(form)}
                       >
                         <option value="short">Short answer</option>
                         <option value="long">Long answer</option>
+                        <option value="single_choice">Multiple choice (pick one)</option>
+                        <option value="multiple_choice">Checkboxes (pick many)</option>
                       </select>
 
                       <label className="flex items-center justify-between gap-2 text-sm text-zinc-700">
@@ -706,6 +797,62 @@ export function PortalBookingClient() {
                         />
                       </label>
                     </div>
+
+                    {q.kind === "single_choice" || q.kind === "multiple_choice" ? (
+                      <div className="mt-3 rounded-2xl border border-zinc-200 bg-zinc-50 p-3">
+                        <div className="text-xs font-semibold text-zinc-600">Options</div>
+                        <div className="mt-2 space-y-2">
+                          {(Array.isArray(q.options) ? q.options : []).map((opt, optIdx) => (
+                            <div key={optIdx} className="flex items-center gap-2">
+                              <input
+                                className="w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm"
+                                value={opt}
+                                disabled={formSaving}
+                                onChange={(e) => {
+                                  const next = [...form.questions];
+                                  const options = Array.isArray(q.options) ? [...q.options] : [];
+                                  options[optIdx] = e.target.value;
+                                  next[idx] = { ...q, options };
+                                  setForm({ ...form, questions: next });
+                                }}
+                                onBlur={() => void saveForm(form)}
+                                placeholder={`Option ${optIdx + 1}`}
+                              />
+                              <button
+                                type="button"
+                                className="rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-sm font-semibold text-zinc-700 hover:bg-zinc-50"
+                                disabled={formSaving}
+                                onClick={() => {
+                                  const next = [...form.questions];
+                                  const options = (Array.isArray(q.options) ? q.options : []).filter((_, i) => i !== optIdx);
+                                  next[idx] = { ...q, options: options.length ? options : ["Option 1", "Option 2"] };
+                                  setForm({ ...form, questions: next });
+                                  void saveForm({ ...form, questions: next });
+                                }}
+                              >
+                                Remove
+                              </button>
+                            </div>
+                          ))}
+
+                          <button
+                            type="button"
+                            className="inline-flex items-center justify-center rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm font-semibold text-brand-ink hover:bg-zinc-50"
+                            disabled={formSaving}
+                            onClick={() => {
+                              const next = [...form.questions];
+                              const options = Array.isArray(q.options) ? [...q.options] : [];
+                              options.push(`Option ${options.length + 1}`);
+                              next[idx] = { ...q, options: options.slice(0, 12) };
+                              setForm({ ...form, questions: next });
+                              void saveForm({ ...form, questions: next });
+                            }}
+                          >
+                            + Add option
+                          </button>
+                        </div>
+                      </div>
+                    ) : null}
 
                     <div className="mt-3 flex items-center justify-between gap-3">
                       <div className="text-xs text-zinc-500">ID: {q.id}</div>
@@ -758,6 +905,72 @@ export function PortalBookingClient() {
       ) : null}
       {status ? (
         <div className="mt-4 rounded-2xl bg-emerald-50 px-4 py-3 text-sm text-emerald-800">{status}</div>
+      ) : null}
+
+      {contactOpen && contactBooking ? (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/30 p-4">
+          <div className="w-full max-w-lg rounded-3xl border border-zinc-200 bg-white p-6 shadow-xl">
+            <div className="text-sm font-semibold text-zinc-900">Send follow-up</div>
+            <div className="mt-1 text-sm text-zinc-600">
+              {contactBooking.contactName} · {contactBooking.contactEmail}
+              {contactBooking.contactPhone ? ` · ${contactBooking.contactPhone}` : ""}
+            </div>
+
+            <div className="mt-4 grid grid-cols-1 gap-3 sm:grid-cols-2">
+              <label className="flex items-center justify-between gap-3 rounded-2xl border border-zinc-200 bg-zinc-50 px-4 py-3 text-sm">
+                <span className="font-medium text-zinc-800">Email</span>
+                <input
+                  type="checkbox"
+                  checked={contactSendEmail}
+                  disabled={contactBusy}
+                  onChange={(e) => setContactSendEmail(e.target.checked)}
+                />
+              </label>
+              <label className="flex items-center justify-between gap-3 rounded-2xl border border-zinc-200 bg-zinc-50 px-4 py-3 text-sm">
+                <span className="font-medium text-zinc-800">Text</span>
+                <input
+                  type="checkbox"
+                  checked={contactSendSms}
+                  disabled={contactBusy || !contactBooking.contactPhone}
+                  onChange={(e) => setContactSendSms(e.target.checked)}
+                />
+              </label>
+            </div>
+            {!contactBooking.contactPhone ? (
+              <div className="mt-2 text-xs text-zinc-500">No phone number on this booking.</div>
+            ) : null}
+
+            <textarea
+              className="mt-4 min-h-[140px] w-full rounded-2xl border border-zinc-200 bg-white px-4 py-3 text-sm"
+              placeholder="Write a quick follow-up…"
+              value={contactMessage}
+              disabled={contactBusy}
+              onChange={(e) => setContactMessage(e.target.value)}
+            />
+
+            <div className="mt-4 flex flex-col gap-3 sm:flex-row sm:justify-end">
+              <button
+                type="button"
+                className="inline-flex items-center justify-center rounded-2xl border border-zinc-200 bg-white px-5 py-3 text-sm font-semibold text-brand-ink hover:bg-zinc-50"
+                disabled={contactBusy}
+                onClick={() => {
+                  setContactOpen(false);
+                  setContactBooking(null);
+                }}
+              >
+                Close
+              </button>
+              <button
+                type="button"
+                className="inline-flex items-center justify-center rounded-2xl bg-[color:var(--color-brand-blue)] px-5 py-3 text-sm font-semibold text-white hover:opacity-95 disabled:opacity-60"
+                disabled={contactBusy}
+                onClick={() => void sendFollowUp()}
+              >
+                {contactBusy ? "Sending…" : "Send"}
+              </button>
+            </div>
+          </div>
+        </div>
       ) : null}
     </div>
   );

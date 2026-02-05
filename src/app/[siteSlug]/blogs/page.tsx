@@ -5,6 +5,7 @@ import type { CSSProperties } from "react";
 import { prisma } from "@/lib/db";
 import { formatBlogDate } from "@/lib/blog";
 import { hasPublicColumn } from "@/lib/dbSchema";
+import { findOwnerIdByStoredBlogSiteSlug } from "@/lib/blogSiteSlug";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
@@ -33,10 +34,19 @@ export async function generateMetadata(props: PageProps) {
             select: { name: true, ownerId: true },
           } as any,
         )
-      : await prisma.clientBlogSite.findUnique({
-          where: { id: siteSlug },
-          select: { name: true, ownerId: true },
-        });
+      : await (async () => {
+          const byId = await prisma.clientBlogSite.findUnique({
+            where: { id: siteSlug },
+            select: { name: true, ownerId: true },
+          });
+          if (byId) return byId;
+          const ownerId = await findOwnerIdByStoredBlogSiteSlug(siteSlug);
+          if (!ownerId) return null;
+          return prisma.clientBlogSite.findUnique({
+            where: { ownerId },
+            select: { name: true, ownerId: true },
+          });
+        })();
     if (!site) return {};
 
     const profile = await prisma.businessProfile.findUnique({
@@ -73,14 +83,23 @@ export default async function ClientBlogsIndexPage(props: PageProps) {
           select: { id: true, name: true, ownerId: true, slug: true },
         } as any,
       )
-    : await prisma.clientBlogSite.findUnique({
-        where: { id: siteSlug },
-        select: { id: true, name: true, ownerId: true },
-      });
+    : await (async () => {
+        const byId = await prisma.clientBlogSite.findUnique({
+          where: { id: siteSlug },
+          select: { id: true, name: true, ownerId: true },
+        });
+        if (byId) return byId;
+        const ownerId = await findOwnerIdByStoredBlogSiteSlug(siteSlug);
+        if (!ownerId) return null;
+        return prisma.clientBlogSite.findUnique({
+          where: { ownerId },
+          select: { id: true, name: true, ownerId: true },
+        });
+      })();
 
   if (!site) notFound();
 
-  const siteHandle = (site as any).slug ?? (site as any).id;
+  const siteHandle = canUseSlugColumn ? ((site as any).slug ?? (site as any).id) : siteSlug;
 
   const [hasLogoUrl, hasPrimaryHex, hasAccentHex, hasTextHex] = await Promise.all([
     hasPublicColumn("BusinessProfile", "logoUrl"),

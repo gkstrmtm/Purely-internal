@@ -14,7 +14,16 @@ const bodySchema = z.object({
   contactEmail: z.string().email(),
   contactPhone: z.string().max(40).optional().nullable(),
   notes: z.string().max(1200).optional().nullable(),
-  answers: z.record(z.string().max(64), z.string().max(2000)).optional().nullable(),
+  answers: z
+    .record(
+      z.string().max(64),
+      z.union([
+        z.string().max(2000),
+        z.array(z.string().max(200)).max(20),
+      ]),
+    )
+    .optional()
+    .nullable(),
 });
 
 function overlaps(aStart: Date, aEnd: Date, bStart: Date, bEnd: Date) {
@@ -105,12 +114,29 @@ export async function POST(
   const form = await getBookingFormConfig(String(site.ownerId));
 
   const rawAnswers = parsed.data.answers && typeof parsed.data.answers === "object" ? parsed.data.answers : null;
-  const answers: Record<string, string> = {};
+  const answers: Record<string, string | string[]> = {};
   if (rawAnswers) {
     for (const [k, v] of Object.entries(rawAnswers)) {
       if (typeof k !== "string") continue;
-      if (typeof v !== "string") continue;
-      answers[k] = v.trim().slice(0, 2000);
+      if (typeof v === "string") {
+        answers[k] = v.trim().slice(0, 2000);
+      } else if (Array.isArray(v)) {
+        const list = v
+          .filter((x) => typeof x === "string")
+          .map((x) => x.trim().slice(0, 200))
+          .filter(Boolean);
+        // De-dupe while preserving order.
+        const unique: string[] = [];
+        const seen = new Set<string>();
+        for (const item of list) {
+          const key = item.toLowerCase();
+          if (seen.has(key)) continue;
+          seen.add(key);
+          unique.push(item);
+          if (unique.length >= 20) break;
+        }
+        answers[k] = unique;
+      }
     }
   }
 
@@ -125,15 +151,51 @@ export async function POST(
   }
 
   for (const q of form.questions) {
-    const v = (answers[q.id] ?? "").trim();
+    const a = answers[q.id];
+    if (!q.required && (a === undefined || a === null)) continue;
+
+    if (q.kind === "multiple_choice") {
+      const list = Array.isArray(a) ? a : [];
+      const allowed = new Set((q.options ?? []).map((x) => String(x)));
+      const filtered = list.filter((x) => allowed.has(x));
+      if (q.required && filtered.length === 0) {
+        return NextResponse.json({ error: `Please answer: ${q.label}` }, { status: 400 });
+      }
+      // Normalize to allowed options only.
+      answers[q.id] = filtered;
+      continue;
+    }
+
+    if (q.kind === "single_choice") {
+      const v = typeof a === "string" ? a.trim() : "";
+      const allowed = new Set((q.options ?? []).map((x) => String(x)));
+      if (q.required && !v) {
+        return NextResponse.json({ error: `Please answer: ${q.label}` }, { status: 400 });
+      }
+      if (v && !allowed.has(v)) {
+        return NextResponse.json({ error: `Please answer: ${q.label}` }, { status: 400 });
+      }
+      answers[q.id] = v;
+      continue;
+    }
+
+    const v = typeof a === "string" ? a.trim() : "";
     if (q.required && !v) {
       return NextResponse.json({ error: `Please answer: ${q.label}` }, { status: 400 });
     }
+    answers[q.id] = v;
   }
 
   const customAnswerLines: string[] = [];
   for (const q of form.questions) {
-    const v = (answers[q.id] ?? "").trim();
+    const a = answers[q.id];
+    if (q.kind === "multiple_choice") {
+      const list = Array.isArray(a) ? a : [];
+      if (!list.length) continue;
+      customAnswerLines.push(`${q.label}: ${list.join(", ")}`);
+      continue;
+    }
+    const v = typeof a === "string" ? a.trim() : "";
     if (!v) continue;
     customAnswerLines.push(`${q.label}: ${v}`);
   }

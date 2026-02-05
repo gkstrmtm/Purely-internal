@@ -8,6 +8,7 @@ export const dynamic = "force-dynamic";
 export const revalidate = 0;
 
 const putSchema = z.object({
+  thankYouMessage: z.string().max(500).optional(),
   phone: z
     .object({
       enabled: z.boolean().optional(),
@@ -26,7 +27,8 @@ const putSchema = z.object({
         id: z.string().trim().min(1).max(50),
         label: z.string().trim().min(1).max(120),
         required: z.boolean().optional(),
-        kind: z.enum(["short", "long"]).optional(),
+        kind: z.enum(["short", "long", "single_choice", "multiple_choice"]).optional(),
+        options: z.array(z.string().trim().min(1).max(60)).max(12).optional(),
       }),
     )
     .max(20)
@@ -68,6 +70,7 @@ export async function PUT(req: Request) {
 
   const next = {
     ...current,
+    thankYouMessage: parsed.data.thankYouMessage ?? current.thankYouMessage,
     phone: {
       enabled: parsed.data.phone?.enabled ?? current.phone.enabled,
       required: parsed.data.phone?.required ?? current.phone.required,
@@ -81,7 +84,8 @@ export async function PUT(req: Request) {
         id: q.id,
         label: q.label,
         required: Boolean(q.required),
-        kind: (q.kind ?? "short") as "short" | "long",
+        kind: (q.kind ?? "short") as any,
+        options: q.options,
       })) ?? current.questions,
   } as const;
 
