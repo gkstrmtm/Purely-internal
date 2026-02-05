@@ -12,6 +12,25 @@ export default function PortalDemoSeeder() {
   const [error, setError] = useState<string | null>(null);
   const [result, setResult] = useState<SeedResult | null>(null);
 
+  async function readErrorMessage(res: Response) {
+    const text = await res.text().catch(() => "");
+    if (!text) return "Unable to seed demo accounts";
+
+    try {
+      const json = JSON.parse(text);
+      return (
+        json?.error ??
+        json?.message ??
+        json?.details ??
+        "Unable to seed demo accounts"
+      );
+    } catch {
+      const trimmed = text.replace(/\s+/g, " ").trim();
+      // If Next.js returns an HTML error page, show a short snippet.
+      return trimmed.slice(0, 240) || "Unable to seed demo accounts";
+    }
+  }
+
   async function seed() {
     setLoading(true);
     setError(null);
@@ -24,9 +43,8 @@ export default function PortalDemoSeeder() {
     });
 
     if (!res.ok) {
-      const body = await res.json().catch(() => ({}));
       setLoading(false);
-      setError(body?.error ?? "Unable to seed demo accounts");
+      setError(await readErrorMessage(res));
       return;
     }
 
