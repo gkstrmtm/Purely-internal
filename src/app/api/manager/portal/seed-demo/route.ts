@@ -5,6 +5,7 @@ import { z } from "zod";
 import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/db";
 import { hashPassword } from "@/lib/password";
+import { ensureClientRoleAllowed, isClientRoleMissingError } from "@/lib/ensureClientRoleAllowed";
 
 export const runtime = "nodejs";
 
@@ -81,42 +82,59 @@ export async function POST(req: Request) {
     const fullPasswordHash = await hashPassword(fullPassword);
     const limitedPasswordHash = await hashPassword(limitedPassword);
 
-    const [fullUser, limitedUser] = await prisma.$transaction([
-      prisma.user.upsert({
-        where: { email: fullEmail },
-        update: {
-          role: "CLIENT",
-          active: true,
-          name: "Demo Client (Full)",
-          passwordHash: fullPasswordHash,
-        },
-        create: {
-          email: fullEmail,
-          name: "Demo Client (Full)",
-          role: "CLIENT",
-          active: true,
-          passwordHash: fullPasswordHash,
-        },
-        select: { id: true, email: true, name: true, role: true },
-      }),
-      prisma.user.upsert({
-        where: { email: limitedEmail },
-        update: {
-          role: "CLIENT",
-          active: true,
-          name: "Demo Client (Limited)",
-          passwordHash: limitedPasswordHash,
-        },
-        create: {
-          email: limitedEmail,
-          name: "Demo Client (Limited)",
-          role: "CLIENT",
-          active: true,
-          passwordHash: limitedPasswordHash,
-        },
-        select: { id: true, email: true, name: true, role: true },
-      }),
-    ]);
+    const runUpserts = async () => {
+      const [fullUser, limitedUser] = await prisma.$transaction([
+        prisma.user.upsert({
+          where: { email: fullEmail },
+          update: {
+            role: "CLIENT",
+            active: true,
+            name: "Demo Client (Full)",
+            passwordHash: fullPasswordHash,
+          },
+          create: {
+            email: fullEmail,
+            name: "Demo Client (Full)",
+            role: "CLIENT",
+            active: true,
+            passwordHash: fullPasswordHash,
+          },
+          select: { id: true, email: true, name: true, role: true },
+        }),
+        prisma.user.upsert({
+          where: { email: limitedEmail },
+          update: {
+            role: "CLIENT",
+            active: true,
+            name: "Demo Client (Limited)",
+            passwordHash: limitedPasswordHash,
+          },
+          create: {
+            email: limitedEmail,
+            name: "Demo Client (Limited)",
+            role: "CLIENT",
+            active: true,
+            passwordHash: limitedPasswordHash,
+          },
+          select: { id: true, email: true, name: true, role: true },
+        }),
+      ]);
+
+      return [fullUser, limitedUser] as const;
+    };
+
+    let fullUser;
+    let limitedUser;
+    try {
+      [fullUser, limitedUser] = await runUpserts();
+    } catch (e) {
+      if (isClientRoleMissingError(e)) {
+        await ensureClientRoleAllowed(prisma);
+        [fullUser, limitedUser] = await runUpserts();
+      } else {
+        throw e;
+      }
+    }
 
     return NextResponse.json(
       {

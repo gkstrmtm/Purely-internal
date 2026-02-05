@@ -21,12 +21,16 @@ export default function PortalDemoSeeder() {
 
     try {
       const json = JSON.parse(text);
-      return (
-        json?.error ??
-        json?.message ??
-        json?.details ??
-        "Unable to seed demo accounts"
-      );
+      const error = json?.error ?? json?.message;
+      const details = json?.details;
+      const hint = json?.hint;
+
+      if (details || hint) {
+        const parts = [error, details, hint].filter(Boolean);
+        return parts.join("\n");
+      }
+
+      return error ?? "Unable to seed demo accounts";
     } catch {
       const trimmed = text.replace(/\s+/g, " ").trim();
       // If Next.js returns an HTML error page, show a short snippet.

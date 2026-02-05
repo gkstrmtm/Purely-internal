@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 
 import { prisma } from "@/lib/db";
 import { hashPassword } from "@/lib/password";
+import { ensureClientRoleAllowed, isClientRoleMissingError } from "@/lib/ensureClientRoleAllowed";
 
 function boolEnv(v?: string) {
   return v === "1" || v === "true" || v === "yes";
@@ -49,8 +50,9 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: message }, { status: 400 });
   }
 
-  const [fullUser, limitedUser] = await prisma.$transaction([
-    prisma.user.upsert({
+  const runUpserts = async () => {
+    const [fullUser, limitedUser] = await prisma.$transaction([
+      prisma.user.upsert({
       where: { email: fullEmail },
       update: { role: "CLIENT", active: true, name: "Demo Client (Full)" },
       create: {
@@ -61,8 +63,8 @@ export async function POST(req: Request) {
         passwordHash: await hashPassword(fullPassword),
       },
       select: { id: true, email: true, name: true, role: true },
-    }),
-    prisma.user.upsert({
+      }),
+      prisma.user.upsert({
       where: { email: limitedEmail },
       update: { role: "CLIENT", active: true, name: "Demo Client (Limited)" },
       create: {
@@ -73,8 +75,24 @@ export async function POST(req: Request) {
         passwordHash: await hashPassword(limitedPassword),
       },
       select: { id: true, email: true, name: true, role: true },
-    }),
-  ]);
+      }),
+    ]);
+
+    return [fullUser, limitedUser] as const;
+  };
+
+  let fullUser;
+  let limitedUser;
+  try {
+    [fullUser, limitedUser] = await runUpserts();
+  } catch (e) {
+    if (isClientRoleMissingError(e)) {
+      await ensureClientRoleAllowed(prisma);
+      [fullUser, limitedUser] = await runUpserts();
+    } else {
+      throw e;
+    }
+  }
 
   return NextResponse.json({ fullUser, limitedUser });
 }

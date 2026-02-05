@@ -3,6 +3,7 @@ import { z } from "zod";
 
 import { prisma } from "@/lib/db";
 import { hashPassword } from "@/lib/password";
+import { ensureClientRoleAllowed, isClientRoleMissingError } from "@/lib/ensureClientRoleAllowed";
 
 const bodySchema = z.object({
   name: z.string().min(1),
@@ -33,15 +34,28 @@ export async function POST(req: Request) {
 
   const passwordHash = await hashPassword(parsed.data.password);
 
-  const user = await prisma.user.create({
-    data: {
-      email,
-      name: parsed.data.name,
-      passwordHash,
-      role: "CLIENT",
-    },
-    select: { id: true, email: true, name: true, role: true },
-  });
+  const createUser = async () =>
+    prisma.user.create({
+      data: {
+        email,
+        name: parsed.data.name,
+        passwordHash,
+        role: "CLIENT",
+      },
+      select: { id: true, email: true, name: true, role: true },
+    });
+
+  let user;
+  try {
+    user = await createUser();
+  } catch (e) {
+    if (isClientRoleMissingError(e)) {
+      await ensureClientRoleAllowed(prisma);
+      user = await createUser();
+    } else {
+      throw e;
+    }
+  }
 
   return NextResponse.json({ user });
 }
