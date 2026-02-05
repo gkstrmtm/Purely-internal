@@ -1,7 +1,12 @@
 import { spawnSync } from "node:child_process";
 
-function run(cmd, args) {
-  const res = spawnSync(cmd, args, { stdio: "inherit", shell: false });
+function run(cmd, args, opts = {}) {
+  const res = spawnSync(cmd, args, {
+    stdio: "inherit",
+    shell: false,
+    timeout: opts.timeoutMs,
+    env: opts.env,
+  });
   if (res.status !== 0) process.exit(res.status ?? 1);
 }
 
@@ -17,8 +22,27 @@ if (!shouldRun) {
   process.exit(0);
 }
 
-console.log("[prebuild] Running prisma migrate deploy...");
-run("npx", ["prisma", "migrate", "deploy"]);
+const isVercel = Boolean(process.env.VERCEL);
+const forceMigrations = process.env.RUN_PRISMA_MIGRATIONS === "1";
+const directUrl = process.env.DIRECT_URL;
+
+// Prisma migrations are often slow/unreliable through poolers (pgbouncer). On Vercel we prefer a
+// direct connection for migrate deploy. If DIRECT_URL isn't available, we skip migrations to
+// avoid long/hanging builds.
+if (forceMigrations) {
+  console.log("[prebuild] RUN_PRISMA_MIGRATIONS=1: running prisma migrate deploy...");
+  run("npx", ["prisma", "migrate", "deploy"], { timeoutMs: 180_000 });
+} else if (directUrl) {
+  console.log("[prebuild] Running prisma migrate deploy (using DIRECT_URL)...");
+  run("npx", ["prisma", "migrate", "deploy"], {
+    timeoutMs: 180_000,
+    env: { ...process.env, DATABASE_URL: directUrl },
+  });
+} else if (isVercel) {
+  console.log("[prebuild] DIRECT_URL not set on Vercel; skipping prisma migrate deploy to avoid long builds.");
+} else {
+  console.log("[prebuild] Skipping prisma migrate deploy (no DIRECT_URL). Set RUN_PRISMA_MIGRATIONS=1 to force.");
+}
 
 console.log("[prebuild] Running prisma generate...");
-run("npx", ["prisma", "generate"]);
+run("npx", ["prisma", "generate"], { timeoutMs: 180_000 });
