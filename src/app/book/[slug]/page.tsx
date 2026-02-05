@@ -9,5 +9,5 @@ export default async function PublicBookingPage({
   params: Promise<{ slug: string }>;
 }) {
   const { slug } = await params;
-  return <PublicBookingClient slug={slug} />;
+  return <PublicBookingClient target={{ kind: "slug", slug }} />;
 }

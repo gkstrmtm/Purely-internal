@@ -19,6 +19,7 @@ type BookingFormConfig = {
 
 type Site = {
   id: string;
+  ownerId: string;
   slug: string;
   enabled: boolean;
   title: string;
@@ -52,6 +53,76 @@ type Booking = {
   canceledAt?: string | null;
 };
 
+type Slot = { startAt: string; endAt: string };
+
+type AvailabilityBlock = { id: string; startAt: string; endAt: string };
+
+type BookingCalendar = {
+  id: string;
+  enabled: boolean;
+  title: string;
+  description?: string;
+  durationMinutes?: number;
+};
+
+function pad2(n: number) {
+  return String(n).padStart(2, "0");
+}
+
+function toLocalDateTimeInputValue(d: Date) {
+  return `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}T${pad2(d.getHours())}:${pad2(
+    d.getMinutes(),
+  )}`;
+}
+
+function startOfMonth(d: Date) {
+  const out = new Date(d);
+  out.setDate(1);
+  out.setHours(0, 0, 0, 0);
+  return out;
+}
+
+function addMonths(d: Date, delta: number) {
+  const out = new Date(d);
+  out.setMonth(out.getMonth() + delta);
+  return startOfMonth(out);
+}
+
+function monthLabel(d: Date) {
+  return d.toLocaleDateString(undefined, { month: "long", year: "numeric" });
+}
+
+function toYmd(d: Date) {
+  return `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}`;
+}
+
+function makeMonthGrid(month: Date) {
+  const first = startOfMonth(month);
+  const startDow = first.getDay(); // 0=Sun
+  const gridStart = new Date(first);
+  gridStart.setDate(first.getDate() - startDow);
+  const days: Date[] = [];
+  for (let i = 0; i < 42; i += 1) {
+    const d = new Date(gridStart);
+    d.setDate(gridStart.getDate() + i);
+    d.setHours(0, 0, 0, 0);
+    days.push(d);
+  }
+  return days;
+}
+
+function makeClientId(prefix: string) {
+  try {
+    const bytes = new Uint8Array(6);
+    crypto.getRandomValues(bytes);
+    return `${prefix}${Array.from(bytes)
+      .map((b) => b.toString(16).padStart(2, "0"))
+      .join("")}`;
+  } catch {
+    return `${prefix}${Math.random().toString(16).slice(2, 10)}`;
+  }
+}
+
 function getApiError(body: unknown): string | undefined {
   if (!body || typeof body !== "object") return undefined;
   const rec = body as Record<string, unknown>;
@@ -75,6 +146,19 @@ export function PortalBookingClient() {
   const [form, setForm] = useState<BookingFormConfig | null>(null);
   const [formSaving, setFormSaving] = useState(false);
 
+  const [calendars, setCalendars] = useState<BookingCalendar[]>([]);
+  const [calSaving, setCalSaving] = useState(false);
+
+  const [newCalTitle, setNewCalTitle] = useState("");
+  const [newCalDuration, setNewCalDuration] = useState<number>(30);
+
+  const [blocks, setBlocks] = useState<AvailabilityBlock[]>([]);
+
+  const [scheduleTab, setScheduleTab] = useState<"list" | "calendar">("list");
+
+  const [calMonth, setCalMonth] = useState(() => startOfMonth(new Date()));
+  const [calSelectedYmd, setCalSelectedYmd] = useState<string | null>(null);
+
   const [contactOpen, setContactOpen] = useState(false);
   const [contactBooking, setContactBooking] = useState<Booking | null>(null);
   const [contactSubject, setContactSubject] = useState("");
@@ -83,19 +167,35 @@ export function PortalBookingClient() {
   const [contactSendSms, setContactSendSms] = useState(false);
   const [contactBusy, setContactBusy] = useState(false);
 
+  const [reschedOpen, setReschedOpen] = useState(false);
+  const [reschedBooking, setReschedBooking] = useState<Booking | null>(null);
+  const [reschedWhen, setReschedWhen] = useState("");
+  const [reschedForce, setReschedForce] = useState(false);
+  const [reschedBusy, setReschedBusy] = useState(false);
+  const [reschedSlots, setReschedSlots] = useState<Slot[]>([]);
+  const [reschedSlotsLoading, setReschedSlotsLoading] = useState(false);
+
   const bookingUrl = useMemo(() => {
     if (!site?.slug) return null;
     if (typeof window === "undefined") return `/book/${site.slug}`;
     return `${window.location.origin}/book/${site.slug}`;
   }, [site?.slug]);
 
+  const calendarUrlBase = useMemo(() => {
+    if (!site?.slug) return null;
+    if (typeof window === "undefined") return null;
+    return `${window.location.origin}/book/${encodeURIComponent(site.slug)}/c`;
+  }, [site?.slug]);
+
   async function refreshAll() {
     setError(null);
-    const [meRes, settingsRes, bookingsRes, formRes] = await Promise.all([
+    const [meRes, settingsRes, bookingsRes, formRes, calendarsRes, blocksRes] = await Promise.all([
       fetch("/api/customer/me", { cache: "no-store" }),
       fetch("/api/portal/booking/settings", { cache: "no-store" }),
       fetch("/api/portal/booking/bookings", { cache: "no-store" }),
       fetch("/api/portal/booking/form", { cache: "no-store" }),
+      fetch("/api/portal/booking/calendars", { cache: "no-store" }),
+      fetch("/api/availability", { cache: "no-store" }),
     ]);
 
     const meJson = await meRes.json().catch(() => ({}));
@@ -120,15 +220,46 @@ export function PortalBookingClient() {
       setForm((formJson as { config?: BookingFormConfig }).config ?? null);
     }
 
-    if (!meRes.ok || !settingsRes.ok || !bookingsRes.ok || !formRes.ok) {
+    const calendarsJson = await calendarsRes.json().catch(() => ({}));
+    if (calendarsRes.ok) {
+      setCalendars(((calendarsJson as any)?.config?.calendars as BookingCalendar[]) ?? []);
+    }
+
+    const blocksJson = await blocksRes.json().catch(() => ({}));
+    if (blocksRes.ok) {
+      setBlocks(((blocksJson as any)?.blocks as AvailabilityBlock[]) ?? []);
+    }
+
+    if (!meRes.ok || !settingsRes.ok || !bookingsRes.ok || !formRes.ok || !calendarsRes.ok || !blocksRes.ok) {
       setError(
         getApiError(meJson) ??
           getApiError(settingsJson) ??
           getApiError(bookingsJson) ??
           getApiError(formJson) ??
+          getApiError(calendarsJson) ??
+          getApiError(blocksJson) ??
           "Failed to load booking automation",
       );
     }
+  }
+
+  async function saveCalendars(next: BookingCalendar[]) {
+    setCalSaving(true);
+    setError(null);
+    setStatus(null);
+    const res = await fetch("/api/portal/booking/calendars", {
+      method: "PUT",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ calendars: next }),
+    });
+    const body = await res.json().catch(() => ({}));
+    setCalSaving(false);
+    if (!res.ok) {
+      setError(getApiError(body) ?? "Failed to save calendars");
+      return;
+    }
+    setCalendars(((body as any)?.config?.calendars as BookingCalendar[]) ?? next);
+    setStatus("Saved calendars");
   }
 
   useEffect(() => {
@@ -247,6 +378,69 @@ export function PortalBookingClient() {
     setContactSendEmail(true);
     setContactSendSms(false);
     setStatus("Sent follow-up");
+  }
+
+  async function loadReschedSlots(fromIso?: string) {
+    if (!site) return;
+    setReschedSlotsLoading(true);
+    try {
+      const startAt = fromIso ? new Date(fromIso) : new Date();
+      startAt.setHours(0, 0, 0, 0);
+      const url = new URL("/api/portal/booking/suggestions", window.location.origin);
+      url.searchParams.set("startAt", startAt.toISOString());
+      url.searchParams.set("days", "14");
+      url.searchParams.set("durationMinutes", String(site.durationMinutes ?? 30));
+      url.searchParams.set("limit", "25");
+
+      const res = await fetch(url.toString(), { cache: "no-store" });
+      const body = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        throw new Error(getApiError(body) ?? "Failed to load suggestions");
+      }
+      setReschedSlots((body as { slots?: Slot[] }).slots ?? []);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Failed to load suggestions");
+    } finally {
+      setReschedSlotsLoading(false);
+    }
+  }
+
+  async function rescheduleBooking() {
+    if (!reschedBooking) return;
+    if (!reschedWhen.trim()) {
+      setError("Pick a new date/time.");
+      return;
+    }
+
+    const dt = new Date(reschedWhen);
+    if (Number.isNaN(dt.getTime())) {
+      setError("Pick a valid date/time.");
+      return;
+    }
+
+    setReschedBusy(true);
+    setError(null);
+    setStatus(null);
+
+    const res = await fetch(`/api/portal/booking/bookings/${reschedBooking.id}/reschedule`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ startAt: dt.toISOString(), forceAvailability: reschedForce }),
+    });
+    const body = await res.json().catch(() => ({}));
+    setReschedBusy(false);
+
+    if (!res.ok) {
+      setError(getApiError(body) ?? "Failed to reschedule booking");
+      return;
+    }
+
+    setReschedOpen(false);
+    setReschedBooking(null);
+    setReschedWhen("");
+    setReschedForce(false);
+    await refreshAll();
+    setStatus("Rescheduled booking");
   }
 
   function makeId(label: string) {
@@ -428,50 +622,411 @@ export function PortalBookingClient() {
         </div>
 
         <div className="rounded-3xl border border-zinc-200 bg-white p-6">
-          <div className="text-sm font-semibold text-zinc-900">Upcoming bookings</div>
-          <div className="mt-3 space-y-3">
-            {upcoming.length === 0 ? (
+          <div className="text-sm font-semibold text-zinc-900">Calendars</div>
+          <div className="mt-2 text-sm text-zinc-600">
+            Create multiple booking links (different appointment types) with their own title and duration.
+          </div>
+
+          <div className="mt-4 rounded-2xl border border-zinc-200 bg-zinc-50 p-4">
+            <div className="text-xs font-semibold text-zinc-600">Add a calendar</div>
+            <div className="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-3">
+              <input
+                className="w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm sm:col-span-2"
+                placeholder="e.g. Intro call"
+                value={newCalTitle}
+                onChange={(e) => setNewCalTitle(e.target.value)}
+                disabled={calSaving}
+              />
+              <select
+                className="w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm"
+                value={newCalDuration}
+                onChange={(e) => setNewCalDuration(Number(e.target.value))}
+                disabled={calSaving}
+              >
+                {[15, 30, 45, 60].map((m) => (
+                  <option key={m} value={m}>
+                    {m} min
+                  </option>
+                ))}
+              </select>
+            </div>
+            <div className="mt-3 flex justify-end">
+              <button
+                type="button"
+                className="rounded-2xl bg-[color:var(--color-brand-blue)] px-4 py-2 text-sm font-semibold text-white hover:opacity-95 disabled:opacity-60"
+                disabled={calSaving || !newCalTitle.trim()}
+                onClick={() => {
+                  const title = newCalTitle.trim();
+                  if (!title) return;
+                  const next: BookingCalendar = {
+                    id: makeClientId("cal_"),
+                    enabled: true,
+                    title,
+                    durationMinutes: newCalDuration,
+                  };
+                  setNewCalTitle("");
+                  void saveCalendars([...(calendars ?? []), next]);
+                }}
+              >
+                {calSaving ? "Saving…" : "Add calendar"}
+              </button>
+            </div>
+          </div>
+
+          <div className="mt-4 space-y-3">
+            {calendars.length === 0 ? (
               <div className="rounded-2xl border border-dashed border-zinc-200 bg-zinc-50 p-4 text-sm text-zinc-600">
-                No bookings yet.
+                No extra calendars yet.
               </div>
             ) : (
-              upcoming.map((b) => (
-                <div key={b.id} className="rounded-2xl border border-zinc-200 p-4">
-                  <div className="text-sm font-semibold text-zinc-900">
-                    {new Date(b.startAt).toLocaleString()} → {new Date(b.endAt).toLocaleTimeString()}
+              calendars.map((c) => (
+                <div key={c.id} className="rounded-2xl border border-zinc-200 p-4">
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="min-w-0">
+                      <div className="truncate text-sm font-semibold text-zinc-900">
+                        {c.title} <span className="text-xs font-normal text-zinc-500">({c.durationMinutes ?? site?.durationMinutes ?? 30} min)</span>
+                      </div>
+                      {calendarUrlBase ? (
+                        <div className="mt-1 truncate text-xs text-zinc-500">
+                          {calendarUrlBase}/{c.id}
+                        </div>
+                      ) : null}
+                    </div>
+
+                    <label className="flex items-center gap-2 text-sm">
+                      <span className="text-xs text-zinc-600">Enabled</span>
+                      <input
+                        type="checkbox"
+                        checked={Boolean(c.enabled)}
+                        disabled={calSaving}
+                        onChange={(e) => {
+                          const next = calendars.map((x) => (x.id === c.id ? { ...x, enabled: e.target.checked } : x));
+                          void saveCalendars(next);
+                        }}
+                      />
+                    </label>
                   </div>
-                  <div className="mt-1 text-sm text-zinc-700">
-                    {b.contactName} · {b.contactEmail}
-                    {b.contactPhone ? ` · ${b.contactPhone}` : ""}
-                  </div>
-                  {b.notes ? <div className="mt-2 text-sm text-zinc-600">{b.notes}</div> : null}
-                  <div className="mt-3 flex justify-end">
+
+                  <div className="mt-3 flex flex-wrap justify-end gap-2">
                     <button
                       type="button"
-                      className="mr-2 rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm hover:bg-zinc-50"
-                      onClick={() => {
-                        setContactBooking(b);
-                        setContactSubject(`Follow-up: ${site?.title ?? "Booking"}`);
-                        setContactMessage("");
-                        setContactSendEmail(true);
-                        setContactSendSms(Boolean(b.contactPhone));
-                        setContactOpen(true);
+                      className="rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm hover:bg-zinc-50"
+                      disabled={!calendarUrlBase}
+                      onClick={async () => {
+                        if (!calendarUrlBase) return;
+                        await navigator.clipboard.writeText(`${calendarUrlBase}/${c.id}`);
+                        setStatus("Copied calendar link");
                       }}
                     >
-                      Send follow-up
+                      Copy link
                     </button>
                     <button
                       type="button"
                       className="rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm hover:bg-zinc-50"
-                      onClick={() => cancelBooking(b.id)}
+                      disabled={calSaving}
+                      onClick={() => {
+                        const title = window.prompt("Calendar title", c.title) ?? c.title;
+                        const durRaw = window.prompt("Duration minutes", String(c.durationMinutes ?? site?.durationMinutes ?? 30));
+                        const dur = durRaw ? Number(durRaw) : c.durationMinutes;
+
+                        const meetingLocation =
+                          window.prompt("Meeting location (optional)", (c as any).meetingLocation ?? "") ??
+                          ((c as any).meetingLocation ?? "");
+                        const meetingDetails =
+                          window.prompt("Meeting details (optional)", (c as any).meetingDetails ?? "") ??
+                          ((c as any).meetingDetails ?? "");
+                        const notifyRaw =
+                          window.prompt(
+                            "Notification emails (comma-separated, optional)",
+                            Array.isArray((c as any).notificationEmails) ? ((c as any).notificationEmails as string[]).join(", ") : "",
+                          ) ??
+                          (Array.isArray((c as any).notificationEmails) ? ((c as any).notificationEmails as string[]).join(", ") : "");
+                        const notificationEmails = notifyRaw
+                          .split(",")
+                          .map((x) => x.trim().toLowerCase())
+                          .filter(Boolean)
+                          .slice(0, 20);
+
+                        const next = calendars.map((x) =>
+                          x.id === c.id
+                            ? {
+                                ...x,
+                                title: String(title || c.title).slice(0, 80),
+                                durationMinutes:
+                                  typeof dur === "number" && Number.isFinite(dur)
+                                    ? Math.max(10, Math.min(180, Math.round(dur)))
+                                    : x.durationMinutes,
+                                meetingLocation: String(meetingLocation || "").trim().slice(0, 120) || undefined,
+                                meetingDetails: String(meetingDetails || "").trim().slice(0, 600) || undefined,
+                                notificationEmails: notificationEmails.length ? notificationEmails : undefined,
+                              }
+                            : x,
+                        );
+                        void saveCalendars(next);
+                      }}
                     >
-                      Cancel
+                      Edit
+                    </button>
+                    <button
+                      type="button"
+                      className="rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm hover:bg-zinc-50"
+                      disabled={calSaving}
+                      onClick={() => {
+                        if (!window.confirm("Delete this calendar?")) return;
+                        const next = calendars.filter((x) => x.id !== c.id);
+                        void saveCalendars(next);
+                      }}
+                    >
+                      Delete
                     </button>
                   </div>
                 </div>
               ))
             )}
           </div>
+        </div>
+
+        <div className="rounded-3xl border border-zinc-200 bg-white p-6">
+          <div className="flex items-center justify-between gap-3">
+            <div className="text-sm font-semibold text-zinc-900">Schedule</div>
+            <div className="flex gap-2">
+              <button
+                type="button"
+                className={
+                  scheduleTab === "list"
+                    ? "rounded-xl bg-zinc-900 px-3 py-2 text-sm font-semibold text-white"
+                    : "rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm hover:bg-zinc-50"
+                }
+                onClick={() => setScheduleTab("list")}
+              >
+                List
+              </button>
+              <button
+                type="button"
+                className={
+                  scheduleTab === "calendar"
+                    ? "rounded-xl bg-zinc-900 px-3 py-2 text-sm font-semibold text-white"
+                    : "rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm hover:bg-zinc-50"
+                }
+                onClick={() => setScheduleTab("calendar")}
+              >
+                Calendar
+              </button>
+            </div>
+          </div>
+
+          {scheduleTab === "calendar" ? (
+            <div className="mt-4">
+              <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                <div className="text-sm font-semibold text-zinc-900">{monthLabel(calMonth)}</div>
+                <div className="flex gap-2">
+                  <button
+                    type="button"
+                    className="rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm hover:bg-zinc-50"
+                    onClick={() => setCalMonth((m) => addMonths(m, -1))}
+                  >
+                    Prev
+                  </button>
+                  <button
+                    type="button"
+                    className="rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm hover:bg-zinc-50"
+                    onClick={() => setCalMonth(startOfMonth(new Date()))}
+                  >
+                    Today
+                  </button>
+                  <button
+                    type="button"
+                    className="rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm hover:bg-zinc-50"
+                    onClick={() => setCalMonth((m) => addMonths(m, 1))}
+                  >
+                    Next
+                  </button>
+                </div>
+              </div>
+
+              <div className="mt-3 grid grid-cols-7 gap-2 text-xs font-semibold text-zinc-500">
+                {["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"].map((d) => (
+                  <div key={d} className="px-2">
+                    {d}
+                  </div>
+                ))}
+              </div>
+
+              <div className="mt-2 grid grid-cols-7 gap-2">
+                {makeMonthGrid(calMonth).map((day) => {
+                  const ymd = toYmd(day);
+                  const inMonth = day.getMonth() === calMonth.getMonth();
+                  const today = toYmd(new Date()) === ymd;
+                  const selected = calSelectedYmd === ymd;
+
+                  const dayStart = new Date(day);
+                  const dayEnd = new Date(day);
+                  dayEnd.setDate(dayEnd.getDate() + 1);
+
+                  const bookingCount = upcoming.reduce((acc, b) => (toYmd(new Date(b.startAt)) === ymd ? acc + 1 : acc), 0);
+                  const hasCoverage = blocks.some((b) => new Date(b.startAt) < dayEnd && new Date(b.endAt) > dayStart);
+
+                  const baseCls =
+                    "h-20 rounded-2xl border px-2 py-2 text-left hover:bg-zinc-50 focus:outline-none focus:ring-2 focus:ring-zinc-300";
+                  const borderCls = selected
+                    ? "border-zinc-900 bg-white"
+                    : inMonth
+                      ? "border-zinc-200 bg-white"
+                      : "border-zinc-200 bg-zinc-50";
+
+                  return (
+                    <button
+                      key={ymd}
+                      type="button"
+                      className={`${baseCls} ${borderCls}`}
+                      onClick={() => setCalSelectedYmd(ymd)}
+                    >
+                      <div className="flex items-center justify-between">
+                        <div className={inMonth ? "text-sm font-semibold text-zinc-900" : "text-sm font-semibold text-zinc-400"}>
+                          {day.getDate()}
+                        </div>
+                        {today ? <div className="rounded-full bg-zinc-900 px-2 py-0.5 text-[10px] font-semibold text-white">Today</div> : null}
+                      </div>
+
+                      <div className="mt-2 flex items-center justify-between">
+                        <div className={hasCoverage ? "text-[11px] font-medium text-emerald-700" : "text-[11px] text-zinc-400"}>
+                          {hasCoverage ? "Avail" : "No avail"}
+                        </div>
+                        {bookingCount ? (
+                          <div className="rounded-full bg-zinc-900 px-2 py-0.5 text-[10px] font-semibold text-white">
+                            {bookingCount}
+                          </div>
+                        ) : null}
+                      </div>
+                    </button>
+                  );
+                })}
+              </div>
+
+              {calSelectedYmd ? (
+                <div className="mt-4 rounded-2xl border border-zinc-200 bg-zinc-50 p-4">
+                  <div className="text-sm font-semibold text-zinc-900">
+                    {new Date(`${calSelectedYmd}T00:00:00`).toLocaleDateString(undefined, {
+                      weekday: "long",
+                      month: "short",
+                      day: "numeric",
+                      year: "numeric",
+                    })}
+                  </div>
+
+                  <div className="mt-3 grid grid-cols-1 gap-4 lg:grid-cols-2">
+                    <div>
+                      <div className="text-xs font-semibold text-zinc-600">Bookings</div>
+                      <div className="mt-2 space-y-2">
+                        {upcoming
+                          .filter((b) => toYmd(new Date(b.startAt)) === calSelectedYmd)
+                          .sort((a, b) => new Date(a.startAt).getTime() - new Date(b.startAt).getTime())
+                          .map((b) => (
+                            <div key={b.id} className="rounded-2xl border border-zinc-200 bg-white px-3 py-2">
+                              <div className="text-sm font-semibold text-zinc-900">
+                                {new Date(b.startAt).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })} · {b.contactName}
+                              </div>
+                              <div className="mt-0.5 text-xs text-zinc-500">{b.contactEmail}</div>
+                            </div>
+                          ))}
+                        {upcoming.filter((b) => toYmd(new Date(b.startAt)) === calSelectedYmd).length === 0 ? (
+                          <div className="text-sm text-zinc-600">No bookings</div>
+                        ) : null}
+                      </div>
+                    </div>
+
+                    <div>
+                      <div className="text-xs font-semibold text-zinc-600">Availability blocks</div>
+                      <div className="mt-2 space-y-2">
+                        {blocks
+                          .filter((b) => {
+                            const dayStart = new Date(`${calSelectedYmd}T00:00:00`);
+                            const dayEnd = new Date(dayStart);
+                            dayEnd.setDate(dayEnd.getDate() + 1);
+                            return new Date(b.startAt) < dayEnd && new Date(b.endAt) > dayStart;
+                          })
+                          .sort((a, b) => new Date(a.startAt).getTime() - new Date(b.startAt).getTime())
+                          .map((b) => (
+                            <div key={b.id} className="rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-sm text-zinc-700">
+                              {new Date(b.startAt).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })} → {new Date(
+                                b.endAt,
+                              ).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}
+                            </div>
+                          ))}
+                        {blocks.filter((b) => {
+                          const dayStart = new Date(`${calSelectedYmd}T00:00:00`);
+                          const dayEnd = new Date(dayStart);
+                          dayEnd.setDate(dayEnd.getDate() + 1);
+                          return new Date(b.startAt) < dayEnd && new Date(b.endAt) > dayStart;
+                        }).length === 0 ? (
+                          <div className="text-sm text-zinc-600">No availability blocks</div>
+                        ) : null}
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              ) : (
+                <div className="mt-3 text-sm text-zinc-600">Click a day to see details.</div>
+              )}
+            </div>
+          ) : (
+            <div className="mt-3 space-y-3">
+              {upcoming.length === 0 ? (
+                <div className="rounded-2xl border border-dashed border-zinc-200 bg-zinc-50 p-4 text-sm text-zinc-600">
+                  No bookings yet.
+                </div>
+              ) : (
+                upcoming.map((b) => (
+                  <div key={b.id} className="rounded-2xl border border-zinc-200 p-4">
+                    <div className="text-sm font-semibold text-zinc-900">
+                      {new Date(b.startAt).toLocaleString()} → {new Date(b.endAt).toLocaleTimeString()}
+                    </div>
+                    <div className="mt-1 text-sm text-zinc-700">
+                      {b.contactName} · {b.contactEmail}
+                      {b.contactPhone ? ` · ${b.contactPhone}` : ""}
+                    </div>
+                    {b.notes ? <div className="mt-2 text-sm text-zinc-600">{b.notes}</div> : null}
+                    <div className="mt-3 flex justify-end">
+                      <button
+                        type="button"
+                        className="mr-2 rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm hover:bg-zinc-50"
+                        onClick={() => {
+                          setReschedBooking(b);
+                          setReschedWhen(toLocalDateTimeInputValue(new Date(b.startAt)));
+                          setReschedForce(false);
+                          setReschedOpen(true);
+                          void loadReschedSlots(b.startAt);
+                        }}
+                      >
+                        Reschedule
+                      </button>
+                      <button
+                        type="button"
+                        className="mr-2 rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm hover:bg-zinc-50"
+                        onClick={() => {
+                          setContactBooking(b);
+                          setContactSubject(`Follow-up: ${site?.title ?? "Booking"}`);
+                          setContactMessage("");
+                          setContactSendEmail(true);
+                          setContactSendSms(Boolean(b.contactPhone));
+                          setContactOpen(true);
+                        }}
+                      >
+                        Send follow-up
+                      </button>
+                      <button
+                        type="button"
+                        className="rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm hover:bg-zinc-50"
+                        onClick={() => cancelBooking(b.id)}
+                      >
+                        Cancel
+                      </button>
+                    </div>
+                  </div>
+                ))
+              )}
+            </div>
+          )}
 
           {recent.length ? (
             <>
@@ -992,6 +1547,87 @@ export function PortalBookingClient() {
                 onClick={() => void sendFollowUp()}
               >
                 {contactBusy ? "Sending…" : "Send"}
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
+
+      {reschedOpen && reschedBooking ? (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/30 p-4">
+          <div className="w-full max-w-lg rounded-3xl border border-zinc-200 bg-white p-6 shadow-xl">
+            <div className="text-sm font-semibold text-zinc-900">Reschedule booking</div>
+            <div className="mt-1 text-sm text-zinc-600">
+              {reschedBooking.contactName} · {new Date(reschedBooking.startAt).toLocaleString()}
+            </div>
+
+            <div className="mt-4">
+              <div className="text-xs font-semibold text-zinc-600">New date/time</div>
+              <input
+                type="datetime-local"
+                className="mt-1 w-full rounded-2xl border border-zinc-200 bg-white px-4 py-3 text-sm"
+                value={reschedWhen}
+                disabled={reschedBusy}
+                onChange={(e) => setReschedWhen(e.target.value)}
+              />
+              <div className="mt-1 text-xs text-zinc-500">Uses your local time zone.</div>
+            </div>
+
+            <label className="mt-4 flex items-center justify-between gap-3 rounded-2xl border border-zinc-200 bg-zinc-50 px-4 py-3 text-sm">
+              <span className="font-medium text-zinc-800">Force availability</span>
+              <input
+                type="checkbox"
+                checked={reschedForce}
+                disabled={reschedBusy}
+                onChange={(e) => setReschedForce(e.target.checked)}
+              />
+            </label>
+            <div className="mt-2 text-xs text-zinc-500">
+              If there’s no availability block covering this time, we’ll create one.
+            </div>
+
+            <div className="mt-4 rounded-2xl border border-zinc-200 bg-zinc-50 p-4">
+              <div className="text-xs font-semibold text-zinc-600">Suggested slots</div>
+              {reschedSlotsLoading ? (
+                <div className="mt-2 text-sm text-zinc-600">Loading…</div>
+              ) : reschedSlots.length === 0 ? (
+                <div className="mt-2 text-sm text-zinc-600">No suggestions found.</div>
+              ) : (
+                <div className="mt-3 grid grid-cols-1 gap-2 sm:grid-cols-2">
+                  {reschedSlots.slice(0, 12).map((s) => (
+                    <button
+                      key={s.startAt}
+                      type="button"
+                      className="rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-left text-sm hover:bg-zinc-50"
+                      onClick={() => setReschedWhen(toLocalDateTimeInputValue(new Date(s.startAt)))}
+                      disabled={reschedBusy}
+                    >
+                      {new Date(s.startAt).toLocaleString()}
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
+
+            <div className="mt-4 flex flex-col gap-3 sm:flex-row sm:justify-end">
+              <button
+                type="button"
+                className="inline-flex items-center justify-center rounded-2xl border border-zinc-200 bg-white px-5 py-3 text-sm font-semibold text-brand-ink hover:bg-zinc-50"
+                disabled={reschedBusy}
+                onClick={() => {
+                  setReschedOpen(false);
+                  setReschedBooking(null);
+                }}
+              >
+                Close
+              </button>
+              <button
+                type="button"
+                className="inline-flex items-center justify-center rounded-2xl bg-[color:var(--color-brand-blue)] px-5 py-3 text-sm font-semibold text-white hover:opacity-95 disabled:opacity-60"
+                disabled={reschedBusy}
+                onClick={() => void rescheduleBooking()}
+              >
+                {reschedBusy ? "Rescheduling…" : "Reschedule"}
               </button>
             </div>
           </div>

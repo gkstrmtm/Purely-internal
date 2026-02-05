@@ -99,7 +99,16 @@ function getApiError(body: unknown): string | undefined {
   return typeof rec.error === "string" ? rec.error : undefined;
 }
 
-export function PublicBookingClient({ slug }: { slug: string }) {
+type PublicBookingTarget =
+  | { kind: "slug"; slug: string }
+  | { kind: "calendar"; ownerId: string; calendarId: string };
+
+function bookingApiBase(target: PublicBookingTarget) {
+  if (target.kind === "slug") return `/api/public/booking/${encodeURIComponent(target.slug)}`;
+  return `/api/public/booking/u/${encodeURIComponent(target.ownerId)}/${encodeURIComponent(target.calendarId)}`;
+}
+
+export function PublicBookingClient({ target }: { target: PublicBookingTarget }) {
   const [site, setSite] = useState<Site | null>(null);
   const [slots, setSlots] = useState<Slot[]>([]);
   const [step, setStep] = useState<Step>("date");
@@ -119,6 +128,7 @@ export function PublicBookingClient({ slug }: { slug: string }) {
 
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<Booking | null>(null);
+  const [rescheduleUrl, setRescheduleUrl] = useState<string | null>(null);
 
   const canBook = useMemo(() => {
     if (!selected) return false;
@@ -168,7 +178,7 @@ export function PublicBookingClient({ slug }: { slug: string }) {
   }, [selectedDate, slotsByDay]);
 
   async function loadSettings() {
-    const res = await fetch(`/api/public/booking/${encodeURIComponent(slug)}/settings`, {
+    const res = await fetch(`${bookingApiBase(target)}/settings`, {
       cache: "no-store",
     });
     const body = await res.json().catch(() => ({}));
@@ -183,7 +193,7 @@ export function PublicBookingClient({ slug }: { slug: string }) {
       const startAt = fromIso ? new Date(fromIso) : new Date();
       startAt.setHours(0, 0, 0, 0);
 
-      const url = new URL(`/api/public/booking/${encodeURIComponent(slug)}/suggestions`, window.location.origin);
+      const url = new URL(`${bookingApiBase(target)}/suggestions`, window.location.origin);
       url.searchParams.set("startAt", startAt.toISOString());
       url.searchParams.set("days", "30");
       url.searchParams.set("durationMinutes", String(site?.durationMinutes ?? 30));
@@ -217,7 +227,7 @@ export function PublicBookingClient({ slug }: { slug: string }) {
     return () => {
       mounted = false;
     };
-  }, [slug]);
+  }, [target.kind === "slug" ? target.slug : `${target.ownerId}/${target.calendarId}`]);
 
   useEffect(() => {
     // When changing months, reset selection and load a fresh 30-day window.
@@ -273,7 +283,7 @@ export function PublicBookingClient({ slug }: { slug: string }) {
     setBookingBusy(true);
     setError(null);
 
-    const res = await fetch(`/api/public/booking/${encodeURIComponent(slug)}/book`, {
+    const res = await fetch(`${bookingApiBase(target)}/book`, {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({
@@ -298,6 +308,7 @@ export function PublicBookingClient({ slug }: { slug: string }) {
     }
 
     setSuccess((body as { booking: Booking }).booking);
+    setRescheduleUrl(typeof (body as any).rescheduleUrl === "string" ? ((body as any).rescheduleUrl as string) : null);
   }
 
   if (loading) {
@@ -361,6 +372,17 @@ export function PublicBookingClient({ slug }: { slug: string }) {
             <div className="mt-6 text-sm text-zinc-700">
               {thankYou ? thankYou : "You can close this window."}
             </div>
+
+            {rescheduleUrl ? (
+              <div className="mt-6">
+                <a
+                  href={rescheduleUrl}
+                  className="inline-flex items-center justify-center rounded-2xl border border-zinc-200 bg-white px-4 py-3 text-sm font-semibold text-zinc-800 hover:bg-zinc-50"
+                >
+                  Reschedule
+                </a>
+              </div>
+            ) : null}
 
             <div className="mt-8 border-t border-zinc-200 pt-6 text-center text-xs text-zinc-600">
               <Link href="/" className="font-semibold hover:underline" style={{ color: "var(--booking-primary)" }}>

@@ -2,29 +2,21 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 
 import { prisma } from "@/lib/db";
-import { getBookingFormConfig } from "@/lib/bookingForm";
 import { hasPublicColumn } from "@/lib/dbSchema";
+import { getBookingFormConfig } from "@/lib/bookingForm";
+import { getBookingCalendarsConfig } from "@/lib/bookingCalendars";
 import { getRequestOrigin, signBookingRescheduleToken } from "@/lib/bookingReschedule";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
 
-const bodySchema = z.object({
+const postSchema = z.object({
   startAt: z.string().min(1),
-  contactName: z.string().min(1).max(80),
-  contactEmail: z.string().email(),
-  contactPhone: z.string().max(40).optional().nullable(),
-  notes: z.string().max(1200).optional().nullable(),
-  answers: z
-    .record(
-      z.string().max(64),
-      z.union([
-        z.string().max(2000),
-        z.array(z.string().max(200)).max(20),
-      ]),
-    )
-    .optional()
-    .nullable(),
+  contactName: z.string().trim().min(1).max(80),
+  contactEmail: z.string().trim().email().max(200),
+  contactPhone: z.string().trim().max(40).optional().nullable(),
+  notes: z.string().trim().max(1200).optional().nullable(),
+  answers: z.record(z.string(), z.any()).optional(),
 });
 
 function overlaps(aStart: Date, aEnd: Date, bStart: Date, bEnd: Date) {
@@ -57,7 +49,6 @@ async function sendEmail({
   const apiKey = process.env.SENDGRID_API_KEY;
   const fromEmail = process.env.SENDGRID_FROM_EMAIL;
   if (!apiKey || !fromEmail) return;
-  if (!to.length) return;
 
   await fetch("https://api.sendgrid.com/v3/mail/send", {
     method: "POST",
@@ -76,108 +67,59 @@ async function sendEmail({
 
 export async function POST(
   req: Request,
-  { params }: { params: Promise<{ slug: string }> },
+  { params }: { params: Promise<{ ownerId: string; calendarId: string }> },
 ) {
-  const { slug } = await params;
+  const { ownerId, calendarId } = await params;
   const origin = getRequestOrigin(req);
 
   const json = await req.json().catch(() => null);
-  const parsed = bodySchema.safeParse(json ?? {});
+  const parsed = postSchema.safeParse(json ?? {});
   if (!parsed.success) {
-    return NextResponse.json({ error: "Please check your details and try again." }, { status: 400 });
+    return NextResponse.json({ error: parsed.error.issues[0]?.message ?? "Invalid payload" }, { status: 400 });
   }
 
-  // Drift-hardening: only select columns that exist in this environment.
-  const [hasMeetingLocation, hasMeetingDetails, hasNotificationEmails] = await Promise.all([
-    hasPublicColumn("PortalBookingSite", "meetingLocation"),
-    hasPublicColumn("PortalBookingSite", "meetingDetails"),
-    hasPublicColumn("PortalBookingSite", "notificationEmails"),
+  const [site, calendars, flags] = await Promise.all([
+    (prisma as any).portalBookingSite.findUnique({
+      where: { ownerId },
+      select: {
+        id: true,
+        ownerId: true,
+        slug: true,
+        enabled: true,
+        title: true,
+        durationMinutes: true,
+        timeZone: true,
+        owner: { select: { id: true, name: true, email: true } },
+      },
+    }),
+    getBookingCalendarsConfig(ownerId),
+    Promise.all([
+      hasPublicColumn("PortalBookingSite", "meetingLocation"),
+      hasPublicColumn("PortalBookingSite", "meetingDetails"),
+      hasPublicColumn("PortalBookingSite", "notificationEmails"),
+    ]).then(([meetingLocation, meetingDetails, notificationEmails]) => ({ meetingLocation, meetingDetails, notificationEmails })),
   ]);
 
-  const site = await (prisma as any).portalBookingSite.findUnique({
-    where: { slug },
-    select: {
-      id: true,
-      enabled: true,
-      ownerId: true,
-      title: true,
-      durationMinutes: true,
-      timeZone: true,
-      ...(hasMeetingLocation ? { meetingLocation: true } : {}),
-      ...(hasMeetingDetails ? { meetingDetails: true } : {}),
-      ...(hasNotificationEmails ? { notificationEmails: true } : {}),
-      owner: { select: { name: true, email: true } },
-    } as any,
-  });
-  if (!site || !site.enabled) {
+  const cal = calendars.calendars.find((c) => c.id === calendarId);
+  if (!site || !site.enabled || !cal || !cal.enabled) {
     return NextResponse.json({ error: "Not found" }, { status: 404 });
   }
 
-  const form = await getBookingFormConfig(String(site.ownerId));
+  const form = await getBookingFormConfig(ownerId);
 
-  const rawAnswers = parsed.data.answers && typeof parsed.data.answers === "object" ? parsed.data.answers : null;
+  // Validate answers against form.
+  const rawAnswers = parsed.data.answers && typeof parsed.data.answers === "object" ? (parsed.data.answers as Record<string, unknown>) : {};
   const answers: Record<string, string | string[]> = {};
-  if (rawAnswers) {
-    for (const [k, v] of Object.entries(rawAnswers)) {
-      if (typeof k !== "string") continue;
-      if (typeof v === "string") {
-        answers[k] = v.trim().slice(0, 2000);
-      } else if (Array.isArray(v)) {
-        const list = v
-          .filter((x) => typeof x === "string")
-          .map((x) => x.trim().slice(0, 200))
-          .filter(Boolean);
-        // De-dupe while preserving order.
-        const unique: string[] = [];
-        const seen = new Set<string>();
-        for (const item of list) {
-          const key = item.toLowerCase();
-          if (seen.has(key)) continue;
-          seen.add(key);
-          unique.push(item);
-          if (unique.length >= 20) break;
-        }
-        answers[k] = unique;
-      }
-    }
-  }
-
-  const phone = form.phone.enabled ? (parsed.data.contactPhone?.trim() ? parsed.data.contactPhone.trim() : "") : "";
-  const notes = form.notes.enabled ? (parsed.data.notes?.trim() ? parsed.data.notes.trim() : "") : "";
-
-  if (form.phone.enabled && form.phone.required && !phone) {
-    return NextResponse.json({ error: "Phone is required." }, { status: 400 });
-  }
-  if (form.notes.enabled && form.notes.required && !notes) {
-    return NextResponse.json({ error: "Notes are required." }, { status: 400 });
-  }
 
   for (const q of form.questions) {
-    const a = answers[q.id];
-    if (!q.required && (a === undefined || a === null)) continue;
-
+    const a = rawAnswers[q.id];
     if (q.kind === "multiple_choice") {
       const list = Array.isArray(a) ? a : [];
-      const allowed = new Set((q.options ?? []).map((x) => String(x)));
-      const filtered = list.filter((x) => allowed.has(x));
-      if (q.required && filtered.length === 0) {
+      const xs = list.filter((x) => typeof x === "string").map((x) => x.trim()).filter(Boolean).slice(0, 12);
+      if (q.required && xs.length === 0) {
         return NextResponse.json({ error: `Please answer: ${q.label}` }, { status: 400 });
       }
-      // Normalize to allowed options only.
-      answers[q.id] = filtered;
-      continue;
-    }
-
-    if (q.kind === "single_choice") {
-      const v = typeof a === "string" ? a.trim() : "";
-      const allowed = new Set((q.options ?? []).map((x) => String(x)));
-      if (q.required && !v) {
-        return NextResponse.json({ error: `Please answer: ${q.label}` }, { status: 400 });
-      }
-      if (v && !allowed.has(v)) {
-        return NextResponse.json({ error: `Please answer: ${q.label}` }, { status: 400 });
-      }
-      answers[q.id] = v;
+      answers[q.id] = xs;
       continue;
     }
 
@@ -203,7 +145,7 @@ export async function POST(
   }
 
   const combinedNotes = [
-    notes || null,
+    parsed.data.notes || null,
     customAnswerLines.length ? ["---", "Form answers:", ...customAnswerLines].join("\n") : null,
   ]
     .filter(Boolean)
@@ -215,10 +157,9 @@ export async function POST(
     return NextResponse.json({ error: "Please choose a valid time." }, { status: 400 });
   }
 
-  const durationMinutes = site.durationMinutes;
+  const durationMinutes = cal.durationMinutes ?? site.durationMinutes;
   const endAt = new Date(startAt.getTime() + durationMinutes * 60_000);
 
-  // Ensure host has coverage at this slot.
   const coverage = await prisma.availabilityBlock.findFirst({
     where: { userId: site.ownerId, startAt: { lte: startAt }, endAt: { gte: endAt } },
     select: { id: true },
@@ -231,7 +172,6 @@ export async function POST(
     );
   }
 
-  // Ensure no conflicts with existing bookings.
   const existing = await (prisma as any).portalBooking.findMany({
     where: { siteId: site.id, status: "SCHEDULED", startAt: { lt: endAt }, endAt: { gt: startAt } },
     select: { startAt: true, endAt: true },
@@ -246,6 +186,17 @@ export async function POST(
     }
   }
 
+  const meeting = flags.meetingLocation || flags.meetingDetails || flags.notificationEmails
+    ? await (prisma as any).portalBookingSite.findUnique({
+        where: { ownerId },
+        select: {
+          ...(flags.meetingLocation ? { meetingLocation: true } : {}),
+          ...(flags.meetingDetails ? { meetingDetails: true } : {}),
+          ...(flags.notificationEmails ? { notificationEmails: true } : {}),
+        },
+      })
+    : null;
+
   const booking = await (prisma as any).portalBooking.create({
     data: {
       siteId: site.id,
@@ -253,7 +204,7 @@ export async function POST(
       endAt,
       contactName: parsed.data.contactName,
       contactEmail: parsed.data.contactEmail,
-      contactPhone: phone ? phone : null,
+      contactPhone: parsed.data.contactPhone ? parsed.data.contactPhone : null,
       notes: combinedNotes ? combinedNotes : null,
     },
     select: {
@@ -273,10 +224,12 @@ export async function POST(
     contactEmail: String(booking.contactEmail || ""),
   });
   const rescheduleUrl = rescheduleToken
-    ? new URL(`/book/${encodeURIComponent(slug)}/reschedule/${encodeURIComponent(String(booking.id))}?t=${encodeURIComponent(rescheduleToken)}`, origin).toString()
+    ? new URL(
+        `/book/${encodeURIComponent(String(site.slug))}/reschedule/${encodeURIComponent(String(booking.id))}?t=${encodeURIComponent(rescheduleToken)}`,
+        origin,
+      ).toString()
     : null;
 
-  // Best-effort email notifications (never block a successful booking).
   try {
     const profile = await prisma.businessProfile.findUnique({
       where: { ownerId: site.ownerId },
@@ -284,15 +237,18 @@ export async function POST(
     });
     const fromName = profile?.businessName?.trim() || site.owner?.name?.trim() || "Purely Automation";
     const when = `${formatInTimeZone(startAt, site.timeZone)} (${site.timeZone})`;
+    const title = cal.title;
 
-    const internalRecipients = Array.isArray((site as any).notificationEmails)
-      ? (((site as any).notificationEmails as unknown) as string[]).filter((x) => typeof x === "string" && x.includes("@"))
-      : [];
+    const internalRecipients = Array.isArray(cal.notificationEmails)
+      ? cal.notificationEmails
+      : Array.isArray((meeting as any)?.notificationEmails)
+        ? (((meeting as any).notificationEmails as unknown) as string[]).filter((x) => typeof x === "string" && x.includes("@"))
+        : [];
     const fallbackOwnerEmail = site.owner?.email ? [site.owner.email] : [];
     const notifyTo = internalRecipients.length ? internalRecipients : fallbackOwnerEmail;
 
     const internalBody = [
-      `New booking: ${site.title}`,
+      `New booking: ${title}`,
       "",
       `When: ${when}`,
       "",
@@ -301,25 +257,35 @@ export async function POST(
       booking.contactPhone ? `Phone: ${booking.contactPhone}` : null,
       booking.notes ? `Notes: ${booking.notes}` : null,
       "",
-      (site as any).meetingLocation ? `Location: ${(site as any).meetingLocation}` : null,
-      (site as any).meetingDetails ? `Details: ${(site as any).meetingDetails}` : null,
+      (cal.meetingLocation ?? (meeting as any)?.meetingLocation)
+        ? `Location: ${cal.meetingLocation ?? (meeting as any).meetingLocation}`
+        : null,
+      (cal.meetingDetails ?? (meeting as any)?.meetingDetails)
+        ? `Details: ${cal.meetingDetails ?? (meeting as any).meetingDetails}`
+        : null,
     ]
       .filter(Boolean)
       .join("\n");
 
-    await sendEmail({
-      to: notifyTo,
-      subject: `New booking: ${site.title} — ${booking.contactName}`,
-      body: internalBody,
-      fromName,
-    });
+    if (notifyTo.length) {
+      await sendEmail({
+        to: notifyTo,
+        subject: `New booking: ${title} — ${booking.contactName}`,
+        body: internalBody,
+        fromName,
+      });
+    }
 
     const customerBody = [
-      `You're booked: ${site.title}`,
+      `You're booked: ${title}`,
       "",
       `When: ${when}`,
-      (site as any).meetingLocation ? `Location: ${(site as any).meetingLocation}` : null,
-      (site as any).meetingDetails ? `Details: ${(site as any).meetingDetails}` : null,
+      (cal.meetingLocation ?? (meeting as any)?.meetingLocation)
+        ? `Location: ${cal.meetingLocation ?? (meeting as any).meetingLocation}`
+        : null,
+      (cal.meetingDetails ?? (meeting as any)?.meetingDetails)
+        ? `Details: ${cal.meetingDetails ?? (meeting as any).meetingDetails}`
+        : null,
       rescheduleUrl ? "" : null,
       rescheduleUrl ? `Need to reschedule? ${rescheduleUrl}` : null,
       "",
@@ -330,7 +296,7 @@ export async function POST(
 
     await sendEmail({
       to: [booking.contactEmail],
-      subject: `Booking confirmed: ${site.title}`,
+      subject: `Booking confirmed: ${title}`,
       body: customerBody,
       fromName,
     });
