@@ -10,6 +10,14 @@ type Site = {
   durationMinutes: number;
   timeZone: string;
   hostName?: string | null;
+  businessName?: string | null;
+  logoUrl?: string | null;
+  brandPrimaryHex?: string | null;
+  brandAccentHex?: string | null;
+  brandTextHex?: string | null;
+  photoUrl?: string | null;
+  meetingLocation?: string | null;
+  meetingDetails?: string | null;
 };
 
 type Slot = { startAt: string; endAt: string };
@@ -22,6 +30,13 @@ type Booking = {
 };
 
 type Step = "date" | "time" | "details";
+
+function normalizeHex(value: string | null | undefined): string | null {
+  if (!value) return null;
+  const v = value.trim();
+  if (!/^#([0-9a-fA-F]{6})$/.test(v)) return null;
+  return v;
+}
 
 function pad2(n: number) {
   return String(n).padStart(2, "0");
@@ -92,6 +107,13 @@ export function PublicBookingClient({ slug }: { slug: string }) {
   const canBook = useMemo(() => {
     return Boolean(selected && name.trim() && email.trim());
   }, [selected, name, email]);
+
+  const theme = useMemo(() => {
+    const primary = normalizeHex(site?.brandPrimaryHex) ?? "#1d4ed8";
+    const accent = normalizeHex(site?.brandAccentHex) ?? "#f472b6";
+    const text = normalizeHex(site?.brandTextHex) ?? "#18181b";
+    return { primary, accent, text };
+  }, [site?.brandAccentHex, site?.brandPrimaryHex, site?.brandTextHex]);
 
   const slotsByDay = useMemo(() => {
     const map = new Map<string, Slot[]>();
@@ -232,29 +254,85 @@ export function PublicBookingClient({ slug }: { slug: string }) {
 
   if (success && site) {
     return (
-      <div className="mx-auto max-w-3xl px-6 py-12">
+      <div
+        className="mx-auto max-w-3xl px-6 py-12"
+        style={{
+          ["--booking-primary" as any]: theme.primary,
+          ["--booking-accent" as any]: theme.accent,
+          ["--booking-text" as any]: theme.text,
+        }}
+      >
         <div className="rounded-3xl border border-zinc-200 bg-white p-8">
           <div className="text-xs font-semibold uppercase tracking-wide text-emerald-700">Booked</div>
-          <h1 className="mt-2 text-2xl font-bold text-brand-ink">You’re all set.</h1>
+          <div className="mt-3 flex items-center gap-3">
+            {site.logoUrl ? (
+              // eslint-disable-next-line @next/next/no-img-element
+              <img src={site.logoUrl} alt={site.businessName ?? site.title} className="h-9 w-auto" />
+            ) : null}
+            <h1 className="text-2xl font-bold" style={{ color: "var(--booking-text)" }}>
+              You’re all set.
+            </h1>
+          </div>
           <p className="mt-3 text-sm text-zinc-600">
             {new Date(success.startAt).toLocaleString()} ({site.durationMinutes} minutes)
           </p>
+          {site.meetingLocation ? <div className="mt-2 text-sm text-zinc-600">Location: {site.meetingLocation}</div> : null}
+          {site.meetingDetails ? <div className="mt-1 text-sm text-zinc-600">{site.meetingDetails}</div> : null}
           <div className="mt-6 text-sm text-zinc-600">You can close this window.</div>
+
+          <div className="mt-8 border-t border-zinc-200 pt-6 text-center text-xs text-zinc-600">
+            <Link href="/" className="font-semibold hover:underline" style={{ color: "var(--booking-primary)" }}>
+              Powered by Purely Automation
+            </Link>
+            <span className="px-2">•</span>
+            <Link href="/#demo" className="font-semibold hover:underline" style={{ color: "var(--booking-primary)" }}>
+              Create your own booking link
+            </Link>
+          </div>
         </div>
       </div>
     );
   }
 
   return (
-    <div className="mx-auto max-w-5xl px-6 py-12">
+    <div
+      className="mx-auto max-w-5xl px-6 py-12"
+      style={{
+        // CSS variables for themed colors
+        ["--booking-primary" as any]: theme.primary,
+        ["--booking-accent" as any]: theme.accent,
+        ["--booking-text" as any]: theme.text,
+      }}
+    >
       <div className="rounded-3xl border border-zinc-200 bg-white p-8">
         <div className="flex items-start justify-between gap-4">
-          <div>
-            <h1 className="text-2xl font-bold text-brand-ink">{site?.title ?? "Book a call"}</h1>
+          <div className="min-w-0">
+            <div className="flex items-center gap-3">
+              {site?.logoUrl ? (
+                // eslint-disable-next-line @next/next/no-img-element
+                <img src={site.logoUrl} alt={site.businessName ?? site.title} className="h-10 w-auto" />
+              ) : null}
+              <h1 className="truncate text-2xl font-bold" style={{ color: "var(--booking-text)" }}>
+                {site?.title ?? "Book a call"}
+              </h1>
+            </div>
             {site?.description ? <p className="mt-2 text-sm text-zinc-600">{site.description}</p> : null}
             <div className="mt-2 text-xs text-zinc-600">Meeting length: {site?.durationMinutes ?? 30} minutes</div>
+            {site?.meetingLocation ? (
+              <div className="mt-1 text-xs text-zinc-600">Location: {site.meetingLocation}</div>
+            ) : null}
+            {site?.meetingDetails ? (
+              <div className="mt-1 text-xs text-zinc-600">{site.meetingDetails}</div>
+            ) : null}
           </div>
         </div>
+
+        {site?.photoUrl ? (
+          <div className="mt-6 overflow-hidden rounded-3xl border border-zinc-200 bg-zinc-50">
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img src={site.photoUrl} alt="" className="h-48 w-full object-cover" />
+          </div>
+        ) : null}
 
         <div className="mt-8 grid grid-cols-1 gap-6 lg:grid-cols-3">
           <div className="lg:col-span-2">
@@ -313,7 +391,7 @@ export function PublicBookingClient({ slug }: { slug: string }) {
                           "rounded-2xl border px-2 py-3 text-sm font-semibold transition " +
                           (hasTimes
                             ? isSelected
-                              ? "border-[color:var(--color-brand-blue)] bg-[color:rgba(29,78,216,0.10)] text-zinc-900"
+                              ? "border-[color:var(--booking-primary)] bg-[color:color-mix(in_srgb,var(--booking-primary)_10%,white)] text-zinc-900"
                               : "border-zinc-200 bg-white text-zinc-900 hover:bg-zinc-50"
                             : "cursor-not-allowed border-zinc-100 bg-zinc-50 text-zinc-300") +
                           (!inMonth ? " opacity-60" : "")
@@ -377,7 +455,7 @@ export function PublicBookingClient({ slug }: { slug: string }) {
                           className={
                             "rounded-2xl border px-4 py-3 text-left text-sm transition-colors " +
                             (selected === s.startAt
-                              ? "border-[color:var(--color-brand-blue)] bg-[color:rgba(29,78,216,0.10)]"
+                              ? "border-[color:var(--booking-primary)] bg-[color:color-mix(in_srgb,var(--booking-primary)_10%,white)]"
                               : "border-zinc-200 hover:bg-zinc-50")
                           }
                         >
@@ -447,7 +525,8 @@ export function PublicBookingClient({ slug }: { slug: string }) {
                 type="button"
                 disabled={!canBook || bookingBusy}
                 onClick={() => book()}
-                className="inline-flex w-full items-center justify-center rounded-2xl bg-[color:var(--color-brand-blue)] px-4 py-3 text-sm font-semibold text-white hover:opacity-95 disabled:opacity-60"
+                className="inline-flex w-full items-center justify-center rounded-2xl px-4 py-3 text-sm font-semibold text-white hover:opacity-95 disabled:opacity-60"
+                style={{ backgroundColor: "var(--booking-primary)" }}
               >
                 {bookingBusy ? "Booking…" : "Confirm booking"}
               </button>
@@ -458,11 +537,11 @@ export function PublicBookingClient({ slug }: { slug: string }) {
         </div>
 
         <div className="mt-10 border-t border-zinc-200 pt-6 text-center text-xs text-zinc-600">
-          <Link href="/" className="font-semibold text-[color:var(--color-brand-blue)] hover:underline">
+          <Link href="/" className="font-semibold hover:underline" style={{ color: "var(--booking-primary)" }}>
             Powered by Purely Automation
           </Link>
           <span className="px-2">•</span>
-          <Link href="/#demo" className="font-semibold text-[color:var(--color-brand-blue)] hover:underline">
+          <Link href="/#demo" className="font-semibold hover:underline" style={{ color: "var(--booking-primary)" }}>
             Create your own booking link
           </Link>
         </div>

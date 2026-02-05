@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { Prisma } from "@prisma/client";
 import { z } from "zod";
 
 import { requireClientSession } from "@/lib/apiAuth";
@@ -15,6 +16,13 @@ const putSchema = z.object({
   durationMinutes: z.number().int().min(10).max(180).optional(),
   timeZone: z.string().min(1).max(80).optional(),
   slug: z.string().min(3).max(80).optional(),
+
+  photoUrl: z.string().trim().max(500).optional().nullable(),
+  meetingLocation: z.string().trim().max(120).optional().nullable(),
+  meetingDetails: z.string().trim().max(600).optional().nullable(),
+  appointmentPurpose: z.string().trim().max(600).optional().nullable(),
+  toneDirection: z.string().trim().max(600).optional().nullable(),
+  notificationEmails: z.array(z.string().trim().email()).max(20).optional().nullable(),
 });
 
 async function ensureSite(ownerId: string) {
@@ -29,6 +37,12 @@ async function ensureSite(ownerId: string) {
       description: true,
       durationMinutes: true,
       timeZone: true,
+      photoUrl: true,
+      notificationEmails: true,
+      appointmentPurpose: true,
+      toneDirection: true,
+      meetingLocation: true,
+      meetingDetails: true,
       updatedAt: true,
     },
   });
@@ -68,6 +82,12 @@ async function ensureSite(ownerId: string) {
       description: true,
       durationMinutes: true,
       timeZone: true,
+      photoUrl: true,
+      notificationEmails: true,
+      appointmentPurpose: true,
+      toneDirection: true,
+      meetingLocation: true,
+      meetingDetails: true,
       updatedAt: true,
     },
   });
@@ -95,6 +115,12 @@ export async function GET() {
       description: site.description,
       durationMinutes: site.durationMinutes,
       timeZone: site.timeZone,
+      photoUrl: site.photoUrl ?? null,
+      meetingLocation: site.meetingLocation ?? null,
+      meetingDetails: site.meetingDetails ?? null,
+      appointmentPurpose: site.appointmentPurpose ?? null,
+      toneDirection: site.toneDirection ?? null,
+      notificationEmails: (site.notificationEmails as unknown) ?? null,
       updatedAt: site.updatedAt,
     },
   });
@@ -137,6 +163,18 @@ export async function PUT(req: Request) {
       durationMinutes: parsed.data.durationMinutes ?? undefined,
       timeZone: parsed.data.timeZone ?? undefined,
       slug: nextSlug ?? undefined,
+
+      photoUrl: parsed.data.photoUrl === null ? null : parsed.data.photoUrl ?? undefined,
+      meetingLocation: parsed.data.meetingLocation === null ? null : parsed.data.meetingLocation ?? undefined,
+      meetingDetails: parsed.data.meetingDetails === null ? null : parsed.data.meetingDetails ?? undefined,
+      appointmentPurpose: parsed.data.appointmentPurpose === null ? null : parsed.data.appointmentPurpose ?? undefined,
+      toneDirection: parsed.data.toneDirection === null ? null : parsed.data.toneDirection ?? undefined,
+      notificationEmails:
+        parsed.data.notificationEmails === null
+          ? Prisma.DbNull
+          : parsed.data.notificationEmails
+            ? (parsed.data.notificationEmails.length ? parsed.data.notificationEmails : Prisma.DbNull)
+            : undefined,
     },
     select: {
       id: true,
@@ -147,6 +185,12 @@ export async function PUT(req: Request) {
       description: true,
       durationMinutes: true,
       timeZone: true,
+      photoUrl: true,
+      notificationEmails: true,
+      appointmentPurpose: true,
+      toneDirection: true,
+      meetingLocation: true,
+      meetingDetails: true,
       updatedAt: true,
     },
   });
@@ -161,6 +205,12 @@ export async function PUT(req: Request) {
       description: updated.description,
       durationMinutes: updated.durationMinutes,
       timeZone: updated.timeZone,
+      photoUrl: updated.photoUrl ?? null,
+      meetingLocation: updated.meetingLocation ?? null,
+      meetingDetails: updated.meetingDetails ?? null,
+      appointmentPurpose: updated.appointmentPurpose ?? null,
+      toneDirection: updated.toneDirection ?? null,
+      notificationEmails: (updated.notificationEmails as unknown) ?? null,
       updatedAt: updated.updatedAt,
     },
   });

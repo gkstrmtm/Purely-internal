@@ -11,6 +11,13 @@ type Site = {
   description?: string | null;
   durationMinutes: number;
   timeZone: string;
+
+  photoUrl?: string | null;
+  meetingLocation?: string | null;
+  meetingDetails?: string | null;
+  appointmentPurpose?: string | null;
+  toneDirection?: string | null;
+  notificationEmails?: string[] | null;
 };
 
 type Me = {
@@ -48,6 +55,9 @@ export function PortalBookingClient() {
   const [error, setError] = useState<string | null>(null);
   const [status, setStatus] = useState<string | null>(null);
 
+  const [photoBusy, setPhotoBusy] = useState(false);
+  const [notificationEmailsText, setNotificationEmailsText] = useState("");
+
   const bookingUrl = useMemo(() => {
     if (!site?.slug) return null;
     if (typeof window === "undefined") return `/book/${site.slug}`;
@@ -66,7 +76,12 @@ export function PortalBookingClient() {
     if (meRes.ok) setMe(meJson as Me);
 
     const settingsJson = await settingsRes.json().catch(() => ({}));
-    if (settingsRes.ok) setSite((settingsJson as { site: Site }).site);
+    if (settingsRes.ok) {
+      const nextSite = (settingsJson as { site: Site }).site;
+      setSite(nextSite);
+      const xs = Array.isArray(nextSite?.notificationEmails) ? nextSite.notificationEmails : [];
+      setNotificationEmailsText(xs.join("\n"));
+    }
 
     const bookingsJson = await bookingsRes.json().catch(() => ({}));
     if (bookingsRes.ok) {
@@ -112,7 +127,30 @@ export function PortalBookingClient() {
     }
 
     setSite((body as { site: Site }).site);
+    const nextSite = (body as { site: Site }).site;
+    if (Array.isArray(nextSite?.notificationEmails)) {
+      setNotificationEmailsText(nextSite.notificationEmails.join("\n"));
+    }
     setStatus("Saved booking settings");
+  }
+
+  function parseNotificationEmails(text: string): string[] {
+    const xs = String(text || "")
+      .split(/[,\n]/g)
+      .map((x) => x.trim())
+      .filter(Boolean);
+    const emailLike = /^[^@\s]+@[^@\s]+\.[^@\s]+$/;
+    // De-dupe while preserving order.
+    const unique: string[] = [];
+    const seen = new Set<string>();
+    for (const x of xs) {
+      const lower = x.toLowerCase();
+      if (!emailLike.test(lower)) continue;
+      if (seen.has(lower)) continue;
+      seen.add(lower);
+      unique.push(lower);
+    }
+    return unique.slice(0, 20);
   }
 
   async function cancelBooking(id: string) {
@@ -236,9 +274,17 @@ export function PortalBookingClient() {
                 onChange={(e) => setSite((prev) => (prev ? { ...prev, title: e.target.value } : prev))}
                 onBlur={() => save({ title: site?.title ?? "" })}
               />
-              <div className="mt-2 text-xs text-zinc-500">
-                Tip: you can also customize the link slug in settings (coming next). For now it’s stable.
-              </div>
+            </label>
+
+            <label className="rounded-2xl border border-zinc-200 bg-zinc-50 px-4 py-3 text-sm sm:col-span-2">
+              <div className="font-medium text-zinc-800">Link slug</div>
+              <input
+                className="mt-2 w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm"
+                value={site?.slug ?? ""}
+                onChange={(e) => setSite((prev) => (prev ? { ...prev, slug: e.target.value } : prev))}
+                onBlur={() => save({ slug: site?.slug ?? "" })}
+              />
+              <div className="mt-2 text-xs text-zinc-500">This becomes the end of your public link: /book/&lt;slug&gt;</div>
             </label>
           </div>
 
@@ -311,6 +357,143 @@ export function PortalBookingClient() {
               </div>
             </>
           ) : null}
+        </div>
+
+        <div className="rounded-3xl border border-zinc-200 bg-white p-6 lg:col-span-2">
+          <div className="text-sm font-semibold text-zinc-900">Customization & notifications</div>
+          <div className="mt-2 text-sm text-zinc-600">
+            Add an optional header photo, meeting info, and who gets notified when someone books.
+          </div>
+
+          <div className="mt-4 rounded-2xl border border-zinc-200 bg-zinc-50 p-4">
+            <div className="text-xs font-semibold text-zinc-600">Header photo (optional)</div>
+            <div className="mt-3 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+              <div className="flex min-w-0 flex-1 items-center gap-3">
+                <div className="h-12 w-12 overflow-hidden rounded-2xl border border-zinc-200 bg-white">
+                  {site?.photoUrl ? (
+                    // eslint-disable-next-line @next/next/no-img-element
+                    <img src={site.photoUrl} alt="" className="h-full w-full object-cover" />
+                  ) : null}
+                </div>
+                <div className="min-w-0">
+                  <div className="truncate text-xs text-zinc-500">{site?.photoUrl ? site.photoUrl : "No photo uploaded"}</div>
+                  <div className="mt-1 text-xs text-zinc-500">Recommended: wide image, under 2MB.</div>
+                </div>
+              </div>
+
+              <div className="flex gap-2">
+                <label className="inline-flex cursor-pointer items-center justify-center rounded-2xl border border-zinc-200 bg-white px-4 py-3 text-sm font-semibold text-brand-ink hover:bg-zinc-50">
+                  {photoBusy ? "Uploading…" : "Upload"}
+                  <input
+                    type="file"
+                    accept="image/*"
+                    className="hidden"
+                    disabled={photoBusy}
+                    onChange={async (e) => {
+                      const file = e.target.files?.[0];
+                      if (!file) return;
+                      setPhotoBusy(true);
+                      setError(null);
+                      try {
+                        const fd = new FormData();
+                        fd.set("file", file);
+                        const up = await fetch("/api/uploads", { method: "POST", body: fd });
+                        const upBody = (await up.json().catch(() => ({}))) as { url?: string; error?: string };
+                        if (!up.ok || !upBody.url) {
+                          setError(upBody.error ?? "Upload failed");
+                          return;
+                        }
+                        await save({ photoUrl: upBody.url });
+                      } finally {
+                        setPhotoBusy(false);
+                        if (e.target) e.target.value = "";
+                      }
+                    }}
+                  />
+                </label>
+                {site?.photoUrl ? (
+                  <button
+                    type="button"
+                    className="inline-flex items-center justify-center rounded-2xl border border-zinc-200 bg-white px-4 py-3 text-sm font-semibold text-brand-ink hover:bg-zinc-50"
+                    onClick={() => save({ photoUrl: null })}
+                    disabled={saving}
+                  >
+                    Remove
+                  </button>
+                ) : null}
+              </div>
+            </div>
+          </div>
+
+          <div className="mt-4 grid grid-cols-1 gap-4 sm:grid-cols-2">
+            <label className="rounded-2xl border border-zinc-200 bg-zinc-50 px-4 py-3 text-sm">
+              <div className="font-medium text-zinc-800">Meeting location (optional)</div>
+              <input
+                className="mt-2 w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm"
+                placeholder="Phone call, Zoom link, in-person address…"
+                value={site?.meetingLocation ?? ""}
+                onChange={(e) => setSite((prev) => (prev ? { ...prev, meetingLocation: e.target.value } : prev))}
+                onBlur={() => save({ meetingLocation: site?.meetingLocation?.trim() ? site.meetingLocation.trim() : null })}
+              />
+            </label>
+
+            <label className="rounded-2xl border border-zinc-200 bg-zinc-50 px-4 py-3 text-sm">
+              <div className="font-medium text-zinc-800">Meeting details (optional)</div>
+              <textarea
+                className="mt-2 min-h-[90px] w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm"
+                placeholder="Anything they should know before the call."
+                value={site?.meetingDetails ?? ""}
+                onChange={(e) => setSite((prev) => (prev ? { ...prev, meetingDetails: e.target.value } : prev))}
+                onBlur={() => save({ meetingDetails: site?.meetingDetails?.trim() ? site.meetingDetails.trim() : null })}
+              />
+            </label>
+
+            <label className="rounded-2xl border border-zinc-200 bg-zinc-50 px-4 py-3 text-sm">
+              <div className="font-medium text-zinc-800">Appointment purpose (optional)</div>
+              <textarea
+                className="mt-2 min-h-[90px] w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm"
+                placeholder="What is this appointment for?"
+                value={site?.appointmentPurpose ?? ""}
+                onChange={(e) => setSite((prev) => (prev ? { ...prev, appointmentPurpose: e.target.value } : prev))}
+                onBlur={() =>
+                  save({
+                    appointmentPurpose: site?.appointmentPurpose?.trim()
+                      ? site.appointmentPurpose.trim()
+                      : null,
+                  })
+                }
+              />
+            </label>
+
+            <label className="rounded-2xl border border-zinc-200 bg-zinc-50 px-4 py-3 text-sm">
+              <div className="font-medium text-zinc-800">Tone direction (optional)</div>
+              <textarea
+                className="mt-2 min-h-[90px] w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm"
+                placeholder="Friendly, direct, professional…"
+                value={site?.toneDirection ?? ""}
+                onChange={(e) => setSite((prev) => (prev ? { ...prev, toneDirection: e.target.value } : prev))}
+                onBlur={() =>
+                  save({
+                    toneDirection: site?.toneDirection?.trim() ? site.toneDirection.trim() : null,
+                  })
+                }
+              />
+            </label>
+
+            <label className="rounded-2xl border border-zinc-200 bg-zinc-50 px-4 py-3 text-sm sm:col-span-2">
+              <div className="font-medium text-zinc-800">Notification emails (optional)</div>
+              <textarea
+                className="mt-2 min-h-[90px] w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm"
+                placeholder="one@company.com\nother@company.com"
+                value={notificationEmailsText}
+                onChange={(e) => setNotificationEmailsText(e.target.value)}
+                onBlur={() => save({ notificationEmails: parseNotificationEmails(notificationEmailsText) })}
+              />
+              <div className="mt-2 text-xs text-zinc-500">Separate with commas or new lines.</div>
+            </label>
+          </div>
+
+          {saving ? <div className="mt-4 text-sm text-zinc-500">Saving…</div> : null}
         </div>
       </div>
 

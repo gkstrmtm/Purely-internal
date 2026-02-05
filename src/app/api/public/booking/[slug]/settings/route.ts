@@ -20,13 +20,23 @@ export async function GET(
       description: true,
       durationMinutes: true,
       timeZone: true,
-      owner: { select: { name: true } },
+      photoUrl: true,
+      meetingLocation: true,
+      meetingDetails: true,
+      owner: { select: { id: true, name: true } },
     },
   });
 
   if (!site || !site.enabled) {
     return NextResponse.json({ error: "Not found" }, { status: 404 });
   }
+
+  const profile = site.owner?.id
+    ? await prisma.businessProfile.findUnique({
+        where: { ownerId: site.owner.id },
+        select: { logoUrl: true, brandPrimaryHex: true, brandAccentHex: true, brandTextHex: true, businessName: true },
+      })
+    : null;
 
   return NextResponse.json({
     ok: true,
@@ -37,6 +47,14 @@ export async function GET(
       durationMinutes: site.durationMinutes,
       timeZone: site.timeZone,
       hostName: site.owner?.name ?? null,
+      businessName: profile?.businessName ?? null,
+      logoUrl: profile?.logoUrl ?? null,
+      brandPrimaryHex: profile?.brandPrimaryHex ?? null,
+      brandAccentHex: profile?.brandAccentHex ?? null,
+      brandTextHex: profile?.brandTextHex ?? null,
+      photoUrl: site.photoUrl ?? null,
+      meetingLocation: site.meetingLocation ?? null,
+      meetingDetails: site.meetingDetails ?? null,
     },
   });
 }
