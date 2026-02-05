@@ -7,7 +7,8 @@ function run(cmd, args, opts = {}) {
     timeout: opts.timeoutMs,
     env: opts.env,
   });
-  if (res.status !== 0) process.exit(res.status ?? 1);
+  if (res.status !== 0 && !opts.allowFailure) process.exit(res.status ?? 1);
+  return res;
 }
 
 const shouldRun = Boolean(process.env.VERCEL || process.env.CI || process.env.RUN_PRISMA_MIGRATIONS === "1");
@@ -41,10 +42,16 @@ if (forceMigrations) {
   }
 } else if (directUrl) {
   console.log("[prebuild] Running prisma migrate deploy (using DIRECT_URL)...");
-  run("npx", ["prisma", "migrate", "deploy"], {
-    timeoutMs: 180_000,
+  const res = run("npx", ["prisma", "migrate", "deploy"], {
+    timeoutMs: 120_000,
     env: { ...process.env, DATABASE_URL: directUrl },
+    allowFailure: true,
   });
+  if (res.status !== 0) {
+    console.log(
+      "[prebuild] prisma migrate deploy failed (likely DB unreachable). Continuing build; set RUN_PRISMA_MIGRATIONS=1 to fail hard.",
+    );
+  }
 } else if (isVercel) {
   console.log("[prebuild] DIRECT_URL not set on Vercel; skipping prisma migrate deploy to avoid long builds.");
 } else {
