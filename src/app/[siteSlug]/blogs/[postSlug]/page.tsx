@@ -4,6 +4,7 @@ import type { CSSProperties } from "react";
 
 import { prisma } from "@/lib/db";
 import { formatBlogDate, parseBlogContent } from "@/lib/blog";
+import { hasPublicColumn } from "@/lib/dbSchema";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
@@ -21,12 +22,18 @@ export async function generateMetadata(props: PageProps) {
   const { siteSlug, postSlug } = await props.params;
 
   try {
-    const site = await prisma.clientBlogSite.findUnique({
-      where: { slug: siteSlug },
-      select: { id: true, ownerId: true, name: true, slug: true },
-    });
+    const canUseSlugColumn = await hasPublicColumn("ClientBlogSite", "slug");
+    const site = canUseSlugColumn
+      ? await prisma.clientBlogSite.findFirst({
+          where: { OR: [{ slug: siteSlug }, { id: siteSlug }] },
+          select: { id: true, ownerId: true, name: true, slug: true },
+        })
+      : await prisma.clientBlogSite.findUnique({
+          where: { id: siteSlug },
+          select: { id: true, ownerId: true, name: true },
+        });
 
-    if (!site || !site.slug) return {};
+    if (!site) return {};
 
     const post = await prisma.clientBlogPost.findFirst({
       where: { siteId: site.id, slug: postSlug, status: "PUBLISHED", archivedAt: null },
@@ -54,27 +61,42 @@ export async function generateMetadata(props: PageProps) {
 export default async function ClientBlogPostPage(props: PageProps) {
   const { siteSlug, postSlug } = await props.params;
 
-  const site = await prisma.clientBlogSite.findUnique({
-    where: { slug: siteSlug },
-    select: { id: true, name: true, ownerId: true, slug: true },
-  });
+  const canUseSlugColumn = await hasPublicColumn("ClientBlogSite", "slug");
+  const site = canUseSlugColumn
+    ? await prisma.clientBlogSite.findFirst({
+        where: { OR: [{ slug: siteSlug }, { id: siteSlug }] },
+        select: { id: true, name: true, ownerId: true, slug: true },
+      })
+    : await prisma.clientBlogSite.findUnique({
+        where: { id: siteSlug },
+        select: { id: true, name: true, ownerId: true },
+      });
 
-  if (!site || !site.slug) notFound();
+  if (!site) notFound();
+
+  const siteHandle = (site as any).slug ?? (site as any).id;
+
+  const [hasLogoUrl, hasPrimaryHex, hasAccentHex, hasTextHex] = await Promise.all([
+    hasPublicColumn("BusinessProfile", "logoUrl"),
+    hasPublicColumn("BusinessProfile", "brandPrimaryHex"),
+    hasPublicColumn("BusinessProfile", "brandAccentHex"),
+    hasPublicColumn("BusinessProfile", "brandTextHex"),
+  ]);
+
+  const profileSelect: Record<string, boolean> = { businessName: true };
+  if (hasLogoUrl) profileSelect.logoUrl = true;
+  if (hasPrimaryHex) profileSelect.brandPrimaryHex = true;
+  if (hasAccentHex) profileSelect.brandAccentHex = true;
+  if (hasTextHex) profileSelect.brandTextHex = true;
 
   const profile = await prisma.businessProfile.findUnique({
-    where: { ownerId: site.ownerId },
-    select: {
-      businessName: true,
-      logoUrl: true,
-      brandPrimaryHex: true,
-      brandAccentHex: true,
-      brandTextHex: true,
-    },
+    where: { ownerId: (site as any).ownerId },
+    select: profileSelect as any,
   });
 
-  const brandPrimary = normalizeHex(profile?.brandPrimaryHex) ?? "#1d4ed8";
-  const brandAccent = normalizeHex(profile?.brandAccentHex) ?? "#f472b6";
-  const brandText = normalizeHex(profile?.brandTextHex) ?? "#18181b";
+  const brandPrimary = normalizeHex((profile as any)?.brandPrimaryHex) ?? "#1d4ed8";
+  const brandAccent = normalizeHex((profile as any)?.brandAccentHex) ?? "#f472b6";
+  const brandText = normalizeHex((profile as any)?.brandTextHex) ?? "#18181b";
 
   const post = await prisma.clientBlogPost.findFirst({
     where: { siteId: site.id, slug: postSlug, status: "PUBLISHED", archivedAt: null },
@@ -83,8 +105,8 @@ export default async function ClientBlogPostPage(props: PageProps) {
 
   if (!post) notFound();
 
-  const brandName = profile?.businessName || site.name;
-  const logoUrl = profile?.logoUrl || null;
+  const brandName = (profile as any)?.businessName || (site as any).name;
+  const logoUrl = (profile as any)?.logoUrl || null;
 
   const themeStyle = {
     ["--client-primary" as any]: brandPrimary,
@@ -98,7 +120,7 @@ export default async function ClientBlogPostPage(props: PageProps) {
     <div className="min-h-screen bg-white" style={themeStyle}>
       <header className="border-b border-zinc-200 bg-white/80 backdrop-blur">
         <div className="mx-auto flex max-w-6xl items-center justify-between px-6 py-4">
-          <Link href={`/${site.slug}/blogs`} className="flex items-center gap-3">
+          <Link href={`/${siteHandle}/blogs`} className="flex items-center gap-3">
             {logoUrl ? (
               // eslint-disable-next-line @next/next/no-img-element
               <img src={logoUrl} alt={brandName} className="h-10 w-auto" />
@@ -111,7 +133,7 @@ export default async function ClientBlogPostPage(props: PageProps) {
 
           <div className="flex items-center gap-3">
             <Link
-              href={`/${site.slug}/blogs`}
+              href={`/${siteHandle}/blogs`}
               className="hidden rounded-xl px-3 py-2 text-sm font-semibold text-zinc-700 hover:bg-zinc-100 sm:inline"
             >
               all posts
@@ -192,7 +214,7 @@ export default async function ClientBlogPostPage(props: PageProps) {
                 learn more
               </Link>
               <Link
-                href={`/${site.slug}/blogs`}
+                href={`/${siteHandle}/blogs`}
                 className="inline-flex items-center justify-center rounded-2xl border bg-white px-6 py-3 text-base font-bold hover:bg-zinc-50"
                 style={{ borderColor: "rgba(29,78,216,0.15)", color: "var(--client-primary)" }}
               >
@@ -211,7 +233,7 @@ export default async function ClientBlogPostPage(props: PageProps) {
         <div className="mx-auto flex max-w-6xl flex-col gap-4 px-6 py-10 sm:flex-row sm:items-center sm:justify-between">
           <div className="text-sm text-zinc-600">© {new Date().getFullYear()} {brandName}</div>
           <div className="flex items-center gap-4">
-            <Link href={`/${site.slug}/blogs`} className="text-sm font-semibold hover:underline" style={{ color: "var(--client-primary)" }}>
+            <Link href={`/${siteHandle}/blogs`} className="text-sm font-semibold hover:underline" style={{ color: "var(--client-primary)" }}>
               blogs
             </Link>
             <Link href="/" className="text-sm font-semibold hover:underline" style={{ color: "var(--client-primary)" }}>

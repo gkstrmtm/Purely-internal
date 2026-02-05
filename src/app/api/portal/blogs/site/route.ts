@@ -5,6 +5,7 @@ import crypto from "crypto";
 import { prisma } from "@/lib/db";
 import { requireClientSession } from "@/lib/apiAuth";
 import { slugify } from "@/lib/slugify";
+import { hasPublicColumn } from "@/lib/dbSchema";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
@@ -24,7 +25,7 @@ function normalizeDomain(raw: string | null | undefined) {
   return d.length ? d : null;
 }
 
-async function ensurePublicSlug(ownerId: string, desiredName: string) {
+async function ensurePublicSlug(ownerId: string, desiredName: string, canUseSlugColumn: boolean) {
   const profile = await prisma.businessProfile.findUnique({
     where: { ownerId },
     select: { businessName: true },
@@ -34,9 +35,11 @@ async function ensurePublicSlug(ownerId: string, desiredName: string) {
   const desired = base.length >= 3 ? base : "blog";
 
   let slug = desired;
-  const collision = await prisma.clientBlogSite.findUnique({ where: { slug } });
-  if (collision && collision.ownerId !== ownerId) {
-    slug = `${desired}-${ownerId.slice(0, 6)}`;
+  if (canUseSlugColumn) {
+    const collision = await prisma.clientBlogSite.findUnique({ where: { slug } });
+    if (collision && collision.ownerId !== ownerId) {
+      slug = `${desired}-${ownerId.slice(0, 6)}`;
+    }
   }
 
   return slug;
@@ -52,23 +55,27 @@ export async function GET() {
   }
 
   const ownerId = auth.session.user.id;
-  let site = await prisma.clientBlogSite.findUnique({
+  const canUseSlugColumn = await hasPublicColumn("ClientBlogSite", "slug");
+
+  let site = (await prisma.clientBlogSite.findUnique({
     where: { ownerId },
     select: {
       id: true,
       name: true,
-      slug: true,
       primaryDomain: true,
       verifiedAt: true,
       verificationToken: true,
       updatedAt: true,
-    },
-  });
+      ...(canUseSlugColumn ? { slug: true } : {}),
+    } as any,
+  })) as any;
 
   // Backfill slug for older sites.
-  if (site && !site.slug) {
-    const slug = await ensurePublicSlug(ownerId, site.name);
-    site = await prisma.clientBlogSite.update({
+  const currentSlug = (site as any)?.slug as string | null | undefined;
+
+  if (site && canUseSlugColumn && !currentSlug) {
+    const slug = await ensurePublicSlug(ownerId, site.name, true);
+    site = (await prisma.clientBlogSite.update({
       where: { ownerId },
       data: { slug },
       select: {
@@ -80,10 +87,18 @@ export async function GET() {
         verificationToken: true,
         updatedAt: true,
       },
-    });
+    })) as any;
   }
 
-  return NextResponse.json({ ok: true, site });
+  return NextResponse.json({
+    ok: true,
+    site: site
+      ? {
+          ...(site as any),
+          slug: canUseSlugColumn ? ((site as any).slug ?? null) : null,
+        }
+      : null,
+  });
 }
 
 export async function POST(req: Request) {
@@ -102,65 +117,79 @@ export async function POST(req: Request) {
   }
 
   const ownerId = auth.session.user.id;
+  const canUseSlugColumn = await hasPublicColumn("ClientBlogSite", "slug");
 
-  const existing = await prisma.clientBlogSite.findUnique({
+  const existing = (await prisma.clientBlogSite.findUnique({
     where: { ownerId },
     select: {
       id: true,
       name: true,
-      slug: true,
       primaryDomain: true,
       verifiedAt: true,
       verificationToken: true,
       updatedAt: true,
-    },
-  });
+      ...(canUseSlugColumn ? { slug: true } : {}),
+    } as any,
+  })) as any;
   if (existing) {
     // Treat create as idempotent: a customer can only have one site, so just return it.
-    if (!existing.slug) {
-      const slug = await ensurePublicSlug(ownerId, existing.name);
-      const updated = await prisma.clientBlogSite.update({
-        where: { ownerId },
-        data: { slug },
-        select: {
-          id: true,
-          name: true,
-          slug: true,
-          primaryDomain: true,
-          verifiedAt: true,
-          verificationToken: true,
-          updatedAt: true,
-        },
-      });
+    const currentSlug = (existing as any)?.slug as string | null | undefined;
+    if (canUseSlugColumn && !currentSlug) {
+      const slug = await ensurePublicSlug(ownerId, existing.name, true);
+      const updated = (await prisma.clientBlogSite.update({
+          where: { ownerId },
+          data: { slug },
+          select: {
+            id: true,
+            name: true,
+            slug: true,
+            primaryDomain: true,
+            verifiedAt: true,
+            verificationToken: true,
+            updatedAt: true,
+          },
+      })) as any;
       return NextResponse.json({ ok: true, site: updated });
     }
 
-    return NextResponse.json({ ok: true, site: existing });
+    return NextResponse.json({
+      ok: true,
+      site: {
+        ...(existing as any),
+        slug: canUseSlugColumn ? ((existing as any).slug ?? null) : null,
+      },
+    });
   }
 
   const token = crypto.randomBytes(18).toString("hex");
-  const slug = await ensurePublicSlug(ownerId, parsed.data.name.trim());
+  const slug = await ensurePublicSlug(ownerId, parsed.data.name.trim(), canUseSlugColumn);
 
-  const created = await prisma.clientBlogSite.create({
-    data: {
-      ownerId,
-      name: parsed.data.name.trim(),
-      slug,
-      primaryDomain: normalizeDomain(parsed.data.primaryDomain),
-      verificationToken: token,
-    },
-    select: {
-      id: true,
-      name: true,
-      slug: true,
-      primaryDomain: true,
-      verifiedAt: true,
-      verificationToken: true,
-      updatedAt: true,
+  const created = (await prisma.clientBlogSite.create({
+      data: {
+        ownerId,
+        name: parsed.data.name.trim(),
+        ...(canUseSlugColumn ? { slug } : {}),
+        primaryDomain: normalizeDomain(parsed.data.primaryDomain),
+        verificationToken: token,
+      },
+      select: {
+        id: true,
+        name: true,
+        primaryDomain: true,
+        verifiedAt: true,
+        verificationToken: true,
+        updatedAt: true,
+        ...(canUseSlugColumn ? { slug: true } : {}),
+      } as any,
+  })) as any;
+
+  return NextResponse.json({
+    ok: true,
+    site: {
+      ...(created as any),
+      slug: canUseSlugColumn ? ((created as any).slug ?? null) : null,
     },
   });
-
-  return NextResponse.json({ ok: true, site: created });
 }
 
 export async function PUT(req: Request) {
@@ -179,6 +208,7 @@ export async function PUT(req: Request) {
   }
 
   const ownerId = auth.session.user.id;
+  const canUseSlugColumn = await hasPublicColumn("ClientBlogSite", "slug");
 
   const primaryDomain = normalizeDomain(parsed.data.primaryDomain);
   const name = parsed.data.name.trim();
@@ -190,12 +220,12 @@ export async function PUT(req: Request) {
 
   const domainChanged = (existing?.primaryDomain ?? null) !== primaryDomain;
 
-  const updated = await prisma.clientBlogSite.upsert({
+  const updated = (await prisma.clientBlogSite.upsert({
     where: { ownerId },
     create: {
       ownerId,
       name,
-      slug: await ensurePublicSlug(ownerId, name),
+      ...(canUseSlugColumn ? { slug: await ensurePublicSlug(ownerId, name, true) } : {}),
       primaryDomain,
       verificationToken: crypto.randomBytes(18).toString("hex"),
       verifiedAt: null,
@@ -203,9 +233,10 @@ export async function PUT(req: Request) {
     update: {
       name,
       ...(await (async () => {
+        if (!canUseSlugColumn) return {};
         const existing = await prisma.clientBlogSite.findUnique({ where: { ownerId }, select: { slug: true } });
-        if (existing?.slug) return {};
-        return { slug: await ensurePublicSlug(ownerId, name) };
+        if ((existing as any)?.slug) return {};
+        return { slug: await ensurePublicSlug(ownerId, name, true) };
       })()),
       primaryDomain,
       ...(domainChanged
@@ -216,15 +247,21 @@ export async function PUT(req: Request) {
         : {}),
     },
     select: {
-      id: true,
-      name: true,
-      slug: true,
-      primaryDomain: true,
-      verifiedAt: true,
-      verificationToken: true,
-      updatedAt: true,
+        id: true,
+        name: true,
+        primaryDomain: true,
+        verifiedAt: true,
+        verificationToken: true,
+        updatedAt: true,
+        ...(canUseSlugColumn ? { slug: true } : {}),
+      } as any,
+  })) as any;
+
+  return NextResponse.json({
+    ok: true,
+    site: {
+      ...(updated as any),
+      slug: canUseSlugColumn ? ((updated as any).slug ?? null) : null,
     },
   });
-
-  return NextResponse.json({ ok: true, site: updated });
 }

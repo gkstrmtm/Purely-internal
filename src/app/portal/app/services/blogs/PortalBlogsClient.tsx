@@ -65,10 +65,11 @@ export function PortalBlogsClient() {
   const entitled = Boolean(me?.entitlements?.blog);
 
   const publicBlogUrl = useMemo(() => {
-    if (!site?.slug) return null;
-    if (typeof window === "undefined") return `/${site.slug}/blogs`;
-    return `${window.location.origin}/${site.slug}/blogs`;
-  }, [site?.slug]);
+    const handle = site?.slug ?? site?.id;
+    if (!handle) return null;
+    if (typeof window === "undefined") return `/${handle}/blogs`;
+    return `${window.location.origin}/${handle}/blogs`;
+  }, [site?.id, site?.slug]);
 
   function topicsTextToArray(text: string): string[] {
     const raw = String(text || "")

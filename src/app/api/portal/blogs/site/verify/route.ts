@@ -4,6 +4,7 @@ import { resolveTxt } from "dns/promises";
 
 import { prisma } from "@/lib/db";
 import { requireClientSession } from "@/lib/apiAuth";
+import { hasPublicColumn } from "@/lib/dbSchema";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -43,6 +44,23 @@ export async function POST(req: Request) {
   }
 
   const ownerId = auth.session.user.id;
+  const [hasPrimaryDomain, hasVerificationToken, hasVerifiedAt] = await Promise.all([
+    hasPublicColumn("ClientBlogSite", "primaryDomain"),
+    hasPublicColumn("ClientBlogSite", "verificationToken"),
+    hasPublicColumn("ClientBlogSite", "verifiedAt"),
+  ]);
+
+  if (!hasPrimaryDomain || !hasVerificationToken) {
+    return NextResponse.json(
+      {
+        ok: false,
+        verified: false,
+        error: "Blog domain verification isn’t available yet (database migration pending).",
+      },
+      { status: 409 },
+    );
+  }
+
   const site = await prisma.clientBlogSite.findUnique({
     where: { ownerId },
     select: { id: true, primaryDomain: true, verificationToken: true, verifiedAt: true },
@@ -84,11 +102,24 @@ export async function POST(req: Request) {
 
     const updated = await prisma.clientBlogSite.update({
       where: { id: site.id },
-      data: { verifiedAt: new Date() },
-      select: { id: true, primaryDomain: true, verifiedAt: true },
+      data: { ...(hasVerifiedAt ? { verifiedAt: new Date() } : {}) },
+      select: { id: true, primaryDomain: true, ...(hasVerifiedAt ? { verifiedAt: true } : {}) } as any,
     });
 
-    return NextResponse.json({ ok: true, verified: true, site: updated, recordName, expected });
+    return NextResponse.json({
+      ok: true,
+      verified: true,
+      site: {
+        ...updated,
+        verifiedAt: hasVerifiedAt
+          ? ((updated as any).verifiedAt instanceof Date
+              ? (updated as any).verifiedAt.toISOString()
+              : (updated as any).verifiedAt ?? null)
+          : null,
+      },
+      recordName,
+      expected,
+    });
   } catch (e) {
     return NextResponse.json(
       {

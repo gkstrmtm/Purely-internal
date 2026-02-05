@@ -5,6 +5,7 @@ import { z } from "zod";
 import { requireClientSession } from "@/lib/apiAuth";
 import { prisma } from "@/lib/db";
 import { slugify } from "@/lib/slugify";
+import { hasPublicColumn } from "@/lib/dbSchema";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
@@ -25,26 +26,56 @@ const putSchema = z.object({
   notificationEmails: z.array(z.string().trim().email()).max(20).optional().nullable(),
 });
 
-async function ensureSite(ownerId: string) {
+type BookingColumnFlags = {
+  photoUrl: boolean;
+  meetingLocation: boolean;
+  meetingDetails: boolean;
+  appointmentPurpose: boolean;
+  toneDirection: boolean;
+  notificationEmails: boolean;
+};
+
+async function getBookingColumnFlags(): Promise<BookingColumnFlags> {
+  const [photoUrl, meetingLocation, meetingDetails, appointmentPurpose, toneDirection, notificationEmails] =
+    await Promise.all([
+      hasPublicColumn("PortalBookingSite", "photoUrl"),
+      hasPublicColumn("PortalBookingSite", "meetingLocation"),
+      hasPublicColumn("PortalBookingSite", "meetingDetails"),
+      hasPublicColumn("PortalBookingSite", "appointmentPurpose"),
+      hasPublicColumn("PortalBookingSite", "toneDirection"),
+      hasPublicColumn("PortalBookingSite", "notificationEmails"),
+    ]);
+
+  return { photoUrl, meetingLocation, meetingDetails, appointmentPurpose, toneDirection, notificationEmails };
+}
+
+function bookingSelect(flags: BookingColumnFlags) {
+  const select: Record<string, boolean> = {
+    id: true,
+    ownerId: true,
+    slug: true,
+    enabled: true,
+    title: true,
+    description: true,
+    durationMinutes: true,
+    timeZone: true,
+    updatedAt: true,
+  };
+
+  if (flags.photoUrl) select.photoUrl = true;
+  if (flags.notificationEmails) select.notificationEmails = true;
+  if (flags.appointmentPurpose) select.appointmentPurpose = true;
+  if (flags.toneDirection) select.toneDirection = true;
+  if (flags.meetingLocation) select.meetingLocation = true;
+  if (flags.meetingDetails) select.meetingDetails = true;
+
+  return select as any;
+}
+
+async function ensureSite(ownerId: string, flags: BookingColumnFlags) {
   const existing = await prisma.portalBookingSite.findUnique({
     where: { ownerId },
-    select: {
-      id: true,
-      ownerId: true,
-      slug: true,
-      enabled: true,
-      title: true,
-      description: true,
-      durationMinutes: true,
-      timeZone: true,
-      photoUrl: true,
-      notificationEmails: true,
-      appointmentPurpose: true,
-      toneDirection: true,
-      meetingLocation: true,
-      meetingDetails: true,
-      updatedAt: true,
-    },
+    select: bookingSelect(flags),
   });
   if (existing) return existing;
 
@@ -73,23 +104,7 @@ async function ensureSite(ownerId: string) {
       durationMinutes: 30,
       enabled: false,
     },
-    select: {
-      id: true,
-      ownerId: true,
-      slug: true,
-      enabled: true,
-      title: true,
-      description: true,
-      durationMinutes: true,
-      timeZone: true,
-      photoUrl: true,
-      notificationEmails: true,
-      appointmentPurpose: true,
-      toneDirection: true,
-      meetingLocation: true,
-      meetingDetails: true,
-      updatedAt: true,
-    },
+    select: bookingSelect(flags),
   });
 }
 
@@ -103,7 +118,8 @@ export async function GET() {
   }
 
   const ownerId = auth.session.user.id;
-  const site = await ensureSite(ownerId);
+  const flags = await getBookingColumnFlags();
+  const site = (await ensureSite(ownerId, flags)) as any;
 
   return NextResponse.json({
     ok: true,
@@ -115,12 +131,12 @@ export async function GET() {
       description: site.description,
       durationMinutes: site.durationMinutes,
       timeZone: site.timeZone,
-      photoUrl: site.photoUrl ?? null,
-      meetingLocation: site.meetingLocation ?? null,
-      meetingDetails: site.meetingDetails ?? null,
-      appointmentPurpose: site.appointmentPurpose ?? null,
-      toneDirection: site.toneDirection ?? null,
-      notificationEmails: (site.notificationEmails as unknown) ?? null,
+      photoUrl: flags.photoUrl ? (site.photoUrl ?? null) : null,
+      meetingLocation: flags.meetingLocation ? (site.meetingLocation ?? null) : null,
+      meetingDetails: flags.meetingDetails ? (site.meetingDetails ?? null) : null,
+      appointmentPurpose: flags.appointmentPurpose ? (site.appointmentPurpose ?? null) : null,
+      toneDirection: flags.toneDirection ? (site.toneDirection ?? null) : null,
+      notificationEmails: flags.notificationEmails ? ((site.notificationEmails as unknown) ?? null) : null,
       updatedAt: site.updatedAt,
     },
   });
@@ -142,7 +158,8 @@ export async function PUT(req: Request) {
   }
 
   const ownerId = auth.session.user.id;
-  const current = await ensureSite(ownerId);
+  const flags = await getBookingColumnFlags();
+  const current = (await ensureSite(ownerId, flags)) as any;
 
   let nextSlug = parsed.data.slug ? slugify(parsed.data.slug) : undefined;
   if (nextSlug && nextSlug.length < 3) nextSlug = undefined;
@@ -154,45 +171,45 @@ export async function PUT(req: Request) {
     }
   }
 
+  const data: Record<string, unknown> = {
+    enabled: parsed.data.enabled ?? undefined,
+    title: parsed.data.title ?? undefined,
+    description: parsed.data.description === null ? null : parsed.data.description ?? undefined,
+    durationMinutes: parsed.data.durationMinutes ?? undefined,
+    timeZone: parsed.data.timeZone ?? undefined,
+    slug: nextSlug ?? undefined,
+  };
+
+  if (flags.photoUrl) {
+    data.photoUrl = parsed.data.photoUrl === null ? null : parsed.data.photoUrl ?? undefined;
+  }
+  if (flags.meetingLocation) {
+    data.meetingLocation =
+      parsed.data.meetingLocation === null ? null : parsed.data.meetingLocation ?? undefined;
+  }
+  if (flags.meetingDetails) {
+    data.meetingDetails = parsed.data.meetingDetails === null ? null : parsed.data.meetingDetails ?? undefined;
+  }
+  if (flags.appointmentPurpose) {
+    data.appointmentPurpose =
+      parsed.data.appointmentPurpose === null ? null : parsed.data.appointmentPurpose ?? undefined;
+  }
+  if (flags.toneDirection) {
+    data.toneDirection = parsed.data.toneDirection === null ? null : parsed.data.toneDirection ?? undefined;
+  }
+  if (flags.notificationEmails) {
+    data.notificationEmails =
+      parsed.data.notificationEmails === null
+        ? Prisma.DbNull
+        : parsed.data.notificationEmails
+          ? (parsed.data.notificationEmails.length ? parsed.data.notificationEmails : Prisma.DbNull)
+          : undefined;
+  }
+
   const updated = await prisma.portalBookingSite.update({
     where: { ownerId },
-    data: {
-      enabled: parsed.data.enabled ?? undefined,
-      title: parsed.data.title ?? undefined,
-      description: parsed.data.description === null ? null : parsed.data.description ?? undefined,
-      durationMinutes: parsed.data.durationMinutes ?? undefined,
-      timeZone: parsed.data.timeZone ?? undefined,
-      slug: nextSlug ?? undefined,
-
-      photoUrl: parsed.data.photoUrl === null ? null : parsed.data.photoUrl ?? undefined,
-      meetingLocation: parsed.data.meetingLocation === null ? null : parsed.data.meetingLocation ?? undefined,
-      meetingDetails: parsed.data.meetingDetails === null ? null : parsed.data.meetingDetails ?? undefined,
-      appointmentPurpose: parsed.data.appointmentPurpose === null ? null : parsed.data.appointmentPurpose ?? undefined,
-      toneDirection: parsed.data.toneDirection === null ? null : parsed.data.toneDirection ?? undefined,
-      notificationEmails:
-        parsed.data.notificationEmails === null
-          ? Prisma.DbNull
-          : parsed.data.notificationEmails
-            ? (parsed.data.notificationEmails.length ? parsed.data.notificationEmails : Prisma.DbNull)
-            : undefined,
-    },
-    select: {
-      id: true,
-      ownerId: true,
-      slug: true,
-      enabled: true,
-      title: true,
-      description: true,
-      durationMinutes: true,
-      timeZone: true,
-      photoUrl: true,
-      notificationEmails: true,
-      appointmentPurpose: true,
-      toneDirection: true,
-      meetingLocation: true,
-      meetingDetails: true,
-      updatedAt: true,
-    },
+    data: data as any,
+    select: bookingSelect(flags),
   });
 
   return NextResponse.json({
@@ -205,12 +222,12 @@ export async function PUT(req: Request) {
       description: updated.description,
       durationMinutes: updated.durationMinutes,
       timeZone: updated.timeZone,
-      photoUrl: updated.photoUrl ?? null,
-      meetingLocation: updated.meetingLocation ?? null,
-      meetingDetails: updated.meetingDetails ?? null,
-      appointmentPurpose: updated.appointmentPurpose ?? null,
-      toneDirection: updated.toneDirection ?? null,
-      notificationEmails: (updated.notificationEmails as unknown) ?? null,
+      photoUrl: flags.photoUrl ? ((updated as any).photoUrl ?? null) : null,
+      meetingLocation: flags.meetingLocation ? ((updated as any).meetingLocation ?? null) : null,
+      meetingDetails: flags.meetingDetails ? ((updated as any).meetingDetails ?? null) : null,
+      appointmentPurpose: flags.appointmentPurpose ? ((updated as any).appointmentPurpose ?? null) : null,
+      toneDirection: flags.toneDirection ? ((updated as any).toneDirection ?? null) : null,
+      notificationEmails: flags.notificationEmails ? (((updated as any).notificationEmails as unknown) ?? null) : null,
       updatedAt: updated.updatedAt,
     },
   });

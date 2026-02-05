@@ -4,6 +4,7 @@ import type { CSSProperties } from "react";
 
 import { prisma } from "@/lib/db";
 import { formatBlogDate } from "@/lib/blog";
+import { hasPublicColumn } from "@/lib/dbSchema";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
@@ -24,10 +25,16 @@ export async function generateMetadata(props: PageProps) {
   const { siteSlug } = await props.params;
 
   try {
-    const site = await prisma.clientBlogSite.findUnique({
-      where: { slug: siteSlug },
-      select: { name: true, ownerId: true },
-    });
+    const canUseSlugColumn = await hasPublicColumn("ClientBlogSite", "slug");
+    const site = canUseSlugColumn
+      ? await prisma.clientBlogSite.findFirst({
+          where: { OR: [{ slug: siteSlug }, { id: siteSlug }] },
+          select: { name: true, ownerId: true },
+        })
+      : await prisma.clientBlogSite.findUnique({
+          where: { id: siteSlug },
+          select: { name: true, ownerId: true },
+        });
     if (!site) return {};
 
     const profile = await prisma.businessProfile.findUnique({
@@ -56,27 +63,42 @@ export default async function ClientBlogsIndexPage(props: PageProps) {
   const take = 50;
   const skip = (page - 1) * take;
 
-  const site = await prisma.clientBlogSite.findUnique({
-    where: { slug: siteSlug },
-    select: { id: true, name: true, ownerId: true, slug: true },
-  });
+  const canUseSlugColumn = await hasPublicColumn("ClientBlogSite", "slug");
+  const site = canUseSlugColumn
+    ? await prisma.clientBlogSite.findFirst({
+        where: { OR: [{ slug: siteSlug }, { id: siteSlug }] },
+        select: { id: true, name: true, ownerId: true, slug: true },
+      })
+    : await prisma.clientBlogSite.findUnique({
+        where: { id: siteSlug },
+        select: { id: true, name: true, ownerId: true },
+      });
 
-  if (!site || !site.slug) notFound();
+  if (!site) notFound();
+
+  const siteHandle = (site as any).slug ?? (site as any).id;
+
+  const [hasLogoUrl, hasPrimaryHex, hasAccentHex, hasTextHex] = await Promise.all([
+    hasPublicColumn("BusinessProfile", "logoUrl"),
+    hasPublicColumn("BusinessProfile", "brandPrimaryHex"),
+    hasPublicColumn("BusinessProfile", "brandAccentHex"),
+    hasPublicColumn("BusinessProfile", "brandTextHex"),
+  ]);
+
+  const profileSelect: Record<string, boolean> = { businessName: true };
+  if (hasLogoUrl) profileSelect.logoUrl = true;
+  if (hasPrimaryHex) profileSelect.brandPrimaryHex = true;
+  if (hasAccentHex) profileSelect.brandAccentHex = true;
+  if (hasTextHex) profileSelect.brandTextHex = true;
 
   const profile = await prisma.businessProfile.findUnique({
-    where: { ownerId: site.ownerId },
-    select: {
-      businessName: true,
-      logoUrl: true,
-      brandPrimaryHex: true,
-      brandAccentHex: true,
-      brandTextHex: true,
-    },
+    where: { ownerId: (site as any).ownerId },
+    select: profileSelect as any,
   });
 
-  const brandPrimary = normalizeHex(profile?.brandPrimaryHex) ?? "#1d4ed8";
-  const brandAccent = normalizeHex(profile?.brandAccentHex) ?? "#f472b6";
-  const brandText = normalizeHex(profile?.brandTextHex) ?? "#18181b";
+  const brandPrimary = normalizeHex((profile as any)?.brandPrimaryHex) ?? "#1d4ed8";
+  const brandAccent = normalizeHex((profile as any)?.brandAccentHex) ?? "#f472b6";
+  const brandText = normalizeHex((profile as any)?.brandTextHex) ?? "#18181b";
 
   const posts = await prisma.clientBlogPost.findMany({
     where: { siteId: site.id, status: "PUBLISHED", archivedAt: null },
@@ -86,8 +108,8 @@ export default async function ClientBlogsIndexPage(props: PageProps) {
     select: { slug: true, title: true, excerpt: true, publishedAt: true, updatedAt: true },
   });
 
-  const brandName = profile?.businessName || site.name;
-  const logoUrl = profile?.logoUrl || null;
+  const brandName = (profile as any)?.businessName || (site as any).name;
+  const logoUrl = (profile as any)?.logoUrl || null;
 
   const themeStyle = {
     ["--client-primary" as any]: brandPrimary,
@@ -99,7 +121,7 @@ export default async function ClientBlogsIndexPage(props: PageProps) {
     <div className="min-h-screen bg-white" style={themeStyle}>
       <header className="border-b border-zinc-200 bg-white/80 backdrop-blur">
         <div className="mx-auto flex max-w-6xl items-center justify-between px-6 py-4">
-          <Link href={`/${site.slug}/blogs`} className="flex items-center gap-3">
+          <Link href={`/${siteHandle}/blogs`} className="flex items-center gap-3">
             {logoUrl ? (
               // eslint-disable-next-line @next/next/no-img-element
               <img src={logoUrl} alt={brandName} className="h-10 w-auto" />
@@ -131,7 +153,7 @@ export default async function ClientBlogsIndexPage(props: PageProps) {
               </p>
               <div className="mt-8 flex flex-wrap items-center gap-3">
                 <Link
-                  href={`/${site.slug}/blogs`}
+                  href={`/${siteHandle}/blogs`}
                   className="inline-flex items-center justify-center rounded-2xl px-6 py-3 text-base font-extrabold shadow-md"
                   style={{ backgroundColor: "var(--client-accent)", color: "var(--client-primary)" }}
                 >
@@ -162,7 +184,7 @@ export default async function ClientBlogsIndexPage(props: PageProps) {
                   posts.map((post) => (
                     <Link
                       key={post.slug}
-                      href={`/${site.slug}/blogs/${post.slug}`}
+                      href={`/${siteHandle}/blogs/${post.slug}`}
                       className="group rounded-3xl border border-zinc-200 bg-white p-7 shadow-sm transition hover:-translate-y-0.5 hover:border-zinc-300 hover:shadow-md"
                     >
                       <div className="text-xs font-semibold uppercase tracking-wide text-zinc-500">
@@ -185,7 +207,7 @@ export default async function ClientBlogsIndexPage(props: PageProps) {
 
               <div className="mt-10 flex items-center justify-between">
                 <Link
-                  href={page > 1 ? `/${site.slug}/blogs?page=${page - 1}` : `/${site.slug}/blogs`}
+                  href={page > 1 ? `/${siteHandle}/blogs?page=${page - 1}` : `/${siteHandle}/blogs`}
                   className={`rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm font-semibold hover:bg-zinc-50 ${
                     page <= 1 ? "pointer-events-none opacity-50" : ""
                   }`}
@@ -196,7 +218,7 @@ export default async function ClientBlogsIndexPage(props: PageProps) {
                 <div className="text-xs font-semibold text-zinc-500">page {page}</div>
 
                 <Link
-                  href={`/${site.slug}/blogs?page=${page + 1}`}
+                  href={`/${siteHandle}/blogs?page=${page + 1}`}
                   className={`rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm font-semibold hover:bg-zinc-50 ${
                     posts.length < take ? "pointer-events-none opacity-50" : ""
                   }`}
