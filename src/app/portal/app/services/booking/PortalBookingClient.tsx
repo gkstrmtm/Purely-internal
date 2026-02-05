@@ -96,6 +96,24 @@ function toYmd(d: Date) {
   return `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}`;
 }
 
+function startOfDay(d: Date) {
+  const out = new Date(d);
+  out.setHours(0, 0, 0, 0);
+  return out;
+}
+
+function addDays(d: Date, delta: number) {
+  const out = new Date(d);
+  out.setDate(out.getDate() + delta);
+  return out;
+}
+
+function startOfWeek(d: Date) {
+  const day = startOfDay(d);
+  // Keep consistent with the month grid: 0=Sun.
+  return addDays(day, -day.getDay());
+}
+
 function makeMonthGrid(month: Date) {
   const first = startOfMonth(month);
   const startDow = first.getDay(); // 0=Sun
@@ -158,6 +176,9 @@ export function PortalBookingClient() {
 
   const [calMonth, setCalMonth] = useState(() => startOfMonth(new Date()));
   const [calSelectedYmd, setCalSelectedYmd] = useState<string | null>(null);
+
+  const [topTab, setTopTab] = useState<"settings" | "appointments">("settings");
+  const [appointmentsView, setAppointmentsView] = useState<"week" | "month">("week");
 
   const [contactOpen, setContactOpen] = useState(false);
   const [contactBooking, setContactBooking] = useState<Booking | null>(null);
@@ -274,6 +295,11 @@ export function PortalBookingClient() {
       mounted = false;
     };
   }, []);
+
+  useEffect(() => {
+    if (topTab !== "appointments") return;
+    setCalSelectedYmd((prev) => prev ?? toYmd(new Date()));
+  }, [topTab]);
 
   async function save(partial: Partial<Site>) {
     if (!site) return;
@@ -518,6 +544,20 @@ export function PortalBookingClient() {
     );
   }
 
+  const focusYmd = calSelectedYmd ?? toYmd(new Date());
+  const focusDate = new Date(`${focusYmd}T00:00:00`);
+  const weekStart = startOfWeek(focusDate);
+  const weekEnd = addDays(weekStart, 7);
+  const weekDays = Array.from({ length: 7 }, (_, i) => addDays(weekStart, i));
+
+  const sidebarBookings = (appointmentsView === "week"
+    ? upcoming.filter((b) => {
+        const startAt = new Date(b.startAt);
+        return startAt >= weekStart && startAt < weekEnd;
+      })
+    : upcoming.filter((b) => toYmd(new Date(b.startAt)) === focusYmd)
+  ).sort((a, b) => new Date(a.startAt).getTime() - new Date(b.startAt).getTime());
+
   return (
     <div className="mx-auto w-full max-w-6xl">
       <div className="flex flex-col items-start justify-between gap-3 sm:flex-row sm:items-end">
@@ -527,7 +567,363 @@ export function PortalBookingClient() {
         </div>
       </div>
 
-      <div className="mt-6 grid grid-cols-1 gap-4 lg:grid-cols-3">
+      <div className="mt-4 inline-flex rounded-2xl border border-zinc-200 bg-white p-1">
+        <button
+          type="button"
+          className={
+            topTab === "settings"
+              ? "rounded-2xl bg-zinc-900 px-4 py-2 text-sm font-semibold text-white"
+              : "rounded-2xl px-4 py-2 text-sm font-semibold text-zinc-700 hover:bg-zinc-50"
+          }
+          onClick={() => setTopTab("settings")}
+        >
+          Settings
+        </button>
+        <button
+          type="button"
+          className={
+            topTab === "appointments"
+              ? "rounded-2xl bg-zinc-900 px-4 py-2 text-sm font-semibold text-white"
+              : "rounded-2xl px-4 py-2 text-sm font-semibold text-zinc-700 hover:bg-zinc-50"
+          }
+          onClick={() => setTopTab("appointments")}
+        >
+          Appointments
+        </button>
+      </div>
+
+      {topTab === "appointments" ? (
+        <div className="mt-6 grid grid-cols-1 gap-4 lg:grid-cols-12">
+          <div className="rounded-3xl border border-zinc-200 bg-white p-6 lg:col-span-8">
+            <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+              <div>
+                <div className="text-sm font-semibold text-zinc-900">Calendar</div>
+                <div className="mt-1 text-sm text-zinc-600">See bookings and open availability together.</div>
+              </div>
+
+              <div className="flex flex-wrap items-center gap-2">
+                <div className="inline-flex rounded-2xl border border-zinc-200 bg-white p-1">
+                  <button
+                    type="button"
+                    className={
+                      appointmentsView === "week"
+                        ? "rounded-2xl bg-zinc-900 px-3 py-2 text-sm font-semibold text-white"
+                        : "rounded-2xl px-3 py-2 text-sm font-semibold text-zinc-700 hover:bg-zinc-50"
+                    }
+                    onClick={() => setAppointmentsView("week")}
+                  >
+                    Week
+                  </button>
+                  <button
+                    type="button"
+                    className={
+                      appointmentsView === "month"
+                        ? "rounded-2xl bg-zinc-900 px-3 py-2 text-sm font-semibold text-white"
+                        : "rounded-2xl px-3 py-2 text-sm font-semibold text-zinc-700 hover:bg-zinc-50"
+                    }
+                    onClick={() => setAppointmentsView("month")}
+                  >
+                    Month
+                  </button>
+                </div>
+
+                {appointmentsView === "week" ? (
+                  <div className="flex gap-2">
+                    <button
+                      type="button"
+                      className="rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-sm hover:bg-zinc-50"
+                      onClick={() => setCalSelectedYmd(toYmd(addDays(focusDate, -7)))}
+                    >
+                      Prev
+                    </button>
+                    <button
+                      type="button"
+                      className="rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-sm hover:bg-zinc-50"
+                      onClick={() => setCalSelectedYmd(toYmd(new Date()))}
+                    >
+                      Today
+                    </button>
+                    <button
+                      type="button"
+                      className="rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-sm hover:bg-zinc-50"
+                      onClick={() => setCalSelectedYmd(toYmd(addDays(focusDate, 7)))}
+                    >
+                      Next
+                    </button>
+                  </div>
+                ) : (
+                  <div className="flex gap-2">
+                    <button
+                      type="button"
+                      className="rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-sm hover:bg-zinc-50"
+                      onClick={() => setCalMonth((m) => addMonths(m, -1))}
+                    >
+                      Prev
+                    </button>
+                    <button
+                      type="button"
+                      className="rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-sm hover:bg-zinc-50"
+                      onClick={() => setCalMonth(startOfMonth(new Date()))}
+                    >
+                      Today
+                    </button>
+                    <button
+                      type="button"
+                      className="rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-sm hover:bg-zinc-50"
+                      onClick={() => setCalMonth((m) => addMonths(m, 1))}
+                    >
+                      Next
+                    </button>
+                  </div>
+                )}
+              </div>
+            </div>
+
+            {appointmentsView === "week" ? (
+              <div className="mt-5 grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-7">
+                {weekDays.map((day) => {
+                  const ymd = toYmd(day);
+                  const selected = focusYmd === ymd;
+                  const isToday = toYmd(new Date()) === ymd;
+
+                  const dayStart = startOfDay(day);
+                  const dayEnd = addDays(dayStart, 1);
+
+                  const dayBookings = upcoming
+                    .filter((b) => toYmd(new Date(b.startAt)) === ymd)
+                    .sort((a, b) => new Date(a.startAt).getTime() - new Date(b.startAt).getTime());
+
+                  const dayBlocks = blocks
+                    .filter((b) => new Date(b.startAt) < dayEnd && new Date(b.endAt) > dayStart)
+                    .sort((a, b) => new Date(a.startAt).getTime() - new Date(b.startAt).getTime());
+
+                  return (
+                    <button
+                      key={ymd}
+                      type="button"
+                      className={
+                        selected
+                          ? "min-h-[220px] rounded-3xl border border-zinc-900 bg-white p-4 text-left"
+                          : "min-h-[220px] rounded-3xl border border-zinc-200 bg-white p-4 text-left hover:bg-zinc-50"
+                      }
+                      onClick={() => setCalSelectedYmd(ymd)}
+                    >
+                      <div className="flex items-center justify-between gap-2">
+                        <div className="text-sm font-semibold text-zinc-900">
+                          {day.toLocaleDateString(undefined, { weekday: "short" })}
+                          <span className="text-zinc-500"> {day.getDate()}</span>
+                        </div>
+                        {isToday ? (
+                          <div className="rounded-full bg-zinc-900 px-2 py-0.5 text-[10px] font-semibold text-white">Today</div>
+                        ) : null}
+                      </div>
+
+                      <div className="mt-3">
+                        <div className="text-xs font-semibold text-zinc-600">Bookings</div>
+                        {dayBookings.length ? (
+                          <div className="mt-2 space-y-1">
+                            {dayBookings.slice(0, 4).map((b) => (
+                              <div key={b.id} className="truncate text-xs text-zinc-800">
+                                {new Date(b.startAt).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })} · {b.contactName}
+                              </div>
+                            ))}
+                            {dayBookings.length > 4 ? (
+                              <div className="text-xs text-zinc-500">+{dayBookings.length - 4} more</div>
+                            ) : null}
+                          </div>
+                        ) : (
+                          <div className="mt-2 text-xs text-zinc-500">No bookings</div>
+                        )}
+                      </div>
+
+                      <div className="mt-4">
+                        <div className="text-xs font-semibold text-zinc-600">Availability</div>
+                        {dayBlocks.length ? (
+                          <div className="mt-2 space-y-1">
+                            {dayBlocks.slice(0, 3).map((b) => (
+                              <div key={b.id} className="text-xs text-emerald-700">
+                                {new Date(b.startAt).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}–
+                                {new Date(b.endAt).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}
+                              </div>
+                            ))}
+                            {dayBlocks.length > 3 ? (
+                              <div className="text-xs text-zinc-500">+{dayBlocks.length - 3} more</div>
+                            ) : null}
+                          </div>
+                        ) : (
+                          <div className="mt-2 text-xs text-zinc-500">No availability</div>
+                        )}
+                      </div>
+                    </button>
+                  );
+                })}
+              </div>
+            ) : (
+              <div className="mt-5">
+                <div className="flex items-center justify-between">
+                  <div className="text-sm font-semibold text-zinc-900">{monthLabel(calMonth)}</div>
+                  <div className="text-xs text-zinc-500">Click a day to focus the sidebar.</div>
+                </div>
+
+                <div className="mt-3 grid grid-cols-7 gap-2 text-xs font-semibold text-zinc-500">
+                  {["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"].map((d) => (
+                    <div key={d} className="px-2">
+                      {d}
+                    </div>
+                  ))}
+                </div>
+
+                <div className="mt-2 grid grid-cols-7 gap-2">
+                  {makeMonthGrid(calMonth).map((day) => {
+                    const ymd = toYmd(day);
+                    const inMonth = day.getMonth() === calMonth.getMonth();
+                    const today = toYmd(new Date()) === ymd;
+                    const selected = focusYmd === ymd;
+
+                    const dayStart = startOfDay(day);
+                    const dayEnd = addDays(dayStart, 1);
+
+                    const bookingCount = upcoming.reduce((acc, b) => (toYmd(new Date(b.startAt)) === ymd ? acc + 1 : acc), 0);
+                    const hasCoverage = blocks.some((b) => new Date(b.startAt) < dayEnd && new Date(b.endAt) > dayStart);
+
+                    const baseCls =
+                      "h-24 rounded-3xl border px-3 py-3 text-left hover:bg-zinc-50 focus:outline-none focus:ring-2 focus:ring-zinc-300";
+                    const borderCls = selected
+                      ? "border-zinc-900 bg-white"
+                      : inMonth
+                        ? "border-zinc-200 bg-white"
+                        : "border-zinc-200 bg-zinc-50";
+
+                    return (
+                      <button
+                        key={ymd}
+                        type="button"
+                        className={`${baseCls} ${borderCls}`}
+                        onClick={() => setCalSelectedYmd(ymd)}
+                      >
+                        <div className="flex items-center justify-between">
+                          <div className={inMonth ? "text-sm font-semibold text-zinc-900" : "text-sm font-semibold text-zinc-400"}>
+                            {day.getDate()}
+                          </div>
+                          {today ? (
+                            <div className="rounded-full bg-zinc-900 px-2 py-0.5 text-[10px] font-semibold text-white">Today</div>
+                          ) : null}
+                        </div>
+
+                        <div className="mt-3 flex items-center justify-between">
+                          <div className={hasCoverage ? "text-[11px] font-medium text-emerald-700" : "text-[11px] text-zinc-400"}>
+                            {hasCoverage ? "Avail" : "No avail"}
+                          </div>
+                          {bookingCount ? (
+                            <div className="rounded-full bg-zinc-900 px-2 py-0.5 text-[10px] font-semibold text-white">{bookingCount}</div>
+                          ) : null}
+                        </div>
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
+          </div>
+
+          <div className="rounded-3xl border border-zinc-200 bg-white p-6 lg:col-span-4">
+            <div className="flex items-center justify-between gap-3">
+              <div>
+                <div className="text-sm font-semibold text-zinc-900">Appointments</div>
+                <div className="mt-1 text-sm text-zinc-600">
+                  {appointmentsView === "week"
+                    ? `Week of ${weekStart.toLocaleDateString(undefined, { month: "short", day: "numeric" })}`
+                    : focusDate.toLocaleDateString(undefined, { weekday: "long", month: "short", day: "numeric", year: "numeric" })}
+                </div>
+              </div>
+
+              <Link
+                href="/portal/app/services/booking/availability"
+                className="inline-flex items-center justify-center rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm font-semibold text-brand-ink hover:bg-zinc-50"
+              >
+                Edit availability
+              </Link>
+            </div>
+
+            <div className="mt-4 space-y-3">
+              {sidebarBookings.length === 0 ? (
+                <div className="rounded-2xl border border-dashed border-zinc-200 bg-zinc-50 p-4 text-sm text-zinc-600">
+                  No appointments.
+                </div>
+              ) : (
+                sidebarBookings.map((b) => (
+                  <div key={b.id} className="rounded-2xl border border-zinc-200 p-4">
+                    <div className="text-sm font-semibold text-zinc-900">
+                      {new Date(b.startAt).toLocaleString()} → {new Date(b.endAt).toLocaleTimeString()}
+                    </div>
+                    <div className="mt-1 text-sm text-zinc-700">
+                      {b.contactName} · {b.contactEmail}
+                      {b.contactPhone ? ` · ${b.contactPhone}` : ""}
+                    </div>
+                    {b.notes ? <div className="mt-2 text-sm text-zinc-600">{b.notes}</div> : null}
+                    <div className="mt-3 flex flex-wrap justify-end gap-2">
+                      <button
+                        type="button"
+                        className="rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm hover:bg-zinc-50"
+                        onClick={() => {
+                          setReschedBooking(b);
+                          setReschedWhen(toLocalDateTimeInputValue(new Date(b.startAt)));
+                          setReschedForce(false);
+                          setReschedOpen(true);
+                          void loadReschedSlots(b.startAt);
+                        }}
+                      >
+                        Reschedule
+                      </button>
+                      <button
+                        type="button"
+                        className="rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm hover:bg-zinc-50"
+                        onClick={() => {
+                          setContactBooking(b);
+                          setContactSubject(`Follow-up: ${site?.title ?? "Booking"}`);
+                          setContactMessage("");
+                          setContactSendEmail(true);
+                          setContactSendSms(Boolean(b.contactPhone));
+                          setContactOpen(true);
+                        }}
+                      >
+                        Send follow-up
+                      </button>
+                      <button
+                        type="button"
+                        className="rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm hover:bg-zinc-50"
+                        onClick={() => cancelBooking(b.id)}
+                      >
+                        Cancel
+                      </button>
+                    </div>
+                  </div>
+                ))
+              )}
+            </div>
+
+            {recent.length ? (
+              <>
+                <div className="mt-6 text-sm font-semibold text-zinc-900">Recent</div>
+                <div className="mt-3 space-y-2">
+                  {recent.slice(0, 6).map((b) => (
+                    <div key={b.id} className="rounded-2xl border border-zinc-200 bg-zinc-50 px-4 py-3 text-sm">
+                      <div className="font-medium text-zinc-800">
+                        {new Date(b.startAt).toLocaleString()} · {b.status.toLowerCase()}
+                      </div>
+                      <div className="mt-1 text-zinc-600">{b.contactName}</div>
+                    </div>
+                  ))}
+                </div>
+              </>
+            ) : null}
+          </div>
+        </div>
+      ) : null}
+
+      {topTab === "settings" ? (
+        <>
+          <div className="mt-6 grid grid-cols-1 gap-4 lg:grid-cols-3">
         <div className="rounded-3xl border border-zinc-200 bg-white p-6 lg:col-span-2">
           <div className="text-sm font-semibold text-zinc-900">Booking link</div>
           <div className="mt-2 text-sm text-zinc-600">
@@ -1463,7 +1859,9 @@ export function PortalBookingClient() {
             </div>
           </div>
         )}
-      </div>
+          </div>
+        </>
+      ) : null}
 
       {error ? (
         <div className="mt-4 rounded-2xl bg-red-50 px-4 py-3 text-sm text-red-700">{error}</div>
