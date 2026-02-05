@@ -115,6 +115,7 @@ export function AppTopNav({ role }: { role?: string }) {
     { href: "/app/manager/appointments", label: "Appointments" },
   ];
 
+
   if (effectiveRole === "MANAGER" || effectiveRole === "ADMIN") {
     const sectionItems = pathname.startsWith("/app/dialer")
       ? dialerItems

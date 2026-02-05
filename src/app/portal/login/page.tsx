@@ -2,11 +2,14 @@
 
 import Image from "next/image";
 import { signIn } from "next-auth/react";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { useState } from "react";
 
-export default function LoginPage() {
+export default function PortalLoginPage() {
   const router = useRouter();
+  const searchParams = useSearchParams();
+  const from = searchParams.get("from") || "/portal";
+
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState<string | null>(null);
@@ -16,11 +19,13 @@ export default function LoginPage() {
     e.preventDefault();
     setError(null);
     setLoading(true);
+
     const res = await signIn("credentials", {
       redirect: false,
       email,
       password,
     });
+
     setLoading(false);
 
     if (!res || res.error) {
@@ -28,7 +33,7 @@ export default function LoginPage() {
       return;
     }
 
-    router.push("/app");
+    router.push(from);
     router.refresh();
   }
 
@@ -47,9 +52,7 @@ export default function LoginPage() {
             />
           </div>
 
-          <p className="mt-6 text-base text-zinc-600">
-            Sign in to log calls and manage appointments.
-          </p>
+          <p className="mt-6 text-base text-zinc-600">Sign in to your client portal.</p>
 
           <form className="mt-6 space-y-5" onSubmit={onSubmit}>
             <div>
@@ -77,9 +80,7 @@ export default function LoginPage() {
             </div>
 
             {error ? (
-              <div className="rounded-2xl bg-red-50 px-4 py-3 text-sm text-red-700">
-                {error}
-              </div>
+              <div className="rounded-2xl bg-red-50 px-4 py-3 text-sm text-red-700">{error}</div>
             ) : null}
 
             <button
@@ -93,8 +94,8 @@ export default function LoginPage() {
 
           <div className="mt-6 text-base text-zinc-600">
             Need an account?{" "}
-            <a className="font-medium text-brand-ink hover:underline" href="/signup">
-              Use invite signup
+            <a className="font-medium text-brand-ink hover:underline" href="/portal/get-started">
+              Get started
             </a>
           </div>
         </div>

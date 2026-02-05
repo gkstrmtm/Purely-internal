@@ -13,6 +13,7 @@ enum Role {
   CLOSER
   MANAGER
   ADMIN
+  CLIENT
 }
 
 enum LeadStatus {

@@ -5,10 +5,12 @@ import { signIn } from "next-auth/react";
 import { useRouter } from "next/navigation";
 import { useState } from "react";
 
-export default function LoginPage() {
+export default function PortalGetStartedPage() {
   const router = useRouter();
+  const [name, setName] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
+
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
 
@@ -16,19 +18,34 @@ export default function LoginPage() {
     e.preventDefault();
     setError(null);
     setLoading(true);
-    const res = await signIn("credentials", {
+
+    const res = await fetch("/api/auth/client-signup", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ name, email, password }),
+    });
+
+    if (!res.ok) {
+      const body = await res.json().catch(() => ({}));
+      setLoading(false);
+      setError(body?.error ?? "Unable to create account");
+      return;
+    }
+
+    const signInRes = await signIn("credentials", {
       redirect: false,
       email,
       password,
     });
+
     setLoading(false);
 
-    if (!res || res.error) {
-      setError("Invalid email or password");
+    if (!signInRes || signInRes.error) {
+      router.push("/portal/login");
       return;
     }
 
-    router.push("/app");
+    router.push("/portal");
     router.refresh();
   }
 
@@ -47,19 +64,26 @@ export default function LoginPage() {
             />
           </div>
 
-          <p className="mt-6 text-base text-zinc-600">
-            Sign in to log calls and manage appointments.
-          </p>
+          <p className="mt-6 text-base text-zinc-600">Create your client portal account.</p>
 
           <form className="mt-6 space-y-5" onSubmit={onSubmit}>
             <div>
+              <label className="text-base font-medium">Name</label>
+              <input
+                className="mt-2 w-full rounded-2xl border border-zinc-200 bg-white px-4 py-3 text-base outline-none focus:border-zinc-400"
+                value={name}
+                onChange={(e) => setName(e.target.value)}
+                required
+              />
+            </div>
+
+            <div>
               <label className="text-base font-medium">Email</label>
               <input
-                className="mt-2 w-full rounded-2xl border border-zinc-200 bg-white px-4 py-3 text-base outline-none ring-0 focus:border-zinc-400"
+                className="mt-2 w-full rounded-2xl border border-zinc-200 bg-white px-4 py-3 text-base outline-none focus:border-zinc-400"
                 type="email"
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
-                autoComplete="email"
                 required
               />
             </div>
@@ -67,19 +91,17 @@ export default function LoginPage() {
             <div>
               <label className="text-base font-medium">Password</label>
               <input
-                className="mt-2 w-full rounded-2xl border border-zinc-200 bg-white px-4 py-3 text-base outline-none ring-0 focus:border-zinc-400"
+                className="mt-2 w-full rounded-2xl border border-zinc-200 bg-white px-4 py-3 text-base outline-none focus:border-zinc-400"
                 type="password"
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
-                autoComplete="current-password"
+                autoComplete="new-password"
                 required
               />
             </div>
 
             {error ? (
-              <div className="rounded-2xl bg-red-50 px-4 py-3 text-sm text-red-700">
-                {error}
-              </div>
+              <div className="rounded-2xl bg-red-50 px-4 py-3 text-sm text-red-700">{error}</div>
             ) : null}
 
             <button
@@ -87,14 +109,14 @@ export default function LoginPage() {
               disabled={loading}
               type="submit"
             >
-              {loading ? "Signing in…" : "Sign in"}
+              {loading ? "Creating…" : "Create account"}
             </button>
           </form>
 
           <div className="mt-6 text-base text-zinc-600">
-            Need an account?{" "}
-            <a className="font-medium text-brand-ink hover:underline" href="/signup">
-              Use invite signup
+            Already have an account?{" "}
+            <a className="font-medium text-brand-ink hover:underline" href="/portal/login">
+              Sign in
             </a>
           </div>
         </div>
