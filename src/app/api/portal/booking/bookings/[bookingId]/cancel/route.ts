@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 
 import { requireClientSession } from "@/lib/apiAuth";
 import { prisma } from "@/lib/db";
+import { cancelFollowUpsForBooking } from "@/lib/followUpAutomation";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
@@ -71,6 +72,13 @@ export async function POST(
     where: { id: bookingId },
     data: { status: "CANCELED", canceledAt: new Date() },
   });
+
+  // Best-effort follow-up cancellation (never block a successful cancel).
+  try {
+    await cancelFollowUpsForBooking(String(ownerId), String(updated.id));
+  } catch {
+    // ignore
+  }
 
   // Best-effort customer notification when SendGrid env vars exist.
   try {

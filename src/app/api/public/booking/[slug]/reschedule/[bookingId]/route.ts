@@ -8,6 +8,7 @@ import {
   signBookingRescheduleToken,
   verifyBookingRescheduleToken,
 } from "@/lib/bookingReschedule";
+import { scheduleFollowUpsForBooking } from "@/lib/followUpAutomation";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
@@ -237,6 +238,13 @@ export async function POST(
     where: { id: booking.id },
     data: { startAt, endAt },
   });
+
+  // Best-effort follow-up scheduling (never block a successful reschedule).
+  try {
+    await scheduleFollowUpsForBooking(String(site.ownerId), String(updated.id));
+  } catch {
+    // ignore
+  }
 
   const rescheduleToken = signBookingRescheduleToken({
     bookingId: String(updated.id),

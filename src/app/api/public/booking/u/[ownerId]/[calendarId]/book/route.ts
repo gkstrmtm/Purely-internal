@@ -6,6 +6,7 @@ import { hasPublicColumn } from "@/lib/dbSchema";
 import { getBookingFormConfig } from "@/lib/bookingForm";
 import { getBookingCalendarsConfig } from "@/lib/bookingCalendars";
 import { getRequestOrigin, signBookingRescheduleToken } from "@/lib/bookingReschedule";
+import { scheduleFollowUpsForBooking } from "@/lib/followUpAutomation";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
@@ -218,6 +219,13 @@ export async function POST(
       notes: true,
     },
   });
+
+  // Best-effort follow-up scheduling (never block a successful booking).
+  try {
+    await scheduleFollowUpsForBooking(String(ownerId), String(booking.id));
+  } catch {
+    // ignore
+  }
 
   const rescheduleToken = signBookingRescheduleToken({
     bookingId: String(booking.id),
