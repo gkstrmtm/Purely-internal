@@ -11,10 +11,6 @@ export default async function PortalDashboardPage() {
   const isAuthed =
     session?.user?.role === "CLIENT" || session?.user?.role === "ADMIN";
 
-  if (session?.user && !isAuthed) {
-    redirect("/app");
-  }
-
   if (!isAuthed) {
     return (
       <div className="mx-auto w-full max-w-5xl px-6 py-14">

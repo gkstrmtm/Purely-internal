@@ -6,6 +6,22 @@ import { getOrCreateStripeCustomerId, isStripeConfigured, stripeGet } from "@/li
 
 type ModuleKey = "blog" | "booking" | "crm";
 
+function demoEntitlementsByEmail(email: string): Record<ModuleKey, boolean> | null {
+  const fullEmail = (process.env.DEMO_PORTAL_FULL_EMAIL ?? "").toLowerCase().trim();
+  const limitedEmail = (process.env.DEMO_PORTAL_LIMITED_EMAIL ?? "").toLowerCase().trim();
+  const normalized = email.toLowerCase().trim();
+
+  if (fullEmail && normalized === fullEmail) {
+    return { blog: true, booking: true, crm: true };
+  }
+
+  if (limitedEmail && normalized === limitedEmail) {
+    return { blog: true, booking: true, crm: false };
+  }
+
+  return null;
+}
+
 function priceEnv(key: string) {
   const v = process.env[key];
   return typeof v === "string" && v.trim().length > 0 ? v.trim() : null;
@@ -73,14 +89,22 @@ export async function GET() {
   };
 
   const email = session.user.email;
-  if (email && isStripeConfigured()) {
-    try {
-      const resolved = await entitlementsFromStripe(email);
-      entitlements.blog = resolved.blog;
-      entitlements.booking = resolved.booking;
-      entitlements.crm = resolved.crm;
-    } catch {
-      // If Stripe is down/misconfigured, keep safe defaults.
+
+  if (email) {
+    const demo = demoEntitlementsByEmail(email);
+    if (demo) {
+      entitlements.blog = demo.blog;
+      entitlements.booking = demo.booking;
+      entitlements.crm = demo.crm;
+    } else if (isStripeConfigured()) {
+      try {
+        const resolved = await entitlementsFromStripe(email);
+        entitlements.blog = resolved.blog;
+        entitlements.booking = resolved.booking;
+        entitlements.crm = resolved.crm;
+      } catch {
+        // If Stripe is down/misconfigured, keep safe defaults.
+      }
     }
   }
 
