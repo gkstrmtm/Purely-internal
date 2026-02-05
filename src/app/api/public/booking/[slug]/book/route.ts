@@ -2,6 +2,8 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 
 import { prisma } from "@/lib/db";
+import { getBookingFormConfig } from "@/lib/bookingForm";
+import { hasPublicColumn } from "@/lib/dbSchema";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
@@ -12,6 +14,7 @@ const bodySchema = z.object({
   contactEmail: z.string().email(),
   contactPhone: z.string().max(40).optional().nullable(),
   notes: z.string().max(1200).optional().nullable(),
+  answers: z.record(z.string().max(64), z.string().max(2000)).optional().nullable(),
 });
 
 function overlaps(aStart: Date, aEnd: Date, bStart: Date, bEnd: Date) {
@@ -73,7 +76,14 @@ export async function POST(
     return NextResponse.json({ error: "Please check your details and try again." }, { status: 400 });
   }
 
-  const site = await prisma.portalBookingSite.findUnique({
+  // Drift-hardening: only select columns that exist in this environment.
+  const [hasMeetingLocation, hasMeetingDetails, hasNotificationEmails] = await Promise.all([
+    hasPublicColumn("PortalBookingSite", "meetingLocation"),
+    hasPublicColumn("PortalBookingSite", "meetingDetails"),
+    hasPublicColumn("PortalBookingSite", "notificationEmails"),
+  ]);
+
+  const site = await (prisma as any).portalBookingSite.findUnique({
     where: { slug },
     select: {
       id: true,
@@ -82,15 +92,59 @@ export async function POST(
       title: true,
       durationMinutes: true,
       timeZone: true,
-      meetingLocation: true,
-      meetingDetails: true,
-      notificationEmails: true,
+      ...(hasMeetingLocation ? { meetingLocation: true } : {}),
+      ...(hasMeetingDetails ? { meetingDetails: true } : {}),
+      ...(hasNotificationEmails ? { notificationEmails: true } : {}),
       owner: { select: { name: true, email: true } },
-    },
+    } as any,
   });
   if (!site || !site.enabled) {
     return NextResponse.json({ error: "Not found" }, { status: 404 });
   }
+
+  const form = await getBookingFormConfig(String(site.ownerId));
+
+  const rawAnswers = parsed.data.answers && typeof parsed.data.answers === "object" ? parsed.data.answers : null;
+  const answers: Record<string, string> = {};
+  if (rawAnswers) {
+    for (const [k, v] of Object.entries(rawAnswers)) {
+      if (typeof k !== "string") continue;
+      if (typeof v !== "string") continue;
+      answers[k] = v.trim().slice(0, 2000);
+    }
+  }
+
+  const phone = form.phone.enabled ? (parsed.data.contactPhone?.trim() ? parsed.data.contactPhone.trim() : "") : "";
+  const notes = form.notes.enabled ? (parsed.data.notes?.trim() ? parsed.data.notes.trim() : "") : "";
+
+  if (form.phone.enabled && form.phone.required && !phone) {
+    return NextResponse.json({ error: "Phone is required." }, { status: 400 });
+  }
+  if (form.notes.enabled && form.notes.required && !notes) {
+    return NextResponse.json({ error: "Notes are required." }, { status: 400 });
+  }
+
+  for (const q of form.questions) {
+    const v = (answers[q.id] ?? "").trim();
+    if (q.required && !v) {
+      return NextResponse.json({ error: `Please answer: ${q.label}` }, { status: 400 });
+    }
+  }
+
+  const customAnswerLines: string[] = [];
+  for (const q of form.questions) {
+    const v = (answers[q.id] ?? "").trim();
+    if (!v) continue;
+    customAnswerLines.push(`${q.label}: ${v}`);
+  }
+
+  const combinedNotes = [
+    notes || null,
+    customAnswerLines.length ? ["---", "Form answers:", ...customAnswerLines].join("\n") : null,
+  ]
+    .filter(Boolean)
+    .join("\n\n")
+    .trim();
 
   const startAt = new Date(parsed.data.startAt);
   if (Number.isNaN(startAt.getTime())) {
@@ -114,7 +168,7 @@ export async function POST(
   }
 
   // Ensure no conflicts with existing bookings.
-  const existing = await prisma.portalBooking.findMany({
+  const existing = await (prisma as any).portalBooking.findMany({
     where: { siteId: site.id, status: "SCHEDULED", startAt: { lt: endAt }, endAt: { gt: startAt } },
     select: { startAt: true, endAt: true },
   });
@@ -128,15 +182,15 @@ export async function POST(
     }
   }
 
-  const booking = await prisma.portalBooking.create({
+  const booking = await (prisma as any).portalBooking.create({
     data: {
       siteId: site.id,
       startAt,
       endAt,
       contactName: parsed.data.contactName,
       contactEmail: parsed.data.contactEmail,
-      contactPhone: parsed.data.contactPhone?.trim() ? parsed.data.contactPhone.trim() : null,
-      notes: parsed.data.notes?.trim() ? parsed.data.notes.trim() : null,
+      contactPhone: phone ? phone : null,
+      notes: combinedNotes ? combinedNotes : null,
     },
     select: {
       id: true,
@@ -159,8 +213,8 @@ export async function POST(
     const fromName = profile?.businessName?.trim() || site.owner?.name?.trim() || "Purely Automation";
     const when = `${formatInTimeZone(startAt, site.timeZone)} (${site.timeZone})`;
 
-    const internalRecipients = Array.isArray(site.notificationEmails)
-      ? (site.notificationEmails as unknown as string[]).filter((x) => typeof x === "string" && x.includes("@"))
+    const internalRecipients = Array.isArray((site as any).notificationEmails)
+      ? (((site as any).notificationEmails as unknown) as string[]).filter((x) => typeof x === "string" && x.includes("@"))
       : [];
     const fallbackOwnerEmail = site.owner?.email ? [site.owner.email] : [];
     const notifyTo = internalRecipients.length ? internalRecipients : fallbackOwnerEmail;
@@ -175,8 +229,8 @@ export async function POST(
       booking.contactPhone ? `Phone: ${booking.contactPhone}` : null,
       booking.notes ? `Notes: ${booking.notes}` : null,
       "",
-      site.meetingLocation ? `Location: ${site.meetingLocation}` : null,
-      site.meetingDetails ? `Details: ${site.meetingDetails}` : null,
+      (site as any).meetingLocation ? `Location: ${(site as any).meetingLocation}` : null,
+      (site as any).meetingDetails ? `Details: ${(site as any).meetingDetails}` : null,
     ]
       .filter(Boolean)
       .join("\n");
@@ -192,8 +246,8 @@ export async function POST(
       `You're booked: ${site.title}`,
       "",
       `When: ${when}`,
-      site.meetingLocation ? `Location: ${site.meetingLocation}` : null,
-      site.meetingDetails ? `Details: ${site.meetingDetails}` : null,
+      (site as any).meetingLocation ? `Location: ${(site as any).meetingLocation}` : null,
+      (site as any).meetingDetails ? `Details: ${(site as any).meetingDetails}` : null,
       "",
       `If you need to reschedule, reply to this email.`,
     ]

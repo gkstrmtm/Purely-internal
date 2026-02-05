@@ -442,6 +442,11 @@ export function PortalBlogsClient() {
                 <input
                   value={siteName}
                   onChange={(e) => setSiteName(e.target.value)}
+                  onBlur={() => {
+                    if (!site) return;
+                    if (siteSaving) return;
+                    void saveSite();
+                  }}
                   className="mt-1 w-full rounded-2xl border border-zinc-200 bg-white px-4 py-3 text-sm outline-none focus:border-zinc-300"
                   placeholder="My Company Blog"
                 />
@@ -452,6 +457,11 @@ export function PortalBlogsClient() {
                 <input
                   value={siteSlug}
                   onChange={(e) => setSiteSlug(e.target.value)}
+                  onBlur={() => {
+                    if (!site) return;
+                    if (siteSaving) return;
+                    void saveSite();
+                  }}
                   className="mt-1 w-full rounded-2xl border border-zinc-200 bg-white px-4 py-3 text-sm outline-none focus:border-zinc-300"
                   placeholder="home2smart"
                 />

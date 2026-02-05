@@ -3,6 +3,13 @@
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 
+type BookingFormConfig = {
+  version: 1;
+  phone: { enabled: boolean; required: boolean };
+  notes: { enabled: boolean; required: boolean };
+  questions: { id: string; label: string; required: boolean; kind: "short" | "long" }[];
+};
+
 type Site = {
   id: string;
   slug: string;
@@ -58,6 +65,9 @@ export function PortalBookingClient() {
   const [photoBusy, setPhotoBusy] = useState(false);
   const [notificationEmails, setNotificationEmails] = useState<string[]>([]);
 
+  const [form, setForm] = useState<BookingFormConfig | null>(null);
+  const [formSaving, setFormSaving] = useState(false);
+
   const bookingUrl = useMemo(() => {
     if (!site?.slug) return null;
     if (typeof window === "undefined") return `/book/${site.slug}`;
@@ -66,10 +76,11 @@ export function PortalBookingClient() {
 
   async function refreshAll() {
     setError(null);
-    const [meRes, settingsRes, bookingsRes] = await Promise.all([
+    const [meRes, settingsRes, bookingsRes, formRes] = await Promise.all([
       fetch("/api/customer/me", { cache: "no-store" }),
       fetch("/api/portal/booking/settings", { cache: "no-store" }),
       fetch("/api/portal/booking/bookings", { cache: "no-store" }),
+      fetch("/api/portal/booking/form", { cache: "no-store" }),
     ]);
 
     const meJson = await meRes.json().catch(() => ({}));
@@ -89,8 +100,19 @@ export function PortalBookingClient() {
       setRecent((bookingsJson as { recent?: Booking[] }).recent ?? []);
     }
 
-    if (!meRes.ok || !settingsRes.ok || !bookingsRes.ok) {
-      setError(getApiError(meJson) ?? getApiError(settingsJson) ?? getApiError(bookingsJson) ?? "Failed to load booking automation");
+    const formJson = await formRes.json().catch(() => ({}));
+    if (formRes.ok) {
+      setForm((formJson as { config?: BookingFormConfig }).config ?? null);
+    }
+
+    if (!meRes.ok || !settingsRes.ok || !bookingsRes.ok || !formRes.ok) {
+      setError(
+        getApiError(meJson) ??
+          getApiError(settingsJson) ??
+          getApiError(bookingsJson) ??
+          getApiError(formJson) ??
+          "Failed to load booking automation",
+      );
     }
   }
 
@@ -161,6 +183,40 @@ export function PortalBookingClient() {
     }
     await refreshAll();
     setStatus("Canceled booking");
+  }
+
+  function makeId(label: string) {
+    const base = String(label || "")
+      .trim()
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, "-")
+      .replace(/^-+|-+$/g, "")
+      .slice(0, 40);
+    const suffix = Math.random().toString(16).slice(2, 6);
+    return `${base || "q"}-${suffix}`;
+  }
+
+  async function saveForm(next: BookingFormConfig) {
+    setFormSaving(true);
+    setError(null);
+    setStatus(null);
+
+    const res = await fetch("/api/portal/booking/form", {
+      method: "PUT",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(next),
+    });
+
+    const body = await res.json().catch(() => ({}));
+    setFormSaving(false);
+
+    if (!res.ok) {
+      setError(getApiError(body) ?? "Failed to save booking form");
+      return;
+    }
+
+    setForm((body as { config: BookingFormConfig }).config);
+    setStatus("Saved booking form");
   }
 
   if (loading) {
@@ -530,6 +586,171 @@ export function PortalBookingClient() {
 
           {saving ? <div className="mt-4 text-sm text-zinc-500">Saving…</div> : null}
         </div>
+      </div>
+
+      <div className="mt-4 rounded-3xl border border-zinc-200 bg-white p-6">
+        <div className="text-sm font-semibold text-zinc-900">Booking form</div>
+        <div className="mt-1 text-sm text-zinc-600">
+          Choose what questions to ask when someone books.
+        </div>
+
+        {!form ? (
+          <div className="mt-4 rounded-2xl border border-zinc-200 bg-zinc-50 p-4 text-sm text-zinc-700">
+            Loading form settings…
+          </div>
+        ) : (
+          <div className="mt-4 space-y-4">
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+              <label className="flex items-center justify-between gap-3 rounded-2xl border border-zinc-200 bg-zinc-50 px-4 py-3 text-sm">
+                <span className="font-medium text-zinc-800">Ask for phone</span>
+                <input
+                  type="checkbox"
+                  checked={form.phone.enabled}
+                  disabled={formSaving}
+                  onChange={(e) =>
+                    void saveForm({
+                      ...form,
+                      phone: { enabled: e.target.checked, required: e.target.checked ? form.phone.required : false },
+                    })
+                  }
+                />
+              </label>
+              <label className="flex items-center justify-between gap-3 rounded-2xl border border-zinc-200 bg-zinc-50 px-4 py-3 text-sm">
+                <span className="font-medium text-zinc-800">Phone required</span>
+                <input
+                  type="checkbox"
+                  checked={form.phone.required}
+                  disabled={formSaving || !form.phone.enabled}
+                  onChange={(e) => void saveForm({ ...form, phone: { ...form.phone, required: e.target.checked } })}
+                />
+              </label>
+
+              <label className="flex items-center justify-between gap-3 rounded-2xl border border-zinc-200 bg-zinc-50 px-4 py-3 text-sm">
+                <span className="font-medium text-zinc-800">Ask for notes</span>
+                <input
+                  type="checkbox"
+                  checked={form.notes.enabled}
+                  disabled={formSaving}
+                  onChange={(e) =>
+                    void saveForm({
+                      ...form,
+                      notes: { enabled: e.target.checked, required: e.target.checked ? form.notes.required : false },
+                    })
+                  }
+                />
+              </label>
+              <label className="flex items-center justify-between gap-3 rounded-2xl border border-zinc-200 bg-zinc-50 px-4 py-3 text-sm">
+                <span className="font-medium text-zinc-800">Notes required</span>
+                <input
+                  type="checkbox"
+                  checked={form.notes.required}
+                  disabled={formSaving || !form.notes.enabled}
+                  onChange={(e) => void saveForm({ ...form, notes: { ...form.notes, required: e.target.checked } })}
+                />
+              </label>
+            </div>
+
+            <div className="rounded-2xl border border-zinc-200 bg-zinc-50 p-4">
+              <div className="text-sm font-semibold text-zinc-900">Custom questions</div>
+              <div className="mt-1 text-xs text-zinc-600">Add extra questions like a simple Google Form.</div>
+
+              <div className="mt-3 space-y-2">
+                {form.questions.length === 0 ? (
+                  <div className="rounded-2xl border border-zinc-200 bg-white px-4 py-3 text-sm text-zinc-600">
+                    No custom questions yet.
+                  </div>
+                ) : null}
+
+                {form.questions.map((q, idx) => (
+                  <div key={q.id} className="rounded-2xl border border-zinc-200 bg-white p-4">
+                    <div className="grid grid-cols-1 gap-2 sm:grid-cols-4 sm:items-center">
+                      <input
+                        className="sm:col-span-2 w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm"
+                        value={q.label}
+                        disabled={formSaving}
+                        onChange={(e) => {
+                          const next = [...form.questions];
+                          next[idx] = { ...q, label: e.target.value };
+                          setForm({ ...form, questions: next });
+                        }}
+                        onBlur={() => void saveForm(form)}
+                        placeholder="Question label"
+                      />
+
+                      <select
+                        className="w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm"
+                        value={q.kind}
+                        disabled={formSaving}
+                        onChange={(e) => {
+                          const next = [...form.questions];
+                          next[idx] = { ...q, kind: (e.target.value as any) || "short" };
+                          setForm({ ...form, questions: next });
+                        }}
+                        onBlur={() => void saveForm(form)}
+                      >
+                        <option value="short">Short answer</option>
+                        <option value="long">Long answer</option>
+                      </select>
+
+                      <label className="flex items-center justify-between gap-2 text-sm text-zinc-700">
+                        <span>Required</span>
+                        <input
+                          type="checkbox"
+                          checked={q.required}
+                          disabled={formSaving}
+                          onChange={(e) => {
+                            const next = [...form.questions];
+                            next[idx] = { ...q, required: e.target.checked };
+                            void saveForm({ ...form, questions: next });
+                          }}
+                        />
+                      </label>
+                    </div>
+
+                    <div className="mt-3 flex items-center justify-between gap-3">
+                      <div className="text-xs text-zinc-500">ID: {q.id}</div>
+                      <button
+                        type="button"
+                        className="rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-sm font-semibold text-zinc-700 hover:bg-zinc-50"
+                        disabled={formSaving}
+                        onClick={() => {
+                          const next = form.questions.filter((x) => x.id !== q.id);
+                          void saveForm({ ...form, questions: next });
+                        }}
+                      >
+                        Remove
+                      </button>
+                    </div>
+                  </div>
+                ))}
+
+                <button
+                  type="button"
+                  className="inline-flex items-center justify-center rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm font-semibold text-brand-ink hover:bg-zinc-50"
+                  disabled={formSaving}
+                  onClick={() => {
+                    const label = "New question";
+                    const next = {
+                      id: makeId(label),
+                      label,
+                      required: false,
+                      kind: "short" as const,
+                    };
+                    const updated = { ...form, questions: [...form.questions, next].slice(0, 20) };
+                    setForm(updated);
+                    void saveForm(updated);
+                  }}
+                >
+                  + Add question
+                </button>
+              </div>
+            </div>
+
+            <div className="text-xs text-zinc-500">
+              Your public booking link will show these questions immediately.
+            </div>
+          </div>
+        )}
       </div>
 
       {error ? (

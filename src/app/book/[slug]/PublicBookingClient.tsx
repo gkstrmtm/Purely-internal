@@ -19,6 +19,13 @@ type Site = {
   photoUrl?: string | null;
   meetingLocation?: string | null;
   meetingDetails?: string | null;
+
+  form?: {
+    version: 1;
+    phone: { enabled: boolean; required: boolean };
+    notes: { enabled: boolean; required: boolean };
+    questions: { id: string; label: string; required: boolean; kind: "short" | "long" }[];
+  };
 };
 
 type Slot = { startAt: string; endAt: string };
@@ -97,6 +104,7 @@ export function PublicBookingClient({ slug }: { slug: string }) {
   const [email, setEmail] = useState("");
   const [phone, setPhone] = useState("");
   const [notes, setNotes] = useState("");
+  const [answers, setAnswers] = useState<Record<string, string>>({});
 
   const [loading, setLoading] = useState(true);
   const [slotsLoading, setSlotsLoading] = useState(false);
@@ -106,8 +114,18 @@ export function PublicBookingClient({ slug }: { slug: string }) {
   const [success, setSuccess] = useState<Booking | null>(null);
 
   const canBook = useMemo(() => {
-    return Boolean(selected && name.trim() && email.trim());
-  }, [selected, name, email]);
+    if (!selected) return false;
+    if (!name.trim() || !email.trim()) return false;
+    const form = site?.form;
+    if (form?.phone?.enabled && form.phone.required && !phone.trim()) return false;
+    if (form?.notes?.enabled && form.notes.required && !notes.trim()) return false;
+    if (form?.questions?.length) {
+      for (const q of form.questions) {
+        if (q.required && !(answers[q.id] ?? "").trim()) return false;
+      }
+    }
+    return true;
+  }, [answers, email, name, notes, phone, selected, site?.form]);
 
   const theme = useMemo(() => {
     const primary = normalizeHex(site?.brandPrimaryHex) ?? "#1d4ed8";
@@ -211,6 +229,25 @@ export function PublicBookingClient({ slug }: { slug: string }) {
       setError("This booking link isn’t accepting bookings yet.");
       return;
     }
+
+    const form = site?.form;
+    if (form?.phone?.enabled && form.phone.required && !phone.trim()) {
+      setError("Please enter your phone number.");
+      return;
+    }
+    if (form?.notes?.enabled && form.notes.required && !notes.trim()) {
+      setError("Please add notes.");
+      return;
+    }
+    if (form?.questions?.length) {
+      for (const q of form.questions) {
+        if (q.required && !(answers[q.id] ?? "").trim()) {
+          setError(`Please answer: ${q.label}`);
+          return;
+        }
+      }
+    }
+
     setBookingBusy(true);
     setError(null);
 
@@ -221,8 +258,9 @@ export function PublicBookingClient({ slug }: { slug: string }) {
         startAt: selected,
         contactName: name,
         contactEmail: email,
-        contactPhone: phone.trim() ? phone : null,
-        notes: notes.trim() ? notes : null,
+        contactPhone: form?.phone?.enabled ? (phone.trim() ? phone : null) : null,
+        notes: form?.notes?.enabled ? (notes.trim() ? notes : null) : null,
+        answers,
       }),
     });
 
@@ -534,18 +572,43 @@ export function PublicBookingClient({ slug }: { slug: string }) {
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
               />
-              <input
-                className="w-full rounded-2xl border border-zinc-200 bg-white px-4 py-3 text-sm text-zinc-900 placeholder:text-zinc-400"
-                placeholder="Phone (optional)"
-                value={phone}
-                onChange={(e) => setPhone(e.target.value)}
-              />
-              <textarea
-                className="h-28 w-full resize-none rounded-2xl border border-zinc-200 bg-white px-4 py-3 text-sm text-zinc-900 placeholder:text-zinc-400"
-                placeholder="Notes (optional)"
-                value={notes}
-                onChange={(e) => setNotes(e.target.value)}
-              />
+              {site?.form?.phone?.enabled ? (
+                <input
+                  className="w-full rounded-2xl border border-zinc-200 bg-white px-4 py-3 text-sm text-zinc-900 placeholder:text-zinc-400"
+                  placeholder={site.form.phone.required ? "Phone" : "Phone (optional)"}
+                  value={phone}
+                  onChange={(e) => setPhone(e.target.value)}
+                />
+              ) : null}
+
+              {site?.form?.notes?.enabled ? (
+                <textarea
+                  className="h-28 w-full resize-none rounded-2xl border border-zinc-200 bg-white px-4 py-3 text-sm text-zinc-900 placeholder:text-zinc-400"
+                  placeholder={site.form.notes.required ? "Notes" : "Notes (optional)"}
+                  value={notes}
+                  onChange={(e) => setNotes(e.target.value)}
+                />
+              ) : null}
+
+              {(site?.form?.questions ?? []).map((q) => (
+                <div key={q.id}>
+                  {q.kind === "long" ? (
+                    <textarea
+                      className="h-28 w-full resize-none rounded-2xl border border-zinc-200 bg-white px-4 py-3 text-sm text-zinc-900 placeholder:text-zinc-400"
+                      placeholder={q.required ? `${q.label}` : `${q.label} (optional)`}
+                      value={answers[q.id] ?? ""}
+                      onChange={(e) => setAnswers((prev) => ({ ...prev, [q.id]: e.target.value }))}
+                    />
+                  ) : (
+                    <input
+                      className="w-full rounded-2xl border border-zinc-200 bg-white px-4 py-3 text-sm text-zinc-900 placeholder:text-zinc-400"
+                      placeholder={q.required ? `${q.label}` : `${q.label} (optional)`}
+                      value={answers[q.id] ?? ""}
+                      onChange={(e) => setAnswers((prev) => ({ ...prev, [q.id]: e.target.value }))}
+                    />
+                  )}
+                </div>
+              ))}
 
               <button
                 type="button"

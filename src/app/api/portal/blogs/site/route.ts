@@ -143,31 +143,49 @@ export async function POST(req: Request) {
     } as any,
   })) as any;
   if (existing) {
-    // Treat create as idempotent: a customer can only have one site, so just return it.
-    const currentSlug = (existing as any)?.slug as string | null | undefined;
-    if (canUseSlugColumn && !currentSlug) {
-      const slug = await ensurePublicSlug(ownerId, existing.name, true);
-      const updated = (await (prisma.clientBlogSite as any).update({
-        where: { ownerId },
-        data: { slug },
-        select: {
-          id: true,
-          name: true,
-          slug: true,
-          primaryDomain: true,
-          verifiedAt: true,
-          verificationToken: true,
-          updatedAt: true,
-        },
-      })) as any;
-      return NextResponse.json({ ok: true, site: updated });
+    // Be forgiving: if the user provided fields, apply them even though this is POST.
+    const name = parsed.data.name.trim();
+    const primaryDomain = normalizeDomain(parsed.data.primaryDomain);
+
+    let nextSlug: string | undefined = undefined;
+    if (canUseSlugColumn && slugFieldProvided) {
+      nextSlug = requestedSlug ? requestedSlug : await ensurePublicSlug(ownerId, name, true);
+
+      const currentSlug = (existing as any)?.slug as string | null | undefined;
+      if (nextSlug && nextSlug !== currentSlug) {
+        const collision = (await (prisma.clientBlogSite as any).findUnique({
+          where: { slug: nextSlug },
+          select: { ownerId: true },
+        })) as any;
+        if (collision && collision.ownerId !== ownerId) {
+          return NextResponse.json({ error: "That blog link is already taken." }, { status: 409 });
+        }
+      }
     }
+
+    const updated = (await (prisma.clientBlogSite as any).update({
+      where: { ownerId },
+      data: {
+        name,
+        primaryDomain,
+        ...(canUseSlugColumn && nextSlug !== undefined ? { slug: nextSlug } : {}),
+      },
+      select: {
+        id: true,
+        name: true,
+        primaryDomain: true,
+        verifiedAt: true,
+        verificationToken: true,
+        updatedAt: true,
+        ...(canUseSlugColumn ? { slug: true } : {}),
+      } as any,
+    })) as any;
 
     return NextResponse.json({
       ok: true,
       site: {
-        ...(existing as any),
-        slug: canUseSlugColumn ? ((existing as any).slug ?? null) : null,
+        ...(updated as any),
+        slug: canUseSlugColumn ? ((updated as any).slug ?? null) : null,
       },
     });
   }

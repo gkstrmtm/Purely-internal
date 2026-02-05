@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 
 import { prisma } from "@/lib/db";
 import { hasPublicColumn } from "@/lib/dbSchema";
+import { getBookingFormConfig } from "@/lib/bookingForm";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
@@ -31,6 +32,7 @@ export async function GET(
     select: {
       enabled: true,
       slug: true,
+      ownerId: true,
       title: true,
       description: true,
       durationMinutes: true,
@@ -46,7 +48,8 @@ export async function GET(
     return NextResponse.json({ error: "Not found" }, { status: 404 });
   }
 
-  const profile = site.owner?.id
+  const [profile, form] = await Promise.all([
+    site.owner?.id
     ? await (prisma as any).businessProfile.findUnique({
         where: { ownerId: site.owner.id },
         select: {
@@ -57,7 +60,10 @@ export async function GET(
           ...(hasTextHex ? { brandTextHex: true } : {}),
         } as any,
       })
-    : null;
+    : null,
+    // Form config is stored in PortalServiceSetup JSON to avoid migrations.
+    site.ownerId ? getBookingFormConfig(String(site.ownerId)) : Promise.resolve(null),
+  ]);
 
   return NextResponse.json({
     ok: true,
@@ -77,6 +83,7 @@ export async function GET(
       photoUrl: hasPhotoUrl ? ((site as any).photoUrl ?? null) : null,
       meetingLocation: hasMeetingLocation ? ((site as any).meetingLocation ?? null) : null,
       meetingDetails: hasMeetingDetails ? ((site as any).meetingDetails ?? null) : null,
+      form: form ?? undefined,
     },
   });
 }
