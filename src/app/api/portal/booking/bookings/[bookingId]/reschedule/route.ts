@@ -4,6 +4,7 @@ import { z } from "zod";
 import { requireClientSession } from "@/lib/apiAuth";
 import { prisma } from "@/lib/db";
 import { getRequestOrigin, signBookingRescheduleToken } from "@/lib/bookingReschedule";
+import { scheduleFollowUpsForBooking } from "@/lib/followUpAutomation";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
@@ -174,6 +175,13 @@ export async function POST(
     where: { id: booking.id },
     data: { startAt, endAt },
   });
+
+  // Best-effort follow-up rescheduling.
+  try {
+    await scheduleFollowUpsForBooking(String(ownerId), String(updated.id));
+  } catch {
+    // ignore
+  }
 
   const rescheduleToken = signBookingRescheduleToken({
     bookingId: String(updated.id),

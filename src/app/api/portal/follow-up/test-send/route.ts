@@ -31,7 +31,7 @@ async function sendEmail({ to, subject, body, fromName }: { to: string; subject:
   });
   if (!res.ok) {
     const text = await res.text().catch(() => "");
-    throw new Error(`SendGrid failed (${res.status}): ${text.slice(0, 400)}`);
+    throw new Error(`Email send failed (${res.status}): ${text.slice(0, 400)}`);
   }
 }
 
@@ -57,7 +57,7 @@ async function sendSms({ to, body }: { to: string; body: string }) {
 
   if (!res.ok) {
     const text = await res.text().catch(() => "");
-    throw new Error(`Twilio failed (${res.status}): ${text.slice(0, 400)}`);
+    throw new Error(`SMS send failed (${res.status}): ${text.slice(0, 400)}`);
   }
 }
 

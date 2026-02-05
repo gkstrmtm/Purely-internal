@@ -222,7 +222,7 @@ export async function POST(
 
   // Best-effort follow-up scheduling (never block a successful booking).
   try {
-    await scheduleFollowUpsForBooking(String(ownerId), String(booking.id));
+    await scheduleFollowUpsForBooking(String(ownerId), String(booking.id), { calendarId: String(calendarId) });
   } catch {
     // ignore
   }

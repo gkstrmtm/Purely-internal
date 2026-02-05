@@ -7,6 +7,7 @@ import {
   parseFollowUpSettings,
   setFollowUpSettings,
 } from "@/lib/followUpAutomation";
+import { getBookingCalendarsConfig } from "@/lib/bookingCalendars";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
@@ -21,9 +22,30 @@ export async function GET() {
   }
 
   const ownerId = auth.session.user.id;
-  const data = await getFollowUpServiceData(ownerId);
+  const [data, calendars] = await Promise.all([
+    getFollowUpServiceData(ownerId),
+    getBookingCalendarsConfig(ownerId).catch(() => ({ version: 1, calendars: [] })),
+  ]);
 
-  return NextResponse.json({ ok: true, settings: data.settings, queue: data.queue.slice(0, 60) });
+  const builtinVariables = [
+    "contactName",
+    "contactEmail",
+    "contactPhone",
+    "businessName",
+    "bookingTitle",
+    "when",
+    "timeZone",
+    "startAt",
+    "endAt",
+  ];
+
+  return NextResponse.json({
+    ok: true,
+    settings: data.settings,
+    queue: data.queue.slice(0, 60),
+    calendars: (calendars.calendars ?? []).map((c) => ({ id: c.id, title: c.title, enabled: Boolean(c.enabled) })),
+    builtinVariables,
+  });
 }
 
 const putSchema = z.object({ settings: z.unknown() });
@@ -48,5 +70,24 @@ export async function PUT(req: Request) {
   const next = await setFollowUpSettings(ownerId, normalized);
   const data = await getFollowUpServiceData(ownerId);
 
-  return NextResponse.json({ ok: true, settings: next, queue: data.queue.slice(0, 60) });
+  const calendars = await getBookingCalendarsConfig(ownerId).catch(() => ({ version: 1, calendars: [] }));
+  const builtinVariables = [
+    "contactName",
+    "contactEmail",
+    "contactPhone",
+    "businessName",
+    "bookingTitle",
+    "when",
+    "timeZone",
+    "startAt",
+    "endAt",
+  ];
+
+  return NextResponse.json({
+    ok: true,
+    settings: next,
+    queue: data.queue.slice(0, 60),
+    calendars: (calendars.calendars ?? []).map((c) => ({ id: c.id, title: c.title, enabled: Boolean(c.enabled) })),
+    builtinVariables,
+  });
 }

@@ -11,17 +11,32 @@ type Me = {
 };
 
 type Settings = {
-  version: 1;
+  version: 2;
   enabled: boolean;
-  delayMinutes: number;
-  channels: { email: boolean; sms: boolean };
-  email: { subjectTemplate: string; bodyTemplate: string };
-  sms: { bodyTemplate: string };
+  templates: {
+    id: string;
+    name: string;
+    enabled: boolean;
+    delayMinutes: number;
+    channels: { email: boolean; sms: boolean };
+    email: { subjectTemplate: string; bodyTemplate: string };
+    sms: { bodyTemplate: string };
+  }[];
+  assignments: {
+    defaultTemplateIds: string[];
+    calendarTemplateIds: Record<string, string[]>;
+  };
+  customVariables: Record<string, string>;
 };
+
+type Calendar = { id: string; title: string; enabled: boolean };
 
 type QueueItem = {
   id: string;
   bookingId: string;
+  templateId: string;
+  templateName: string;
+  calendarId?: string;
   channel: "EMAIL" | "SMS";
   to: string;
   subject?: string;
@@ -54,6 +69,9 @@ export function PortalFollowUpClient() {
 
   const [settings, setSettings] = useState<Settings | null>(null);
   const [queue, setQueue] = useState<QueueItem[]>([]);
+  const [calendars, setCalendars] = useState<Calendar[]>([]);
+  const [builtinVariables, setBuiltinVariables] = useState<string[]>([]);
+  const [selectedTemplateId, setSelectedTemplateId] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
@@ -79,11 +97,16 @@ export function PortalFollowUpClient() {
           ok?: boolean;
           settings?: Settings;
           queue?: QueueItem[];
+          calendars?: Calendar[];
+          builtinVariables?: string[];
           error?: string;
         };
         if (json.ok && json.settings) {
           setSettings(json.settings);
           setQueue(Array.isArray(json.queue) ? json.queue : []);
+          setCalendars(Array.isArray(json.calendars) ? json.calendars : []);
+          setBuiltinVariables(Array.isArray(json.builtinVariables) ? json.builtinVariables : []);
+          setSelectedTemplateId(json.settings.templates?.[0]?.id ?? null);
         } else {
           setError(json.error ?? "Unable to load follow-up settings");
         }
@@ -104,27 +127,126 @@ export function PortalFollowUpClient() {
 
   const canSave = useMemo(() => {
     if (!settings) return false;
-    if (settings.delayMinutes < 0 || settings.delayMinutes > 60 * 24 * 30) return false;
-    if (!settings.channels.email && !settings.channels.sms) return false;
-    if (settings.channels.email) {
-      if (settings.email.subjectTemplate.trim().length < 2) return false;
-      if (settings.email.bodyTemplate.trim().length < 5) return false;
-    }
-    if (settings.channels.sms) {
-      if (settings.sms.bodyTemplate.trim().length < 2) return false;
+    if (!Array.isArray(settings.templates) || settings.templates.length < 1) return false;
+    for (const t of settings.templates) {
+      if (!t.id.trim() || !t.name.trim()) return false;
+      if (t.delayMinutes < 0 || t.delayMinutes > 60 * 24 * 30) return false;
+      if (!t.channels.email && !t.channels.sms) return false;
+      if (t.channels.email) {
+        if (t.email.subjectTemplate.trim().length < 2) return false;
+        if (t.email.bodyTemplate.trim().length < 5) return false;
+      }
+      if (t.channels.sms) {
+        if (t.sms.bodyTemplate.trim().length < 2) return false;
+      }
     }
     return true;
   }, [settings]);
 
+  const selectedTemplate = useMemo(() => {
+    if (!settings || !selectedTemplateId) return null;
+    return settings.templates.find((t) => t.id === selectedTemplateId) ?? null;
+  }, [settings, selectedTemplateId]);
+
+  function updateTemplate(templateId: string, patch: Partial<Settings["templates"][number]>) {
+    if (!settings) return;
+    const next = settings.templates.map((t) => (t.id === templateId ? { ...t, ...patch } : t));
+    setSettings({ ...settings, templates: next });
+  }
+
+  function addTemplate() {
+    if (!settings) return;
+    const baseId = `tpl${settings.templates.length + 1}`;
+    let id = baseId;
+    let n = 2;
+    while (settings.templates.some((t) => t.id === id)) {
+      id = `${baseId}_${n}`;
+      n += 1;
+    }
+
+    const nextTemplate: Settings["templates"][number] = {
+      id,
+      name: "New template",
+      enabled: false,
+      delayMinutes: 60,
+      channels: { email: true, sms: false },
+      email: {
+        subjectTemplate: "Thanks, {contactName}",
+        bodyTemplate: "Hi {contactName},\n\nThanks again — {businessName}",
+      },
+      sms: { bodyTemplate: "Thanks again — {businessName}" },
+    };
+
+    setSettings({ ...settings, templates: [...settings.templates, nextTemplate].slice(0, 20) });
+    setSelectedTemplateId(id);
+  }
+
+  function removeTemplate(templateId: string) {
+    if (!settings) return;
+    const nextTemplates = settings.templates.filter((t) => t.id !== templateId);
+    if (!nextTemplates.length) return;
+
+    const nextDefault = (settings.assignments.defaultTemplateIds || []).filter((id) => id !== templateId);
+    const nextCalendarMap: Record<string, string[]> = {};
+    for (const [calId, ids] of Object.entries(settings.assignments.calendarTemplateIds || {})) {
+      nextCalendarMap[calId] = (ids || []).filter((id) => id !== templateId);
+    }
+
+    setSettings({
+      ...settings,
+      templates: nextTemplates,
+      assignments: { ...settings.assignments, defaultTemplateIds: nextDefault, calendarTemplateIds: nextCalendarMap },
+    });
+    setSelectedTemplateId((prev) => (prev === templateId ? nextTemplates[0]!.id : prev));
+  }
+
+  function toggleCalendarTemplate(calendarId: string, templateId: string) {
+    if (!settings) return;
+    const current = settings.assignments.calendarTemplateIds?.[calendarId] ?? [];
+    const has = current.includes(templateId);
+    const next = has ? current.filter((x) => x !== templateId) : [...current, templateId];
+    setSettings({
+      ...settings,
+      assignments: {
+        ...settings.assignments,
+        calendarTemplateIds: { ...settings.assignments.calendarTemplateIds, [calendarId]: next },
+      },
+    });
+  }
+
+  function toggleDefaultTemplate(templateId: string) {
+    if (!settings) return;
+    const current = settings.assignments.defaultTemplateIds ?? [];
+    const has = current.includes(templateId);
+    const next = has ? current.filter((x) => x !== templateId) : [...current, templateId];
+    setSettings({ ...settings, assignments: { ...settings.assignments, defaultTemplateIds: next } });
+  }
+
+  const allVariableKeys = useMemo(() => {
+    const customKeys = settings ? Object.keys(settings.customVariables || {}) : [];
+    const keys = [...builtinVariables, ...customKeys];
+    return Array.from(new Set(keys)).filter(Boolean);
+  }, [builtinVariables, settings]);
+
   async function refresh() {
     const res = await fetch("/api/portal/follow-up/settings", { cache: "no-store" });
-    const json = (await res.json().catch(() => ({}))) as { ok?: boolean; settings?: Settings; queue?: QueueItem[]; error?: string };
+    const json = (await res.json().catch(() => ({}))) as {
+      ok?: boolean;
+      settings?: Settings;
+      queue?: QueueItem[];
+      calendars?: Calendar[];
+      builtinVariables?: string[];
+      error?: string;
+    };
     if (!res.ok || !json.ok || !json.settings) {
       setError(json.error ?? "Unable to refresh");
       return;
     }
     setSettings(json.settings);
     setQueue(Array.isArray(json.queue) ? json.queue : []);
+    setCalendars(Array.isArray(json.calendars) ? json.calendars : []);
+    setBuiltinVariables(Array.isArray(json.builtinVariables) ? json.builtinVariables : []);
+    setSelectedTemplateId((prev) => prev ?? json.settings?.templates?.[0]?.id ?? null);
   }
 
   async function save() {
@@ -137,7 +259,14 @@ export function PortalFollowUpClient() {
       headers: { "content-type": "application/json" },
       body: JSON.stringify({ settings }),
     });
-    const json = (await res.json().catch(() => ({}))) as { ok?: boolean; settings?: Settings; queue?: QueueItem[]; error?: string };
+    const json = (await res.json().catch(() => ({}))) as {
+      ok?: boolean;
+      settings?: Settings;
+      queue?: QueueItem[];
+      calendars?: Calendar[];
+      builtinVariables?: string[];
+      error?: string;
+    };
     setBusy(false);
     if (!res.ok || !json.ok || !json.settings) {
       setError(json.error ?? "Unable to save");
@@ -145,6 +274,8 @@ export function PortalFollowUpClient() {
     }
     setSettings(json.settings);
     setQueue(Array.isArray(json.queue) ? json.queue : []);
+    setCalendars(Array.isArray(json.calendars) ? json.calendars : []);
+    setBuiltinVariables(Array.isArray(json.builtinVariables) ? json.builtinVariables : []);
     setNotice("Saved.");
   }
 
@@ -273,67 +404,269 @@ export function PortalFollowUpClient() {
                 />
                 Enabled
               </label>
+            </div>
 
-              <div>
-                <label className="text-xs font-semibold text-zinc-600">Delay after appointment (minutes)</label>
-                <input
-                  type="number"
-                  value={settings?.delayMinutes ?? 60}
-                  onChange={(e) => settings && setSettings({ ...settings, delayMinutes: Number(e.target.value || 0) })}
-                  className="mt-1 w-full rounded-2xl border border-zinc-200 bg-white px-4 py-3 text-sm outline-none focus:border-zinc-300"
-                />
+            <div className="mt-6 rounded-2xl border border-zinc-200 bg-zinc-50 p-4">
+              <div className="text-sm font-semibold text-zinc-900">Variables</div>
+              <div className="mt-2 text-xs text-zinc-600">
+                Use placeholders like <span className="font-mono">{"{contactName}"}</span> inside templates.
+              </div>
+              <div className="mt-2 text-xs text-zinc-600">
+                Available: <span className="font-mono">{allVariableKeys.map((k) => `{${k}}`).join(" ")}</span>
               </div>
 
-              <label className="inline-flex items-center gap-3 rounded-2xl border border-zinc-200 bg-white px-4 py-3 text-sm text-zinc-800">
-                <input
-                  type="checkbox"
-                  checked={Boolean(settings?.channels.email)}
-                  onChange={(e) => settings && setSettings({ ...settings, channels: { ...settings.channels, email: e.target.checked } })}
-                />
-                Email
-              </label>
-              <label className="inline-flex items-center gap-3 rounded-2xl border border-zinc-200 bg-white px-4 py-3 text-sm text-zinc-800">
-                <input
-                  type="checkbox"
-                  checked={Boolean(settings?.channels.sms)}
-                  onChange={(e) => settings && setSettings({ ...settings, channels: { ...settings.channels, sms: e.target.checked } })}
-                />
-                Text (SMS)
-              </label>
+              <div className="mt-4">
+                <div className="text-xs font-semibold text-zinc-600">Custom variables</div>
+                <div className="mt-2 space-y-2">
+                  {(settings ? Object.entries(settings.customVariables || {}) : []).map(([k, v]) => (
+                    <div key={k} className="grid grid-cols-1 gap-2 sm:grid-cols-12">
+                      <input
+                        value={k}
+                        disabled
+                        className="sm:col-span-4 rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm outline-none"
+                      />
+                      <input
+                        value={v}
+                        onChange={(e) =>
+                          settings &&
+                          setSettings({
+                            ...settings,
+                            customVariables: { ...settings.customVariables, [k]: e.target.value },
+                          })
+                        }
+                        className="sm:col-span-7 rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm outline-none focus:border-zinc-300"
+                        placeholder="Value"
+                      />
+                      <button
+                        type="button"
+                        onClick={() => {
+                          if (!settings) return;
+                          const next = { ...settings.customVariables };
+                          delete next[k];
+                          setSettings({ ...settings, customVariables: next });
+                        }}
+                        className="sm:col-span-1 rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-sm font-semibold text-brand-ink hover:bg-zinc-100"
+                      >
+                        ✕
+                      </button>
+                    </div>
+                  ))}
+
+                  <button
+                    type="button"
+                    onClick={() => {
+                      if (!settings) return;
+                      const proposed = window.prompt(
+                        "Variable name (letters, numbers, underscore). Use without braces:",
+                        "myVar",
+                      );
+                      const key = (proposed ?? "").trim();
+                      const keyOk = /^[a-zA-Z][a-zA-Z0-9_]*$/;
+                      const reserved = new Set(builtinVariables);
+                      if (!key || !keyOk.test(key) || reserved.has(key)) {
+                        setNotice("Invalid variable name.");
+                        return;
+                      }
+                      if (Object.prototype.hasOwnProperty.call(settings.customVariables || {}, key)) {
+                        setNotice("That variable already exists.");
+                        return;
+                      }
+                      setSettings({ ...settings, customVariables: { ...settings.customVariables, [key]: "" } });
+                    }}
+                    className="rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm font-semibold text-brand-ink hover:bg-zinc-50"
+                  >
+                    Add variable
+                  </button>
+                </div>
+              </div>
             </div>
 
             <div className="mt-6 rounded-2xl border border-zinc-200 bg-zinc-50 p-4">
               <div className="text-sm font-semibold text-zinc-900">Templates</div>
-              <div className="mt-2 text-xs text-zinc-600">Available placeholders: <span className="font-mono">{`{contactName}`}</span>, <span className="font-mono">{`{businessName}`}</span>, <span className="font-mono">{`{bookingTitle}`}</span></div>
+              <div className="mt-2 text-xs text-zinc-600">Create multiple follow-ups and attach them to specific calendars.</div>
 
-              <div className="mt-4 grid grid-cols-1 gap-4">
-                <div>
-                  <label className="text-xs font-semibold text-zinc-600">Email subject</label>
-                  <input
-                    value={settings?.email.subjectTemplate ?? ""}
-                    onChange={(e) => settings && setSettings({ ...settings, email: { ...settings.email, subjectTemplate: e.target.value } })}
-                    className="mt-1 w-full rounded-2xl border border-zinc-200 bg-white px-4 py-3 text-sm outline-none focus:border-zinc-300"
-                  />
+              <div className="mt-4 flex flex-wrap gap-2">
+                {(settings?.templates ?? []).map((t) => (
+                  <button
+                    key={t.id}
+                    type="button"
+                    onClick={() => setSelectedTemplateId(t.id)}
+                    className={
+                      selectedTemplateId === t.id
+                        ? "rounded-full bg-brand-ink px-3 py-1.5 text-xs font-semibold text-white"
+                        : "rounded-full border border-zinc-200 bg-white px-3 py-1.5 text-xs font-semibold text-brand-ink hover:bg-zinc-50"
+                    }
+                  >
+                    {t.name}
+                  </button>
+                ))}
+
+                <button
+                  type="button"
+                  onClick={addTemplate}
+                  className="rounded-full border border-zinc-200 bg-white px-3 py-1.5 text-xs font-semibold text-brand-ink hover:bg-zinc-50"
+                >
+                  + Add template
+                </button>
+              </div>
+
+              {selectedTemplate ? (
+                <div className="mt-4 grid grid-cols-1 gap-4">
+                  <div className="grid grid-cols-1 gap-3 sm:grid-cols-12">
+                    <div className="sm:col-span-6">
+                      <label className="text-xs font-semibold text-zinc-600">Template name</label>
+                      <input
+                        value={selectedTemplate.name}
+                        onChange={(e) => updateTemplate(selectedTemplate.id, { name: e.target.value })}
+                        className="mt-1 w-full rounded-2xl border border-zinc-200 bg-white px-4 py-3 text-sm outline-none focus:border-zinc-300"
+                      />
+                    </div>
+                    <div className="sm:col-span-3">
+                      <label className="text-xs font-semibold text-zinc-600">Delay (minutes)</label>
+                      <input
+                        type="number"
+                        value={selectedTemplate.delayMinutes}
+                        onChange={(e) => updateTemplate(selectedTemplate.id, { delayMinutes: Number(e.target.value || 0) })}
+                        className="mt-1 w-full rounded-2xl border border-zinc-200 bg-white px-4 py-3 text-sm outline-none focus:border-zinc-300"
+                      />
+                    </div>
+                    <div className="sm:col-span-3 flex items-end gap-2">
+                      <label className="inline-flex items-center gap-2 rounded-2xl border border-zinc-200 bg-white px-4 py-3 text-sm text-zinc-800">
+                        <input
+                          type="checkbox"
+                          checked={Boolean(selectedTemplate.enabled)}
+                          onChange={(e) => updateTemplate(selectedTemplate.id, { enabled: e.target.checked })}
+                        />
+                        Enabled
+                      </label>
+                      <button
+                        type="button"
+                        onClick={() => removeTemplate(selectedTemplate.id)}
+                        className="rounded-2xl border border-zinc-200 bg-white px-4 py-3 text-sm font-semibold text-brand-ink hover:bg-zinc-50"
+                      >
+                        Remove
+                      </button>
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                    <label className="inline-flex items-center gap-3 rounded-2xl border border-zinc-200 bg-white px-4 py-3 text-sm text-zinc-800">
+                      <input
+                        type="checkbox"
+                        checked={Boolean(selectedTemplate.channels.email)}
+                        onChange={(e) =>
+                          updateTemplate(selectedTemplate.id, {
+                            channels: { ...selectedTemplate.channels, email: e.target.checked },
+                          })
+                        }
+                      />
+                      Email
+                    </label>
+                    <label className="inline-flex items-center gap-3 rounded-2xl border border-zinc-200 bg-white px-4 py-3 text-sm text-zinc-800">
+                      <input
+                        type="checkbox"
+                        checked={Boolean(selectedTemplate.channels.sms)}
+                        onChange={(e) =>
+                          updateTemplate(selectedTemplate.id, {
+                            channels: { ...selectedTemplate.channels, sms: e.target.checked },
+                          })
+                        }
+                      />
+                      Text (SMS)
+                    </label>
+                  </div>
+
+                  <div>
+                    <label className="text-xs font-semibold text-zinc-600">Email subject</label>
+                    <input
+                      value={selectedTemplate.email.subjectTemplate}
+                      onChange={(e) =>
+                        updateTemplate(selectedTemplate.id, {
+                          email: { ...selectedTemplate.email, subjectTemplate: e.target.value },
+                        })
+                      }
+                      className="mt-1 w-full rounded-2xl border border-zinc-200 bg-white px-4 py-3 text-sm outline-none focus:border-zinc-300"
+                    />
+                  </div>
+                  <div>
+                    <label className="text-xs font-semibold text-zinc-600">Email body</label>
+                    <textarea
+                      value={selectedTemplate.email.bodyTemplate}
+                      onChange={(e) =>
+                        updateTemplate(selectedTemplate.id, {
+                          email: { ...selectedTemplate.email, bodyTemplate: e.target.value },
+                        })
+                      }
+                      rows={8}
+                      className="mt-1 w-full rounded-2xl border border-zinc-200 bg-white px-4 py-3 text-sm outline-none focus:border-zinc-300"
+                    />
+                  </div>
+                  <div>
+                    <label className="text-xs font-semibold text-zinc-600">SMS body</label>
+                    <textarea
+                      value={selectedTemplate.sms.bodyTemplate}
+                      onChange={(e) =>
+                        updateTemplate(selectedTemplate.id, {
+                          sms: { ...selectedTemplate.sms, bodyTemplate: e.target.value },
+                        })
+                      }
+                      rows={3}
+                      className="mt-1 w-full rounded-2xl border border-zinc-200 bg-white px-4 py-3 text-sm outline-none focus:border-zinc-300"
+                    />
+                  </div>
                 </div>
-                <div>
-                  <label className="text-xs font-semibold text-zinc-600">Email body</label>
-                  <textarea
-                    value={settings?.email.bodyTemplate ?? ""}
-                    onChange={(e) => settings && setSettings({ ...settings, email: { ...settings.email, bodyTemplate: e.target.value } })}
-                    rows={8}
-                    className="mt-1 w-full rounded-2xl border border-zinc-200 bg-white px-4 py-3 text-sm outline-none focus:border-zinc-300"
-                  />
-                </div>
-                <div>
-                  <label className="text-xs font-semibold text-zinc-600">SMS body</label>
-                  <textarea
-                    value={settings?.sms.bodyTemplate ?? ""}
-                    onChange={(e) => settings && setSettings({ ...settings, sms: { ...settings.sms, bodyTemplate: e.target.value } })}
-                    rows={3}
-                    className="mt-1 w-full rounded-2xl border border-zinc-200 bg-white px-4 py-3 text-sm outline-none focus:border-zinc-300"
-                  />
+              ) : null}
+            </div>
+
+            <div className="mt-6 rounded-2xl border border-zinc-200 bg-white p-4">
+              <div className="text-sm font-semibold text-zinc-900">Attach templates</div>
+              <div className="mt-2 text-xs text-zinc-600">Choose which templates send for each calendar.</div>
+
+              <div className="mt-4">
+                <div className="text-xs font-semibold text-zinc-600">Default (main booking link)</div>
+                <div className="mt-2 flex flex-wrap gap-2">
+                  {(settings?.templates ?? []).map((t) => (
+                    <label
+                      key={t.id}
+                      className="inline-flex items-center gap-2 rounded-full border border-zinc-200 bg-zinc-50 px-3 py-1.5 text-xs font-semibold text-zinc-800"
+                    >
+                      <input
+                        type="checkbox"
+                        checked={Boolean(settings?.assignments.defaultTemplateIds?.includes(t.id))}
+                        onChange={() => toggleDefaultTemplate(t.id)}
+                      />
+                      {t.name}
+                    </label>
+                  ))}
                 </div>
               </div>
+
+              {calendars.length ? (
+                <div className="mt-5 space-y-4">
+                  {calendars.map((cal) => (
+                    <div key={cal.id} className="rounded-2xl border border-zinc-200 bg-zinc-50 p-4">
+                      <div className="text-sm font-semibold text-zinc-900">{cal.title}</div>
+                      <div className="mt-2 flex flex-wrap gap-2">
+                        {(settings?.templates ?? []).map((t) => (
+                          <label
+                            key={t.id}
+                            className="inline-flex items-center gap-2 rounded-full border border-zinc-200 bg-white px-3 py-1.5 text-xs font-semibold text-zinc-800"
+                          >
+                            <input
+                              type="checkbox"
+                              checked={Boolean(settings?.assignments.calendarTemplateIds?.[cal.id]?.includes(t.id))}
+                              onChange={() => toggleCalendarTemplate(cal.id, t.id)}
+                            />
+                            {t.name}
+                          </label>
+                        ))}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <div className="mt-4 text-sm text-zinc-600">No calendars configured yet.</div>
+              )}
             </div>
 
             <div className="mt-5 flex flex-col gap-3 sm:flex-row">
@@ -357,7 +690,9 @@ export function PortalFollowUpClient() {
 
           <div className="rounded-3xl border border-zinc-200 bg-white p-6">
             <div className="text-sm font-semibold text-zinc-900">Send a test</div>
-            <div className="mt-2 text-sm text-zinc-600">Sends immediately using your configured SendGrid/Twilio keys.</div>
+            <div className="mt-2 text-sm text-zinc-600">
+              Sends immediately. Emails send from Purely Automation with your business name as the sender name.
+            </div>
 
             <div className="mt-4 space-y-3">
               <div>
@@ -417,19 +752,21 @@ export function PortalFollowUpClient() {
 
             <div className="mt-4 overflow-hidden rounded-2xl border border-zinc-200">
               <div className="grid grid-cols-12 gap-2 bg-zinc-50 px-4 py-2 text-xs font-semibold text-zinc-600">
-                <div className="col-span-3">When</div>
+                <div className="col-span-2">When</div>
+                <div className="col-span-3">Template</div>
                 <div className="col-span-2">Channel</div>
-                <div className="col-span-4">To</div>
-                <div className="col-span-3">Status</div>
+                <div className="col-span-3">To</div>
+                <div className="col-span-2">Status</div>
               </div>
               <div className="divide-y divide-zinc-200">
                 {queue.length ? (
                   queue.slice(0, 60).map((q) => (
                     <div key={q.id} className="grid grid-cols-12 gap-2 px-4 py-3 text-sm">
-                      <div className="col-span-3 text-zinc-700">{fmtWhen(q.sendAtIso)}</div>
+                      <div className="col-span-2 text-zinc-700">{fmtWhen(q.sendAtIso)}</div>
+                      <div className="col-span-3 truncate text-zinc-700">{q.templateName}</div>
                       <div className="col-span-2 text-zinc-700">{q.channel}</div>
-                      <div className="col-span-4 truncate text-zinc-700">{q.to}</div>
-                      <div className="col-span-3 text-zinc-600">
+                      <div className="col-span-3 truncate text-zinc-700">{q.to}</div>
+                      <div className="col-span-2 text-zinc-600">
                         {q.status === "FAILED" ? (
                           <span className="text-red-700">FAILED</span>
                         ) : q.status === "SENT" ? (
@@ -454,8 +791,8 @@ export function PortalFollowUpClient() {
             <div className="text-sm font-semibold text-zinc-900">How it works</div>
             <div className="mt-2 space-y-2 text-sm text-zinc-600">
               <div>• When a booking is created, we schedule follow-up messages.</div>
-              <div>• Messages send after the appointment ends + your delay.</div>
-              <div>• Sending requires SendGrid/Twilio environment variables.</div>
+              <div>• Each template has its own delay after the appointment ends.</div>
+              <div>• Email sender name uses your business name.</div>
             </div>
             <div className="mt-5">
               <Link

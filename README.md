@@ -125,6 +125,26 @@ Booking Automation gives each client a public booking link backed by their own a
 	- `GET /api/public/booking/[slug]/suggestions`
 	- `POST /api/public/booking/[slug]/book`
 
+## Follow-up automation (portal)
+
+Follow-up Automation schedules email/SMS follow-ups after bookings.
+
+- Portal page: `/portal/app/services/follow-up`
+- Settings + queue: `GET/PUT /api/portal/follow-up/settings`
+- Test send: `POST /api/portal/follow-up/test-send`
+- Cron processor: `GET /api/portal/follow-up/cron`
+  - If `FOLLOW_UP_CRON_SECRET` is set, the request must include header `x-follow-up-cron-secret: <secret>`.
+
+Template notes:
+
+- Templates support placeholders like `{contactName}`, `{businessName}`, `{bookingTitle}`, and custom variables defined in the Follow-up settings.
+- Templates can be attached per booking calendar (multi-calendar mode) via the Follow-up settings screen.
+
+Delivery notes:
+
+- Email sender name uses the client’s Business Name (stored in `BusinessProfile`).
+- SMS sends via the configured SMS provider credentials.
+
 ## Public marketing landing
 
 - `/` is the public landing page.
