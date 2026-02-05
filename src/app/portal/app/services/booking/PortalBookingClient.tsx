@@ -77,6 +77,7 @@ export function PortalBookingClient() {
 
   const [contactOpen, setContactOpen] = useState(false);
   const [contactBooking, setContactBooking] = useState<Booking | null>(null);
+  const [contactSubject, setContactSubject] = useState("");
   const [contactMessage, setContactMessage] = useState("");
   const [contactSendEmail, setContactSendEmail] = useState(true);
   const [contactSendSms, setContactSendSms] = useState(false);
@@ -211,6 +212,12 @@ export function PortalBookingClient() {
       return;
     }
 
+    const subject = contactSubject.trim();
+    if (contactSendEmail && subject.length > 120) {
+      setError("Subject is too long (max 120 characters).");
+      return;
+    }
+
     setContactBusy(true);
     setError(null);
     setStatus(null);
@@ -219,6 +226,7 @@ export function PortalBookingClient() {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({
+        subject,
         message: msg,
         sendEmail: contactSendEmail,
         sendSms: contactSendSms,
@@ -234,6 +242,7 @@ export function PortalBookingClient() {
 
     setContactOpen(false);
     setContactBooking(null);
+    setContactSubject("");
     setContactMessage("");
     setContactSendEmail(true);
     setContactSendSms(false);
@@ -442,6 +451,7 @@ export function PortalBookingClient() {
                       className="mr-2 rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm hover:bg-zinc-50"
                       onClick={() => {
                         setContactBooking(b);
+                        setContactSubject(`Follow-up: ${site?.title ?? "Booking"}`);
                         setContactMessage("");
                         setContactSendEmail(true);
                         setContactSendSms(Boolean(b.contactPhone));
@@ -938,6 +948,21 @@ export function PortalBookingClient() {
             </div>
             {!contactBooking.contactPhone ? (
               <div className="mt-2 text-xs text-zinc-500">No phone number on this booking.</div>
+            ) : null}
+
+            {contactSendEmail ? (
+              <div className="mt-4">
+                <div className="text-xs font-semibold text-zinc-600">Email subject</div>
+                <input
+                  className="mt-1 w-full rounded-2xl border border-zinc-200 bg-white px-4 py-3 text-sm"
+                  placeholder={`Follow-up: ${site?.title ?? "Booking"}`}
+                  value={contactSubject}
+                  disabled={contactBusy}
+                  onChange={(e) => setContactSubject(e.target.value)}
+                  autoComplete="off"
+                />
+                <div className="mt-1 text-xs text-zinc-500">Only used for email (not SMS).</div>
+              </div>
             ) : null}
 
             <textarea

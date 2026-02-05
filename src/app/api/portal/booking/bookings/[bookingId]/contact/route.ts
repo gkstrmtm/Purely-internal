@@ -8,6 +8,7 @@ export const dynamic = "force-dynamic";
 export const revalidate = 0;
 
 const bodySchema = z.object({
+  subject: z.string().trim().max(120).optional(),
   message: z.string().trim().min(1).max(2000),
   sendEmail: z.boolean().optional(),
   sendSms: z.boolean().optional(),
@@ -125,6 +126,8 @@ export async function POST(
   });
   const fromName = profile?.businessName?.trim() || "Purely Automation";
 
+  const subject = parsed.data.subject?.trim() || `Follow-up: ${site.title}`;
+
   const sent = { email: false, sms: false };
 
   if (sendEmailRequested) {
@@ -133,7 +136,7 @@ export async function POST(
     }
     await sendEmail({
       to: booking.contactEmail,
-      subject: `Follow-up: ${site.title}`,
+      subject,
       body: parsed.data.message,
       fromName,
     });

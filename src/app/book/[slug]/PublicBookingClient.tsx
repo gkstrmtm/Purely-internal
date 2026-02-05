@@ -588,12 +588,15 @@ export function PublicBookingClient({ slug }: { slug: string }) {
               <input
                 className="w-full rounded-2xl border border-zinc-200 bg-white px-4 py-3 text-sm text-zinc-900 placeholder:text-zinc-400"
                 placeholder="Name"
+                autoComplete="name"
                 value={name}
                 onChange={(e) => setName(e.target.value)}
               />
               <input
                 className="w-full rounded-2xl border border-zinc-200 bg-white px-4 py-3 text-sm text-zinc-900 placeholder:text-zinc-400"
                 placeholder="Email"
+                inputMode="email"
+                autoComplete="email"
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
               />
@@ -601,6 +604,8 @@ export function PublicBookingClient({ slug }: { slug: string }) {
                 <input
                   className="w-full rounded-2xl border border-zinc-200 bg-white px-4 py-3 text-sm text-zinc-900 placeholder:text-zinc-400"
                   placeholder={site.form.phone.required ? "Phone" : "Phone (optional)"}
+                  inputMode="tel"
+                  autoComplete="tel"
                   value={phone}
                   onChange={(e) => setPhone(e.target.value)}
                 />
@@ -610,6 +615,7 @@ export function PublicBookingClient({ slug }: { slug: string }) {
                 <textarea
                   className="h-28 w-full resize-none rounded-2xl border border-zinc-200 bg-white px-4 py-3 text-sm text-zinc-900 placeholder:text-zinc-400"
                   placeholder={site.form.notes.required ? "Notes" : "Notes (optional)"}
+                  autoComplete="off"
                   value={notes}
                   onChange={(e) => setNotes(e.target.value)}
                 />
@@ -675,6 +681,7 @@ export function PublicBookingClient({ slug }: { slug: string }) {
                     <input
                       className="w-full rounded-2xl border border-zinc-200 bg-white px-4 py-3 text-sm text-zinc-900 placeholder:text-zinc-400"
                       placeholder={q.required ? `${q.label}` : `${q.label} (optional)`}
+                      autoComplete="off"
                       value={typeof answers[q.id] === "string" ? (answers[q.id] as string) : ""}
                       onChange={(e) => setAnswers((prev) => ({ ...prev, [q.id]: e.target.value }))}
                     />
