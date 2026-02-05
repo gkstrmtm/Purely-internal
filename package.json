@@ -14,7 +14,7 @@
     "db:migrate": "prisma migrate dev",
     "db:seed": "prisma db seed",
     "db:deploy": "prisma db push && prisma db seed",
-    "vercel-build": "prisma migrate deploy && prisma generate && next build",
+    "vercel-build": "node scripts/prisma-prebuild.mjs && next build",
     "blogs:cleanup-asterisks": "node prisma/cleanup-blog-asterisks.js"
   },
   "prisma": {
