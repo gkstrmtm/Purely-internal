@@ -56,7 +56,7 @@ export function PortalBookingClient() {
   const [status, setStatus] = useState<string | null>(null);
 
   const [photoBusy, setPhotoBusy] = useState(false);
-  const [notificationEmailsText, setNotificationEmailsText] = useState("");
+  const [notificationEmails, setNotificationEmails] = useState<string[]>([]);
 
   const bookingUrl = useMemo(() => {
     if (!site?.slug) return null;
@@ -80,7 +80,7 @@ export function PortalBookingClient() {
       const nextSite = (settingsJson as { site: Site }).site;
       setSite(nextSite);
       const xs = Array.isArray(nextSite?.notificationEmails) ? nextSite.notificationEmails : [];
-      setNotificationEmailsText(xs.join("\n"));
+      setNotificationEmails(xs);
     }
 
     const bookingsJson = await bookingsRes.json().catch(() => ({}));
@@ -129,16 +129,13 @@ export function PortalBookingClient() {
     setSite((body as { site: Site }).site);
     const nextSite = (body as { site: Site }).site;
     if (Array.isArray(nextSite?.notificationEmails)) {
-      setNotificationEmailsText(nextSite.notificationEmails.join("\n"));
+      setNotificationEmails(nextSite.notificationEmails);
     }
     setStatus("Saved booking settings");
   }
 
-  function parseNotificationEmails(text: string): string[] {
-    const xs = String(text || "")
-      .split(/[,\n]/g)
-      .map((x) => x.trim())
-      .filter(Boolean);
+  function sanitizeNotificationEmails(items: string[]): string[] {
+    const xs = (Array.isArray(items) ? items : []).map((x) => String(x || "").trim()).filter(Boolean);
     const emailLike = /^[^@\s]+@[^@\s]+\.[^@\s]+$/;
     // De-dupe while preserving order.
     const unique: string[] = [];
@@ -482,14 +479,52 @@ export function PortalBookingClient() {
 
             <label className="rounded-2xl border border-zinc-200 bg-zinc-50 px-4 py-3 text-sm sm:col-span-2">
               <div className="font-medium text-zinc-800">Notification emails (optional)</div>
-              <textarea
-                className="mt-2 min-h-[90px] w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm"
-                placeholder="one@company.com\nother@company.com"
-                value={notificationEmailsText}
-                onChange={(e) => setNotificationEmailsText(e.target.value)}
-                onBlur={() => save({ notificationEmails: parseNotificationEmails(notificationEmailsText) })}
-              />
-              <div className="mt-2 text-xs text-zinc-500">Separate with commas or new lines.</div>
+              <div className="mt-2 space-y-2">
+                {notificationEmails.length === 0 ? (
+                  <div className="rounded-2xl border border-zinc-200 bg-white px-4 py-3 text-sm text-zinc-600">
+                    Add one or more emails to notify when someone books.
+                  </div>
+                ) : null}
+
+                {notificationEmails.map((email, idx) => (
+                  <div key={idx} className="flex items-center gap-2">
+                    <input
+                      className="w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm"
+                      placeholder={idx === 0 ? "you@company.com" : "another@company.com"}
+                      value={email}
+                      onChange={(e) => {
+                        const next = [...notificationEmails];
+                        next[idx] = e.target.value;
+                        setNotificationEmails(next);
+                      }}
+                      onBlur={() => save({ notificationEmails: sanitizeNotificationEmails(notificationEmails) })}
+                    />
+                    <button
+                      type="button"
+                      className="rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-sm font-semibold text-zinc-700 hover:bg-zinc-50"
+                      onClick={() => {
+                        const next = notificationEmails.filter((_, i) => i !== idx);
+                        setNotificationEmails(next);
+                        void save({ notificationEmails: sanitizeNotificationEmails(next) });
+                      }}
+                      aria-label="Remove email"
+                      disabled={saving}
+                    >
+                      Remove
+                    </button>
+                  </div>
+                ))}
+
+                <button
+                  type="button"
+                  className="inline-flex items-center justify-center rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm font-semibold text-brand-ink hover:bg-zinc-50"
+                  onClick={() => setNotificationEmails((prev) => [...prev, ""])}
+                >
+                  + Add email
+                </button>
+
+                <div className="text-xs text-zinc-500">Emails: {sanitizeNotificationEmails(notificationEmails).length}</div>
+              </div>
             </label>
           </div>
 

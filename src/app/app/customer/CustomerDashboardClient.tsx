@@ -1,6 +1,5 @@
 "use client";
 
-import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 
 type ModuleKey = "blog" | "booking" | "crm";
@@ -21,7 +20,7 @@ function Card({ title, children }: { title: string; children: React.ReactNode })
   );
 }
 
-export function PortalDashboardClient() {
+export function CustomerDashboardClient() {
   const [data, setData] = useState<MeResponse | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -60,14 +59,14 @@ export function PortalDashboardClient() {
 
   async function manageBilling() {
     if (!data?.billing?.configured) {
-      window.location.href = "/portal/app/billing";
+      window.location.href = "/app/customer/billing";
       return;
     }
     setError(null);
     const res = await fetch("/api/billing/create-portal-session", {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ returnPath: "/portal/app" }),
+      body: JSON.stringify({ returnPath: "/app/customer" }),
     });
     if (!res.ok) {
       const body = await res.json().catch(() => ({}));
@@ -80,14 +79,14 @@ export function PortalDashboardClient() {
 
   async function upgrade(module: ModuleKey) {
     if (!data?.billing?.configured) {
-      window.location.href = "/portal/app/billing";
+      window.location.href = "/app/customer/billing";
       return;
     }
     setError(null);
     const res = await fetch("/api/billing/checkout-module", {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ module, successPath: "/portal/app", cancelPath: "/portal/app" }),
+      body: JSON.stringify({ module, successPath: "/app/customer", cancelPath: "/app/customer" }),
     });
     if (!res.ok) {
       const body = await res.json().catch(() => ({}));
@@ -124,8 +123,7 @@ export function PortalDashboardClient() {
         </div>
         <div className="mt-1 text-xs text-zinc-500">This week</div>
         <div className="mt-3 text-sm text-zinc-700">
-          All-time:{" "}
-          <span className="font-semibold">{Math.round(data.metrics.hoursSavedAllTime)}h</span>
+          All-time: <span className="font-semibold">{Math.round(data.metrics.hoursSavedAllTime)}h</span>
         </div>
       </Card>
 
@@ -144,7 +142,7 @@ export function PortalDashboardClient() {
       </Card>
 
       <div className="sm:col-span-2">
-        <Card title="Your services">
+        <Card title="Your modules">
           <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
             {modules.map((m) => (
               <div
@@ -160,7 +158,7 @@ export function PortalDashboardClient() {
                   <div>
                     <div className="text-sm font-semibold text-zinc-900">{m.name}</div>
                     <div className="mt-1 text-xs text-zinc-600">
-                      {m.enabled ? "Included in your plan" : "Not active"}
+                      {m.enabled ? "Included in your plan" : "Not enabled"}
                     </div>
                   </div>
                   {!m.enabled ? (
@@ -172,42 +170,17 @@ export function PortalDashboardClient() {
                     </button>
                   ) : null}
                 </div>
-
                 {!m.enabled ? (
                   <div className="mt-3 text-xs text-zinc-600">
-                    {data.billing.configured ? "Upgrade to unlock this service." : "Upgrade from the Billing page."}
+                    {data.billing.configured ? "Upgrade to unlock this module." : "Upgrade from the Billing page."}
                   </div>
                 ) : null}
               </div>
             ))}
           </div>
 
-          <div className="mt-4 flex flex-col gap-3 rounded-2xl border border-zinc-200 bg-white p-4 text-sm text-zinc-700 sm:flex-row sm:items-center sm:justify-between">
-            <div>
-              Next step: complete onboarding so services can personalize outputs.
-            </div>
-            <div className="flex flex-col gap-2 sm:flex-row">
-              <Link
-                href="/portal/app/onboarding"
-                className="inline-flex items-center justify-center rounded-2xl bg-brand-ink px-4 py-2 text-xs font-semibold text-white hover:opacity-95"
-              >
-                Open onboarding
-              </Link>
-              {data.entitlements.blog ? (
-                <Link
-                  href="/portal/app/services/blogs"
-                  className="inline-flex items-center justify-center rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-xs font-semibold text-brand-ink hover:bg-zinc-50"
-                >
-                  Open blogs
-                </Link>
-              ) : null}
-              <Link
-                href="/portal/app/billing"
-                className="inline-flex items-center justify-center rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-xs font-semibold text-brand-ink hover:bg-zinc-50"
-              >
-                Billing
-              </Link>
-            </div>
+          <div className="mt-4 rounded-2xl border border-zinc-200 bg-white p-4 text-xs text-zinc-600">
+            Next: wire each enabled module to its setup + automation controls.
           </div>
         </Card>
       </div>

@@ -3,6 +3,8 @@
 import Link from "next/link";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
+import { RichTextMarkdownEditor } from "@/components/RichTextMarkdownEditor";
+
 type Post = {
   id: string;
   status: "DRAFT" | "PUBLISHED";
@@ -63,6 +65,9 @@ export function PortalBlogPostClient({ postId }: { postId: string }) {
   const [loading, setLoading] = useState(true);
   const [working, setWorking] = useState<"save" | "publish" | "delete" | "archive" | "generate" | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [billingCta, setBillingCta] = useState<string | null>(null);
+
+  const generateAbortRef = useRef<AbortController | null>(null);
 
   const contentRef = useRef<HTMLTextAreaElement | null>(null);
 
@@ -73,6 +78,10 @@ export function PortalBlogPostClient({ postId }: { postId: string }) {
   const [excerpt, setExcerpt] = useState("");
   const [content, setContent] = useState("");
   const [keywordsText, setKeywordsText] = useState("");
+
+  const [aiPrompt, setAiPrompt] = useState("");
+  const [aiIncludeCoverImage, setAiIncludeCoverImage] = useState(true);
+  const [creditsRemaining, setCreditsRemaining] = useState<number | null>(null);
 
   const [imageBusy, setImageBusy] = useState(false);
   const [imageAlt, setImageAlt] = useState("");
@@ -97,6 +106,7 @@ export function PortalBlogPostClient({ postId }: { postId: string }) {
   const refresh = useCallback(async () => {
     setLoading(true);
     setError(null);
+    setBillingCta(null);
 
     const res = await fetch(`/api/portal/blogs/posts/${postId}`, { cache: "no-store" });
     const json = (await res.json().catch(() => ({}))) as { ok?: boolean; post?: Post; error?: string };
@@ -108,15 +118,40 @@ export function PortalBlogPostClient({ postId }: { postId: string }) {
       return;
     }
 
-    setPost(json.post);
-    setTitle(json.post.title ?? "");
-    setSlug(json.post.slug ?? "");
-    setExcerpt(json.post.excerpt ?? "");
-    setContent(json.post.content ?? "");
-    setKeywordsText((json.post.seoKeywords ?? []).join("\n"));
+    const loaded = json.post;
+    setPost(loaded);
+    setTitle(loaded.title ?? "");
+    setSlug(loaded.slug ?? "");
+    setExcerpt(loaded.excerpt ?? "");
+    setContent(loaded.content ?? "");
+    setKeywordsText((loaded.seoKeywords ?? []).join("\n"));
+
+    setAiPrompt((prev) => (prev.trim() ? prev : loaded.title ?? ""));
 
     setLoading(false);
   }, [postId]);
+
+  function coverImageUrlFor(titleText: string) {
+    const t = (titleText || "").trim() || "Blog post";
+    return `/api/blogs/cover?title=${encodeURIComponent(t)}`;
+  }
+
+  function ensureCoverAtTop(markdown: string, coverUrl: string, alt: string) {
+    const md = String(markdown || "");
+    const normalized = md.replace(/^\uFEFF/, "");
+    const firstNonEmpty = normalized
+      .split(/\n/)
+      .map((l) => l.trim())
+      .find((l) => l.length > 0);
+
+    if (firstNonEmpty && firstNonEmpty.includes(coverUrl)) {
+      return md;
+    }
+
+    const snippet = `![${alt || "cover"}](${coverUrl})`;
+    const stripped = normalized.replace(/^\s+/, "");
+    return stripped ? `${snippet}\n\n${stripped}` : `${snippet}\n`;
+  }
 
   useEffect(() => {
     void refresh();
@@ -156,7 +191,11 @@ export function PortalBlogPostClient({ postId }: { postId: string }) {
     }
 
     setPost(json.post);
-    setSlug(json.post.slug);
+    setTitle(json.post.title ?? "");
+    setSlug(json.post.slug ?? "");
+    setExcerpt(json.post.excerpt ?? "");
+    setContent(json.post.content ?? "");
+    setKeywordsText((json.post.seoKeywords ?? []).join("\n"));
     return json.post;
   }
 
@@ -213,28 +252,76 @@ export function PortalBlogPostClient({ postId }: { postId: string }) {
       if (!ok) return;
     }
 
-    const topic = window.prompt("Optional topic for this post (leave blank for best guess):", title.trim());
-    if (topic === null) return;
+    const promptText = aiPrompt.trim();
 
     setWorking("generate");
     setError(null);
+    setBillingCta(null);
 
-    const res = await fetch(`/api/portal/blogs/posts/${postId}/generate`, {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({ topic: topic.trim() || undefined }),
-    });
+    const abort = new AbortController();
+    generateAbortRef.current = abort;
+
+    let res: Response;
+    try {
+      res = await fetch(`/api/portal/blogs/posts/${postId}/generate`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ prompt: promptText || undefined, topic: promptText || undefined }),
+        signal: abort.signal,
+      });
+    } catch (e) {
+      setWorking(null);
+      generateAbortRef.current = null;
+      if ((e as any)?.name === "AbortError") {
+        return;
+      }
+      setError("Unable to generate post");
+      return;
+    }
 
     const json = (await res.json().catch(() => ({}))) as {
       ok?: boolean;
       draft?: { title: string; excerpt: string; content: string; seoKeywords?: string[] };
       estimatedCredits?: number;
+      creditsRemaining?: number;
+      billingPath?: string;
+      code?: string;
       error?: string;
     };
 
     setWorking(null);
+    generateAbortRef.current = null;
 
     if (!res.ok || !json.ok || !json.draft) {
+      if (res.status === 402 && json.code === "INSUFFICIENT_CREDITS") {
+        const path = json.billingPath || "/portal/app/billing";
+        setBillingCta(path);
+
+        // If the user enabled auto top-up, send them straight to the top-up flow.
+        try {
+          const c = await fetch("/api/portal/credits", { cache: "no-store" }).then((r) => (r.ok ? r.json() : null));
+          const auto = Boolean(c && typeof c === "object" && (c as any).autoTopUp);
+          if (auto) {
+            const top = await fetch("/api/portal/credits/topup", {
+              method: "POST",
+              headers: { "content-type": "application/json" },
+              body: JSON.stringify({ packages: 1 }),
+            }).then((r) => (r.ok ? r.json() : null));
+            if (top && typeof top === "object" && typeof (top as any).url === "string") {
+              window.location.href = String((top as any).url);
+              return;
+            }
+            window.location.href = path;
+            return;
+          }
+        } catch {
+          // ignore
+        }
+
+        setError(json.error ?? "Not enough credits");
+        return;
+      }
+
       setError(json.error ?? "Unable to generate post");
       return;
     }
@@ -244,6 +331,10 @@ export function PortalBlogPostClient({ postId }: { postId: string }) {
     const nextContent = json.draft.content ?? "";
     const nextKeywords = Array.isArray(json.draft.seoKeywords) ? json.draft.seoKeywords : [];
 
+    if (typeof json.creditsRemaining === "number" && Number.isFinite(json.creditsRemaining)) {
+      setCreditsRemaining(json.creditsRemaining);
+    }
+
     const oldSuggested = uiSlugify(title);
     const currentSlug = slug.trim();
     const shouldReplaceSlug = !currentSlug || (oldSuggested && currentSlug === oldSuggested);
@@ -251,7 +342,17 @@ export function PortalBlogPostClient({ postId }: { postId: string }) {
 
     setTitle(nextTitle);
     setExcerpt(nextExcerpt);
-    setContent(nextContent);
+    let nextMd = nextContent;
+
+    if (aiIncludeCoverImage && nextTitle.trim()) {
+      const url = coverImageUrlFor(nextTitle);
+      const alt = nextTitle.trim();
+      nextMd = ensureCoverAtTop(nextMd, url, alt);
+      setImageAlt(alt);
+      setImageUrl(url);
+    }
+
+    setContent(nextMd);
     setKeywordsText(nextKeywords.join("\n"));
     if (shouldReplaceSlug && nextSuggested) setSlug(nextSuggested);
   }
@@ -384,6 +485,19 @@ export function PortalBlogPostClient({ postId }: { postId: string }) {
         </div>
 
         <div className="flex w-full flex-col gap-3 sm:w-auto sm:flex-row">
+          <button
+            type="button"
+            onClick={() => {
+              if (isDirty) {
+                const ok = window.confirm("You have unsaved changes. Leave without saving?");
+                if (!ok) return;
+              }
+              window.location.href = "/portal/app/services/blogs";
+            }}
+            className="inline-flex items-center justify-center rounded-2xl border border-red-200 bg-white px-4 py-2 text-sm font-semibold text-red-700 hover:bg-red-50"
+          >
+            Cancel
+          </button>
           <a
             href={exportUrl}
             className="inline-flex items-center justify-center rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm font-semibold text-brand-ink hover:bg-zinc-50"
@@ -398,6 +512,19 @@ export function PortalBlogPostClient({ postId }: { postId: string }) {
           >
             {working === "generate" ? "Generating…" : "Generate with AI"}
           </button>
+          {working === "generate" ? (
+            <button
+              type="button"
+              onClick={() => {
+                generateAbortRef.current?.abort();
+                generateAbortRef.current = null;
+                setWorking(null);
+              }}
+              className="inline-flex items-center justify-center rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm font-semibold text-brand-ink hover:bg-zinc-50"
+            >
+              Stop
+            </button>
+          ) : null}
           <button
             type="button"
             onClick={save}
@@ -417,11 +544,41 @@ export function PortalBlogPostClient({ postId }: { postId: string }) {
         </div>
       </div>
 
+      {billingCta ? (
+        <div className="mt-4 rounded-2xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900">
+          Not enough credits. <a className="font-semibold underline" href={billingCta}>Top off your credits here</a>.
+        </div>
+      ) : null}
+
       {error ? <div className="mt-4 rounded-2xl border border-red-200 bg-red-50 p-4 text-sm text-red-700">{error}</div> : null}
 
       <div className="mt-6 grid grid-cols-1 gap-4 lg:grid-cols-3">
         <div className="rounded-3xl border border-zinc-200 bg-white p-6 lg:col-span-2">
           <div className="space-y-4">
+            <div className="rounded-2xl border border-zinc-200 bg-zinc-50 p-4">
+              <div className="text-sm font-semibold text-zinc-900">AI prompt</div>
+              <div className="mt-1 text-sm text-zinc-600">Describe what you want. We’ll generate the full post and SEO keywords.</div>
+              <textarea
+                value={aiPrompt}
+                onChange={(e) => setAiPrompt(e.target.value)}
+                className="mt-3 min-h-[90px] w-full rounded-2xl border border-zinc-200 bg-white px-4 py-3 text-sm outline-none focus:border-zinc-300"
+                placeholder="Example: Write a helpful post for homeowners about how to choose the right HVAC filter, with a friendly professional tone."
+              />
+              <div className="mt-3 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+                <label className="inline-flex items-center gap-2 text-sm text-zinc-700">
+                  <input
+                    type="checkbox"
+                    checked={aiIncludeCoverImage}
+                    onChange={(e) => setAiIncludeCoverImage(e.target.checked)}
+                  />
+                  Add a cover image (generated SVG)
+                </label>
+                {creditsRemaining !== null ? (
+                  <div className="text-xs font-semibold text-zinc-600">Credits remaining: {creditsRemaining}</div>
+                ) : null}
+              </div>
+            </div>
+
             <div>
               <label className="text-xs font-semibold text-zinc-600">Title</label>
               <input
@@ -455,13 +612,17 @@ export function PortalBlogPostClient({ postId }: { postId: string }) {
 
             <div>
               <label className="text-xs font-semibold text-zinc-600">Content</label>
-              <textarea
-                value={content}
-                onChange={(e) => setContent(e.target.value)}
-                ref={contentRef}
-                className="mt-1 min-h-[320px] w-full rounded-2xl border border-zinc-200 bg-white px-4 py-3 font-mono text-sm outline-none focus:border-zinc-300"
-                placeholder="Write in Markdown or plain text. Export will download Markdown."
-              />
+              <div className="mt-1">
+                <RichTextMarkdownEditor
+                  markdown={content}
+                  onChange={setContent}
+                  placeholder="Write your post…"
+                  disabled={working !== null}
+                />
+              </div>
+              <div className="mt-2 text-xs text-zinc-500">
+                Saved as Markdown (Export uses the exact saved Markdown).
+              </div>
             </div>
           </div>
         </div>

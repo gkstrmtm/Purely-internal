@@ -4,6 +4,7 @@ import { z } from "zod";
 import { prisma } from "@/lib/db";
 import { requireClientSession } from "@/lib/apiAuth";
 import { generateClientBlogDraft } from "@/lib/clientBlogAutomation";
+import { consumeCredits, getCreditsState } from "@/lib/credits";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -11,6 +12,7 @@ export const revalidate = 0;
 
 const bodySchema = z
   .object({
+    prompt: z.string().trim().min(1).max(2000).optional(),
     topic: z.string().trim().min(1).max(200).optional(),
   })
   .optional();
@@ -46,6 +48,21 @@ export async function POST(req: Request, ctx: { params: Promise<{ postId: string
     );
   }
 
+  const needCredits = 1;
+  const consumed = await consumeCredits(ownerId, needCredits);
+  if (!consumed.ok) {
+    return NextResponse.json(
+      {
+        ok: false,
+        code: "INSUFFICIENT_CREDITS",
+        error: "Not enough credits to generate with AI. Top off your credits in Billing.",
+        credits: consumed.state.balance,
+        billingPath: "/portal/app/billing",
+      },
+      { status: 402 },
+    );
+  }
+
   const profile = await prisma.businessProfile.findUnique({
     where: { ownerId },
     select: {
@@ -74,9 +91,9 @@ export async function POST(req: Request, ctx: { params: Promise<{ postId: string
     primaryGoals,
     targetCustomer: profile?.targetCustomer,
     brandVoice: profile?.brandVoice,
-    topic: parsed.data?.topic,
+    topic: parsed.data?.prompt ?? parsed.data?.topic,
   });
 
-  // Billing note: credits/usage accounting is handled elsewhere (Stripe usage-based billing is not wired yet).
-  return NextResponse.json({ ok: true, draft, estimatedCredits: 1 });
+  const state = await getCreditsState(ownerId);
+  return NextResponse.json({ ok: true, draft, estimatedCredits: needCredits, creditsRemaining: state.balance });
 }

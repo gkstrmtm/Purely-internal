@@ -45,6 +45,11 @@ Optional (Portal billing + entitlements):
 - `STRIPE_PRICE_BOOKING_AUTOMATION` (Stripe Price ID for Booking Automation)
 - `STRIPE_PRICE_CRM_AUTOMATION` (Stripe Price ID for Follow-up Automation)
 
+Optional (Portal credits / top-ups):
+
+- `STRIPE_PRICE_CREDITS_TOPUP` (Stripe Price ID for a one-time credits top-up package)
+- `CREDITS_TOPUP_PER_PACKAGE` (defaults to 25 if unset)
+
 If these are missing, the portal still works, but billing UI will show as not configured and entitlements will stay locked (unless using demo emails).
 
 Stripe setup checklist:
@@ -57,6 +62,28 @@ Stripe setup checklist:
 	- Subscription cancellation is supported inside the portal UI (it calls Stripe from our backend).
 
 Note: this repo currently reads subscription state live from Stripe; it does not require webhooks to unlock entitlements.
+
+## Credits (portal)
+
+The portal includes a lightweight credits system used by usage-based actions (e.g. “Generate with AI” in blogs).
+
+- Billing UI: `/portal/app/billing`
+- Credits API:
+	- `GET /api/portal/credits` (balance + auto-top-up toggle)
+	- `PUT /api/portal/credits` (update auto-top-up)
+	- `POST /api/portal/credits/topup` (starts a Stripe Checkout session when configured)
+
+Implementation note: credits state is stored in `PortalServiceSetup` (`serviceSlug = "credits"`) to avoid requiring DB migrations.
+
+## Blog editor notes
+
+- The portal blog post editor saves content as Markdown.
+- Cover images can be generated on-the-fly via `GET /api/blogs/cover?title=...` (returns an SVG).
+
+## Production schema drift hardening
+
+This repo may be deployed to environments where DB migrations are not guaranteed to run (or schema changes roll out gradually).
+For public/portal APIs, prefer narrow `select` clauses and avoid assuming optional columns always exist.
 
 3) In Vercel → Project → Settings → Build & Development Settings:
 

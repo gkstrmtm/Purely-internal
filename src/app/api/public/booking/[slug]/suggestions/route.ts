@@ -32,7 +32,11 @@ export async function GET(
     return NextResponse.json({ error: "Invalid query" }, { status: 400 });
   }
 
-  const site = await prisma.portalBookingSite.findUnique({ where: { slug } });
+  const site = await (prisma as any).portalBookingSite.findUnique({
+    where: { slug },
+    // Drift-hardening: select only the columns we need.
+    select: { id: true, ownerId: true, enabled: true },
+  });
   if (!site || !site.enabled) {
     return NextResponse.json({ error: "Not found" }, { status: 404 });
   }
@@ -47,7 +51,7 @@ export async function GET(
       where: { userId: site.ownerId, startAt: { lt: rangeEnd }, endAt: { gt: rangeStart } },
       select: { startAt: true, endAt: true },
     }),
-    prisma.portalBooking.findMany({
+    (prisma as any).portalBooking.findMany({
       where: { siteId: site.id, status: "SCHEDULED", startAt: { lt: rangeEnd }, endAt: { gt: rangeStart } },
       select: { startAt: true, endAt: true },
     }),

@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 
 type Me = {
   user: { email: string; name: string; role: string };
@@ -38,6 +38,20 @@ type AutomationSettings = {
   nextDueAt: string | null;
   lastRunAt?: string | null;
 };
+
+function sanitizeTopics(items: string[]): string[] {
+  const raw = (Array.isArray(items) ? items : []).map((x) => String(x || "").trim()).filter(Boolean);
+  const seen = new Set<string>();
+  const out: string[] = [];
+  for (const item of raw) {
+    const key = item.toLowerCase();
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push(item);
+    if (out.length >= 50) break;
+  }
+  return out;
+}
 
 function formatDate(value: string | null) {
   if (!value) return "";
@@ -80,29 +94,13 @@ export function PortalBlogsClient() {
     return `${window.location.origin}/${handle}/blogs`;
   }, [site?.id, site?.slug, siteSlug]);
 
-  function sanitizeTopics(items: string[]): string[] {
-    const raw = (Array.isArray(items) ? items : [])
-      .map((x) => String(x || "").trim())
-      .filter(Boolean);
-    const seen = new Set<string>();
-    const out: string[] = [];
-    for (const item of raw) {
-      const key = item.toLowerCase();
-      if (seen.has(key)) continue;
-      seen.add(key);
-      out.push(item);
-      if (out.length >= 50) break;
-    }
-    return out;
-  }
-
   const creditsPerWeekEstimate = useMemo(() => {
     const freq = Math.max(1, Math.floor(Number(autoFrequencyDays) || 7));
     const postsPerWeek = Math.ceil(7 / freq);
     return Math.max(0, postsPerWeek - 1);
   }, [autoFrequencyDays]);
 
-  async function refreshAll() {
+  const refreshAll = useCallback(async () => {
     setLoading(true);
     setError(null);
 
@@ -150,11 +148,24 @@ export function PortalBlogsClient() {
     }
 
     setLoading(false);
-  }
+  }, []);
 
   useEffect(() => {
     void refreshAll();
-  }, []);
+  }, [refreshAll]);
+
+  useEffect(() => {
+    const onFocus = () => void refreshAll();
+    const onVis = () => {
+      if (!document.hidden) void refreshAll();
+    };
+    window.addEventListener("focus", onFocus);
+    document.addEventListener("visibilitychange", onVis);
+    return () => {
+      window.removeEventListener("focus", onFocus);
+      document.removeEventListener("visibilitychange", onVis);
+    };
+  }, [refreshAll]);
 
   useEffect(() => {
     // If a site exists, collapse settings by default.
@@ -168,7 +179,7 @@ export function PortalBlogsClient() {
     const res = await fetch("/api/portal/blogs/site", {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ name: siteName || "My Blog", slug: siteSlug }),
+      body: JSON.stringify({ name: siteName || "My Blog", slug: siteSlug, primaryDomain: site?.primaryDomain ?? "" }),
     });
     const json = (await res.json().catch(() => ({}))) as { ok?: boolean; site?: Site; error?: string };
     setSiteSaving(false);
@@ -180,6 +191,7 @@ export function PortalBlogsClient() {
 
     setSite(json.site);
     setSiteName(json.site.name);
+    setSiteSlug(json.site.slug ?? "");
     await refreshAll();
   }
 
@@ -192,7 +204,12 @@ export function PortalBlogsClient() {
     const res = await fetch("/api/portal/blogs/site", {
       method: "PUT",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ name: siteName, slug: siteSlug }),
+      body: JSON.stringify({
+        name: siteName,
+        slug: siteSlug,
+        // Preserve existing domain until the UI supports editing it again.
+        primaryDomain: site?.primaryDomain ?? "",
+      }),
     });
 
     const json = (await res.json().catch(() => ({}))) as { ok?: boolean; site?: Site; error?: string };
@@ -204,6 +221,8 @@ export function PortalBlogsClient() {
     }
 
     setSite(json.site);
+    setSiteName(json.site.name);
+    setSiteSlug(json.site.slug ?? "");
     await refreshAll();
   }
 

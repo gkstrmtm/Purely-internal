@@ -38,6 +38,10 @@ export function PortalBillingClient() {
   const [status, setStatus] = useState<BillingStatus | null>(null);
   const [me, setMe] = useState<Me | null>(null);
   const [summary, setSummary] = useState<BillingSummary | null>(null);
+  const [credits, setCredits] = useState<number | null>(null);
+  const [autoTopUp, setAutoTopUp] = useState(false);
+  const [purchaseAvailable, setPurchaseAvailable] = useState(false);
+  const [packages, setPackages] = useState(1);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [actionBusy, setActionBusy] = useState<string | null>(null);
@@ -45,10 +49,11 @@ export function PortalBillingClient() {
   useEffect(() => {
     let mounted = true;
     (async () => {
-      const [billingRes, meRes, summaryRes] = await Promise.all([
+      const [billingRes, meRes, summaryRes, creditsRes] = await Promise.all([
         fetch("/api/billing/status", { cache: "no-store" }),
         fetch("/api/customer/me", { cache: "no-store" }),
         fetch("/api/portal/billing/summary", { cache: "no-store" }),
+        fetch("/api/portal/credits", { cache: "no-store" }),
       ]);
       if (!mounted) return;
       if (!billingRes.ok) {
@@ -67,6 +72,21 @@ export function PortalBillingClient() {
         setSummary((await summaryRes.json().catch(() => null)) as BillingSummary | null);
       } else {
         setSummary(null);
+      }
+
+      if (creditsRes.ok) {
+        const c = (await creditsRes.json().catch(() => ({}))) as {
+          credits?: number;
+          autoTopUp?: boolean;
+          purchaseAvailable?: boolean;
+        };
+        setCredits(typeof c.credits === "number" && Number.isFinite(c.credits) ? c.credits : 0);
+        setAutoTopUp(Boolean(c.autoTopUp));
+        setPurchaseAvailable(Boolean(c.purchaseAvailable));
+      } else {
+        setCredits(0);
+        setAutoTopUp(false);
+        setPurchaseAvailable(false);
       }
 
       setLoading(false);
@@ -101,6 +121,62 @@ export function PortalBillingClient() {
       return;
     }
     setSummary((await res.json().catch(() => null)) as BillingSummary | null);
+  }
+
+  async function refreshCredits() {
+    const res = await fetch("/api/portal/credits", { cache: "no-store" });
+    if (!res.ok) return;
+    const c = (await res.json().catch(() => ({}))) as {
+      credits?: number;
+      autoTopUp?: boolean;
+      purchaseAvailable?: boolean;
+    };
+    setCredits(typeof c.credits === "number" && Number.isFinite(c.credits) ? c.credits : 0);
+    setAutoTopUp(Boolean(c.autoTopUp));
+    setPurchaseAvailable(Boolean(c.purchaseAvailable));
+  }
+
+  async function saveAutoTopUp(next: boolean) {
+    setError(null);
+    setActionBusy("auto-topup");
+    const res = await fetch("/api/portal/credits", {
+      method: "PUT",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ autoTopUp: next }),
+    });
+    const body = await res.json().catch(() => ({}));
+    setActionBusy(null);
+    if (!res.ok) {
+      setError(body?.error ?? "Unable to update auto top-up");
+      return;
+    }
+    setAutoTopUp(Boolean(body?.autoTopUp));
+    setCredits(typeof body?.credits === "number" ? body.credits : credits);
+  }
+
+  async function topUp() {
+    setError(null);
+    setActionBusy("topup");
+    const res = await fetch("/api/portal/credits/topup", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ packages }),
+    });
+    const body = await res.json().catch(() => ({}));
+    setActionBusy(null);
+
+    if (!res.ok) {
+      setError(body?.error ?? "Unable to purchase credits");
+      return;
+    }
+
+    if (body?.url && typeof body.url === "string") {
+      window.location.href = body.url;
+      return;
+    }
+
+    // Dev/test fallback credits add.
+    await refreshCredits();
   }
 
   async function cancelSubscription(immediate: boolean) {
@@ -185,8 +261,42 @@ export function PortalBillingClient() {
           </div>
           <div className="rounded-2xl border border-zinc-200 bg-zinc-50 p-4">
             <div className="text-xs text-zinc-500">Credits</div>
-            <div className="mt-1 text-lg font-bold text-brand-ink">—</div>
-            <div className="mt-1 text-xs text-zinc-500">Usage-based services will show here.</div>
+            <div className="mt-1 text-lg font-bold text-brand-ink">{credits ?? "—"}</div>
+            <div className="mt-1 text-xs text-zinc-500">Used by AI and other usage-based actions.</div>
+
+            <div className="mt-3 flex flex-col gap-2">
+              <label className="flex items-center justify-between gap-3 text-sm">
+                <span className="text-zinc-700">Auto top-up</span>
+                <input
+                  type="checkbox"
+                  checked={autoTopUp}
+                  disabled={actionBusy !== null}
+                  onChange={(e) => void saveAutoTopUp(e.target.checked)}
+                />
+              </label>
+              <div className="text-xs text-zinc-500">If enabled, we’ll send you to top up when you run out.</div>
+
+              <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
+                <select
+                  className="w-full rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-sm sm:w-auto"
+                  value={packages}
+                  onChange={(e) => setPackages(Number(e.target.value))}
+                  disabled={actionBusy !== null || !purchaseAvailable}
+                >
+                  <option value={1}>1 package</option>
+                  <option value={2}>2 packages</option>
+                  <option value={4}>4 packages</option>
+                </select>
+                <button
+                  type="button"
+                  className="rounded-2xl bg-[color:var(--color-brand-blue)] px-4 py-2 text-sm font-semibold text-white hover:opacity-95 disabled:opacity-60"
+                  disabled={actionBusy !== null || !purchaseAvailable}
+                  onClick={() => void topUp()}
+                >
+                  {actionBusy === "topup" ? "Processing…" : "Buy credits"}
+                </button>
+              </div>
+            </div>
           </div>
         </div>
 
