@@ -172,8 +172,6 @@ export function PortalBookingClient() {
 
   const [blocks, setBlocks] = useState<AvailabilityBlock[]>([]);
 
-  const [scheduleTab, setScheduleTab] = useState<"list" | "calendar">("list");
-
   const [calMonth, setCalMonth] = useState(() => startOfMonth(new Date()));
   const [calSelectedYmd, setCalSelectedYmd] = useState<string | null>(null);
 
@@ -697,62 +695,82 @@ export function PortalBookingClient() {
                     .filter((b) => new Date(b.startAt) < dayEnd && new Date(b.endAt) > dayStart)
                     .sort((a, b) => new Date(a.startAt).getTime() - new Date(b.startAt).getTime());
 
+                  const cardBase =
+                    "h-[420px] rounded-3xl border p-4 text-left transition-colors focus:outline-none focus:ring-2 focus:ring-blue-200";
+                  const cardCls = selected
+                    ? `${cardBase} border-blue-300 bg-blue-50/70`
+                    : `${cardBase} border-zinc-200 bg-white hover:bg-zinc-50`;
+
                   return (
-                    <button
-                      key={ymd}
-                      type="button"
-                      className={
-                        selected
-                          ? "min-h-[220px] rounded-3xl border border-zinc-900 bg-white p-4 text-left"
-                          : "min-h-[220px] rounded-3xl border border-zinc-200 bg-white p-4 text-left hover:bg-zinc-50"
-                      }
-                      onClick={() => setCalSelectedYmd(ymd)}
-                    >
-                      <div className="flex items-center justify-between gap-2">
-                        <div className="text-sm font-semibold text-zinc-900">
-                          {day.toLocaleDateString(undefined, { weekday: "short" })}
-                          <span className="text-zinc-500"> {day.getDate()}</span>
+                    <button key={ymd} type="button" className={cardCls} onClick={() => setCalSelectedYmd(ymd)}>
+                      <div className="flex h-10 items-start justify-between gap-2">
+                        <div className="min-w-0">
+                          <div className="truncate text-sm font-semibold text-zinc-900">
+                            {day.toLocaleDateString(undefined, { weekday: "short" })}{" "}
+                            <span className="text-zinc-500">{day.getDate()}</span>
+                          </div>
+                          <div className="mt-0.5 text-[11px] text-zinc-500">
+                            {day.toLocaleDateString(undefined, { month: "short" })}
+                          </div>
                         </div>
+
                         {isToday ? (
-                          <div className="rounded-full bg-zinc-900 px-2 py-0.5 text-[10px] font-semibold text-white">Today</div>
+                          <div className="shrink-0 rounded-full bg-zinc-900 px-2 py-0.5 text-[10px] font-semibold text-white">Today</div>
                         ) : null}
                       </div>
 
-                      <div className="mt-3">
-                        <div className="text-xs font-semibold text-zinc-600">Bookings</div>
-                        {dayBookings.length ? (
-                          <div className="mt-2 space-y-1">
-                            {dayBookings.slice(0, 4).map((b) => (
-                              <div key={b.id} className="truncate text-xs text-zinc-800">
-                                {new Date(b.startAt).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })} · {b.contactName}
-                              </div>
-                            ))}
-                            {dayBookings.length > 4 ? (
-                              <div className="text-xs text-zinc-500">+{dayBookings.length - 4} more</div>
-                            ) : null}
-                          </div>
-                        ) : (
-                          <div className="mt-2 text-xs text-zinc-500">No bookings</div>
-                        )}
+                      <div className="mt-2 flex flex-wrap gap-2">
+                        <div className="rounded-full bg-zinc-100 px-2 py-0.5 text-[11px] font-medium text-zinc-700">
+                          {dayBookings.length} booking{dayBookings.length === 1 ? "" : "s"}
+                        </div>
+                        <div className="rounded-full bg-emerald-50 px-2 py-0.5 text-[11px] font-medium text-emerald-800">
+                          {dayBlocks.length} block{dayBlocks.length === 1 ? "" : "s"}
+                        </div>
                       </div>
 
-                      <div className="mt-4">
-                        <div className="text-xs font-semibold text-zinc-600">Availability</div>
-                        {dayBlocks.length ? (
-                          <div className="mt-2 space-y-1">
-                            {dayBlocks.slice(0, 3).map((b) => (
-                              <div key={b.id} className="text-xs text-emerald-700">
-                                {new Date(b.startAt).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}–
-                                {new Date(b.endAt).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}
-                              </div>
-                            ))}
-                            {dayBlocks.length > 3 ? (
-                              <div className="text-xs text-zinc-500">+{dayBlocks.length - 3} more</div>
-                            ) : null}
-                          </div>
-                        ) : (
-                          <div className="mt-2 text-xs text-zinc-500">No availability</div>
-                        )}
+                      <div className="mt-3 flex h-[340px] flex-col gap-3 overflow-hidden">
+                        <div className="min-h-0 flex-1 overflow-auto">
+                          <div className="text-[11px] font-semibold uppercase tracking-wide text-zinc-500">Bookings</div>
+                          {dayBookings.length ? (
+                            <div className="mt-2 space-y-1.5">
+                              {dayBookings.map((b) => (
+                                <div key={b.id} className="rounded-2xl border border-zinc-200 bg-white px-3 py-2">
+                                  <div className="truncate text-xs font-semibold text-zinc-900">
+                                    {new Date(b.startAt).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}{" "}
+                                    <span className="font-normal text-zinc-500">·</span>{" "}
+                                    {b.contactName}
+                                  </div>
+                                  <div className="truncate text-[11px] text-zinc-500">{b.contactEmail}</div>
+                                </div>
+                              ))}
+                            </div>
+                          ) : (
+                            <div className="mt-2 rounded-2xl border border-dashed border-zinc-200 bg-zinc-50 px-3 py-2 text-xs text-zinc-500">
+                              No bookings
+                            </div>
+                          )}
+                        </div>
+
+                        <div className="min-h-0 flex-1 overflow-auto">
+                          <div className="text-[11px] font-semibold uppercase tracking-wide text-zinc-500">Availability</div>
+                          {dayBlocks.length ? (
+                            <div className="mt-2 space-y-1.5">
+                              {dayBlocks.map((b) => (
+                                <div
+                                  key={b.id}
+                                  className="rounded-2xl border border-emerald-100 bg-emerald-50/60 px-3 py-2 text-xs font-medium text-emerald-900"
+                                >
+                                  {new Date(b.startAt).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}–
+                                  {new Date(b.endAt).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}
+                                </div>
+                              ))}
+                            </div>
+                          ) : (
+                            <div className="mt-2 rounded-2xl border border-dashed border-zinc-200 bg-zinc-50 px-3 py-2 text-xs text-zinc-500">
+                              No availability
+                            </div>
+                          )}
+                        </div>
                       </div>
                     </button>
                   );
@@ -1180,265 +1198,6 @@ export function PortalBookingClient() {
               ))
             )}
           </div>
-        </div>
-
-        <div className="rounded-3xl border border-zinc-200 bg-white p-6">
-          <div className="flex items-center justify-between gap-3">
-            <div className="text-sm font-semibold text-zinc-900">Schedule</div>
-            <div className="flex gap-2">
-              <button
-                type="button"
-                className={
-                  scheduleTab === "list"
-                    ? "rounded-xl bg-zinc-900 px-3 py-2 text-sm font-semibold text-white"
-                    : "rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm hover:bg-zinc-50"
-                }
-                onClick={() => setScheduleTab("list")}
-              >
-                List
-              </button>
-              <button
-                type="button"
-                className={
-                  scheduleTab === "calendar"
-                    ? "rounded-xl bg-zinc-900 px-3 py-2 text-sm font-semibold text-white"
-                    : "rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm hover:bg-zinc-50"
-                }
-                onClick={() => setScheduleTab("calendar")}
-              >
-                Calendar
-              </button>
-            </div>
-          </div>
-
-          {scheduleTab === "calendar" ? (
-            <div className="mt-4">
-              <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-                <div className="text-sm font-semibold text-zinc-900">{monthLabel(calMonth)}</div>
-                <div className="flex gap-2">
-                  <button
-                    type="button"
-                    className="rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm hover:bg-zinc-50"
-                    onClick={() => setCalMonth((m) => addMonths(m, -1))}
-                  >
-                    Prev
-                  </button>
-                  <button
-                    type="button"
-                    className="rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm hover:bg-zinc-50"
-                    onClick={() => setCalMonth(startOfMonth(new Date()))}
-                  >
-                    Today
-                  </button>
-                  <button
-                    type="button"
-                    className="rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm hover:bg-zinc-50"
-                    onClick={() => setCalMonth((m) => addMonths(m, 1))}
-                  >
-                    Next
-                  </button>
-                </div>
-              </div>
-
-              <div className="mt-3 grid grid-cols-7 gap-2 text-xs font-semibold text-zinc-500">
-                {["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"].map((d) => (
-                  <div key={d} className="px-2">
-                    {d}
-                  </div>
-                ))}
-              </div>
-
-              <div className="mt-2 grid grid-cols-7 gap-2">
-                {makeMonthGrid(calMonth).map((day) => {
-                  const ymd = toYmd(day);
-                  const inMonth = day.getMonth() === calMonth.getMonth();
-                  const today = toYmd(new Date()) === ymd;
-                  const selected = calSelectedYmd === ymd;
-
-                  const dayStart = new Date(day);
-                  const dayEnd = new Date(day);
-                  dayEnd.setDate(dayEnd.getDate() + 1);
-
-                  const bookingCount = upcoming.reduce((acc, b) => (toYmd(new Date(b.startAt)) === ymd ? acc + 1 : acc), 0);
-                  const hasCoverage = blocks.some((b) => new Date(b.startAt) < dayEnd && new Date(b.endAt) > dayStart);
-
-                  const baseCls =
-                    "h-20 rounded-2xl border px-2 py-2 text-left hover:bg-zinc-50 focus:outline-none focus:ring-2 focus:ring-zinc-300";
-                  const borderCls = selected
-                    ? "border-zinc-900 bg-white"
-                    : inMonth
-                      ? "border-zinc-200 bg-white"
-                      : "border-zinc-200 bg-zinc-50";
-
-                  return (
-                    <button
-                      key={ymd}
-                      type="button"
-                      className={`${baseCls} ${borderCls}`}
-                      onClick={() => setCalSelectedYmd(ymd)}
-                    >
-                      <div className="flex items-center justify-between">
-                        <div className={inMonth ? "text-sm font-semibold text-zinc-900" : "text-sm font-semibold text-zinc-400"}>
-                          {day.getDate()}
-                        </div>
-                        {today ? <div className="rounded-full bg-zinc-900 px-2 py-0.5 text-[10px] font-semibold text-white">Today</div> : null}
-                      </div>
-
-                      <div className="mt-2 flex items-center justify-between">
-                        <div className={hasCoverage ? "text-[11px] font-medium text-emerald-700" : "text-[11px] text-zinc-400"}>
-                          {hasCoverage ? "Avail" : "No avail"}
-                        </div>
-                        {bookingCount ? (
-                          <div className="rounded-full bg-zinc-900 px-2 py-0.5 text-[10px] font-semibold text-white">
-                            {bookingCount}
-                          </div>
-                        ) : null}
-                      </div>
-                    </button>
-                  );
-                })}
-              </div>
-
-              {calSelectedYmd ? (
-                <div className="mt-4 rounded-2xl border border-zinc-200 bg-zinc-50 p-4">
-                  <div className="text-sm font-semibold text-zinc-900">
-                    {new Date(`${calSelectedYmd}T00:00:00`).toLocaleDateString(undefined, {
-                      weekday: "long",
-                      month: "short",
-                      day: "numeric",
-                      year: "numeric",
-                    })}
-                  </div>
-
-                  <div className="mt-3 grid grid-cols-1 gap-4 lg:grid-cols-2">
-                    <div>
-                      <div className="text-xs font-semibold text-zinc-600">Bookings</div>
-                      <div className="mt-2 space-y-2">
-                        {upcoming
-                          .filter((b) => toYmd(new Date(b.startAt)) === calSelectedYmd)
-                          .sort((a, b) => new Date(a.startAt).getTime() - new Date(b.startAt).getTime())
-                          .map((b) => (
-                            <div key={b.id} className="rounded-2xl border border-zinc-200 bg-white px-3 py-2">
-                              <div className="text-sm font-semibold text-zinc-900">
-                                {new Date(b.startAt).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })} · {b.contactName}
-                              </div>
-                              <div className="mt-0.5 text-xs text-zinc-500">{b.contactEmail}</div>
-                            </div>
-                          ))}
-                        {upcoming.filter((b) => toYmd(new Date(b.startAt)) === calSelectedYmd).length === 0 ? (
-                          <div className="text-sm text-zinc-600">No bookings</div>
-                        ) : null}
-                      </div>
-                    </div>
-
-                    <div>
-                      <div className="text-xs font-semibold text-zinc-600">Availability blocks</div>
-                      <div className="mt-2 space-y-2">
-                        {blocks
-                          .filter((b) => {
-                            const dayStart = new Date(`${calSelectedYmd}T00:00:00`);
-                            const dayEnd = new Date(dayStart);
-                            dayEnd.setDate(dayEnd.getDate() + 1);
-                            return new Date(b.startAt) < dayEnd && new Date(b.endAt) > dayStart;
-                          })
-                          .sort((a, b) => new Date(a.startAt).getTime() - new Date(b.startAt).getTime())
-                          .map((b) => (
-                            <div key={b.id} className="rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-sm text-zinc-700">
-                              {new Date(b.startAt).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })} → {new Date(
-                                b.endAt,
-                              ).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}
-                            </div>
-                          ))}
-                        {blocks.filter((b) => {
-                          const dayStart = new Date(`${calSelectedYmd}T00:00:00`);
-                          const dayEnd = new Date(dayStart);
-                          dayEnd.setDate(dayEnd.getDate() + 1);
-                          return new Date(b.startAt) < dayEnd && new Date(b.endAt) > dayStart;
-                        }).length === 0 ? (
-                          <div className="text-sm text-zinc-600">No availability blocks</div>
-                        ) : null}
-                      </div>
-                    </div>
-                  </div>
-                </div>
-              ) : (
-                <div className="mt-3 text-sm text-zinc-600">Click a day to see details.</div>
-              )}
-            </div>
-          ) : (
-            <div className="mt-3 space-y-3">
-              {upcoming.length === 0 ? (
-                <div className="rounded-2xl border border-dashed border-zinc-200 bg-zinc-50 p-4 text-sm text-zinc-600">
-                  No bookings yet.
-                </div>
-              ) : (
-                upcoming.map((b) => (
-                  <div key={b.id} className="rounded-2xl border border-zinc-200 p-4">
-                    <div className="text-sm font-semibold text-zinc-900">
-                      {new Date(b.startAt).toLocaleString()} → {new Date(b.endAt).toLocaleTimeString()}
-                    </div>
-                    <div className="mt-1 text-sm text-zinc-700">
-                      {b.contactName} · {b.contactEmail}
-                      {b.contactPhone ? ` · ${b.contactPhone}` : ""}
-                    </div>
-                    {b.notes ? <div className="mt-2 text-sm text-zinc-600">{b.notes}</div> : null}
-                    <div className="mt-3 flex justify-end">
-                      <button
-                        type="button"
-                        className="mr-2 rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm hover:bg-zinc-50"
-                        onClick={() => {
-                          setReschedBooking(b);
-                          setReschedWhen(toLocalDateTimeInputValue(new Date(b.startAt)));
-                          setReschedForce(false);
-                          setReschedOpen(true);
-                          void loadReschedSlots(b.startAt);
-                        }}
-                      >
-                        Reschedule
-                      </button>
-                      <button
-                        type="button"
-                        className="mr-2 rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm hover:bg-zinc-50"
-                        onClick={() => {
-                          setContactBooking(b);
-                          setContactSubject(`Follow-up: ${site?.title ?? "Booking"}`);
-                          setContactMessage("");
-                          setContactSendEmail(true);
-                          setContactSendSms(Boolean(b.contactPhone));
-                          setContactOpen(true);
-                        }}
-                      >
-                        Send follow-up
-                      </button>
-                      <button
-                        type="button"
-                        className="rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm hover:bg-zinc-50"
-                        onClick={() => cancelBooking(b.id)}
-                      >
-                        Cancel
-                      </button>
-                    </div>
-                  </div>
-                ))
-              )}
-            </div>
-          )}
-
-          {recent.length ? (
-            <>
-              <div className="mt-6 text-sm font-semibold text-zinc-900">Recent</div>
-              <div className="mt-3 space-y-2">
-                {recent.slice(0, 6).map((b) => (
-                  <div key={b.id} className="rounded-2xl border border-zinc-200 bg-zinc-50 px-4 py-3 text-sm">
-                    <div className="font-medium text-zinc-800">
-                      {new Date(b.startAt).toLocaleString()} · {b.status.toLowerCase()}
-                    </div>
-                    <div className="mt-1 text-zinc-600">{b.contactName}</div>
-                  </div>
-                ))}
-              </div>
-            </>
-          ) : null}
         </div>
 
         <div className="rounded-3xl border border-zinc-200 bg-white p-6 lg:col-span-2">
