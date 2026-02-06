@@ -204,6 +204,7 @@ export async function POST(
       siteId: site.id,
       startAt,
       endAt,
+      calendarId: String(calendarId),
       contactName: parsed.data.contactName,
       contactEmail: parsed.data.contactEmail,
       contactPhone: parsed.data.contactPhone ? parsed.data.contactPhone : null,

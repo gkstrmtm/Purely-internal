@@ -26,7 +26,7 @@ type ReviewsPublicPageSettings = {
 type ReviewRequestsSettings = {
   version: 1;
   enabled: boolean;
-  automation: { autoSend: boolean; manualSend: boolean };
+  automation: { autoSend: boolean; manualSend: boolean; calendarIds: string[] };
   sendAfter: ReviewDelay;
   destinations: ReviewDestination[];
   defaultDestinationId?: string;
@@ -51,7 +51,7 @@ type ReviewRequestEvent = {
 const DEFAULT_SETTINGS: ReviewRequestsSettings = {
   version: 1,
   enabled: false,
-  automation: { autoSend: true, manualSend: true },
+  automation: { autoSend: true, manualSend: true, calendarIds: [] },
   sendAfter: { value: 30, unit: "minutes" },
   destinations: [],
   messageTemplate: "Hi {name} — thanks again! If you have 30 seconds, would you leave us a review? {link}",
@@ -98,6 +98,8 @@ export default function PortalReviewsClient() {
 
   const [publicSiteSlug, setPublicSiteSlug] = useState<string | null>(null);
 
+  const [calendars, setCalendars] = useState<Array<{ id: string; title: string; enabled?: boolean }>>([]);
+
   const [events, setEvents] = useState<ReviewRequestEvent[]>([]);
   const [sending, setSending] = useState(false);
   const [sendResult, setSendResult] = useState<string | null>(null);
@@ -109,6 +111,7 @@ export default function PortalReviewsClient() {
       startAt: string;
       endAt: string;
       status: "SCHEDULED" | "CANCELED";
+      calendarId?: string | null;
       contactName: string;
       contactEmail: string;
       contactPhone: string | null;
@@ -121,6 +124,7 @@ export default function PortalReviewsClient() {
       startAt: string;
       endAt: string;
       status: "SCHEDULED" | "CANCELED";
+      calendarId?: string | null;
       contactName: string;
       contactEmail: string;
       contactPhone: string | null;
@@ -161,15 +165,23 @@ export default function PortalReviewsClient() {
     setLoading(true);
     setError(null);
     try {
-      const [s, e, site] = await Promise.all([
+      const [s, e, site, cals] = await Promise.all([
         fetch("/api/portal/reviews/settings", { cache: "no-store" }).then((r) => r.json()),
         fetch("/api/portal/reviews/events?limit=50", { cache: "no-store" }).then((r) => r.json()),
         fetch("/api/portal/blogs/site", { cache: "no-store" }).then((r) => r.json()).catch(() => null),
+        fetch("/api/portal/booking/calendars", { cache: "no-store" }).then((r) => r.json()).catch(() => null),
       ]);
       if (!s?.ok) throw new Error(s?.error || "Failed to load settings");
       setSettings(s.settings || DEFAULT_SETTINGS);
       setEvents(Array.isArray(e?.events) ? e.events : []);
       setPublicSiteSlug(typeof site?.site?.slug === "string" ? site.site.slug : null);
+
+      const list = Array.isArray(cals?.config?.calendars) ? cals.config.calendars : [];
+      setCalendars(
+        list
+          .filter((x: any) => x && typeof x.id === "string" && typeof x.title === "string")
+          .map((x: any) => ({ id: x.id, title: x.title, enabled: x.enabled })),
+      );
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
     } finally {
@@ -298,6 +310,25 @@ export default function PortalReviewsClient() {
     });
   }, [bookingQuery, recentBookings]);
 
+  const calendarTitleById = useMemo(() => {
+    const m = new Map<string, string>();
+    for (const c of calendars) m.set(c.id, c.title);
+    return m;
+  }, [calendars]);
+
+  const calendarFilterEnabled = settings.automation.calendarIds.length > 0;
+
+  function isCalendarAllowedForBooking(calendarId?: string | null) {
+    if (!calendarFilterEnabled) return true;
+    if (!calendarId) return false;
+    return settings.automation.calendarIds.includes(calendarId);
+  }
+
+  function calendarLabel(calendarId?: string | null) {
+    if (!calendarId) return "(no calendar)";
+    return calendarTitleById.get(calendarId) || "(unknown calendar)";
+  }
+
   if (loading) {
     return (
       <div className="mx-auto w-full max-w-5xl px-6 py-8">
@@ -363,6 +394,62 @@ export default function PortalReviewsClient() {
                   onChange={(e) => setSettings({ ...settings, automation: { ...settings.automation, manualSend: e.target.checked } })}
                 />
               </label>
+            </div>
+
+            <div className="mt-4">
+              <div className="text-sm font-medium">Calendars</div>
+              <div className="mt-1 text-xs text-neutral-600">
+                Pick which calendars can send review requests. Empty list means all calendars.
+              </div>
+
+              <div className="mt-3 flex flex-col gap-2">
+                <label className="flex items-center justify-between gap-3 text-sm">
+                  <span className="font-medium">All calendars</span>
+                  <input
+                    type="checkbox"
+                    checked={settings.automation.calendarIds.length === 0}
+                    onChange={(e) => {
+                      if (e.target.checked) {
+                        setSettings({ ...settings, automation: { ...settings.automation, calendarIds: [] } });
+                      } else {
+                        const enabled = calendars.filter((c) => c.enabled !== false);
+                        const first = enabled[0]?.id ? [enabled[0].id] : [];
+                        setSettings({ ...settings, automation: { ...settings.automation, calendarIds: first } });
+                      }
+                    }}
+                  />
+                </label>
+
+                {settings.automation.calendarIds.length ? (
+                  <div className="mt-2 grid gap-2 rounded-lg border bg-white p-3">
+                    {calendars.filter((c) => c.enabled !== false).length === 0 ? (
+                      <div className="text-xs text-neutral-600">No calendars found. Add calendars in Booking Automation.</div>
+                    ) : (
+                      calendars
+                        .filter((c) => c.enabled !== false)
+                        .map((c) => {
+                          const checked = settings.automation.calendarIds.includes(c.id);
+                          return (
+                            <label key={c.id} className="flex items-center justify-between gap-3 text-sm">
+                              <span className="truncate">{c.title}</span>
+                              <input
+                                type="checkbox"
+                                checked={checked}
+                                onChange={(e) => {
+                                  const next = e.target.checked
+                                    ? Array.from(new Set([...settings.automation.calendarIds, c.id]))
+                                    : settings.automation.calendarIds.filter((id) => id !== c.id);
+                                  setSettings({ ...settings, automation: { ...settings.automation, calendarIds: next } });
+                                }}
+                              />
+                            </label>
+                          );
+                        })
+                    )}
+                    <div className="text-xs text-neutral-500">Tip: turn on “All calendars” to clear the selection.</div>
+                  </div>
+                ) : null}
+              </div>
             </div>
           </div>
 
@@ -570,7 +657,8 @@ export default function PortalReviewsClient() {
 
                 {filteredRecent.slice(0, 25).map((b) => {
                   const ended = Date.now() >= new Date(b.endAt).getTime();
-                  const canSend = settings.automation.manualSend && ended && b.status === "SCHEDULED" && !sending;
+                  const calendarAllowed = isCalendarAllowedForBooking(b.calendarId);
+                  const canSend = settings.automation.manualSend && ended && b.status === "SCHEDULED" && calendarAllowed && !sending;
                   return (
                     <div key={b.id} className="flex flex-col gap-2 border-b p-4 sm:flex-row sm:items-center sm:justify-between">
                       <div className="min-w-0">
@@ -579,7 +667,9 @@ export default function PortalReviewsClient() {
                           <span>{new Date(b.startAt).toLocaleString()}</span>
                           <span className="truncate">{b.contactPhone || "(no phone)"}</span>
                           <span className={b.status === "CANCELED" ? "text-red-700" : ""}>{b.status}</span>
+                          <span className="truncate">{calendarLabel(b.calendarId)}</span>
                           {!ended ? <span className="text-amber-700">Not ended yet</span> : null}
+                          {!calendarAllowed ? <span className="text-amber-700">Calendar not enabled</span> : null}
                         </div>
                       </div>
                       <div className="flex items-center gap-2">
@@ -610,9 +700,12 @@ export default function PortalReviewsClient() {
                           <span>{new Date(b.startAt).toLocaleString()}</span>
                           <span className="truncate">{b.contactPhone || "(no phone)"}</span>
                           <span>{b.status}</span>
+                          <span className="truncate">{calendarLabel(b.calendarId)}</span>
                         </div>
                       </div>
-                      <div className="text-xs text-amber-700">Can’t send until it ends</div>
+                      <div className="text-xs text-amber-700">
+                        {!isCalendarAllowedForBooking(b.calendarId) ? "Calendar not enabled" : "Can’t send until it ends"}
+                      </div>
                     </div>
                   ))}
                 </div>

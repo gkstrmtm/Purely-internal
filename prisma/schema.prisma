@@ -556,6 +556,8 @@ model PortalBooking {
   endAt   DateTime
   status  PortalBookingStatus @default(SCHEDULED)
 
+  calendarId String?
+
   contactName  String
   contactEmail String
   contactPhone String?
@@ -570,4 +572,5 @@ model PortalBooking {
 
   @@index([siteId, startAt])
   @@index([siteId, status, startAt])
+  @@index([siteId, calendarId, endAt])
 }

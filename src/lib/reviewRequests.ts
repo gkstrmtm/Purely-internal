@@ -73,6 +73,7 @@ export type ReviewsPublicPageSettings = {
 export type ReviewsAutomationSettings = {
   autoSend: boolean;
   manualSend: boolean;
+  calendarIds: string[];
 };
 
 export type ReviewRequestsSettings = {
@@ -89,6 +90,7 @@ export type ReviewRequestsSettings = {
 export type ReviewRequestEvent = {
   id: string;
   bookingId: string;
+  calendarId?: string | null;
   bookingEndAtIso: string;
   scheduledForIso: string;
 
@@ -163,7 +165,7 @@ export function parseReviewRequestsSettings(raw: unknown): ReviewRequestsSetting
   const base: ReviewRequestsSettings = {
     version: 1,
     enabled: false,
-    automation: { autoSend: true, manualSend: true },
+    automation: { autoSend: true, manualSend: true, calendarIds: [] },
     sendAfter: { value: 30, unit: "minutes" },
     destinations: [],
     messageTemplate: "Hi {name} — thanks again! If you have 30 seconds, would you leave us a review? {link}",
@@ -181,9 +183,20 @@ export function parseReviewRequestsSettings(raw: unknown): ReviewRequestsSetting
   const enabled = typeof rec.enabled === "boolean" ? rec.enabled : base.enabled;
 
   const autoRaw = rec.automation && typeof rec.automation === "object" && !Array.isArray(rec.automation) ? (rec.automation as any) : null;
+  const calendarIdsRaw = Array.isArray(autoRaw?.calendarIds) ? (autoRaw.calendarIds as unknown[]) : [];
+  const calendarIds = calendarIdsRaw
+    .flatMap((x) => {
+      const v = typeof x === "string" ? x.trim() : "";
+      if (!v) return [] as string[];
+      return [v.slice(0, 50)];
+    })
+    .filter((v, i, arr) => arr.indexOf(v) === i)
+    .slice(0, 25);
+
   const automation: ReviewsAutomationSettings = {
     autoSend: typeof autoRaw?.autoSend === "boolean" ? autoRaw.autoSend : base.automation.autoSend,
     manualSend: typeof autoRaw?.manualSend === "boolean" ? autoRaw.manualSend : base.automation.manualSend,
+    calendarIds,
   };
 
   const sendAfterRaw = rec.sendAfter && typeof rec.sendAfter === "object" && !Array.isArray(rec.sendAfter) ? (rec.sendAfter as any) : null;
@@ -346,6 +359,14 @@ function pickDestination(settings: ReviewRequestsSettings): ReviewDestination | 
   return preferred ?? xs[0];
 }
 
+function isCalendarAllowed(settings: ReviewRequestsSettings, calendarId: string | null | undefined) {
+  const allowed = Array.isArray(settings.automation.calendarIds) ? settings.automation.calendarIds : [];
+  if (allowed.length === 0) return true; // empty means "all calendars"
+  const cal = typeof calendarId === "string" ? calendarId.trim() : "";
+  if (!cal) return false;
+  return allowed.includes(cal);
+}
+
 export async function sendReviewRequestForBooking(opts: { ownerId: string; bookingId: string }): Promise<{ ok: true } | { ok: false; error: string }> {
   const ownerId = String(opts.ownerId || "");
   const bookingId = String(opts.bookingId || "");
@@ -354,7 +375,7 @@ export async function sendReviewRequestForBooking(opts: { ownerId: string; booki
   const [data, site, booking, profile, twilio] = await Promise.all([
     getReviewRequestsServiceData(ownerId),
     prisma.portalBookingSite.findUnique({ where: { ownerId }, select: { id: true, timeZone: true, slug: true, title: true } }),
-    prisma.portalBooking.findUnique({ where: { id: bookingId }, select: { id: true, siteId: true, status: true, endAt: true, contactName: true, contactPhone: true } }),
+    prisma.portalBooking.findUnique({ where: { id: bookingId }, select: { id: true, siteId: true, status: true, endAt: true, calendarId: true, contactName: true, contactPhone: true } }),
     prisma.businessProfile.findUnique({ where: { ownerId }, select: { businessName: true } }),
     getOwnerTwilioSmsConfig(ownerId),
   ]);
@@ -366,6 +387,7 @@ export async function sendReviewRequestForBooking(opts: { ownerId: string; booki
   const settings = data.settings;
   if (!settings.enabled) return { ok: false, error: "Review requests are turned off" };
   if (!settings.automation.manualSend) return { ok: false, error: "Manual sending is turned off" };
+  if (!isCalendarAllowed(settings, (booking as any).calendarId)) return { ok: false, error: "This calendar is not enabled for review requests" };
 
   const destination = pickDestination(settings);
   if (!destination) return { ok: false, error: "No review link configured" };
@@ -396,6 +418,7 @@ export async function sendReviewRequestForBooking(opts: { ownerId: string; booki
     const evt: ReviewRequestEvent = {
       id: `evt_${booking.id}_manual_${destination.id}`,
       bookingId: booking.id,
+      calendarId: (booking as any).calendarId ?? null,
       bookingEndAtIso,
       scheduledForIso,
       destinationId: destination.id,
@@ -506,10 +529,11 @@ export async function processDueReviewRequests(opts?: { ownersLimit?: number; pe
           siteId: site.id,
           status: "SCHEDULED",
           endAt: { gte: windowStart, lt: windowEnd },
+          ...(settings.automation.calendarIds.length ? { calendarId: { in: settings.automation.calendarIds } } : {}),
         },
         orderBy: { endAt: "asc" },
         take: perOwnerLimit,
-        select: { id: true, endAt: true, contactName: true, contactPhone: true },
+        select: { id: true, endAt: true, calendarId: true, contactName: true, contactPhone: true },
       });
 
       for (const booking of bookings) {
@@ -524,6 +548,7 @@ export async function processDueReviewRequests(opts?: { ownersLimit?: number; pe
           const evt: ReviewRequestEvent = {
             id: `evt_${booking.id}_${destination.id}`,
             bookingId: booking.id,
+            calendarId: (booking as any).calendarId ?? null,
             bookingEndAtIso,
             scheduledForIso,
             destinationId: destination.id,
@@ -550,6 +575,7 @@ export async function processDueReviewRequests(opts?: { ownersLimit?: number; pe
           const evt: ReviewRequestEvent = {
             id: `evt_${booking.id}_${destination.id}`,
             bookingId: booking.id,
+            calendarId: (booking as any).calendarId ?? null,
             bookingEndAtIso,
             scheduledForIso,
             destinationId: destination.id,
@@ -585,6 +611,7 @@ export async function processDueReviewRequests(opts?: { ownersLimit?: number; pe
             const evt: ReviewRequestEvent = {
               id: `evt_${booking.id}_${destination.id}`,
               bookingId: booking.id,
+              calendarId: (booking as any).calendarId ?? null,
               bookingEndAtIso,
               scheduledForIso,
               destinationId: destination.id,
@@ -609,6 +636,7 @@ export async function processDueReviewRequests(opts?: { ownersLimit?: number; pe
           const evt: ReviewRequestEvent = {
             id: `evt_${booking.id}_${destination.id}`,
             bookingId: booking.id,
+            calendarId: (booking as any).calendarId ?? null,
             bookingEndAtIso,
             scheduledForIso,
             destinationId: destination.id,
@@ -631,6 +659,7 @@ export async function processDueReviewRequests(opts?: { ownersLimit?: number; pe
           const evt: ReviewRequestEvent = {
             id: `evt_${booking.id}_${destination.id}`,
             bookingId: booking.id,
+            calendarId: (booking as any).calendarId ?? null,
             bookingEndAtIso,
             scheduledForIso,
             destinationId: destination.id,

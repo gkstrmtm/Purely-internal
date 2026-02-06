@@ -11,21 +11,22 @@ function run(cmd, args, opts = {}) {
   return res;
 }
 
-const shouldRun = Boolean(process.env.VERCEL || process.env.CI || process.env.RUN_PRISMA_MIGRATIONS === "1");
-if (!shouldRun) {
-  console.log("[prebuild] Not running on Vercel/CI; skipping prisma migrate/generate.");
-  process.exit(0);
-}
+const shouldRunMigrations = Boolean(process.env.VERCEL || process.env.CI || process.env.RUN_PRISMA_MIGRATIONS === "1");
 
 const isVercel = Boolean(process.env.VERCEL);
 const forceMigrations = process.env.RUN_PRISMA_MIGRATIONS === "1";
 const directUrl = process.env.DIRECT_URL;
 const databaseUrl = process.env.DATABASE_URL;
 
-// `prisma generate` does not require a live database connection, but deployments DO require the
-// generated client to exist. Always generate on Vercel/CI.
+// `prisma generate` does not require a live database connection.
+// We always run it so local builds don't break when schema changes.
 console.log("[prebuild] Running prisma generate...");
 run("npx", ["prisma", "generate"], { timeoutMs: 180_000 });
+
+if (!shouldRunMigrations) {
+  console.log("[prebuild] Skipping prisma migrate deploy (not Vercel/CI). Set RUN_PRISMA_MIGRATIONS=1 to run migrations.");
+  process.exit(0);
+}
 
 // Prisma migrations are often slow/unreliable through poolers (pgbouncer). On Vercel we prefer a
 // direct connection for migrate deploy. If DIRECT_URL isn't available, we skip migrations to
