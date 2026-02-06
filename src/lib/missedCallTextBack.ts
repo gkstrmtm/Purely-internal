@@ -2,6 +2,7 @@ import crypto from "crypto";
 
 import { prisma } from "@/lib/db";
 import { normalizePhoneStrict } from "@/lib/phone";
+import { sendOwnerTwilioSms } from "@/lib/portalTwilio";
 
 const SERVICE_SLUG = "missed-call-textback";
 const PROFILE_EXTRAS_SERVICE_SLUG = "profile";
@@ -236,13 +237,6 @@ export async function getOwnerProfilePhoneE164(ownerId: string): Promise<string 
   return parsed.ok ? parsed.e164 : null;
 }
 
-export function isTwilioSmsConfigured(): { ok: boolean; reason?: string } {
-  const accountSid = process.env.TWILIO_ACCOUNT_SID;
-  const authToken = process.env.TWILIO_AUTH_TOKEN;
-  if (!accountSid || !authToken) return { ok: false, reason: "Missing TWILIO_ACCOUNT_SID or TWILIO_AUTH_TOKEN" };
-  return { ok: true };
-}
-
 export function renderMissedCallReplyBody(template: string, vars: { from: string; to?: string | null }): string {
   const safe = (template || "").slice(0, MAX_BODY_LEN);
   return safe
@@ -251,41 +245,6 @@ export function renderMissedCallReplyBody(template: string, vars: { from: string
     .trim();
 }
 
-export async function sendTwilioSms(opts: {
-  to: string;
-  from: string;
-  body: string;
-}): Promise<{ ok: true; messageSid?: string } | { ok: false; error: string }> {
-  const accountSid = process.env.TWILIO_ACCOUNT_SID;
-  const authToken = process.env.TWILIO_AUTH_TOKEN;
-  if (!accountSid || !authToken) return { ok: false, error: "Texting not configured" };
-
-  const url = `https://api.twilio.com/2010-04-01/Accounts/${accountSid}/Messages.json`;
-  const basic = Buffer.from(`${accountSid}:${authToken}`).toString("base64");
-
-  const form = new URLSearchParams();
-  form.set("To", opts.to);
-  form.set("From", opts.from);
-  form.set("Body", (opts.body || "").slice(0, MAX_BODY_LEN));
-
-  const res = await fetch(url, {
-    method: "POST",
-    headers: {
-      authorization: `Basic ${basic}`,
-      "content-type": "application/x-www-form-urlencoded",
-    },
-    body: form.toString(),
-  });
-
-  const text = await res.text().catch(() => "");
-  if (!res.ok) {
-    return { ok: false, error: `Twilio failed (${res.status}): ${text.slice(0, 400)}` };
-  }
-
-  try {
-    const json = JSON.parse(text) as any;
-    return { ok: true, messageSid: typeof json?.sid === "string" ? json.sid : undefined };
-  } catch {
-    return { ok: true };
-  }
+export async function sendOwnerSms(ownerId: string, opts: { to: string; body: string }) {
+  return await sendOwnerTwilioSms({ ownerId, to: opts.to, body: opts.body.slice(0, MAX_BODY_LEN) });
 }

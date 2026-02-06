@@ -5,7 +5,7 @@ import {
   getOwnerProfilePhoneE164,
   upsertMissedCallEvent,
   renderMissedCallReplyBody,
-  sendTwilioSms,
+  sendOwnerSms,
 } from "@/lib/missedCallTextBack";
 import { normalizePhoneStrict } from "@/lib/phone";
 
@@ -86,12 +86,8 @@ export async function POST(req: Request, ctx: { params: Promise<{ token: string 
   if (!forwardTo) {
     if (settings.enabled) {
       const replyBody = renderMissedCallReplyBody(settings.replyBody, { from: fromE164, to: toE164 });
-      const fromSms = process.env.TWILIO_FROM_NUMBER || (toE164 ?? "");
-      const fromSmsParsed = normalizePhoneStrict(fromSms);
-      const fromSmsE164 = fromSmsParsed.ok ? fromSmsParsed.e164 : null;
-
-      if (fromSmsE164) {
-        const res = await sendTwilioSms({ to: fromE164, from: fromSmsE164, body: replyBody });
+      const res = await sendOwnerSms(ownerId, { to: fromE164, body: replyBody });
+      if (res.ok) {
         await upsertMissedCallEvent(ownerId, {
           id: `evt_${callSid}`,
           callSid,
@@ -100,12 +96,10 @@ export async function POST(req: Request, ctx: { params: Promise<{ token: string 
           createdAtIso: existing?.createdAtIso ?? new Date().toISOString(),
           finalStatus: "MISSED",
           dialCallStatus: "no-forward-number",
-          smsStatus: res.ok ? "SENT" : "FAILED",
+          smsStatus: "SENT",
           smsTo: fromE164,
-          smsFrom: fromSmsE164,
           smsBody: replyBody,
-          smsMessageSid: res.ok ? res.messageSid : undefined,
-          smsError: res.ok ? undefined : res.error,
+          smsMessageSid: res.messageSid,
         });
       } else {
         await upsertMissedCallEvent(ownerId, {
@@ -116,8 +110,8 @@ export async function POST(req: Request, ctx: { params: Promise<{ token: string 
           createdAtIso: existing?.createdAtIso ?? new Date().toISOString(),
           finalStatus: "MISSED",
           dialCallStatus: "no-forward-number",
-          smsStatus: "SKIPPED",
-          smsError: "No SMS-capable from-number configured",
+          smsStatus: "FAILED",
+          smsError: res.error,
         });
       }
     } else {

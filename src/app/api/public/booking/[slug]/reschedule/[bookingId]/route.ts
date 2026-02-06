@@ -9,6 +9,7 @@ import {
   verifyBookingRescheduleToken,
 } from "@/lib/bookingReschedule";
 import { scheduleFollowUpsForBooking } from "@/lib/followUpAutomation";
+import { getOwnerTwilioSmsConfig } from "@/lib/portalTwilio";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
@@ -60,18 +61,16 @@ async function sendEmail({
   }).catch(() => null);
 }
 
-async function sendSms(to: string, body: string) {
-  const accountSid = process.env.TWILIO_ACCOUNT_SID;
-  const authToken = process.env.TWILIO_AUTH_TOKEN;
-  const fromNumber = process.env.TWILIO_FROM_NUMBER;
-  if (!accountSid || !authToken || !fromNumber) return;
+async function sendSms(ownerId: string, to: string, body: string) {
+  const twilio = await getOwnerTwilioSmsConfig(ownerId);
+  if (!twilio) return;
 
-  const url = `https://api.twilio.com/2010-04-01/Accounts/${accountSid}/Messages.json`;
-  const basic = Buffer.from(`${accountSid}:${authToken}`).toString("base64");
+  const url = `https://api.twilio.com/2010-04-01/Accounts/${twilio.accountSid}/Messages.json`;
+  const basic = Buffer.from(`${twilio.accountSid}:${twilio.authToken}`).toString("base64");
 
   const form = new URLSearchParams();
   form.set("To", to);
-  form.set("From", fromNumber);
+  form.set("From", twilio.fromNumberE164);
   form.set("Body", body.slice(0, 900));
 
   await fetch(url, {
@@ -281,7 +280,7 @@ export async function POST(
     });
 
     if (updated.contactPhone) {
-      await sendSms(updated.contactPhone, `Rescheduled: ${site.title} — ${when}`);
+      await sendSms(site.ownerId, updated.contactPhone, `Rescheduled: ${site.title} — ${when}`);
     }
   } catch {
     // ignore

@@ -1,6 +1,7 @@
 import { prisma } from "@/lib/db";
 import { getBookingCalendarsConfig } from "@/lib/bookingCalendars";
 import { normalizePhoneForStorage } from "@/lib/phone";
+import { getOwnerTwilioSmsConfig } from "@/lib/portalTwilio";
 
 export type FollowUpChannel = "EMAIL" | "SMS";
 
@@ -1122,9 +1123,7 @@ export async function processDueFollowUps(opts: { limit: number }): Promise<{ pr
 
     const apiKey = process.env.SENDGRID_API_KEY;
     const fromEmail = process.env.SENDGRID_FROM_EMAIL;
-    const accountSid = process.env.TWILIO_ACCOUNT_SID;
-    const authToken = process.env.TWILIO_AUTH_TOKEN;
-    const fromNumber = process.env.TWILIO_FROM_NUMBER;
+    const twilio = await getOwnerTwilioSmsConfig(row.ownerId);
 
     const profile = await prisma.businessProfile.findUnique({ where: { ownerId: row.ownerId }, select: { businessName: true } }).catch(() => null);
     const fromName = profile?.businessName?.trim() || "Purely Automation";
@@ -1182,18 +1181,18 @@ export async function processDueFollowUps(opts: { limit: number }): Promise<{ pr
           nextQueue[idx] = { ...nextQueue[idx]!, status: "SENT", sentAtIso: nowIso(), lastError: undefined };
           changed = true;
         } else {
-          if (!accountSid || !authToken || !fromNumber) {
+          if (!twilio) {
             skipped++;
             nextQueue[idx] = { ...nextQueue[idx]!, status: "FAILED", attempts: msg.attempts + 1, lastError: "Texting not configured" };
             changed = true;
             continue;
           }
 
-          const url = `https://api.twilio.com/2010-04-01/Accounts/${accountSid}/Messages.json`;
-          const basic = Buffer.from(`${accountSid}:${authToken}`).toString("base64");
+          const url = `https://api.twilio.com/2010-04-01/Accounts/${twilio.accountSid}/Messages.json`;
+          const basic = Buffer.from(`${twilio.accountSid}:${twilio.authToken}`).toString("base64");
           const form = new URLSearchParams();
           form.set("To", msg.to);
-          form.set("From", fromNumber);
+          form.set("From", twilio.fromNumberE164);
           form.set("Body", msg.body.slice(0, 900));
 
           const res = await fetch(url, {

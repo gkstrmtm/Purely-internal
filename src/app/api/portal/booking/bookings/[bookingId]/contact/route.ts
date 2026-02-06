@@ -3,6 +3,7 @@ import { z } from "zod";
 
 import { requireClientSession } from "@/lib/apiAuth";
 import { prisma } from "@/lib/db";
+import { getOwnerTwilioSmsConfig } from "@/lib/portalTwilio";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
@@ -51,20 +52,16 @@ async function sendEmail({
   }
 }
 
-async function sendSms({ to, body }: { to: string; body: string }) {
-  const accountSid = process.env.TWILIO_ACCOUNT_SID;
-  const authToken = process.env.TWILIO_AUTH_TOKEN;
-  const fromNumber = process.env.TWILIO_FROM_NUMBER;
-  if (!accountSid || !authToken || !fromNumber) {
-    throw new Error("Texting is not configured yet.");
-  }
+async function sendSms({ ownerId, to, body }: { ownerId: string; to: string; body: string }) {
+  const twilio = await getOwnerTwilioSmsConfig(ownerId);
+  if (!twilio) throw new Error("Texting is not configured yet.");
 
-  const url = `https://api.twilio.com/2010-04-01/Accounts/${accountSid}/Messages.json`;
-  const basic = Buffer.from(`${accountSid}:${authToken}`).toString("base64");
+  const url = `https://api.twilio.com/2010-04-01/Accounts/${twilio.accountSid}/Messages.json`;
+  const basic = Buffer.from(`${twilio.accountSid}:${twilio.authToken}`).toString("base64");
 
   const form = new URLSearchParams();
   form.set("To", to);
-  form.set("From", fromNumber);
+  form.set("From", twilio.fromNumberE164);
   form.set("Body", body);
 
   const res = await fetch(url, {
@@ -147,7 +144,7 @@ export async function POST(
     if (!booking.contactPhone) {
       return NextResponse.json({ error: "This booking has no phone number." }, { status: 400 });
     }
-    await sendSms({ to: booking.contactPhone, body: parsed.data.message.slice(0, 900) });
+    await sendSms({ ownerId, to: booking.contactPhone, body: parsed.data.message.slice(0, 900) });
     sent.sms = true;
   }
 

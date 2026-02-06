@@ -4,7 +4,7 @@ import {
   findOwnerByMissedCallWebhookToken,
   upsertMissedCallEvent,
   renderMissedCallReplyBody,
-  sendTwilioSms,
+  sendOwnerSms,
 } from "@/lib/missedCallTextBack";
 import { normalizePhoneStrict } from "@/lib/phone";
 
@@ -83,27 +83,7 @@ export async function POST(req: Request, ctx: { params: Promise<{ token: string 
   if (delayMs) await sleep(delayMs);
 
   const replyBody = renderMissedCallReplyBody(settings.replyBody, { from: fromE164, to: toE164 });
-  const fromSms = process.env.TWILIO_FROM_NUMBER || (toE164 ?? "");
-  const fromSmsParsed = normalizePhoneStrict(fromSms);
-  const fromSmsE164 = fromSmsParsed.ok ? fromSmsParsed.e164 : null;
-
-  if (!fromSmsE164) {
-    await upsertMissedCallEvent(ownerId, {
-      id: existing?.id ?? `evt_${callSid}`,
-      callSid,
-      from: fromE164,
-      to: toE164,
-      createdAtIso: existing?.createdAtIso ?? new Date().toISOString(),
-      dialCallStatus,
-      finalStatus,
-      smsStatus: "SKIPPED",
-      smsError: "No SMS-capable from-number configured",
-    });
-
-    return xmlResponse("<?xml version=\"1.0\" encoding=\"UTF-8\"?><Response></Response>");
-  }
-
-  const res = await sendTwilioSms({ to: fromE164, from: fromSmsE164, body: replyBody });
+  const res = await sendOwnerSms(ownerId, { to: fromE164, body: replyBody });
   await upsertMissedCallEvent(ownerId, {
     id: existing?.id ?? `evt_${callSid}`,
     callSid,
@@ -114,7 +94,6 @@ export async function POST(req: Request, ctx: { params: Promise<{ token: string 
     finalStatus,
     smsStatus: res.ok ? "SENT" : "FAILED",
     smsTo: fromE164,
-    smsFrom: fromSmsE164,
     smsBody: replyBody,
     smsMessageSid: res.ok ? res.messageSid : undefined,
     smsError: res.ok ? undefined : res.error,
