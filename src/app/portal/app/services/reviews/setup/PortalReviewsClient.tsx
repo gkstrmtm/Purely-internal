@@ -172,6 +172,8 @@ export default function PortalReviewsClient() {
 
   const [qaQuestions, setQaQuestions] = useState<ReviewQuestionRow[]>([]);
   const [qaSavingId, setQaSavingId] = useState<string | null>(null);
+  const [qaEditingId, setQaEditingId] = useState<string | null>(null);
+  const [qaAnswerDrafts, setQaAnswerDrafts] = useState<Record<string, string>>({});
 
   const [lightboxOpen, setLightboxOpen] = useState(false);
   const [lightboxImages, setLightboxImages] = useState<LightboxImage[]>([]);
@@ -301,9 +303,20 @@ export default function PortalReviewsClient() {
 
       const qaData = qa && (qa as any).ok ? (qa as any).data : null;
       if (qaData?.ok) {
-        setQaQuestions(Array.isArray(qaData.questions) ? qaData.questions : []);
+        const nextQuestions = Array.isArray(qaData.questions) ? qaData.questions : [];
+        setQaQuestions(nextQuestions);
+        setQaAnswerDrafts(() => {
+          const next: Record<string, string> = {};
+          for (const q of nextQuestions as any[]) {
+            const id = typeof q?.id === "string" ? q.id : "";
+            if (!id) continue;
+            next[id] = typeof q?.answer === "string" ? q.answer : "";
+          }
+          return next;
+        });
       } else {
         setQaQuestions([]);
+        setQaAnswerDrafts({});
       }
 
       const handleData = handle && (handle as any).ok ? (handle as any).data : null;
@@ -369,17 +382,20 @@ export default function PortalReviewsClient() {
       }).then((r) => readJsonSafe<any>(r));
       if (!res.ok) throw new Error(res.error || "Failed to save answer");
       if (!res.data?.ok) throw new Error(res.data?.error || "Failed to save answer");
+      const trimmed = answer.trim();
       setQaQuestions((prev) =>
         prev.map((q) =>
           q.id === id
             ? {
                 ...q,
-                answer: answer.trim() ? answer.trim() : null,
-                answeredAt: answer.trim() ? new Date().toISOString() : null,
+                answer: trimmed ? trimmed : null,
+                answeredAt: trimmed ? new Date().toISOString() : null,
               }
             : q,
         ),
       );
+      setQaAnswerDrafts((prev) => ({ ...prev, [id]: trimmed }));
+      setQaEditingId((prev) => (prev === id ? null : prev));
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
     } finally {
@@ -1615,29 +1631,96 @@ export default function PortalReviewsClient() {
                   <div className="mt-2 whitespace-pre-wrap text-sm text-zinc-800">{q.question}</div>
 
                   <div className="mt-3">
-                    <div className="text-xs font-semibold text-zinc-700">Answer</div>
-                    <textarea
-                      className="mt-2 min-h-[80px] w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm"
-                      value={q.answer ?? ""}
-                      onChange={(e) => {
-                        const v = e.target.value;
-                        setQaQuestions((prev) => prev.map((x) => (x.id === q.id ? { ...x, answer: v } : x)));
-                      }}
-                      placeholder="Write an answer…"
-                    />
-                    <div className="mt-2 flex items-center justify-between gap-2">
-                      <div className="text-xs text-zinc-500">
-                        {q.answeredAt ? `Answered: ${new Date(q.answeredAt).toLocaleString()}` : "Not answered yet"}
+                    {q.answer && qaEditingId !== q.id ? (
+                      <div className="rounded-2xl border border-zinc-200 bg-zinc-50 p-3">
+                        <div className="flex flex-wrap items-center justify-between gap-2">
+                          <div className="text-xs font-semibold text-zinc-700">Answer</div>
+                          <div className="flex items-center gap-2">
+                            <button
+                              type="button"
+                              className="rounded-xl border border-zinc-200 bg-white px-3 py-2 text-xs font-semibold text-brand-ink hover:bg-zinc-50"
+                              onClick={() => {
+                                setQaAnswerDrafts((prev) => ({ ...prev, [q.id]: typeof q.answer === "string" ? q.answer : "" }));
+                                setQaEditingId(q.id);
+                              }}
+                            >
+                              Edit
+                            </button>
+                            <button
+                              type="button"
+                              className="rounded-xl border border-zinc-200 bg-white px-3 py-2 text-xs font-semibold text-red-700 hover:bg-zinc-50"
+                              disabled={qaSavingId === q.id}
+                              onClick={() => {
+                                if (!window.confirm("Delete this answer?")) return;
+                                setQaAnswerDrafts((prev) => ({ ...prev, [q.id]: "" }));
+                                void saveQaAnswer(q.id, "");
+                              }}
+                            >
+                              Delete
+                            </button>
+                          </div>
+                        </div>
+                        <div className="mt-2 whitespace-pre-wrap text-sm text-zinc-700">{q.answer}</div>
+                        <div className="mt-2 text-xs text-zinc-500">
+                          {q.answeredAt ? `Answered: ${new Date(q.answeredAt).toLocaleString()}` : null}
+                        </div>
                       </div>
-                      <button
-                        type="button"
-                        className="inline-flex h-9 items-center justify-center rounded-xl bg-emerald-600 px-4 text-xs font-semibold text-white disabled:opacity-60"
-                        disabled={qaSavingId === q.id}
-                        onClick={() => void saveQaAnswer(q.id, q.answer ?? "")}
-                      >
-                        {qaSavingId === q.id ? "Saving…" : "Save answer"}
-                      </button>
-                    </div>
+                    ) : null}
+
+                    {!q.answer && qaEditingId !== q.id ? (
+                      <div className="flex flex-wrap items-center justify-between gap-2 rounded-2xl border border-zinc-200 bg-zinc-50 p-3">
+                        <div className="text-xs text-zinc-600">Not answered yet.</div>
+                        <button
+                          type="button"
+                          className="inline-flex h-9 items-center justify-center rounded-xl bg-emerald-600 px-4 text-xs font-semibold text-white disabled:opacity-60"
+                          disabled={qaSavingId === q.id}
+                          onClick={() => {
+                            setQaAnswerDrafts((prev) => ({ ...prev, [q.id]: prev[q.id] ?? "" }));
+                            setQaEditingId(q.id);
+                          }}
+                        >
+                          Write answer
+                        </button>
+                      </div>
+                    ) : null}
+
+                    {qaEditingId === q.id ? (
+                      <div className="rounded-2xl border border-zinc-200 bg-zinc-50 p-3">
+                        <div className="text-xs font-semibold text-zinc-700">Answer</div>
+                        <textarea
+                          className="mt-2 min-h-[80px] w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm"
+                          value={qaAnswerDrafts[q.id] ?? ""}
+                          onChange={(e) => setQaAnswerDrafts((prev) => ({ ...prev, [q.id]: e.target.value }))}
+                          placeholder="Write an answer…"
+                        />
+                        <div className="mt-2 flex flex-wrap items-center justify-between gap-2">
+                          <div className="text-xs text-zinc-500">
+                            {q.answeredAt ? `Answered: ${new Date(q.answeredAt).toLocaleString()}` : ""}
+                          </div>
+                          <div className="flex items-center gap-2">
+                            <button
+                              type="button"
+                              className="inline-flex h-9 items-center justify-center rounded-xl border border-zinc-200 bg-white px-4 text-xs font-semibold text-brand-ink hover:bg-zinc-50 disabled:opacity-60"
+                              disabled={qaSavingId === q.id}
+                              onClick={() => {
+                                setQaAnswerDrafts((prev) => ({ ...prev, [q.id]: typeof q.answer === "string" ? q.answer : "" }));
+                                setQaEditingId(null);
+                              }}
+                            >
+                              Cancel
+                            </button>
+                            <button
+                              type="button"
+                              className="inline-flex h-9 items-center justify-center rounded-xl bg-emerald-600 px-4 text-xs font-semibold text-white disabled:opacity-60"
+                              disabled={qaSavingId === q.id}
+                              onClick={() => void saveQaAnswer(q.id, qaAnswerDrafts[q.id] ?? "")}
+                            >
+                              {qaSavingId === q.id ? "Saving…" : "Save answer"}
+                            </button>
+                          </div>
+                        </div>
+                      </div>
+                    ) : null}
                   </div>
                 </div>
               ))}
