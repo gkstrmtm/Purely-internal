@@ -140,6 +140,8 @@ export default function PortalReviewsClient() {
   const [error, setError] = useState<string | null>(null);
   const [settings, setSettings] = useState<ReviewRequestsSettings>(DEFAULT_SETTINGS);
 
+  const lastSavedSettingsJsonRef = useRef<string>(JSON.stringify(DEFAULT_SETTINGS));
+
   const [publicSiteSlug, setPublicSiteSlug] = useState<string | null>(null);
 
   const uploadsInputRef = useRef<HTMLInputElement | null>(null);
@@ -257,7 +259,9 @@ export default function PortalReviewsClient() {
       if (!s || !s.ok) throw new Error((s as any)?.error || "Failed to load settings");
       const sData = s.data;
       if (!sData?.ok) throw new Error(sData?.error || "Failed to load settings");
-      setSettings(sData.settings || DEFAULT_SETTINGS);
+      const nextSettings = sData.settings || DEFAULT_SETTINGS;
+      setSettings(nextSettings);
+      lastSavedSettingsJsonRef.current = JSON.stringify(nextSettings);
 
       const eData = e.ok ? e.data : null;
       setEvents(Array.isArray(eData?.events) ? eData.events : []);
@@ -334,13 +338,23 @@ export default function PortalReviewsClient() {
       }).then((r) => readJsonSafe<any>(r));
       if (!res.ok) throw new Error(res.error || "Failed to save");
       if (!res.data?.ok) throw new Error(res.data?.error || "Failed to save");
-      setSettings(res.data.settings || next);
+      const nextSettings = res.data.settings || next;
+      setSettings(nextSettings);
+      lastSavedSettingsJsonRef.current = JSON.stringify(nextSettings);
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
     } finally {
       setSaving(false);
     }
   }
+
+  const isDirty = useMemo(() => {
+    try {
+      return JSON.stringify(settings) !== lastSavedSettingsJsonRef.current;
+    } catch {
+      return true;
+    }
+  }, [settings]);
 
   async function uploadPublicPhotos(files: FileList | null) {
     if (!files || files.length === 0) return;
@@ -1033,8 +1047,8 @@ export default function PortalReviewsClient() {
                   <div className="mt-3 space-y-3">
                     {settings.publicPage.form.questions.map((q) => (
                       <div key={q.id} className="rounded-2xl border border-zinc-200 bg-white p-4">
-                        <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-                          <div className="min-w-0 flex-1">
+                        <div className="grid grid-cols-1 gap-3 sm:grid-cols-[1fr_360px] sm:items-start">
+                          <div className="min-w-0">
                             <div className="text-xs font-semibold text-zinc-600">Question</div>
                             <input
                               className="mt-1 h-10 w-full rounded-xl border border-zinc-200 bg-white px-3 text-sm"
@@ -1050,10 +1064,10 @@ export default function PortalReviewsClient() {
                             />
                           </div>
 
-                          <div className="flex flex-wrap items-center gap-2">
+                          <div className="flex flex-wrap items-center justify-start gap-2 sm:justify-end">
                             <button
                               type="button"
-                              className="h-10 rounded-xl border border-zinc-200 bg-white px-3 text-xs font-semibold text-zinc-800 hover:bg-zinc-50"
+                              className="h-9 rounded-xl border border-zinc-200 bg-white px-3 text-xs font-semibold text-zinc-800 hover:bg-zinc-50"
                               onClick={() => {
                                 const qs = settings.publicPage.form.questions || [];
                                 const idx = qs.findIndex((x) => x.id === q.id);
@@ -1073,7 +1087,7 @@ export default function PortalReviewsClient() {
 
                             <button
                               type="button"
-                              className="h-10 rounded-xl border border-zinc-200 bg-white px-3 text-xs font-semibold text-zinc-800 hover:bg-zinc-50"
+                              className="h-9 rounded-xl border border-zinc-200 bg-white px-3 text-xs font-semibold text-zinc-800 hover:bg-zinc-50"
                               onClick={() => {
                                 const qs = settings.publicPage.form.questions || [];
                                 const idx = qs.findIndex((x) => x.id === q.id);
@@ -1107,7 +1121,7 @@ export default function PortalReviewsClient() {
                             </label>
 
                             <select
-                              className="h-10 rounded-xl border border-zinc-200 bg-white px-3 text-sm"
+                              className="h-9 min-w-[170px] rounded-xl border border-zinc-200 bg-white px-3 text-sm"
                               value={q.kind}
                               onChange={(e) => {
                                 const kind = e.target.value as ReviewQuestionKind;
@@ -1134,7 +1148,7 @@ export default function PortalReviewsClient() {
 
                             <button
                               type="button"
-                              className="h-10 rounded-xl border border-zinc-200 bg-white px-3 text-xs font-semibold text-red-700 hover:bg-zinc-50"
+                              className="h-9 rounded-xl border border-zinc-200 bg-white px-3 text-xs font-semibold text-red-700 hover:bg-zinc-50 sm:ml-auto"
                               onClick={() => {
                                 const nextQs = (settings.publicPage.form.questions || []).filter((x) => x.id !== q.id);
                                 setSettings({
@@ -1182,11 +1196,11 @@ export default function PortalReviewsClient() {
           <div className="mt-5 flex items-center gap-2">
             <button
               className="h-10 rounded-lg bg-emerald-600 px-4 text-sm font-medium text-white disabled:opacity-60"
-              disabled={saving}
+              disabled={saving || !isDirty}
               onClick={() => save(settings)}
               type="button"
             >
-              {saving ? "Saving…" : "Save"}
+              {saving ? "Saving…" : isDirty ? "Save" : "Saved"}
             </button>
             <button className="h-10 rounded-lg border border-zinc-200 bg-white px-4 text-sm hover:bg-zinc-50" onClick={load} type="button">
               Refresh
