@@ -30,6 +30,7 @@ type ReviewRequestsSettings = {
   destinations: ReviewDestination[];
   defaultDestinationId?: string;
   messageTemplate: string;
+  calendarMessageTemplates?: Record<string, string>;
   publicPage: ReviewsPublicPageSettings;
 };
 
@@ -68,6 +69,7 @@ const DEFAULT_SETTINGS: ReviewRequestsSettings = {
   sendAfter: { value: 30, unit: "minutes" },
   destinations: [],
   messageTemplate: "Hi {name} — thanks again! If you have 30 seconds, would you leave us a review? {link}",
+  calendarMessageTemplates: {},
   publicPage: {
     enabled: true,
     title: "Reviews",
@@ -113,6 +115,7 @@ export default function PortalReviewsClient() {
 
   const uploadsInputRef = useRef<HTMLInputElement | null>(null);
   const [uploadingPhotos, setUploadingPhotos] = useState(false);
+  const [uploadPickerCount, setUploadPickerCount] = useState(0);
 
   const [calendars, setCalendars] = useState<Array<{ id: string; title: string; enabled?: boolean }>>([]);
 
@@ -196,13 +199,10 @@ export default function PortalReviewsClient() {
     setLoading(true);
     setError(null);
     try {
-      const [s, e, site, bookingSite, cals, inbox] = await Promise.all([
+      const [s, e, handle, cals, inbox] = await Promise.all([
         fetch("/api/portal/reviews/settings", { cache: "no-store" }).then((r) => readJsonSafe<any>(r)),
         fetch("/api/portal/reviews/events?limit=50", { cache: "no-store" }).then((r) => readJsonSafe<any>(r)),
-        fetch("/api/portal/blogs/site", { cache: "no-store" })
-          .then((r) => readJsonSafe<any>(r))
-          .catch(() => null),
-        fetch("/api/portal/booking/settings", { cache: "no-store" }).then((r) => readJsonSafe<any>(r)).catch(() => null),
+        fetch("/api/portal/reviews/handle", { cache: "no-store" }).then((r) => readJsonSafe<any>(r)).catch(() => null),
         fetch("/api/portal/booking/calendars", { cache: "no-store" })
           .then((r) => readJsonSafe<any>(r))
           .catch(() => null),
@@ -219,13 +219,9 @@ export default function PortalReviewsClient() {
       const inboxData = inbox.ok ? inbox.data : null;
       setReceivedReviews(Array.isArray(inboxData?.reviews) ? inboxData.reviews : []);
 
-      const siteData = site && (site as any).ok ? (site as any).data : null;
-      const blogSlug = typeof siteData?.site?.slug === "string" ? siteData.site.slug : null;
-
-      const bookingData = bookingSite && (bookingSite as any).ok ? (bookingSite as any).data : null;
-      const bookingSlug = typeof bookingData?.site?.slug === "string" ? bookingData.site.slug : null;
-
-      setPublicSiteSlug(blogSlug || bookingSlug || null);
+      const handleData = handle && (handle as any).ok ? (handle as any).data : null;
+      const slug = typeof handleData?.handle === "string" ? handleData.handle : null;
+      setPublicSiteSlug(slug || null);
 
       const calsData = cals && (cals as any).ok ? (cals as any).data : null;
       const list = Array.isArray(calsData?.config?.calendars) ? calsData.config.calendars : [];
@@ -307,6 +303,7 @@ export default function PortalReviewsClient() {
     try {
       const nextUrls: string[] = [];
       const selected = Array.from(files).slice(0, 12);
+      setUploadPickerCount(selected.length);
       for (const f of selected) {
         const form = new FormData();
         form.append("file", f);
@@ -323,11 +320,29 @@ export default function PortalReviewsClient() {
         },
       });
       if (uploadsInputRef.current) uploadsInputRef.current.value = "";
+      setUploadPickerCount(0);
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
     } finally {
       setUploadingPhotos(false);
     }
+  }
+
+  function getCalendarTemplate(calendarId: string) {
+    const m = settings.calendarMessageTemplates && typeof settings.calendarMessageTemplates === "object" ? settings.calendarMessageTemplates : {};
+    return typeof m[calendarId] === "string" ? m[calendarId] : "";
+  }
+
+  function setCalendarTemplate(calendarId: string, template: string) {
+    const current = settings.calendarMessageTemplates && typeof settings.calendarMessageTemplates === "object" ? settings.calendarMessageTemplates : {};
+    const nextMap: Record<string, string> = { ...current };
+    const v = (template || "").slice(0, 900);
+    if (!v.trim()) {
+      delete nextMap[calendarId];
+    } else {
+      nextMap[calendarId] = v;
+    }
+    setSettings({ ...settings, calendarMessageTemplates: nextMap });
   }
 
   function setSendAfter(partial: Partial<ReviewDelay>) {
@@ -381,8 +396,9 @@ export default function PortalReviewsClient() {
         method: "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify({ bookingId }),
-      }).then((r) => r.json());
-      if (!res?.ok) throw new Error(res?.error || "Failed to send");
+      }).then((r) => readJsonSafe<any>(r));
+      if (!res.ok) throw new Error(res.error || "Failed to send");
+      if (!res.data?.ok) throw new Error(res.data?.error || "Failed to send");
       setSendResult("Sent");
       await load();
     } catch (err) {
@@ -421,12 +437,13 @@ export default function PortalReviewsClient() {
 
   function isCalendarAllowedForBooking(calendarId?: string | null) {
     if (!calendarFilterEnabled) return true;
-    if (!calendarId) return false;
+    // If calendarId isn't available (e.g. older DB missing the column), don't block manual sends.
+    if (calendarId == null) return true;
     return settings.automation.calendarIds.includes(calendarId);
   }
 
   function calendarLabel(calendarId?: string | null) {
-    if (!calendarId) return "(no calendar)";
+    if (calendarId == null) return "(calendar unknown)";
     return calendarTitleById.get(calendarId) || "(unknown calendar)";
   }
 
@@ -485,16 +502,24 @@ export default function PortalReviewsClient() {
             </div>
           </div>
 
-          {publicSiteSlug ? (
-            <a
-              className="mt-3 inline-flex items-center justify-center rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm font-semibold text-brand-ink hover:bg-zinc-50"
-              href={`/${publicSiteSlug}/reviews`}
-              target="_blank"
-              rel="noreferrer"
-            >
-              Preview public reviews page
-            </a>
-          ) : null}
+          {(() => {
+            const canPreview = Boolean(settings.publicPage.enabled && publicSiteSlug);
+            return (
+              <a
+                className={
+                  "mt-3 inline-flex items-center justify-center rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm font-semibold text-brand-ink hover:bg-zinc-50 " +
+                  (!canPreview ? "pointer-events-none opacity-50" : "")
+                }
+                href={canPreview ? `/${publicSiteSlug}/reviews` : "#"}
+                target="_blank"
+                rel="noreferrer"
+                aria-disabled={!canPreview}
+                title={!canPreview ? "Enable the public page and ensure you have a site slug." : ""}
+              >
+                Preview public reviews page
+              </a>
+            );
+          })()}
 
           <div className="mt-4 rounded-2xl border border-zinc-200 bg-zinc-50 p-4">
             <div className="text-sm font-medium">Send mode</div>
@@ -549,7 +574,7 @@ export default function PortalReviewsClient() {
                 </label>
 
                 {settings.automation.calendarIds.length ? (
-                  <div className="mt-2 grid gap-2 rounded-lg border bg-white p-3">
+                  <div className="mt-2 grid gap-2 rounded-lg border border-zinc-200 bg-white p-3">
                     {calendars.filter((c) => c.enabled !== false).length === 0 ? (
                       <div className="text-xs text-neutral-600">No calendars found. Add calendars in Booking Automation.</div>
                     ) : (
@@ -585,7 +610,7 @@ export default function PortalReviewsClient() {
             <div className="text-sm font-medium">Send after appointment ends</div>
             <div className="mt-2 flex flex-wrap items-center gap-2">
               <input
-                className="h-10 w-24 rounded-lg border px-3 text-sm"
+                className="h-10 w-24 rounded-lg border border-zinc-200 bg-white px-3 text-sm"
                 value={settings.sendAfter.value}
                 onChange={(e) => setSendAfter({ value: clampInt(Number(e.target.value), 0, maxValue) })}
                 type="number"
@@ -593,7 +618,7 @@ export default function PortalReviewsClient() {
                 max={maxValue}
               />
               <select
-                className="h-10 w-32 rounded-lg border px-3 text-sm"
+                className="h-10 w-32 rounded-lg border border-zinc-200 bg-white px-3 text-sm"
                 value={settings.sendAfter.unit}
                 onChange={(e) => {
                   const unit = e.target.value as ReviewDelayUnit;
@@ -621,7 +646,7 @@ export default function PortalReviewsClient() {
               ) : null}
 
               {settings.destinations.map((d) => (
-                <div key={d.id} className="flex flex-col gap-2 rounded-lg border p-3 sm:flex-row sm:items-center sm:justify-between">
+                <div key={d.id} className="flex flex-col gap-2 rounded-lg border border-zinc-200 bg-white p-3 sm:flex-row sm:items-center sm:justify-between">
                   <div className="min-w-0">
                     <div className="truncate text-sm font-medium">{d.label}</div>
                     <div className="truncate text-xs text-neutral-500">{d.url}</div>
@@ -637,7 +662,7 @@ export default function PortalReviewsClient() {
                     </label>
                     <button
                       type="button"
-                      className="h-9 rounded-lg border px-3 text-xs"
+                      className="h-9 rounded-lg border border-zinc-200 bg-white px-3 text-xs hover:bg-zinc-50"
                       onClick={() => removeDestination(d.id)}
                     >
                       Remove
@@ -649,13 +674,13 @@ export default function PortalReviewsClient() {
 
             <div className="mt-3 flex flex-col gap-2 sm:flex-row">
               <input
-                className="h-10 flex-1 rounded-lg border px-3 text-sm"
+                className="h-10 flex-1 rounded-lg border border-zinc-200 bg-white px-3 text-sm"
                 placeholder="Label (e.g. Google Reviews)"
                 value={newDestLabel}
                 onChange={(e) => setNewDestLabel(e.target.value)}
               />
               <input
-                className="h-10 flex-[2] rounded-lg border px-3 text-sm"
+                className="h-10 flex-[2] rounded-lg border border-zinc-200 bg-white px-3 text-sm"
                 placeholder="https://..."
                 value={newDestUrl}
                 onChange={(e) => setNewDestUrl(e.target.value)}
@@ -670,15 +695,47 @@ export default function PortalReviewsClient() {
             <div className="text-sm font-medium">SMS template</div>
             <div className="mt-2 text-xs text-neutral-500">Use placeholders: {"{name}"}, {"{link}"}, {"{business}"}</div>
             <textarea
-              className="mt-2 min-h-[120px] w-full rounded-lg border px-3 py-2 text-sm"
+              className="mt-2 min-h-[120px] w-full rounded-lg border border-zinc-200 bg-white px-3 py-2 text-sm"
               value={settings.messageTemplate}
               onChange={(e) => setSettings({ ...settings, messageTemplate: e.target.value })}
             />
-            <div className="mt-2 rounded-lg border bg-neutral-50 p-3 text-xs text-neutral-700">
+            <div className="mt-2 rounded-lg border border-zinc-200 bg-neutral-50 p-3 text-xs text-neutral-700">
               <div className="font-medium">Preview</div>
               <div className="mt-1 whitespace-pre-wrap">{previewBody}</div>
             </div>
           </div>
+
+          {settings.automation.calendarIds.length ? (
+            <div className="mt-5">
+              <div className="text-sm font-medium">Per-calendar messages</div>
+              <div className="mt-1 text-xs text-neutral-600">
+                Optional. If set, the message below overrides the default SMS template for bookings under that calendar.
+              </div>
+              <div className="mt-3 grid gap-3">
+                {settings.automation.calendarIds.map((calendarId) => (
+                  <div key={calendarId} className="rounded-lg border border-zinc-200 bg-white p-3">
+                    <div className="text-sm font-semibold text-zinc-900">
+                      {calendarTitleById.get(calendarId) || "Calendar"}
+                    </div>
+                    <div className="mt-1 text-xs text-zinc-500">Calendar ID: {calendarId}</div>
+                    <textarea
+                      className="mt-2 min-h-[96px] w-full rounded-lg border border-zinc-200 bg-white px-3 py-2 text-sm"
+                      placeholder="Leave blank to use the default template"
+                      value={getCalendarTemplate(calendarId)}
+                      onChange={(e) => setCalendarTemplate(calendarId, e.target.value)}
+                    />
+                  </div>
+                ))}
+              </div>
+            </div>
+          ) : (
+            <div className="mt-5">
+              <div className="text-sm font-medium">Per-calendar messages</div>
+              <div className="mt-1 text-xs text-neutral-600">
+                To set different messages per calendar, turn off “All calendars” and select specific calendars.
+              </div>
+            </div>
+          )}
 
           <div className="mt-5">
             <div className="text-sm font-medium">Hosted reviews page</div>
@@ -699,7 +756,7 @@ export default function PortalReviewsClient() {
             </div>
             <div className="mt-3 grid grid-cols-1 gap-2 sm:grid-cols-2">
               <input
-                className="h-10 rounded-lg border px-3 text-sm"
+                className="h-10 rounded-lg border border-zinc-200 bg-white px-3 text-sm"
                 placeholder="Page title"
                 value={settings.publicPage.title}
                 onChange={(e) => setSettings({ ...settings, publicPage: { ...settings.publicPage, title: e.target.value } })}
@@ -710,10 +767,19 @@ export default function PortalReviewsClient() {
                   type="file"
                   multiple
                   accept="image/*"
-                  className="block w-full text-sm"
+                  className="hidden"
                   disabled={uploadingPhotos}
                   onChange={(e) => void uploadPublicPhotos(e.target.files)}
                 />
+                <button
+                  type="button"
+                  disabled={uploadingPhotos}
+                  onClick={() => uploadsInputRef.current?.click()}
+                  className="inline-flex h-10 items-center justify-center rounded-lg border border-zinc-200 bg-white px-4 text-sm font-medium text-zinc-900 hover:bg-zinc-50 disabled:opacity-60"
+                >
+                  {uploadingPhotos ? "Uploading…" : "Choose files"}
+                </button>
+                <div className="text-xs text-zinc-500">{uploadPickerCount ? `${uploadPickerCount} selected` : "No files chosen"}</div>
               </div>
             </div>
             {settings.publicPage.photoUrls?.length ? (
@@ -738,7 +804,7 @@ export default function PortalReviewsClient() {
               <div className="mt-2 text-xs text-zinc-500">Upload one or more photos (optional).</div>
             )}
             <textarea
-              className="mt-2 min-h-[80px] w-full rounded-lg border px-3 py-2 text-sm"
+              className="mt-2 min-h-[80px] w-full rounded-lg border border-zinc-200 bg-white px-3 py-2 text-sm"
               placeholder="Description"
               value={settings.publicPage.description}
               onChange={(e) => setSettings({ ...settings, publicPage: { ...settings.publicPage, description: e.target.value } })}
@@ -754,7 +820,7 @@ export default function PortalReviewsClient() {
             >
               {saving ? "Saving…" : "Save"}
             </button>
-            <button className="h-10 rounded-lg border px-4 text-sm" onClick={load} type="button">
+            <button className="h-10 rounded-lg border border-zinc-200 bg-white px-4 text-sm hover:bg-zinc-50" onClick={load} type="button">
               Refresh
             </button>
             {saving ? <div className="text-xs text-neutral-500">Please wait…</div> : null}
@@ -773,14 +839,14 @@ export default function PortalReviewsClient() {
 
           <div className="mt-3 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
             <input
-              className="h-10 flex-1 rounded-lg border px-3 text-sm"
+              className="h-10 flex-1 rounded-lg border border-zinc-200 bg-white px-3 text-sm"
               placeholder="Search bookings by name, email, phone, or ID"
               value={bookingQuery}
               onChange={(e) => setBookingQuery(e.target.value)}
               disabled={!settings.automation.manualSend}
             />
             <button
-              className="h-10 rounded-lg border px-4 text-sm"
+              className="h-10 rounded-lg border border-zinc-200 bg-white px-4 text-sm hover:bg-zinc-50"
               disabled={bookingsLoading || !settings.automation.manualSend}
               onClick={loadBookings}
               type="button"
@@ -792,7 +858,7 @@ export default function PortalReviewsClient() {
 
           <div className="mt-4">
             <div className="text-sm font-medium">Recent bookings</div>
-            <div className="mt-2 rounded-lg border">
+            <div className="mt-2 overflow-hidden rounded-lg border border-zinc-200 bg-white">
               <div className="grid grid-cols-1 gap-0">
                 {(filteredRecent.length === 0 && filteredUpcoming.length === 0) ? (
                   <div className="p-4 text-sm text-neutral-600">No bookings loaded yet.</div>
@@ -803,7 +869,7 @@ export default function PortalReviewsClient() {
                   const calendarAllowed = isCalendarAllowedForBooking(b.calendarId);
                   const canSend = settings.automation.manualSend && ended && b.status === "SCHEDULED" && calendarAllowed && !sending;
                   return (
-                    <div key={b.id} className="flex flex-col gap-2 border-b p-4 sm:flex-row sm:items-center sm:justify-between">
+                    <div key={b.id} className="flex flex-col gap-2 border-b border-zinc-200 p-4 sm:flex-row sm:items-center sm:justify-between">
                       <div className="min-w-0">
                         <div className="truncate text-sm font-medium">{b.contactName}</div>
                         <div className="mt-0.5 flex flex-wrap gap-x-3 gap-y-1 text-xs text-neutral-600">
@@ -834,9 +900,9 @@ export default function PortalReviewsClient() {
             {filteredUpcoming.length ? (
               <div className="mt-4">
                 <div className="text-sm font-medium">Upcoming bookings</div>
-                <div className="mt-2 rounded-lg border">
+                <div className="mt-2 overflow-hidden rounded-lg border border-zinc-200 bg-white">
                   {filteredUpcoming.slice(0, 10).map((b) => (
-                    <div key={b.id} className="flex flex-col gap-1 border-b p-4 sm:flex-row sm:items-center sm:justify-between">
+                    <div key={b.id} className="flex flex-col gap-1 border-b border-zinc-200 p-4 sm:flex-row sm:items-center sm:justify-between">
                       <div className="min-w-0">
                         <div className="truncate text-sm font-medium">{b.contactName}</div>
                         <div className="mt-0.5 flex flex-wrap gap-x-3 gap-y-1 text-xs text-neutral-600">
@@ -861,7 +927,7 @@ export default function PortalReviewsClient() {
             <div className="mt-3 space-y-2">
               {events.length === 0 ? <div className="text-sm text-neutral-600">No activity yet.</div> : null}
               {events.map((e) => (
-                <div key={e.id} className="rounded-lg border p-3">
+                <div key={e.id} className="rounded-lg border border-zinc-200 bg-white p-3">
                   <div className="flex flex-wrap items-center justify-between gap-2">
                     <div className="text-sm font-medium">
                       {e.status} — {e.contactName || "(no name)"}

@@ -3,6 +3,7 @@ import { normalizePhoneStrict } from "@/lib/phone";
 import { sendOwnerTwilioSms, getOwnerTwilioSmsConfig } from "@/lib/portalTwilio";
 import { hasPublicColumn } from "@/lib/dbSchema";
 import { ensureStoredBlogSiteSlug, getStoredBlogSiteSlug } from "@/lib/blogSiteSlug";
+import type { Prisma } from "@prisma/client";
 
 const SERVICE_SLUG = "reviews";
 
@@ -12,6 +13,7 @@ const MAX_BODY_LEN = 900;
 const MAX_DESTINATIONS = 10;
 
 let canUseBlogSlugColumnCache: boolean | null = null;
+let canUsePortalBookingCalendarIdColumnCache: boolean | null = null;
 
 function getBasePublicUrl() {
   const raw = process.env.NEXTAUTH_URL ?? process.env.NEXT_PUBLIC_APP_URL ?? "http://localhost:3000";
@@ -22,6 +24,12 @@ async function canUseBlogSlugColumn() {
   if (canUseBlogSlugColumnCache !== null) return canUseBlogSlugColumnCache;
   canUseBlogSlugColumnCache = await hasPublicColumn("ClientBlogSite", "slug");
   return canUseBlogSlugColumnCache;
+}
+
+async function canUsePortalBookingCalendarIdColumn() {
+  if (canUsePortalBookingCalendarIdColumnCache !== null) return canUsePortalBookingCalendarIdColumnCache;
+  canUsePortalBookingCalendarIdColumnCache = await hasPublicColumn("PortalBooking", "calendarId");
+  return canUsePortalBookingCalendarIdColumnCache;
 }
 
 async function getOwnerPublicSiteHandle(ownerId: string): Promise<string | null> {
@@ -111,6 +119,7 @@ export type ReviewRequestsSettings = {
   destinations: ReviewDestination[];
   defaultDestinationId?: string;
   messageTemplate: string;
+  calendarMessageTemplates?: Record<string, string>;
   publicPage: ReviewsPublicPageSettings;
 };
 
@@ -196,6 +205,7 @@ export function parseReviewRequestsSettings(raw: unknown): ReviewRequestsSetting
     sendAfter: { value: 30, unit: "minutes" },
     destinations: [],
     messageTemplate: "Hi {name} — thanks again! If you have 30 seconds, would you leave us a review? {link}",
+    calendarMessageTemplates: {},
     publicPage: {
       enabled: true,
       title: "Reviews",
@@ -250,6 +260,22 @@ export function parseReviewRequestsSettings(raw: unknown): ReviewRequestsSetting
 
   const template = normalizeString(rec.messageTemplate, MAX_BODY_LEN, base.messageTemplate) || base.messageTemplate;
 
+  const calendarTemplatesRaw =
+    rec.calendarMessageTemplates && typeof rec.calendarMessageTemplates === "object" && !Array.isArray(rec.calendarMessageTemplates)
+      ? (rec.calendarMessageTemplates as Record<string, unknown>)
+      : null;
+  const calendarMessageTemplates: Record<string, string> = {};
+  if (calendarTemplatesRaw) {
+    for (const [k, v] of Object.entries(calendarTemplatesRaw)) {
+      const calendarId = typeof k === "string" ? k.trim().slice(0, 50) : "";
+      if (!calendarId) continue;
+      const msg = typeof v === "string" ? v.trim().slice(0, MAX_BODY_LEN) : "";
+      if (!msg) continue;
+      calendarMessageTemplates[calendarId] = msg;
+      if (Object.keys(calendarMessageTemplates).length >= 25) break;
+    }
+  }
+
   const publicRaw = rec.publicPage && typeof rec.publicPage === "object" && !Array.isArray(rec.publicPage) ? (rec.publicPage as any) : null;
   const photoUrlsRaw = Array.isArray(publicRaw?.photoUrls) ? (publicRaw.photoUrls as unknown[]) : [];
   const photoUrls = photoUrlsRaw
@@ -282,8 +308,18 @@ export function parseReviewRequestsSettings(raw: unknown): ReviewRequestsSetting
     destinations,
     ...(defaultDestinationId ? { defaultDestinationId } : {}),
     messageTemplate: template,
+    calendarMessageTemplates,
     publicPage,
   };
+}
+
+function pickMessageTemplate(settings: ReviewRequestsSettings, calendarId: string | null | undefined) {
+  const cal = typeof calendarId === "string" ? calendarId.trim() : "";
+  if (cal && settings.calendarMessageTemplates && typeof settings.calendarMessageTemplates === "object") {
+    const v = settings.calendarMessageTemplates[cal];
+    if (typeof v === "string" && v.trim()) return v;
+  }
+  return settings.messageTemplate;
 }
 
 function parseServiceData(raw: unknown): ReviewsServiceData {
@@ -434,10 +470,21 @@ export async function sendReviewRequestForBooking(opts: { ownerId: string; booki
   const bookingId = String(opts.bookingId || "");
   if (!ownerId || !bookingId) return { ok: false, error: "Missing ownerId/bookingId" };
 
+  const hasCalendarId = await canUsePortalBookingCalendarIdColumn();
+  const bookingSelect: Prisma.PortalBookingSelect = {
+    id: true,
+    siteId: true,
+    status: true,
+    endAt: true,
+    contactName: true,
+    contactPhone: true,
+    ...(hasCalendarId ? { calendarId: true } : {}),
+  };
+
   const [data, site, booking, profile, twilio] = await Promise.all([
     getReviewRequestsServiceData(ownerId),
     prisma.portalBookingSite.findUnique({ where: { ownerId }, select: { id: true, timeZone: true, slug: true, title: true } }),
-    prisma.portalBooking.findUnique({ where: { id: bookingId }, select: { id: true, siteId: true, status: true, endAt: true, calendarId: true, contactName: true, contactPhone: true } }),
+    prisma.portalBooking.findUnique({ where: { id: bookingId }, select: bookingSelect }),
     prisma.businessProfile.findUnique({ where: { ownerId }, select: { businessName: true } }),
     getOwnerTwilioSmsConfig(ownerId),
   ]);
@@ -449,7 +496,11 @@ export async function sendReviewRequestForBooking(opts: { ownerId: string; booki
   const settings = data.settings;
   if (!settings.enabled) return { ok: false, error: "Review requests are turned off" };
   if (!settings.automation.manualSend) return { ok: false, error: "Manual sending is turned off" };
-  if (!isCalendarAllowed(settings, (booking as any).calendarId)) return { ok: false, error: "This calendar is not enabled for review requests" };
+
+  const bookingCalendarId = hasCalendarId ? ((booking as any).calendarId as string | null | undefined) : null;
+  if (hasCalendarId && !isCalendarAllowed(settings, bookingCalendarId)) {
+    return { ok: false, error: "This calendar is not enabled for review requests" };
+  }
   if (!twilio) return { ok: false, error: "Twilio not configured" };
 
   const resolved = await resolvePrimarySendLink(ownerId, settings);
@@ -459,7 +510,7 @@ export async function sendReviewRequestForBooking(opts: { ownerId: string; booki
   if (!parsed.ok || !parsed.e164) return { ok: false, error: "Missing/invalid phone" };
 
   const business = profile?.businessName?.trim() || site.title || "Purely Automation";
-  const body = renderReviewRequestBody(settings.messageTemplate, {
+  const body = renderReviewRequestBody(pickMessageTemplate(settings, bookingCalendarId), {
     name: booking.contactName,
     link: resolved.destinationUrl,
     business,
@@ -480,7 +531,7 @@ export async function sendReviewRequestForBooking(opts: { ownerId: string; booki
     const evt: ReviewRequestEvent = {
       id: `evt_${booking.id}_manual_${resolved.destinationId}`,
       bookingId: booking.id,
-      calendarId: (booking as any).calendarId ?? null,
+      calendarId: bookingCalendarId ?? null,
       bookingEndAtIso,
       scheduledForIso,
       destinationId: resolved.destinationId,
@@ -558,6 +609,8 @@ export async function processDueReviewRequests(opts?: { ownersLimit?: number; pe
       const site = await prisma.portalBookingSite.findUnique({ where: { ownerId }, select: { id: true, title: true } });
       if (!site) continue;
 
+      const hasCalendarId = await canUsePortalBookingCalendarIdColumn();
+
       const twilio = await getOwnerTwilioSmsConfig(ownerId);
       const resolved = await resolvePrimarySendLink(ownerId, settings);
       if (!resolved) continue;
@@ -584,16 +637,24 @@ export async function processDueReviewRequests(opts?: { ownersLimit?: number; pe
         mutated = false;
       };
 
+      const select: Prisma.PortalBookingSelect = {
+        id: true,
+        endAt: true,
+        contactName: true,
+        contactPhone: true,
+        ...(hasCalendarId ? { calendarId: true } : {}),
+      };
+
       const bookings = await prisma.portalBooking.findMany({
         where: {
           siteId: site.id,
           status: "SCHEDULED",
           endAt: { gte: windowStart, lt: windowEnd },
-          ...(settings.automation.calendarIds.length ? { calendarId: { in: settings.automation.calendarIds } } : {}),
+          ...(hasCalendarId && settings.automation.calendarIds.length ? { calendarId: { in: settings.automation.calendarIds } } : {}),
         },
         orderBy: { endAt: "asc" },
         take: perOwnerLimit,
-        select: { id: true, endAt: true, calendarId: true, contactName: true, contactPhone: true },
+        select,
       });
 
       for (const booking of bookings) {
@@ -603,12 +664,14 @@ export async function processDueReviewRequests(opts?: { ownersLimit?: number; pe
         const bookingEndAtIso = booking.endAt.toISOString();
         const scheduledForIso = new Date(now).toISOString();
 
+        const bookingCalendarId = hasCalendarId ? ((booking as any).calendarId as string | null | undefined) : null;
+
         if (!twilio) {
           skipped += 1;
           const evt: ReviewRequestEvent = {
             id: `evt_${booking.id}_${resolved.destinationId}`,
             bookingId: booking.id,
-            calendarId: (booking as any).calendarId ?? null,
+            calendarId: bookingCalendarId ?? null,
             bookingEndAtIso,
             scheduledForIso,
             destinationId: resolved.destinationId,
@@ -635,7 +698,7 @@ export async function processDueReviewRequests(opts?: { ownersLimit?: number; pe
           const evt: ReviewRequestEvent = {
             id: `evt_${booking.id}_${resolved.destinationId}`,
             bookingId: booking.id,
-            calendarId: (booking as any).calendarId ?? null,
+            calendarId: bookingCalendarId ?? null,
             bookingEndAtIso,
             scheduledForIso,
             destinationId: resolved.destinationId,
@@ -658,7 +721,7 @@ export async function processDueReviewRequests(opts?: { ownersLimit?: number; pe
 
         const profile = await prisma.businessProfile.findUnique({ where: { ownerId }, select: { businessName: true } });
         const business = profile?.businessName?.trim() || site.title || "Purely Automation";
-        const body = renderReviewRequestBody(settings.messageTemplate, {
+        const body = renderReviewRequestBody(pickMessageTemplate(settings, bookingCalendarId), {
           name: booking.contactName,
           link: resolved.destinationUrl,
           business,
@@ -672,7 +735,7 @@ export async function processDueReviewRequests(opts?: { ownersLimit?: number; pe
             const evt: ReviewRequestEvent = {
               id: `evt_${booking.id}_${resolved.destinationId}`,
               bookingId: booking.id,
-              calendarId: (booking as any).calendarId ?? null,
+              calendarId: bookingCalendarId ?? null,
               bookingEndAtIso,
               scheduledForIso,
               destinationId: resolved.destinationId,
@@ -697,7 +760,7 @@ export async function processDueReviewRequests(opts?: { ownersLimit?: number; pe
           const evt: ReviewRequestEvent = {
             id: `evt_${booking.id}_${resolved.destinationId}`,
             bookingId: booking.id,
-            calendarId: (booking as any).calendarId ?? null,
+            calendarId: bookingCalendarId ?? null,
             bookingEndAtIso,
             scheduledForIso,
             destinationId: resolved.destinationId,

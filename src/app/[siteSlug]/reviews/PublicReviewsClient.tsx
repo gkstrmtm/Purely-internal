@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useId, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 
 type Destination = { id: string; label: string; url: string };
@@ -28,6 +28,8 @@ export function PublicReviewsClient({
   initialReviews: Review[];
 }) {
   const router = useRouter();
+
+  const fileInputId = useId();
 
   const [name, setName] = useState("");
   const [rating, setRating] = useState(5);
@@ -138,13 +140,26 @@ export function PublicReviewsClient({
           <div>
             <div className="text-xs font-semibold text-zinc-600">Photos (optional)</div>
             <input
+              id={fileInputId}
               type="file"
               multiple
               accept="image/*"
               disabled={busy}
-              className="mt-2 block w-full text-sm"
+              className="hidden"
               onChange={(e) => setPhotos(Array.from(e.target.files || []).slice(0, MAX_PHOTOS))}
             />
+            <div className="mt-2 flex flex-wrap items-center gap-3">
+              <label
+                htmlFor={fileInputId}
+                className={
+                  "inline-flex h-10 cursor-pointer items-center justify-center rounded-2xl border border-zinc-200 bg-white px-4 text-sm font-semibold text-zinc-900 hover:bg-zinc-50 " +
+                  (busy ? "pointer-events-none opacity-60" : "")
+                }
+              >
+                Choose files
+              </label>
+              <div className="text-sm text-zinc-500">{photos.length ? `${photos.length} selected` : "No files chosen"}</div>
+            </div>
             {photoPreviews.length ? (
               <div className="mt-3 flex flex-wrap gap-2">
                 {photoPreviews.map((p) => (
