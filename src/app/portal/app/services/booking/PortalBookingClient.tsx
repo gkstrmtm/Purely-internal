@@ -1214,12 +1214,12 @@ export function PortalBookingClient() {
                       <div className="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-3">
                         <label className="rounded-2xl border border-zinc-200 bg-zinc-50 px-4 py-3 text-sm">
                           <div className="font-medium text-zinc-800">Timing</div>
-                          <div className="mt-2 flex items-center gap-2">
+                          <div className="mt-2 flex flex-wrap items-center gap-2">
                             <input
                               type="number"
                               min={minValueForUnit(s.leadTime.unit)}
                               max={maxValueForUnit(s.leadTime.unit)}
-                              className="w-28 rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm"
+                              className="h-10 w-24 rounded-xl border border-zinc-200 bg-white px-3 text-sm"
                               value={s.leadTime.value}
                               onChange={(e) =>
                                 updateReminderStep(s.id, {
@@ -1229,7 +1229,7 @@ export function PortalBookingClient() {
                               disabled={reminderSaving}
                             />
                             <select
-                              className="rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm"
+                              className="h-10 w-32 rounded-xl border border-zinc-200 bg-white px-3 text-sm"
                               value={s.leadTime.unit}
                               disabled={reminderSaving}
                               onChange={(e) =>
