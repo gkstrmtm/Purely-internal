@@ -29,27 +29,41 @@ type Review = {
   name: string;
   body: string | null;
   photoUrls: unknown;
+  businessReply?: string | null;
+  businessReplyAt?: string | null;
   createdAt: string;
+};
+
+type AnsweredQuestion = {
+  id: string;
+  name: string;
+  question: string;
+  answer: string;
+  answeredAt: string | null;
 };
 
 const MAX_PHOTOS = 25;
 
 export function PublicReviewsClient({
   siteHandle,
+  businessName,
   brandPrimary,
   destinations,
   galleryEnabled,
   thankYouMessage,
   formConfig,
   initialReviews,
+  initialQuestions,
 }: {
   siteHandle: string;
+  businessName: string;
   brandPrimary: string;
   destinations: Destination[];
   galleryEnabled: boolean;
   thankYouMessage: string;
   formConfig?: unknown;
   initialReviews: Review[];
+  initialQuestions: AnsweredQuestion[];
 }) {
   const router = useRouter();
 
@@ -65,6 +79,12 @@ export function PublicReviewsClient({
   const [busy, setBusy] = useState(false);
   const [status, setStatus] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+
+  const [qName, setQName] = useState("");
+  const [qText, setQText] = useState("");
+  const [qBusy, setQBusy] = useState(false);
+  const [qStatus, setQStatus] = useState<string | null>(null);
+  const [qError, setQError] = useState<string | null>(null);
 
   const [lightboxOpen, setLightboxOpen] = useState(false);
   const [lightboxImages, setLightboxImages] = useState<LightboxImage[]>([]);
@@ -221,6 +241,41 @@ export function PublicReviewsClient({
       setError(err instanceof Error ? err.message : String(err));
     } finally {
       setBusy(false);
+    }
+  }
+
+  async function submitQuestion() {
+    setQBusy(true);
+    setQStatus(null);
+    setQError(null);
+    try {
+      const nameTrim = qName.trim();
+      const questionTrim = qText.trim();
+      if (!nameTrim) throw new Error("Name is required");
+      if (!questionTrim) throw new Error("Question is required");
+
+      const res = await fetch(`/api/public/reviews/${siteHandle}/questions/submit`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ name: nameTrim, question: questionTrim }),
+      });
+      const text = await res.text().catch(() => "");
+      let json: unknown = null;
+      try {
+        json = text ? JSON.parse(text) : null;
+      } catch {
+        json = null;
+      }
+      const rec = json && typeof json === "object" && !Array.isArray(json) ? (json as Record<string, unknown>) : null;
+      if (!res.ok || !rec?.ok) throw new Error((typeof rec?.error === "string" ? rec.error : null) || `Failed (HTTP ${res.status})`);
+
+      setQStatus("Thanks — your question was sent.");
+      setQName("");
+      setQText("");
+    } catch (err) {
+      setQError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setQBusy(false);
     }
   }
 
@@ -485,6 +540,64 @@ export function PublicReviewsClient({
       </div>
 
       <div className="space-y-4">
+        <div className="rounded-3xl border border-zinc-200 bg-white p-7 shadow-sm">
+          <div className="text-sm font-semibold text-zinc-900">Q&amp;A</div>
+          <div className="mt-2 text-sm text-zinc-600">Ask a question and see answers from {businessName}.</div>
+
+          {initialQuestions.length ? (
+            <div className="mt-4 space-y-3">
+              {initialQuestions.slice(0, 12).map((q) => (
+                <div key={q.id} className="rounded-2xl border border-zinc-200 bg-white p-4">
+                  <div className="text-xs font-semibold text-zinc-700">Q: {q.question}</div>
+                  <div className="mt-2 whitespace-pre-wrap text-sm text-zinc-700">{q.answer}</div>
+                  <div className="mt-2 text-xs text-zinc-500">
+                    Answered by {businessName}
+                    {q.answeredAt ? ` • ${new Date(q.answeredAt).toLocaleDateString()}` : null}
+                  </div>
+                </div>
+              ))}
+            </div>
+          ) : (
+            <div className="mt-4 text-sm text-zinc-600">No answered questions yet.</div>
+          )}
+
+          <div className="mt-5 grid grid-cols-1 gap-3">
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+              <div>
+                <div className="text-xs font-semibold text-zinc-700">Your name</div>
+                <input
+                  className="mt-1 h-11 w-full rounded-2xl border border-zinc-200 bg-white px-4 text-sm"
+                  value={qName}
+                  onChange={(e) => setQName(e.target.value)}
+                  placeholder="Jane"
+                />
+              </div>
+            </div>
+            <div>
+              <div className="text-xs font-semibold text-zinc-700">Question</div>
+              <textarea
+                className="mt-1 min-h-[90px] w-full rounded-2xl border border-zinc-200 bg-white px-4 py-3 text-sm"
+                value={qText}
+                onChange={(e) => setQText(e.target.value)}
+                placeholder="Ask something about services, availability, pricing, etc."
+              />
+            </div>
+
+            {qError ? <div className="rounded-2xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-800">{qError}</div> : null}
+            {qStatus ? <div className="rounded-2xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-900">{qStatus}</div> : null}
+
+            <button
+              type="button"
+              disabled={qBusy}
+              onClick={() => void submitQuestion()}
+              className="inline-flex h-11 items-center justify-center rounded-2xl px-5 text-sm font-semibold text-white shadow-sm disabled:opacity-60"
+              style={{ backgroundColor: brandPrimary }}
+            >
+              {qBusy ? "Sending…" : "Ask question"}
+            </button>
+          </div>
+        </div>
+
         {destinations.length ? (
           <div className="rounded-3xl border border-zinc-200 bg-white p-7 shadow-sm">
             <div className="text-sm font-semibold text-zinc-900">Other review sites</div>
@@ -531,6 +644,17 @@ export function PublicReviewsClient({
                     </div>
                   </div>
                   {r.body ? <div className="mt-2 whitespace-pre-wrap text-sm text-zinc-700">{r.body}</div> : null}
+
+                  {r.businessReply ? (
+                    <div className="mt-3 rounded-2xl border border-zinc-200 bg-zinc-50 p-4">
+                      <div className="text-xs font-semibold text-zinc-700">Response from {businessName}</div>
+                      <div className="mt-2 whitespace-pre-wrap text-sm text-zinc-700">{r.businessReply}</div>
+                      {r.businessReplyAt ? (
+                        <div className="mt-2 text-xs text-zinc-500">{new Date(r.businessReplyAt).toLocaleDateString()}</div>
+                      ) : null}
+                    </div>
+                  ) : null}
+
                   {urls.length ? (
                     <div className="mt-3 flex flex-wrap gap-2">
                       {urls.slice(0, 6).map((u) => (

@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 
 import { requireClientSession } from "@/lib/apiAuth";
 import { prisma } from "@/lib/db";
+import { hasPublicColumn } from "@/lib/dbSchema";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
@@ -20,24 +21,33 @@ export async function GET(req: Request) {
 
   const ownerId = auth.session.user.id;
 
-  const reviews = await prisma.portalReview.findMany({
+  const [hasBusinessReply, hasBusinessReplyAt] = await Promise.all([
+    hasPublicColumn("PortalReview", "businessReply"),
+    hasPublicColumn("PortalReview", "businessReplyAt"),
+  ]);
+
+  const select: any = {
+    id: true,
+    rating: true,
+    name: true,
+    body: true,
+    email: true,
+    phone: true,
+    photoUrls: true,
+    archivedAt: true,
+    createdAt: true,
+  };
+  if (hasBusinessReply) select.businessReply = true;
+  if (hasBusinessReplyAt) select.businessReplyAt = true;
+
+  const reviews = await (prisma as any).portalReview.findMany({
     where: {
       ownerId,
       ...(includeArchived ? {} : { archivedAt: null }),
     },
     orderBy: { createdAt: "desc" },
     take: 200,
-    select: {
-      id: true,
-      rating: true,
-      name: true,
-      body: true,
-      email: true,
-      phone: true,
-      photoUrls: true,
-      archivedAt: true,
-      createdAt: true,
-    },
+    select,
   });
 
   return NextResponse.json({ ok: true, reviews });

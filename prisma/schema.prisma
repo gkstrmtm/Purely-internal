@@ -93,6 +93,7 @@ model User {
   portalBookingSite   PortalBookingSite?
 
   portalReviews PortalReview[]
+  portalReviewQuestions PortalReviewQuestion[]
   portalReviewPhotos PortalReviewPhoto[]
   portalContacts PortalContact[]
 }
@@ -567,6 +568,9 @@ model PortalReview {
 
   answersJson Json?
 
+  businessReply   String?
+  businessReplyAt DateTime?
+
   archivedAt DateTime?
 
   createdAt DateTime @default(now())
@@ -578,6 +582,26 @@ model PortalReview {
 
   @@index([ownerId, archivedAt, createdAt])
   @@index([ownerId, contactId])
+}
+
+model PortalReviewQuestion {
+  id String @id @default(cuid())
+
+  ownerId String
+
+  name     String
+  question String
+
+  answer     String?
+  answeredAt DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  owner User @relation(fields: [ownerId], references: [id])
+
+  @@index([ownerId, createdAt])
+  @@index([ownerId, answeredAt])
 }
 
 model PortalReviewPhoto {

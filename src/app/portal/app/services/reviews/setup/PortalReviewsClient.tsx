@@ -79,7 +79,18 @@ type ReceivedReview = {
   email: string | null;
   phone: string | null;
   photoUrls: unknown;
+  businessReply?: string | null;
+  businessReplyAt?: string | null;
   archivedAt: string | null;
+  createdAt: string;
+};
+
+type ReviewQuestionRow = {
+  id: string;
+  name: string;
+  question: string;
+  answer: string | null;
+  answeredAt: string | null;
   createdAt: string;
 };
 
@@ -154,6 +165,12 @@ export default function PortalReviewsClient() {
   const [receivedReviews, setReceivedReviews] = useState<ReceivedReview[]>([]);
   const [sending, setSending] = useState(false);
   const [sendResult, setSendResult] = useState<string | null>(null);
+
+  const [replyDrafts, setReplyDrafts] = useState<Record<string, string>>({});
+  const [replySavingId, setReplySavingId] = useState<string | null>(null);
+
+  const [qaQuestions, setQaQuestions] = useState<ReviewQuestionRow[]>([]);
+  const [qaSavingId, setQaSavingId] = useState<string | null>(null);
 
   const [lightboxOpen, setLightboxOpen] = useState(false);
   const [lightboxImages, setLightboxImages] = useState<LightboxImage[]>([]);
@@ -247,7 +264,7 @@ export default function PortalReviewsClient() {
     setLoading(true);
     setError(null);
     try {
-      const [s, e, handle, cals, inbox] = await Promise.all([
+      const [s, e, handle, cals, inbox, qa] = await Promise.all([
         fetch("/api/portal/reviews/settings", { cache: "no-store" }).then((r) => readJsonSafe<any>(r)),
         fetch("/api/portal/reviews/events?limit=50", { cache: "no-store" }).then((r) => readJsonSafe<any>(r)),
         fetch("/api/portal/reviews/handle", { cache: "no-store" }).then((r) => readJsonSafe<any>(r)).catch(() => null),
@@ -255,6 +272,7 @@ export default function PortalReviewsClient() {
           .then((r) => readJsonSafe<any>(r))
           .catch(() => null),
         fetch("/api/portal/reviews/inbox?includeArchived=1", { cache: "no-store" }).then((r) => readJsonSafe<any>(r)),
+        fetch("/api/portal/reviews/questions", { cache: "no-store" }).then((r) => readJsonSafe<any>(r)).catch(() => null),
       ]);
       if (!s || !s.ok) throw new Error((s as any)?.error || "Failed to load settings");
       const sData = s.data;
@@ -268,6 +286,24 @@ export default function PortalReviewsClient() {
 
       const inboxData = inbox.ok ? inbox.data : null;
       setReceivedReviews(Array.isArray(inboxData?.reviews) ? inboxData.reviews : []);
+
+      setReplyDrafts(() => {
+        const next: Record<string, string> = {};
+        const list = Array.isArray(inboxData?.reviews) ? (inboxData?.reviews as any[]) : [];
+        for (const r of list) {
+          const id = typeof r?.id === "string" ? r.id : "";
+          if (!id) continue;
+          next[id] = typeof r?.businessReply === "string" ? r.businessReply : "";
+        }
+        return next;
+      });
+
+      const qaData = qa && (qa as any).ok ? (qa as any).data : null;
+      if (qaData?.ok) {
+        setQaQuestions(Array.isArray(qaData.questions) ? qaData.questions : []);
+      } else {
+        setQaQuestions([]);
+      }
 
       const handleData = handle && (handle as any).ok ? (handle as any).data : null;
       const slug = typeof handleData?.handle === "string" ? handleData.handle : null;
@@ -284,6 +320,66 @@ export default function PortalReviewsClient() {
       setError(err instanceof Error ? err.message : String(err));
     } finally {
       setLoading(false);
+    }
+  }
+
+  async function saveReviewReply(reviewId: string) {
+    setReplySavingId(reviewId);
+    setError(null);
+    try {
+      const reply = (replyDrafts[reviewId] || "").trim();
+      const res = await fetch("/api/portal/reviews/reply", {
+        method: "PUT",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ reviewId, reply }),
+      }).then((r) => readJsonSafe<any>(r));
+      if (!res.ok) throw new Error(res.error || "Failed to save reply");
+      if (!res.data?.ok) throw new Error(res.data?.error || "Failed to save reply");
+
+      setReceivedReviews((prev) =>
+        prev.map((r) =>
+          r.id === reviewId
+            ? {
+                ...r,
+                businessReply: reply ? reply : null,
+                businessReplyAt: reply ? new Date().toISOString() : null,
+              }
+            : r,
+        ),
+      );
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setReplySavingId(null);
+    }
+  }
+
+  async function saveQaAnswer(id: string, answer: string) {
+    setQaSavingId(id);
+    setError(null);
+    try {
+      const res = await fetch("/api/portal/reviews/questions/answer", {
+        method: "PUT",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ id, answer }),
+      }).then((r) => readJsonSafe<any>(r));
+      if (!res.ok) throw new Error(res.error || "Failed to save answer");
+      if (!res.data?.ok) throw new Error(res.data?.error || "Failed to save answer");
+      setQaQuestions((prev) =>
+        prev.map((q) =>
+          q.id === id
+            ? {
+                ...q,
+                answer: answer.trim() ? answer.trim() : null,
+                answeredAt: answer.trim() ? new Date().toISOString() : null,
+              }
+            : q,
+        ),
+      );
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setQaSavingId(null);
     }
   }
 
@@ -1047,7 +1143,7 @@ export default function PortalReviewsClient() {
                   <div className="mt-3 space-y-3">
                     {settings.publicPage.form.questions.map((q) => (
                       <div key={q.id} className="rounded-2xl border border-zinc-200 bg-white p-4">
-                        <div className="grid grid-cols-1 gap-3 sm:grid-cols-[1fr_360px] sm:items-start">
+                        <div className="space-y-3">
                           <div className="min-w-0">
                             <div className="text-xs font-semibold text-zinc-600">Question</div>
                             <input
@@ -1064,7 +1160,7 @@ export default function PortalReviewsClient() {
                             />
                           </div>
 
-                          <div className="flex flex-wrap items-center justify-start gap-2 sm:justify-end">
+                          <div className="flex flex-wrap items-center gap-2">
                             <button
                               type="button"
                               className="h-9 rounded-xl border border-zinc-200 bg-white px-3 text-xs font-semibold text-zinc-800 hover:bg-zinc-50"
@@ -1148,7 +1244,7 @@ export default function PortalReviewsClient() {
 
                             <button
                               type="button"
-                              className="h-9 rounded-xl border border-zinc-200 bg-white px-3 text-xs font-semibold text-red-700 hover:bg-zinc-50 sm:ml-auto"
+                              className="h-9 rounded-xl border border-zinc-200 bg-white px-3 text-xs font-semibold text-red-700 hover:bg-zinc-50"
                               onClick={() => {
                                 const nextQs = (settings.publicPage.form.questions || []).filter((x) => x.id !== q.id);
                                 setSettings({
@@ -1392,9 +1488,80 @@ export default function PortalReviewsClient() {
                         ))}
                       </div>
                     ) : null}
+
+                    <div className="mt-4 rounded-2xl border border-zinc-200 bg-zinc-50 p-3">
+                      <div className="text-xs font-semibold text-zinc-700">Public reply (shows on your reviews page)</div>
+                      <textarea
+                        className="mt-2 min-h-[80px] w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm"
+                        value={replyDrafts[r.id] ?? ""}
+                        onChange={(e) => setReplyDrafts((prev) => ({ ...prev, [r.id]: e.target.value }))}
+                        placeholder="Write a response…"
+                      />
+                      <div className="mt-2 flex items-center justify-between gap-2">
+                        <div className="text-xs text-zinc-500">
+                          {r.businessReplyAt ? `Last replied: ${new Date(r.businessReplyAt).toLocaleString()}` : null}
+                        </div>
+                        <button
+                          type="button"
+                          className="inline-flex h-9 items-center justify-center rounded-xl bg-emerald-600 px-4 text-xs font-semibold text-white disabled:opacity-60"
+                          disabled={replySavingId === r.id}
+                          onClick={() => void saveReviewReply(r.id)}
+                        >
+                          {replySavingId === r.id ? "Saving…" : "Save reply"}
+                        </button>
+                      </div>
+                    </div>
                   </div>
                 );
               })}
+            </div>
+          </div>
+
+          <div className="mt-6">
+            <div className="text-lg font-semibold">Q&amp;A</div>
+            <div className="mt-1 text-sm text-zinc-600">Questions asked by visitors on your public reviews page.</div>
+
+            <div className="mt-3 space-y-2">
+              {qaQuestions.length === 0 ? <div className="text-sm text-zinc-600">No questions yet.</div> : null}
+              {qaQuestions.slice(0, 50).map((q) => (
+                <div key={q.id} className="rounded-2xl border border-zinc-200 bg-white p-4">
+                  <div className="flex flex-wrap items-start justify-between gap-2">
+                    <div className="min-w-0">
+                      <div className="truncate text-sm font-semibold text-zinc-900">{q.name}</div>
+                      <div className="mt-1 text-xs text-zinc-500">{new Date(q.createdAt).toLocaleString()}</div>
+                    </div>
+                    <div className="text-xs font-mono text-zinc-500">{q.id.slice(0, 10)}…</div>
+                  </div>
+
+                  <div className="mt-2 whitespace-pre-wrap text-sm text-zinc-800">{q.question}</div>
+
+                  <div className="mt-3">
+                    <div className="text-xs font-semibold text-zinc-700">Answer</div>
+                    <textarea
+                      className="mt-2 min-h-[80px] w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm"
+                      value={q.answer ?? ""}
+                      onChange={(e) => {
+                        const v = e.target.value;
+                        setQaQuestions((prev) => prev.map((x) => (x.id === q.id ? { ...x, answer: v } : x)));
+                      }}
+                      placeholder="Write an answer…"
+                    />
+                    <div className="mt-2 flex items-center justify-between gap-2">
+                      <div className="text-xs text-zinc-500">
+                        {q.answeredAt ? `Answered: ${new Date(q.answeredAt).toLocaleString()}` : "Not answered yet"}
+                      </div>
+                      <button
+                        type="button"
+                        className="inline-flex h-9 items-center justify-center rounded-xl bg-emerald-600 px-4 text-xs font-semibold text-white disabled:opacity-60"
+                        disabled={qaSavingId === q.id}
+                        onClick={() => void saveQaAnswer(q.id, q.answer ?? "")}
+                      >
+                        {qaSavingId === q.id ? "Saving…" : "Save answer"}
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              ))}
             </div>
           </div>
         </div>

@@ -173,12 +173,49 @@ export default async function PublicReviewsPage({ params }: { params: Promise<{ 
     ["--client-text" as any]: brandText,
   } as CSSProperties;
 
-  const reviews = await prisma.portalReview.findMany({
+  const [hasBusinessReply, hasBusinessReplyAt, hasQaTable] = await Promise.all([
+    hasPublicColumn("PortalReview", "businessReply"),
+    hasPublicColumn("PortalReview", "businessReplyAt"),
+    hasPublicColumn("PortalReviewQuestion", "id"),
+  ]);
+
+  const reviewSelect: any = { id: true, rating: true, name: true, body: true, photoUrls: true, createdAt: true };
+  if (hasBusinessReply) reviewSelect.businessReply = true;
+  if (hasBusinessReplyAt) reviewSelect.businessReplyAt = true;
+
+  type ReviewRow = {
+    id: string;
+    rating: number;
+    name: string;
+    body: string | null;
+    photoUrls: unknown;
+    createdAt: Date;
+    businessReply?: string | null;
+    businessReplyAt?: Date | null;
+  };
+
+  const reviews: ReviewRow[] = await (prisma as any).portalReview.findMany({
     where: { ownerId, archivedAt: null },
     orderBy: { createdAt: "desc" },
     take: 50,
-    select: { id: true, rating: true, name: true, body: true, photoUrls: true, createdAt: true },
+    select: reviewSelect,
   });
+
+  const qa = hasQaTable
+    ? await (async () => {
+        try {
+          const rows = await (prisma as any).portalReviewQuestion.findMany({
+            where: { ownerId, answer: { not: null } },
+            orderBy: { answeredAt: "desc" },
+            take: 30,
+            select: { id: true, name: true, question: true, answer: true, answeredAt: true, createdAt: true },
+          });
+          return Array.isArray(rows) ? rows : [];
+        } catch {
+          return [];
+        }
+      })()
+    : [];
 
   const otherVerified = await getOtherVerifiedBusinesses();
 
@@ -273,6 +310,7 @@ export default async function PublicReviewsPage({ params }: { params: Promise<{ 
 
             <PublicReviewsClient
               siteHandle={siteHandle}
+              businessName={businessName}
               brandPrimary={brandPrimary}
               destinations={settings.destinations}
               galleryEnabled={Boolean((settings.publicPage as any)?.galleryEnabled ?? true)}
@@ -284,7 +322,16 @@ export default async function PublicReviewsPage({ params }: { params: Promise<{ 
                 name: r.name,
                 body: r.body,
                 photoUrls: r.photoUrls,
+                businessReply: (r as any).businessReply ?? null,
+                businessReplyAt: (r as any).businessReplyAt ? new Date((r as any).businessReplyAt).toISOString() : null,
                 createdAt: r.createdAt.toISOString(),
+              }))}
+              initialQuestions={qa.map((q: any) => ({
+                id: String(q.id),
+                name: String(q.name || ""),
+                question: String(q.question || ""),
+                answer: q.answer ? String(q.answer) : "",
+                answeredAt: q.answeredAt ? new Date(q.answeredAt).toISOString() : null,
               }))}
             />
 
