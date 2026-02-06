@@ -91,6 +91,8 @@ model User {
   clientBlogSite      ClientBlogSite?
 
   portalBookingSite   PortalBookingSite?
+
+  portalReviews PortalReview[]
 }
 
 model Lead {
@@ -514,6 +516,30 @@ model ClientBlogPost {
   @@unique([siteId, slug])
   @@index([siteId, status, publishedAt])
   @@index([siteId, archivedAt])
+}
+
+model PortalReview {
+  id String @id @default(cuid())
+
+  ownerId String
+
+  rating Int
+  name   String
+  body   String?
+
+  email String?
+  phone String?
+
+  photoUrls Json?
+
+  archivedAt DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  owner User @relation(fields: [ownerId], references: [id])
+
+  @@index([ownerId, archivedAt, createdAt])
 }
 
 enum PortalBookingStatus {

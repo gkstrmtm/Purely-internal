@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 
 type ReviewDelayUnit = "minutes" | "hours" | "days" | "weeks";
 
@@ -19,8 +19,7 @@ type ReviewsPublicPageSettings = {
   enabled: boolean;
   title: string;
   description: string;
-  heroPhotoUrl?: string;
-  verifiedBadge: boolean;
+  photoUrls: string[];
 };
 
 type ReviewRequestsSettings = {
@@ -33,6 +32,8 @@ type ReviewRequestsSettings = {
   messageTemplate: string;
   publicPage: ReviewsPublicPageSettings;
 };
+
+type JsonResult<T> = { ok: true; data: T } | { ok: false; error: string; status?: number };
 
 type ReviewRequestEvent = {
   id: string;
@@ -48,6 +49,18 @@ type ReviewRequestEvent = {
   createdAtIso: string;
 };
 
+type ReceivedReview = {
+  id: string;
+  rating: number;
+  name: string;
+  body: string | null;
+  email: string | null;
+  phone: string | null;
+  photoUrls: unknown;
+  archivedAt: string | null;
+  createdAt: string;
+};
+
 const DEFAULT_SETTINGS: ReviewRequestsSettings = {
   version: 1,
   enabled: false,
@@ -59,7 +72,7 @@ const DEFAULT_SETTINGS: ReviewRequestsSettings = {
     enabled: true,
     title: "Reviews",
     description: "We’d love to hear about your experience.",
-    verifiedBadge: true,
+    photoUrls: [],
   },
 };
 
@@ -98,9 +111,13 @@ export default function PortalReviewsClient() {
 
   const [publicSiteSlug, setPublicSiteSlug] = useState<string | null>(null);
 
+  const uploadsInputRef = useRef<HTMLInputElement | null>(null);
+  const [uploadingPhotos, setUploadingPhotos] = useState(false);
+
   const [calendars, setCalendars] = useState<Array<{ id: string; title: string; enabled?: boolean }>>([]);
 
   const [events, setEvents] = useState<ReviewRequestEvent[]>([]);
+  const [receivedReviews, setReceivedReviews] = useState<ReceivedReview[]>([]);
   const [sending, setSending] = useState(false);
   const [sendResult, setSendResult] = useState<string | null>(null);
 
@@ -161,22 +178,57 @@ export default function PortalReviewsClient() {
     return 60 * 24 * 14;
   }, [settings.sendAfter.unit]);
 
+  async function readJsonSafe<T>(res: Response): Promise<JsonResult<T>> {
+    const status = res.status;
+    const text = await res.text().catch(() => "");
+    if (!text) {
+      return { ok: false, error: `Empty response (HTTP ${status})`, status };
+    }
+    try {
+      const data = JSON.parse(text) as T;
+      return { ok: true, data };
+    } catch {
+      return { ok: false, error: `Invalid JSON (HTTP ${status}): ${text.slice(0, 200)}`, status };
+    }
+  }
+
   async function load() {
     setLoading(true);
     setError(null);
     try {
-      const [s, e, site, cals] = await Promise.all([
-        fetch("/api/portal/reviews/settings", { cache: "no-store" }).then((r) => r.json()),
-        fetch("/api/portal/reviews/events?limit=50", { cache: "no-store" }).then((r) => r.json()),
-        fetch("/api/portal/blogs/site", { cache: "no-store" }).then((r) => r.json()).catch(() => null),
-        fetch("/api/portal/booking/calendars", { cache: "no-store" }).then((r) => r.json()).catch(() => null),
+      const [s, e, site, bookingSite, cals, inbox] = await Promise.all([
+        fetch("/api/portal/reviews/settings", { cache: "no-store" }).then((r) => readJsonSafe<any>(r)),
+        fetch("/api/portal/reviews/events?limit=50", { cache: "no-store" }).then((r) => readJsonSafe<any>(r)),
+        fetch("/api/portal/blogs/site", { cache: "no-store" })
+          .then((r) => readJsonSafe<any>(r))
+          .catch(() => null),
+        fetch("/api/portal/booking/settings", { cache: "no-store" }).then((r) => readJsonSafe<any>(r)).catch(() => null),
+        fetch("/api/portal/booking/calendars", { cache: "no-store" })
+          .then((r) => readJsonSafe<any>(r))
+          .catch(() => null),
+        fetch("/api/portal/reviews/inbox?includeArchived=1", { cache: "no-store" }).then((r) => readJsonSafe<any>(r)),
       ]);
-      if (!s?.ok) throw new Error(s?.error || "Failed to load settings");
-      setSettings(s.settings || DEFAULT_SETTINGS);
-      setEvents(Array.isArray(e?.events) ? e.events : []);
-      setPublicSiteSlug(typeof site?.site?.slug === "string" ? site.site.slug : null);
+      if (!s || !s.ok) throw new Error((s as any)?.error || "Failed to load settings");
+      const sData = s.data;
+      if (!sData?.ok) throw new Error(sData?.error || "Failed to load settings");
+      setSettings(sData.settings || DEFAULT_SETTINGS);
 
-      const list = Array.isArray(cals?.config?.calendars) ? cals.config.calendars : [];
+      const eData = e.ok ? e.data : null;
+      setEvents(Array.isArray(eData?.events) ? eData.events : []);
+
+      const inboxData = inbox.ok ? inbox.data : null;
+      setReceivedReviews(Array.isArray(inboxData?.reviews) ? inboxData.reviews : []);
+
+      const siteData = site && (site as any).ok ? (site as any).data : null;
+      const blogSlug = typeof siteData?.site?.slug === "string" ? siteData.site.slug : null;
+
+      const bookingData = bookingSite && (bookingSite as any).ok ? (bookingSite as any).data : null;
+      const bookingSlug = typeof bookingData?.site?.slug === "string" ? bookingData.site.slug : null;
+
+      setPublicSiteSlug(blogSlug || bookingSlug || null);
+
+      const calsData = cals && (cals as any).ok ? (cals as any).data : null;
+      const list = Array.isArray(calsData?.config?.calendars) ? calsData.config.calendars : [];
       setCalendars(
         list
           .filter((x: any) => x && typeof x.id === "string" && typeof x.title === "string")
@@ -189,15 +241,33 @@ export default function PortalReviewsClient() {
     }
   }
 
+  async function setReviewArchived(reviewId: string, archived: boolean) {
+    setError(null);
+    try {
+      const res = await fetch("/api/portal/reviews/archive", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ reviewId, archived }),
+      }).then((r) => readJsonSafe<any>(r));
+      if (!res.ok) throw new Error(res.error || "Failed to update");
+      if (!res.data?.ok) throw new Error(res.data?.error || "Failed to update");
+      await load();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+    }
+  }
+
   async function loadBookings() {
     setBookingsLoading(true);
     setError(null);
     try {
-      const res = await fetch("/api/portal/booking/bookings", { cache: "no-store" }).then((r) => r.json());
+      const parsed = await fetch("/api/portal/booking/bookings", { cache: "no-store" }).then((r) => readJsonSafe<any>(r));
+      if (!parsed.ok) throw new Error(parsed.error || "Failed to load bookings");
+      const res = parsed.data;
       if (!res?.ok) throw new Error(res?.error || "Failed to load bookings");
 
-      const upcoming = Array.isArray(res?.upcoming) ? res.upcoming : [];
-      const recent = Array.isArray(res?.recent) ? res.recent : [];
+      const upcoming = Array.isArray(res.upcoming) ? res.upcoming : [];
+      const recent = Array.isArray(res.recent) ? res.recent : [];
       setUpcomingBookings(upcoming);
       setRecentBookings(recent);
     } catch (err) {
@@ -219,13 +289,44 @@ export default function PortalReviewsClient() {
         method: "PUT",
         headers: { "content-type": "application/json" },
         body: JSON.stringify({ settings: next }),
-      }).then((r) => r.json());
-      if (!res?.ok) throw new Error(res?.error || "Failed to save");
-      setSettings(res.settings || next);
+      }).then((r) => readJsonSafe<any>(r));
+      if (!res.ok) throw new Error(res.error || "Failed to save");
+      if (!res.data?.ok) throw new Error(res.data?.error || "Failed to save");
+      setSettings(res.data.settings || next);
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
     } finally {
       setSaving(false);
+    }
+  }
+
+  async function uploadPublicPhotos(files: FileList | null) {
+    if (!files || files.length === 0) return;
+    setUploadingPhotos(true);
+    setError(null);
+    try {
+      const nextUrls: string[] = [];
+      const selected = Array.from(files).slice(0, 12);
+      for (const f of selected) {
+        const form = new FormData();
+        form.append("file", f);
+        const parsed = await fetch("/api/uploads", { method: "POST", body: form }).then((r) => readJsonSafe<any>(r));
+        if (!parsed.ok) throw new Error(parsed.error || "Upload failed");
+        if (!parsed.data?.url) throw new Error(parsed.data?.error || "Upload failed");
+        nextUrls.push(String(parsed.data.url));
+      }
+      setSettings({
+        ...settings,
+        publicPage: {
+          ...settings.publicPage,
+          photoUrls: Array.from(new Set([...(settings.publicPage.photoUrls || []), ...nextUrls])).slice(0, 30),
+        },
+      });
+      if (uploadsInputRef.current) uploadsInputRef.current.value = "";
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setUploadingPhotos(false);
     }
   }
 
@@ -351,24 +452,51 @@ export default function PortalReviewsClient() {
       ) : null}
 
       <div className="mt-6 grid grid-cols-1 gap-6 lg:grid-cols-2">
-        <div className="rounded-xl border bg-white p-5">
+        <div className="rounded-2xl border border-zinc-200 bg-white p-5">
           <div className="flex items-center justify-between gap-3">
             <div className="text-lg font-semibold">Settings</div>
-            <button
-              className={`h-10 rounded-lg px-4 text-sm font-medium ${
-                settings.enabled ? "bg-emerald-600 text-white" : "bg-neutral-200 text-neutral-900"
-              }`}
-              onClick={() => {
-                const next = { ...settings, enabled: !settings.enabled };
-                setSettings(next);
-              }}
-              type="button"
-            >
-              {settings.enabled ? "On" : "Off"}
-            </button>
+            <div className="inline-flex overflow-hidden rounded-2xl border border-zinc-200 bg-white">
+              <button
+                type="button"
+                className={
+                  (settings.enabled
+                    ? "bg-white text-brand-ink hover:bg-zinc-50"
+                    : "bg-brand-ink text-white") +
+                  " px-4 py-2 text-sm font-semibold disabled:opacity-60"
+                }
+                disabled={saving}
+                onClick={() => setSettings({ ...settings, enabled: false })}
+              >
+                Off
+              </button>
+              <button
+                type="button"
+                className={
+                  (settings.enabled
+                    ? "bg-brand-ink text-white"
+                    : "bg-white text-brand-ink hover:bg-zinc-50") +
+                  " px-4 py-2 text-sm font-semibold disabled:opacity-60"
+                }
+                disabled={saving}
+                onClick={() => setSettings({ ...settings, enabled: true })}
+              >
+                On
+              </button>
+            </div>
           </div>
 
-          <div className="mt-4 rounded-lg border bg-neutral-50 p-4">
+          {publicSiteSlug ? (
+            <a
+              className="mt-3 inline-flex items-center justify-center rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm font-semibold text-brand-ink hover:bg-zinc-50"
+              href={`/${publicSiteSlug}/reviews`}
+              target="_blank"
+              rel="noreferrer"
+            >
+              Preview public reviews page
+            </a>
+          ) : null}
+
+          <div className="mt-4 rounded-2xl border border-zinc-200 bg-zinc-50 p-4">
             <div className="text-sm font-medium">Send mode</div>
             <div className="mt-2 flex flex-col gap-2">
               <label className="flex items-center justify-between gap-3 text-sm">
@@ -487,7 +615,9 @@ export default function PortalReviewsClient() {
             <div className="text-sm font-medium">Review destinations</div>
             <div className="mt-2 space-y-2">
               {settings.destinations.length === 0 ? (
-                <div className="text-sm text-neutral-600">Add at least one review link.</div>
+                <div className="text-sm text-zinc-600">
+                  Optional. If you add links (Google, Yelp, etc), they’ll appear on your hosted reviews page.
+                </div>
               ) : null}
 
               {settings.destinations.map((d) => (
@@ -566,14 +696,6 @@ export default function PortalReviewsClient() {
                 />
                 Enable public page
               </label>
-              <label className="flex items-center gap-2 text-sm">
-                <input
-                  type="checkbox"
-                  checked={settings.publicPage.verifiedBadge}
-                  onChange={(e) => setSettings({ ...settings, publicPage: { ...settings.publicPage, verifiedBadge: e.target.checked } })}
-                />
-                Show “Verified by Purely” badge
-              </label>
             </div>
             <div className="mt-3 grid grid-cols-1 gap-2 sm:grid-cols-2">
               <input
@@ -582,18 +704,39 @@ export default function PortalReviewsClient() {
                 value={settings.publicPage.title}
                 onChange={(e) => setSettings({ ...settings, publicPage: { ...settings.publicPage, title: e.target.value } })}
               />
-              <input
-                className="h-10 rounded-lg border px-3 text-sm"
-                placeholder="Hero photo URL (optional)"
-                value={settings.publicPage.heroPhotoUrl || ""}
-                onChange={(e) =>
-                  setSettings({
-                    ...settings,
-                    publicPage: { ...settings.publicPage, heroPhotoUrl: e.target.value || undefined },
-                  })
-                }
-              />
+              <div className="flex items-center gap-2">
+                <input
+                  ref={uploadsInputRef}
+                  type="file"
+                  multiple
+                  accept="image/*"
+                  className="block w-full text-sm"
+                  disabled={uploadingPhotos}
+                  onChange={(e) => void uploadPublicPhotos(e.target.files)}
+                />
+              </div>
             </div>
+            {settings.publicPage.photoUrls?.length ? (
+              <div className="mt-3">
+                <div className="text-xs font-medium text-zinc-700">Photos</div>
+                <div className="mt-2 flex flex-wrap gap-2">
+                  {settings.publicPage.photoUrls.slice(0, 12).map((u) => (
+                    // eslint-disable-next-line @next/next/no-img-element
+                    <img key={u} src={u} alt="" className="h-16 w-16 rounded-xl border border-zinc-200 object-cover" />
+                  ))}
+                </div>
+                <button
+                  type="button"
+                  className="mt-2 text-xs font-semibold text-red-700 hover:underline disabled:opacity-60"
+                  disabled={uploadingPhotos}
+                  onClick={() => setSettings({ ...settings, publicPage: { ...settings.publicPage, photoUrls: [] } })}
+                >
+                  Clear photos
+                </button>
+              </div>
+            ) : (
+              <div className="mt-2 text-xs text-zinc-500">Upload one or more photos (optional).</div>
+            )}
             <textarea
               className="mt-2 min-h-[80px] w-full rounded-lg border px-3 py-2 text-sm"
               placeholder="Description"
@@ -618,7 +761,7 @@ export default function PortalReviewsClient() {
           </div>
         </div>
 
-        <div className="rounded-xl border bg-white p-5">
+        <div className="rounded-2xl border border-zinc-200 bg-white p-5">
           <div className="text-lg font-semibold">Manual send</div>
           <div className="mt-1 text-sm text-neutral-600">Send a one-off review request for a specific booking.</div>
 
@@ -738,6 +881,64 @@ export default function PortalReviewsClient() {
                   {e.error ? <div className="mt-1 text-xs text-red-700">Error: {e.error}</div> : null}
                 </div>
               ))}
+            </div>
+          </div>
+
+          <div className="mt-6">
+            <div className="text-lg font-semibold">Received reviews</div>
+            <div className="mt-1 text-sm text-zinc-600">Reviews submitted on your public reviews page.</div>
+
+            <div className="mt-3 space-y-2">
+              {receivedReviews.length === 0 ? <div className="text-sm text-zinc-600">No reviews yet.</div> : null}
+
+              {receivedReviews.slice(0, 50).map((r) => {
+                const rating = Math.max(1, Math.min(5, Math.round(Number(r.rating) || 0)));
+                const photos = Array.isArray(r.photoUrls) ? (r.photoUrls as string[]) : [];
+                const archived = Boolean(r.archivedAt);
+                return (
+                  <div key={r.id} className="rounded-2xl border border-zinc-200 bg-white p-4">
+                    <div className="flex flex-wrap items-start justify-between gap-2">
+                      <div className="min-w-0">
+                        <div className="truncate text-sm font-semibold text-zinc-900">{r.name}</div>
+                        <div className="mt-1 flex items-center gap-2 text-xs text-zinc-600">
+                          <span className="font-mono">{r.id.slice(0, 10)}…</span>
+                          <span>•</span>
+                          <span>{new Date(r.createdAt).toLocaleString()}</span>
+                          {archived ? (
+                            <>
+                              <span>•</span>
+                              <span className="text-amber-700 font-semibold">Archived</span>
+                            </>
+                          ) : null}
+                        </div>
+                      </div>
+                      <button
+                        type="button"
+                        className="rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-xs font-semibold text-brand-ink hover:bg-zinc-50"
+                        onClick={() => void setReviewArchived(r.id, !archived)}
+                      >
+                        {archived ? "Unarchive" : "Archive"}
+                      </button>
+                    </div>
+
+                    <div className="mt-2 text-sm text-zinc-900">
+                      {"★".repeat(rating)}
+                      <span className="text-zinc-300">{"★".repeat(5 - rating)}</span>
+                    </div>
+
+                    {r.body ? <div className="mt-2 whitespace-pre-wrap text-sm text-zinc-700">{r.body}</div> : null}
+
+                    {photos.length ? (
+                      <div className="mt-3 flex flex-wrap gap-2">
+                        {photos.slice(0, 8).map((u) => (
+                          // eslint-disable-next-line @next/next/no-img-element
+                          <img key={u} src={u} alt="" className="h-20 w-20 rounded-xl border border-zinc-200 object-cover" />
+                        ))}
+                      </div>
+                    ) : null}
+                  </div>
+                );
+              })}
             </div>
           </div>
         </div>

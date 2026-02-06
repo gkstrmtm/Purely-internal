@@ -5,6 +5,7 @@ import { prisma } from "@/lib/db";
 import { hasPublicColumn } from "@/lib/dbSchema";
 import { findOwnerIdByStoredBlogSiteSlug } from "@/lib/blogSiteSlug";
 import { getReviewRequestsServiceData } from "@/lib/reviewRequests";
+import { PublicReviewsClient } from "./PublicReviewsClient";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
@@ -20,7 +21,7 @@ export default async function PublicReviewsPage({ params }: { params: Promise<{ 
   const { siteSlug } = await params;
 
   const canUseSlugColumn = await hasPublicColumn("ClientBlogSite", "slug");
-  const site = canUseSlugColumn
+  const blogSite = canUseSlugColumn
     ? await prisma.clientBlogSite.findFirst(
         {
           where: { OR: [{ slug: siteSlug }, { id: siteSlug }] },
@@ -41,9 +42,16 @@ export default async function PublicReviewsPage({ params }: { params: Promise<{ 
         });
       })();
 
-  if (!site) notFound();
+  const bookingSite = !blogSite
+    ? await prisma.portalBookingSite.findUnique({ where: { slug: siteSlug }, select: { ownerId: true, slug: true, title: true } })
+    : null;
 
-  const siteHandle = canUseSlugColumn ? ((site as any).slug ?? (site as any).id) : siteSlug;
+  const ownerId = blogSite ? String((blogSite as any).ownerId) : bookingSite ? String(bookingSite.ownerId) : null;
+  if (!ownerId) notFound();
+
+  const siteHandle = blogSite
+    ? (canUseSlugColumn ? String((blogSite as any).slug ?? (blogSite as any).id) : siteSlug)
+    : String(bookingSite?.slug || siteSlug);
 
   const [hasLogoUrl, hasPrimaryHex, hasAccentHex, hasTextHex] = await Promise.all([
     hasPublicColumn("BusinessProfile", "logoUrl"),
@@ -60,10 +68,10 @@ export default async function PublicReviewsPage({ params }: { params: Promise<{ 
 
   const [profile, data] = await Promise.all([
     prisma.businessProfile.findUnique({
-      where: { ownerId: (site as any).ownerId },
+      where: { ownerId },
       select: profileSelect as any,
     }),
-    getReviewRequestsServiceData((site as any).ownerId),
+    getReviewRequestsServiceData(ownerId),
   ]);
 
   const settings = data.settings;
@@ -73,7 +81,7 @@ export default async function PublicReviewsPage({ params }: { params: Promise<{ 
   const brandAccent = normalizeHex((profile as any)?.brandAccentHex) ?? "#f472b6";
   const brandText = normalizeHex((profile as any)?.brandTextHex) ?? "#18181b";
 
-  const businessName = (profile as any)?.businessName?.trim() || (site as any).name || "Reviews";
+  const businessName = (profile as any)?.businessName?.trim() || (blogSite as any)?.name || bookingSite?.title || "Reviews";
   const logoUrl = (profile as any)?.logoUrl || null;
   const title = settings.publicPage.title || "Reviews";
   const description = settings.publicPage.description || "";
@@ -84,9 +92,16 @@ export default async function PublicReviewsPage({ params }: { params: Promise<{ 
     ["--client-text" as any]: brandText,
   } as CSSProperties;
 
+  const reviews = await prisma.portalReview.findMany({
+    where: { ownerId, archivedAt: null },
+    orderBy: { createdAt: "desc" },
+    take: 50,
+    select: { id: true, rating: true, name: true, body: true, photoUrls: true, createdAt: true },
+  });
+
   return (
-    <div className="min-h-screen bg-white" style={themeStyle}>
-      <header className="border-b">
+    <div className="min-h-screen bg-zinc-50" style={themeStyle}>
+      <header className="border-b border-zinc-200 bg-white">
         <div className="mx-auto flex max-w-5xl items-center justify-between gap-4 px-6 py-5">
           <div className="flex items-center gap-3">
             {logoUrl ? (
@@ -96,68 +111,59 @@ export default async function PublicReviewsPage({ params }: { params: Promise<{ 
               <div className="h-10 w-10 rounded-lg" style={{ backgroundColor: "var(--client-primary)" }} />
             )}
             <div className="min-w-0">
-              <div className="truncate text-sm font-semibold">{businessName}</div>
+              <div className="truncate text-sm font-semibold text-zinc-900">{businessName}</div>
               <div className="text-xs text-neutral-500">{siteHandle}</div>
             </div>
           </div>
 
-          <Link className="text-sm underline" href={`/${siteHandle}/blogs`}>
-            Blogs
-          </Link>
+          {blogSite ? (
+            <Link className="text-sm underline" href={`/${siteHandle}/blogs`}>
+              Blogs
+            </Link>
+          ) : null}
         </div>
       </header>
 
       <main className="mx-auto max-w-5xl px-6 py-10">
         <div className="flex flex-col gap-2">
           <div className="flex flex-wrap items-center gap-3">
-            <h1 className="text-3xl font-semibold">{title}</h1>
-            {settings.publicPage.verifiedBadge ? (
-              <div className="inline-flex items-center gap-2 rounded-full border px-3 py-1 text-xs font-medium">
-                <span className="inline-block h-2 w-2 rounded-full" style={{ backgroundColor: "var(--client-accent)" }} />
-                Verified by Purely
-              </div>
-            ) : null}
+            <h1 className="text-3xl font-semibold text-zinc-900">{title}</h1>
+            <div className="inline-flex items-center gap-2 rounded-full border border-zinc-200 bg-white px-3 py-1 text-xs font-medium text-zinc-900">
+              <span className="inline-block h-2 w-2 rounded-full" style={{ backgroundColor: "var(--client-accent)" }} />
+              Verified by Purely
+            </div>
           </div>
-          {description ? <p className="max-w-2xl text-sm text-neutral-600">{description}</p> : null}
+          {description ? <p className="max-w-2xl text-sm text-zinc-600">{description}</p> : null}
         </div>
 
-        {settings.publicPage.heroPhotoUrl ? (
-          <div className="mt-6 overflow-hidden rounded-2xl border">
-            {/* eslint-disable-next-line @next/next/no-img-element */}
-            <img src={settings.publicPage.heroPhotoUrl} alt="" className="h-[220px] w-full object-cover" />
+        {Array.isArray(settings.publicPage.photoUrls) && settings.publicPage.photoUrls.length ? (
+          <div className="mt-6">
+            <div className="flex gap-3 overflow-x-auto pb-2">
+              {settings.publicPage.photoUrls.slice(0, 12).map((u) => (
+                <div key={u} className="h-[180px] w-[280px] shrink-0 overflow-hidden rounded-3xl border border-zinc-200 bg-white">
+                  {/* eslint-disable-next-line @next/next/no-img-element */}
+                  <img src={u} alt="" className="h-full w-full object-cover" />
+                </div>
+              ))}
+            </div>
           </div>
         ) : null}
 
-        <div className="mt-8 rounded-2xl border bg-neutral-50 p-6">
-          <div className="text-lg font-semibold">Leave a review</div>
-          <div className="mt-1 text-sm text-neutral-600">Choose a link below.</div>
+        <PublicReviewsClient
+          siteHandle={siteHandle}
+          brandPrimary={brandPrimary}
+          destinations={settings.destinations}
+          initialReviews={reviews.map((r) => ({
+            id: r.id,
+            rating: r.rating,
+            name: r.name,
+            body: r.body,
+            photoUrls: r.photoUrls,
+            createdAt: r.createdAt.toISOString(),
+          }))}
+        />
 
-          <div className="mt-4 grid grid-cols-1 gap-3 sm:grid-cols-2">
-            {settings.destinations.length === 0 ? (
-              <div className="text-sm text-neutral-600">No review links configured.</div>
-            ) : (
-              settings.destinations.map((d) => (
-                <a
-                  key={d.id}
-                  href={d.url}
-                  target="_blank"
-                  rel="noreferrer"
-                  className="flex items-center justify-between rounded-xl border bg-white px-4 py-4"
-                >
-                  <div className="min-w-0">
-                    <div className="truncate text-sm font-medium">{d.label}</div>
-                    <div className="truncate text-xs text-neutral-500">{d.url}</div>
-                  </div>
-                  <div className="text-sm" style={{ color: "var(--client-primary)" }}>
-                    Open
-                  </div>
-                </a>
-              ))
-            )}
-          </div>
-        </div>
-
-        <div className="mt-10 text-xs text-neutral-500">© {new Date().getFullYear()} {businessName}</div>
+        <div className="mt-10 text-xs text-zinc-500">© {new Date().getFullYear()} {businessName}</div>
       </main>
     </div>
   );

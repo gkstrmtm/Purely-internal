@@ -31,7 +31,10 @@ async function getOwnerPublicSiteHandle(ownerId: string): Promise<string | null>
     select: { id: true, name: true, ...(canUse ? { slug: true } : {}) },
   } as any)) as any;
 
-  if (!site) return null;
+  if (!site) {
+    const bookingSite = await prisma.portalBookingSite.findUnique({ where: { ownerId }, select: { slug: true } });
+    return bookingSite?.slug ? String(bookingSite.slug) : null;
+  }
 
   if (canUse) {
     return (site.slug as string | null | undefined) || (site.id as string);
@@ -43,10 +46,35 @@ async function getOwnerPublicSiteHandle(ownerId: string): Promise<string | null>
 }
 
 async function resolveReviewLink(ownerId: string, settings: ReviewRequestsSettings, destination: ReviewDestination) {
-  if (!settings.publicPage.enabled) return { label: destination.label, url: destination.url };
-  const handle = await getOwnerPublicSiteHandle(ownerId);
-  if (!handle) return { label: destination.label, url: destination.url };
-  return { label: "Reviews page", url: `${getBasePublicUrl()}/${handle}/reviews` };
+  if (settings.publicPage.enabled) {
+    const handle = await getOwnerPublicSiteHandle(ownerId);
+    if (handle) return { label: "Reviews page", url: `${getBasePublicUrl()}/${handle}/reviews` };
+  }
+  return { label: destination.label, url: destination.url };
+}
+
+async function resolvePrimarySendLink(
+  ownerId: string,
+  settings: ReviewRequestsSettings,
+): Promise<{ destinationId: string; destinationLabel: string; destinationUrl: string } | null> {
+  if (settings.publicPage.enabled) {
+    const handle = await getOwnerPublicSiteHandle(ownerId);
+    if (handle) {
+      return {
+        destinationId: "hosted",
+        destinationLabel: "Reviews page",
+        destinationUrl: `${getBasePublicUrl()}/${handle}/reviews`,
+      };
+    }
+  }
+
+  const destination = pickDestination(settings);
+  if (!destination) return null;
+  return {
+    destinationId: destination.id,
+    destinationLabel: destination.label,
+    destinationUrl: destination.url,
+  };
 }
 
 export type ReviewDelayUnit = "minutes" | "hours" | "days" | "weeks";
@@ -66,8 +94,7 @@ export type ReviewsPublicPageSettings = {
   enabled: boolean;
   title: string;
   description: string;
-  heroPhotoUrl?: string;
-  verifiedBadge: boolean;
+  photoUrls: string[];
 };
 
 export type ReviewsAutomationSettings = {
@@ -173,7 +200,7 @@ export function parseReviewRequestsSettings(raw: unknown): ReviewRequestsSetting
       enabled: true,
       title: "Reviews",
       description: "We’d love to hear about your experience.",
-      verifiedBadge: true,
+      photoUrls: [],
     },
   };
 
@@ -224,12 +251,27 @@ export function parseReviewRequestsSettings(raw: unknown): ReviewRequestsSetting
   const template = normalizeString(rec.messageTemplate, MAX_BODY_LEN, base.messageTemplate) || base.messageTemplate;
 
   const publicRaw = rec.publicPage && typeof rec.publicPage === "object" && !Array.isArray(rec.publicPage) ? (rec.publicPage as any) : null;
+  const photoUrlsRaw = Array.isArray(publicRaw?.photoUrls) ? (publicRaw.photoUrls as unknown[]) : [];
+  const photoUrls = photoUrlsRaw
+    .flatMap((x) => {
+      const v = typeof x === "string" ? x.trim() : "";
+      if (!v) return [] as string[];
+      if (v.startsWith("/")) return [v.slice(0, 400)];
+      const u = normalizeUrl(v);
+      return u ? [u.slice(0, 400)] : ([] as string[]);
+    })
+    .filter((v, i, arr) => arr.indexOf(v) === i)
+    .slice(0, 30);
+
+  // Back-compat: if an old heroPhotoUrl exists, keep it as the first photo.
+  const legacyHero = normalizeUrl(publicRaw?.heroPhotoUrl);
+  const mergedPhotoUrls = legacyHero ? Array.from(new Set([legacyHero, ...photoUrls])).slice(0, 30) : photoUrls;
+
   const publicPage: ReviewsPublicPageSettings = {
     enabled: typeof publicRaw?.enabled === "boolean" ? publicRaw.enabled : base.publicPage.enabled,
     title: normalizeString(publicRaw?.title, 60, base.publicPage.title) || base.publicPage.title,
     description: normalizeString(publicRaw?.description, 220, base.publicPage.description) || base.publicPage.description,
-    verifiedBadge: typeof publicRaw?.verifiedBadge === "boolean" ? publicRaw.verifiedBadge : base.publicPage.verifiedBadge,
-    ...(normalizeUrl(publicRaw?.heroPhotoUrl) ? { heroPhotoUrl: normalizeUrl(publicRaw?.heroPhotoUrl) } : {}),
+    photoUrls: mergedPhotoUrls,
   };
 
   return {
@@ -352,6 +394,26 @@ export function renderReviewRequestBody(template: string, vars: { name: string; 
     .trim();
 }
 
+function appendExternalDestinations(body: string, destinations: ReviewDestination[]) {
+  const xs = Array.isArray(destinations) ? destinations : [];
+  if (xs.length === 0) return body;
+
+  const lines = xs
+    .slice(0, 3)
+    .map((d) => {
+      const label = (d.label || "Review").trim().slice(0, 40) || "Review";
+      const url = (d.url || "").trim();
+      if (!url) return null;
+      return `${label}: ${url}`;
+    })
+    .filter(Boolean) as string[];
+
+  if (lines.length === 0) return body;
+
+  const next = `${body}\n\nOther review links:\n${lines.join("\n")}`.trim();
+  return next.slice(0, MAX_BODY_LEN);
+}
+
 function pickDestination(settings: ReviewRequestsSettings): ReviewDestination | null {
   const xs = Array.isArray(settings.destinations) ? settings.destinations : [];
   if (xs.length === 0) return null;
@@ -388,21 +450,21 @@ export async function sendReviewRequestForBooking(opts: { ownerId: string; booki
   if (!settings.enabled) return { ok: false, error: "Review requests are turned off" };
   if (!settings.automation.manualSend) return { ok: false, error: "Manual sending is turned off" };
   if (!isCalendarAllowed(settings, (booking as any).calendarId)) return { ok: false, error: "This calendar is not enabled for review requests" };
-
-  const destination = pickDestination(settings);
-  if (!destination) return { ok: false, error: "No review link configured" };
   if (!twilio) return { ok: false, error: "Twilio not configured" };
+
+  const resolved = await resolvePrimarySendLink(ownerId, settings);
+  if (!resolved) return { ok: false, error: "No review link configured" };
 
   const parsed = booking.contactPhone ? normalizePhoneStrict(booking.contactPhone) : { ok: false as const, error: "Missing phone" };
   if (!parsed.ok || !parsed.e164) return { ok: false, error: "Missing/invalid phone" };
 
   const business = profile?.businessName?.trim() || site.title || "Purely Automation";
-  const resolved = await resolveReviewLink(ownerId, settings, destination);
   const body = renderReviewRequestBody(settings.messageTemplate, {
     name: booking.contactName,
-    link: resolved.url,
+    link: resolved.destinationUrl,
     business,
   });
+  const smsBody = appendExternalDestinations(body, settings.destinations);
 
   const key = `${booking.id}:manual`;
   const sentKeys = data.sentKeys.slice();
@@ -413,21 +475,21 @@ export async function sendReviewRequestForBooking(opts: { ownerId: string; booki
   const bookingEndAtIso = booking.endAt.toISOString();
 
   try {
-    const result = await sendOwnerTwilioSms({ ownerId, to: parsed.e164, body });
+    const result = await sendOwnerTwilioSms({ ownerId, to: parsed.e164, body: smsBody });
     const status: ReviewRequestEvent["status"] = result.ok ? "SENT" : "FAILED";
     const evt: ReviewRequestEvent = {
-      id: `evt_${booking.id}_manual_${destination.id}`,
+      id: `evt_${booking.id}_manual_${resolved.destinationId}`,
       bookingId: booking.id,
       calendarId: (booking as any).calendarId ?? null,
       bookingEndAtIso,
       scheduledForIso,
-      destinationId: destination.id,
-      destinationLabel: resolved.label,
-      destinationUrl: resolved.url,
+      destinationId: resolved.destinationId,
+      destinationLabel: resolved.destinationLabel,
+      destinationUrl: resolved.destinationUrl,
       contactName: booking.contactName,
       contactPhoneRaw: booking.contactPhone ?? null,
       smsTo: parsed.e164,
-      smsBody: body,
+      smsBody,
       status,
       ...(result.ok && result.messageSid ? { smsMessageSid: result.messageSid } : {}),
       ...(result.ok ? {} : { error: result.error }),
@@ -486,9 +548,6 @@ export async function processDueReviewRequests(opts?: { ownersLimit?: number; pe
       if (!settings.enabled) continue;
       if (!settings.automation.autoSend) continue;
 
-      const destination = pickDestination(settings);
-      if (!destination) continue;
-
       const delayMinutes = toDelayMinutes(settings.sendAfter);
       const now = Date.now();
       const targetEnd = new Date(now - delayMinutes * 60_000);
@@ -500,7 +559,8 @@ export async function processDueReviewRequests(opts?: { ownersLimit?: number; pe
       if (!site) continue;
 
       const twilio = await getOwnerTwilioSmsConfig(ownerId);
-      const resolved = await resolveReviewLink(ownerId, settings, destination);
+      const resolved = await resolvePrimarySendLink(ownerId, settings);
+      if (!resolved) continue;
 
       let mutated = false;
       let sentKeys = serviceData.sentKeys.slice();
@@ -537,7 +597,7 @@ export async function processDueReviewRequests(opts?: { ownersLimit?: number; pe
       });
 
       for (const booking of bookings) {
-        const key = `${booking.id}:${destination.id}`;
+        const key = `${booking.id}:${resolved.destinationId}`;
         if (sentSet.has(key)) continue;
 
         const bookingEndAtIso = booking.endAt.toISOString();
@@ -546,14 +606,14 @@ export async function processDueReviewRequests(opts?: { ownersLimit?: number; pe
         if (!twilio) {
           skipped += 1;
           const evt: ReviewRequestEvent = {
-            id: `evt_${booking.id}_${destination.id}`,
+            id: `evt_${booking.id}_${resolved.destinationId}`,
             bookingId: booking.id,
             calendarId: (booking as any).calendarId ?? null,
             bookingEndAtIso,
             scheduledForIso,
-            destinationId: destination.id,
-            destinationLabel: resolved.label,
-            destinationUrl: resolved.url,
+            destinationId: resolved.destinationId,
+            destinationLabel: resolved.destinationLabel,
+            destinationUrl: resolved.destinationUrl,
             contactName: booking.contactName,
             contactPhoneRaw: booking.contactPhone ?? null,
             smsTo: null,
@@ -573,14 +633,14 @@ export async function processDueReviewRequests(opts?: { ownersLimit?: number; pe
         if (!parsed.ok || !parsed.e164) {
           skipped += 1;
           const evt: ReviewRequestEvent = {
-            id: `evt_${booking.id}_${destination.id}`,
+            id: `evt_${booking.id}_${resolved.destinationId}`,
             bookingId: booking.id,
             calendarId: (booking as any).calendarId ?? null,
             bookingEndAtIso,
             scheduledForIso,
-            destinationId: destination.id,
-            destinationLabel: resolved.label,
-            destinationUrl: resolved.url,
+            destinationId: resolved.destinationId,
+            destinationLabel: resolved.destinationLabel,
+            destinationUrl: resolved.destinationUrl,
             contactName: booking.contactName,
             contactPhoneRaw: booking.contactPhone ?? null,
             smsTo: null,
@@ -600,27 +660,28 @@ export async function processDueReviewRequests(opts?: { ownersLimit?: number; pe
         const business = profile?.businessName?.trim() || site.title || "Purely Automation";
         const body = renderReviewRequestBody(settings.messageTemplate, {
           name: booking.contactName,
-          link: resolved.url,
+          link: resolved.destinationUrl,
           business,
         });
+        const smsBody = appendExternalDestinations(body, settings.destinations);
 
         try {
-          const result = await sendOwnerTwilioSms({ ownerId, to: parsed.e164, body });
+          const result = await sendOwnerTwilioSms({ ownerId, to: parsed.e164, body: smsBody });
           if (!result.ok) {
             failed += 1;
             const evt: ReviewRequestEvent = {
-              id: `evt_${booking.id}_${destination.id}`,
+              id: `evt_${booking.id}_${resolved.destinationId}`,
               bookingId: booking.id,
               calendarId: (booking as any).calendarId ?? null,
               bookingEndAtIso,
               scheduledForIso,
-              destinationId: destination.id,
-              destinationLabel: resolved.label,
-              destinationUrl: resolved.url,
+              destinationId: resolved.destinationId,
+              destinationLabel: resolved.destinationLabel,
+              destinationUrl: resolved.destinationUrl,
               contactName: booking.contactName,
               contactPhoneRaw: booking.contactPhone ?? null,
               smsTo: parsed.e164,
-              smsBody: body,
+              smsBody,
               status: "FAILED",
               error: result.error,
               createdAtIso: nowIso(),
@@ -634,18 +695,18 @@ export async function processDueReviewRequests(opts?: { ownersLimit?: number; pe
 
           sent += 1;
           const evt: ReviewRequestEvent = {
-            id: `evt_${booking.id}_${destination.id}`,
+            id: `evt_${booking.id}_${resolved.destinationId}`,
             bookingId: booking.id,
             calendarId: (booking as any).calendarId ?? null,
             bookingEndAtIso,
             scheduledForIso,
-            destinationId: destination.id,
-            destinationLabel: resolved.label,
-            destinationUrl: resolved.url,
+            destinationId: resolved.destinationId,
+            destinationLabel: resolved.destinationLabel,
+            destinationUrl: resolved.destinationUrl,
             contactName: booking.contactName,
             contactPhoneRaw: booking.contactPhone ?? null,
             smsTo: parsed.e164,
-            smsBody: body,
+            smsBody,
             status: "SENT",
             ...(result.messageSid ? { smsMessageSid: result.messageSid } : {}),
             createdAtIso: nowIso(),
@@ -657,14 +718,14 @@ export async function processDueReviewRequests(opts?: { ownersLimit?: number; pe
         } catch (err) {
           failed += 1;
           const evt: ReviewRequestEvent = {
-            id: `evt_${booking.id}_${destination.id}`,
+            id: `evt_${booking.id}_${resolved.destinationId}`,
             bookingId: booking.id,
             calendarId: (booking as any).calendarId ?? null,
             bookingEndAtIso,
             scheduledForIso,
-            destinationId: destination.id,
-            destinationLabel: resolved.label,
-            destinationUrl: resolved.url,
+            destinationId: resolved.destinationId,
+            destinationLabel: resolved.destinationLabel,
+            destinationUrl: resolved.destinationUrl,
             contactName: booking.contactName,
             contactPhoneRaw: booking.contactPhone ?? null,
             smsTo: parsed.e164,
