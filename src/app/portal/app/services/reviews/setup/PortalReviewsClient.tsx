@@ -26,6 +26,7 @@ type ReviewsPublicPageSettings = {
 type ReviewRequestsSettings = {
   version: 1;
   enabled: boolean;
+  automation: { autoSend: boolean; manualSend: boolean };
   sendAfter: ReviewDelay;
   destinations: ReviewDestination[];
   defaultDestinationId?: string;
@@ -50,6 +51,7 @@ type ReviewRequestEvent = {
 const DEFAULT_SETTINGS: ReviewRequestsSettings = {
   version: 1,
   enabled: false,
+  automation: { autoSend: true, manualSend: true },
   sendAfter: { value: 30, unit: "minutes" },
   destinations: [],
   messageTemplate: "Hi {name} — thanks again! If you have 30 seconds, would you leave us a review? {link}",
@@ -335,6 +337,35 @@ export default function PortalReviewsClient() {
             </button>
           </div>
 
+          <div className="mt-4 rounded-lg border bg-neutral-50 p-4">
+            <div className="text-sm font-medium">Send mode</div>
+            <div className="mt-2 flex flex-col gap-2">
+              <label className="flex items-center justify-between gap-3 text-sm">
+                <span>
+                  <span className="font-medium">Auto-send after appointments</span>
+                  <span className="mt-0.5 block text-xs text-neutral-600">When on, the scheduler sends automatically after the delay.</span>
+                </span>
+                <input
+                  type="checkbox"
+                  checked={settings.automation.autoSend}
+                  onChange={(e) => setSettings({ ...settings, automation: { ...settings.automation, autoSend: e.target.checked } })}
+                />
+              </label>
+
+              <label className="flex items-center justify-between gap-3 text-sm">
+                <span>
+                  <span className="font-medium">Allow manual sends</span>
+                  <span className="mt-0.5 block text-xs text-neutral-600">When off, the “Manual send” section is disabled.</span>
+                </span>
+                <input
+                  type="checkbox"
+                  checked={settings.automation.manualSend}
+                  onChange={(e) => setSettings({ ...settings, automation: { ...settings.automation, manualSend: e.target.checked } })}
+                />
+              </label>
+            </div>
+          </div>
+
           <div className="mt-4">
             <div className="text-sm font-medium">Send after appointment ends</div>
             <div className="mt-2 flex flex-wrap items-center gap-2">
@@ -503,16 +534,24 @@ export default function PortalReviewsClient() {
         <div className="rounded-xl border bg-white p-5">
           <div className="text-lg font-semibold">Manual send</div>
           <div className="mt-1 text-sm text-neutral-600">Send a one-off review request for a specific booking.</div>
+
+          {!settings.automation.manualSend ? (
+            <div className="mt-3 rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
+              Manual sends are disabled in Settings.
+            </div>
+          ) : null}
+
           <div className="mt-3 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
             <input
               className="h-10 flex-1 rounded-lg border px-3 text-sm"
               placeholder="Search bookings by name, email, phone, or ID"
               value={bookingQuery}
               onChange={(e) => setBookingQuery(e.target.value)}
+              disabled={!settings.automation.manualSend}
             />
             <button
               className="h-10 rounded-lg border px-4 text-sm"
-              disabled={bookingsLoading}
+              disabled={bookingsLoading || !settings.automation.manualSend}
               onClick={loadBookings}
               type="button"
             >
@@ -531,7 +570,7 @@ export default function PortalReviewsClient() {
 
                 {filteredRecent.slice(0, 25).map((b) => {
                   const ended = Date.now() >= new Date(b.endAt).getTime();
-                  const canSend = ended && b.status === "SCHEDULED" && !sending;
+                  const canSend = settings.automation.manualSend && ended && b.status === "SCHEDULED" && !sending;
                   return (
                     <div key={b.id} className="flex flex-col gap-2 border-b p-4 sm:flex-row sm:items-center sm:justify-between">
                       <div className="min-w-0">

@@ -70,9 +70,15 @@ export type ReviewsPublicPageSettings = {
   verifiedBadge: boolean;
 };
 
+export type ReviewsAutomationSettings = {
+  autoSend: boolean;
+  manualSend: boolean;
+};
+
 export type ReviewRequestsSettings = {
   version: 1;
   enabled: boolean;
+  automation: ReviewsAutomationSettings;
   sendAfter: ReviewDelay;
   destinations: ReviewDestination[];
   defaultDestinationId?: string;
@@ -157,6 +163,7 @@ export function parseReviewRequestsSettings(raw: unknown): ReviewRequestsSetting
   const base: ReviewRequestsSettings = {
     version: 1,
     enabled: false,
+    automation: { autoSend: true, manualSend: true },
     sendAfter: { value: 30, unit: "minutes" },
     destinations: [],
     messageTemplate: "Hi {name} — thanks again! If you have 30 seconds, would you leave us a review? {link}",
@@ -172,6 +179,12 @@ export function parseReviewRequestsSettings(raw: unknown): ReviewRequestsSetting
   const rec = raw as Record<string, unknown>;
 
   const enabled = typeof rec.enabled === "boolean" ? rec.enabled : base.enabled;
+
+  const autoRaw = rec.automation && typeof rec.automation === "object" && !Array.isArray(rec.automation) ? (rec.automation as any) : null;
+  const automation: ReviewsAutomationSettings = {
+    autoSend: typeof autoRaw?.autoSend === "boolean" ? autoRaw.autoSend : base.automation.autoSend,
+    manualSend: typeof autoRaw?.manualSend === "boolean" ? autoRaw.manualSend : base.automation.manualSend,
+  };
 
   const sendAfterRaw = rec.sendAfter && typeof rec.sendAfter === "object" && !Array.isArray(rec.sendAfter) ? (rec.sendAfter as any) : null;
   const unit = normalizeUnit(sendAfterRaw?.unit);
@@ -209,6 +222,7 @@ export function parseReviewRequestsSettings(raw: unknown): ReviewRequestsSetting
   return {
     version: 1,
     enabled,
+    automation,
     sendAfter,
     destinations,
     ...(defaultDestinationId ? { defaultDestinationId } : {}),
@@ -351,6 +365,7 @@ export async function sendReviewRequestForBooking(opts: { ownerId: string; booki
 
   const settings = data.settings;
   if (!settings.enabled) return { ok: false, error: "Review requests are turned off" };
+  if (!settings.automation.manualSend) return { ok: false, error: "Manual sending is turned off" };
 
   const destination = pickDestination(settings);
   if (!destination) return { ok: false, error: "No review link configured" };
@@ -446,6 +461,7 @@ export async function processDueReviewRequests(opts?: { ownersLimit?: number; pe
       const serviceData = parseServiceData(row.dataJson);
       const settings = serviceData.settings;
       if (!settings.enabled) continue;
+      if (!settings.automation.autoSend) continue;
 
       const destination = pickDestination(settings);
       if (!destination) continue;
