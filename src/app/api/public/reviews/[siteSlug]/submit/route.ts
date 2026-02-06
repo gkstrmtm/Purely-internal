@@ -11,6 +11,10 @@ import { getReviewRequestsServiceData } from "@/lib/reviewRequests";
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
 
+const MAX_PHOTOS = 25;
+const MAX_PHOTO_BYTES = 5 * 1024 * 1024;
+const MAX_TOTAL_PHOTO_BYTES = 25 * 1024 * 1024;
+
 function safeFilename(name: string) {
   return (name || "upload.bin")
     .replace(/[^a-zA-Z0-9._-]/g, "-")
@@ -96,12 +100,17 @@ export async function POST(req: Request, { params }: { params: Promise<{ siteSlu
   if (!rating || rating < 1 || rating > 5) return NextResponse.json({ ok: false, error: "Rating is required" }, { status: 400 });
 
   const photos = form.getAll("photos").filter((x) => x instanceof File) as File[];
-  const selected = photos.slice(0, 6);
+  const selected = photos.slice(0, MAX_PHOTOS);
+
+  const totalBytes = selected.reduce((sum, f) => sum + (typeof f.size === "number" ? f.size : 0), 0);
+  if (totalBytes > MAX_TOTAL_PHOTO_BYTES) {
+    return NextResponse.json({ ok: false, error: "Photos are too large" }, { status: 400 });
+  }
 
   const photoUrls: string[] = [];
   for (const file of selected) {
     if (!file.type.startsWith("image/")) continue;
-    if (file.size > 5 * 1024 * 1024) continue;
+    if (file.size > MAX_PHOTO_BYTES) continue;
     const uploaded = await writePublicUpload(file);
     photoUrls.push(uploaded.url);
   }

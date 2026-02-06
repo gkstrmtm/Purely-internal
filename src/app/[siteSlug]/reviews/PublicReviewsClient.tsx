@@ -14,6 +14,8 @@ type Review = {
   createdAt: string;
 };
 
+const MAX_PHOTOS = 25;
+
 export function PublicReviewsClient({
   siteHandle,
   brandPrimary,
@@ -52,17 +54,18 @@ export function PublicReviewsClient({
       form.append("name", name);
       form.append("rating", String(rating));
       form.append("body", body);
-      for (const f of photos.slice(0, 6)) form.append("photos", f);
+      for (const f of photos.slice(0, MAX_PHOTOS)) form.append("photos", f);
 
       const res = await fetch(`/api/public/reviews/${siteHandle}/submit`, { method: "POST", body: form });
       const text = await res.text().catch(() => "");
-      let json: any = null;
+      let json: unknown = null;
       try {
         json = text ? JSON.parse(text) : null;
       } catch {
         json = null;
       }
-      if (!res.ok || !json?.ok) throw new Error(json?.error || `Failed to submit (HTTP ${res.status})`);
+      const rec = json && typeof json === "object" && !Array.isArray(json) ? (json as Record<string, unknown>) : null;
+      if (!res.ok || !rec?.ok) throw new Error((typeof rec?.error === "string" ? rec.error : null) || `Failed to submit (HTTP ${res.status})`);
 
       setStatus("Thanks — your review was submitted.");
       setName("");
@@ -140,7 +143,7 @@ export function PublicReviewsClient({
               accept="image/*"
               disabled={busy}
               className="mt-2 block w-full text-sm"
-              onChange={(e) => setPhotos(Array.from(e.target.files || []).slice(0, 6))}
+              onChange={(e) => setPhotos(Array.from(e.target.files || []).slice(0, MAX_PHOTOS))}
             />
             {photoPreviews.length ? (
               <div className="mt-3 flex flex-wrap gap-2">
