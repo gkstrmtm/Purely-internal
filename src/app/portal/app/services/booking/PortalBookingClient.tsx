@@ -53,6 +53,40 @@ type Booking = {
   canceledAt?: string | null;
 };
 
+type TwilioMasked = {
+  configured: boolean;
+  accountSidMasked: string | null;
+  fromNumberE164: string | null;
+  hasAuthToken: boolean;
+  updatedAtIso: string | null;
+};
+
+type AppointmentReminderSettings = {
+  version: 1;
+  enabled: boolean;
+  leadTimeMinutes: number;
+  messageBody: string;
+};
+
+type AppointmentReminderEvent = {
+  id: string;
+  bookingId: string;
+  bookingStartAtIso: string;
+  scheduledForIso: string;
+
+  contactName: string;
+  contactPhoneRaw: string | null;
+  smsTo: string | null;
+  smsBody: string | null;
+
+  status: "SENT" | "SKIPPED" | "FAILED";
+  reason?: string;
+  smsMessageSid?: string;
+  error?: string;
+
+  createdAtIso: string;
+};
+
 type Slot = { startAt: string; endAt: string };
 
 type AvailabilityBlock = { id: string; startAt: string; endAt: string };
@@ -194,6 +228,12 @@ export function PortalBookingClient() {
   const [reschedSlots, setReschedSlots] = useState<Slot[]>([]);
   const [reschedSlotsLoading, setReschedSlotsLoading] = useState(false);
 
+  const [reminderSettings, setReminderSettings] = useState<AppointmentReminderSettings | null>(null);
+  const [reminderDraft, setReminderDraft] = useState<AppointmentReminderSettings | null>(null);
+  const [reminderTwilio, setReminderTwilio] = useState<TwilioMasked | null>(null);
+  const [reminderEvents, setReminderEvents] = useState<AppointmentReminderEvent[]>([]);
+  const [reminderSaving, setReminderSaving] = useState(false);
+
   const bookingUrl = useMemo(() => {
     if (!site?.slug) return null;
     if (typeof window === "undefined") return `/book/${site.slug}`;
@@ -208,13 +248,14 @@ export function PortalBookingClient() {
 
   async function refreshAll() {
     setError(null);
-    const [meRes, settingsRes, bookingsRes, formRes, calendarsRes, blocksRes] = await Promise.all([
+    const [meRes, settingsRes, bookingsRes, formRes, calendarsRes, blocksRes, remindersRes] = await Promise.all([
       fetch("/api/customer/me", { cache: "no-store" }),
       fetch("/api/portal/booking/settings", { cache: "no-store" }),
       fetch("/api/portal/booking/bookings", { cache: "no-store" }),
       fetch("/api/portal/booking/form", { cache: "no-store" }),
       fetch("/api/portal/booking/calendars", { cache: "no-store" }),
       fetch("/api/availability", { cache: "no-store" }),
+      fetch("/api/portal/booking/reminders/settings", { cache: "no-store" }),
     ]);
 
     const meJson = await meRes.json().catch(() => ({}));
@@ -249,7 +290,16 @@ export function PortalBookingClient() {
       setBlocks(((blocksJson as any)?.blocks as AvailabilityBlock[]) ?? []);
     }
 
-    if (!meRes.ok || !settingsRes.ok || !bookingsRes.ok || !formRes.ok || !calendarsRes.ok || !blocksRes.ok) {
+    const remindersJson = await remindersRes.json().catch(() => ({}));
+    if (remindersRes.ok) {
+      const settings = ((remindersJson as any)?.settings as AppointmentReminderSettings) ?? null;
+      setReminderSettings(settings);
+      setReminderDraft(settings);
+      setReminderTwilio(((remindersJson as any)?.twilio as TwilioMasked) ?? null);
+      setReminderEvents((((remindersJson as any)?.events as AppointmentReminderEvent[]) ?? []).slice(0, 50));
+    }
+
+    if (!meRes.ok || !settingsRes.ok || !bookingsRes.ok || !formRes.ok || !calendarsRes.ok || !blocksRes.ok || !remindersRes.ok) {
       setError(
         getApiError(meJson) ??
           getApiError(settingsJson) ??
@@ -257,6 +307,7 @@ export function PortalBookingClient() {
           getApiError(formJson) ??
           getApiError(calendarsJson) ??
           getApiError(blocksJson) ??
+          getApiError(remindersJson) ??
           "Failed to load booking automation",
       );
     }
@@ -324,6 +375,39 @@ export function PortalBookingClient() {
       setNotificationEmails(nextSite.notificationEmails);
     }
     setStatus("Saved booking settings");
+  }
+
+  async function saveReminders(next: AppointmentReminderSettings) {
+    setReminderSaving(true);
+    setError(null);
+    setStatus(null);
+
+    const res = await fetch("/api/portal/booking/reminders/settings", {
+      method: "PUT",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ settings: next }),
+    });
+    const body = await res.json().catch(() => ({}));
+    setReminderSaving(false);
+
+    if (!res.ok) {
+      setError(getApiError(body) ?? "Failed to save appointment reminders");
+      return;
+    }
+
+    const settings = ((body as any)?.settings as AppointmentReminderSettings) ?? next;
+    setReminderSettings(settings);
+    setReminderDraft(settings);
+    setReminderTwilio(((body as any)?.twilio as TwilioMasked) ?? null);
+    setReminderEvents((((body as any)?.events as AppointmentReminderEvent[]) ?? []).slice(0, 50));
+    setStatus("Saved appointment reminders");
+  }
+
+  async function setReminderEnabled(enabled: boolean) {
+    if (!reminderDraft) return;
+    const next: AppointmentReminderSettings = { ...reminderDraft, enabled, version: 1 };
+    setReminderDraft(next);
+    await saveReminders(next);
   }
 
   function sanitizeNotificationEmails(items: string[]): string[] {
@@ -1170,6 +1254,154 @@ export function PortalBookingClient() {
               ))
             )}
           </div>
+        </div>
+
+        <div className="rounded-3xl border border-zinc-200 bg-white p-6 lg:col-span-1">
+          <div className="flex items-start justify-between gap-3">
+            <div>
+              <div className="text-sm font-semibold text-zinc-900">Appointment reminders</div>
+              <div className="mt-2 text-sm text-zinc-600">Send an SMS reminder before each booked call.</div>
+            </div>
+
+            <div className="inline-flex overflow-hidden rounded-2xl border border-zinc-200">
+              <button
+                type="button"
+                className={`px-4 py-2 text-sm font-semibold ${
+                  reminderDraft && !reminderDraft.enabled
+                    ? "bg-zinc-900 text-white"
+                    : "bg-white text-zinc-700 hover:bg-zinc-50"
+                }`}
+                disabled={reminderSaving || !reminderDraft}
+                onClick={() => void setReminderEnabled(false)}
+              >
+                Off
+              </button>
+              <button
+                type="button"
+                className={`px-4 py-2 text-sm font-semibold ${
+                  reminderDraft && reminderDraft.enabled
+                    ? "bg-zinc-900 text-white"
+                    : "bg-white text-zinc-700 hover:bg-zinc-50"
+                }`}
+                disabled={reminderSaving || !reminderDraft}
+                onClick={() => void setReminderEnabled(true)}
+              >
+                On
+              </button>
+            </div>
+          </div>
+
+          {reminderDraft ? (
+            <>
+              <div className="mt-4 rounded-2xl border border-zinc-200 bg-zinc-50 p-4 text-sm">
+                <div className="flex items-center justify-between gap-3">
+                  <div className="font-medium text-zinc-800">Twilio</div>
+                  <div className={`text-xs font-semibold ${reminderTwilio?.configured ? "text-emerald-700" : "text-amber-700"}`}>
+                    {reminderTwilio?.configured ? "Configured" : "Not configured"}
+                  </div>
+                </div>
+                <div className="mt-2 text-xs text-zinc-600">
+                  {reminderTwilio?.configured
+                    ? `From: ${reminderTwilio.fromNumberE164 ?? ""}`
+                    : "Add your Twilio credentials (Services → Missed Call Text Back) to enable SMS reminders."}
+                </div>
+              </div>
+
+              <div className="mt-4 grid grid-cols-1 gap-3">
+                <label className="rounded-2xl border border-zinc-200 bg-zinc-50 px-4 py-3 text-sm">
+                  <div className="font-medium text-zinc-800">Send reminder</div>
+                  <div className="mt-2 flex items-center gap-2">
+                    <input
+                      type="number"
+                      min={5}
+                      max={20160}
+                      className="w-28 rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm"
+                      value={reminderDraft.leadTimeMinutes}
+                      onChange={(e) =>
+                        setReminderDraft((prev) =>
+                          prev ? { ...prev, leadTimeMinutes: Number(e.target.value), version: 1 } : prev,
+                        )
+                      }
+                      disabled={reminderSaving}
+                    />
+                    <span className="text-sm text-zinc-600">minutes before</span>
+                  </div>
+                  <div className="mt-2 text-xs text-zinc-500">Max 14 days (20160 minutes).</div>
+                </label>
+
+                <label className="rounded-2xl border border-zinc-200 bg-zinc-50 px-4 py-3 text-sm">
+                  <div className="font-medium text-zinc-800">Message</div>
+                  <textarea
+                    className="mt-2 min-h-[110px] w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm"
+                    value={reminderDraft.messageBody}
+                    onChange={(e) =>
+                      setReminderDraft((prev) =>
+                        prev ? { ...prev, messageBody: e.target.value, version: 1 } : prev,
+                      )
+                    }
+                    disabled={reminderSaving}
+                  />
+                  <div className="mt-2 text-xs text-zinc-500">Variables: {"{name}"}, {"{when}"}</div>
+                </label>
+
+                <div className="flex items-center justify-end gap-2">
+                  <button
+                    type="button"
+                    className="rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm font-semibold text-brand-ink hover:bg-zinc-50 disabled:opacity-60"
+                    disabled={reminderSaving}
+                    onClick={() => setReminderDraft(reminderSettings ?? reminderDraft)}
+                  >
+                    Reset
+                  </button>
+                  <button
+                    type="button"
+                    className="rounded-2xl bg-[color:var(--color-brand-blue)] px-4 py-2 text-sm font-semibold text-white hover:opacity-95 disabled:opacity-60"
+                    disabled={reminderSaving || !reminderDraft.messageBody.trim()}
+                    onClick={() => void saveReminders(reminderDraft)}
+                  >
+                    {reminderSaving ? "Saving…" : "Save"}
+                  </button>
+                </div>
+              </div>
+
+              <div className="mt-5">
+                <div className="text-xs font-semibold text-zinc-600">Recent reminder activity</div>
+                <div className="mt-2 space-y-2">
+                  {reminderEvents.length === 0 ? (
+                    <div className="rounded-2xl border border-dashed border-zinc-200 bg-zinc-50 p-4 text-sm text-zinc-600">
+                      No reminder activity yet.
+                    </div>
+                  ) : (
+                    reminderEvents.slice(0, 6).map((e) => (
+                      <div key={e.id} className="rounded-2xl border border-zinc-200 bg-zinc-50 px-4 py-3 text-sm">
+                        <div className="flex items-center justify-between gap-3">
+                          <div className="font-medium text-zinc-800">{e.contactName || "(unknown)"}</div>
+                          <div
+                            className={`text-xs font-semibold ${
+                              e.status === "SENT"
+                                ? "text-emerald-700"
+                                : e.status === "FAILED"
+                                  ? "text-red-700"
+                                  : "text-zinc-600"
+                            }`}
+                          >
+                            {e.status.toLowerCase()}
+                          </div>
+                        </div>
+                        <div className="mt-1 text-xs text-zinc-600">
+                          Appt: {new Date(e.bookingStartAtIso).toLocaleString()}
+                        </div>
+                        {e.reason ? <div className="mt-1 text-xs text-zinc-600">{e.reason}</div> : null}
+                        {e.error ? <div className="mt-1 text-xs text-red-700">{e.error}</div> : null}
+                      </div>
+                    ))
+                  )}
+                </div>
+              </div>
+            </>
+          ) : (
+            <div className="mt-4 text-sm text-zinc-500">Loading reminders…</div>
+          )}
         </div>
 
         <div className="rounded-3xl border border-zinc-200 bg-white p-6 lg:col-span-2">

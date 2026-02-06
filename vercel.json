@@ -7,6 +7,10 @@
     {
       "path": "/api/portal/blogs/automation/cron",
       "schedule": "5 * * * *"
+    },
+    {
+      "path": "/api/portal/booking/reminders/cron",
+      "schedule": "*/5 * * * *"
     }
   ]
 }
