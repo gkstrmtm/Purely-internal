@@ -190,8 +190,14 @@ export default async function PublicReviewsPage({ params }: { params: Promise<{ 
               // eslint-disable-next-line @next/next/no-img-element
               <img src={logoUrl} alt={businessName} className="h-10 w-10 rounded-xl object-cover" />
             ) : (
-              <div className="grid h-10 w-10 place-items-center rounded-xl" style={{ backgroundColor: "rgba(29,78,216,0.10)" }}>
-                <div className="h-3 w-3 rounded-full" style={{ backgroundColor: "var(--client-primary)" }} />
+              <div className="grid h-10 w-10 place-items-center rounded-xl border border-zinc-200 bg-white shadow-sm">
+                <Image
+                  src="/brand/play_white_removed_everywhere%20(1).png"
+                  alt=""
+                  width={22}
+                  height={22}
+                  className="h-5 w-5"
+                />
               </div>
             )}
             <div className="min-w-0">
@@ -211,20 +217,14 @@ export default async function PublicReviewsPage({ params }: { params: Promise<{ 
                 blogs
               </Link>
             ) : null}
-            <Link
-              href="/"
-              className="inline-flex items-center gap-2 rounded-xl px-3 py-2 text-sm font-semibold text-zinc-700 hover:bg-zinc-100"
-            >
-              <span className="relative grid h-5 w-5 place-items-center overflow-hidden rounded-full" style={{ backgroundColor: "var(--client-primary)" }}>
-                <Image
-                  src="/brand/play_white_removed_everywhere%20(1).png"
-                  alt=""
-                  width={20}
-                  height={20}
-                  className="h-3.5 w-3.5"
-                />
-              </span>
-              purelyautomation.com
+            <Link href="/" className="inline-flex items-center gap-3 rounded-xl px-3 py-2 hover:bg-zinc-100" aria-label="Purely Automation">
+              <Image
+                src="/brand/purity-5.png"
+                alt="Purely Automation"
+                width={140}
+                height={44}
+                className="h-7 w-auto"
+              />
             </Link>
           </div>
         </div>
@@ -236,15 +236,13 @@ export default async function PublicReviewsPage({ params }: { params: Promise<{ 
             <div className="max-w-3xl">
               <div className="inline-flex items-center gap-2 rounded-full bg-white/15 px-3 py-1 text-sm font-semibold text-white">
                 <span className="grid h-6 w-6 place-items-center rounded-full bg-white/20">
-                  <svg viewBox="0 0 24 24" className="h-4 w-4" fill="none" aria-hidden>
-                    <path
-                      d="M20 6L9 17l-5-5"
-                      stroke="white"
-                      strokeWidth="2.5"
-                      strokeLinecap="round"
-                      strokeLinejoin="round"
-                    />
-                  </svg>
+                  <Image
+                    src="/brand/play_white_removed_everywhere%20(1).png"
+                    alt=""
+                    width={18}
+                    height={18}
+                    className="h-4 w-4"
+                  />
                 </span>
                 Verified
               </div>

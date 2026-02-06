@@ -93,6 +93,7 @@ model User {
   portalBookingSite   PortalBookingSite?
 
   portalReviews PortalReview[]
+  portalReviewPhotos PortalReviewPhoto[]
 }
 
 model Lead {
@@ -539,7 +540,27 @@ model PortalReview {
 
   owner User @relation(fields: [ownerId], references: [id])
 
+  photos PortalReviewPhoto[]
+
   @@index([ownerId, archivedAt, createdAt])
+}
+
+model PortalReviewPhoto {
+  id String @id @default(cuid())
+
+  ownerId  String
+  reviewId String
+
+  contentType String
+  bytes       Bytes
+
+  createdAt DateTime @default(now())
+
+  owner  User        @relation(fields: [ownerId], references: [id])
+  review PortalReview @relation(fields: [reviewId], references: [id], onDelete: Cascade)
+
+  @@index([ownerId])
+  @@index([reviewId])
 }
 
 enum PortalBookingStatus {

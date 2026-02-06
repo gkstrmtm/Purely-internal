@@ -1,7 +1,4 @@
 import { NextResponse } from "next/server";
-import crypto from "crypto";
-import path from "path";
-import { mkdir, writeFile } from "fs/promises";
 
 import { prisma } from "@/lib/db";
 import { hasPublicColumn } from "@/lib/dbSchema";
@@ -54,24 +51,15 @@ async function resolveOwner(siteSlug: string): Promise<{ ownerId: string; handle
   return null;
 }
 
-async function writePublicUpload(file: File) {
+async function readFileBytes(file: File) {
   const arrayBuffer = await file.arrayBuffer();
   const buffer = Buffer.from(arrayBuffer);
-
-  const now = new Date();
-  const day = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`;
-
-  const original = safeFilename(file.name || "upload.bin");
-  const id = crypto.randomUUID();
-  const relDir = path.posix.join("uploads", "reviews", day);
-  const relPath = path.posix.join(relDir, `${id}-${original}`);
-
-  const absDir = path.join(process.cwd(), "public", relDir);
-  const absPath = path.join(process.cwd(), "public", relPath);
-  await mkdir(absDir, { recursive: true });
-  await writeFile(absPath, buffer);
-
-  return { url: `/${relPath}`, fileName: original, mimeType: file.type || "application/octet-stream", fileSize: buffer.length };
+  return {
+    bytes: buffer,
+    fileName: safeFilename(file.name || "upload.bin"),
+    contentType: file.type || "application/octet-stream",
+    fileSize: buffer.length,
+  };
 }
 
 export async function POST(req: Request, { params }: { params: Promise<{ siteSlug: string }> }) {
@@ -107,26 +95,46 @@ export async function POST(req: Request, { params }: { params: Promise<{ siteSlu
     return NextResponse.json({ ok: false, error: "Photos are too large" }, { status: 400 });
   }
 
-  const photoUrls: string[] = [];
-  for (const file of selected) {
-    if (!file.type.startsWith("image/")) continue;
-    if (file.size > MAX_PHOTO_BYTES) continue;
-    const uploaded = await writePublicUpload(file);
-    photoUrls.push(uploaded.url);
-  }
+  const ownerId = String(resolved.ownerId);
 
   const review = await prisma.portalReview.create({
     data: {
-      ownerId: String(resolved.ownerId),
+      ownerId,
       rating,
       name,
       body: body || null,
       email: email || null,
       phone: phone || null,
-      photoUrls: photoUrls.length ? (photoUrls as any) : (null as any),
+      photoUrls: null as any,
     },
     select: { id: true },
   });
+
+  const createdPhotoIds: string[] = [];
+  for (const file of selected) {
+    if (!file.type.startsWith("image/")) continue;
+    if (file.size > MAX_PHOTO_BYTES) continue;
+    const blob = await readFileBytes(file);
+    const created = await prisma.portalReviewPhoto.create({
+      data: {
+        ownerId,
+        reviewId: review.id,
+        contentType: blob.contentType,
+        bytes: blob.bytes,
+      },
+      select: { id: true },
+    });
+    createdPhotoIds.push(created.id);
+  }
+
+  const photoUrls = createdPhotoIds.map((id) => `/api/public/reviews/photos/${id}`);
+  if (photoUrls.length) {
+    await prisma.portalReview.update({
+      where: { id: review.id },
+      data: { photoUrls: photoUrls as any },
+      select: { id: true },
+    });
+  }
 
   return NextResponse.json({ ok: true, id: review.id });
 }
