@@ -62,10 +62,14 @@ type TwilioMasked = {
 };
 
 type AppointmentReminderSettings = {
-  version: 1;
+  version: 2;
   enabled: boolean;
-  leadTimeMinutes: number;
-  messageBody: string;
+  steps: {
+    id: string;
+    enabled: boolean;
+    leadTimeMinutes: number;
+    messageBody: string;
+  }[];
 };
 
 type AppointmentReminderEvent = {
@@ -73,6 +77,9 @@ type AppointmentReminderEvent = {
   bookingId: string;
   bookingStartAtIso: string;
   scheduledForIso: string;
+
+  stepId: string;
+  stepLeadTimeMinutes: number;
 
   contactName: string;
   contactPhoneRaw: string | null;
@@ -209,7 +216,7 @@ export function PortalBookingClient() {
   const [calMonth, setCalMonth] = useState(() => startOfMonth(new Date()));
   const [calSelectedYmd, setCalSelectedYmd] = useState<string | null>(null);
 
-  const [topTab, setTopTab] = useState<"settings" | "appointments">("settings");
+  const [topTab, setTopTab] = useState<"settings" | "appointments" | "reminders">("settings");
   const [appointmentsView, setAppointmentsView] = useState<"week" | "month">("week");
 
   const [contactOpen, setContactOpen] = useState(false);
@@ -405,9 +412,44 @@ export function PortalBookingClient() {
 
   async function setReminderEnabled(enabled: boolean) {
     if (!reminderDraft) return;
-    const next: AppointmentReminderSettings = { ...reminderDraft, enabled, version: 1 };
+    const next: AppointmentReminderSettings = { ...reminderDraft, enabled, version: 2 };
     setReminderDraft(next);
     await saveReminders(next);
+  }
+
+  function updateReminderStep(stepId: string, partial: Partial<AppointmentReminderSettings["steps"][number]>) {
+    setReminderDraft((prev) => {
+      if (!prev) return prev;
+      const steps = Array.isArray(prev.steps) ? prev.steps.slice() : [];
+      const idx = steps.findIndex((s) => s.id === stepId);
+      if (idx < 0) return prev;
+      steps[idx] = { ...steps[idx], ...partial };
+      return { ...prev, version: 2, steps };
+    });
+  }
+
+  function addReminderStep() {
+    const defaultBody = "Reminder: your appointment is scheduled for {when}.";
+    setReminderDraft((prev) => {
+      if (!prev) return prev;
+      const steps = Array.isArray(prev.steps) ? prev.steps.slice() : [];
+      if (steps.length >= 8) return prev;
+      const nextStep = {
+        id: makeClientId("rem_"),
+        enabled: true,
+        leadTimeMinutes: 60,
+        messageBody: defaultBody,
+      };
+      return { ...prev, version: 2, steps: [...steps, nextStep] };
+    });
+  }
+
+  function deleteReminderStep(stepId: string) {
+    setReminderDraft((prev) => {
+      if (!prev) return prev;
+      const steps = Array.isArray(prev.steps) ? prev.steps.filter((s) => s.id !== stepId) : [];
+      return { ...prev, version: 2, steps: steps.length ? steps : prev.steps };
+    });
   }
 
   function sanitizeNotificationEmails(items: string[]): string[] {
@@ -671,6 +713,17 @@ export function PortalBookingClient() {
           onClick={() => setTopTab("appointments")}
         >
           Appointments
+        </button>
+        <button
+          type="button"
+          className={
+            topTab === "reminders"
+              ? "rounded-2xl bg-zinc-900 px-4 py-2 text-sm font-semibold text-white"
+              : "rounded-2xl px-4 py-2 text-sm font-semibold text-zinc-700 hover:bg-zinc-50"
+          }
+          onClick={() => setTopTab("reminders")}
+        >
+          Reminders
         </button>
       </div>
 
@@ -995,6 +1048,201 @@ export function PortalBookingClient() {
         </div>
       ) : null}
 
+      {topTab === "reminders" ? (
+        <div className="mt-6 grid grid-cols-1 gap-4 lg:grid-cols-12">
+          <div className="rounded-3xl border border-zinc-200 bg-white p-6 lg:col-span-8">
+            <div className="flex items-start justify-between gap-3">
+              <div>
+                <div className="text-sm font-semibold text-zinc-900">Appointment reminders</div>
+                <div className="mt-2 text-sm text-zinc-600">
+                  Automatically text people before their appointment. Works like follow-up automation steps.
+                </div>
+              </div>
+
+              <div className="inline-flex overflow-hidden rounded-2xl border border-zinc-200">
+                <button
+                  type="button"
+                  className={`px-4 py-2 text-sm font-semibold ${
+                    reminderDraft && !reminderDraft.enabled
+                      ? "bg-zinc-900 text-white"
+                      : "bg-white text-zinc-700 hover:bg-zinc-50"
+                  }`}
+                  disabled={reminderSaving || !reminderDraft}
+                  onClick={() => void setReminderEnabled(false)}
+                >
+                  Off
+                </button>
+                <button
+                  type="button"
+                  className={`px-4 py-2 text-sm font-semibold ${
+                    reminderDraft && reminderDraft.enabled
+                      ? "bg-zinc-900 text-white"
+                      : "bg-white text-zinc-700 hover:bg-zinc-50"
+                  }`}
+                  disabled={reminderSaving || !reminderDraft}
+                  onClick={() => void setReminderEnabled(true)}
+                >
+                  On
+                </button>
+              </div>
+            </div>
+
+            <div className="mt-4 rounded-2xl border border-zinc-200 bg-zinc-50 p-4 text-sm">
+              <div className="flex items-center justify-between gap-3">
+                <div className="font-medium text-zinc-800">Twilio</div>
+                <div className={`text-xs font-semibold ${reminderTwilio?.configured ? "text-emerald-700" : "text-amber-700"}`}>
+                  {reminderTwilio?.configured ? "Configured" : "Not configured"}
+                </div>
+              </div>
+              <div className="mt-2 text-xs text-zinc-600">
+                {reminderTwilio?.configured
+                  ? `From: ${reminderTwilio.fromNumberE164 ?? ""}`
+                  : "Add your Twilio credentials (Services → Missed Call Text Back) to enable SMS reminders."}
+              </div>
+            </div>
+
+            {reminderDraft ? (
+              <>
+                <div className="mt-5 flex items-center justify-between gap-3">
+                  <div className="text-xs font-semibold text-zinc-600">Reminder steps</div>
+                  <button
+                    type="button"
+                    className="rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm hover:bg-zinc-50 disabled:opacity-60"
+                    disabled={reminderSaving || reminderDraft.steps.length >= 8}
+                    onClick={() => addReminderStep()}
+                  >
+                    Add step
+                  </button>
+                </div>
+
+                <div className="mt-3 space-y-3">
+                  {reminderDraft.steps.map((s, idx) => (
+                    <div key={s.id} className="rounded-2xl border border-zinc-200 p-4">
+                      <div className="flex items-start justify-between gap-3">
+                        <div className="min-w-0">
+                          <div className="text-sm font-semibold text-zinc-900">Step {idx + 1}</div>
+                          <div className="mt-1 text-xs text-zinc-600">Variables: {"{name}"}, {"{when}"}</div>
+                        </div>
+
+                        <div className="flex items-center gap-2">
+                          <label className="flex items-center gap-2 text-sm">
+                            <span className="text-xs text-zinc-600">Enabled</span>
+                            <input
+                              type="checkbox"
+                              checked={Boolean(s.enabled)}
+                              disabled={reminderSaving}
+                              onChange={(e) => updateReminderStep(s.id, { enabled: e.target.checked })}
+                            />
+                          </label>
+                          <button
+                            type="button"
+                            className="rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm hover:bg-zinc-50 disabled:opacity-60"
+                            disabled={reminderSaving || reminderDraft.steps.length <= 1}
+                            onClick={() => deleteReminderStep(s.id)}
+                          >
+                            Delete
+                          </button>
+                        </div>
+                      </div>
+
+                      <div className="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-3">
+                        <label className="rounded-2xl border border-zinc-200 bg-zinc-50 px-4 py-3 text-sm">
+                          <div className="font-medium text-zinc-800">Timing</div>
+                          <div className="mt-2 flex items-center gap-2">
+                            <input
+                              type="number"
+                              min={5}
+                              max={20160}
+                              className="w-28 rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm"
+                              value={s.leadTimeMinutes}
+                              onChange={(e) => updateReminderStep(s.id, { leadTimeMinutes: Number(e.target.value) })}
+                              disabled={reminderSaving}
+                            />
+                            <span className="text-sm text-zinc-600">min before</span>
+                          </div>
+                        </label>
+
+                        <label className="rounded-2xl border border-zinc-200 bg-zinc-50 px-4 py-3 text-sm sm:col-span-2">
+                          <div className="font-medium text-zinc-800">Message</div>
+                          <textarea
+                            className="mt-2 min-h-[90px] w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm"
+                            value={s.messageBody}
+                            onChange={(e) => updateReminderStep(s.id, { messageBody: e.target.value })}
+                            disabled={reminderSaving}
+                          />
+                        </label>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+
+                <div className="mt-4 flex items-center justify-end gap-2">
+                  <button
+                    type="button"
+                    className="rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm font-semibold text-brand-ink hover:bg-zinc-50 disabled:opacity-60"
+                    disabled={reminderSaving}
+                    onClick={() => setReminderDraft(reminderSettings ?? reminderDraft)}
+                  >
+                    Reset
+                  </button>
+                  <button
+                    type="button"
+                    className="rounded-2xl bg-[color:var(--color-brand-blue)] px-4 py-2 text-sm font-semibold text-white hover:opacity-95 disabled:opacity-60"
+                    disabled={
+                      reminderSaving ||
+                      reminderDraft.steps.length === 0 ||
+                      reminderDraft.steps.some((x) => !String(x.messageBody || "").trim())
+                    }
+                    onClick={() => void saveReminders(reminderDraft)}
+                  >
+                    {reminderSaving ? "Saving…" : "Save"}
+                  </button>
+                </div>
+              </>
+            ) : (
+              <div className="mt-4 text-sm text-zinc-500">Loading reminders…</div>
+            )}
+          </div>
+
+          <div className="rounded-3xl border border-zinc-200 bg-white p-6 lg:col-span-4">
+            <div className="text-sm font-semibold text-zinc-900">Activity</div>
+            <div className="mt-2 text-sm text-zinc-600">Reminders sent (or skipped) show here.</div>
+
+            <div className="mt-4 space-y-2">
+              {reminderEvents.length === 0 ? (
+                <div className="rounded-2xl border border-dashed border-zinc-200 bg-zinc-50 p-4 text-sm text-zinc-600">
+                  No reminder activity yet.
+                </div>
+              ) : (
+                reminderEvents.slice(0, 12).map((e) => (
+                  <div key={e.id} className="rounded-2xl border border-zinc-200 bg-zinc-50 px-4 py-3 text-sm">
+                    <div className="flex items-center justify-between gap-3">
+                      <div className="font-medium text-zinc-800">{e.contactName || "(unknown)"}</div>
+                      <div
+                        className={`text-xs font-semibold ${
+                          e.status === "SENT"
+                            ? "text-emerald-700"
+                            : e.status === "FAILED"
+                              ? "text-red-700"
+                              : "text-zinc-600"
+                        }`}
+                      >
+                        {e.status.toLowerCase()}
+                      </div>
+                    </div>
+                    <div className="mt-1 text-xs text-zinc-600">
+                      Step: {e.stepLeadTimeMinutes}m before · Appt: {new Date(e.bookingStartAtIso).toLocaleString()}
+                    </div>
+                    {e.reason ? <div className="mt-1 text-xs text-zinc-600">{e.reason}</div> : null}
+                    {e.error ? <div className="mt-1 text-xs text-red-700">{e.error}</div> : null}
+                  </div>
+                ))
+              )}
+            </div>
+          </div>
+        </div>
+      ) : null}
+
       {topTab === "settings" ? (
         <>
           <div className="mt-6 grid grid-cols-1 gap-4 lg:grid-cols-3">
@@ -1254,154 +1502,6 @@ export function PortalBookingClient() {
               ))
             )}
           </div>
-        </div>
-
-        <div className="rounded-3xl border border-zinc-200 bg-white p-6 lg:col-span-1">
-          <div className="flex items-start justify-between gap-3">
-            <div>
-              <div className="text-sm font-semibold text-zinc-900">Appointment reminders</div>
-              <div className="mt-2 text-sm text-zinc-600">Send an SMS reminder before each booked call.</div>
-            </div>
-
-            <div className="inline-flex overflow-hidden rounded-2xl border border-zinc-200">
-              <button
-                type="button"
-                className={`px-4 py-2 text-sm font-semibold ${
-                  reminderDraft && !reminderDraft.enabled
-                    ? "bg-zinc-900 text-white"
-                    : "bg-white text-zinc-700 hover:bg-zinc-50"
-                }`}
-                disabled={reminderSaving || !reminderDraft}
-                onClick={() => void setReminderEnabled(false)}
-              >
-                Off
-              </button>
-              <button
-                type="button"
-                className={`px-4 py-2 text-sm font-semibold ${
-                  reminderDraft && reminderDraft.enabled
-                    ? "bg-zinc-900 text-white"
-                    : "bg-white text-zinc-700 hover:bg-zinc-50"
-                }`}
-                disabled={reminderSaving || !reminderDraft}
-                onClick={() => void setReminderEnabled(true)}
-              >
-                On
-              </button>
-            </div>
-          </div>
-
-          {reminderDraft ? (
-            <>
-              <div className="mt-4 rounded-2xl border border-zinc-200 bg-zinc-50 p-4 text-sm">
-                <div className="flex items-center justify-between gap-3">
-                  <div className="font-medium text-zinc-800">Twilio</div>
-                  <div className={`text-xs font-semibold ${reminderTwilio?.configured ? "text-emerald-700" : "text-amber-700"}`}>
-                    {reminderTwilio?.configured ? "Configured" : "Not configured"}
-                  </div>
-                </div>
-                <div className="mt-2 text-xs text-zinc-600">
-                  {reminderTwilio?.configured
-                    ? `From: ${reminderTwilio.fromNumberE164 ?? ""}`
-                    : "Add your Twilio credentials (Services → Missed Call Text Back) to enable SMS reminders."}
-                </div>
-              </div>
-
-              <div className="mt-4 grid grid-cols-1 gap-3">
-                <label className="rounded-2xl border border-zinc-200 bg-zinc-50 px-4 py-3 text-sm">
-                  <div className="font-medium text-zinc-800">Send reminder</div>
-                  <div className="mt-2 flex items-center gap-2">
-                    <input
-                      type="number"
-                      min={5}
-                      max={20160}
-                      className="w-28 rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm"
-                      value={reminderDraft.leadTimeMinutes}
-                      onChange={(e) =>
-                        setReminderDraft((prev) =>
-                          prev ? { ...prev, leadTimeMinutes: Number(e.target.value), version: 1 } : prev,
-                        )
-                      }
-                      disabled={reminderSaving}
-                    />
-                    <span className="text-sm text-zinc-600">minutes before</span>
-                  </div>
-                  <div className="mt-2 text-xs text-zinc-500">Max 14 days (20160 minutes).</div>
-                </label>
-
-                <label className="rounded-2xl border border-zinc-200 bg-zinc-50 px-4 py-3 text-sm">
-                  <div className="font-medium text-zinc-800">Message</div>
-                  <textarea
-                    className="mt-2 min-h-[110px] w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm"
-                    value={reminderDraft.messageBody}
-                    onChange={(e) =>
-                      setReminderDraft((prev) =>
-                        prev ? { ...prev, messageBody: e.target.value, version: 1 } : prev,
-                      )
-                    }
-                    disabled={reminderSaving}
-                  />
-                  <div className="mt-2 text-xs text-zinc-500">Variables: {"{name}"}, {"{when}"}</div>
-                </label>
-
-                <div className="flex items-center justify-end gap-2">
-                  <button
-                    type="button"
-                    className="rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm font-semibold text-brand-ink hover:bg-zinc-50 disabled:opacity-60"
-                    disabled={reminderSaving}
-                    onClick={() => setReminderDraft(reminderSettings ?? reminderDraft)}
-                  >
-                    Reset
-                  </button>
-                  <button
-                    type="button"
-                    className="rounded-2xl bg-[color:var(--color-brand-blue)] px-4 py-2 text-sm font-semibold text-white hover:opacity-95 disabled:opacity-60"
-                    disabled={reminderSaving || !reminderDraft.messageBody.trim()}
-                    onClick={() => void saveReminders(reminderDraft)}
-                  >
-                    {reminderSaving ? "Saving…" : "Save"}
-                  </button>
-                </div>
-              </div>
-
-              <div className="mt-5">
-                <div className="text-xs font-semibold text-zinc-600">Recent reminder activity</div>
-                <div className="mt-2 space-y-2">
-                  {reminderEvents.length === 0 ? (
-                    <div className="rounded-2xl border border-dashed border-zinc-200 bg-zinc-50 p-4 text-sm text-zinc-600">
-                      No reminder activity yet.
-                    </div>
-                  ) : (
-                    reminderEvents.slice(0, 6).map((e) => (
-                      <div key={e.id} className="rounded-2xl border border-zinc-200 bg-zinc-50 px-4 py-3 text-sm">
-                        <div className="flex items-center justify-between gap-3">
-                          <div className="font-medium text-zinc-800">{e.contactName || "(unknown)"}</div>
-                          <div
-                            className={`text-xs font-semibold ${
-                              e.status === "SENT"
-                                ? "text-emerald-700"
-                                : e.status === "FAILED"
-                                  ? "text-red-700"
-                                  : "text-zinc-600"
-                            }`}
-                          >
-                            {e.status.toLowerCase()}
-                          </div>
-                        </div>
-                        <div className="mt-1 text-xs text-zinc-600">
-                          Appt: {new Date(e.bookingStartAtIso).toLocaleString()}
-                        </div>
-                        {e.reason ? <div className="mt-1 text-xs text-zinc-600">{e.reason}</div> : null}
-                        {e.error ? <div className="mt-1 text-xs text-red-700">{e.error}</div> : null}
-                      </div>
-                    ))
-                  )}
-                </div>
-              </div>
-            </>
-          ) : (
-            <div className="mt-4 text-sm text-zinc-500">Loading reminders…</div>
-          )}
         </div>
 
         <div className="rounded-3xl border border-zinc-200 bg-white p-6 lg:col-span-2">

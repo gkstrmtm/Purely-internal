@@ -9,7 +9,13 @@ const MAX_SENT_KEYS = 4000;
 const MAX_BODY_LEN = 900;
 
 export type AppointmentReminderSettings = {
-  version: 1;
+  version: 2;
+  enabled: boolean;
+  steps: AppointmentReminderStep[];
+};
+
+export type AppointmentReminderStep = {
+  id: string;
   enabled: boolean;
   leadTimeMinutes: number;
   messageBody: string;
@@ -20,6 +26,9 @@ export type AppointmentReminderEvent = {
   bookingId: string;
   bookingStartAtIso: string;
   scheduledForIso: string;
+
+  stepId: string;
+  stepLeadTimeMinutes: number;
 
   contactName: string;
   contactPhoneRaw: string | null;
@@ -51,25 +60,82 @@ function clampInt(n: number, min: number, max: number) {
 }
 
 export function parseAppointmentReminderSettings(raw: unknown): AppointmentReminderSettings {
-  const base: AppointmentReminderSettings = {
-    version: 1,
-    enabled: false,
+  const baseStep: AppointmentReminderStep = {
+    id: "step_1",
+    enabled: true,
     leadTimeMinutes: 60,
     messageBody: "Reminder: your appointment is scheduled for {when}.",
+  };
+
+  const base: AppointmentReminderSettings = {
+    version: 2,
+    enabled: false,
+    steps: [baseStep],
   };
 
   if (!raw || typeof raw !== "object" || Array.isArray(raw)) return base;
   const rec = raw as Record<string, unknown>;
 
+  // Back-compat: v1 shape { enabled, leadTimeMinutes, messageBody }
+  const isV1 = rec.version === 1 || ("leadTimeMinutes" in rec && "messageBody" in rec && !Array.isArray((rec as any).steps));
+  if (isV1) {
+    const enabled = typeof rec.enabled === "boolean" ? rec.enabled : base.enabled;
+    const leadTimeMinutes = clampInt(
+      typeof rec.leadTimeMinutes === "number" ? rec.leadTimeMinutes : baseStep.leadTimeMinutes,
+      5,
+      60 * 24 * 14,
+    );
+    const messageBody =
+      typeof rec.messageBody === "string" ? rec.messageBody.slice(0, MAX_BODY_LEN).trim() : baseStep.messageBody;
+
+    return {
+      version: 2,
+      enabled,
+      steps: [
+        {
+          id: "step_1",
+          enabled: true,
+          leadTimeMinutes,
+          messageBody: messageBody || baseStep.messageBody,
+        },
+      ],
+    };
+  }
+
   const enabled = typeof rec.enabled === "boolean" ? rec.enabled : base.enabled;
-  const leadTimeMinutes = clampInt(typeof rec.leadTimeMinutes === "number" ? rec.leadTimeMinutes : base.leadTimeMinutes, 5, 60 * 24 * 14);
-  const messageBody = typeof rec.messageBody === "string" ? rec.messageBody.slice(0, MAX_BODY_LEN).trim() : base.messageBody;
+
+  const steps = Array.isArray(rec.steps)
+    ? (rec.steps as unknown[])
+        .flatMap((s) => {
+          if (!s || typeof s !== "object" || Array.isArray(s)) return [] as AppointmentReminderStep[];
+          const r = s as Record<string, unknown>;
+          const id = typeof r.id === "string" ? r.id.trim() : "";
+          const stepEnabled = typeof r.enabled === "boolean" ? r.enabled : true;
+          const leadTimeMinutes = clampInt(
+            typeof r.leadTimeMinutes === "number" ? r.leadTimeMinutes : baseStep.leadTimeMinutes,
+            5,
+            60 * 24 * 14,
+          );
+          const messageBody =
+            typeof r.messageBody === "string" ? r.messageBody.slice(0, MAX_BODY_LEN).trim() : baseStep.messageBody;
+          if (!id) return [] as AppointmentReminderStep[];
+          if (!messageBody.trim()) return [] as AppointmentReminderStep[];
+          return [
+            {
+              id: id.slice(0, 40),
+              enabled: stepEnabled,
+              leadTimeMinutes,
+              messageBody: messageBody.trim(),
+            },
+          ];
+        })
+        .slice(0, 8)
+    : [];
 
   return {
-    version: 1,
+    version: 2,
     enabled,
-    leadTimeMinutes,
-    messageBody: messageBody || base.messageBody,
+    steps: steps.length ? steps : [baseStep],
   };
 }
 
@@ -98,6 +164,11 @@ function parseServiceData(raw: unknown): AppointmentRemindersServiceData {
           const bookingId = typeof r.bookingId === "string" ? r.bookingId : "";
           const bookingStartAtIso = typeof r.bookingStartAtIso === "string" ? r.bookingStartAtIso : "";
           const scheduledForIso = typeof r.scheduledForIso === "string" ? r.scheduledForIso : "";
+          const stepId = typeof r.stepId === "string" ? r.stepId : "step_1";
+          const stepLeadTimeMinutes =
+            typeof r.stepLeadTimeMinutes === "number" && Number.isFinite(r.stepLeadTimeMinutes)
+              ? Math.round(r.stepLeadTimeMinutes)
+              : 60;
           const contactName = typeof r.contactName === "string" ? r.contactName : "";
           const createdAtIso = typeof r.createdAtIso === "string" ? r.createdAtIso : nowIso();
 
@@ -110,6 +181,10 @@ function parseServiceData(raw: unknown): AppointmentRemindersServiceData {
             bookingId,
             bookingStartAtIso,
             scheduledForIso,
+
+            stepId,
+            stepLeadTimeMinutes,
+
             contactName,
             contactPhoneRaw: typeof r.contactPhoneRaw === "string" ? r.contactPhoneRaw : null,
             smsTo: typeof r.smsTo === "string" ? r.smsTo : null,
@@ -216,6 +291,8 @@ export async function processDueAppointmentReminders(opts?: { ownersLimit?: numb
 
       const serviceData = parseServiceData(row.dataJson);
       if (!serviceData.settings.enabled) continue;
+      const steps = (serviceData.settings.steps ?? []).filter((s) => s && s.enabled && s.messageBody?.trim());
+      if (steps.length === 0) continue;
 
       const ownerId = row.ownerId;
 
@@ -224,24 +301,6 @@ export async function processDueAppointmentReminders(opts?: { ownersLimit?: numb
         select: { id: true, timeZone: true },
       });
       if (!site) continue;
-
-      const leadMs = serviceData.settings.leadTimeMinutes * 60_000;
-      const now = Date.now();
-      const windowStart = new Date(now + leadMs);
-      const windowEnd = new Date(now + leadMs + windowMinutes * 60_000);
-
-      const bookings = await prisma.portalBooking.findMany({
-        where: {
-          siteId: site.id,
-          status: "SCHEDULED",
-          startAt: { gte: windowStart, lt: windowEnd },
-        },
-        orderBy: { startAt: "asc" },
-        take: perOwnerLimit,
-        select: { id: true, startAt: true, contactName: true, contactPhone: true },
-      });
-
-      if (bookings.length === 0) continue;
 
       const twilio = await getOwnerTwilioSmsConfig(ownerId);
 
@@ -268,76 +327,49 @@ export async function processDueAppointmentReminders(opts?: { ownersLimit?: numb
         mutated = false;
       };
 
-      for (const booking of bookings) {
-        const key = `${booking.id}:${serviceData.settings.leadTimeMinutes}`;
-        if (sentKeys.includes(key)) continue;
+      for (const step of steps) {
+        const leadMs = step.leadTimeMinutes * 60_000;
+        const now = Date.now();
+        const windowStart = new Date(now + leadMs);
+        const windowEnd = new Date(now + leadMs + windowMinutes * 60_000);
 
-        const bookingStartAtIso = booking.startAt.toISOString();
-        const scheduledForIso = new Date(booking.startAt.getTime() - leadMs).toISOString();
+        const bookings = await prisma.portalBooking.findMany({
+          where: {
+            siteId: site.id,
+            status: "SCHEDULED",
+            startAt: { gte: windowStart, lt: windowEnd },
+          },
+          orderBy: { startAt: "asc" },
+          take: perOwnerLimit,
+          select: { id: true, startAt: true, contactName: true, contactPhone: true },
+        });
 
-        if (!twilio) {
-          remindersSkipped += 1;
-          const evt: AppointmentReminderEvent = {
-            id: `evt_${booking.id}_${serviceData.settings.leadTimeMinutes}`,
-            bookingId: booking.id,
-            bookingStartAtIso,
-            scheduledForIso,
-            contactName: booking.contactName,
-            contactPhoneRaw: booking.contactPhone ?? null,
-            smsTo: null,
-            smsBody: null,
-            status: "SKIPPED",
-            reason: "Twilio not configured",
-            createdAtIso: nowIso(),
-          };
-          events.unshift(evt);
-          sentKeys.unshift(key);
-          mutated = true;
-          continue;
-        }
+        if (bookings.length === 0) continue;
 
-        const rawPhone = booking.contactPhone ?? "";
-        const parsed = rawPhone ? normalizePhoneStrict(rawPhone) : { ok: false as const, error: "Missing phone" };
-        if (!parsed.ok || !parsed.e164) {
-          remindersSkipped += 1;
-          const evt: AppointmentReminderEvent = {
-            id: `evt_${booking.id}_${serviceData.settings.leadTimeMinutes}`,
-            bookingId: booking.id,
-            bookingStartAtIso,
-            scheduledForIso,
-            contactName: booking.contactName,
-            contactPhoneRaw: booking.contactPhone ?? null,
-            smsTo: null,
-            smsBody: null,
-            status: "SKIPPED",
-            reason: "Missing/invalid phone",
-            createdAtIso: nowIso(),
-          };
-          events.unshift(evt);
-          sentKeys.unshift(key);
-          mutated = true;
-          continue;
-        }
+        for (const booking of bookings) {
+          const key = `${booking.id}:${step.id}`;
+          if (sentKeys.includes(key)) continue;
 
-        const when = formatWhen(booking.startAt, site.timeZone);
-        const body = renderAppointmentReminderBody(serviceData.settings.messageBody, { name: booking.contactName, when });
+          const bookingStartAtIso = booking.startAt.toISOString();
+          const scheduledForIso = new Date(booking.startAt.getTime() - leadMs).toISOString();
 
-        try {
-          const result = await sendOwnerTwilioSms({ ownerId, to: parsed.e164, body });
-
-          if (!result.ok) {
-            remindersFailed += 1;
+          if (!twilio) {
+            remindersSkipped += 1;
             const evt: AppointmentReminderEvent = {
-              id: `evt_${booking.id}_${serviceData.settings.leadTimeMinutes}`,
+              id: `evt_${booking.id}_${step.id}`,
               bookingId: booking.id,
               bookingStartAtIso,
               scheduledForIso,
+
+              stepId: step.id,
+              stepLeadTimeMinutes: step.leadTimeMinutes,
+
               contactName: booking.contactName,
               contactPhoneRaw: booking.contactPhone ?? null,
-              smsTo: parsed.e164,
-              smsBody: body,
-              status: "FAILED",
-              error: result.error,
+              smsTo: null,
+              smsBody: null,
+              status: "SKIPPED",
+              reason: "Twilio not configured",
               createdAtIso: nowIso(),
             };
             events.unshift(evt);
@@ -346,48 +378,115 @@ export async function processDueAppointmentReminders(opts?: { ownersLimit?: numb
             continue;
           }
 
-          remindersSent += 1;
-          const evt: AppointmentReminderEvent = {
-            id: `evt_${booking.id}_${serviceData.settings.leadTimeMinutes}`,
-            bookingId: booking.id,
-            bookingStartAtIso,
-            scheduledForIso,
-            contactName: booking.contactName,
-            contactPhoneRaw: booking.contactPhone ?? null,
-            smsTo: parsed.e164,
-            smsBody: body,
-            status: "SENT",
-            ...(result.messageSid ? { smsMessageSid: result.messageSid } : {}),
-            createdAtIso: nowIso(),
-          };
-          events.unshift(evt);
-          sentKeys.unshift(key);
-          mutated = true;
-        } catch (err) {
-          remindersFailed += 1;
-          const evt: AppointmentReminderEvent = {
-            id: `evt_${booking.id}_${serviceData.settings.leadTimeMinutes}`,
-            bookingId: booking.id,
-            bookingStartAtIso,
-            scheduledForIso,
-            contactName: booking.contactName,
-            contactPhoneRaw: booking.contactPhone ?? null,
-            smsTo: parsed.e164,
-            smsBody: body,
-            status: "FAILED",
-            error: err instanceof Error ? err.message : String(err),
-            createdAtIso: nowIso(),
-          };
+          const rawPhone = booking.contactPhone ?? "";
+          const parsed = rawPhone ? normalizePhoneStrict(rawPhone) : { ok: false as const, error: "Missing phone" };
+          if (!parsed.ok || !parsed.e164) {
+            remindersSkipped += 1;
+            const evt: AppointmentReminderEvent = {
+              id: `evt_${booking.id}_${step.id}`,
+              bookingId: booking.id,
+              bookingStartAtIso,
+              scheduledForIso,
 
-          events.unshift(evt);
-          // Still mark key as sent so we don't spam on repeated failures.
-          sentKeys.unshift(key);
-          mutated = true;
-        }
+              stepId: step.id,
+              stepLeadTimeMinutes: step.leadTimeMinutes,
 
-        if (events.length > MAX_EVENTS || sentKeys.length > MAX_SENT_KEYS) {
-          events = events.slice(0, MAX_EVENTS);
-          sentKeys = sentKeys.slice(0, MAX_SENT_KEYS);
+              contactName: booking.contactName,
+              contactPhoneRaw: booking.contactPhone ?? null,
+              smsTo: null,
+              smsBody: null,
+              status: "SKIPPED",
+              reason: "Missing/invalid phone",
+              createdAtIso: nowIso(),
+            };
+            events.unshift(evt);
+            sentKeys.unshift(key);
+            mutated = true;
+            continue;
+          }
+
+          const when = formatWhen(booking.startAt, site.timeZone);
+          const body = renderAppointmentReminderBody(step.messageBody, { name: booking.contactName, when });
+
+          try {
+            const result = await sendOwnerTwilioSms({ ownerId, to: parsed.e164, body });
+
+            if (!result.ok) {
+              remindersFailed += 1;
+              const evt: AppointmentReminderEvent = {
+                id: `evt_${booking.id}_${step.id}`,
+                bookingId: booking.id,
+                bookingStartAtIso,
+                scheduledForIso,
+
+                stepId: step.id,
+                stepLeadTimeMinutes: step.leadTimeMinutes,
+
+                contactName: booking.contactName,
+                contactPhoneRaw: booking.contactPhone ?? null,
+                smsTo: parsed.e164,
+                smsBody: body,
+                status: "FAILED",
+                error: result.error,
+                createdAtIso: nowIso(),
+              };
+              events.unshift(evt);
+              sentKeys.unshift(key);
+              mutated = true;
+              continue;
+            }
+
+            remindersSent += 1;
+            const evt: AppointmentReminderEvent = {
+              id: `evt_${booking.id}_${step.id}`,
+              bookingId: booking.id,
+              bookingStartAtIso,
+              scheduledForIso,
+
+              stepId: step.id,
+              stepLeadTimeMinutes: step.leadTimeMinutes,
+
+              contactName: booking.contactName,
+              contactPhoneRaw: booking.contactPhone ?? null,
+              smsTo: parsed.e164,
+              smsBody: body,
+              status: "SENT",
+              ...(result.messageSid ? { smsMessageSid: result.messageSid } : {}),
+              createdAtIso: nowIso(),
+            };
+            events.unshift(evt);
+            sentKeys.unshift(key);
+            mutated = true;
+          } catch (err) {
+            remindersFailed += 1;
+            const evt: AppointmentReminderEvent = {
+              id: `evt_${booking.id}_${step.id}`,
+              bookingId: booking.id,
+              bookingStartAtIso,
+              scheduledForIso,
+
+              stepId: step.id,
+              stepLeadTimeMinutes: step.leadTimeMinutes,
+
+              contactName: booking.contactName,
+              contactPhoneRaw: booking.contactPhone ?? null,
+              smsTo: parsed.e164,
+              smsBody: body,
+              status: "FAILED",
+              error: err instanceof Error ? err.message : String(err),
+              createdAtIso: nowIso(),
+            };
+
+            events.unshift(evt);
+            // Still mark key as sent so we don't spam on repeated failures.
+            sentKeys.unshift(key);
+            mutated = true;
+          }
+
+          if (events.length > MAX_EVENTS || sentKeys.length > MAX_SENT_KEYS) {
+            events = events.slice(0, MAX_EVENTS);
+            sentKeys = sentKeys.slice(0, MAX_SENT_KEYS);
+          }
         }
       }
 
