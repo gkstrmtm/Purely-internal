@@ -8,6 +8,8 @@ import { getBookingCalendarsConfig } from "@/lib/bookingCalendars";
 import { getRequestOrigin, signBookingRescheduleToken } from "@/lib/bookingReschedule";
 import { recordAppointmentReminderBookingMeta } from "@/lib/appointmentReminders";
 import { scheduleFollowUpsForBooking } from "@/lib/followUpAutomation";
+import { findOrCreatePortalContact } from "@/lib/portalContacts";
+import { normalizePhoneStrict } from "@/lib/phone";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
@@ -188,6 +190,24 @@ export async function POST(
     }
   }
 
+    const [canUseContactsTable, canUseBookingContactId] = await Promise.all([
+      hasPublicColumn("PortalContact", "id"),
+      hasPublicColumn("PortalBooking", "contactId"),
+    ]);
+
+    const phoneRes = normalizePhoneStrict(parsed.data.contactPhone || "");
+    const phoneE164 = phoneRes.ok ? phoneRes.e164 : null;
+
+    const contactId =
+      canUseContactsTable && canUseBookingContactId
+        ? await findOrCreatePortalContact({
+            ownerId: String(ownerId),
+            name: parsed.data.contactName,
+            email: parsed.data.contactEmail,
+            phone: phoneE164 || null,
+          })
+        : null;
+
   const meeting = flags.meetingLocation || flags.meetingDetails || flags.notificationEmails
     ? await (prisma as any).portalBookingSite.findUnique({
         where: { ownerId },
@@ -209,6 +229,7 @@ export async function POST(
       contactEmail: parsed.data.contactEmail,
       contactPhone: parsed.data.contactPhone ? parsed.data.contactPhone : null,
       notes: combinedNotes ? combinedNotes : null,
+      ...(contactId ? { contactId } : {}),
     },
     select: {
       id: true,

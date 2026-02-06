@@ -6,6 +6,8 @@ import { getBookingFormConfig } from "@/lib/bookingForm";
 import { hasPublicColumn } from "@/lib/dbSchema";
 import { getRequestOrigin, signBookingRescheduleToken } from "@/lib/bookingReschedule";
 import { scheduleFollowUpsForBooking } from "@/lib/followUpAutomation";
+import { findOrCreatePortalContact } from "@/lib/portalContacts";
+import { normalizePhoneStrict } from "@/lib/phone";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
@@ -247,6 +249,24 @@ export async function POST(
     }
   }
 
+  const [canUseContactsTable, canUseBookingContactId] = await Promise.all([
+    hasPublicColumn("PortalContact", "id"),
+    hasPublicColumn("PortalBooking", "contactId"),
+  ]);
+
+  const phoneRes = normalizePhoneStrict(phone);
+  const phoneE164 = phoneRes.ok ? phoneRes.e164 : null;
+
+  const contactId =
+    canUseContactsTable && canUseBookingContactId
+      ? await findOrCreatePortalContact({
+          ownerId: String(site.ownerId),
+          name: parsed.data.contactName,
+          email: parsed.data.contactEmail,
+          phone: phoneE164 || null,
+        })
+      : null;
+
   const booking = await (prisma as any).portalBooking.create({
     data: {
       siteId: site.id,
@@ -256,6 +276,7 @@ export async function POST(
       contactEmail: parsed.data.contactEmail,
       contactPhone: phone ? phone : null,
       notes: combinedNotes ? combinedNotes : null,
+      ...(contactId ? { contactId } : {}),
     },
     select: {
       id: true,

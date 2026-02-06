@@ -16,12 +16,30 @@ type ReviewDestination = {
   url: string;
 };
 
+type ReviewQuestionKind = "short" | "long" | "single_choice" | "multiple_choice";
+
+type ReviewQuestion = {
+  id: string;
+  label: string;
+  required: boolean;
+  kind: ReviewQuestionKind;
+  options?: string[];
+};
+
+type ReviewsPublicFormConfig = {
+  version: 1;
+  email: { enabled: boolean; required: boolean };
+  phone: { enabled: boolean; required: boolean };
+  questions: ReviewQuestion[];
+};
+
 type ReviewsPublicPageSettings = {
   enabled: boolean;
   galleryEnabled: boolean;
   title: string;
   description: string;
   thankYouMessage: string;
+  form: ReviewsPublicFormConfig;
   photoUrls: string[];
 };
 
@@ -79,6 +97,12 @@ const DEFAULT_SETTINGS: ReviewRequestsSettings = {
     title: "Reviews",
     description: "We’d love to hear about your experience.",
     thankYouMessage: "Thanks — your review was submitted.",
+    form: {
+      version: 1,
+      email: { enabled: false, required: false },
+      phone: { enabled: false, required: false },
+      questions: [],
+    },
     photoUrls: [],
   },
 };
@@ -882,6 +906,276 @@ export default function PortalReviewsClient() {
                   })
                 }
               />
+            </div>
+
+            <div className="mt-4 rounded-2xl border border-zinc-200 bg-zinc-50 p-4">
+              <div className="text-sm font-semibold text-zinc-900">Public form</div>
+              <div className="mt-1 text-xs text-zinc-600">
+                Choose what info to collect on the public reviews page.
+              </div>
+
+              <div className="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-2">
+                <div className="rounded-xl border border-zinc-200 bg-white p-3">
+                  <div className="flex items-center justify-between gap-3">
+                    <label className="flex items-center gap-2 text-sm font-medium text-zinc-900">
+                      <input
+                        type="checkbox"
+                        checked={settings.publicPage.form.email.enabled}
+                        onChange={(e) =>
+                          setSettings({
+                            ...settings,
+                            publicPage: {
+                              ...settings.publicPage,
+                              form: {
+                                ...settings.publicPage.form,
+                                email: { ...settings.publicPage.form.email, enabled: e.target.checked, required: e.target.checked ? settings.publicPage.form.email.required : false },
+                              },
+                            },
+                          })
+                        }
+                      />
+                      Collect email
+                    </label>
+                    <label className="flex items-center gap-2 text-xs text-zinc-700">
+                      <input
+                        type="checkbox"
+                        checked={settings.publicPage.form.email.enabled && settings.publicPage.form.email.required}
+                        disabled={!settings.publicPage.form.email.enabled}
+                        onChange={(e) =>
+                          setSettings({
+                            ...settings,
+                            publicPage: {
+                              ...settings.publicPage,
+                              form: {
+                                ...settings.publicPage.form,
+                                email: { ...settings.publicPage.form.email, required: e.target.checked },
+                              },
+                            },
+                          })
+                        }
+                      />
+                      Required
+                    </label>
+                  </div>
+                </div>
+
+                <div className="rounded-xl border border-zinc-200 bg-white p-3">
+                  <div className="flex items-center justify-between gap-3">
+                    <label className="flex items-center gap-2 text-sm font-medium text-zinc-900">
+                      <input
+                        type="checkbox"
+                        checked={settings.publicPage.form.phone.enabled}
+                        onChange={(e) =>
+                          setSettings({
+                            ...settings,
+                            publicPage: {
+                              ...settings.publicPage,
+                              form: {
+                                ...settings.publicPage.form,
+                                phone: { ...settings.publicPage.form.phone, enabled: e.target.checked, required: e.target.checked ? settings.publicPage.form.phone.required : false },
+                              },
+                            },
+                          })
+                        }
+                      />
+                      Collect phone (SMS)
+                    </label>
+                    <label className="flex items-center gap-2 text-xs text-zinc-700">
+                      <input
+                        type="checkbox"
+                        checked={settings.publicPage.form.phone.enabled && settings.publicPage.form.phone.required}
+                        disabled={!settings.publicPage.form.phone.enabled}
+                        onChange={(e) =>
+                          setSettings({
+                            ...settings,
+                            publicPage: {
+                              ...settings.publicPage,
+                              form: {
+                                ...settings.publicPage.form,
+                                phone: { ...settings.publicPage.form.phone, required: e.target.checked },
+                              },
+                            },
+                          })
+                        }
+                      />
+                      Required
+                    </label>
+                  </div>
+                </div>
+              </div>
+
+              <div className="mt-4">
+                <div className="flex items-center justify-between gap-3">
+                  <div>
+                    <div className="text-sm font-semibold text-zinc-900">Custom questions</div>
+                    <div className="mt-1 text-xs text-zinc-600">Optional. Add questions you want customers to answer.</div>
+                  </div>
+                  <button
+                    type="button"
+                    className="inline-flex h-9 items-center justify-center rounded-xl border border-zinc-200 bg-white px-3 text-xs font-semibold text-brand-ink hover:bg-zinc-50"
+                    onClick={() => {
+                      const id = `q_${Date.now().toString(36)}`;
+                      const next: ReviewQuestion = { id, label: "Question", required: false, kind: "short" };
+                      setSettings({
+                        ...settings,
+                        publicPage: {
+                          ...settings.publicPage,
+                          form: { ...settings.publicPage.form, questions: [...(settings.publicPage.form.questions || []), next].slice(0, 25) },
+                        },
+                      });
+                    }}
+                  >
+                    Add question
+                  </button>
+                </div>
+
+                {settings.publicPage.form.questions?.length ? (
+                  <div className="mt-3 space-y-3">
+                    {settings.publicPage.form.questions.map((q) => (
+                      <div key={q.id} className="rounded-2xl border border-zinc-200 bg-white p-4">
+                        <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                          <div className="min-w-0 flex-1">
+                            <div className="text-xs font-semibold text-zinc-600">Question</div>
+                            <input
+                              className="mt-1 h-10 w-full rounded-xl border border-zinc-200 bg-white px-3 text-sm"
+                              value={q.label}
+                              onChange={(e) => {
+                                const nextQs = (settings.publicPage.form.questions || []).map((x) => (x.id === q.id ? { ...x, label: e.target.value.slice(0, 120) } : x));
+                                setSettings({
+                                  ...settings,
+                                  publicPage: { ...settings.publicPage, form: { ...settings.publicPage.form, questions: nextQs } },
+                                });
+                              }}
+                              placeholder="e.g. What service did you get?"
+                            />
+                          </div>
+
+                          <div className="flex flex-wrap items-center gap-2">
+                            <button
+                              type="button"
+                              className="h-10 rounded-xl border border-zinc-200 bg-white px-3 text-xs font-semibold text-zinc-800 hover:bg-zinc-50"
+                              onClick={() => {
+                                const qs = settings.publicPage.form.questions || [];
+                                const idx = qs.findIndex((x) => x.id === q.id);
+                                if (idx <= 0) return;
+                                const next = [...qs];
+                                const tmp = next[idx - 1];
+                                next[idx - 1] = next[idx];
+                                next[idx] = tmp;
+                                setSettings({
+                                  ...settings,
+                                  publicPage: { ...settings.publicPage, form: { ...settings.publicPage.form, questions: next } },
+                                });
+                              }}
+                            >
+                              Up
+                            </button>
+
+                            <button
+                              type="button"
+                              className="h-10 rounded-xl border border-zinc-200 bg-white px-3 text-xs font-semibold text-zinc-800 hover:bg-zinc-50"
+                              onClick={() => {
+                                const qs = settings.publicPage.form.questions || [];
+                                const idx = qs.findIndex((x) => x.id === q.id);
+                                if (idx < 0 || idx >= qs.length - 1) return;
+                                const next = [...qs];
+                                const tmp = next[idx + 1];
+                                next[idx + 1] = next[idx];
+                                next[idx] = tmp;
+                                setSettings({
+                                  ...settings,
+                                  publicPage: { ...settings.publicPage, form: { ...settings.publicPage.form, questions: next } },
+                                });
+                              }}
+                            >
+                              Down
+                            </button>
+
+                            <label className="flex items-center gap-2 text-xs font-semibold text-zinc-700">
+                              <input
+                                type="checkbox"
+                                checked={q.required}
+                                onChange={(e) => {
+                                  const nextQs = (settings.publicPage.form.questions || []).map((x) => (x.id === q.id ? { ...x, required: e.target.checked } : x));
+                                  setSettings({
+                                    ...settings,
+                                    publicPage: { ...settings.publicPage, form: { ...settings.publicPage.form, questions: nextQs } },
+                                  });
+                                }}
+                              />
+                              Required
+                            </label>
+
+                            <select
+                              className="h-10 rounded-xl border border-zinc-200 bg-white px-3 text-sm"
+                              value={q.kind}
+                              onChange={(e) => {
+                                const kind = e.target.value as ReviewQuestionKind;
+                                const nextQs = (settings.publicPage.form.questions || []).map((x) => {
+                                  if (x.id !== q.id) return x;
+                                  const next: ReviewQuestion = { ...x, kind };
+                                  if (kind !== "single_choice" && kind !== "multiple_choice") delete (next as any).options;
+                                  if ((kind === "single_choice" || kind === "multiple_choice") && (!next.options || next.options.length === 0)) {
+                                    next.options = ["Option 1", "Option 2"];
+                                  }
+                                  return next;
+                                });
+                                setSettings({
+                                  ...settings,
+                                  publicPage: { ...settings.publicPage, form: { ...settings.publicPage.form, questions: nextQs } },
+                                });
+                              }}
+                            >
+                              <option value="short">Short answer</option>
+                              <option value="long">Long answer</option>
+                              <option value="single_choice">Single choice</option>
+                              <option value="multiple_choice">Multiple choice</option>
+                            </select>
+
+                            <button
+                              type="button"
+                              className="h-10 rounded-xl border border-zinc-200 bg-white px-3 text-xs font-semibold text-red-700 hover:bg-zinc-50"
+                              onClick={() => {
+                                const nextQs = (settings.publicPage.form.questions || []).filter((x) => x.id !== q.id);
+                                setSettings({
+                                  ...settings,
+                                  publicPage: { ...settings.publicPage, form: { ...settings.publicPage.form, questions: nextQs } },
+                                });
+                              }}
+                            >
+                              Remove
+                            </button>
+                          </div>
+                        </div>
+
+                        {q.kind === "single_choice" || q.kind === "multiple_choice" ? (
+                          <div className="mt-3">
+                            <div className="text-xs font-semibold text-zinc-600">Options (one per line)</div>
+                            <textarea
+                              className="mt-1 min-h-[90px] w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm"
+                              value={(q.options || []).join("\n")}
+                              onChange={(e) => {
+                                const options = e.target.value
+                                  .split("\n")
+                                  .map((x) => x.trim())
+                                  .filter(Boolean)
+                                  .slice(0, 12);
+                                const nextQs = (settings.publicPage.form.questions || []).map((x) => (x.id === q.id ? { ...x, options } : x));
+                                setSettings({
+                                  ...settings,
+                                  publicPage: { ...settings.publicPage, form: { ...settings.publicPage.form, questions: nextQs } },
+                                });
+                              }}
+                            />
+                          </div>
+                        ) : null}
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <div className="mt-3 text-xs text-zinc-600">No custom questions yet.</div>
+                )}
+              </div>
             </div>
           </div>
 

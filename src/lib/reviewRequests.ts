@@ -98,12 +98,30 @@ export type ReviewDestination = {
   url: string;
 };
 
+export type ReviewsPublicQuestionKind = "short" | "long" | "single_choice" | "multiple_choice";
+
+export type ReviewsPublicQuestion = {
+  id: string;
+  label: string;
+  required: boolean;
+  kind: ReviewsPublicQuestionKind;
+  options?: string[];
+};
+
+export type ReviewsPublicFormConfig = {
+  version: 1;
+  email: { enabled: boolean; required: boolean };
+  phone: { enabled: boolean; required: boolean };
+  questions: ReviewsPublicQuestion[];
+};
+
 export type ReviewsPublicPageSettings = {
   enabled: boolean;
   galleryEnabled: boolean;
   title: string;
   description: string;
   thankYouMessage: string;
+  form: ReviewsPublicFormConfig;
   photoUrls: string[];
 };
 
@@ -214,6 +232,12 @@ export function parseReviewRequestsSettings(raw: unknown): ReviewRequestsSetting
       title: "Reviews",
       description: "We’d love to hear about your experience.",
       thankYouMessage: "Thanks — your review was submitted.",
+      form: {
+        version: 1,
+        email: { enabled: false, required: false },
+        phone: { enabled: false, required: false },
+        questions: [],
+      },
       photoUrls: [],
     },
   };
@@ -281,6 +305,49 @@ export function parseReviewRequestsSettings(raw: unknown): ReviewRequestsSetting
   }
 
   const publicRaw = rec.publicPage && typeof rec.publicPage === "object" && !Array.isArray(rec.publicPage) ? (rec.publicPage as any) : null;
+
+  const formRaw = publicRaw?.form && typeof publicRaw.form === "object" && !Array.isArray(publicRaw.form) ? (publicRaw.form as any) : null;
+  const emailRaw = formRaw?.email && typeof formRaw.email === "object" && !Array.isArray(formRaw.email) ? (formRaw.email as any) : null;
+  const phoneRaw = formRaw?.phone && typeof formRaw.phone === "object" && !Array.isArray(formRaw.phone) ? (formRaw.phone as any) : null;
+
+  const questionsRaw = Array.isArray(formRaw?.questions) ? (formRaw.questions as unknown[]) : [];
+  const questions: ReviewsPublicQuestion[] = questionsRaw
+    .flatMap((q, i) => {
+      if (!q || typeof q !== "object" || Array.isArray(q)) return [] as ReviewsPublicQuestion[];
+      const r = q as Record<string, unknown>;
+      const id = normalizeId(r.id, `q_${i + 1}`);
+      const label = normalizeString(r.label, 120, "Question") || "Question";
+      const required = typeof r.required === "boolean" ? r.required : false;
+      const kind: ReviewsPublicQuestionKind =
+        r.kind === "short" || r.kind === "long" || r.kind === "single_choice" || r.kind === "multiple_choice" ? (r.kind as any) : "short";
+
+      const optionsRaw = Array.isArray(r.options) ? (r.options as unknown[]) : [];
+      const options = optionsRaw
+        .flatMap((x) => {
+          const v = typeof x === "string" ? x.trim() : "";
+          return v ? [v.slice(0, 80)] : [];
+        })
+        .filter((v, idx, arr) => arr.indexOf(v) === idx)
+        .slice(0, 12);
+
+      if ((kind === "single_choice" || kind === "multiple_choice") && options.length === 0) return [] as ReviewsPublicQuestion[];
+      return [{ id, label, required, kind, ...(options.length ? { options } : {}) }];
+    })
+    .filter((q, idx, arr) => arr.findIndex((x) => x.id === q.id) === idx)
+    .slice(0, 25);
+
+  const form: ReviewsPublicFormConfig = {
+    version: 1,
+    email: {
+      enabled: typeof emailRaw?.enabled === "boolean" ? emailRaw.enabled : base.publicPage.form.email.enabled,
+      required: typeof emailRaw?.required === "boolean" ? emailRaw.required : base.publicPage.form.email.required,
+    },
+    phone: {
+      enabled: typeof phoneRaw?.enabled === "boolean" ? phoneRaw.enabled : base.publicPage.form.phone.enabled,
+      required: typeof phoneRaw?.required === "boolean" ? phoneRaw.required : base.publicPage.form.phone.required,
+    },
+    questions,
+  };
   const photoUrlsRaw = Array.isArray(publicRaw?.photoUrls) ? (publicRaw.photoUrls as unknown[]) : [];
   const photoUrls = photoUrlsRaw
     .flatMap((x) => {
@@ -304,6 +371,7 @@ export function parseReviewRequestsSettings(raw: unknown): ReviewRequestsSetting
     title: normalizeString(publicRaw?.title, 60, base.publicPage.title) || base.publicPage.title,
     description: normalizeString(publicRaw?.description, 220, base.publicPage.description) || base.publicPage.description,
     thankYouMessage: normalizeString(publicRaw?.thankYouMessage, 220, base.publicPage.thankYouMessage) || base.publicPage.thankYouMessage,
+    form,
     photoUrls: mergedPhotoUrls,
   };
 

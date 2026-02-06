@@ -277,6 +277,7 @@ export default async function PublicReviewsPage({ params }: { params: Promise<{ 
               destinations={settings.destinations}
               galleryEnabled={Boolean((settings.publicPage as any)?.galleryEnabled ?? true)}
               thankYouMessage={thankYouMessage}
+              formConfig={(settings.publicPage as any)?.form}
               initialReviews={reviews.map((r) => ({
                 id: r.id,
                 rating: r.rating,

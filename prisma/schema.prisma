@@ -94,6 +94,35 @@ model User {
 
   portalReviews PortalReview[]
   portalReviewPhotos PortalReviewPhoto[]
+  portalContacts PortalContact[]
+}
+
+model PortalContact {
+  id String @id @default(cuid())
+
+  ownerId String
+
+  name    String
+  nameKey String
+
+  email    String?
+  emailKey String?
+
+  phone    String?
+  phoneKey String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  owner User @relation(fields: [ownerId], references: [id])
+
+  bookings PortalBooking[]
+  reviews  PortalReview[]
+
+  @@index([ownerId])
+  @@index([ownerId, emailKey])
+  @@index([ownerId, phoneKey])
+  @@index([ownerId, nameKey])
 }
 
 model Lead {
@@ -531,7 +560,12 @@ model PortalReview {
   email String?
   phone String?
 
+  contactId String?
+  contact   PortalContact? @relation(fields: [contactId], references: [id])
+
   photoUrls Json?
+
+  answersJson Json?
 
   archivedAt DateTime?
 
@@ -543,6 +577,7 @@ model PortalReview {
   photos PortalReviewPhoto[]
 
   @@index([ownerId, archivedAt, createdAt])
+  @@index([ownerId, contactId])
 }
 
 model PortalReviewPhoto {
@@ -608,6 +643,9 @@ model PortalBooking {
   contactName  String
   contactEmail String
   contactPhone String?
+
+  contactId String?
+  contact   PortalContact? @relation(fields: [contactId], references: [id])
   notes        String?
 
   canceledAt DateTime?

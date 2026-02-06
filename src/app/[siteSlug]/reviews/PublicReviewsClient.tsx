@@ -6,6 +6,23 @@ import { Lightbox, type LightboxImage } from "@/components/Lightbox";
 
 type Destination = { id: string; label: string; url: string };
 
+type QuestionKind = "short" | "long" | "single_choice" | "multiple_choice";
+
+type PublicQuestion = {
+  id: string;
+  label: string;
+  required: boolean;
+  kind: QuestionKind;
+  options?: string[];
+};
+
+type PublicFormConfig = {
+  version: 1;
+  email: { enabled: boolean; required: boolean };
+  phone: { enabled: boolean; required: boolean };
+  questions: PublicQuestion[];
+};
+
 type Review = {
   id: string;
   rating: number;
@@ -23,6 +40,7 @@ export function PublicReviewsClient({
   destinations,
   galleryEnabled,
   thankYouMessage,
+  formConfig,
   initialReviews,
 }: {
   siteHandle: string;
@@ -30,6 +48,7 @@ export function PublicReviewsClient({
   destinations: Destination[];
   galleryEnabled: boolean;
   thankYouMessage: string;
+  formConfig?: unknown;
   initialReviews: Review[];
 }) {
   const router = useRouter();
@@ -39,7 +58,10 @@ export function PublicReviewsClient({
   const [name, setName] = useState("");
   const [rating, setRating] = useState(5);
   const [body, setBody] = useState("");
+  const [email, setEmail] = useState("");
+  const [phone, setPhone] = useState("");
   const [photos, setPhotos] = useState<File[]>([]);
+  const [answers, setAnswers] = useState<Record<string, unknown>>({});
   const [busy, setBusy] = useState(false);
   const [status, setStatus] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -49,6 +71,68 @@ export function PublicReviewsClient({
   const [lightboxIndex, setLightboxIndex] = useState(0);
 
   const photoPreviews = useMemo(() => photos.map((f) => ({ file: f, url: URL.createObjectURL(f) })), [photos]);
+
+  const parsedForm = useMemo((): PublicFormConfig => {
+    const base: PublicFormConfig = {
+      version: 1,
+      email: { enabled: false, required: false },
+      phone: { enabled: false, required: false },
+      questions: [],
+    };
+
+    if (!formConfig || typeof formConfig !== "object" || Array.isArray(formConfig)) return base;
+    const rec = formConfig as Record<string, unknown>;
+    const emailRaw = rec.email && typeof rec.email === "object" && !Array.isArray(rec.email) ? (rec.email as any) : null;
+    const phoneRaw = rec.phone && typeof rec.phone === "object" && !Array.isArray(rec.phone) ? (rec.phone as any) : null;
+    const questionsRaw = Array.isArray(rec.questions) ? (rec.questions as unknown[]) : [];
+
+    const questions: PublicQuestion[] = questionsRaw
+      .flatMap((q) => {
+        if (!q || typeof q !== "object" || Array.isArray(q)) return [] as PublicQuestion[];
+        const r = q as Record<string, unknown>;
+        const id = typeof r.id === "string" ? r.id.trim().slice(0, 50) : "";
+        const label = typeof r.label === "string" ? r.label.trim().slice(0, 120) : "";
+        if (!id || !label) return [] as PublicQuestion[];
+        const required = typeof r.required === "boolean" ? r.required : false;
+        const kind: QuestionKind =
+          r.kind === "short" || r.kind === "long" || r.kind === "single_choice" || r.kind === "multiple_choice" ? (r.kind as any) : "short";
+        const options = Array.isArray(r.options)
+          ? (r.options as unknown[]).flatMap((x) => (typeof x === "string" && x.trim() ? [x.trim().slice(0, 80)] : [])).slice(0, 12)
+          : [];
+        if ((kind === "single_choice" || kind === "multiple_choice") && options.length === 0) return [] as PublicQuestion[];
+        return [{ id, label, required, kind, ...(options.length ? { options } : {}) }];
+      })
+      .slice(0, 25);
+
+    return {
+      version: 1,
+      email: {
+        enabled: typeof emailRaw?.enabled === "boolean" ? emailRaw.enabled : base.email.enabled,
+        required: typeof emailRaw?.required === "boolean" ? emailRaw.required : base.email.required,
+      },
+      phone: {
+        enabled: typeof phoneRaw?.enabled === "boolean" ? phoneRaw.enabled : base.phone.enabled,
+        required: typeof phoneRaw?.required === "boolean" ? phoneRaw.required : base.phone.required,
+      },
+      questions,
+    };
+  }, [formConfig]);
+
+  const normalizedQuestions = parsedForm.questions;
+
+  function setAnswer(questionId: string, value: unknown) {
+    setAnswers((prev) => ({ ...prev, [questionId]: value }));
+  }
+
+  function getAnswerString(questionId: string) {
+    const v = answers[questionId];
+    return typeof v === "string" ? v : "";
+  }
+
+  function getAnswerArray(questionId: string) {
+    const v = answers[questionId];
+    return Array.isArray(v) ? (v as string[]).filter((x) => typeof x === "string") : [];
+  }
 
   const allReviewPhotoUrls = useMemo(() => {
     const out: string[] = [];
@@ -90,10 +174,27 @@ export function PublicReviewsClient({
     setStatus(null);
     setError(null);
     try {
+      if (parsedForm.email.enabled && parsedForm.email.required && !email.trim()) throw new Error("Email is required");
+      if (parsedForm.phone.enabled && parsedForm.phone.required && !phone.trim()) throw new Error("Phone is required");
+
+      for (const q of normalizedQuestions) {
+        if (!q.required) continue;
+        if (q.kind === "multiple_choice") {
+          if (getAnswerArray(q.id).length === 0) throw new Error(`“${q.label}” is required`);
+          continue;
+        }
+        const v = answers[q.id];
+        const s = typeof v === "string" ? v.trim() : "";
+        if (!s) throw new Error(`“${q.label}” is required`);
+      }
+
       const form = new FormData();
       form.append("name", name);
       form.append("rating", String(rating));
       form.append("body", body);
+      if (parsedForm.email.enabled) form.append("email", email);
+      if (parsedForm.phone.enabled) form.append("phone", phone);
+      if (normalizedQuestions.length) form.append("answers", JSON.stringify(answers));
       for (const f of photos.slice(0, MAX_PHOTOS)) form.append("photos", f);
 
       const res = await fetch(`/api/public/reviews/${siteHandle}/submit`, { method: "POST", body: form });
@@ -111,6 +212,9 @@ export function PublicReviewsClient({
       setName("");
       setRating(5);
       setBody("");
+      setEmail("");
+      setPhone("");
+      setAnswers({});
       setPhotos([]);
       router.refresh();
     } catch (err) {
@@ -181,6 +285,38 @@ export function PublicReviewsClient({
             disabled={busy}
           />
 
+          {parsedForm.email.enabled ? (
+            <>
+              <label className="text-xs font-semibold text-zinc-600">
+                Email{parsedForm.email.required ? " *" : ""}
+              </label>
+              <input
+                className="h-11 rounded-2xl border border-zinc-200 bg-white px-4 text-sm outline-none focus:border-zinc-300 focus:ring-2 focus:ring-[color:rgba(29,78,216,0.10)]"
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
+                placeholder="jane@company.com"
+                disabled={busy}
+                inputMode="email"
+              />
+            </>
+          ) : null}
+
+          {parsedForm.phone.enabled ? (
+            <>
+              <label className="text-xs font-semibold text-zinc-600">
+                Phone{parsedForm.phone.required ? " *" : ""}
+              </label>
+              <input
+                className="h-11 rounded-2xl border border-zinc-200 bg-white px-4 text-sm outline-none focus:border-zinc-300 focus:ring-2 focus:ring-[color:rgba(29,78,216,0.10)]"
+                value={phone}
+                onChange={(e) => setPhone(e.target.value)}
+                placeholder="(555) 555-5555"
+                disabled={busy}
+                inputMode="tel"
+              />
+            </>
+          ) : null}
+
           <div>
             <div className="text-xs font-semibold text-zinc-600">Rating</div>
             <div className="mt-2 flex items-center gap-2">
@@ -218,6 +354,82 @@ export function PublicReviewsClient({
               disabled={busy}
             />
           </div>
+
+          {normalizedQuestions.length ? (
+            <div className="space-y-3">
+              <div className="text-xs font-semibold text-zinc-600">Additional questions</div>
+              {normalizedQuestions.map((q) => (
+                <div key={q.id} className="rounded-2xl border border-zinc-200 bg-white p-4">
+                  <div className="text-sm font-semibold text-zinc-900">
+                    {q.label}{q.required ? " *" : ""}
+                  </div>
+
+                  {q.kind === "long" ? (
+                    <textarea
+                      className="mt-2 min-h-[90px] w-full rounded-2xl border border-zinc-200 bg-white px-4 py-3 text-sm outline-none focus:border-zinc-300 focus:ring-2 focus:ring-[color:rgba(29,78,216,0.10)]"
+                      disabled={busy}
+                      value={getAnswerString(q.id)}
+                      onChange={(e) => setAnswer(q.id, e.target.value)}
+                      placeholder="Write your answer…"
+                    />
+                  ) : q.kind === "single_choice" ? (
+                    <div className="mt-3 grid gap-2">
+                      {(q.options || []).map((opt) => {
+                        const current = getAnswerString(q.id);
+                        const selected = current === opt;
+                        return (
+                          <button
+                            key={opt}
+                            type="button"
+                            disabled={busy}
+                            onClick={() => setAnswer(q.id, opt)}
+                            className={
+                              "w-full rounded-2xl border px-4 py-3 text-left text-sm transition " +
+                              (selected ? "border-zinc-900 bg-zinc-50" : "border-zinc-200 bg-white hover:bg-zinc-50")
+                            }
+                          >
+                            {opt}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  ) : q.kind === "multiple_choice" ? (
+                    <div className="mt-3 grid gap-2">
+                      {(q.options || []).map((opt) => {
+                        const current = getAnswerArray(q.id);
+                        const selected = current.includes(opt);
+                        return (
+                          <button
+                            key={opt}
+                            type="button"
+                            disabled={busy}
+                            onClick={() => {
+                              const next = selected ? current.filter((x) => x !== opt) : [...current, opt];
+                              setAnswer(q.id, next);
+                            }}
+                            className={
+                              "w-full rounded-2xl border px-4 py-3 text-left text-sm transition " +
+                              (selected ? "border-zinc-900 bg-zinc-50" : "border-zinc-200 bg-white hover:bg-zinc-50")
+                            }
+                          >
+                            {selected ? "✓ " : ""}{opt}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  ) : (
+                    <input
+                      className="mt-2 h-11 w-full rounded-2xl border border-zinc-200 bg-white px-4 text-sm outline-none focus:border-zinc-300 focus:ring-2 focus:ring-[color:rgba(29,78,216,0.10)]"
+                      disabled={busy}
+                      value={getAnswerString(q.id)}
+                      onChange={(e) => setAnswer(q.id, e.target.value)}
+                      placeholder="Type your answer…"
+                    />
+                  )}
+                </div>
+              ))}
+            </div>
+          ) : null}
 
           <div>
             <div className="text-xs font-semibold text-zinc-600">Photos (optional)</div>
