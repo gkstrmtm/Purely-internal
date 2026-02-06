@@ -168,6 +168,7 @@ export default function PortalReviewsClient() {
 
   const [replyDrafts, setReplyDrafts] = useState<Record<string, string>>({});
   const [replySavingId, setReplySavingId] = useState<string | null>(null);
+  const [replyEditingId, setReplyEditingId] = useState<string | null>(null);
 
   const [qaQuestions, setQaQuestions] = useState<ReviewQuestionRow[]>([]);
   const [qaSavingId, setQaSavingId] = useState<string | null>(null);
@@ -323,11 +324,11 @@ export default function PortalReviewsClient() {
     }
   }
 
-  async function saveReviewReply(reviewId: string) {
+  async function saveReviewReply(reviewId: string, nextReplyOverride?: string) {
     setReplySavingId(reviewId);
     setError(null);
     try {
-      const reply = (replyDrafts[reviewId] || "").trim();
+      const reply = (typeof nextReplyOverride === "string" ? nextReplyOverride : (replyDrafts[reviewId] || "")).trim();
       const res = await fetch("/api/portal/reviews/reply", {
         method: "PUT",
         headers: { "content-type": "application/json" },
@@ -347,6 +348,9 @@ export default function PortalReviewsClient() {
             : r,
         ),
       );
+
+      setReplyDrafts((prev) => ({ ...prev, [reviewId]: reply }));
+      setReplyEditingId((prev) => (prev === reviewId ? null : prev));
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
     } finally {
@@ -1439,6 +1443,7 @@ export default function PortalReviewsClient() {
                 const rating = Math.max(1, Math.min(5, Math.round(Number(r.rating) || 0)));
                 const photos = Array.isArray(r.photoUrls) ? (r.photoUrls as string[]) : [];
                 const archived = Boolean(r.archivedAt);
+                const isEditingReply = replyEditingId === r.id;
                 return (
                   <div key={r.id} className="rounded-2xl border border-zinc-200 bg-white p-4">
                     <div className="flex flex-wrap items-start justify-between gap-2">
@@ -1489,27 +1494,101 @@ export default function PortalReviewsClient() {
                       </div>
                     ) : null}
 
-                    <div className="mt-4 rounded-2xl border border-zinc-200 bg-zinc-50 p-3">
-                      <div className="text-xs font-semibold text-zinc-700">Public reply (shows on your reviews page)</div>
-                      <textarea
-                        className="mt-2 min-h-[80px] w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm"
-                        value={replyDrafts[r.id] ?? ""}
-                        onChange={(e) => setReplyDrafts((prev) => ({ ...prev, [r.id]: e.target.value }))}
-                        placeholder="Write a response…"
-                      />
-                      <div className="mt-2 flex items-center justify-between gap-2">
-                        <div className="text-xs text-zinc-500">
-                          {r.businessReplyAt ? `Last replied: ${new Date(r.businessReplyAt).toLocaleString()}` : null}
+                    <div className="mt-4">
+                      {r.businessReply && !isEditingReply ? (
+                        <div className="rounded-2xl border border-zinc-200 bg-zinc-50 p-3">
+                          <div className="flex flex-wrap items-center justify-between gap-2">
+                            <div className="text-xs font-semibold text-zinc-700">Public response</div>
+                            <div className="flex items-center gap-2">
+                              <button
+                                type="button"
+                                className="rounded-xl border border-zinc-200 bg-white px-3 py-2 text-xs font-semibold text-brand-ink hover:bg-zinc-50"
+                                onClick={() => {
+                                  setReplyDrafts((prev) => ({ ...prev, [r.id]: typeof r.businessReply === "string" ? r.businessReply : "" }));
+                                  setReplyEditingId(r.id);
+                                }}
+                              >
+                                Edit
+                              </button>
+                              <button
+                                type="button"
+                                className="rounded-xl border border-zinc-200 bg-white px-3 py-2 text-xs font-semibold text-red-700 hover:bg-zinc-50"
+                                disabled={replySavingId === r.id}
+                                onClick={() => {
+                                  if (!window.confirm("Delete this public response?")) return;
+                                  setReplyDrafts((prev) => ({ ...prev, [r.id]: "" }));
+                                  void saveReviewReply(r.id, "");
+                                }}
+                              >
+                                Delete
+                              </button>
+                            </div>
+                          </div>
+
+                          <div className="mt-2 whitespace-pre-wrap text-sm text-zinc-700">{r.businessReply}</div>
+                          <div className="mt-2 text-xs text-zinc-500">
+                            {r.businessReplyAt ? `Last replied: ${new Date(r.businessReplyAt).toLocaleString()}` : null}
+                          </div>
                         </div>
-                        <button
-                          type="button"
-                          className="inline-flex h-9 items-center justify-center rounded-xl bg-emerald-600 px-4 text-xs font-semibold text-white disabled:opacity-60"
-                          disabled={replySavingId === r.id}
-                          onClick={() => void saveReviewReply(r.id)}
-                        >
-                          {replySavingId === r.id ? "Saving…" : "Save reply"}
-                        </button>
-                      </div>
+                      ) : null}
+
+                      {!r.businessReply && !isEditingReply ? (
+                        <div className="flex flex-wrap items-center justify-between gap-2 rounded-2xl border border-zinc-200 bg-zinc-50 p-3">
+                          <div className="text-xs text-zinc-600">No public response yet.</div>
+                          <button
+                            type="button"
+                            className="inline-flex h-9 items-center justify-center rounded-xl bg-emerald-600 px-4 text-xs font-semibold text-white disabled:opacity-60"
+                            disabled={replySavingId === r.id}
+                            onClick={() => {
+                              setReplyDrafts((prev) => ({ ...prev, [r.id]: prev[r.id] ?? "" }));
+                              setReplyEditingId(r.id);
+                            }}
+                          >
+                            Write reply
+                          </button>
+                        </div>
+                      ) : null}
+
+                      {isEditingReply ? (
+                        <div className="rounded-2xl border border-zinc-200 bg-zinc-50 p-3">
+                          <div className="text-xs font-semibold text-zinc-700">Public reply (shows on your reviews page)</div>
+                          <textarea
+                            className="mt-2 min-h-[80px] w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm"
+                            value={replyDrafts[r.id] ?? ""}
+                            onChange={(e) => setReplyDrafts((prev) => ({ ...prev, [r.id]: e.target.value }))}
+                            placeholder="Write a response…"
+                          />
+                          <div className="mt-2 flex flex-wrap items-center justify-between gap-2">
+                            <div className="text-xs text-zinc-500">
+                              {r.businessReplyAt ? `Last replied: ${new Date(r.businessReplyAt).toLocaleString()}` : null}
+                            </div>
+                            <div className="flex items-center gap-2">
+                              <button
+                                type="button"
+                                className="inline-flex h-9 items-center justify-center rounded-xl border border-zinc-200 bg-white px-4 text-xs font-semibold text-brand-ink hover:bg-zinc-50 disabled:opacity-60"
+                                disabled={replySavingId === r.id}
+                                onClick={() => {
+                                  setReplyDrafts((prev) => ({
+                                    ...prev,
+                                    [r.id]: typeof r.businessReply === "string" ? r.businessReply : "",
+                                  }));
+                                  setReplyEditingId(null);
+                                }}
+                              >
+                                Cancel
+                              </button>
+                              <button
+                                type="button"
+                                className="inline-flex h-9 items-center justify-center rounded-xl bg-emerald-600 px-4 text-xs font-semibold text-white disabled:opacity-60"
+                                disabled={replySavingId === r.id}
+                                onClick={() => void saveReviewReply(r.id)}
+                              >
+                                {replySavingId === r.id ? "Saving…" : "Save reply"}
+                              </button>
+                            </div>
+                          </div>
+                        </div>
+                      ) : null}
                     </div>
                   </div>
                 );

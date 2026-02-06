@@ -85,6 +85,7 @@ export function PublicReviewsClient({
   const [qBusy, setQBusy] = useState(false);
   const [qStatus, setQStatus] = useState<string | null>(null);
   const [qError, setQError] = useState<string | null>(null);
+  const [qaAskOpen, setQaAskOpen] = useState(false);
 
   const [lightboxOpen, setLightboxOpen] = useState(false);
   const [lightboxImages, setLightboxImages] = useState<LightboxImage[]>([]);
@@ -244,7 +245,7 @@ export function PublicReviewsClient({
     }
   }
 
-  async function submitQuestion() {
+  async function submitQuestion(): Promise<boolean> {
     setQBusy(true);
     setQStatus(null);
     setQError(null);
@@ -272,8 +273,10 @@ export function PublicReviewsClient({
       setQStatus("Thanks — your question was sent.");
       setQName("");
       setQText("");
+      return true;
     } catch (err) {
       setQError(err instanceof Error ? err.message : String(err));
+      return false;
     } finally {
       setQBusy(false);
     }
@@ -561,40 +564,79 @@ export function PublicReviewsClient({
             <div className="mt-4 text-sm text-zinc-600">No answered questions yet.</div>
           )}
 
-          <div className="mt-5 grid grid-cols-1 gap-3">
-            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-              <div>
-                <div className="text-xs font-semibold text-zinc-700">Your name</div>
-                <input
-                  className="mt-1 h-11 w-full rounded-2xl border border-zinc-200 bg-white px-4 text-sm"
-                  value={qName}
-                  onChange={(e) => setQName(e.target.value)}
-                  placeholder="Jane"
-                />
+          <div className="mt-5">
+            <div className="flex flex-wrap items-center gap-2">
+              <button
+                type="button"
+                className="inline-flex h-11 items-center justify-center rounded-2xl px-5 text-sm font-semibold text-white shadow-sm disabled:opacity-60"
+                style={{ backgroundColor: brandPrimary }}
+                onClick={() => {
+                  setQStatus(null);
+                  setQError(null);
+                  setQaAskOpen((v) => !v);
+                }}
+                disabled={qBusy}
+              >
+                {qaAskOpen ? "Hide" : "Ask a question"}
+              </button>
+              {qStatus ? <div className="text-sm font-medium text-emerald-700">{qStatus}</div> : null}
+            </div>
+
+            {qaAskOpen ? (
+              <div className="mt-4 grid grid-cols-1 gap-3">
+                <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                  <div>
+                    <div className="text-xs font-semibold text-zinc-700">Your name</div>
+                    <input
+                      className="mt-1 h-11 w-full rounded-2xl border border-zinc-200 bg-white px-4 text-sm"
+                      value={qName}
+                      onChange={(e) => setQName(e.target.value)}
+                      placeholder="Jane"
+                    />
+                  </div>
+                </div>
+                <div>
+                  <div className="text-xs font-semibold text-zinc-700">Question</div>
+                  <textarea
+                    className="mt-1 min-h-[90px] w-full rounded-2xl border border-zinc-200 bg-white px-4 py-3 text-sm"
+                    value={qText}
+                    onChange={(e) => setQText(e.target.value)}
+                    placeholder="Ask something about services, availability, pricing, etc."
+                  />
+                </div>
+
+                {qError ? (
+                  <div className="rounded-2xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-800">{qError}</div>
+                ) : null}
+
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <button
+                    type="button"
+                    className="inline-flex h-11 items-center justify-center rounded-2xl border border-zinc-200 bg-white px-5 text-sm font-semibold text-zinc-900 hover:bg-zinc-50"
+                    onClick={() => {
+                      setQaAskOpen(false);
+                      setQError(null);
+                    }}
+                    disabled={qBusy}
+                  >
+                    Cancel
+                  </button>
+
+                  <button
+                    type="button"
+                    disabled={qBusy}
+                    onClick={async () => {
+                      const ok = await submitQuestion();
+                      if (ok) setQaAskOpen(false);
+                    }}
+                    className="inline-flex h-11 items-center justify-center rounded-2xl px-5 text-sm font-semibold text-white shadow-sm disabled:opacity-60"
+                    style={{ backgroundColor: brandPrimary }}
+                  >
+                    {qBusy ? "Sending…" : "Send question"}
+                  </button>
+                </div>
               </div>
-            </div>
-            <div>
-              <div className="text-xs font-semibold text-zinc-700">Question</div>
-              <textarea
-                className="mt-1 min-h-[90px] w-full rounded-2xl border border-zinc-200 bg-white px-4 py-3 text-sm"
-                value={qText}
-                onChange={(e) => setQText(e.target.value)}
-                placeholder="Ask something about services, availability, pricing, etc."
-              />
-            </div>
-
-            {qError ? <div className="rounded-2xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-800">{qError}</div> : null}
-            {qStatus ? <div className="rounded-2xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-900">{qStatus}</div> : null}
-
-            <button
-              type="button"
-              disabled={qBusy}
-              onClick={() => void submitQuestion()}
-              className="inline-flex h-11 items-center justify-center rounded-2xl px-5 text-sm font-semibold text-white shadow-sm disabled:opacity-60"
-              style={{ backgroundColor: brandPrimary }}
-            >
-              {qBusy ? "Sending…" : "Ask question"}
-            </button>
+            ) : null}
           </div>
         </div>
 

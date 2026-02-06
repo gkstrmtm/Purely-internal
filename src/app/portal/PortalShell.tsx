@@ -297,7 +297,7 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
                       href={`/portal/app/services/${s.slug}`}
                       className={classNames(
                         "flex items-center gap-3 rounded-2xl px-3 py-2 text-sm font-medium",
-                        pathname === `/portal/app/services/${s.slug}`
+                        pathname === `/portal/app/services/${s.slug}` || pathname.startsWith(`/portal/app/services/${s.slug}/`)
                           ? "bg-zinc-100 text-zinc-900"
                           : "text-zinc-700 hover:bg-zinc-50",
                         collapsed && "justify-center px-2",
