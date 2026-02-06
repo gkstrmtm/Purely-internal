@@ -16,7 +16,17 @@ CREATE TABLE IF NOT EXISTS "PortalReview" (
   CONSTRAINT "PortalReview_pkey" PRIMARY KEY ("id")
 );
 
-ALTER TABLE "PortalReview" ADD CONSTRAINT IF NOT EXISTS "PortalReview_ownerId_fkey"
-  FOREIGN KEY ("ownerId") REFERENCES "User"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1
+    FROM pg_constraint
+    WHERE conname = 'PortalReview_ownerId_fkey'
+  ) THEN
+    ALTER TABLE "PortalReview"
+      ADD CONSTRAINT "PortalReview_ownerId_fkey"
+      FOREIGN KEY ("ownerId") REFERENCES "User"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+  END IF;
+END $$;
 
 CREATE INDEX IF NOT EXISTS "PortalReview_ownerId_archivedAt_createdAt_idx" ON "PortalReview"("ownerId", "archivedAt", "createdAt");
