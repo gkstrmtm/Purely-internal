@@ -17,12 +17,12 @@ type TwilioMasked = {
 };
 
 type AppointmentReminderSettings = {
-  version: 2;
+  version: 3;
   enabled: boolean;
   steps: {
     id: string;
     enabled: boolean;
-    leadTimeMinutes: number;
+    leadTime: { value: number; unit: "minutes" | "hours" | "days" | "weeks" };
     messageBody: string;
   }[];
 };
@@ -30,6 +30,7 @@ type AppointmentReminderSettings = {
 type AppointmentReminderEvent = {
   id: string;
   bookingId: string;
+  calendarId?: string;
   bookingStartAtIso: string;
   scheduledForIso: string;
 
@@ -47,6 +48,14 @@ type AppointmentReminderEvent = {
   error?: string;
 
   createdAtIso: string;
+};
+
+type BookingCalendar = {
+  id: string;
+  enabled: boolean;
+  title: string;
+  description?: string;
+  durationMinutes?: number;
 };
 
 function getApiError(body: unknown): string | undefined {
@@ -73,6 +82,9 @@ export function PortalAppointmentRemindersClient() {
   const [me, setMe] = useState<Me | null>(null);
   const [loading, setLoading] = useState(true);
 
+  const [calendars, setCalendars] = useState<BookingCalendar[]>([]);
+  const [selectedCalendarId, setSelectedCalendarId] = useState<string | null>(null);
+
   const [twilio, setTwilio] = useState<TwilioMasked | null>(null);
   const [settings, setSettings] = useState<AppointmentReminderSettings | null>(null);
   const [draft, setDraft] = useState<AppointmentReminderSettings | null>(null);
@@ -84,17 +96,36 @@ export function PortalAppointmentRemindersClient() {
 
   const unlocked = useMemo(() => Boolean(me?.entitlements?.booking), [me?.entitlements?.booking]);
 
-  async function refresh() {
-    setError(null);
+  const calendarsById = useMemo(() => {
+    const m = new Map<string, BookingCalendar>();
+    for (const c of calendars) m.set(c.id, c);
+    return m;
+  }, [calendars]);
 
-    const [meRes, remindersRes] = await Promise.all([
-      fetch("/api/customer/me", { cache: "no-store" }),
-      fetch("/api/portal/booking/reminders/settings", { cache: "no-store" }),
-    ]);
+  const filteredEvents = useMemo(() => {
+    const cal = selectedCalendarId;
+    if (!cal) return events;
+    return events.filter((e) => e.calendarId === cal);
+  }, [events, selectedCalendarId]);
 
-    const meJson = await meRes.json().catch(() => ({}));
-    if (meRes.ok) setMe(meJson as Me);
+  function maxValueForUnit(unit: AppointmentReminderSettings["steps"][number]["leadTime"]["unit"]) {
+    if (unit === "weeks") return 2;
+    if (unit === "days") return 14;
+    if (unit === "hours") return 24 * 14;
+    return 60 * 24 * 14;
+  }
 
+  function minValueForUnit(unit: AppointmentReminderSettings["steps"][number]["leadTime"]["unit"]) {
+    return unit === "minutes" ? 5 : 1;
+  }
+
+  function remindersUrl(calendarId: string | null) {
+    const q = calendarId ? `?calendarId=${encodeURIComponent(calendarId)}` : "";
+    return `/api/portal/booking/reminders/settings${q}`;
+  }
+
+  async function fetchReminders(calendarId: string | null) {
+    const remindersRes = await fetch(remindersUrl(calendarId), { cache: "no-store" });
     const remJson = await remindersRes.json().catch(() => ({}));
     if (remindersRes.ok) {
       const s = ((remJson as any)?.settings as AppointmentReminderSettings) ?? null;
@@ -102,10 +133,36 @@ export function PortalAppointmentRemindersClient() {
       setDraft(s);
       setTwilio(((remJson as any)?.twilio as TwilioMasked) ?? null);
       setEvents((((remJson as any)?.events as AppointmentReminderEvent[]) ?? []).slice(0, 50));
+      return { ok: true as const };
+    }
+    return { ok: false as const, error: getApiError(remJson) ?? "Failed to load appointment reminders" };
+  }
+
+  async function refresh() {
+    setError(null);
+
+    const [meRes, calendarsRes] = await Promise.all([
+      fetch("/api/customer/me", { cache: "no-store" }),
+      fetch("/api/portal/booking/calendars", { cache: "no-store" }),
+    ]);
+
+    const meJson = await meRes.json().catch(() => ({}));
+    if (meRes.ok) setMe(meJson as Me);
+
+    const calJson = await calendarsRes.json().catch(() => ({}));
+    if (calendarsRes.ok) {
+      const list = (((calJson as any)?.config?.calendars as BookingCalendar[]) ?? []).filter((c) => c && c.id);
+      setCalendars(list);
+      if (!selectedCalendarId) {
+        const firstEnabled = list.find((c) => c.enabled) ?? list[0];
+        if (firstEnabled?.id) setSelectedCalendarId(firstEnabled.id);
+      }
     }
 
-    if (!meRes.ok || !remindersRes.ok) {
-      setError(getApiError(meJson) ?? getApiError(remJson) ?? "Failed to load appointment reminders");
+    const targetCalendar = selectedCalendarId;
+    const remindersResult = await fetchReminders(targetCalendar);
+    if (!meRes.ok || !calendarsRes.ok || !remindersResult.ok) {
+      setError(getApiError(meJson) ?? getApiError(calJson) ?? ("error" in remindersResult ? remindersResult.error : null) ?? "Failed to load appointment reminders");
     }
   }
 
@@ -122,12 +179,21 @@ export function PortalAppointmentRemindersClient() {
     };
   }, []);
 
+  useEffect(() => {
+    if (!selectedCalendarId) return;
+    void (async () => {
+      setError(null);
+      const res = await fetchReminders(selectedCalendarId);
+      if (!res.ok) setError((res as any).error ?? "Failed to load appointment reminders");
+    })();
+  }, [selectedCalendarId]);
+
   async function save(next: AppointmentReminderSettings) {
     setSaving(true);
     setError(null);
     setStatus(null);
 
-    const res = await fetch("/api/portal/booking/reminders/settings", {
+    const res = await fetch(remindersUrl(selectedCalendarId), {
       method: "PUT",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({ settings: next }),
@@ -156,7 +222,7 @@ export function PortalAppointmentRemindersClient() {
       const idx = steps.findIndex((s) => s.id === stepId);
       if (idx < 0) return prev;
       steps[idx] = { ...steps[idx], ...partial };
-      return { ...prev, version: 2, steps };
+      return { ...prev, version: 3, steps };
     });
   }
 
@@ -167,10 +233,10 @@ export function PortalAppointmentRemindersClient() {
       if (steps.length >= 8) return prev;
       return {
         ...prev,
-        version: 2,
+        version: 3,
         steps: [
           ...steps,
-          { id: makeClientId("rem_"), enabled: true, leadTimeMinutes: 60, messageBody: DEFAULT_BODY },
+          { id: makeClientId("rem_"), enabled: true, leadTime: { value: 1, unit: "hours" }, messageBody: DEFAULT_BODY },
         ],
       };
     });
@@ -181,13 +247,13 @@ export function PortalAppointmentRemindersClient() {
       if (!prev) return prev;
       const steps = Array.isArray(prev.steps) ? prev.steps.filter((s) => s.id !== stepId) : [];
       if (steps.length === 0) return prev;
-      return { ...prev, version: 2, steps };
+      return { ...prev, version: 3, steps };
     });
   }
 
   async function setEnabled(enabled: boolean) {
     if (!draft) return;
-    const next: AppointmentReminderSettings = { ...draft, enabled, version: 2 };
+    const next: AppointmentReminderSettings = { ...draft, enabled, version: 3 };
     setDraft(next);
     await save(next);
   }
@@ -290,6 +356,36 @@ export function PortalAppointmentRemindersClient() {
             </div>
           </div>
 
+          <div className="mt-4">
+            <label className="block text-xs font-semibold text-zinc-600">Calendar</label>
+            <div className="mt-2 flex items-center gap-2">
+              <select
+                className="w-full max-w-md rounded-2xl border border-zinc-200 bg-white px-4 py-3 text-sm"
+                value={selectedCalendarId ?? ""}
+                onChange={(e) => setSelectedCalendarId(e.target.value || null)}
+                disabled={saving}
+              >
+                <option value="">Default (all booking links)</option>
+                {calendars
+                  .slice()
+                  .sort((a, b) => a.title.localeCompare(b.title))
+                  .map((c) => (
+                    <option key={c.id} value={c.id}>
+                      {c.title}{c.enabled ? "" : " (disabled)"}
+                    </option>
+                  ))}
+              </select>
+              {selectedCalendarId ? (
+                <div className="text-xs text-zinc-500">
+                  Configuring: {calendarsById.get(selectedCalendarId)?.title ?? selectedCalendarId}
+                </div>
+              ) : null}
+            </div>
+            <div className="mt-2 text-xs text-zinc-500">
+              Each calendar can have its own reminder sequence.
+            </div>
+          </div>
+
           <div className="mt-4 rounded-2xl border border-zinc-200 bg-zinc-50 p-4 text-sm">
             <div className="flex items-center justify-between gap-3">
               <div className="font-medium text-zinc-800">Twilio</div>
@@ -354,16 +450,44 @@ export function PortalAppointmentRemindersClient() {
                         <div className="mt-2 flex items-center gap-2">
                           <input
                             type="number"
-                            min={5}
-                            max={20160}
+                            min={minValueForUnit(s.leadTime.unit)}
+                            max={maxValueForUnit(s.leadTime.unit)}
                             className="w-28 rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm"
-                            value={s.leadTimeMinutes}
-                            onChange={(e) => updateStep(s.id, { leadTimeMinutes: Number(e.target.value) })}
+                            value={s.leadTime.value}
+                            onChange={(e) =>
+                              updateStep(s.id, {
+                                leadTime: {
+                                  ...s.leadTime,
+                                  value: Number(e.target.value),
+                                },
+                              })
+                            }
                             disabled={saving}
                           />
-                          <span className="text-sm text-zinc-600">min before</span>
+                          <select
+                            className="rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm"
+                            value={s.leadTime.unit}
+                            disabled={saving}
+                            onChange={(e) =>
+                              updateStep(s.id, {
+                                leadTime: {
+                                  unit: e.target.value as any,
+                                  value: Math.max(
+                                    minValueForUnit(e.target.value as any),
+                                    Math.min(maxValueForUnit(e.target.value as any), s.leadTime.value),
+                                  ),
+                                },
+                              })
+                            }
+                          >
+                            <option value="minutes">minutes</option>
+                            <option value="hours">hours</option>
+                            <option value="days">days</option>
+                            <option value="weeks">weeks</option>
+                          </select>
+                          <span className="text-sm text-zinc-600">before</span>
                         </div>
-                        <div className="mt-2 text-xs text-zinc-500">Max 14 days (20160 minutes).</div>
+                        <div className="mt-2 text-xs text-zinc-500">Max 2 weeks.</div>
                       </label>
 
                       <label className="rounded-2xl border border-zinc-200 bg-zinc-50 px-4 py-3 text-sm sm:col-span-2">
@@ -409,12 +533,12 @@ export function PortalAppointmentRemindersClient() {
           <div className="mt-2 text-sm text-zinc-600">Reminders sent (or skipped) show here.</div>
 
           <div className="mt-4 space-y-2">
-            {events.length === 0 ? (
+            {filteredEvents.length === 0 ? (
               <div className="rounded-2xl border border-dashed border-zinc-200 bg-zinc-50 p-4 text-sm text-zinc-600">
                 No reminder activity yet.
               </div>
             ) : (
-              events.slice(0, 12).map((e) => (
+              filteredEvents.slice(0, 12).map((e) => (
                 <div key={e.id} className="rounded-2xl border border-zinc-200 bg-zinc-50 px-4 py-3 text-sm">
                   <div className="flex items-center justify-between gap-3">
                     <div className="font-medium text-zinc-800">{e.contactName || "(unknown)"}</div>

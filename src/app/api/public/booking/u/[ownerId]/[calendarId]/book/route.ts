@@ -6,6 +6,7 @@ import { hasPublicColumn } from "@/lib/dbSchema";
 import { getBookingFormConfig } from "@/lib/bookingForm";
 import { getBookingCalendarsConfig } from "@/lib/bookingCalendars";
 import { getRequestOrigin, signBookingRescheduleToken } from "@/lib/bookingReschedule";
+import { recordAppointmentReminderBookingMeta } from "@/lib/appointmentReminders";
 import { scheduleFollowUpsForBooking } from "@/lib/followUpAutomation";
 
 export const dynamic = "force-dynamic";
@@ -223,6 +224,13 @@ export async function POST(
   // Best-effort follow-up scheduling (never block a successful booking).
   try {
     await scheduleFollowUpsForBooking(String(ownerId), String(booking.id), { calendarId: String(calendarId) });
+  } catch {
+    // ignore
+  }
+
+  // Best-effort: remember which calendar this booking came from for reminders.
+  try {
+    await recordAppointmentReminderBookingMeta(String(ownerId), String(booking.id), { calendarId: String(calendarId) });
   } catch {
     // ignore
   }

@@ -62,12 +62,12 @@ type TwilioMasked = {
 };
 
 type AppointmentReminderSettings = {
-  version: 2;
+  version: 3;
   enabled: boolean;
   steps: {
     id: string;
     enabled: boolean;
-    leadTimeMinutes: number;
+    leadTime: { value: number; unit: "minutes" | "hours" | "days" | "weeks" };
     messageBody: string;
   }[];
 };
@@ -75,6 +75,7 @@ type AppointmentReminderSettings = {
 type AppointmentReminderEvent = {
   id: string;
   bookingId: string;
+  calendarId?: string;
   bookingStartAtIso: string;
   scheduledForIso: string;
 
@@ -241,6 +242,44 @@ export function PortalBookingClient() {
   const [reminderEvents, setReminderEvents] = useState<AppointmentReminderEvent[]>([]);
   const [reminderSaving, setReminderSaving] = useState(false);
 
+  const [reminderCalendarId, setReminderCalendarId] = useState<string | null>(null);
+
+  const filteredReminderEvents = useMemo(() => {
+    const cal = reminderCalendarId;
+    if (!cal) return reminderEvents;
+    return reminderEvents.filter((e) => e.calendarId === cal);
+  }, [reminderEvents, reminderCalendarId]);
+
+  function maxValueForUnit(unit: AppointmentReminderSettings["steps"][number]["leadTime"]["unit"]) {
+    if (unit === "weeks") return 2;
+    if (unit === "days") return 14;
+    if (unit === "hours") return 24 * 14;
+    return 60 * 24 * 14;
+  }
+
+  function minValueForUnit(unit: AppointmentReminderSettings["steps"][number]["leadTime"]["unit"]) {
+    return unit === "minutes" ? 5 : 1;
+  }
+
+  function remindersUrl(calendarId: string | null) {
+    const q = calendarId ? `?calendarId=${encodeURIComponent(calendarId)}` : "";
+    return `/api/portal/booking/reminders/settings${q}`;
+  }
+
+  async function loadReminders(calendarId: string | null) {
+    const remindersRes = await fetch(remindersUrl(calendarId), { cache: "no-store" });
+    const remindersJson = await remindersRes.json().catch(() => ({}));
+    if (!remindersRes.ok) {
+      setError(getApiError(remindersJson) ?? "Failed to load appointment reminders");
+      return;
+    }
+    const settings = ((remindersJson as any)?.settings as AppointmentReminderSettings) ?? null;
+    setReminderSettings(settings);
+    setReminderDraft(settings);
+    setReminderTwilio(((remindersJson as any)?.twilio as TwilioMasked) ?? null);
+    setReminderEvents((((remindersJson as any)?.events as AppointmentReminderEvent[]) ?? []).slice(0, 50));
+  }
+
   const bookingUrl = useMemo(() => {
     if (!site?.slug) return null;
     if (typeof window === "undefined") return `/book/${site.slug}`;
@@ -262,7 +301,7 @@ export function PortalBookingClient() {
       fetch("/api/portal/booking/form", { cache: "no-store" }),
       fetch("/api/portal/booking/calendars", { cache: "no-store" }),
       fetch("/api/availability", { cache: "no-store" }),
-      fetch("/api/portal/booking/reminders/settings", { cache: "no-store" }),
+      fetch(remindersUrl(reminderCalendarId), { cache: "no-store" }),
     ]);
 
     const meJson = await meRes.json().catch(() => ({}));
@@ -389,7 +428,7 @@ export function PortalBookingClient() {
     setError(null);
     setStatus(null);
 
-    const res = await fetch("/api/portal/booking/reminders/settings", {
+    const res = await fetch(remindersUrl(reminderCalendarId), {
       method: "PUT",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({ settings: next }),
@@ -412,7 +451,7 @@ export function PortalBookingClient() {
 
   async function setReminderEnabled(enabled: boolean) {
     if (!reminderDraft) return;
-    const next: AppointmentReminderSettings = { ...reminderDraft, enabled, version: 2 };
+    const next: AppointmentReminderSettings = { ...reminderDraft, enabled, version: 3 };
     setReminderDraft(next);
     await saveReminders(next);
   }
@@ -424,7 +463,7 @@ export function PortalBookingClient() {
       const idx = steps.findIndex((s) => s.id === stepId);
       if (idx < 0) return prev;
       steps[idx] = { ...steps[idx], ...partial };
-      return { ...prev, version: 2, steps };
+      return { ...prev, version: 3, steps };
     });
   }
 
@@ -437,10 +476,10 @@ export function PortalBookingClient() {
       const nextStep = {
         id: makeClientId("rem_"),
         enabled: true,
-        leadTimeMinutes: 60,
+        leadTime: { value: 1, unit: "hours" as const },
         messageBody: defaultBody,
       };
-      return { ...prev, version: 2, steps: [...steps, nextStep] };
+      return { ...prev, version: 3, steps: [...steps, nextStep] };
     });
   }
 
@@ -448,7 +487,7 @@ export function PortalBookingClient() {
     setReminderDraft((prev) => {
       if (!prev) return prev;
       const steps = Array.isArray(prev.steps) ? prev.steps.filter((s) => s.id !== stepId) : [];
-      return { ...prev, version: 2, steps: steps.length ? steps : prev.steps };
+      return { ...prev, version: 3, steps: steps.length ? steps : prev.steps };
     });
   }
 
@@ -1101,6 +1140,33 @@ export function PortalBookingClient() {
               </div>
             </div>
 
+            <div className="mt-4">
+              <label className="block text-xs font-semibold text-zinc-600">Calendar</label>
+              <div className="mt-2 flex flex-col gap-2 sm:flex-row sm:items-center">
+                <select
+                  className="w-full max-w-md rounded-2xl border border-zinc-200 bg-white px-4 py-3 text-sm"
+                  value={reminderCalendarId ?? ""}
+                  onChange={(e) => {
+                    const next = e.target.value || null;
+                    setReminderCalendarId(next);
+                    void loadReminders(next);
+                  }}
+                  disabled={reminderSaving}
+                >
+                  <option value="">Default (all booking links)</option>
+                  {calendars
+                    .slice()
+                    .sort((a, b) => a.title.localeCompare(b.title))
+                    .map((c) => (
+                      <option key={c.id} value={c.id}>
+                        {c.title}{c.enabled ? "" : " (disabled)"}
+                      </option>
+                    ))}
+                </select>
+                <div className="text-xs text-zinc-500">Each calendar can have its own reminder sequence.</div>
+              </div>
+            </div>
+
             {reminderDraft ? (
               <>
                 <div className="mt-5 flex items-center justify-between gap-3">
@@ -1151,14 +1217,39 @@ export function PortalBookingClient() {
                           <div className="mt-2 flex items-center gap-2">
                             <input
                               type="number"
-                              min={5}
-                              max={20160}
+                              min={minValueForUnit(s.leadTime.unit)}
+                              max={maxValueForUnit(s.leadTime.unit)}
                               className="w-28 rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm"
-                              value={s.leadTimeMinutes}
-                              onChange={(e) => updateReminderStep(s.id, { leadTimeMinutes: Number(e.target.value) })}
+                              value={s.leadTime.value}
+                              onChange={(e) =>
+                                updateReminderStep(s.id, {
+                                  leadTime: { ...s.leadTime, value: Number(e.target.value) },
+                                })
+                              }
                               disabled={reminderSaving}
                             />
-                            <span className="text-sm text-zinc-600">min before</span>
+                            <select
+                              className="rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm"
+                              value={s.leadTime.unit}
+                              disabled={reminderSaving}
+                              onChange={(e) =>
+                                updateReminderStep(s.id, {
+                                  leadTime: {
+                                    unit: e.target.value as any,
+                                    value: Math.max(
+                                      minValueForUnit(e.target.value as any),
+                                      Math.min(maxValueForUnit(e.target.value as any), s.leadTime.value),
+                                    ),
+                                  },
+                                })
+                              }
+                            >
+                              <option value="minutes">minutes</option>
+                              <option value="hours">hours</option>
+                              <option value="days">days</option>
+                              <option value="weeks">weeks</option>
+                            </select>
+                            <span className="text-sm text-zinc-600">before</span>
                           </div>
                         </label>
 
@@ -1209,12 +1300,12 @@ export function PortalBookingClient() {
             <div className="mt-2 text-sm text-zinc-600">Reminders sent (or skipped) show here.</div>
 
             <div className="mt-4 space-y-2">
-              {reminderEvents.length === 0 ? (
+              {filteredReminderEvents.length === 0 ? (
                 <div className="rounded-2xl border border-dashed border-zinc-200 bg-zinc-50 p-4 text-sm text-zinc-600">
                   No reminder activity yet.
                 </div>
               ) : (
-                reminderEvents.slice(0, 12).map((e) => (
+                filteredReminderEvents.slice(0, 12).map((e) => (
                   <div key={e.id} className="rounded-2xl border border-zinc-200 bg-zinc-50 px-4 py-3 text-sm">
                     <div className="flex items-center justify-between gap-3">
                       <div className="font-medium text-zinc-800">{e.contactName || "(unknown)"}</div>
