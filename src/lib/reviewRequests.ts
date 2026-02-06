@@ -1,0 +1,649 @@
+import { prisma } from "@/lib/db";
+import { normalizePhoneStrict } from "@/lib/phone";
+import { sendOwnerTwilioSms, getOwnerTwilioSmsConfig } from "@/lib/portalTwilio";
+import { hasPublicColumn } from "@/lib/dbSchema";
+import { ensureStoredBlogSiteSlug, getStoredBlogSiteSlug } from "@/lib/blogSiteSlug";
+
+const SERVICE_SLUG = "reviews";
+
+const MAX_EVENTS = 200;
+const MAX_SENT_KEYS = 4000;
+const MAX_BODY_LEN = 900;
+const MAX_DESTINATIONS = 10;
+
+let canUseBlogSlugColumnCache: boolean | null = null;
+
+function getBasePublicUrl() {
+  const raw = process.env.NEXTAUTH_URL ?? process.env.NEXT_PUBLIC_APP_URL ?? "http://localhost:3000";
+  return raw.replace(/\/+$/, "");
+}
+
+async function canUseBlogSlugColumn() {
+  if (canUseBlogSlugColumnCache !== null) return canUseBlogSlugColumnCache;
+  canUseBlogSlugColumnCache = await hasPublicColumn("ClientBlogSite", "slug");
+  return canUseBlogSlugColumnCache;
+}
+
+async function getOwnerPublicSiteHandle(ownerId: string): Promise<string | null> {
+  const canUse = await canUseBlogSlugColumn();
+  const site = (await prisma.clientBlogSite.findUnique({
+    where: { ownerId },
+    select: { id: true, name: true, ...(canUse ? { slug: true } : {}) },
+  } as any)) as any;
+
+  if (!site) return null;
+
+  if (canUse) {
+    return (site.slug as string | null | undefined) || (site.id as string);
+  }
+
+  let fallback = await getStoredBlogSiteSlug(ownerId);
+  if (!fallback) fallback = await ensureStoredBlogSiteSlug(ownerId, String(site.name || ""));
+  return fallback || null;
+}
+
+async function resolveReviewLink(ownerId: string, settings: ReviewRequestsSettings, destination: ReviewDestination) {
+  if (!settings.publicPage.enabled) return { label: destination.label, url: destination.url };
+  const handle = await getOwnerPublicSiteHandle(ownerId);
+  if (!handle) return { label: destination.label, url: destination.url };
+  return { label: "Reviews page", url: `${getBasePublicUrl()}/${handle}/reviews` };
+}
+
+export type ReviewDelayUnit = "minutes" | "hours" | "days" | "weeks";
+
+export type ReviewDelay = {
+  value: number;
+  unit: ReviewDelayUnit;
+};
+
+export type ReviewDestination = {
+  id: string;
+  label: string;
+  url: string;
+};
+
+export type ReviewsPublicPageSettings = {
+  enabled: boolean;
+  title: string;
+  description: string;
+  heroPhotoUrl?: string;
+  verifiedBadge: boolean;
+};
+
+export type ReviewRequestsSettings = {
+  version: 1;
+  enabled: boolean;
+  sendAfter: ReviewDelay;
+  destinations: ReviewDestination[];
+  defaultDestinationId?: string;
+  messageTemplate: string;
+  publicPage: ReviewsPublicPageSettings;
+};
+
+export type ReviewRequestEvent = {
+  id: string;
+  bookingId: string;
+  bookingEndAtIso: string;
+  scheduledForIso: string;
+
+  destinationId: string;
+  destinationLabel: string;
+  destinationUrl: string;
+
+  contactName: string;
+  contactPhoneRaw: string | null;
+  smsTo: string | null;
+  smsBody: string | null;
+
+  status: "SENT" | "SKIPPED" | "FAILED";
+  reason?: string;
+  smsMessageSid?: string;
+  error?: string;
+
+  createdAtIso: string;
+};
+
+type ReviewsServiceData = {
+  version: 1;
+  settings: ReviewRequestsSettings;
+  sentKeys: string[];
+  events: ReviewRequestEvent[];
+};
+
+function nowIso() {
+  return new Date().toISOString();
+}
+
+function clampInt(n: number, min: number, max: number) {
+  if (!Number.isFinite(n)) return min;
+  return Math.max(min, Math.min(max, Math.round(n)));
+}
+
+function normalizeUnit(raw: unknown): ReviewDelayUnit {
+  return raw === "minutes" || raw === "hours" || raw === "days" || raw === "weeks" ? raw : "minutes";
+}
+
+function normalizeId(raw: unknown, fallback: string) {
+  const v = typeof raw === "string" ? raw.trim() : "";
+  const cleaned = v.replace(/[^a-zA-Z0-9_-]+/g, "-").replace(/^-+|-+$/g, "");
+  return (cleaned || fallback).slice(0, 50);
+}
+
+function normalizeUrl(raw: unknown): string {
+  const v = typeof raw === "string" ? raw.trim() : "";
+  if (!v) return "";
+  try {
+    const u = new URL(v);
+    if (u.protocol !== "https:" && u.protocol !== "http:") return "";
+    return u.toString();
+  } catch {
+    return "";
+  }
+}
+
+function normalizeString(raw: unknown, maxLen: number, fallback = "") {
+  const v = typeof raw === "string" ? raw : fallback;
+  return v.trim().slice(0, maxLen);
+}
+
+function toDelayMinutes(delay: ReviewDelay): number {
+  const value = clampInt(delay.value, 0, 10_000_000);
+  const unit = normalizeUnit(delay.unit);
+  const mul = unit === "weeks" ? 60 * 24 * 7 : unit === "days" ? 60 * 24 : unit === "hours" ? 60 : 1;
+  return clampInt(value * mul, 0, 60 * 24 * 14);
+}
+
+export function parseReviewRequestsSettings(raw: unknown): ReviewRequestsSettings {
+  const base: ReviewRequestsSettings = {
+    version: 1,
+    enabled: false,
+    sendAfter: { value: 30, unit: "minutes" },
+    destinations: [],
+    messageTemplate: "Hi {name} — thanks again! If you have 30 seconds, would you leave us a review? {link}",
+    publicPage: {
+      enabled: true,
+      title: "Reviews",
+      description: "We’d love to hear about your experience.",
+      verifiedBadge: true,
+    },
+  };
+
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return base;
+  const rec = raw as Record<string, unknown>;
+
+  const enabled = typeof rec.enabled === "boolean" ? rec.enabled : base.enabled;
+
+  const sendAfterRaw = rec.sendAfter && typeof rec.sendAfter === "object" && !Array.isArray(rec.sendAfter) ? (rec.sendAfter as any) : null;
+  const unit = normalizeUnit(sendAfterRaw?.unit);
+  const maxByUnit = unit === "weeks" ? 2 : unit === "days" ? 14 : unit === "hours" ? 24 * 14 : 60 * 24 * 14;
+  const minByUnit = unit === "minutes" ? 0 : 0;
+  const value = clampInt(typeof sendAfterRaw?.value === "number" ? sendAfterRaw.value : base.sendAfter.value, minByUnit, maxByUnit);
+  const sendAfter: ReviewDelay = { value, unit };
+
+  const destinationsRaw = Array.isArray(rec.destinations) ? (rec.destinations as unknown[]) : [];
+  const destinations: ReviewDestination[] = destinationsRaw
+    .flatMap((d, i) => {
+      if (!d || typeof d !== "object" || Array.isArray(d)) return [] as ReviewDestination[];
+      const r = d as Record<string, unknown>;
+      const id = normalizeId(r.id, `dest_${i + 1}`);
+      const label = normalizeString(r.label, 60, "Review link") || "Review link";
+      const url = normalizeUrl(r.url);
+      if (!url) return [] as ReviewDestination[];
+      return [{ id, label, url }];
+    })
+    .slice(0, MAX_DESTINATIONS);
+
+  const defaultDestinationId = typeof rec.defaultDestinationId === "string" ? rec.defaultDestinationId.trim().slice(0, 50) : undefined;
+
+  const template = normalizeString(rec.messageTemplate, MAX_BODY_LEN, base.messageTemplate) || base.messageTemplate;
+
+  const publicRaw = rec.publicPage && typeof rec.publicPage === "object" && !Array.isArray(rec.publicPage) ? (rec.publicPage as any) : null;
+  const publicPage: ReviewsPublicPageSettings = {
+    enabled: typeof publicRaw?.enabled === "boolean" ? publicRaw.enabled : base.publicPage.enabled,
+    title: normalizeString(publicRaw?.title, 60, base.publicPage.title) || base.publicPage.title,
+    description: normalizeString(publicRaw?.description, 220, base.publicPage.description) || base.publicPage.description,
+    verifiedBadge: typeof publicRaw?.verifiedBadge === "boolean" ? publicRaw.verifiedBadge : base.publicPage.verifiedBadge,
+    ...(normalizeUrl(publicRaw?.heroPhotoUrl) ? { heroPhotoUrl: normalizeUrl(publicRaw?.heroPhotoUrl) } : {}),
+  };
+
+  return {
+    version: 1,
+    enabled,
+    sendAfter,
+    destinations,
+    ...(defaultDestinationId ? { defaultDestinationId } : {}),
+    messageTemplate: template,
+    publicPage,
+  };
+}
+
+function parseServiceData(raw: unknown): ReviewsServiceData {
+  const base: ReviewsServiceData = {
+    version: 1,
+    settings: parseReviewRequestsSettings(null),
+    sentKeys: [],
+    events: [],
+  };
+
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return base;
+  const rec = raw as Record<string, unknown>;
+
+  const settings = parseReviewRequestsSettings(rec.settings);
+  const sentKeys = Array.isArray(rec.sentKeys)
+    ? (rec.sentKeys as unknown[]).flatMap((x) => (typeof x === "string" && x.trim() ? [x] : [])).slice(0, MAX_SENT_KEYS)
+    : [];
+
+  const events = Array.isArray(rec.events)
+    ? (rec.events as unknown[])
+        .flatMap((e) => {
+          if (!e || typeof e !== "object" || Array.isArray(e)) return [] as ReviewRequestEvent[];
+          const r = e as Record<string, unknown>;
+          const bookingId = typeof r.bookingId === "string" ? r.bookingId : "";
+          const bookingEndAtIso = typeof r.bookingEndAtIso === "string" ? r.bookingEndAtIso : "";
+          const scheduledForIso = typeof r.scheduledForIso === "string" ? r.scheduledForIso : "";
+          const destinationId = typeof r.destinationId === "string" ? r.destinationId : "";
+          const destinationLabel = typeof r.destinationLabel === "string" ? r.destinationLabel : "";
+          const destinationUrl = typeof r.destinationUrl === "string" ? r.destinationUrl : "";
+          const contactName = typeof r.contactName === "string" ? r.contactName : "";
+          const createdAtIso = typeof r.createdAtIso === "string" ? r.createdAtIso : nowIso();
+          const status = r.status === "SENT" || r.status === "SKIPPED" || r.status === "FAILED" ? r.status : "SKIPPED";
+          if (!bookingId || !bookingEndAtIso || !scheduledForIso || !destinationUrl) return [] as ReviewRequestEvent[];
+
+          const evt: ReviewRequestEvent = {
+            id: typeof r.id === "string" ? r.id : `evt_${bookingId}`,
+            bookingId,
+            bookingEndAtIso,
+            scheduledForIso,
+
+            destinationId: destinationId || "dest",
+            destinationLabel: destinationLabel || "Review link",
+            destinationUrl,
+
+            contactName,
+            contactPhoneRaw: typeof r.contactPhoneRaw === "string" ? r.contactPhoneRaw : null,
+            smsTo: typeof r.smsTo === "string" ? r.smsTo : null,
+            smsBody: typeof r.smsBody === "string" ? r.smsBody : null,
+
+            status,
+            ...(typeof r.reason === "string" ? { reason: r.reason } : {}),
+            ...(typeof r.smsMessageSid === "string" ? { smsMessageSid: r.smsMessageSid } : {}),
+            ...(typeof r.error === "string" ? { error: r.error } : {}),
+            createdAtIso,
+          };
+          return [evt];
+        })
+        .slice(0, MAX_EVENTS)
+    : [];
+
+  return { version: 1, settings, sentKeys, events };
+}
+
+export async function getReviewRequestsServiceData(ownerId: string): Promise<ReviewsServiceData> {
+  const row = await prisma.portalServiceSetup.findUnique({
+    where: { ownerId_serviceSlug: { ownerId, serviceSlug: SERVICE_SLUG } },
+    select: { dataJson: true },
+  });
+
+  return parseServiceData(row?.dataJson ?? null);
+}
+
+export async function setReviewRequestsSettings(ownerId: string, settings: ReviewRequestsSettings): Promise<ReviewRequestsSettings> {
+  const current = await getReviewRequestsServiceData(ownerId);
+
+  const payload: ReviewsServiceData = {
+    version: 1,
+    settings,
+    sentKeys: current.sentKeys.slice(0, MAX_SENT_KEYS),
+    events: current.events.slice(0, MAX_EVENTS),
+  };
+
+  const row = await prisma.portalServiceSetup.upsert({
+    where: { ownerId_serviceSlug: { ownerId, serviceSlug: SERVICE_SLUG } },
+    create: { ownerId, serviceSlug: SERVICE_SLUG, status: "COMPLETE", dataJson: payload as any },
+    update: { status: "COMPLETE", dataJson: payload as any },
+    select: { dataJson: true },
+  });
+
+  return parseServiceData(row.dataJson).settings;
+}
+
+export async function listReviewRequestEvents(ownerId: string, limit = 50): Promise<ReviewRequestEvent[]> {
+  const data = await getReviewRequestsServiceData(ownerId);
+  const n = clampInt(limit, 1, 200);
+  return data.events
+    .slice()
+    .sort((a, b) => b.createdAtIso.localeCompare(a.createdAtIso))
+    .slice(0, n);
+}
+
+export function renderReviewRequestBody(template: string, vars: { name: string; link: string; business: string }) {
+  const safe = (template || "").slice(0, MAX_BODY_LEN);
+  return safe
+    .replaceAll("{name}", vars.name)
+    .replaceAll("{link}", vars.link)
+    .replaceAll("{business}", vars.business)
+    .trim();
+}
+
+function pickDestination(settings: ReviewRequestsSettings): ReviewDestination | null {
+  const xs = Array.isArray(settings.destinations) ? settings.destinations : [];
+  if (xs.length === 0) return null;
+  const preferred = settings.defaultDestinationId ? xs.find((d) => d.id === settings.defaultDestinationId) : null;
+  return preferred ?? xs[0];
+}
+
+export async function sendReviewRequestForBooking(opts: { ownerId: string; bookingId: string }): Promise<{ ok: true } | { ok: false; error: string }> {
+  const ownerId = String(opts.ownerId || "");
+  const bookingId = String(opts.bookingId || "");
+  if (!ownerId || !bookingId) return { ok: false, error: "Missing ownerId/bookingId" };
+
+  const [data, site, booking, profile, twilio] = await Promise.all([
+    getReviewRequestsServiceData(ownerId),
+    prisma.portalBookingSite.findUnique({ where: { ownerId }, select: { id: true, timeZone: true, slug: true, title: true } }),
+    prisma.portalBooking.findUnique({ where: { id: bookingId }, select: { id: true, siteId: true, status: true, endAt: true, contactName: true, contactPhone: true } }),
+    prisma.businessProfile.findUnique({ where: { ownerId }, select: { businessName: true } }),
+    getOwnerTwilioSmsConfig(ownerId),
+  ]);
+
+  if (!site || !booking || booking.siteId !== site.id) return { ok: false, error: "Not found" };
+  if (booking.status !== "SCHEDULED") return { ok: false, error: "Booking is not scheduled" };
+  if (booking.endAt.getTime() > Date.now()) return { ok: false, error: "Appointment has not ended yet" };
+
+  const settings = data.settings;
+  if (!settings.enabled) return { ok: false, error: "Review requests are turned off" };
+
+  const destination = pickDestination(settings);
+  if (!destination) return { ok: false, error: "No review link configured" };
+  if (!twilio) return { ok: false, error: "Twilio not configured" };
+
+  const parsed = booking.contactPhone ? normalizePhoneStrict(booking.contactPhone) : { ok: false as const, error: "Missing phone" };
+  if (!parsed.ok || !parsed.e164) return { ok: false, error: "Missing/invalid phone" };
+
+  const business = profile?.businessName?.trim() || site.title || "Purely Automation";
+  const resolved = await resolveReviewLink(ownerId, settings, destination);
+  const body = renderReviewRequestBody(settings.messageTemplate, {
+    name: booking.contactName,
+    link: resolved.url,
+    business,
+  });
+
+  const key = `${booking.id}:manual`;
+  const sentKeys = data.sentKeys.slice();
+  if (sentKeys.includes(key)) return { ok: false, error: "Already sent" };
+
+  const now = Date.now();
+  const scheduledForIso = new Date(now).toISOString();
+  const bookingEndAtIso = booking.endAt.toISOString();
+
+  try {
+    const result = await sendOwnerTwilioSms({ ownerId, to: parsed.e164, body });
+    const status: ReviewRequestEvent["status"] = result.ok ? "SENT" : "FAILED";
+    const evt: ReviewRequestEvent = {
+      id: `evt_${booking.id}_manual_${destination.id}`,
+      bookingId: booking.id,
+      bookingEndAtIso,
+      scheduledForIso,
+      destinationId: destination.id,
+      destinationLabel: resolved.label,
+      destinationUrl: resolved.url,
+      contactName: booking.contactName,
+      contactPhoneRaw: booking.contactPhone ?? null,
+      smsTo: parsed.e164,
+      smsBody: body,
+      status,
+      ...(result.ok && result.messageSid ? { smsMessageSid: result.messageSid } : {}),
+      ...(result.ok ? {} : { error: result.error }),
+      createdAtIso: nowIso(),
+    };
+
+    const nextPayload: ReviewsServiceData = {
+      version: 1,
+      settings,
+      sentKeys: [key, ...sentKeys].slice(0, MAX_SENT_KEYS),
+      events: [evt, ...data.events].slice(0, MAX_EVENTS),
+    };
+
+    await prisma.portalServiceSetup.upsert({
+      where: { ownerId_serviceSlug: { ownerId, serviceSlug: SERVICE_SLUG } },
+      create: { ownerId, serviceSlug: SERVICE_SLUG, status: "COMPLETE", dataJson: nextPayload as any },
+      update: { status: "COMPLETE", dataJson: nextPayload as any },
+      select: { id: true },
+    });
+
+    if (!result.ok) return { ok: false, error: result.error };
+    return { ok: true };
+  } catch (err) {
+    return { ok: false, error: err instanceof Error ? err.message : String(err) };
+  }
+}
+
+export async function processDueReviewRequests(opts?: { ownersLimit?: number; perOwnerLimit?: number; windowMinutes?: number }) {
+  const ownersLimit = clampInt(opts?.ownersLimit ?? 1000, 1, 5000);
+  const perOwnerLimit = clampInt(opts?.perOwnerLimit ?? 25, 1, 100);
+  const windowMinutes = clampInt(opts?.windowMinutes ?? 5, 1, 60);
+
+  let scannedOwners = 0;
+  let sent = 0;
+  let failed = 0;
+  let skipped = 0;
+
+  let cursorId: string | undefined;
+
+  while (scannedOwners < ownersLimit) {
+    const rows = await prisma.portalServiceSetup.findMany({
+      where: { serviceSlug: SERVICE_SLUG },
+      orderBy: { id: "asc" },
+      take: Math.min(200, ownersLimit - scannedOwners),
+      ...(cursorId ? { cursor: { id: cursorId }, skip: 1 } : {}),
+      select: { id: true, ownerId: true, dataJson: true },
+    });
+
+    if (rows.length === 0) break;
+    cursorId = rows[rows.length - 1].id;
+
+    for (const row of rows) {
+      scannedOwners += 1;
+      const serviceData = parseServiceData(row.dataJson);
+      const settings = serviceData.settings;
+      if (!settings.enabled) continue;
+
+      const destination = pickDestination(settings);
+      if (!destination) continue;
+
+      const delayMinutes = toDelayMinutes(settings.sendAfter);
+      const now = Date.now();
+      const targetEnd = new Date(now - delayMinutes * 60_000);
+      const windowStart = new Date(targetEnd.getTime() - windowMinutes * 60_000);
+      const windowEnd = targetEnd;
+
+      const ownerId = row.ownerId;
+      const site = await prisma.portalBookingSite.findUnique({ where: { ownerId }, select: { id: true, title: true } });
+      if (!site) continue;
+
+      const twilio = await getOwnerTwilioSmsConfig(ownerId);
+      const resolved = await resolveReviewLink(ownerId, settings, destination);
+
+      let mutated = false;
+      let sentKeys = serviceData.sentKeys.slice();
+      let sentSet = new Set<string>(sentKeys);
+      let events = serviceData.events.slice();
+
+      const upsert = async () => {
+        if (!mutated) return;
+        const payload: ReviewsServiceData = {
+          version: 1,
+          settings,
+          sentKeys: sentKeys.slice(0, MAX_SENT_KEYS),
+          events: events.slice(0, MAX_EVENTS),
+        };
+        await prisma.portalServiceSetup.upsert({
+          where: { ownerId_serviceSlug: { ownerId, serviceSlug: SERVICE_SLUG } },
+          create: { ownerId, serviceSlug: SERVICE_SLUG, status: "COMPLETE", dataJson: payload as any },
+          update: { status: "COMPLETE", dataJson: payload as any },
+          select: { id: true },
+        });
+        mutated = false;
+      };
+
+      const bookings = await prisma.portalBooking.findMany({
+        where: {
+          siteId: site.id,
+          status: "SCHEDULED",
+          endAt: { gte: windowStart, lt: windowEnd },
+        },
+        orderBy: { endAt: "asc" },
+        take: perOwnerLimit,
+        select: { id: true, endAt: true, contactName: true, contactPhone: true },
+      });
+
+      for (const booking of bookings) {
+        const key = `${booking.id}:${destination.id}`;
+        if (sentSet.has(key)) continue;
+
+        const bookingEndAtIso = booking.endAt.toISOString();
+        const scheduledForIso = new Date(now).toISOString();
+
+        if (!twilio) {
+          skipped += 1;
+          const evt: ReviewRequestEvent = {
+            id: `evt_${booking.id}_${destination.id}`,
+            bookingId: booking.id,
+            bookingEndAtIso,
+            scheduledForIso,
+            destinationId: destination.id,
+            destinationLabel: resolved.label,
+            destinationUrl: resolved.url,
+            contactName: booking.contactName,
+            contactPhoneRaw: booking.contactPhone ?? null,
+            smsTo: null,
+            smsBody: null,
+            status: "SKIPPED",
+            reason: "Twilio not configured",
+            createdAtIso: nowIso(),
+          };
+          events.unshift(evt);
+          sentKeys.unshift(key);
+          sentSet.add(key);
+          mutated = true;
+          continue;
+        }
+
+        const parsed = booking.contactPhone ? normalizePhoneStrict(booking.contactPhone) : { ok: false as const, error: "Missing phone" };
+        if (!parsed.ok || !parsed.e164) {
+          skipped += 1;
+          const evt: ReviewRequestEvent = {
+            id: `evt_${booking.id}_${destination.id}`,
+            bookingId: booking.id,
+            bookingEndAtIso,
+            scheduledForIso,
+            destinationId: destination.id,
+            destinationLabel: resolved.label,
+            destinationUrl: resolved.url,
+            contactName: booking.contactName,
+            contactPhoneRaw: booking.contactPhone ?? null,
+            smsTo: null,
+            smsBody: null,
+            status: "SKIPPED",
+            reason: "Missing/invalid phone",
+            createdAtIso: nowIso(),
+          };
+          events.unshift(evt);
+          sentKeys.unshift(key);
+          sentSet.add(key);
+          mutated = true;
+          continue;
+        }
+
+        const profile = await prisma.businessProfile.findUnique({ where: { ownerId }, select: { businessName: true } });
+        const business = profile?.businessName?.trim() || site.title || "Purely Automation";
+        const body = renderReviewRequestBody(settings.messageTemplate, {
+          name: booking.contactName,
+          link: resolved.url,
+          business,
+        });
+
+        try {
+          const result = await sendOwnerTwilioSms({ ownerId, to: parsed.e164, body });
+          if (!result.ok) {
+            failed += 1;
+            const evt: ReviewRequestEvent = {
+              id: `evt_${booking.id}_${destination.id}`,
+              bookingId: booking.id,
+              bookingEndAtIso,
+              scheduledForIso,
+              destinationId: destination.id,
+              destinationLabel: resolved.label,
+              destinationUrl: resolved.url,
+              contactName: booking.contactName,
+              contactPhoneRaw: booking.contactPhone ?? null,
+              smsTo: parsed.e164,
+              smsBody: body,
+              status: "FAILED",
+              error: result.error,
+              createdAtIso: nowIso(),
+            };
+            events.unshift(evt);
+            sentKeys.unshift(key);
+            sentSet.add(key);
+            mutated = true;
+            continue;
+          }
+
+          sent += 1;
+          const evt: ReviewRequestEvent = {
+            id: `evt_${booking.id}_${destination.id}`,
+            bookingId: booking.id,
+            bookingEndAtIso,
+            scheduledForIso,
+            destinationId: destination.id,
+            destinationLabel: resolved.label,
+            destinationUrl: resolved.url,
+            contactName: booking.contactName,
+            contactPhoneRaw: booking.contactPhone ?? null,
+            smsTo: parsed.e164,
+            smsBody: body,
+            status: "SENT",
+            ...(result.messageSid ? { smsMessageSid: result.messageSid } : {}),
+            createdAtIso: nowIso(),
+          };
+          events.unshift(evt);
+          sentKeys.unshift(key);
+          sentSet.add(key);
+          mutated = true;
+        } catch (err) {
+          failed += 1;
+          const evt: ReviewRequestEvent = {
+            id: `evt_${booking.id}_${destination.id}`,
+            bookingId: booking.id,
+            bookingEndAtIso,
+            scheduledForIso,
+            destinationId: destination.id,
+            destinationLabel: resolved.label,
+            destinationUrl: resolved.url,
+            contactName: booking.contactName,
+            contactPhoneRaw: booking.contactPhone ?? null,
+            smsTo: parsed.e164,
+            smsBody: body,
+            status: "FAILED",
+            error: err instanceof Error ? err.message : String(err),
+            createdAtIso: nowIso(),
+          };
+          events.unshift(evt);
+          sentKeys.unshift(key);
+          sentSet.add(key);
+          mutated = true;
+        }
+
+        if (events.length > MAX_EVENTS || sentKeys.length > MAX_SENT_KEYS) {
+          events = events.slice(0, MAX_EVENTS);
+          sentKeys = sentKeys.slice(0, MAX_SENT_KEYS);
+          sentSet = new Set<string>(sentKeys);
+        }
+      }
+
+      await upsert();
+    }
+  }
+
+  return { ok: true as const, scannedOwners, sent, failed, skipped };
+}

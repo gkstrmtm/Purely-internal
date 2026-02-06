@@ -67,17 +67,6 @@ export const PORTAL_SERVICES: PortalService[] = [
     accent: "coral",
   },
   {
-    slug: "appointment-reminders",
-    title: "Appointment Reminders",
-    description: "Cut no-shows with automatic reminders.",
-    highlights: [
-      "Smart timing (24h / 2h / 15m)",
-      "Two-way confirmations",
-      "Reschedule links when needed",
-    ],
-    accent: "ink",
-  },
-  {
     slug: "reviews",
     title: "Review Requests",
     description: "Ask at the right time and stay consistent.",
