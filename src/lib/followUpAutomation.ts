@@ -36,13 +36,36 @@ export type FollowUpTemplate = {
   };
 };
 
-export type FollowUpSettings = {
-  version: 2;
+export type FollowUpStep = {
+  id: string;
+  name: string;
   enabled: boolean;
+  delayMinutes: number;
+  audience?: FollowUpAudience;
+  internalRecipients?: FollowUpInternalRecipients;
+  channels: {
+    email: boolean;
+    sms: boolean;
+  };
+  email: {
+    subjectTemplate: string;
+    bodyTemplate: string;
+  };
+  sms: {
+    bodyTemplate: string;
+  };
+  /** Optional metadata for UI: indicates the preset this step was created from. */
+  presetId?: string;
+};
+
+export type FollowUpSettings = {
+  version: 3;
+  enabled: boolean;
+  /** Optional preset library. Steps copy from presets; presets do not run by themselves. */
   templates: FollowUpTemplate[];
   assignments: {
-    defaultTemplateIds: string[];
-    calendarTemplateIds: Record<string, string[]>;
+    defaultSteps: FollowUpStep[];
+    calendarSteps: Record<string, FollowUpStep[]>;
   };
   customVariables: Record<string, string>;
 };
@@ -51,8 +74,8 @@ export type FollowUpQueueItem = {
   id: string;
   bookingId: string;
   ownerId: string;
-  templateId: string;
-  templateName: string;
+  stepId: string;
+  stepName: string;
   calendarId?: string;
   channel: FollowUpChannel;
   to: string;
@@ -67,7 +90,7 @@ export type FollowUpQueueItem = {
 };
 
 type ServiceData = {
-  version: 2;
+  version: 3;
   settings: FollowUpSettings;
   queue: FollowUpQueueItem[];
   bookingMeta?: Record<string, { calendarId?: string; updatedAtIso?: string }>;
@@ -75,6 +98,7 @@ type ServiceData = {
 
 const SERVICE_SLUG = "follow-up";
 const MAX_QUEUE_ITEMS = 400;
+const MAX_DELAY_MINUTES = 60 * 24 * 365 * 10; // 10 years
 
 function clampInt(n: unknown, fallback: number, min: number, max: number) {
   const v = typeof n === "number" && Number.isFinite(n) ? Math.round(n) : fallback;
@@ -166,132 +190,148 @@ function randomId(prefix: string) {
 }
 
 export function defaultFollowUpSettings(): FollowUpSettings {
+  const templates: FollowUpTemplate[] = [
+    {
+      id: "thanks",
+      name: "Quick thank you",
+      enabled: true,
+      delayMinutes: 60,
+      audience: "CONTACT",
+      channels: { email: true, sms: false },
+      email: {
+        subjectTemplate: "Thanks for meeting, {contactName}",
+        bodyTemplate: [
+          "Hi {contactName},",
+          "",
+          "Thanks again for booking time with {businessName}.",
+          "",
+          "If you have any questions, just reply to this email.",
+          "",
+          "— {businessName}",
+        ].join("\n"),
+      },
+      sms: {
+        bodyTemplate: "Thanks again for your time — reply here if you have any questions. — {businessName}",
+      },
+    },
+    {
+      id: "feedback",
+      name: "Feedback request",
+      enabled: false,
+      delayMinutes: 60 * 24,
+      audience: "CONTACT",
+      channels: { email: true, sms: false },
+      email: {
+        subjectTemplate: "Quick question about our call",
+        bodyTemplate: [
+          "Hi {contactName},",
+          "",
+          "Do you have any feedback on our conversation?",
+          "",
+          "One sentence is totally fine — it helps {businessName} a lot.",
+          "",
+          "— {businessName}",
+        ].join("\n"),
+      },
+      sms: {
+        bodyTemplate: "Any quick feedback on our call? One sentence helps a lot. — {businessName}",
+      },
+    },
+    {
+      id: "next_steps",
+      name: "Next steps",
+      enabled: false,
+      delayMinutes: 60 * 3,
+      audience: "CONTACT",
+      channels: { email: true, sms: false },
+      email: {
+        subjectTemplate: "Next steps",
+        bodyTemplate: [
+          "Hi {contactName},",
+          "",
+          "Here are the next steps from our call with {businessName}:",
+          "- ",
+          "",
+          "If you'd like, just reply with any questions.",
+          "",
+          "— {businessName}",
+        ].join("\n"),
+      },
+      sms: {
+        bodyTemplate: "Next steps from our call — reply here if you want me to send them over. — {businessName}",
+      },
+    },
+    {
+      id: "review",
+      name: "Review / testimonial",
+      enabled: false,
+      delayMinutes: 60 * 24 * 3,
+      audience: "CONTACT",
+      channels: { email: true, sms: false },
+      email: {
+        subjectTemplate: "Would you be open to a quick review?",
+        bodyTemplate: [
+          "Hi {contactName},",
+          "",
+          "If you found our call helpful, would you be open to leaving a quick review for {businessName}?",
+          "",
+          "No worries either way — thanks again.",
+          "",
+          "— {businessName}",
+        ].join("\n"),
+      },
+      sms: {
+        bodyTemplate: "If our call helped, would you be open to leaving a quick review for {businessName}? — {businessName}",
+      },
+    },
+    {
+      id: "internal_summary",
+      name: "Internal summary",
+      enabled: false,
+      delayMinutes: 0,
+      audience: "INTERNAL",
+      internalRecipients: { mode: "BOOKING_NOTIFICATION_EMAILS" },
+      channels: { email: true, sms: false },
+      email: {
+        subjectTemplate: "Appointment finished: {contactName}",
+        bodyTemplate: [
+          "Internal notification for {businessName}",
+          "",
+          "Contact: {contactName}",
+          "Email: {contactEmail}",
+          "Phone: {contactPhone}",
+          "",
+          "Calendar: {calendarTitle}",
+          "When: {when}",
+        ].join("\n"),
+      },
+      sms: {
+        bodyTemplate: "Appointment finished: {contactName} • {calendarTitle} • {when}",
+      },
+    },
+  ];
+
+  const first = templates.find((t) => t.id === "thanks") ?? templates[0]!;
+  const defaultStep: FollowUpStep = {
+    id: "step_thanks_1",
+    name: first.name,
+    enabled: true,
+    delayMinutes: first.delayMinutes,
+    audience: first.audience,
+    internalRecipients: first.internalRecipients,
+    channels: { ...first.channels },
+    email: { ...first.email },
+    sms: { ...first.sms },
+    presetId: first.id,
+  };
+
   return {
-    version: 2,
+    version: 3,
     enabled: false,
-    templates: [
-      {
-        id: "thanks",
-        name: "Quick thank you",
-        enabled: true,
-        delayMinutes: 60,
-        audience: "CONTACT",
-        channels: { email: true, sms: false },
-        email: {
-          subjectTemplate: "Thanks for meeting, {contactName}",
-          bodyTemplate: [
-            "Hi {contactName},",
-            "",
-            "Thanks again for booking time with {businessName}.",
-            "",
-            "If you have any questions, just reply to this email.",
-            "",
-            "— {businessName}",
-          ].join("\n"),
-        },
-        sms: {
-          bodyTemplate: "Thanks again for your time — reply here if you have any questions. — {businessName}",
-        },
-      },
-      {
-        id: "feedback",
-        name: "Feedback request",
-        enabled: false,
-        delayMinutes: 60 * 24,
-        audience: "CONTACT",
-        channels: { email: true, sms: false },
-        email: {
-          subjectTemplate: "Quick question about our call",
-          bodyTemplate: [
-            "Hi {contactName},",
-            "",
-            "Do you have any feedback on our conversation?",
-            "",
-            "One sentence is totally fine — it helps {businessName} a lot.",
-            "",
-            "— {businessName}",
-          ].join("\n"),
-        },
-        sms: {
-          bodyTemplate: "Any quick feedback on our call? One sentence helps a lot. — {businessName}",
-        },
-      },
-      {
-        id: "next_steps",
-        name: "Next steps",
-        enabled: false,
-        delayMinutes: 60 * 3,
-        audience: "CONTACT",
-        channels: { email: true, sms: false },
-        email: {
-          subjectTemplate: "Next steps",
-          bodyTemplate: [
-            "Hi {contactName},",
-            "",
-            "Here are the next steps from our call with {businessName}:",
-            "- ",
-            "",
-            "If you'd like, just reply with any questions.",
-            "",
-            "— {businessName}",
-          ].join("\n"),
-        },
-        sms: {
-          bodyTemplate: "Next steps from our call — reply here if you want me to send them over. — {businessName}",
-        },
-      },
-      {
-        id: "review",
-        name: "Review / testimonial",
-        enabled: false,
-        delayMinutes: 60 * 24 * 3,
-        audience: "CONTACT",
-        channels: { email: true, sms: false },
-        email: {
-          subjectTemplate: "Would you be open to a quick review?",
-          bodyTemplate: [
-            "Hi {contactName},",
-            "",
-            "If you found our call helpful, would you be open to leaving a quick review for {businessName}?",
-            "",
-            "No worries either way — thanks again.",
-            "",
-            "— {businessName}",
-          ].join("\n"),
-        },
-        sms: {
-          bodyTemplate: "If our call helped, would you be open to leaving a quick review for {businessName}? — {businessName}",
-        },
-      },
-      {
-        id: "internal_summary",
-        name: "Internal summary",
-        enabled: false,
-        delayMinutes: 0,
-        audience: "INTERNAL",
-        internalRecipients: { mode: "BOOKING_NOTIFICATION_EMAILS" },
-        channels: { email: true, sms: false },
-        email: {
-          subjectTemplate: "Appointment finished: {contactName}",
-          bodyTemplate: [
-            "Internal notification for {businessName}",
-            "",
-            "Contact: {contactName}",
-            "Email: {contactEmail}",
-            "Phone: {contactPhone}",
-            "",
-            "Calendar: {calendarTitle}",
-            "When: {when}",
-          ].join("\n"),
-        },
-        sms: {
-          bodyTemplate: "Appointment finished: {contactName} • {calendarTitle} • {when}",
-        },
-      },
-    ],
+    templates,
     assignments: {
-      defaultTemplateIds: ["thanks"],
-      calendarTemplateIds: {},
+      defaultSteps: [defaultStep],
+      calendarSteps: {},
     },
     customVariables: {},
   };
@@ -305,7 +345,88 @@ export function parseFollowUpSettings(value: unknown): FollowUpSettings {
       : rec;
 
   const defaults = defaultFollowUpSettings();
-  const version = settingsRaw.version === 2 ? 2 : settingsRaw.version === 1 ? 1 : undefined;
+  const version = settingsRaw.version === 3 ? 3 : settingsRaw.version === 2 ? 2 : settingsRaw.version === 1 ? 1 : undefined;
+
+  function templateToStep(t: FollowUpTemplate, stepId: string, override?: Partial<FollowUpStep>): FollowUpStep {
+    const base: FollowUpStep = {
+      id: stepId,
+      name: t.name,
+      enabled: Boolean(t.enabled),
+      delayMinutes: clampInt(t.delayMinutes, 60, 0, MAX_DELAY_MINUTES),
+      audience: t.audience === "INTERNAL" ? "INTERNAL" : "CONTACT",
+      internalRecipients: t.audience === "INTERNAL" ? t.internalRecipients : undefined,
+      channels: { ...t.channels },
+      email: { ...t.email },
+      sms: { ...t.sms },
+      presetId: t.id,
+    };
+    return { ...base, ...(override ?? {}) };
+  }
+
+  function normalizeStep(raw: unknown, fallbackId: string): FollowUpStep | null {
+    const item = raw && typeof raw === "object" && !Array.isArray(raw) ? (raw as Record<string, unknown>) : null;
+    if (!item) return null;
+
+    const id = normalizeId(item.id, fallbackId).slice(0, 60);
+    const name = normalizeString(item.name, "Step", 80).trim();
+    if (!name) return null;
+
+    const channelsRaw =
+      item.channels && typeof item.channels === "object" && !Array.isArray(item.channels)
+        ? (item.channels as Record<string, unknown>)
+        : {};
+    const emailRaw =
+      item.email && typeof item.email === "object" && !Array.isArray(item.email)
+        ? (item.email as Record<string, unknown>)
+        : {};
+    const smsRaw =
+      item.sms && typeof item.sms === "object" && !Array.isArray(item.sms)
+        ? (item.sms as Record<string, unknown>)
+        : {};
+
+    const audience: FollowUpAudience = item.audience === "INTERNAL" ? "INTERNAL" : "CONTACT";
+    const internalRecipientsRaw =
+      item.internalRecipients && typeof item.internalRecipients === "object" && !Array.isArray(item.internalRecipients)
+        ? (item.internalRecipients as Record<string, unknown>)
+        : {};
+    const internalRecipients: FollowUpInternalRecipients | undefined = (() => {
+      if (audience !== "INTERNAL") return undefined;
+      const mode = internalRecipientsRaw.mode === "CUSTOM" ? "CUSTOM" : "BOOKING_NOTIFICATION_EMAILS";
+      if (mode === "CUSTOM") {
+        const emails = normalizeEmailList(internalRecipientsRaw.emails, 20);
+        const phones = normalizePhoneList(internalRecipientsRaw.phones, 20);
+        return {
+          mode: "CUSTOM",
+          emails: emails.length ? emails : undefined,
+          phones: phones.length ? phones : undefined,
+        };
+      }
+      return { mode: "BOOKING_NOTIFICATION_EMAILS" };
+    })();
+
+    const step: FollowUpStep = {
+      id,
+      name,
+      enabled: normalizeBool(item.enabled, true),
+      delayMinutes: clampInt(item.delayMinutes, 60, 0, MAX_DELAY_MINUTES),
+      audience,
+      internalRecipients,
+      channels: {
+        email: normalizeBool(channelsRaw.email, true),
+        sms: normalizeBool(channelsRaw.sms, false),
+      },
+      email: {
+        subjectTemplate: normalizeString(emailRaw.subjectTemplate, defaults.templates[0]!.email.subjectTemplate, 200),
+        bodyTemplate: normalizeString(emailRaw.bodyTemplate, defaults.templates[0]!.email.bodyTemplate, 5000),
+      },
+      sms: {
+        bodyTemplate: normalizeString(smsRaw.bodyTemplate, defaults.templates[0]!.sms.bodyTemplate, 900),
+      },
+      presetId: typeof item.presetId === "string" ? normalizeId(item.presetId, "").slice(0, 40) || undefined : undefined,
+    };
+
+    return step;
+  }
 
   // Back-compat: v1 settings become a single template + additional defaults (disabled) for convenience.
   if (version === 1) {
@@ -326,7 +447,7 @@ export function parseFollowUpSettings(value: unknown): FollowUpSettings {
       id: "default",
       name: "Default follow-up",
       enabled: true,
-      delayMinutes: clampInt(settingsRaw.delayMinutes, 60, 0, 60 * 24 * 30),
+      delayMinutes: clampInt(settingsRaw.delayMinutes, 60, 0, MAX_DELAY_MINUTES),
       audience: "CONTACT",
       channels: {
         email: normalizeBool(channelsRaw.email, true),
@@ -345,22 +466,164 @@ export function parseFollowUpSettings(value: unknown): FollowUpSettings {
       .filter((t) => t.id !== "thanks")
       .map((t) => ({ ...t, enabled: false }));
 
+    const templates = [primary, ...extraDefaults].slice(0, 20);
+    const step = templateToStep(primary, "step_default_1", { enabled: true });
+
     return {
-      version: 2,
+      version: 3,
       enabled: normalizeBool(settingsRaw.enabled, defaults.enabled),
-      templates: [primary, ...extraDefaults].slice(0, 20),
+      templates,
       assignments: {
-        defaultTemplateIds: ["default"],
-        calendarTemplateIds: {},
+        defaultSteps: [step],
+        calendarSteps: {},
       },
       customVariables: {},
     };
   }
 
+  // Back-compat: v2 (template assignments) -> v3 (step chains).
+  if (version === 2) {
+    const v2 = settingsRaw;
+    const templatesRaw = Array.isArray(v2.templates) ? v2.templates : [];
+
+    // Reuse v2 template normalization logic by parsing as-if v2 templates (below).
+    // We'll normalize templates first, then map IDs to steps.
+    const templatesNormalized = (() => {
+      const out: FollowUpTemplate[] = [];
+      const seen = new Set<string>();
+      for (let i = 0; i < templatesRaw.length; i += 1) {
+        const item = templatesRaw[i] && typeof templatesRaw[i] === "object" && !Array.isArray(templatesRaw[i])
+          ? (templatesRaw[i] as Record<string, unknown>)
+          : null;
+        if (!item) continue;
+
+        const id = normalizeId(item.id, `tpl${i + 1}`).slice(0, 40);
+        if (seen.has(id)) continue;
+        seen.add(id);
+
+        const name = normalizeString(item.name, "Template", 80).trim();
+        if (!name) continue;
+
+        const channelsRaw = item.channels && typeof item.channels === "object" && !Array.isArray(item.channels)
+          ? (item.channels as Record<string, unknown>)
+          : {};
+        const emailRaw = item.email && typeof item.email === "object" && !Array.isArray(item.email)
+          ? (item.email as Record<string, unknown>)
+          : {};
+        const smsRaw = item.sms && typeof item.sms === "object" && !Array.isArray(item.sms)
+          ? (item.sms as Record<string, unknown>)
+          : {};
+
+        const audience: FollowUpAudience = item.audience === "INTERNAL" ? "INTERNAL" : "CONTACT";
+        const internalRecipientsRaw =
+          item.internalRecipients && typeof item.internalRecipients === "object" && !Array.isArray(item.internalRecipients)
+            ? (item.internalRecipients as Record<string, unknown>)
+            : {};
+        const internalRecipients: FollowUpInternalRecipients | undefined = (() => {
+          if (audience !== "INTERNAL") return undefined;
+          const mode = internalRecipientsRaw.mode === "CUSTOM" ? "CUSTOM" : "BOOKING_NOTIFICATION_EMAILS";
+          if (mode === "CUSTOM") {
+            const emails = normalizeEmailList(internalRecipientsRaw.emails, 20);
+            const phones = normalizePhoneList(internalRecipientsRaw.phones, 20);
+            return {
+              mode: "CUSTOM",
+              emails: emails.length ? emails : undefined,
+              phones: phones.length ? phones : undefined,
+            };
+          }
+          return { mode: "BOOKING_NOTIFICATION_EMAILS" };
+        })();
+
+        out.push({
+          id,
+          name,
+          enabled: normalizeBool(item.enabled, true),
+          delayMinutes: clampInt(item.delayMinutes, 60, 0, MAX_DELAY_MINUTES),
+          audience,
+          internalRecipients,
+          channels: {
+            email: normalizeBool(channelsRaw.email, true),
+            sms: normalizeBool(channelsRaw.sms, false),
+          },
+          email: {
+            subjectTemplate: normalizeString(emailRaw.subjectTemplate, defaults.templates[0]!.email.subjectTemplate, 200),
+            bodyTemplate: normalizeString(emailRaw.bodyTemplate, defaults.templates[0]!.email.bodyTemplate, 5000),
+          },
+          sms: {
+            bodyTemplate: normalizeString(smsRaw.bodyTemplate, defaults.templates[0]!.sms.bodyTemplate, 900),
+          },
+        });
+
+        if (out.length >= 20) break;
+      }
+      return out.length ? out : defaults.templates;
+    })();
+
+    const templateById = new Map(templatesNormalized.map((t) => [t.id, t] as const));
+
+    const assignmentsRaw =
+      v2.assignments && typeof v2.assignments === "object" && !Array.isArray(v2.assignments)
+        ? (v2.assignments as Record<string, unknown>)
+        : {};
+    const defaultTemplateIdsRaw = Array.isArray(assignmentsRaw.defaultTemplateIds) ? assignmentsRaw.defaultTemplateIds : [];
+    const defaultTemplateIds = defaultTemplateIdsRaw
+      .filter((x) => typeof x === "string")
+      .map((x) => normalizeId(x, "").slice(0, 40))
+      .filter(Boolean)
+      .slice(0, 20);
+
+    const defaultSteps: FollowUpStep[] = [];
+    for (let i = 0; i < defaultTemplateIds.length; i += 1) {
+      const tid = defaultTemplateIds[i]!;
+      const t = templateById.get(tid);
+      if (!t) continue;
+      defaultSteps.push(templateToStep(t, `step_default_${tid}_${i + 1}`.slice(0, 60), { enabled: true }));
+      if (defaultSteps.length >= 20) break;
+    }
+
+    const calendarTemplateIdsRaw =
+      assignmentsRaw.calendarTemplateIds && typeof assignmentsRaw.calendarTemplateIds === "object" && !Array.isArray(assignmentsRaw.calendarTemplateIds)
+        ? (assignmentsRaw.calendarTemplateIds as Record<string, unknown>)
+        : {};
+    const calendarSteps: Record<string, FollowUpStep[]> = {};
+    for (const [calId0, list0] of Object.entries(calendarTemplateIdsRaw)) {
+      const calId = normalizeId(calId0, "").slice(0, 40);
+      if (!calId) continue;
+      const list = Array.isArray(list0) ? list0 : [];
+      const ids = list
+        .filter((x) => typeof x === "string")
+        .map((x) => normalizeId(x, "").slice(0, 40))
+        .filter(Boolean)
+        .slice(0, 20);
+      const steps: FollowUpStep[] = [];
+      for (let i = 0; i < ids.length; i += 1) {
+        const tid = ids[i]!;
+        const t = templateById.get(tid);
+        if (!t) continue;
+        steps.push(templateToStep(t, `step_cal_${calId}_${tid}_${i + 1}`.slice(0, 60), { enabled: true }));
+        if (steps.length >= 20) break;
+      }
+      if (steps.length) calendarSteps[calId] = steps;
+    }
+
+    const customVariables = normalizeStringRecord(v2.customVariables, 30, 32, 800);
+
+    return {
+      version: 3,
+      enabled: normalizeBool(v2.enabled, defaults.enabled),
+      templates: templatesNormalized,
+      assignments: {
+        defaultSteps: defaultSteps.length ? defaultSteps : defaults.assignments.defaultSteps,
+        calendarSteps,
+      },
+      customVariables,
+    };
+  }
+
+  // v3 normalization
   const templatesRaw = Array.isArray(settingsRaw.templates) ? settingsRaw.templates : [];
   const templates: FollowUpTemplate[] = [];
   const seen = new Set<string>();
-
   for (let i = 0; i < templatesRaw.length; i += 1) {
     const item = templatesRaw[i] && typeof templatesRaw[i] === "object" && !Array.isArray(templatesRaw[i])
       ? (templatesRaw[i] as Record<string, unknown>)
@@ -377,7 +640,6 @@ export function parseFollowUpSettings(value: unknown): FollowUpSettings {
     const channelsRaw = item.channels && typeof item.channels === "object" && !Array.isArray(item.channels)
       ? (item.channels as Record<string, unknown>)
       : {};
-
     const emailRaw = item.email && typeof item.email === "object" && !Array.isArray(item.email)
       ? (item.email as Record<string, unknown>)
       : {};
@@ -405,11 +667,11 @@ export function parseFollowUpSettings(value: unknown): FollowUpSettings {
       return { mode: "BOOKING_NOTIFICATION_EMAILS" };
     })();
 
-    const t: FollowUpTemplate = {
+    templates.push({
       id,
       name,
       enabled: normalizeBool(item.enabled, true),
-      delayMinutes: clampInt(item.delayMinutes, 60, 0, 60 * 24 * 30),
+      delayMinutes: clampInt(item.delayMinutes, 60, 0, MAX_DELAY_MINUTES),
       audience,
       internalRecipients,
       channels: {
@@ -423,9 +685,7 @@ export function parseFollowUpSettings(value: unknown): FollowUpSettings {
       sms: {
         bodyTemplate: normalizeString(smsRaw.bodyTemplate, defaults.templates[0]!.sms.bodyTemplate, 900),
       },
-    };
-
-    templates.push(t);
+    });
     if (templates.length >= 20) break;
   }
 
@@ -434,39 +694,51 @@ export function parseFollowUpSettings(value: unknown): FollowUpSettings {
       ? (settingsRaw.assignments as Record<string, unknown>)
       : {};
 
-  const defaultTemplateIdsRaw = Array.isArray(assignmentsRaw.defaultTemplateIds) ? assignmentsRaw.defaultTemplateIds : [];
-  const defaultTemplateIds = defaultTemplateIdsRaw
-    .filter((x) => typeof x === "string")
-    .map((x) => normalizeId(x, "").slice(0, 40))
-    .filter(Boolean)
-    .slice(0, 10);
+  const defaultStepsRaw = Array.isArray(assignmentsRaw.defaultSteps) ? assignmentsRaw.defaultSteps : [];
+  const defaultSteps: FollowUpStep[] = [];
+  {
+    const seenStep = new Set<string>();
+    for (let i = 0; i < defaultStepsRaw.length; i += 1) {
+      const step = normalizeStep(defaultStepsRaw[i], `step${i + 1}`);
+      if (!step) continue;
+      if (seenStep.has(step.id)) continue;
+      seenStep.add(step.id);
+      defaultSteps.push(step);
+      if (defaultSteps.length >= 30) break;
+    }
+  }
 
-  const calendarTemplateIdsRaw =
-    assignmentsRaw.calendarTemplateIds && typeof assignmentsRaw.calendarTemplateIds === "object" && !Array.isArray(assignmentsRaw.calendarTemplateIds)
-      ? (assignmentsRaw.calendarTemplateIds as Record<string, unknown>)
+  const calendarStepsRaw =
+    assignmentsRaw.calendarSteps && typeof assignmentsRaw.calendarSteps === "object" && !Array.isArray(assignmentsRaw.calendarSteps)
+      ? (assignmentsRaw.calendarSteps as Record<string, unknown>)
       : {};
-  const calendarTemplateIds: Record<string, string[]> = {};
-  for (const [calId0, list0] of Object.entries(calendarTemplateIdsRaw)) {
+  const calendarSteps: Record<string, FollowUpStep[]> = {};
+  for (const [calId0, list0] of Object.entries(calendarStepsRaw)) {
     const calId = normalizeId(calId0, "").slice(0, 40);
     if (!calId) continue;
     const list = Array.isArray(list0) ? list0 : [];
-    const ids = list
-      .filter((x) => typeof x === "string")
-      .map((x) => normalizeId(x, "").slice(0, 40))
-      .filter(Boolean)
-      .slice(0, 10);
-    calendarTemplateIds[calId] = ids;
+    const steps: FollowUpStep[] = [];
+    const seenStep = new Set<string>();
+    for (let i = 0; i < list.length; i += 1) {
+      const step = normalizeStep(list[i], `step${i + 1}`);
+      if (!step) continue;
+      if (seenStep.has(step.id)) continue;
+      seenStep.add(step.id);
+      steps.push(step);
+      if (steps.length >= 30) break;
+    }
+    if (steps.length) calendarSteps[calId] = steps;
   }
 
   const customVariables = normalizeStringRecord(settingsRaw.customVariables, 30, 32, 800);
 
   return {
-    version: 2,
+    version: 3,
     enabled: normalizeBool(settingsRaw.enabled, defaults.enabled),
     templates: templates.length ? templates : defaults.templates,
     assignments: {
-      defaultTemplateIds: defaultTemplateIds.length ? defaultTemplateIds : defaults.assignments.defaultTemplateIds,
-      calendarTemplateIds,
+      defaultSteps: defaultSteps.length ? defaultSteps : defaults.assignments.defaultSteps,
+      calendarSteps,
     },
     customVariables,
   };
@@ -485,8 +757,18 @@ function parseServiceData(value: unknown): ServiceData {
     const id = typeof r.id === "string" ? r.id : null;
     const bookingId = typeof r.bookingId === "string" ? r.bookingId : null;
     const ownerId = typeof r.ownerId === "string" ? r.ownerId : null;
-    const templateId = typeof r.templateId === "string" ? r.templateId : "default";
-    const templateName = typeof r.templateName === "string" ? r.templateName : "Template";
+    const stepId =
+      typeof r.stepId === "string"
+        ? r.stepId
+        : typeof r.templateId === "string"
+          ? r.templateId
+          : "step";
+    const stepName =
+      typeof r.stepName === "string"
+        ? r.stepName
+        : typeof r.templateName === "string"
+          ? r.templateName
+          : "Step";
     const calendarId = typeof r.calendarId === "string" ? r.calendarId : undefined;
     const channel = r.channel === "EMAIL" || r.channel === "SMS" ? (r.channel as FollowUpChannel) : null;
     const to = typeof r.to === "string" ? r.to : null;
@@ -507,8 +789,8 @@ function parseServiceData(value: unknown): ServiceData {
       id,
       bookingId,
       ownerId,
-      templateId,
-      templateName,
+      stepId,
+      stepName,
       calendarId,
       channel,
       to,
@@ -529,7 +811,7 @@ function parseServiceData(value: unknown): ServiceData {
       ? (bookingMetaRaw as Record<string, { calendarId?: string; updatedAtIso?: string }>)
       : undefined;
 
-  return { version: 2, settings, queue, bookingMeta };
+  return { version: 3, settings, queue, bookingMeta };
 }
 
 async function getServiceRow(ownerId: string) {
@@ -554,7 +836,7 @@ export async function setFollowUpSettings(ownerId: string, next: Partial<FollowU
   const merged = parseFollowUpSettings({ ...current.settings, ...next });
 
   const payload: any = {
-    version: 2,
+    version: 3,
     settings: merged,
     queue: current.queue,
     bookingMeta: current.bookingMeta ?? {},
@@ -658,24 +940,23 @@ export async function scheduleFollowUpsForBooking(
   const nextQueue = [...service.queue];
   const before = nextQueue.length;
 
-  const selectedTemplateIds = (() => {
-    const list = calendarId ? settings.assignments.calendarTemplateIds[calendarId] : null;
-    const ids = Array.isArray(list) && list.length ? list : settings.assignments.defaultTemplateIds;
-    return ids.filter((x) => typeof x === "string" && x.trim()).slice(0, 10);
+  const selectedSteps = (() => {
+    const list = calendarId ? settings.assignments.calendarSteps?.[calendarId] : null;
+    const steps = Array.isArray(list) && list.length ? list : settings.assignments.defaultSteps;
+    return (steps || []).filter(Boolean).slice(0, 30);
   })();
 
-  const templateById = new Map(settings.templates.map((t) => [t.id, t] as const));
   const desiredKeys = new Set<string>();
 
-  function upsert(template: FollowUpTemplate, channel: FollowUpChannel, to: string, subject: string | undefined, body: string, sendAt: Date) {
+  function upsert(step: FollowUpStep, channel: FollowUpChannel, to: string, subject: string | undefined, body: string, sendAt: Date) {
     const toKey = String(to || "").trim().toLowerCase();
-    const desiredKey = `${bookingRow.id}:${template.id}:${channel}:${toKey}`;
+    const desiredKey = `${bookingRow.id}:${step.id}:${channel}:${toKey}`;
     desiredKeys.add(desiredKey);
 
     const existingIndex = nextQueue.findIndex(
       (x) =>
         x.bookingId === bookingRow.id &&
-        x.templateId === template.id &&
+        x.stepId === step.id &&
         x.channel === channel &&
         String(x.to || "").trim().toLowerCase() === toKey &&
         x.status === "PENDING",
@@ -684,8 +965,8 @@ export async function scheduleFollowUpsForBooking(
       id: existingIndex >= 0 ? nextQueue[existingIndex]!.id : randomId("fu"),
       bookingId: bookingRow.id,
       ownerId,
-      templateId: template.id,
-      templateName: template.name,
+      stepId: step.id,
+      stepName: step.name,
       calendarId: calendarId || undefined,
       channel,
       to,
@@ -705,24 +986,23 @@ export async function scheduleFollowUpsForBooking(
     const q = nextQueue[i]!;
     if (q.bookingId !== bookingRow.id) continue;
     if (q.status !== "PENDING") continue;
-    const key = `${q.bookingId}:${q.templateId}:${q.channel}:${String(q.to || "").trim().toLowerCase()}`;
+    const key = `${q.bookingId}:${q.stepId}:${q.channel}:${String(q.to || "").trim().toLowerCase()}`;
     // We'll keep it for now; after scheduling we cancel anything not in desiredKeys.
     // (No-op here.)
   }
 
-  for (const templateId of selectedTemplateIds) {
-    const template = templateById.get(templateId);
-    if (!template) continue;
-    if (!template.enabled) continue;
+  for (const step of selectedSteps) {
+    if (!step) continue;
+    if (!step.enabled) continue;
 
-    const sendAt = new Date(new Date(bookingRow.endAt).getTime() + template.delayMinutes * 60_000);
+    const sendAt = new Date(new Date(bookingRow.endAt).getTime() + clampInt(step.delayMinutes, 0, 0, MAX_DELAY_MINUTES) * 60_000);
 
-    const audience: FollowUpAudience = template.audience === "INTERNAL" ? "INTERNAL" : "CONTACT";
+    const audience: FollowUpAudience = step.audience === "INTERNAL" ? "INTERNAL" : "CONTACT";
 
     const internal = (() => {
       if (audience !== "INTERNAL") return { emails: [] as string[], phones: [] as string[] };
 
-      const cfg = template.internalRecipients;
+      const cfg = step.internalRecipients;
       if (cfg?.mode === "CUSTOM") {
         const emails = Array.isArray(cfg.emails) ? normalizeEmailList(cfg.emails, 20) : [];
         const phones = Array.isArray(cfg.phones) ? normalizePhoneList(cfg.phones, 20) : [];
@@ -736,25 +1016,25 @@ export async function scheduleFollowUpsForBooking(
       return { emails, phones: [] as string[] };
     })();
 
-    if (template.channels.email) {
-      const subject = renderTemplate(template.email.subjectTemplate, vars).slice(0, 120);
-      const body = renderTemplate(template.email.bodyTemplate, vars).slice(0, 5000);
+    if (step.channels.email) {
+      const subject = renderTemplate(step.email.subjectTemplate, vars).slice(0, 120);
+      const body = renderTemplate(step.email.bodyTemplate, vars).slice(0, 5000);
       if (audience === "CONTACT") {
-        if (bookingRow.contactEmail) upsert(template, "EMAIL", bookingRow.contactEmail, subject, body, sendAt);
+        if (bookingRow.contactEmail) upsert(step, "EMAIL", bookingRow.contactEmail, subject, body, sendAt);
       } else {
         for (const email of internal.emails) {
-          upsert(template, "EMAIL", email, subject, body, sendAt);
+          upsert(step, "EMAIL", email, subject, body, sendAt);
         }
       }
     }
 
-    if (template.channels.sms) {
-      const body = renderTemplate(template.sms.bodyTemplate, vars).slice(0, 900);
+    if (step.channels.sms) {
+      const body = renderTemplate(step.sms.bodyTemplate, vars).slice(0, 900);
       if (audience === "CONTACT") {
-        if (bookingRow.contactPhone) upsert(template, "SMS", bookingRow.contactPhone, undefined, body, sendAt);
+        if (bookingRow.contactPhone) upsert(step, "SMS", bookingRow.contactPhone, undefined, body, sendAt);
       } else {
         for (const phone of internal.phones) {
-          upsert(template, "SMS", phone, undefined, body, sendAt);
+          upsert(step, "SMS", phone, undefined, body, sendAt);
         }
       }
     }
@@ -765,7 +1045,7 @@ export async function scheduleFollowUpsForBooking(
     const q = nextQueue[i]!;
     if (q.bookingId !== bookingRow.id) continue;
     if (q.status !== "PENDING") continue;
-    const key = `${q.bookingId}:${q.templateId}:${q.channel}:${String(q.to || "").trim().toLowerCase()}`;
+    const key = `${q.bookingId}:${q.stepId}:${q.channel}:${String(q.to || "").trim().toLowerCase()}`;
     if (!desiredKeys.has(key)) {
       nextQueue[i] = { ...q, status: "CANCELED" };
     }
@@ -784,7 +1064,7 @@ export async function scheduleFollowUpsForBooking(
     .slice(0, 200);
   const trimmedMeta = Object.fromEntries(metaEntries);
 
-  const payload: any = { version: 2, settings, queue: trimmed, bookingMeta: trimmedMeta };
+  const payload: any = { version: 3, settings, queue: trimmed, bookingMeta: trimmedMeta };
   await prisma.portalServiceSetup.upsert({
     where: { ownerId_serviceSlug: { ownerId, serviceSlug: SERVICE_SLUG } },
     create: { ownerId, serviceSlug: SERVICE_SLUG, status: "COMPLETE", dataJson: payload },
@@ -800,7 +1080,7 @@ export async function cancelFollowUpsForBooking(ownerId: string, bookingId: stri
   const nextQueue = service.queue.map((q) =>
     q.bookingId === bookingId && q.status === "PENDING" ? { ...q, status: "CANCELED" as const } : q,
   );
-  const payload: any = { version: 2, settings: service.settings, queue: nextQueue, bookingMeta: service.bookingMeta ?? {} };
+  const payload: any = { version: 3, settings: service.settings, queue: nextQueue, bookingMeta: service.bookingMeta ?? {} };
   await prisma.portalServiceSetup.upsert({
     where: { ownerId_serviceSlug: { ownerId, serviceSlug: SERVICE_SLUG } },
     create: { ownerId, serviceSlug: SERVICE_SLUG, status: "COMPLETE", dataJson: payload },
@@ -955,7 +1235,7 @@ export async function processDueFollowUps(opts: { limit: number }): Promise<{ pr
     }
 
     if (changed) {
-      const payload: any = { version: 2, settings: service.settings, queue: nextQueue, bookingMeta: service.bookingMeta ?? {} };
+      const payload: any = { version: 3, settings: service.settings, queue: nextQueue, bookingMeta: service.bookingMeta ?? {} };
       await prisma.portalServiceSetup.updateMany({
         where: { ownerId: row.ownerId, serviceSlug: SERVICE_SLUG },
         data: { dataJson: payload, status: "COMPLETE" },

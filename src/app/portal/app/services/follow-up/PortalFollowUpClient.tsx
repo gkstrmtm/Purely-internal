@@ -11,7 +11,7 @@ type Me = {
 };
 
 type Settings = {
-  version: 2;
+  version: 3;
   enabled: boolean;
   templates: {
     id: string;
@@ -31,10 +31,29 @@ type Settings = {
     sms: { bodyTemplate: string };
   }[];
   assignments: {
-    defaultTemplateIds: string[];
-    calendarTemplateIds: Record<string, string[]>;
+    defaultSteps: FollowUpStep[];
+    calendarSteps: Record<string, FollowUpStep[]>;
   };
   customVariables: Record<string, string>;
+};
+
+type FollowUpStep = {
+  id: string;
+  name: string;
+  enabled: boolean;
+  delayMinutes: number;
+  audience?: "CONTACT" | "INTERNAL";
+  internalRecipients?:
+    | {
+        mode: "BOOKING_NOTIFICATION_EMAILS" | "CUSTOM";
+        emails?: string[];
+        phones?: string[];
+      }
+    | undefined;
+  channels: { email: boolean; sms: boolean };
+  email: { subjectTemplate: string; bodyTemplate: string };
+  sms: { bodyTemplate: string };
+  presetId?: string;
 };
 
 type Calendar = { id: string; title: string; enabled: boolean; notificationEmails?: string[] };
@@ -42,8 +61,8 @@ type Calendar = { id: string; title: string; enabled: boolean; notificationEmail
 type QueueItem = {
   id: string;
   bookingId: string;
-  templateId: string;
-  templateName: string;
+  stepId: string;
+  stepName: string;
   calendarId?: string;
   channel: "EMAIL" | "SMS";
   to: string;
@@ -56,6 +75,40 @@ type QueueItem = {
 };
 
 const DEFAULT_FULL_DEMO_EMAIL = "demo-full@purelyautomation.dev";
+
+const MAX_DELAY_MINUTES = 60 * 24 * 365 * 10; // 10 years
+
+type DelayUnit = "minutes" | "hours" | "days" | "weeks" | "months" | "years";
+
+const DELAY_UNITS: Array<{ id: DelayUnit; label: string; minutes: number }> = [
+  { id: "minutes", label: "min", minutes: 1 },
+  { id: "hours", label: "hr", minutes: 60 },
+  { id: "days", label: "days", minutes: 60 * 24 },
+  { id: "weeks", label: "weeks", minutes: 60 * 24 * 7 },
+  { id: "months", label: "months", minutes: 60 * 24 * 30 },
+  { id: "years", label: "years", minutes: 60 * 24 * 365 },
+];
+
+function clampDelayMinutes(n: number) {
+  if (!Number.isFinite(n)) return 60;
+  return Math.max(0, Math.min(MAX_DELAY_MINUTES, Math.round(n)));
+}
+
+function delayToBestUnit(minutes: number): { value: number; unit: DelayUnit } {
+  const m = clampDelayMinutes(minutes);
+  if (m === 0) return { value: 0, unit: "minutes" };
+  const candidates: DelayUnit[] = ["years", "months", "weeks", "days", "hours"];
+  for (const unit of candidates) {
+    const mult = DELAY_UNITS.find((u) => u.id === unit)!.minutes;
+    if (m % mult === 0) return { value: m / mult, unit };
+  }
+  return { value: m, unit: "minutes" };
+}
+
+function valueUnitToMinutes(value: number, unit: DelayUnit): number {
+  const mult = DELAY_UNITS.find((u) => u.id === unit)?.minutes ?? 1;
+  return clampDelayMinutes(value * mult);
+}
 
 function fmtWhen(iso: string) {
   const d = new Date(iso);
@@ -84,6 +137,10 @@ export function PortalFollowUpClient() {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
+
+  const [expandedStepId, setExpandedStepId] = useState<string | null>(null);
+  const [stepEmailDrafts, setStepEmailDrafts] = useState<Record<string, string>>({});
+  const [stepPhoneDrafts, setStepPhoneDrafts] = useState<Record<string, string>>({});
 
   const [newVarKey, setNewVarKey] = useState("");
   const [newVarValue, setNewVarValue] = useState("");
@@ -151,30 +208,55 @@ export function PortalFollowUpClient() {
   const canSave = useMemo(() => {
     if (!settings) return false;
     if (!Array.isArray(settings.templates) || settings.templates.length < 1) return false;
-    for (const t of settings.templates) {
-      if (!t.id.trim() || !t.name.trim()) return false;
-      if (t.delayMinutes < 0 || t.delayMinutes > 60 * 24 * 30) return false;
-      if (!t.channels.email && !t.channels.sms) return false;
 
-      const audience = t.audience ?? "CONTACT";
+    const validateMessage = (m: {
+      enabled: boolean;
+      delayMinutes: number;
+      audience?: "CONTACT" | "INTERNAL";
+      internalRecipients?: { mode: "BOOKING_NOTIFICATION_EMAILS" | "CUSTOM"; emails?: string[]; phones?: string[] };
+      channels: { email: boolean; sms: boolean };
+      email: { subjectTemplate: string; bodyTemplate: string };
+      sms: { bodyTemplate: string };
+    }) => {
+      if (!m.enabled) return true;
+      if (m.delayMinutes < 0 || m.delayMinutes > MAX_DELAY_MINUTES) return false;
+      if (!m.channels.email && !m.channels.sms) return false;
+
+      const audience = m.audience ?? "CONTACT";
       if (audience === "INTERNAL") {
-        const mode = t.internalRecipients?.mode ?? "BOOKING_NOTIFICATION_EMAILS";
+        const mode = m.internalRecipients?.mode ?? "BOOKING_NOTIFICATION_EMAILS";
         if (mode === "CUSTOM") {
-          const emails = Array.isArray(t.internalRecipients?.emails) ? t.internalRecipients!.emails! : [];
-          const phones = Array.isArray(t.internalRecipients?.phones) ? t.internalRecipients!.phones! : [];
-          if (t.channels.email && emails.filter(Boolean).length < 1) return false;
-          if (t.channels.sms && phones.filter(Boolean).length < 1) return false;
+          const emails = Array.isArray(m.internalRecipients?.emails) ? m.internalRecipients!.emails! : [];
+          const phones = Array.isArray(m.internalRecipients?.phones) ? m.internalRecipients!.phones! : [];
+          if (m.channels.email && emails.filter(Boolean).length < 1) return false;
+          if (m.channels.sms && phones.filter(Boolean).length < 1) return false;
         }
       }
 
-      if (t.channels.email) {
-        if (t.email.subjectTemplate.trim().length < 2) return false;
-        if (t.email.bodyTemplate.trim().length < 5) return false;
+      if (m.channels.email) {
+        if (m.email.subjectTemplate.trim().length < 2) return false;
+        if (m.email.bodyTemplate.trim().length < 5) return false;
       }
-      if (t.channels.sms) {
-        if (t.sms.bodyTemplate.trim().length < 2) return false;
+      if (m.channels.sms) {
+        if (m.sms.bodyTemplate.trim().length < 2) return false;
+      }
+      return true;
+    };
+
+    for (const t of settings.templates) {
+      if (!t.id.trim() || !t.name.trim()) return false;
+      if (!validateMessage(t)) return false;
+    }
+
+    const chains: FollowUpStep[][] = [settings.assignments.defaultSteps ?? []];
+    for (const steps of Object.values(settings.assignments.calendarSteps ?? {})) chains.push(steps ?? []);
+    for (const steps of chains) {
+      for (const s of steps) {
+        if (!s.id.trim() || !s.name.trim()) return false;
+        if (!validateMessage(s)) return false;
       }
     }
+
     return true;
   }, [settings]);
 
@@ -222,17 +304,7 @@ export function PortalFollowUpClient() {
     const nextTemplates = settings.templates.filter((t) => t.id !== templateId);
     if (!nextTemplates.length) return;
 
-    const nextDefault = (settings.assignments.defaultTemplateIds || []).filter((id) => id !== templateId);
-    const nextCalendarMap: Record<string, string[]> = {};
-    for (const [calId, ids] of Object.entries(settings.assignments.calendarTemplateIds || {})) {
-      nextCalendarMap[calId] = (ids || []).filter((id) => id !== templateId);
-    }
-
-    setSettings({
-      ...settings,
-      templates: nextTemplates,
-      assignments: { ...settings.assignments, defaultTemplateIds: nextDefault, calendarTemplateIds: nextCalendarMap },
-    });
+    setSettings({ ...settings, templates: nextTemplates });
     setSelectedTemplateId((prev) => (prev === templateId ? nextTemplates[0]!.id : prev));
   }
 
@@ -302,26 +374,8 @@ export function PortalFollowUpClient() {
     });
   }
 
-  function toggleCalendarTemplate(calendarId: string, templateId: string) {
-    if (!settings) return;
-    const current = settings.assignments.calendarTemplateIds?.[calendarId] ?? [];
-    const has = current.includes(templateId);
-    const next = has ? current.filter((x) => x !== templateId) : [...current, templateId];
-    setSettings({
-      ...settings,
-      assignments: {
-        ...settings.assignments,
-        calendarTemplateIds: { ...settings.assignments.calendarTemplateIds, [calendarId]: next },
-      },
-    });
-  }
-
-  function toggleDefaultTemplate(templateId: string) {
-    if (!settings) return;
-    const current = settings.assignments.defaultTemplateIds ?? [];
-    const has = current.includes(templateId);
-    const next = has ? current.filter((x) => x !== templateId) : [...current, templateId];
-    setSettings({ ...settings, assignments: { ...settings.assignments, defaultTemplateIds: next } });
+  function randomStepId() {
+    return `step_${Math.random().toString(36).slice(2, 9)}${Date.now().toString(36)}`;
   }
 
   const allVariableKeys = useMemo(() => {
@@ -413,37 +467,31 @@ export function PortalFollowUpClient() {
     const m = Math.max(0, Math.round(minutes || 0));
     if (m === 0) return "Immediately";
     if (m < 60) return `${m} min`;
-    const h = Math.round((m / 60) * 10) / 10;
-    if (m < 60 * 24) return `${h} hr`;
-    const d = Math.round((m / 60 / 24) * 10) / 10;
-    return `${d} days`;
+    if (m < 60 * 24) {
+      const h = Math.round((m / 60) * 10) / 10;
+      return `${h} hr`;
+    }
+    if (m < 60 * 24 * 7) {
+      const d = Math.round((m / 60 / 24) * 10) / 10;
+      return `${d} days`;
+    }
+    if (m < 60 * 24 * 365) {
+      const w = Math.round((m / (60 * 24 * 7)) * 10) / 10;
+      return `${w} weeks`;
+    }
+    const y = Math.round((m / (60 * 24 * 365)) * 10) / 10;
+    return `${y} years`;
   }
 
-  function moveInList(ids: string[], id: string, dir: -1 | 1) {
-    const idx = ids.indexOf(id);
-    if (idx < 0) return ids;
+  function moveStep(steps: FollowUpStep[], stepId: string, dir: -1 | 1) {
+    const idx = steps.findIndex((s) => s.id === stepId);
+    if (idx < 0) return steps;
     const nextIdx = idx + dir;
-    if (nextIdx < 0 || nextIdx >= ids.length) return ids;
-    const next = [...ids];
+    if (nextIdx < 0 || nextIdx >= steps.length) return steps;
+    const next = [...steps];
     const [item] = next.splice(idx, 1);
     next.splice(nextIdx, 0, item!);
     return next;
-  }
-
-  function setDefaultSequence(ids: string[]) {
-    if (!settings) return;
-    setSettings({ ...settings, assignments: { ...settings.assignments, defaultTemplateIds: ids } });
-  }
-
-  function setCalendarSequence(calendarId: string, ids: string[]) {
-    if (!settings) return;
-    setSettings({
-      ...settings,
-      assignments: {
-        ...settings.assignments,
-        calendarTemplateIds: { ...settings.assignments.calendarTemplateIds, [calendarId]: ids },
-      },
-    });
   }
 
   async function sendTest(channel: "EMAIL" | "SMS") {
@@ -935,175 +983,513 @@ export function PortalFollowUpClient() {
             </div>
 
             <div className="mt-6 rounded-2xl border border-zinc-200 bg-white p-4">
-              <div className="text-sm font-semibold text-zinc-900">Attach templates</div>
-              <div className="mt-2 text-xs text-zinc-600">Build a sequence (multiple steps) for each calendar.</div>
+              <div className="text-sm font-semibold text-zinc-900">Follow-up chain</div>
+              <div className="mt-2 text-xs text-zinc-600">Add as many steps as you want. Each step has its own delay, audience, and message.</div>
 
-              <div className="mt-4">
-                <div className="text-xs font-semibold text-zinc-600">Default (main booking link)</div>
-                <div className="mt-2 space-y-2">
-                  {(settings?.assignments.defaultTemplateIds ?? []).length ? (
-                    <div className="space-y-2">
-                      {(settings?.assignments.defaultTemplateIds ?? []).map((id) => {
-                        const t = (settings?.templates ?? []).find((x) => x.id === id);
-                        if (!t) return null;
-                        return (
-                          <div key={id} className="flex flex-wrap items-center justify-between gap-2 rounded-2xl border border-zinc-200 bg-zinc-50 px-3 py-2">
-                            <div className="min-w-0">
-                              <div className="truncate text-sm font-semibold text-zinc-900">{t.name}</div>
-                              <div className="text-xs text-zinc-600">{fmtDelay(t.delayMinutes)} • {t.channels.email ? "Email" : ""}{t.channels.email && t.channels.sms ? ", " : ""}{t.channels.sms ? "SMS" : ""}{(t.audience ?? "CONTACT") === "INTERNAL" ? " • Internal" : ""}</div>
-                            </div>
-                            <div className="flex items-center gap-2">
-                              <button
-                                type="button"
-                                onClick={() =>
-                                  setDefaultSequence(moveInList(settings?.assignments.defaultTemplateIds ?? [], id, -1))
-                                }
-                                className="rounded-xl border border-zinc-200 bg-white px-2 py-1 text-xs font-semibold text-brand-ink hover:bg-zinc-50"
-                              >
-                                ↑
-                              </button>
-                              <button
-                                type="button"
-                                onClick={() =>
-                                  setDefaultSequence(moveInList(settings?.assignments.defaultTemplateIds ?? [], id, 1))
-                                }
-                                className="rounded-xl border border-zinc-200 bg-white px-2 py-1 text-xs font-semibold text-brand-ink hover:bg-zinc-50"
-                              >
-                                ↓
-                              </button>
-                              <button
-                                type="button"
-                                onClick={() =>
-                                  setDefaultSequence((settings?.assignments.defaultTemplateIds ?? []).filter((x) => x !== id))
-                                }
-                                className="rounded-xl border border-zinc-200 bg-white px-2 py-1 text-xs font-semibold text-brand-ink hover:bg-zinc-50"
-                              >
-                                Remove
-                              </button>
-                            </div>
-                          </div>
-                        );
-                      })}
-                    </div>
-                  ) : (
-                    <div className="text-sm text-zinc-600">No steps selected yet.</div>
-                  )}
+              {(() => {
+                if (!settings) return null;
 
-                  <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
-                    <select
-                      value=""
-                      onChange={(e) => {
-                        const id = e.target.value;
-                        if (!id) return;
-                        const cur = settings?.assignments.defaultTemplateIds ?? [];
-                        if (cur.includes(id)) return;
-                        setDefaultSequence([...cur, id].slice(0, 10));
-                      }}
-                      className="w-full rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm outline-none focus:border-zinc-300"
-                    >
-                      <option value="">Add a step…</option>
-                      {(settings?.templates ?? [])
-                        .filter((t) => !(settings?.assignments.defaultTemplateIds ?? []).includes(t.id))
-                        .map((t) => (
-                          <option key={t.id} value={t.id}>
-                            {t.name} ({fmtDelay(t.delayMinutes)})
-                          </option>
-                        ))}
-                    </select>
-                  </div>
-                </div>
-              </div>
+                const makeBlankStep = (): FollowUpStep => ({
+                  id: randomStepId(),
+                  name: "New step",
+                  enabled: true,
+                  delayMinutes: 60,
+                  audience: "CONTACT",
+                  channels: { email: true, sms: false },
+                  email: { subjectTemplate: "Thanks, {contactName}", bodyTemplate: "Hi {contactName},\n\nThanks again — {businessName}" },
+                  sms: { bodyTemplate: "Thanks again — {businessName}" },
+                });
 
-              {calendars.length ? (
-                <div className="mt-5 space-y-4">
-                  {calendars.map((cal) => (
-                    <div key={cal.id} className="rounded-2xl border border-zinc-200 bg-zinc-50 p-4">
-                      <div className="text-sm font-semibold text-zinc-900">{cal.title}</div>
-                      <div className="mt-2 space-y-2">
-                        {(settings?.assignments.calendarTemplateIds?.[cal.id] ?? []).length ? (
-                          <div className="space-y-2">
-                            {(settings?.assignments.calendarTemplateIds?.[cal.id] ?? []).map((id) => {
-                              const t = (settings?.templates ?? []).find((x) => x.id === id);
-                              if (!t) return null;
-                              return (
-                                <div key={id} className="flex flex-wrap items-center justify-between gap-2 rounded-2xl border border-zinc-200 bg-white px-3 py-2">
-                                  <div className="min-w-0">
-                                    <div className="truncate text-sm font-semibold text-zinc-900">{t.name}</div>
-                                    <div className="text-xs text-zinc-600">{fmtDelay(t.delayMinutes)} • {t.channels.email ? "Email" : ""}{t.channels.email && t.channels.sms ? ", " : ""}{t.channels.sms ? "SMS" : ""}{(t.audience ?? "CONTACT") === "INTERNAL" ? " • Internal" : ""}</div>
+                const stepFromPreset = (presetId: string): FollowUpStep | null => {
+                  const t = settings.templates.find((x) => x.id === presetId);
+                  if (!t) return null;
+                  return {
+                    id: randomStepId(),
+                    name: t.name,
+                    enabled: true,
+                    delayMinutes: clampDelayMinutes(t.delayMinutes),
+                    audience: t.audience ?? "CONTACT",
+                    internalRecipients: (t.audience ?? "CONTACT") === "INTERNAL" ? (t.internalRecipients ?? { mode: "BOOKING_NOTIFICATION_EMAILS" }) : undefined,
+                    channels: { ...t.channels },
+                    email: { ...t.email },
+                    sms: { ...t.sms },
+                    presetId: t.id,
+                  };
+                };
+
+                const renderChain = (opts: {
+                  title: string;
+                  steps: FollowUpStep[];
+                  setSteps: (next: FollowUpStep[]) => void;
+                }) => {
+                  const steps = Array.isArray(opts.steps) ? opts.steps : [];
+
+                  const updateStep = (stepId: string, patch: Partial<FollowUpStep>) => {
+                    opts.setSteps(steps.map((s) => (s.id === stepId ? { ...s, ...patch } : s)));
+                  };
+
+                  const addStep = (step: FollowUpStep) => {
+                    opts.setSteps([...steps, step].slice(0, 30));
+                    setExpandedStepId(step.id);
+                  };
+
+                  const removeStep = (stepId: string) => {
+                    opts.setSteps(steps.filter((s) => s.id !== stepId));
+                    setExpandedStepId((prev) => (prev === stepId ? null : prev));
+                  };
+
+                  const addInternalEmailToStep = (stepId: string) => {
+                    const email = (stepEmailDrafts[stepId] ?? "").trim().toLowerCase();
+                    if (!email) return;
+                    const emailLike = /^[^@\s]+@[^@\s]+\.[^@\s]+$/;
+                    if (!emailLike.test(email)) {
+                      setNotice("Invalid email.");
+                      return;
+                    }
+                    const s = steps.find((x) => x.id === stepId);
+                    if (!s) return;
+                    const current = s.internalRecipients?.mode === "CUSTOM" && Array.isArray(s.internalRecipients.emails) ? s.internalRecipients.emails : [];
+                    if (current.includes(email)) return;
+                    updateStep(stepId, {
+                      internalRecipients: {
+                        mode: "CUSTOM",
+                        emails: [...current, email].slice(0, 20),
+                        phones:
+                          s.internalRecipients?.mode === "CUSTOM" && Array.isArray(s.internalRecipients.phones)
+                            ? s.internalRecipients.phones
+                            : [],
+                      },
+                    });
+                    setStepEmailDrafts((prev) => ({ ...prev, [stepId]: "" }));
+                  };
+
+                  const addInternalPhoneToStep = (stepId: string) => {
+                    const phone = (stepPhoneDrafts[stepId] ?? "").trim();
+                    if (!phone) return;
+                    if (!/^[0-9+()\- .]*$/.test(phone) || phone.replace(/\D/g, "").length < 10) {
+                      setNotice("Invalid phone.");
+                      return;
+                    }
+                    const s = steps.find((x) => x.id === stepId);
+                    if (!s) return;
+                    const current = s.internalRecipients?.mode === "CUSTOM" && Array.isArray(s.internalRecipients.phones) ? s.internalRecipients.phones : [];
+                    if (current.includes(phone)) return;
+                    updateStep(stepId, {
+                      internalRecipients: {
+                        mode: "CUSTOM",
+                        emails:
+                          s.internalRecipients?.mode === "CUSTOM" && Array.isArray(s.internalRecipients.emails)
+                            ? s.internalRecipients.emails
+                            : [],
+                        phones: [...current, phone].slice(0, 20),
+                      },
+                    });
+                    setStepPhoneDrafts((prev) => ({ ...prev, [stepId]: "" }));
+                  };
+
+                  const removeInternalRecipientFromStep = (stepId: string, kind: "email" | "phone", value: string) => {
+                    const s = steps.find((x) => x.id === stepId);
+                    if (!s) return;
+                    const emails = s.internalRecipients?.mode === "CUSTOM" && Array.isArray(s.internalRecipients.emails) ? s.internalRecipients.emails : [];
+                    const phones = s.internalRecipients?.mode === "CUSTOM" && Array.isArray(s.internalRecipients.phones) ? s.internalRecipients.phones : [];
+                    const nextEmails = kind === "email" ? emails.filter((x) => x !== value) : emails;
+                    const nextPhones = kind === "phone" ? phones.filter((x) => x !== value) : phones;
+                    updateStep(stepId, { internalRecipients: { mode: "CUSTOM", emails: nextEmails, phones: nextPhones } });
+                  };
+
+                  return (
+                    <div className="mt-4">
+                      <div className="text-xs font-semibold text-zinc-600">{opts.title}</div>
+                      <div className="mt-2 space-y-3">
+                        {steps.length ? (
+                          steps.map((s) => {
+                            const open = expandedStepId === s.id;
+                            const best = delayToBestUnit(s.delayMinutes);
+                            const quickPicks = Array.from(
+                              new Set([...(siteNotificationEmails || []), ...calendars.flatMap((c) => c.notificationEmails ?? [])]),
+                            ).slice(0, 12);
+                            return (
+                              <div key={s.id} className="rounded-2xl border border-zinc-200 bg-zinc-50 p-4">
+                                <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                                  <div className="min-w-0 flex-1">
+                                    <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
+                                      <button
+                                        type="button"
+                                        onClick={() => setExpandedStepId((prev) => (prev === s.id ? null : s.id))}
+                                        className="w-fit rounded-xl border border-zinc-200 bg-white px-2 py-1 text-xs font-semibold text-brand-ink hover:bg-zinc-50"
+                                      >
+                                        {open ? "Hide" : "Edit"}
+                                      </button>
+
+                                      <input
+                                        value={s.name}
+                                        onChange={(e) => updateStep(s.id, { name: e.target.value })}
+                                        className="w-full rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-sm font-semibold text-zinc-900 outline-none focus:border-zinc-300"
+                                      />
+                                    </div>
+
+                                    <div className="mt-2 flex flex-wrap items-center gap-2 text-xs text-zinc-600">
+                                      <span>{fmtDelay(s.delayMinutes)}</span>
+                                      <span>•</span>
+                                      <span>
+                                        {s.channels.email ? "Email" : ""}
+                                        {s.channels.email && s.channels.sms ? ", " : ""}
+                                        {s.channels.sms ? "SMS" : ""}
+                                      </span>
+                                      {(s.audience ?? "CONTACT") === "INTERNAL" ? (
+                                        <>
+                                          <span>•</span>
+                                          <span>Internal</span>
+                                        </>
+                                      ) : null}
+                                    </div>
                                   </div>
-                                  <div className="flex items-center gap-2">
+
+                                  <div className="flex flex-wrap items-center gap-2">
+                                    <label className="inline-flex items-center gap-2 rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-xs font-semibold text-zinc-800">
+                                      <input
+                                        type="checkbox"
+                                        checked={Boolean(s.enabled)}
+                                        onChange={(e) => updateStep(s.id, { enabled: e.target.checked })}
+                                      />
+                                      Enabled
+                                    </label>
+
                                     <button
                                       type="button"
-                                      onClick={() =>
-                                        setCalendarSequence(
-                                          cal.id,
-                                          moveInList(settings?.assignments.calendarTemplateIds?.[cal.id] ?? [], id, -1),
-                                        )
-                                      }
-                                      className="rounded-xl border border-zinc-200 bg-zinc-50 px-2 py-1 text-xs font-semibold text-brand-ink hover:bg-zinc-100"
+                                      onClick={() => opts.setSteps(moveStep(steps, s.id, -1))}
+                                      className="rounded-xl border border-zinc-200 bg-white px-2 py-1 text-xs font-semibold text-brand-ink hover:bg-zinc-50"
                                     >
                                       ↑
                                     </button>
                                     <button
                                       type="button"
-                                      onClick={() =>
-                                        setCalendarSequence(
-                                          cal.id,
-                                          moveInList(settings?.assignments.calendarTemplateIds?.[cal.id] ?? [], id, 1),
-                                        )
-                                      }
-                                      className="rounded-xl border border-zinc-200 bg-zinc-50 px-2 py-1 text-xs font-semibold text-brand-ink hover:bg-zinc-100"
+                                      onClick={() => opts.setSteps(moveStep(steps, s.id, 1))}
+                                      className="rounded-xl border border-zinc-200 bg-white px-2 py-1 text-xs font-semibold text-brand-ink hover:bg-zinc-50"
                                     >
                                       ↓
                                     </button>
                                     <button
                                       type="button"
-                                      onClick={() =>
-                                        setCalendarSequence(
-                                          cal.id,
-                                          (settings?.assignments.calendarTemplateIds?.[cal.id] ?? []).filter((x) => x !== id),
-                                        )
-                                      }
-                                      className="rounded-xl border border-zinc-200 bg-zinc-50 px-2 py-1 text-xs font-semibold text-brand-ink hover:bg-zinc-100"
+                                      onClick={() => removeStep(s.id)}
+                                      className="rounded-xl border border-zinc-200 bg-white px-2 py-1 text-xs font-semibold text-brand-ink hover:bg-zinc-50"
                                     >
                                       Remove
                                     </button>
                                   </div>
                                 </div>
-                              );
-                            })}
-                          </div>
+
+                                {open ? (
+                                  <div className="mt-4 space-y-4">
+                                    <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                                      <div>
+                                        <label className="text-xs font-semibold text-zinc-600">Delay</label>
+                                        <div className="mt-1 grid grid-cols-12 gap-2">
+                                          <input
+                                            type="number"
+                                            min={0}
+                                            step={1}
+                                            value={best.value}
+                                            onChange={(e) => {
+                                              const v = Number(e.target.value);
+                                              updateStep(s.id, { delayMinutes: valueUnitToMinutes(Number.isFinite(v) ? v : 0, best.unit) });
+                                            }}
+                                            className="col-span-7 rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm outline-none focus:border-zinc-300"
+                                          />
+                                          <select
+                                            value={best.unit}
+                                            onChange={(e) => {
+                                              const unit = (e.target.value as DelayUnit) || "minutes";
+                                              updateStep(s.id, { delayMinutes: valueUnitToMinutes(best.value, unit) });
+                                            }}
+                                            className="col-span-5 rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm outline-none focus:border-zinc-300"
+                                          >
+                                            {DELAY_UNITS.map((u) => (
+                                              <option key={u.id} value={u.id}>
+                                                {u.label}
+                                              </option>
+                                            ))}
+                                          </select>
+                                        </div>
+                                        <div className="mt-1 text-xs text-zinc-500">Up to 10 years.</div>
+                                      </div>
+
+                                      <div>
+                                        <label className="text-xs font-semibold text-zinc-600">Audience</label>
+                                        <select
+                                          value={(s.audience ?? "CONTACT") as string}
+                                          onChange={(e) => {
+                                            const nextAudience = e.target.value === "INTERNAL" ? "INTERNAL" : "CONTACT";
+                                            updateStep(s.id, {
+                                              audience: nextAudience,
+                                              internalRecipients:
+                                                nextAudience === "INTERNAL"
+                                                  ? (s.internalRecipients ?? { mode: "BOOKING_NOTIFICATION_EMAILS" })
+                                                  : undefined,
+                                            });
+                                          }}
+                                          className="mt-1 w-full rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm outline-none focus:border-zinc-300"
+                                        >
+                                          <option value="CONTACT">Client (booking contact)</option>
+                                          <option value="INTERNAL">Internal (your team)</option>
+                                        </select>
+                                      </div>
+                                    </div>
+
+                                    {(s.audience ?? "CONTACT") === "INTERNAL" ? (
+                                      <div>
+                                        <label className="text-xs font-semibold text-zinc-600">Internal recipients</label>
+                                        <select
+                                          value={(s.internalRecipients?.mode ?? "BOOKING_NOTIFICATION_EMAILS") as string}
+                                          onChange={(e) => {
+                                            const mode = e.target.value === "CUSTOM" ? "CUSTOM" : "BOOKING_NOTIFICATION_EMAILS";
+                                            updateStep(s.id, {
+                                              internalRecipients:
+                                                mode === "CUSTOM"
+                                                  ? {
+                                                      mode: "CUSTOM",
+                                                      emails: s.internalRecipients?.mode === "CUSTOM" ? s.internalRecipients.emails ?? [] : [],
+                                                      phones: s.internalRecipients?.mode === "CUSTOM" ? s.internalRecipients.phones ?? [] : [],
+                                                    }
+                                                  : { mode: "BOOKING_NOTIFICATION_EMAILS" },
+                                            });
+                                          }}
+                                          className="mt-1 w-full rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm outline-none focus:border-zinc-300"
+                                        >
+                                          <option value="BOOKING_NOTIFICATION_EMAILS">Use booking notification emails</option>
+                                          <option value="CUSTOM">Use custom recipients</option>
+                                        </select>
+
+                                        {s.internalRecipients?.mode === "CUSTOM" ? (
+                                          <div className="mt-3 space-y-4">
+                                            <div>
+                                              <div className="text-xs font-semibold text-zinc-600">Emails</div>
+                                              <div className="mt-2 space-y-2">
+                                                {(s.internalRecipients?.emails ?? []).map((email) => (
+                                                  <div key={email} className="flex items-center justify-between gap-2 rounded-2xl border border-zinc-200 bg-white px-3 py-2">
+                                                    <div className="truncate text-sm text-zinc-800">{email}</div>
+                                                    <button
+                                                      type="button"
+                                                      onClick={() => removeInternalRecipientFromStep(s.id, "email", email)}
+                                                      className="rounded-xl border border-zinc-200 bg-zinc-50 px-2 py-1 text-xs font-semibold text-brand-ink hover:bg-zinc-100"
+                                                    >
+                                                      Remove
+                                                    </button>
+                                                  </div>
+                                                ))}
+
+                                                <div className="flex flex-col gap-2 sm:flex-row">
+                                                  <input
+                                                    value={stepEmailDrafts[s.id] ?? ""}
+                                                    onChange={(e) => setStepEmailDrafts((prev) => ({ ...prev, [s.id]: e.target.value }))}
+                                                    className="w-full rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm outline-none focus:border-zinc-300"
+                                                    placeholder="team@example.com"
+                                                  />
+                                                  <button
+                                                    type="button"
+                                                    onClick={() => addInternalEmailToStep(s.id)}
+                                                    className="rounded-2xl bg-brand-ink px-4 py-2 text-sm font-semibold text-white hover:opacity-95"
+                                                  >
+                                                    Add
+                                                  </button>
+                                                </div>
+
+                                                {quickPicks.length ? (
+                                                  <div className="pt-1">
+                                                    <div className="text-xs text-zinc-500">Quick add:</div>
+                                                    <div className="mt-1 flex flex-wrap gap-2">
+                                                      {quickPicks.map((email) => (
+                                                        <button
+                                                          key={email}
+                                                          type="button"
+                                                          onClick={() => {
+                                                            setStepEmailDrafts((prev) => ({ ...prev, [s.id]: email }));
+                                                            setTimeout(() => addInternalEmailToStep(s.id), 0);
+                                                          }}
+                                                          className="rounded-full border border-zinc-200 bg-zinc-50 px-3 py-1 text-xs font-semibold text-brand-ink hover:bg-zinc-100"
+                                                        >
+                                                          {email}
+                                                        </button>
+                                                      ))}
+                                                    </div>
+                                                  </div>
+                                                ) : null}
+                                              </div>
+                                            </div>
+
+                                            <div>
+                                              <div className="text-xs font-semibold text-zinc-600">Phones (SMS)</div>
+                                              <div className="mt-2 space-y-2">
+                                                {(s.internalRecipients?.phones ?? []).map((phone) => (
+                                                  <div key={phone} className="flex items-center justify-between gap-2 rounded-2xl border border-zinc-200 bg-white px-3 py-2">
+                                                    <div className="truncate text-sm text-zinc-800">{phone}</div>
+                                                    <button
+                                                      type="button"
+                                                      onClick={() => removeInternalRecipientFromStep(s.id, "phone", phone)}
+                                                      className="rounded-xl border border-zinc-200 bg-zinc-50 px-2 py-1 text-xs font-semibold text-brand-ink hover:bg-zinc-100"
+                                                    >
+                                                      Remove
+                                                    </button>
+                                                  </div>
+                                                ))}
+
+                                                <div className="flex flex-col gap-2 sm:flex-row">
+                                                  <input
+                                                    value={stepPhoneDrafts[s.id] ?? ""}
+                                                    onChange={(e) => setStepPhoneDrafts((prev) => ({ ...prev, [s.id]: e.target.value }))}
+                                                    className="w-full rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm outline-none focus:border-zinc-300"
+                                                    placeholder="+15551234567"
+                                                  />
+                                                  <button
+                                                    type="button"
+                                                    onClick={() => addInternalPhoneToStep(s.id)}
+                                                    className="rounded-2xl bg-brand-ink px-4 py-2 text-sm font-semibold text-white hover:opacity-95"
+                                                  >
+                                                    Add
+                                                  </button>
+                                                </div>
+                                              </div>
+                                            </div>
+                                          </div>
+                                        ) : (
+                                          <div className="mt-2 text-xs text-zinc-500 break-words">
+                                            Uses booking notification emails (calendar overrides site). Configure emails in Booking settings.
+                                          </div>
+                                        )}
+                                      </div>
+                                    ) : null}
+
+                                    <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                                      <label className="inline-flex items-center gap-3 rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm text-zinc-800">
+                                        <input
+                                          type="checkbox"
+                                          checked={Boolean(s.channels.email)}
+                                          onChange={(e) => updateStep(s.id, { channels: { ...s.channels, email: e.target.checked } })}
+                                        />
+                                        Email
+                                      </label>
+                                      <label className="inline-flex items-center gap-3 rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm text-zinc-800">
+                                        <input
+                                          type="checkbox"
+                                          checked={Boolean(s.channels.sms)}
+                                          onChange={(e) => updateStep(s.id, { channels: { ...s.channels, sms: e.target.checked } })}
+                                        />
+                                        Text (SMS)
+                                      </label>
+                                    </div>
+
+                                    {s.channels.email ? (
+                                      <div className="space-y-3">
+                                        <div>
+                                          <label className="text-xs font-semibold text-zinc-600">Email subject</label>
+                                          <input
+                                            value={s.email.subjectTemplate}
+                                            onChange={(e) => updateStep(s.id, { email: { ...s.email, subjectTemplate: e.target.value } })}
+                                            className="mt-1 w-full rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm outline-none focus:border-zinc-300"
+                                          />
+                                        </div>
+                                        <div>
+                                          <label className="text-xs font-semibold text-zinc-600">Email body</label>
+                                          <textarea
+                                            value={s.email.bodyTemplate}
+                                            onChange={(e) => updateStep(s.id, { email: { ...s.email, bodyTemplate: e.target.value } })}
+                                            rows={6}
+                                            className="mt-1 w-full rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm outline-none focus:border-zinc-300"
+                                          />
+                                        </div>
+                                      </div>
+                                    ) : null}
+
+                                    {s.channels.sms ? (
+                                      <div>
+                                        <label className="text-xs font-semibold text-zinc-600">SMS body</label>
+                                        <textarea
+                                          value={s.sms.bodyTemplate}
+                                          onChange={(e) => updateStep(s.id, { sms: { ...s.sms, bodyTemplate: e.target.value } })}
+                                          rows={3}
+                                          className="mt-1 w-full rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm outline-none focus:border-zinc-300"
+                                        />
+                                      </div>
+                                    ) : null}
+                                  </div>
+                                ) : null}
+                              </div>
+                            );
+                          })
                         ) : (
-                          <div className="text-sm text-zinc-600">No steps selected yet.</div>
+                          <div className="text-sm text-zinc-600">No steps yet.</div>
                         )}
 
-                        <select
-                          value=""
-                          onChange={(e) => {
-                            const id = e.target.value;
-                            if (!id || !settings) return;
-                            const cur = settings.assignments.calendarTemplateIds?.[cal.id] ?? [];
-                            if (cur.includes(id)) return;
-                            setCalendarSequence(cal.id, [...cur, id].slice(0, 10));
-                          }}
-                          className="w-full rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm outline-none focus:border-zinc-300"
-                        >
-                          <option value="">Add a step…</option>
-                          {(settings?.templates ?? [])
-                            .filter((t) => !(settings?.assignments.calendarTemplateIds?.[cal.id] ?? []).includes(t.id))
-                            .map((t) => (
+                        <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
+                          <button
+                            type="button"
+                            onClick={() => addStep(makeBlankStep())}
+                            className="inline-flex items-center justify-center rounded-2xl bg-brand-ink px-4 py-2 text-sm font-semibold text-white hover:opacity-95"
+                          >
+                            Add custom step
+                          </button>
+
+                          <select
+                            value=""
+                            onChange={(e) => {
+                              const presetId = e.target.value;
+                              if (!presetId) return;
+                              const step = stepFromPreset(presetId);
+                              if (step) addStep(step);
+                            }}
+                            className="w-full rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm outline-none focus:border-zinc-300"
+                          >
+                            <option value="">Add from preset…</option>
+                            {settings.templates.map((t) => (
                               <option key={t.id} value={t.id}>
-                                {t.name} ({fmtDelay(t.delayMinutes)})
+                                {t.name}
                               </option>
                             ))}
-                        </select>
+                          </select>
+                        </div>
                       </div>
                     </div>
-                  ))}
-                </div>
-              ) : (
-                <div className="mt-4 text-sm text-zinc-600">No calendars configured yet.</div>
-              )}
+                  );
+                };
+
+                const setDefaultSteps = (next: FollowUpStep[]) =>
+                  setSettings({ ...settings, assignments: { ...settings.assignments, defaultSteps: next } });
+                const setCalendarSteps = (calendarId: string, next: FollowUpStep[]) =>
+                  setSettings({
+                    ...settings,
+                    assignments: {
+                      ...settings.assignments,
+                      calendarSteps: { ...(settings.assignments.calendarSteps ?? {}), [calendarId]: next },
+                    },
+                  });
+
+                return (
+                  <>
+                    {renderChain({
+                      title: "Default (main booking link)",
+                      steps: settings.assignments.defaultSteps ?? [],
+                      setSteps: setDefaultSteps,
+                    })}
+
+                    {calendars.length ? (
+                      <div className="mt-6 space-y-6">
+                        {calendars.map((cal) => (
+                          <div key={cal.id} className="rounded-2xl border border-zinc-200 bg-white p-4">
+                            <div className="text-sm font-semibold text-zinc-900">{cal.title}</div>
+                            {renderChain({
+                              title: "Calendar chain",
+                              steps: settings.assignments.calendarSteps?.[cal.id] ?? [],
+                              setSteps: (next) => setCalendarSteps(cal.id, next),
+                            })}
+                          </div>
+                        ))}
+                      </div>
+                    ) : (
+                      <div className="mt-4 text-sm text-zinc-600">No calendars configured yet.</div>
+                    )}
+                  </>
+                );
+              })()}
             </div>
 
             <div className="mt-5 flex flex-col gap-3 sm:flex-row">
@@ -1190,7 +1576,7 @@ export function PortalFollowUpClient() {
             <div className="mt-4 overflow-hidden rounded-2xl border border-zinc-200">
               <div className="grid grid-cols-12 gap-2 bg-zinc-50 px-4 py-2 text-xs font-semibold text-zinc-600">
                 <div className="col-span-2">When</div>
-                <div className="col-span-3">Template</div>
+                <div className="col-span-3">Step</div>
                 <div className="col-span-2">Channel</div>
                 <div className="col-span-3">To</div>
                 <div className="col-span-2">Status</div>
@@ -1200,7 +1586,7 @@ export function PortalFollowUpClient() {
                   queue.slice(0, 60).map((q) => (
                     <div key={q.id} className="grid grid-cols-12 gap-2 px-4 py-3 text-sm">
                       <div className="col-span-2 text-zinc-700">{fmtWhen(q.sendAtIso)}</div>
-                      <div className="col-span-3 truncate text-zinc-700">{q.templateName}</div>
+                      <div className="col-span-3 truncate text-zinc-700">{q.stepName}</div>
                       <div className="col-span-2 text-zinc-700">{q.channel}</div>
                       <div className="col-span-3 truncate text-zinc-700">{q.to}</div>
                       <div className="col-span-2 text-zinc-600">
@@ -1228,7 +1614,7 @@ export function PortalFollowUpClient() {
             <div className="text-sm font-semibold text-zinc-900">How it works</div>
             <div className="mt-2 space-y-2 text-sm text-zinc-600">
               <div>• When a booking is created, we schedule follow-up messages.</div>
-              <div>• Each template has its own delay after the appointment ends.</div>
+              <div>• Each step has its own delay after the appointment ends.</div>
               <div>• Email sender name uses your business name.</div>
             </div>
             <div className="mt-5">
