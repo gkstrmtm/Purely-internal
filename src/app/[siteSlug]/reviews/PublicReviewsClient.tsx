@@ -83,10 +83,12 @@ export function PublicReviewsClient({
   }
 
   return (
-    <div className="mt-8 grid grid-cols-1 gap-6 lg:grid-cols-2">
-      <div className="rounded-3xl border border-zinc-200 bg-white p-6 shadow-sm">
-        <div className="text-lg font-semibold text-zinc-900">Leave a review</div>
-        <div className="mt-1 text-sm text-zinc-600">Share your experience.</div>
+    <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
+      <div className="rounded-3xl border border-zinc-200 bg-white p-7 shadow-sm">
+        <div className="font-brand text-2xl" style={{ color: "var(--client-text)" }}>
+          leave a review
+        </div>
+        <div className="mt-2 text-sm text-zinc-600">Share your experience.</div>
 
         {error ? <div className="mt-3 rounded-2xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">{error}</div> : null}
         {status ? <div className="mt-3 rounded-2xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-800">{status}</div> : null}
@@ -94,7 +96,7 @@ export function PublicReviewsClient({
         <div className="mt-4 grid gap-3">
           <label className="text-xs font-semibold text-zinc-600">Your name</label>
           <input
-            className="h-11 rounded-2xl border border-zinc-200 bg-white px-4 text-sm outline-none focus:border-zinc-300"
+            className="h-11 rounded-2xl border border-zinc-200 bg-white px-4 text-sm outline-none focus:border-zinc-300 focus:ring-2 focus:ring-[color:rgba(29,78,216,0.10)]"
             value={name}
             onChange={(e) => setName(e.target.value)}
             placeholder="Jane"
@@ -112,12 +114,14 @@ export function PublicReviewsClient({
                     key={v}
                     type="button"
                     disabled={busy}
-                    className={
-                      "h-10 w-10 rounded-2xl border border-zinc-200 text-xl transition " +
-                      (on ? "bg-zinc-900 text-white" : "bg-white text-zinc-500 hover:bg-zinc-50")
-                    }
+                    className="grid h-10 w-10 place-items-center rounded-2xl border border-zinc-200 text-xl transition hover:bg-zinc-50"
                     onClick={() => setRating(v)}
                     aria-label={`${v} star`}
+                    style={
+                      on
+                        ? { backgroundColor: brandPrimary, borderColor: "transparent", color: "white" }
+                        : { backgroundColor: "white", color: "#52525b" }
+                    }
                   >
                     ★
                   </button>
@@ -129,7 +133,7 @@ export function PublicReviewsClient({
           <div>
             <label className="text-xs font-semibold text-zinc-600">Review</label>
             <textarea
-              className="mt-2 min-h-[120px] w-full rounded-2xl border border-zinc-200 bg-white px-4 py-3 text-sm outline-none focus:border-zinc-300"
+              className="mt-2 min-h-[120px] w-full rounded-2xl border border-zinc-200 bg-white px-4 py-3 text-sm outline-none focus:border-zinc-300 focus:ring-2 focus:ring-[color:rgba(29,78,216,0.10)]"
               value={body}
               onChange={(e) => setBody(e.target.value)}
               placeholder="What did you like?"
@@ -174,7 +178,7 @@ export function PublicReviewsClient({
             type="button"
             disabled={busy || !name.trim()}
             onClick={() => void submit()}
-            className="mt-2 inline-flex h-11 items-center justify-center rounded-2xl px-5 text-sm font-semibold text-white disabled:opacity-60"
+            className="mt-2 inline-flex h-11 items-center justify-center rounded-2xl px-5 text-sm font-semibold text-white shadow-sm disabled:opacity-60"
             style={{ backgroundColor: brandPrimary }}
           >
             {busy ? "Submitting…" : "Submit review"}
@@ -184,9 +188,9 @@ export function PublicReviewsClient({
 
       <div className="space-y-4">
         {destinations.length ? (
-          <div className="rounded-3xl border border-zinc-200 bg-white p-6 shadow-sm">
+          <div className="rounded-3xl border border-zinc-200 bg-white p-7 shadow-sm">
             <div className="text-sm font-semibold text-zinc-900">Other review sites</div>
-            <div className="mt-1 text-sm text-zinc-600">You can also leave a review on these platforms.</div>
+            <div className="mt-2 text-sm text-zinc-600">You can also leave a review on these platforms.</div>
             <div className="mt-4 grid grid-cols-1 gap-3">
               {destinations.map((d) => (
                 <a
@@ -209,7 +213,7 @@ export function PublicReviewsClient({
           </div>
         ) : null}
 
-        <div className="rounded-3xl border border-zinc-200 bg-white p-6 shadow-sm">
+        <div className="rounded-3xl border border-zinc-200 bg-white p-7 shadow-sm">
           <div className="text-sm font-semibold text-zinc-900">Recent reviews</div>
           <div className="mt-4 space-y-3">
             {initialReviews.length === 0 ? <div className="text-sm text-zinc-600">No reviews yet.</div> : null}
@@ -223,7 +227,10 @@ export function PublicReviewsClient({
                       <div className="truncate text-sm font-semibold text-zinc-900">{r.name}</div>
                       <div className="mt-1 text-xs text-zinc-500">{new Date(r.createdAt).toLocaleDateString()}</div>
                     </div>
-                    <div className="text-sm text-zinc-900">{"★".repeat(rr)}<span className="text-zinc-300">{"★".repeat(5 - rr)}</span></div>
+                    <div className="text-sm" style={{ color: brandPrimary }}>
+                      {"★".repeat(rr)}
+                      <span className="text-zinc-300">{"★".repeat(5 - rr)}</span>
+                    </div>
                   </div>
                   {r.body ? <div className="mt-2 whitespace-pre-wrap text-sm text-zinc-700">{r.body}</div> : null}
                   {urls.length ? (
