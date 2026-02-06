@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
+import { Lightbox, type LightboxImage } from "@/components/Lightbox";
 
 type ReviewDelayUnit = "minutes" | "hours" | "days" | "weeks";
 
@@ -17,8 +18,10 @@ type ReviewDestination = {
 
 type ReviewsPublicPageSettings = {
   enabled: boolean;
+  galleryEnabled: boolean;
   title: string;
   description: string;
+  thankYouMessage: string;
   photoUrls: string[];
 };
 
@@ -72,8 +75,10 @@ const DEFAULT_SETTINGS: ReviewRequestsSettings = {
   calendarMessageTemplates: {},
   publicPage: {
     enabled: true,
+    galleryEnabled: true,
     title: "Reviews",
     description: "We’d love to hear about your experience.",
+    thankYouMessage: "Thanks — your review was submitted.",
     photoUrls: [],
   },
 };
@@ -123,6 +128,23 @@ export default function PortalReviewsClient() {
   const [receivedReviews, setReceivedReviews] = useState<ReceivedReview[]>([]);
   const [sending, setSending] = useState(false);
   const [sendResult, setSendResult] = useState<string | null>(null);
+
+  const [lightboxOpen, setLightboxOpen] = useState(false);
+  const [lightboxImages, setLightboxImages] = useState<LightboxImage[]>([]);
+  const [lightboxIndex, setLightboxIndex] = useState(0);
+
+  function openLightbox(urls: string[], startIndex: number) {
+    const images = urls
+      .flatMap((u) => {
+        const v = typeof u === "string" ? u.trim() : "";
+        return v ? ([{ src: v }] as LightboxImage[]) : ([] as LightboxImage[]);
+      })
+      .slice(0, 200);
+    if (!images.length) return;
+    setLightboxImages(images);
+    setLightboxIndex(Math.max(0, Math.min(images.length - 1, Math.floor(startIndex || 0))));
+    setLightboxOpen(true);
+  }
 
   const [bookingsLoading, setBookingsLoading] = useState(false);
   const [upcomingBookings, setUpcomingBookings] = useState<
@@ -457,6 +479,14 @@ export default function PortalReviewsClient() {
 
   return (
     <div className="mx-auto w-full max-w-5xl px-6 py-8">
+      <Lightbox
+        open={lightboxOpen}
+        images={lightboxImages}
+        index={lightboxIndex}
+        onIndexChange={setLightboxIndex}
+        onClose={() => setLightboxOpen(false)}
+      />
+
       <div className="flex flex-col gap-1">
         <div className="text-2xl font-semibold">Review Requests</div>
         <div className="text-sm text-neutral-600">
@@ -753,14 +783,31 @@ export default function PortalReviewsClient() {
                 />
                 Enable public page
               </label>
+
+              <label className="flex items-center gap-2 text-sm">
+                <input
+                  type="checkbox"
+                  checked={settings.publicPage.galleryEnabled}
+                  onChange={(e) =>
+                    setSettings({
+                      ...settings,
+                      publicPage: { ...settings.publicPage, galleryEnabled: e.target.checked },
+                    })
+                  }
+                />
+                Show photo gallery
+              </label>
             </div>
             <div className="mt-3 grid grid-cols-1 gap-2 sm:grid-cols-2">
-              <input
-                className="h-10 rounded-lg border border-zinc-200 bg-white px-3 text-sm"
-                placeholder="Page title"
-                value={settings.publicPage.title}
-                onChange={(e) => setSettings({ ...settings, publicPage: { ...settings.publicPage, title: e.target.value } })}
-              />
+              <div>
+                <div className="text-xs font-semibold text-zinc-700">Hero title</div>
+                <input
+                  className="mt-1 h-10 w-full rounded-lg border border-zinc-200 bg-white px-3 text-sm"
+                  placeholder="e.g. Reviews"
+                  value={settings.publicPage.title}
+                  onChange={(e) => setSettings({ ...settings, publicPage: { ...settings.publicPage, title: e.target.value } })}
+                />
+              </div>
               <div className="flex items-center gap-2">
                 <input
                   ref={uploadsInputRef}
@@ -787,8 +834,16 @@ export default function PortalReviewsClient() {
                 <div className="text-xs font-medium text-zinc-700">Photos</div>
                 <div className="mt-2 flex flex-wrap gap-2">
                   {settings.publicPage.photoUrls.slice(0, 12).map((u) => (
-                    // eslint-disable-next-line @next/next/no-img-element
-                    <img key={u} src={u} alt="" className="h-16 w-16 rounded-xl border border-zinc-200 object-cover" />
+                    <button
+                      key={u}
+                      type="button"
+                      className="h-16 w-16 overflow-hidden rounded-xl"
+                      onClick={() => openLightbox(settings.publicPage.photoUrls, settings.publicPage.photoUrls.indexOf(u))}
+                      aria-label="Open photo"
+                    >
+                      {/* eslint-disable-next-line @next/next/no-img-element */}
+                      <img src={u} alt="" className="h-full w-full object-cover" />
+                    </button>
                   ))}
                 </div>
                 <button
@@ -803,12 +858,31 @@ export default function PortalReviewsClient() {
             ) : (
               <div className="mt-2 text-xs text-zinc-500">Upload one or more photos (optional).</div>
             )}
-            <textarea
-              className="mt-2 min-h-[80px] w-full rounded-lg border border-zinc-200 bg-white px-3 py-2 text-sm"
-              placeholder="Description"
-              value={settings.publicPage.description}
-              onChange={(e) => setSettings({ ...settings, publicPage: { ...settings.publicPage, description: e.target.value } })}
-            />
+            <div className="mt-3">
+              <div className="text-xs font-semibold text-zinc-700">Hero subtitle</div>
+              <textarea
+                className="mt-1 min-h-[80px] w-full rounded-lg border border-zinc-200 bg-white px-3 py-2 text-sm"
+                placeholder="e.g. We’d love to hear about your experience."
+                value={settings.publicPage.description}
+                onChange={(e) => setSettings({ ...settings, publicPage: { ...settings.publicPage, description: e.target.value } })}
+              />
+            </div>
+
+            <div className="mt-3">
+              <div className="text-xs font-semibold text-zinc-700">Thank you message</div>
+              <div className="mt-1 text-xs text-zinc-500">Shown after someone submits a review on your public page.</div>
+              <textarea
+                className="mt-2 min-h-[70px] w-full rounded-lg border border-zinc-200 bg-white px-3 py-2 text-sm"
+                placeholder="e.g. Thanks! We appreciate you."
+                value={settings.publicPage.thankYouMessage}
+                onChange={(e) =>
+                  setSettings({
+                    ...settings,
+                    publicPage: { ...settings.publicPage, thankYouMessage: e.target.value },
+                  })
+                }
+              />
+            </div>
           </div>
 
           <div className="mt-5 flex items-center gap-2">
@@ -997,8 +1071,16 @@ export default function PortalReviewsClient() {
                     {photos.length ? (
                       <div className="mt-3 flex flex-wrap gap-2">
                         {photos.slice(0, 8).map((u) => (
-                          // eslint-disable-next-line @next/next/no-img-element
-                          <img key={u} src={u} alt="" className="h-20 w-20 rounded-xl border border-zinc-200 object-cover" />
+                          <button
+                            key={u}
+                            type="button"
+                            className="h-20 w-20 overflow-hidden rounded-xl"
+                            onClick={() => openLightbox(photos, photos.indexOf(u))}
+                            aria-label="Open photo"
+                          >
+                            {/* eslint-disable-next-line @next/next/no-img-element */}
+                            <img src={u} alt="" className="h-full w-full object-cover" />
+                          </button>
                         ))}
                       </div>
                     ) : null}

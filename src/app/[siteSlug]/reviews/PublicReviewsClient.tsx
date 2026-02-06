@@ -2,6 +2,7 @@
 
 import { useEffect, useId, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
+import { Lightbox, type LightboxImage } from "@/components/Lightbox";
 
 type Destination = { id: string; label: string; url: string };
 
@@ -20,11 +21,15 @@ export function PublicReviewsClient({
   siteHandle,
   brandPrimary,
   destinations,
+  galleryEnabled,
+  thankYouMessage,
   initialReviews,
 }: {
   siteHandle: string;
   brandPrimary: string;
   destinations: Destination[];
+  galleryEnabled: boolean;
+  thankYouMessage: string;
   initialReviews: Review[];
 }) {
   const router = useRouter();
@@ -39,7 +44,40 @@ export function PublicReviewsClient({
   const [status, setStatus] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
+  const [lightboxOpen, setLightboxOpen] = useState(false);
+  const [lightboxImages, setLightboxImages] = useState<LightboxImage[]>([]);
+  const [lightboxIndex, setLightboxIndex] = useState(0);
+
   const photoPreviews = useMemo(() => photos.map((f) => ({ file: f, url: URL.createObjectURL(f) })), [photos]);
+
+  const allReviewPhotoUrls = useMemo(() => {
+    const out: string[] = [];
+    for (const r of initialReviews) {
+      const urls = Array.isArray(r.photoUrls) ? (r.photoUrls as string[]) : [];
+      for (const u of urls) {
+        if (typeof u !== "string") continue;
+        const v = u.trim();
+        if (!v) continue;
+        if (!out.includes(v)) out.push(v);
+        if (out.length >= 80) break;
+      }
+      if (out.length >= 80) break;
+    }
+    return out;
+  }, [initialReviews]);
+
+  function openLightbox(urls: string[], startIndex: number) {
+    const images = urls
+      .flatMap((u) => {
+        const v = typeof u === "string" ? u.trim() : "";
+        return v ? ([{ src: v }] as LightboxImage[]) : ([] as LightboxImage[]);
+      })
+      .slice(0, 200);
+    if (!images.length) return;
+    setLightboxImages(images);
+    setLightboxIndex(Math.max(0, Math.min(images.length - 1, Math.floor(startIndex || 0))));
+    setLightboxOpen(true);
+  }
 
   useEffect(() => {
     return () => {
@@ -69,7 +107,7 @@ export function PublicReviewsClient({
       const rec = json && typeof json === "object" && !Array.isArray(json) ? (json as Record<string, unknown>) : null;
       if (!res.ok || !rec?.ok) throw new Error((typeof rec?.error === "string" ? rec.error : null) || `Failed to submit (HTTP ${res.status})`);
 
-      setStatus("Thanks — your review was submitted.");
+      setStatus((thankYouMessage || "Thanks — your review was submitted.").trim());
       setName("");
       setRating(5);
       setBody("");
@@ -83,7 +121,47 @@ export function PublicReviewsClient({
   }
 
   return (
-    <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
+    <>
+      <Lightbox
+        open={lightboxOpen}
+        images={lightboxImages}
+        index={lightboxIndex}
+        onIndexChange={setLightboxIndex}
+        onClose={() => setLightboxOpen(false)}
+      />
+
+      <div className="space-y-6">
+        {galleryEnabled && allReviewPhotoUrls.length ? (
+          <div className="rounded-3xl border border-zinc-200 bg-white p-7 shadow-sm">
+            <div className="text-sm font-semibold text-zinc-900">Photos</div>
+            <div className="mt-2 text-sm text-zinc-600">Real photos from customer reviews.</div>
+            <div className="mt-4 grid grid-cols-3 gap-2 sm:grid-cols-4 lg:grid-cols-6">
+              {allReviewPhotoUrls.slice(0, 30).map((u, i) => (
+                <button
+                  key={`${u}_${i}`}
+                  type="button"
+                  className="aspect-square overflow-hidden rounded-2xl bg-zinc-100"
+                  onClick={() => openLightbox(allReviewPhotoUrls, i)}
+                  aria-label="Open photo"
+                >
+                  {/* eslint-disable-next-line @next/next/no-img-element */}
+                  <img src={u} alt="" className="h-full w-full object-cover" />
+                </button>
+              ))}
+            </div>
+            {allReviewPhotoUrls.length > 30 ? (
+              <button
+                type="button"
+                className="mt-4 inline-flex h-10 items-center justify-center rounded-2xl border border-zinc-200 bg-white px-4 text-sm font-semibold text-zinc-900 hover:bg-zinc-50"
+                onClick={() => openLightbox(allReviewPhotoUrls, 0)}
+              >
+                View all photos
+              </button>
+            ) : null}
+          </div>
+        ) : null}
+
+        <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
       <div className="rounded-3xl border border-zinc-200 bg-white p-7 shadow-sm">
         <div className="font-brand text-2xl" style={{ color: "var(--client-text)" }}>
           leave a review
@@ -168,7 +246,15 @@ export function PublicReviewsClient({
               <div className="mt-3 flex flex-wrap gap-2">
                 {photoPreviews.map((p) => (
                   // eslint-disable-next-line @next/next/no-img-element
-                  <img key={p.url} src={p.url} alt="" className="h-20 w-20 rounded-xl border border-zinc-200 object-cover" />
+                  <button
+                    key={p.url}
+                    type="button"
+                    className="h-20 w-20 overflow-hidden rounded-xl"
+                    onClick={() => openLightbox(photoPreviews.map((x) => x.url), photoPreviews.findIndex((x) => x.url === p.url))}
+                    aria-label="Open photo"
+                  >
+                    <img src={p.url} alt="" className="h-full w-full object-cover" />
+                  </button>
                 ))}
               </div>
             ) : null}
@@ -237,7 +323,15 @@ export function PublicReviewsClient({
                     <div className="mt-3 flex flex-wrap gap-2">
                       {urls.slice(0, 6).map((u) => (
                         // eslint-disable-next-line @next/next/no-img-element
-                        <img key={u} src={u} alt="" className="h-20 w-20 rounded-xl border border-zinc-200 object-cover" />
+                        <button
+                          key={u}
+                          type="button"
+                          className="h-20 w-20 overflow-hidden rounded-xl"
+                          onClick={() => openLightbox(urls, urls.indexOf(u))}
+                          aria-label="Open photo"
+                        >
+                          <img src={u} alt="" className="h-full w-full object-cover" />
+                        </button>
                       ))}
                     </div>
                   ) : null}
@@ -247,6 +341,8 @@ export function PublicReviewsClient({
           </div>
         </div>
       </div>
-    </div>
+        </div>
+      </div>
+    </>
   );
 }

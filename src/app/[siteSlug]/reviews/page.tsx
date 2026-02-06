@@ -86,6 +86,7 @@ export default async function PublicReviewsPage({ params }: { params: Promise<{ 
   const logoUrl = (profile as any)?.logoUrl || null;
   const title = settings.publicPage.title || "Reviews";
   const description = settings.publicPage.description || "";
+  const thankYouMessage = (settings.publicPage as any)?.thankYouMessage ? String((settings.publicPage as any).thankYouMessage) : "";
 
   type VerifiedBusiness = {
     ownerId: string;
@@ -236,15 +237,17 @@ export default async function PublicReviewsPage({ params }: { params: Promise<{ 
             <div className="max-w-3xl">
               <div className="inline-flex items-center gap-2 rounded-full bg-white/15 px-3 py-1 text-sm font-semibold text-white">
                 <span className="grid h-6 w-6 place-items-center rounded-full bg-white/20">
-                  <Image
-                    src="/brand/play_white_removed_everywhere%20(1).png"
-                    alt=""
-                    width={18}
-                    height={18}
-                    className="h-4 w-4"
-                  />
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+                    <path
+                      d="M20 6L9 17l-5-5"
+                      stroke="currentColor"
+                      strokeWidth="2.5"
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                    />
+                  </svg>
                 </span>
-                Verified
+                Verified by Purely
               </div>
 
               <h1 className="mt-4 font-brand text-4xl text-white sm:text-5xl">{title}</h1>
@@ -272,6 +275,8 @@ export default async function PublicReviewsPage({ params }: { params: Promise<{ 
               siteHandle={siteHandle}
               brandPrimary={brandPrimary}
               destinations={settings.destinations}
+              galleryEnabled={Boolean((settings.publicPage as any)?.galleryEnabled ?? true)}
+              thankYouMessage={thankYouMessage}
               initialReviews={reviews.map((r) => ({
                 id: r.id,
                 rating: r.rating,

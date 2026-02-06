@@ -100,8 +100,10 @@ export type ReviewDestination = {
 
 export type ReviewsPublicPageSettings = {
   enabled: boolean;
+  galleryEnabled: boolean;
   title: string;
   description: string;
+  thankYouMessage: string;
   photoUrls: string[];
 };
 
@@ -208,8 +210,10 @@ export function parseReviewRequestsSettings(raw: unknown): ReviewRequestsSetting
     calendarMessageTemplates: {},
     publicPage: {
       enabled: true,
+      galleryEnabled: true,
       title: "Reviews",
       description: "We’d love to hear about your experience.",
+      thankYouMessage: "Thanks — your review was submitted.",
       photoUrls: [],
     },
   };
@@ -295,8 +299,11 @@ export function parseReviewRequestsSettings(raw: unknown): ReviewRequestsSetting
 
   const publicPage: ReviewsPublicPageSettings = {
     enabled: typeof publicRaw?.enabled === "boolean" ? publicRaw.enabled : base.publicPage.enabled,
+    galleryEnabled:
+      typeof publicRaw?.galleryEnabled === "boolean" ? publicRaw.galleryEnabled : base.publicPage.galleryEnabled,
     title: normalizeString(publicRaw?.title, 60, base.publicPage.title) || base.publicPage.title,
     description: normalizeString(publicRaw?.description, 220, base.publicPage.description) || base.publicPage.description,
+    thankYouMessage: normalizeString(publicRaw?.thankYouMessage, 220, base.publicPage.thankYouMessage) || base.publicPage.thankYouMessage,
     photoUrls: mergedPhotoUrls,
   };
 
