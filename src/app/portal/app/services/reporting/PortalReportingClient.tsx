@@ -107,7 +107,7 @@ function StatCard({ label, value, sub, tone }: { label: string; value: string; s
       <div className={classNames("mb-4 h-1.5 w-14 rounded-full", t.bar)} />
       <div className="flex items-center justify-between gap-3">
         <div className="text-xs font-semibold text-zinc-500">{label}</div>
-        <div className={classNames("rounded-full px-2 py-1 text-[11px] font-semibold", t.pill)}>{tone}</div>
+        <div className={classNames("h-2.5 w-2.5 rounded-full", t.pill)} aria-hidden="true" />
       </div>
       <div className="mt-2 text-3xl font-bold text-brand-ink">{value}</div>
       {sub ? <div className="mt-1 text-xs text-zinc-500">{sub}</div> : null}

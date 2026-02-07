@@ -221,10 +221,6 @@ export function PortalFloatingTools() {
               >
                 Report bug
               </button>
-
-              <div className="text-[11px] text-zinc-500">
-                {version?.deploymentId ? `Deploy ${String(version.deploymentId).slice(0, 8)}` : ""}
-              </div>
             </div>
           </div>
         )}

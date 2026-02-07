@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 
 import { Responsive as ResponsiveGridLayout } from "react-grid-layout";
 import type { Layout, LayoutItem, ResponsiveLayouts } from "react-grid-layout";
@@ -166,11 +166,11 @@ export function PortalDashboardClient() {
 
   const [layouts, setLayouts] = useState<ResponsiveLayouts>({} as ResponsiveLayouts);
 
-  const containerRef = useRef<HTMLDivElement | null>(null);
+  const [containerEl, setContainerEl] = useState<HTMLDivElement | null>(null);
   const [width, setWidth] = useState(0);
 
   useEffect(() => {
-    const el = containerRef.current;
+    const el = containerEl;
     if (!el) return;
 
     const measure = () => {
@@ -194,7 +194,7 @@ export function PortalDashboardClient() {
       window.removeEventListener("resize", measure);
       ro?.disconnect();
     };
-  }, []);
+  }, [containerEl]);
 
   useEffect(() => {
     let mounted = true;
@@ -675,7 +675,7 @@ export function PortalDashboardClient() {
         ) : null}
       </div>
 
-      <div ref={containerRef}>
+      <div ref={setContainerEl}>
         {width > 0 ? (
           <ResponsiveGridLayout
             width={width}
