@@ -484,7 +484,8 @@ export async function POST(req: Request) {
   let createdCount = 0;
   let error: string | null = null;
   const maxPerPlacesBatch = 60;
-  const plannedBatches = Math.max(1, Math.ceil(requestedCount / maxPerPlacesBatch));
+  const baseBatches = Math.max(1, Math.ceil(requestedCount / maxPerPlacesBatch));
+  const plannedBatches = Math.min(10, baseBatches + (requestedCount >= 50 ? 1 : 0));
   let batchesRan = 0;
   const createdLeads: Array<{
     id: string;
@@ -497,12 +498,26 @@ export async function POST(req: Request) {
   }> = [];
 
   try {
-    const query = `${niche} in ${location}`;
+    const queryVariants = Array.from(
+      new Set(
+        [
+          `${niche} in ${location}`,
+          `${niche} near ${location}`,
+          `${niche} services in ${location}`,
+          `${niche} company in ${location}`,
+        ]
+          .map((s) => s.trim())
+          .filter(Boolean),
+      ),
+    );
+
     const excludedPhones = new Set(
       settings.b2b.excludePhones
         .map((p) => normalizePhone(p))
         .filter((p): p is string => Boolean(p)),
     );
+
+    const seenPlaceIds = new Set<string>();
 
     for (let batchIndex = 0; batchIndex < plannedBatches; batchIndex++) {
       if (createdCount >= requestedCount) break;
@@ -510,6 +525,7 @@ export async function POST(req: Request) {
 
       const remaining = requestedCount - createdCount;
       const targetThisBatch = Math.min(maxPerPlacesBatch, Math.max(1, remaining));
+      const query = queryVariants[batchIndex % queryVariants.length] || `${niche} in ${location}`;
       const results = await placesTextSearch(query, Math.max(1, targetThisBatch * 4));
 
       for (const place of results) {
@@ -521,6 +537,8 @@ export async function POST(req: Request) {
         if (matchesNameExclusion(businessName, settings.b2b.excludeNameContains)) continue;
 
         const placeId = place.place_id;
+        if (seenPlaceIds.has(placeId)) continue;
+        seenPlaceIds.add(placeId);
         const details = await placeDetails(placeId);
 
         const phoneCandidate = details.international_phone_number || details.formatted_phone_number || null;

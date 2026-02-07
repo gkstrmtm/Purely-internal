@@ -227,7 +227,9 @@ export function PortalLeadScrapingClient() {
 
   const plannedBatchesUi = useMemo(() => {
     const c = settings?.b2b?.count ?? 0;
-    return Math.max(1, Math.ceil(Math.max(0, c) / 60));
+    const base = Math.max(1, Math.ceil(Math.max(0, c) / 60));
+    const extra = c >= 50 ? 1 : 0;
+    return Math.min(10, base + extra);
   }, [settings?.b2b?.count]);
 
   const sortedLeads = (rows: LeadRow[]) =>
@@ -1353,7 +1355,7 @@ export function PortalLeadScrapingClient() {
             </div>
           </div>
 
-          <div className="rounded-3xl border border-zinc-200 bg-white p-6">
+          <div className="flex h-full flex-col rounded-3xl border border-zinc-200 bg-white p-6">
             <div className="flex items-start justify-between gap-4">
               <div>
                 <div className="text-sm font-semibold text-zinc-900">Leads</div>
@@ -1379,7 +1381,7 @@ export function PortalLeadScrapingClient() {
               />
             </div>
 
-            <div className="mt-3 max-h-[75vh] space-y-3 overflow-y-auto pr-2">
+            <div className="mt-3 max-h-[70vh] space-y-3 overflow-y-auto pr-2 lg:max-h-none lg:min-h-0 lg:flex-1">
               {leads.length ? (
                 leads.map((l, idx) => (
                   <button

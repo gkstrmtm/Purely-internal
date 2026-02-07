@@ -326,7 +326,8 @@ async function runB2BForOwner(ownerId: string, settingsJson: unknown, baseUrl: s
   let createdCount = 0;
   let error: string | null = null;
   const maxPerPlacesBatch = 60;
-  const plannedBatches = Math.max(1, Math.ceil(requestedCount / maxPerPlacesBatch));
+  const baseBatches = Math.max(1, Math.ceil(requestedCount / maxPerPlacesBatch));
+  const plannedBatches = Math.min(10, baseBatches + (requestedCount >= 50 ? 1 : 0));
   const createdLeads: Array<{
     id: string;
     businessName: string;
@@ -343,13 +344,27 @@ async function runB2BForOwner(ownerId: string, settingsJson: unknown, baseUrl: s
         .map((p) => normalizePhone(p))
         .filter((p): p is string => Boolean(p)),
     );
-    const query = `${niche} in ${location}`;
+    const queryVariants = Array.from(
+      new Set(
+        [
+          `${niche} in ${location}`,
+          `${niche} near ${location}`,
+          `${niche} services in ${location}`,
+          `${niche} company in ${location}`,
+        ]
+          .map((s) => s.trim())
+          .filter(Boolean),
+      ),
+    );
+
+    const seenPlaceIds = new Set<string>();
 
     for (let batchIndex = 0; batchIndex < plannedBatches; batchIndex++) {
       if (createdCount >= requestedCount) break;
 
       const remaining = requestedCount - createdCount;
       const targetThisBatch = Math.min(maxPerPlacesBatch, Math.max(1, remaining));
+      const query = queryVariants[batchIndex % queryVariants.length] || `${niche} in ${location}`;
       const results = await placesTextSearch(query, Math.max(1, targetThisBatch * 4));
 
       for (const place of results) {
@@ -360,6 +375,8 @@ async function runB2BForOwner(ownerId: string, settingsJson: unknown, baseUrl: s
         if (matchesNameExclusion(businessName, settings.b2b.excludeNameContains)) continue;
 
         const placeId = place.place_id;
+        if (seenPlaceIds.has(placeId)) continue;
+        seenPlaceIds.add(placeId);
         const details = await placeDetails(placeId);
 
         const phoneCandidate = details.international_phone_number || details.formatted_phone_number || null;
