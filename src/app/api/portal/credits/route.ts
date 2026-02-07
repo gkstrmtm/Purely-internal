@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 
 import { requireClientSession } from "@/lib/apiAuth";
+import { prisma } from "@/lib/db";
 import { getCreditsState, setAutoTopUp } from "@/lib/credits";
 import { isStripeConfigured } from "@/lib/stripeFetch";
 
@@ -28,7 +29,26 @@ export async function GET() {
   }
 
   const ownerId = auth.session.user.id;
-  const state = await getCreditsState(ownerId);
+  let state = await getCreditsState(ownerId);
+
+  // Demo safety net: ensure the demo-full account always has credits to test with,
+  // even if the seed route wasn't run in this environment.
+  const demoFull = (process.env.DEMO_PORTAL_FULL_EMAIL ?? "").trim().toLowerCase();
+  const sessionEmail = (auth.session.user.email ?? "").trim().toLowerCase();
+  const demoMinBalance = 500;
+  if (demoFull && sessionEmail && sessionEmail === demoFull && state.balance < demoMinBalance) {
+    const next = { balance: demoMinBalance, autoTopUp: state.autoTopUp };
+    const row = await prisma.portalServiceSetup.upsert({
+      where: { ownerId_serviceSlug: { ownerId, serviceSlug: "credits" } },
+      create: { ownerId, serviceSlug: "credits", status: "COMPLETE", dataJson: next },
+      update: { dataJson: next, status: "COMPLETE" },
+      select: { dataJson: true },
+    });
+    const rec = row.dataJson && typeof row.dataJson === "object" ? (row.dataJson as Record<string, unknown>) : {};
+    const balance = typeof rec.balance === "number" ? rec.balance : demoMinBalance;
+    const autoTopUp = Boolean(rec.autoTopUp);
+    state = { balance: Math.max(0, Math.floor(balance)), autoTopUp };
+  }
 
   return NextResponse.json({
     ok: true,
