@@ -33,10 +33,23 @@ export async function GET() {
 
   // Demo safety net: ensure the demo-full account always has credits to test with,
   // even if the seed route wasn't run in this environment.
-  const demoFull = (process.env.DEMO_PORTAL_FULL_EMAIL ?? "").trim().toLowerCase();
-  const sessionEmail = (auth.session.user.email ?? "").trim().toLowerCase();
+  const demoFullFromEnv = (process.env.DEMO_PORTAL_FULL_EMAIL ?? "").trim().toLowerCase();
+  const demoFullHardcoded = "demo-full@purelyautomation.dev";
+  const sessionEmailRaw = (auth.session.user.email ?? "").trim().toLowerCase();
+  const sessionEmail = sessionEmailRaw
+    ? sessionEmailRaw
+    : (
+        await prisma.user
+          .findUnique({ where: { id: ownerId }, select: { email: true } })
+          .then((u) => (u?.email ?? "").trim().toLowerCase())
+          .catch(() => "")
+      );
   const demoMinBalance = 500;
-  if (demoFull && sessionEmail && sessionEmail === demoFull && state.balance < demoMinBalance) {
+  const isDemoFull =
+    Boolean(sessionEmail) &&
+    (sessionEmail === demoFullFromEnv || sessionEmail === demoFullHardcoded);
+
+  if (isDemoFull && state.balance < demoMinBalance) {
     const next = { balance: demoMinBalance, autoTopUp: state.autoTopUp };
     const row = await prisma.portalServiceSetup.upsert({
       where: { ownerId_serviceSlug: { ownerId, serviceSlug: "credits" } },
