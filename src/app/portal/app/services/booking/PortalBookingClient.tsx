@@ -2025,8 +2025,8 @@ export function PortalBookingClient() {
       ) : null}
 
       {contactOpen && contactBooking ? (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/30 p-4">
-          <div className="w-full max-w-lg rounded-3xl border border-zinc-200 bg-white p-6 shadow-xl">
+        <div className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-black/30 p-4 sm:items-center">
+          <div className="w-full max-w-lg max-h-[calc(100vh-2rem)] overflow-y-auto rounded-3xl border border-zinc-200 bg-white p-6 shadow-xl sm:max-h-[calc(100vh-3rem)]">
             <div className="text-sm font-semibold text-zinc-900">Send follow-up</div>
             <div className="mt-1 text-sm text-zinc-600">
               {contactBooking.contactName} · {contactBooking.contactEmail}
@@ -2106,8 +2106,8 @@ export function PortalBookingClient() {
       ) : null}
 
       {reschedOpen && reschedBooking ? (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/30 p-4">
-          <div className="w-full max-w-lg rounded-3xl border border-zinc-200 bg-white p-6 shadow-xl">
+        <div className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-black/30 p-4 sm:items-center">
+          <div className="w-full max-w-lg max-h-[calc(100vh-2rem)] overflow-y-auto rounded-3xl border border-zinc-200 bg-white p-6 shadow-xl sm:max-h-[calc(100vh-3rem)]">
             <div className="text-sm font-semibold text-zinc-900">Reschedule booking</div>
             <div className="mt-1 text-sm text-zinc-600">
               {reschedBooking.contactName} · {new Date(reschedBooking.startAt).toLocaleString()}

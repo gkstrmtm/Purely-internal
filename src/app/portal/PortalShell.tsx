@@ -112,7 +112,7 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
 
           <aside
             className={classNames(
-              "absolute left-0 top-0 h-full w-[290px] border-r border-zinc-200 bg-white shadow-xl transition-transform",
+              "absolute left-0 top-0 h-full w-[290px] overflow-y-auto border-r border-zinc-200 bg-white shadow-xl transition-transform",
               mobileOpen ? "translate-x-0" : "-translate-x-full",
             )}
           >
