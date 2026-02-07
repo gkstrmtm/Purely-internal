@@ -40,6 +40,15 @@ type SettingsV3 = {
   };
 };
 
+function isMissingColumnError(e: unknown) {
+  const anyErr = e as any;
+  if (anyErr && typeof anyErr === "object" && typeof anyErr.code === "string") {
+    if (anyErr.code === "P2022") return true;
+  }
+  const msg = e instanceof Error ? e.message : "";
+  return msg.includes("does not exist") && msg.includes("column");
+}
+
 function normalizeUrl(value: unknown): string {
   const s = typeof value === "string" ? value.trim() : "";
   if (!s) return "";
@@ -216,18 +225,36 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: parsed.error.issues[0]?.message ?? "Invalid input" }, { status: 400 });
   }
 
-  const lead = await prisma.portalLead.findFirst({
-    where: { id: parsed.data.leadId, ownerId },
-    select: {
-      id: true,
-      businessName: true,
-      email: true,
-      phone: true,
-      website: true,
-      address: true,
-      niche: true,
-    },
-  });
+  const lead = await (async () => {
+    try {
+      return await prisma.portalLead.findFirst({
+        where: { id: parsed.data.leadId, ownerId },
+        select: {
+          id: true,
+          businessName: true,
+          email: true,
+          phone: true,
+          website: true,
+          address: true,
+          niche: true,
+        },
+      });
+    } catch (e) {
+      if (!isMissingColumnError(e)) throw e;
+      const legacy = await prisma.portalLead.findFirst({
+        where: { id: parsed.data.leadId, ownerId },
+        select: {
+          id: true,
+          businessName: true,
+          phone: true,
+          website: true,
+          address: true,
+          niche: true,
+        },
+      });
+      return legacy ? ({ ...legacy, email: null } as any) : null;
+    }
+  })();
   if (!lead) return NextResponse.json({ error: "Not found" }, { status: 404 });
 
   const profile = await prisma.businessProfile.findUnique({

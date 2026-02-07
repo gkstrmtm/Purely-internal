@@ -12,6 +12,16 @@ const querySchema = z.object({
   take: z.number().int().min(1).max(500).default(200),
 });
 
+function isMissingColumnError(e: unknown) {
+  const anyErr = e as any;
+  if (anyErr && typeof anyErr === "object" && typeof anyErr.code === "string") {
+    // Prisma: column does not exist
+    if (anyErr.code === "P2022") return true;
+  }
+  const msg = e instanceof Error ? e.message : "";
+  return msg.includes("does not exist") && msg.includes("column");
+}
+
 export async function GET(req: Request) {
   const auth = await requireClientSession();
   if (!auth.ok) {
@@ -30,25 +40,52 @@ export async function GET(req: Request) {
   });
   const take = parsed.success ? parsed.data.take : 200;
 
-  const leads = await prisma.portalLead.findMany({
-    where: { ownerId },
-    orderBy: [{ starred: "desc" }, { createdAt: "desc" }],
-    take,
-    select: {
-      id: true,
-      kind: true,
-      source: true,
-      businessName: true,
-      email: true,
-      phone: true,
-      website: true,
-      address: true,
-      niche: true,
-      placeId: true,
-      starred: true,
-      createdAt: true,
-    },
-  });
+  const leads = await (async () => {
+    try {
+      return await prisma.portalLead.findMany({
+        where: { ownerId },
+        orderBy: [{ starred: "desc" }, { createdAt: "desc" }],
+        take,
+        select: {
+          id: true,
+          kind: true,
+          source: true,
+          businessName: true,
+          email: true,
+          phone: true,
+          website: true,
+          address: true,
+          niche: true,
+          placeId: true,
+          starred: true,
+          createdAt: true,
+        },
+      });
+    } catch (e) {
+      if (!isMissingColumnError(e)) throw e;
+
+      // Backwards compatible read (when DB migrations haven't been applied yet).
+      const legacy = await prisma.portalLead.findMany({
+        where: { ownerId },
+        orderBy: [{ createdAt: "desc" }],
+        take,
+        select: {
+          id: true,
+          kind: true,
+          source: true,
+          businessName: true,
+          phone: true,
+          website: true,
+          address: true,
+          niche: true,
+          placeId: true,
+          createdAt: true,
+        },
+      });
+
+      return legacy.map((l) => ({ ...l, email: null as string | null, starred: false as boolean }));
+    }
+  })();
 
   const normalized = leads.map((l) => ({
     id: l.id,

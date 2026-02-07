@@ -1093,7 +1093,7 @@ export function PortalLeadScrapingClient() {
                   }
                 />
                 <div className="mt-1 text-xs text-zinc-500">
-                  Google returns up to ~60 results per batch; larger counts automatically run multiple batches.
+                  Recommended: 60 or less per scrape.
                 </div>
               </label>
 

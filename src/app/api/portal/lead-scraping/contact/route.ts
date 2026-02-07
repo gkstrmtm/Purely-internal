@@ -17,6 +17,15 @@ const bodySchema = z.object({
   sendSms: z.boolean().optional(),
 });
 
+function isMissingColumnError(e: unknown) {
+  const anyErr = e as any;
+  if (anyErr && typeof anyErr === "object" && typeof anyErr.code === "string") {
+    if (anyErr.code === "P2022") return true;
+  }
+  const msg = e instanceof Error ? e.message : "";
+  return msg.includes("does not exist") && msg.includes("column");
+}
+
 async function sendSms({ ownerId, to, body }: { ownerId: string; to: string; body: string }) {
   const twilio = await getOwnerTwilioSmsConfig(ownerId);
   if (!twilio) throw new Error("Texting is not configured yet.");
@@ -67,10 +76,21 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: "Choose Email and/or Text." }, { status: 400 });
   }
 
-  const lead = await prisma.portalLead.findFirst({
-    where: { id: parsed.data.leadId, ownerId },
-    select: { id: true, businessName: true, email: true, phone: true },
-  });
+  const lead = await (async () => {
+    try {
+      return await prisma.portalLead.findFirst({
+        where: { id: parsed.data.leadId, ownerId },
+        select: { id: true, businessName: true, email: true, phone: true },
+      });
+    } catch (e) {
+      if (!isMissingColumnError(e)) throw e;
+      const legacy = await prisma.portalLead.findFirst({
+        where: { id: parsed.data.leadId, ownerId },
+        select: { id: true, businessName: true, phone: true },
+      });
+      return legacy ? ({ ...legacy, email: null } as any) : null;
+    }
+  })();
   if (!lead) return NextResponse.json({ error: "Not found" }, { status: 404 });
 
   const profile = await prisma.businessProfile.findUnique({

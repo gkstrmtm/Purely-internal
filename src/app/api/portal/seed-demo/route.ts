@@ -85,10 +85,10 @@ export async function POST(req: Request) {
         ownerId: fullUser.id,
         serviceSlug: "credits",
         status: "COMPLETE",
-        dataJson: { balance: 100, autoTopUp: false },
+        dataJson: { balance: 500, autoTopUp: false },
       },
       update: {
-        dataJson: { balance: 100, autoTopUp: false },
+        dataJson: { balance: 500, autoTopUp: false },
         status: "COMPLETE",
       },
       select: { id: true },
