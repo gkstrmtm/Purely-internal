@@ -67,6 +67,12 @@ export function PortalBlogsClient() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
+  const [credits, setCredits] = useState<number | null>(null);
+  const [billingPath, setBillingPath] = useState<string>("/portal/app/billing");
+  const [blogCreditsUsed30d, setBlogCreditsUsed30d] = useState<number | null>(null);
+  const [blogGenerations30d, setBlogGenerations30d] = useState<number | null>(null);
+  const [generatingNow, setGeneratingNow] = useState(false);
+
   const [siteName, setSiteName] = useState("");
   const [siteSlug, setSiteSlug] = useState("");
   const [siteSaving, setSiteSaving] = useState(false);
@@ -104,17 +110,24 @@ export function PortalBlogsClient() {
     setLoading(true);
     setError(null);
 
-    const [meRes, siteRes, postsRes, autoRes] = await Promise.all([
+    const [meRes, siteRes, postsRes, autoRes, creditsRes, usageRes] = await Promise.all([
       fetch("/api/customer/me", { cache: "no-store" }),
       fetch("/api/portal/blogs/site", { cache: "no-store" }),
       fetch("/api/portal/blogs/posts?take=100", { cache: "no-store" }),
       fetch("/api/portal/blogs/automation/settings", { cache: "no-store" }),
+      fetch("/api/portal/credits", { cache: "no-store" }),
+      fetch("/api/portal/blogs/usage?range=30d", { cache: "no-store" }),
     ]);
 
     const meJson = (await meRes.json().catch(() => ({}))) as Partial<Me>;
     const siteJson = (await siteRes.json().catch(() => ({}))) as { site?: Site | null; error?: string };
     const postsJson = (await postsRes.json().catch(() => ({}))) as { posts?: PostRow[]; error?: string };
     const autoJson = (await autoRes.json().catch(() => ({}))) as { settings?: AutomationSettings; error?: string };
+    const creditsJson = (await creditsRes.json().catch(() => ({}))) as { credits?: number; billingPath?: string };
+    const usageJson = (await usageRes.json().catch(() => ({}))) as {
+      creditsUsed?: { range?: number };
+      generations?: { range?: number };
+    };
 
     if (!meRes.ok) {
       setError((meJson as { error?: string })?.error ?? "Unable to load account");
@@ -134,6 +147,22 @@ export function PortalBlogsClient() {
     setSiteSlug(s?.slug ?? "");
 
     setPosts(Array.isArray(postsJson.posts) ? postsJson.posts : []);
+
+    if (creditsRes.ok) {
+      setCredits(typeof creditsJson.credits === "number" && Number.isFinite(creditsJson.credits) ? creditsJson.credits : 0);
+      setBillingPath(
+        typeof creditsJson.billingPath === "string" && creditsJson.billingPath.trim()
+          ? creditsJson.billingPath
+          : "/portal/app/billing",
+      );
+    }
+
+    if (usageRes.ok) {
+      const used = usageJson?.creditsUsed?.range;
+      const gens = usageJson?.generations?.range;
+      setBlogCreditsUsed30d(typeof used === "number" && Number.isFinite(used) ? used : 0);
+      setBlogGenerations30d(typeof gens === "number" && Number.isFinite(gens) ? gens : 0);
+    }
 
     if (autoRes.ok && autoJson.settings) {
       setAutomation(autoJson.settings);
@@ -401,9 +430,41 @@ export function PortalBlogsClient() {
           </div>
         </div>
 
-        <div className="rounded-3xl border border-zinc-200 bg-white p-6">
-          <div className="text-sm font-semibold text-zinc-900">Blog settings</div>
-          <div className="mt-2 text-sm text-zinc-600">Hosted blog link and automation schedule.</div>
+        <div className="space-y-4">
+          <div className="rounded-3xl border border-zinc-200 bg-white p-6">
+            <div className="flex items-start justify-between gap-3">
+              <div>
+                <div className="text-sm font-semibold text-zinc-900">Credits</div>
+                <div className="mt-2 text-sm text-zinc-600">Usage-based: 1 credit per generated blog post.</div>
+              </div>
+              <Link
+                href={billingPath}
+                className="inline-flex items-center justify-center rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm font-semibold text-brand-ink hover:bg-zinc-50"
+              >
+                Billing
+              </Link>
+            </div>
+
+            <div className="mt-4 grid grid-cols-1 gap-3 sm:grid-cols-2">
+              <div className="rounded-2xl border border-zinc-200 bg-zinc-50 p-4">
+                <div className="text-xs font-semibold text-zinc-600">Total credits</div>
+                <div className="mt-2 text-2xl font-bold text-brand-ink">{credits === null ? "—" : credits.toLocaleString()}</div>
+              </div>
+              <div className="rounded-2xl border border-zinc-200 bg-zinc-50 p-4">
+                <div className="text-xs font-semibold text-zinc-600">Credits used</div>
+                <div className="mt-2 text-2xl font-bold text-brand-ink">
+                  {blogCreditsUsed30d === null ? "—" : blogCreditsUsed30d.toLocaleString()}
+                </div>
+                <div className="mt-1 text-xs text-zinc-500">
+                  Last 30 days · {blogGenerations30d === null ? "—" : blogGenerations30d} generation{blogGenerations30d === 1 ? "" : "s"}
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div className="rounded-3xl border border-zinc-200 bg-white p-6">
+            <div className="text-sm font-semibold text-zinc-900">Blog settings</div>
+            <div className="mt-2 text-sm text-zinc-600">Hosted blog link and automation schedule.</div>
 
           {site ? (
             <div className="mt-4 rounded-2xl border border-zinc-200 bg-zinc-50 p-4">
@@ -623,6 +684,40 @@ export function PortalBlogsClient() {
                     {autoSaving ? "Saving…" : "Save automation"}
                   </button>
 
+                  <button
+                    type="button"
+                    disabled={generatingNow || !site}
+                    onClick={async () => {
+                      if (!site) {
+                        setError("Create your blog workspace first (Blog settings → Create blog workspace).");
+                        return;
+                      }
+
+                      setGeneratingNow(true);
+                      setError(null);
+
+                      const res = await fetch("/api/portal/blogs/automation/generate-now", { method: "POST" });
+                      const json = (await res.json().catch(() => ({}))) as any;
+
+                      if (res.status === 402 && json?.code === "INSUFFICIENT_CREDITS") {
+                        setGeneratingNow(false);
+                        setError(json?.error ?? "Not enough credits.");
+                        return;
+                      }
+
+                      if (!res.ok || !json?.ok || !json?.postId) {
+                        setGeneratingNow(false);
+                        setError(json?.error ?? "Unable to generate a post right now.");
+                        return;
+                      }
+
+                      window.location.href = `/portal/app/services/blogs/${json.postId}`;
+                    }}
+                    className="mt-3 inline-flex w-full items-center justify-center rounded-2xl border border-zinc-200 bg-white px-5 py-3 text-sm font-semibold text-brand-ink hover:bg-zinc-50 disabled:opacity-60"
+                  >
+                    {generatingNow ? "Generating…" : "Generate next post now"}
+                  </button>
+
                   {automation ? (
                     <div className="mt-2 space-y-1 text-xs text-zinc-600">
                       <div>Last generated: {automation.lastGeneratedAt ? formatDate(automation.lastGeneratedAt) : "—"}</div>
@@ -635,6 +730,7 @@ export function PortalBlogsClient() {
               </div>
             </div>
           ) : null}
+          </div>
         </div>
       </div>
     </div>

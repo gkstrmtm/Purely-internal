@@ -99,6 +99,8 @@ model User {
 
   portalLeadScrapeRuns  PortalLeadScrapeRun[]
   portalLeads           PortalLead[]
+
+  portalBlogGenerationEvents PortalBlogGenerationEvent[]
 }
 
 enum PortalLeadScrapeKind {
@@ -571,6 +573,12 @@ enum ClientBlogPostStatus {
   PUBLISHED
 }
 
+enum PortalBlogGenerationSource {
+  CRON
+  GENERATE_NOW
+  DRAFT_GENERATE
+}
+
 model ClientBlogSite {
   id String @id @default(cuid())
 
@@ -590,9 +598,32 @@ model ClientBlogSite {
 
   owner User @relation(fields: [ownerId], references: [id])
   posts ClientBlogPost[]
+  blogGenerationEvents PortalBlogGenerationEvent[]
 
   @@index([ownerId])
   @@index([primaryDomain])
+}
+
+model PortalBlogGenerationEvent {
+  id String @id @default(cuid())
+
+  ownerId String
+  siteId  String
+  postId  String?
+
+  source PortalBlogGenerationSource
+  chargedCredits Int @default(1)
+  topic String?
+
+  createdAt DateTime @default(now())
+
+  owner User @relation(fields: [ownerId], references: [id])
+  site  ClientBlogSite @relation(fields: [siteId], references: [id], onDelete: Cascade)
+  post  ClientBlogPost? @relation(fields: [postId], references: [id], onDelete: SetNull)
+
+  @@index([ownerId, createdAt])
+  @@index([siteId, createdAt])
+  @@index([postId])
 }
 
 model ClientBlogPost {
@@ -614,6 +645,7 @@ model ClientBlogPost {
   updatedAt DateTime @updatedAt
 
   site ClientBlogSite @relation(fields: [siteId], references: [id])
+  blogGenerationEvents PortalBlogGenerationEvent[]
 
   @@unique([siteId, slug])
   @@index([siteId, status, publishedAt])

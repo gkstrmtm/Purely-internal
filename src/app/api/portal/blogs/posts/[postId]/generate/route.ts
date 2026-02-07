@@ -10,6 +10,10 @@ export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
 
+function aiConfigured() {
+  return Boolean((process.env.AI_BASE_URL ?? "").trim() && (process.env.AI_API_KEY ?? "").trim());
+}
+
 const bodySchema = z
   .object({
     prompt: z.string().trim().min(1).max(2000).optional(),
@@ -45,6 +49,13 @@ export async function POST(req: Request, ctx: { params: Promise<{ postId: string
     return NextResponse.json(
       { error: "AI generation is only available for drafts." },
       { status: 409 },
+    );
+  }
+
+  if (!aiConfigured()) {
+    return NextResponse.json(
+      { error: "AI is not configured for this environment. Set AI_BASE_URL and AI_API_KEY." },
+      { status: 503 },
     );
   }
 
@@ -93,6 +104,25 @@ export async function POST(req: Request, ctx: { params: Promise<{ postId: string
     brandVoice: profile?.brandVoice,
     topic: parsed.data?.prompt ?? parsed.data?.topic,
   });
+
+  try {
+    const site = await prisma.clientBlogSite.findUnique({ where: { ownerId }, select: { id: true } });
+    if (site?.id) {
+      await prisma.portalBlogGenerationEvent.create({
+        data: {
+          ownerId,
+          siteId: site.id,
+          postId: post.id,
+          source: "DRAFT_GENERATE",
+          chargedCredits: needCredits,
+          topic: (parsed.data?.prompt ?? parsed.data?.topic)?.trim() || undefined,
+        },
+        select: { id: true },
+      });
+    }
+  } catch {
+    // Best-effort usage tracking.
+  }
 
   const state = await getCreditsState(ownerId);
   return NextResponse.json({ ok: true, draft, estimatedCredits: needCredits, creditsRemaining: state.balance });

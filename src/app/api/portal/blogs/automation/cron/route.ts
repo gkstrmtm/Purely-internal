@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 
 import { prisma } from "@/lib/db";
 import { generateClientBlogDraft } from "@/lib/clientBlogAutomation";
+import { consumeCredits } from "@/lib/credits";
 import { slugify } from "@/lib/slugify";
 
 export const runtime = "nodejs";
@@ -62,6 +63,15 @@ function isStaleLastRunAt(lastRunAt: string | undefined, now: Date) {
 }
 
 export async function GET(req: Request) {
+  const aiBaseUrl = (process.env.AI_BASE_URL ?? "").trim();
+  const aiApiKey = (process.env.AI_API_KEY ?? "").trim();
+  if (!aiBaseUrl || !aiApiKey) {
+    return NextResponse.json(
+      { error: "AI is not configured for this environment. Set AI_BASE_URL and AI_API_KEY." },
+      { status: 503 },
+    );
+  }
+
   const isProd = process.env.NODE_ENV === "production";
   const secret = process.env.BLOG_CRON_SECRET ?? process.env.MARKETING_CRON_SECRET;
   if (isProd && !secret) {
@@ -133,6 +143,26 @@ export async function GET(req: Request) {
     const topic = s.topics.length ? s.topics[cursor % s.topics.length] : undefined;
 
     try {
+      const needCredits = 1;
+      const consumed = await consumeCredits(setup.ownerId, needCredits);
+      if (!consumed.ok) {
+        errors.push({ ownerId: setup.ownerId, error: "INSUFFICIENT_CREDITS" });
+
+        if (isStaleLastRunAt(s.lastRunAt, now) && setup.id) {
+          const nextJson: StoredSettings = {
+            enabled: s.enabled,
+            frequencyDays: s.frequencyDays,
+            topics: s.topics,
+            cursor: s.cursor,
+            autoPublish: s.autoPublish,
+            lastRunAt: now.toISOString(),
+          };
+          await prisma.portalServiceSetup.update({ where: { id: setup.id }, data: { dataJson: nextJson } });
+        }
+
+        continue;
+      }
+
       const profile = await prisma.businessProfile.findUnique({
         where: { ownerId: setup.ownerId },
         select: {
@@ -167,7 +197,7 @@ export async function GET(req: Request) {
         ? new Date(Math.min(now.getTime(), last.createdAt.getTime() + msDays(s.frequencyDays)))
         : now;
 
-      await prisma.clientBlogPost.create({
+      const post = await prisma.clientBlogPost.create({
         data: {
           siteId: site.id,
           status: s.autoPublish ? "PUBLISHED" : "DRAFT",
@@ -180,6 +210,22 @@ export async function GET(req: Request) {
         },
         select: { id: true },
       });
+
+      try {
+        await prisma.portalBlogGenerationEvent.create({
+          data: {
+            ownerId: setup.ownerId,
+            siteId: site.id,
+            postId: post.id,
+            source: "CRON",
+            chargedCredits: needCredits,
+            topic: topic ?? undefined,
+          },
+          select: { id: true },
+        });
+      } catch {
+        // Best-effort usage tracking.
+      }
 
       created += 1;
 
