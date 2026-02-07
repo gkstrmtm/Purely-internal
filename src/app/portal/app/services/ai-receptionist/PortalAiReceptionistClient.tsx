@@ -3,6 +3,8 @@
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 
+import { PortalMissedCallTextBackClient } from "@/app/portal/app/services/missed-call-textback/PortalMissedCallTextBackClient";
+
 type Settings = {
   version: 1;
   enabled: boolean;
@@ -40,7 +42,7 @@ type ApiPayload = {
     updatedAtIso: string | null;
   };
   notes?: {
-    ghlLikeSetup?: string[];
+    startupChecklist?: string[];
   };
   error?: string;
 };
@@ -72,7 +74,7 @@ export function PortalAiReceptionistClient() {
   const [error, setError] = useState<string | null>(null);
   const [note, setNote] = useState<string | null>(null);
 
-  const [tab, setTab] = useState<"settings" | "testing" | "activity">("settings");
+  const [tab, setTab] = useState<"settings" | "testing" | "activity" | "missed-call-textback">("settings");
 
   const [settings, setSettings] = useState<Settings | null>(null);
   const [events, setEvents] = useState<EventRow[]>([]);
@@ -109,12 +111,35 @@ export function PortalAiReceptionistClient() {
     void load();
   }, []);
 
+  function setTabWithUrl(nextTab: "settings" | "testing" | "activity" | "missed-call-textback") {
+    setTab(nextTab);
+    try {
+      const url = new URL(window.location.href);
+      url.searchParams.set("tab", nextTab);
+      window.history.replaceState(null, "", url.toString());
+    } catch {
+      // ignore
+    }
+  }
+
+  useEffect(() => {
+    try {
+      const url = new URL(window.location.href);
+      const t = url.searchParams.get("tab");
+      if (t === "testing" || t === "activity" || t === "missed-call-textback" || t === "settings") {
+        setTab(t);
+      }
+    } catch {
+      // ignore
+    }
+  }, []);
+
   const canSave = useMemo(() => {
     if (!settings) return false;
     if (!settings.greeting.trim()) return false;
     if (settings.mode === "FORWARD" && !String(settings.forwardToPhoneE164 || "").trim()) return false;
     if (settings.mode === "AI" && (!settings.elevenLabsConfigured && !elevenLabsApiKey.trim())) {
-      // Allow saving without ElevenLabs, but flag it visually.
+      // Allow saving without a voice agent key.
       return true;
     }
     return true;
@@ -201,7 +226,7 @@ export function PortalAiReceptionistClient() {
     setElevenLabsApiKey("");
 
     setSaving(false);
-    setNote("Cleared ElevenLabs key.");
+    setNote("Cleared API key.");
     window.setTimeout(() => setNote(null), 2000);
   }
 
@@ -219,7 +244,7 @@ export function PortalAiReceptionistClient() {
         <div>
           <h1 className="text-2xl font-bold text-brand-ink sm:text-3xl">AI Receptionist</h1>
           <p className="mt-2 max-w-2xl text-sm text-zinc-600">
-            Configure a Twilio voice webhook that answers calls and routes them to an AI agent (or forwards them).
+            Configure call answering + routing, or forward calls to your team.
           </p>
         </div>
         <Link
@@ -233,7 +258,7 @@ export function PortalAiReceptionistClient() {
       <div className="mt-6 flex flex-wrap gap-2">
         <button
           type="button"
-          onClick={() => setTab("settings")}
+          onClick={() => setTabWithUrl("settings")}
           className={
             tab === "settings"
               ? "rounded-full bg-brand-ink px-4 py-2 text-sm font-semibold text-white"
@@ -244,7 +269,7 @@ export function PortalAiReceptionistClient() {
         </button>
         <button
           type="button"
-          onClick={() => setTab("testing")}
+          onClick={() => setTabWithUrl("testing")}
           className={
             tab === "testing"
               ? "rounded-full bg-brand-ink px-4 py-2 text-sm font-semibold text-white"
@@ -255,7 +280,7 @@ export function PortalAiReceptionistClient() {
         </button>
         <button
           type="button"
-          onClick={() => setTab("activity")}
+          onClick={() => setTabWithUrl("activity")}
           className={
             tab === "activity"
               ? "rounded-full bg-brand-ink px-4 py-2 text-sm font-semibold text-white"
@@ -263,6 +288,17 @@ export function PortalAiReceptionistClient() {
           }
         >
           Activity
+        </button>
+        <button
+          type="button"
+          onClick={() => setTabWithUrl("missed-call-textback")}
+          className={
+            tab === "missed-call-textback"
+              ? "rounded-full bg-brand-ink px-4 py-2 text-sm font-semibold text-white"
+              : "rounded-full border border-zinc-200 bg-white px-4 py-2 text-sm font-semibold text-brand-ink hover:bg-zinc-50"
+          }
+        >
+          Missed Call Text Back
         </button>
       </div>
 
@@ -321,7 +357,7 @@ export function PortalAiReceptionistClient() {
                   value={settings?.systemPrompt ?? ""}
                   onChange={(e) => settings && setSettings({ ...settings, systemPrompt: e.target.value })}
                 />
-                <div className="mt-2 text-xs text-zinc-600">Used by the future live agent implementation (ElevenLabs). For now, Twilio answers with a stub.</div>
+                <div className="mt-2 text-xs text-zinc-600">This guides how your receptionist responds.</div>
               </label>
 
               {settings?.mode === "FORWARD" ? (
@@ -338,7 +374,7 @@ export function PortalAiReceptionistClient() {
               ) : null}
             </div>
 
-            <div className="mt-8 text-sm font-semibold text-zinc-900">ElevenLabs (optional)</div>
+            <div className="mt-8 text-sm font-semibold text-zinc-900">Voice agent (optional)</div>
             <div className="mt-2 grid grid-cols-1 gap-4 sm:grid-cols-2">
               <label className="rounded-2xl border border-zinc-200 bg-zinc-50 px-4 py-3 text-sm">
                 <div className="text-xs font-semibold text-zinc-600">Agent ID</div>
@@ -360,7 +396,7 @@ export function PortalAiReceptionistClient() {
                   className="mt-2 w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm"
                   value={elevenLabsApiKey}
                   onChange={(e) => setElevenLabsApiKey(e.target.value)}
-                  placeholder={settings?.elevenLabsConfigured ? "(leave blank to keep)" : "sk-..."}
+                  placeholder={settings?.elevenLabsConfigured ? "(leave blank to keep)" : "(paste key)"}
                 />
                 <div className="mt-2 flex items-center justify-end">
                   <button
@@ -423,15 +459,12 @@ export function PortalAiReceptionistClient() {
             </div>
 
             <div className="mt-4 rounded-2xl border border-zinc-200 bg-white p-4">
-              <div className="text-xs font-semibold text-zinc-600">GHL-style setup checklist</div>
+              <div className="text-xs font-semibold text-zinc-600">Startup checklist</div>
               <ol className="mt-2 list-decimal space-y-1 pl-4 text-xs text-zinc-600">
                 <li>In Twilio Console, open your phone number.</li>
                 <li>Under “Voice &amp; Fax”, set “A CALL COMES IN” → Webhook (POST).</li>
                 <li>Paste the webhook URL above and save.</li>
               </ol>
-              <div className="mt-3 text-xs text-zinc-500">
-                This v1 endpoint answers with a simple greeting + voicemail record for AI mode, or forwards calls for Forward mode.
-              </div>
             </div>
           </div>
         </div>
@@ -449,9 +482,12 @@ export function PortalAiReceptionistClient() {
             <div className="mt-2 break-all font-mono text-xs text-zinc-800">{webhookUrl || "—"}</div>
           </div>
 
-          <div className="mt-4 text-xs text-zinc-500">
-            Next step: we’ll upgrade the webhook to stream audio to an AI agent (Twilio Media Streams) or route into ElevenLabs Conversational AI.
-          </div>
+        </div>
+      ) : null}
+
+      {tab === "missed-call-textback" ? (
+        <div className="mt-4">
+          <PortalMissedCallTextBackClient embedded />
         </div>
       ) : null}
 

@@ -67,6 +67,7 @@ export const PORTAL_SERVICES: PortalService[] = [
       "Book or hand off to your team",
     ],
     accent: "coral",
+    hidden: true,
   },
   {
     slug: "reviews",

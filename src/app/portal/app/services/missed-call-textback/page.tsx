@@ -2,7 +2,6 @@ import { getServerSession } from "next-auth";
 import { redirect } from "next/navigation";
 
 import { authOptions } from "@/lib/auth";
-import { PortalMissedCallTextBackClient } from "@/app/portal/app/services/missed-call-textback/PortalMissedCallTextBackClient";
 
 export default async function PortalMissedCallTextBackServicePage() {
   const session = await getServerSession(authOptions);
@@ -12,5 +11,5 @@ export default async function PortalMissedCallTextBackServicePage() {
     redirect("/app");
   }
 
-  return <PortalMissedCallTextBackClient />;
+  redirect("/portal/app/services/ai-receptionist?tab=missed-call-textback");
 }

@@ -50,7 +50,7 @@ export async function GET(req: Request) {
     twilioConfigured: Boolean(twilio?.configured),
     twilio: twilio ?? undefined,
     notes: {
-      ghlLikeSetup: [
+      startupChecklist: [
         "In Twilio Console → Phone Numbers → (your number) → Voice & Fax",
         "Set 'A CALL COMES IN' to Webhook (POST)",
         "Paste the Webhook URL from this page",
