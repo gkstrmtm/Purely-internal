@@ -48,6 +48,12 @@ type DashboardData = {
   layout: Array<any>;
 };
 
+type MeResponse = {
+  user?: { email?: string; name?: string; role?: string };
+  entitlements?: { blog?: boolean; booking?: boolean; crm?: boolean; leadOutbound?: boolean };
+  metrics?: { hoursSavedThisWeek?: number; hoursSavedAllTime?: number };
+};
+
 type TwilioMasked = {
   configured: boolean;
   accountSidMasked: string | null;
@@ -134,6 +140,23 @@ function formatRating(value: number | null) {
   return value.toFixed(1);
 }
 
+function formatPct(value: number | null) {
+  if (typeof value !== "number" || !Number.isFinite(value)) return "—";
+  return `${Math.round(value * 100)}%`;
+}
+
+function clampInt(n: number, min: number, max: number) {
+  return Math.max(min, Math.min(max, Math.floor(n)));
+}
+
+function daysBetweenIso(startIso: string, endIso: string) {
+  const start = new Date(startIso).getTime();
+  const end = new Date(endIso).getTime();
+  if (!Number.isFinite(start) || !Number.isFinite(end)) return 1;
+  const days = Math.round((end - start) / 86_400_000);
+  return clampInt(days || 1, 1, 3650);
+}
+
 function classNames(...xs: Array<string | false | null | undefined>) {
   return xs.filter(Boolean).join(" ");
 }
@@ -181,6 +204,55 @@ function StatCard({ label, value, sub, tone }: { label: string; value: string; s
       </div>
       <div className="mt-2 text-3xl font-bold text-brand-ink">{value}</div>
       {sub ? <div className="mt-1 text-xs text-zinc-500">{sub}</div> : null}
+    </div>
+  );
+}
+
+function MiniCard({
+  label,
+  value,
+  sub,
+}: {
+  label: string;
+  value: string;
+  sub?: string;
+}) {
+  return (
+    <div className="rounded-3xl border border-zinc-200 bg-white p-5">
+      <div className="text-xs font-semibold text-zinc-500">{label}</div>
+      <div className="mt-2 text-2xl font-bold text-brand-ink">{value}</div>
+      {sub ? <div className="mt-1 text-xs text-zinc-500">{sub}</div> : null}
+    </div>
+  );
+}
+
+function ServicePerfCard({
+  title,
+  href,
+  stats,
+}: {
+  title: string;
+  href: string | null;
+  stats: Array<{ label: string; value: string }>;
+}) {
+  return (
+    <div className="rounded-3xl border border-zinc-200 bg-white p-6">
+      <div className="flex items-start justify-between gap-3">
+        <div className="text-sm font-semibold text-zinc-900">{title}</div>
+        {href ? (
+          <Link href={href} className="text-xs font-semibold text-brand-ink hover:underline">
+            View
+          </Link>
+        ) : null}
+      </div>
+      <div className="mt-4 grid grid-cols-2 gap-3">
+        {stats.slice(0, 6).map((s) => (
+          <div key={s.label} className="rounded-2xl border border-zinc-200 bg-zinc-50 p-3">
+            <div className="text-[11px] font-semibold text-zinc-600">{s.label}</div>
+            <div className="mt-1 text-sm font-bold text-brand-ink">{s.value}</div>
+          </div>
+        ))}
+      </div>
     </div>
   );
 }
@@ -265,6 +337,7 @@ export function PortalReportingClient() {
   const [range, setRange] = useState<RangeKey>("30d");
   const [data, setData] = useState<ReportingPayload | null>(null);
   const [twilio, setTwilio] = useState<TwilioMasked | null>(null);
+  const [me, setMe] = useState<MeResponse | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [note, setNote] = useState<string | null>(null);
@@ -340,9 +413,17 @@ export function PortalReportingClient() {
     setLoading(false);
   }
 
+  async function loadMe() {
+    const res = await fetch("/api/customer/me", { cache: "no-store" }).catch(() => null as any);
+    if (!res?.ok) return;
+    const body = (await res.json().catch(() => ({}))) as MeResponse;
+    setMe(body ?? null);
+  }
+
   useEffect(() => {
     void load(range);
     void loadDashboardWidgetIds();
+    void loadMe();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -376,6 +457,49 @@ export function PortalReportingClient() {
 
   const rangeLabel =
     range === "today" ? "Today" : range === "7d" ? "Last 7 days" : range === "30d" ? "Last 30 days" : range === "90d" ? "Last 90 days" : "All time";
+
+  const derived = useMemo(() => {
+    const k = data?.kpis;
+    if (!k || !data) {
+      return {
+        overallSuccessRate: null as number | null,
+        totalFailures: 0,
+        aiSuccessRate: null as number | null,
+        textSuccessRate: null as number | null,
+        missedCaptureRate: null as number | null,
+        creditsPerDay: null as number | null,
+        creditRunwayDays: null as number | null,
+      };
+    }
+
+    const successes = (k.aiCompleted ?? 0) + (k.textsSent ?? 0);
+    const failures = (k.aiFailed ?? 0) + (k.textsFailed ?? 0);
+    const overall = successes + failures > 0 ? successes / (successes + failures) : null;
+
+    const aiDen = (k.aiCompleted ?? 0) + (k.aiFailed ?? 0);
+    const aiRate = aiDen > 0 ? (k.aiCompleted ?? 0) / aiDen : null;
+
+    const txtDen = (k.textsSent ?? 0) + (k.textsFailed ?? 0);
+    const txtRate = txtDen > 0 ? (k.textsSent ?? 0) / txtDen : null;
+
+    const attempts = (k.missedCallAttempts ?? 0) as number;
+    const missed = (k.missedCalls ?? 0) as number;
+    const missedRate = attempts > 0 ? missed / attempts : null;
+
+    const days = daysBetweenIso(data.startIso, data.endIso);
+    const creditsPerDay = days > 0 ? (k.creditsUsed ?? 0) / days : null;
+    const runwayDays = creditsPerDay && creditsPerDay > 0 ? (data.creditsRemaining ?? 0) / creditsPerDay : null;
+
+    return {
+      overallSuccessRate: overall,
+      totalFailures: failures,
+      aiSuccessRate: aiRate,
+      textSuccessRate: txtRate,
+      missedCaptureRate: missedRate,
+      creditsPerDay,
+      creditRunwayDays: runwayDays,
+    };
+  }, [data]);
 
   return (
     <div className="mx-auto w-full max-w-6xl px-4 sm:px-6">
@@ -605,6 +729,41 @@ export function PortalReportingClient() {
             ) : null}
           </div>
 
+          {(() => {
+            const show = matchTokens(search, [
+              "Success rate",
+              "Failures",
+              "Credits runway",
+              "Leads captured",
+              "Appointments booked",
+              "Hours saved",
+              "Missed call capture",
+              "AI",
+              "Text back",
+            ]);
+            if (!show) return null;
+            return (
+              <div className="mt-4 grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
+                <MiniCard label="Success rate" value={formatPct(derived.overallSuccessRate)} sub="AI + text-back" />
+                <MiniCard label="Failures" value={derived.totalFailures.toLocaleString()} sub="AI failed + texts failed" />
+                <MiniCard
+                  label="Credits runway"
+                  value={
+                    typeof derived.creditRunwayDays === "number" && Number.isFinite(derived.creditRunwayDays)
+                      ? `~${Math.max(0, Math.round(derived.creditRunwayDays))} days`
+                      : "—"
+                  }
+                  sub={
+                    typeof derived.creditsPerDay === "number" && Number.isFinite(derived.creditsPerDay)
+                      ? `~${Math.max(0, derived.creditsPerDay).toFixed(1)} credits/day (${rangeLabel.toLowerCase()})`
+                      : undefined
+                  }
+                />
+                <MiniCard label="Leads captured" value={data.kpis.leadsCreated.toLocaleString()} sub={`${data.kpis.contactsCreated.toLocaleString()} contacts created`} />
+              </div>
+            );
+          })()}
+
           <div className="mt-4 grid grid-cols-1 gap-4 lg:grid-cols-3">
             {visible("dailyActivity", "reporting", ["Recent activity", "UTC", "Day", "AI calls", "Missed calls", "Credits used"]) ? (
               <div className="rounded-3xl border border-zinc-200 bg-white p-6 lg:col-span-2">
@@ -749,8 +908,161 @@ export function PortalReportingClient() {
                 </div>
               </div>
               ) : null}
+
+              {(() => {
+                const show = matchTokens(search, ["AI success", "Text success", "Missed call capture", "rate"]);
+                if (!show) return null;
+                return (
+                  <div className="mt-4 grid grid-cols-1 gap-3">
+                    <div className="rounded-2xl border border-zinc-200 bg-white p-4">
+                      <div className="text-xs font-semibold text-zinc-600">Reliability</div>
+                      <div className="mt-2 grid grid-cols-2 gap-3">
+                        <div className="rounded-2xl border border-zinc-200 bg-zinc-50 p-3">
+                          <div className="text-[11px] font-semibold text-zinc-600">AI success rate</div>
+                          <div className="mt-1 text-sm font-bold text-brand-ink">{formatPct(derived.aiSuccessRate)}</div>
+                        </div>
+                        <div className="rounded-2xl border border-zinc-200 bg-zinc-50 p-3">
+                          <div className="text-[11px] font-semibold text-zinc-600">Text success rate</div>
+                          <div className="mt-1 text-sm font-bold text-brand-ink">{formatPct(derived.textSuccessRate)}</div>
+                        </div>
+                        <div className="rounded-2xl border border-zinc-200 bg-zinc-50 p-3">
+                          <div className="text-[11px] font-semibold text-zinc-600">Missed call capture</div>
+                          <div className="mt-1 text-sm font-bold text-brand-ink">{formatPct(derived.missedCaptureRate)}</div>
+                        </div>
+                        <div className="rounded-2xl border border-zinc-200 bg-zinc-50 p-3">
+                          <div className="text-[11px] font-semibold text-zinc-600">Appointments booked</div>
+                          <div className="mt-1 text-sm font-bold text-brand-ink">{data.kpis.bookingsCreated.toLocaleString()}</div>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                );
+              })()}
             </div>
           </div>
+
+          {(() => {
+            const show = matchTokens(search, ["Automation performance", "per service", "AI receptionist", "Missed call", "Lead scraping", "Reviews", "Booking"]);
+            if (!show) return null;
+            return (
+              <div className="mt-6">
+                <div className="text-sm font-semibold text-zinc-900">Automation performance (by service)</div>
+                <div className="mt-3 grid grid-cols-1 gap-4 lg:grid-cols-2">
+                  <ServicePerfCard
+                    title="AI Receptionist"
+                    href="/portal/app/services/ai-receptionist"
+                    stats={[
+                      { label: "Calls", value: data.kpis.aiCalls.toLocaleString() },
+                      { label: "Completed", value: data.kpis.aiCompleted.toLocaleString() },
+                      { label: "Failed", value: data.kpis.aiFailed.toLocaleString() },
+                      { label: "Success rate", value: formatPct(derived.aiSuccessRate) },
+                    ]}
+                  />
+
+                  <ServicePerfCard
+                    title="Missed-Call Text Back"
+                    href="/portal/app/services/missed-call-textback"
+                    stats={[
+                      { label: "Missed calls", value: data.kpis.missedCalls.toLocaleString() },
+                      { label: "Texts sent", value: data.kpis.textsSent.toLocaleString() },
+                      { label: "Text failures", value: data.kpis.textsFailed.toLocaleString() },
+                      { label: "Text success", value: formatPct(derived.textSuccessRate) },
+                    ]}
+                  />
+
+                  <ServicePerfCard
+                    title="Lead Scraping"
+                    href="/portal/app/services/lead-scraping"
+                    stats={[
+                      { label: "Runs", value: data.kpis.leadScrapeRuns.toLocaleString() },
+                      { label: "Leads created", value: data.kpis.leadsCreated.toLocaleString() },
+                      { label: "Contacts", value: data.kpis.contactsCreated.toLocaleString() },
+                      { label: "Credits used", value: data.kpis.leadScrapeChargedCredits.toLocaleString() },
+                    ]}
+                  />
+
+                  <ServicePerfCard
+                    title="Review Requests"
+                    href="/portal/app/services/reviews"
+                    stats={[
+                      { label: "Reviews collected", value: data.kpis.reviewsCollected.toLocaleString() },
+                      { label: "Avg rating", value: formatRating(data.kpis.avgReviewRating) },
+                      { label: "Bookings", value: data.kpis.bookingsCreated.toLocaleString() },
+                      { label: "Credits used", value: data.kpis.creditsUsed.toLocaleString() },
+                    ]}
+                  />
+                </div>
+              </div>
+            );
+          })()}
+
+          {me?.entitlements ? (
+            <div className="mt-6 rounded-3xl border border-zinc-200 bg-white p-6">
+              <div className="flex flex-wrap items-center justify-between gap-3">
+                <div>
+                  <div className="text-sm font-semibold text-zinc-900">Recommended next</div>
+                  <div className="mt-1 text-xs text-zinc-500">Add modules to unlock deeper ROI and pipeline reporting.</div>
+                </div>
+                <Link href="/portal/app/billing" className="text-xs font-semibold text-brand-ink hover:underline">
+                  Manage billing
+                </Link>
+              </div>
+
+              <div className="mt-4 grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
+                {!me.entitlements.blog ? (
+                  <div className="rounded-2xl border border-zinc-200 bg-zinc-50 p-4">
+                    <div className="text-xs font-semibold text-zinc-600">Blog automation</div>
+                    <div className="mt-1 text-sm font-semibold text-brand-ink">Turn runs into SEO traffic</div>
+                    <div className="mt-3">
+                      <Link href="/portal/app/services/blogs" className="text-xs font-semibold text-brand-ink hover:underline">
+                        Explore Blog Automation
+                      </Link>
+                    </div>
+                  </div>
+                ) : null}
+
+                {!me.entitlements.booking ? (
+                  <div className="rounded-2xl border border-zinc-200 bg-zinc-50 p-4">
+                    <div className="text-xs font-semibold text-zinc-600">Booking automation</div>
+                    <div className="mt-1 text-sm font-semibold text-brand-ink">Convert leads into booked appointments</div>
+                    <div className="mt-3">
+                      <Link href="/portal/app/services/booking" className="text-xs font-semibold text-brand-ink hover:underline">
+                        Explore Booking Automation
+                      </Link>
+                    </div>
+                  </div>
+                ) : null}
+
+                {!me.entitlements.crm ? (
+                  <div className="rounded-2xl border border-zinc-200 bg-zinc-50 p-4">
+                    <div className="text-xs font-semibold text-zinc-600">CRM pipeline</div>
+                    <div className="mt-1 text-sm font-semibold text-brand-ink">Unlock pipeline + ROI reporting</div>
+                    <div className="mt-3">
+                      <Link href="/portal/app/services/follow-up" className="text-xs font-semibold text-brand-ink hover:underline">
+                        Explore CRM / Follow-up
+                      </Link>
+                    </div>
+                  </div>
+                ) : null}
+              </div>
+
+              {typeof me?.metrics?.hoursSavedThisWeek === "number" || typeof me?.metrics?.hoursSavedAllTime === "number" ? (
+                <div className="mt-4 rounded-2xl border border-zinc-200 bg-white p-4">
+                  <div className="text-xs font-semibold text-zinc-600">Hours saved</div>
+                  <div className="mt-2 grid grid-cols-2 gap-3">
+                    <div className="rounded-2xl border border-zinc-200 bg-zinc-50 p-3">
+                      <div className="text-[11px] font-semibold text-zinc-600">This week</div>
+                      <div className="mt-1 text-sm font-bold text-brand-ink">{Math.round(me?.metrics?.hoursSavedThisWeek ?? 0).toLocaleString()}</div>
+                    </div>
+                    <div className="rounded-2xl border border-zinc-200 bg-zinc-50 p-3">
+                      <div className="text-[11px] font-semibold text-zinc-600">All time</div>
+                      <div className="mt-1 text-sm font-bold text-brand-ink">{Math.round(me?.metrics?.hoursSavedAllTime ?? 0).toLocaleString()}</div>
+                    </div>
+                  </div>
+                </div>
+              ) : null}
+            </div>
+          ) : null}
         </>
       )}
     </div>
