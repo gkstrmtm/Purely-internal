@@ -62,6 +62,8 @@ END $$;`,
   "address" TEXT,
   "niche" TEXT,
   "starred" BOOLEAN NOT NULL DEFAULT FALSE,
+  "tag" TEXT,
+  "tagColor" TEXT,
   "placeId" TEXT,
   "dataJson" JSONB,
   "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
@@ -71,6 +73,8 @@ END $$;`,
   // Columns (idempotent, in case table already exists without them)
   `ALTER TABLE IF EXISTS "PortalLead" ADD COLUMN IF NOT EXISTS "email" TEXT;`,
   `ALTER TABLE IF EXISTS "PortalLead" ADD COLUMN IF NOT EXISTS "starred" BOOLEAN NOT NULL DEFAULT FALSE;`,
+  `ALTER TABLE IF EXISTS "PortalLead" ADD COLUMN IF NOT EXISTS "tag" TEXT;`,
+  `ALTER TABLE IF EXISTS "PortalLead" ADD COLUMN IF NOT EXISTS "tagColor" TEXT;`,
 
   // Indexes
   `CREATE INDEX IF NOT EXISTS "PortalLeadScrapeRun_ownerId_createdAt_idx" ON "PortalLeadScrapeRun" ("ownerId", "createdAt");`,
@@ -114,11 +118,11 @@ async function verifyColumns() {
      FROM information_schema.columns
      WHERE table_schema = 'public'
        AND table_name = 'PortalLead'
-       AND column_name IN ('email', 'starred')
+       AND column_name IN ('email', 'starred', 'tag', 'tagColor')
      ORDER BY column_name;`,
   );
   const found = new Set((cols ?? []).map((r) => r.column_name));
-  const ok = found.has("email") && found.has("starred");
+  const ok = found.has("email") && found.has("starred") && found.has("tag") && found.has("tagColor");
   return { ok, found: [...found] };
 }
 

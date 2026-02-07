@@ -11,6 +11,8 @@ type LeadRow = {
   address: string | null;
   niche: string | null;
   starred: boolean;
+  tag?: string | null;
+  tagColor?: string | null;
   createdAtIso: string;
 };
 
@@ -71,6 +73,8 @@ type SettingsResponse = {
 
 type LeadsResponse = {
   ok?: boolean;
+  totalCount?: number;
+  matchedCount?: number;
   leads?: LeadRow[];
   error?: string;
 };
@@ -125,14 +129,17 @@ function csvEscape(v: string) {
 }
 
 function toCsv(rows: LeadRow[]) {
-  const header = ["businessName", "phone", "website", "address", "niche", "createdAt"].join(",");
+  const header = ["businessName", "email", "phone", "website", "address", "niche", "tag", "tagColor", "createdAt"].join(",");
   const lines = rows.map((r) =>
     [
       r.businessName,
+      r.email ?? "",
       r.phone ?? "",
       r.website ?? "",
       r.address ?? "",
       r.niche ?? "",
+      r.tag ?? "",
+      r.tagColor ?? "",
       r.createdAtIso,
     ]
       .map((x) => csvEscape(String(x ?? "")))
@@ -174,6 +181,11 @@ export function PortalLeadScrapingClient() {
   const [placesConfigured, setPlacesConfigured] = useState<boolean>(false);
 
   const [leads, setLeads] = useState<LeadRow[]>([]);
+  const [leadTotalCount, setLeadTotalCount] = useState<number | null>(null);
+  const [leadMatchedCount, setLeadMatchedCount] = useState<number | null>(null);
+  const [leadQuery, setLeadQuery] = useState("");
+  const [leadQueryDebounced, setLeadQueryDebounced] = useState("");
+  const leadsTake = 500;
 
   const [leadOpen, setLeadOpen] = useState(false);
   const [leadIndex, setLeadIndex] = useState<number>(0);
@@ -193,6 +205,8 @@ export function PortalLeadScrapingClient() {
 
   const [leadMutating, setLeadMutating] = useState(false);
   const [leadEmailDraft, setLeadEmailDraft] = useState("");
+  const [leadTagDraft, setLeadTagDraft] = useState("");
+  const [leadTagColorDraft, setLeadTagColorDraft] = useState("#111827");
 
   const [outboundBusy, setOutboundBusy] = useState(false);
   const [outboundUploadBusy, setOutboundUploadBusy] = useState(false);
@@ -219,22 +233,54 @@ export function PortalLeadScrapingClient() {
   const sortedLeads = (rows: LeadRow[]) =>
     [...rows].sort((a, b) => (Number(b.starred) - Number(a.starred) || b.createdAtIso.localeCompare(a.createdAtIso)));
 
+  useEffect(() => {
+    const t = window.setTimeout(() => setLeadQueryDebounced(leadQuery.trim()), 250);
+    return () => window.clearTimeout(t);
+  }, [leadQuery]);
+
+  async function loadLeads(q: string) {
+    const qs = new URLSearchParams();
+    qs.set("take", String(leadsTake));
+    if (q) qs.set("q", q);
+
+    const leadsRes = await fetch(`/api/portal/lead-scraping/leads?${qs.toString()}`, { cache: "no-store" });
+    const leadsBody = (await leadsRes.json().catch(() => ({}))) as LeadsResponse;
+
+    if (leadsRes.ok) {
+      setLeads(sortedLeads(Array.isArray(leadsBody.leads) ? leadsBody.leads : []));
+      setLeadTotalCount(typeof leadsBody.totalCount === "number" ? leadsBody.totalCount : null);
+      setLeadMatchedCount(typeof leadsBody.matchedCount === "number" ? leadsBody.matchedCount : null);
+    } else {
+      setLeads([]);
+      setLeadTotalCount(null);
+      setLeadMatchedCount(null);
+    }
+  }
+
+  const isHexColor = (s: string) => /^#[0-9a-fA-F]{6}$/.test(s);
+  const pickTagTextColor = (hex: string) => {
+    if (!isHexColor(hex)) return "text-white";
+    const r = parseInt(hex.slice(1, 3), 16);
+    const g = parseInt(hex.slice(3, 5), 16);
+    const b = parseInt(hex.slice(5, 7), 16);
+    const yiq = (r * 299 + g * 587 + b * 114) / 1000;
+    return yiq >= 160 ? "text-zinc-900" : "text-white";
+  };
+
   async function load() {
     setLoading(true);
     setError(null);
     setStatus(null);
 
-    const [meRes, settingsRes, leadsRes] = await Promise.all([
+    const [meRes, settingsRes] = await Promise.all([
       fetch("/api/customer/me", { cache: "no-store" }),
       fetch("/api/portal/lead-scraping/settings", { cache: "no-store" }),
-      fetch("/api/portal/lead-scraping/leads?take=200", { cache: "no-store" }),
     ]);
 
     const meBody = (await meRes.json().catch(() => ({}))) as MeResponse;
     setLeadOutboundEntitled(Boolean(meBody.entitlements && (meBody.entitlements as any).leadOutbound));
 
     const settingsBody = (await settingsRes.json().catch(() => ({}))) as SettingsResponse;
-    const leadsBody = (await leadsRes.json().catch(() => ({}))) as LeadsResponse;
 
     if (!settingsRes.ok) {
       setLoading(false);
@@ -246,11 +292,7 @@ export function PortalLeadScrapingClient() {
     setCredits(typeof settingsBody.credits === "number" ? settingsBody.credits : null);
     setPlacesConfigured(Boolean(settingsBody.placesConfigured));
 
-    if (leadsRes.ok) {
-      setLeads(sortedLeads(Array.isArray(leadsBody.leads) ? leadsBody.leads : []));
-    } else {
-      setLeads([]);
-    }
+    await loadLeads(leadQueryDebounced);
 
     setLoading(false);
   }
@@ -258,6 +300,11 @@ export function PortalLeadScrapingClient() {
   useEffect(() => {
     void load();
   }, []);
+
+  useEffect(() => {
+    if (loading) return;
+    void loadLeads(leadQueryDebounced);
+  }, [leadQueryDebounced]);
 
   async function save() {
     if (!settings) return;
@@ -556,9 +603,14 @@ export function PortalLeadScrapingClient() {
   useEffect(() => {
     if (!activeLead) return;
     setLeadEmailDraft(activeLead.email ?? "");
+    setLeadTagDraft(activeLead.tag ?? "");
+    setLeadTagColorDraft(isHexColor(activeLead.tagColor || "") ? (activeLead.tagColor as string) : "#111827");
   }, [activeLead?.id]);
 
-  async function patchLead(leadId: string, patch: { starred?: boolean; email?: string | null }) {
+  async function patchLead(
+    leadId: string,
+    patch: { starred?: boolean; email?: string | null; tag?: string | null; tagColor?: string | null },
+  ) {
     setLeadMutating(true);
     setError(null);
     setStatus(null);
@@ -585,6 +637,8 @@ export function PortalLeadScrapingClient() {
                 ...l,
                 ...(patch.starred !== undefined ? { starred: patch.starred } : {}),
                 ...(patch.email !== undefined ? { email: patch.email } : {}),
+                ...(patch.tag !== undefined ? { tag: patch.tag } : {}),
+                ...(patch.tagColor !== undefined ? { tagColor: patch.tagColor } : {}),
               }
             : l,
         ),
@@ -1300,8 +1354,32 @@ export function PortalLeadScrapingClient() {
           </div>
 
           <div className="rounded-3xl border border-zinc-200 bg-white p-6">
-            <div className="text-sm font-semibold text-zinc-900">Recent leads</div>
-            <div className="mt-3 space-y-3">
+            <div className="flex items-start justify-between gap-4">
+              <div>
+                <div className="text-sm font-semibold text-zinc-900">Leads</div>
+                <div className="mt-1 text-xs text-zinc-500">
+                  {typeof leadTotalCount === "number" ? (
+                    leadQueryDebounced
+                      ? `Showing ${leads.length} of ${leadMatchedCount ?? leads.length} matched • ${leadTotalCount} total`
+                      : `${leadTotalCount} total`
+                  ) : (
+                    `${leads.length} loaded`
+                  )}
+                  {typeof leadTotalCount === "number" && leadTotalCount > leadsTake ? ` • Loaded first ${leadsTake}` : ""}
+                </div>
+              </div>
+            </div>
+
+            <div className="mt-3">
+              <input
+                className="w-full rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm"
+                value={leadQuery}
+                onChange={(e) => setLeadQuery(e.target.value)}
+                placeholder="Search leads (name, email, phone, website, address, niche…)"
+              />
+            </div>
+
+            <div className="mt-3 max-h-[75vh] space-y-3 overflow-y-auto pr-2">
               {leads.length ? (
                 leads.map((l, idx) => (
                   <button
@@ -1310,16 +1388,30 @@ export function PortalLeadScrapingClient() {
                     onClick={() => openLeadAtIndex(idx)}
                     className="w-full rounded-2xl border border-zinc-200 p-3 text-left hover:bg-zinc-50"
                   >
-                      <div className="text-sm font-semibold text-brand-ink">
-                        {l.starred ? <span className="mr-1 text-amber-500">★</span> : null}
-                        {l.businessName}
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="min-w-0">
+                        <div className="text-sm font-semibold text-brand-ink">
+                          {l.starred ? <span className="mr-1 text-amber-500">★</span> : null}
+                          {l.businessName}
+                        </div>
                       </div>
+                      {l.tag ? (
+                        <span
+                          className={`shrink-0 rounded-full px-2 py-0.5 text-[11px] font-semibold ${pickTagTextColor(
+                            isHexColor(l.tagColor || "") ? (l.tagColor as string) : "#111827",
+                          )}`}
+                          style={{
+                            backgroundColor: isHexColor(l.tagColor || "") ? (l.tagColor as string) : "#111827",
+                          }}
+                        >
+                          {l.tag}
+                        </span>
+                      ) : null}
+                    </div>
                     <div className="mt-1 flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1 text-xs text-zinc-600">
                       {l.phone ? <span className="whitespace-nowrap">{l.phone}</span> : null}
                       {l.phone && l.website ? <span>•</span> : null}
-                      {l.website ? (
-                        <span className="min-w-0 max-w-full truncate">{l.website}</span>
-                      ) : null}
+                      {l.website ? <span className="min-w-0 max-w-full truncate">{l.website}</span> : null}
                     </div>
                     <div className="mt-1 text-xs text-zinc-600">{[l.niche, l.address].filter(Boolean).join(" • ")}</div>
                     <div className="mt-1 text-[11px] text-zinc-500">{safeFormatDateTime(l.createdAtIso)}</div>
@@ -1486,6 +1578,54 @@ export function PortalLeadScrapingClient() {
                       "—"
                     )}
                   </div>
+                </div>
+              </div>
+
+              <div className="mt-3 rounded-2xl border border-zinc-200 bg-white p-4">
+                <div className="text-xs font-semibold text-zinc-600">Tag</div>
+                <div className="mt-2 grid grid-cols-1 gap-2 sm:grid-cols-6 sm:items-end">
+                  <label className="block sm:col-span-4">
+                    <div className="text-xs font-medium text-zinc-700">Category</div>
+                    <input
+                      value={leadTagDraft}
+                      onChange={(e) => setLeadTagDraft(e.target.value)}
+                      placeholder="e.g. New, Outreach sent, Follow up"
+                      className="mt-1 w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm outline-none focus:border-zinc-300"
+                      autoComplete="off"
+                    />
+                  </label>
+
+                  <label className="block sm:col-span-1">
+                    <div className="text-xs font-medium text-zinc-700">Color</div>
+                    <input
+                      type="color"
+                      value={leadTagColorDraft}
+                      onChange={(e) => setLeadTagColorDraft(e.target.value)}
+                      className="mt-1 h-10 w-full rounded-xl border border-zinc-200 bg-white px-2"
+                    />
+                  </label>
+
+                  <button
+                    type="button"
+                    onClick={() => patchLead(activeLead.id, { tag: leadTagDraft.trim() || null, tagColor: leadTagDraft.trim() ? leadTagColorDraft : null })}
+                    disabled={leadMutating}
+                    className="sm:col-span-1 shrink-0 rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm font-semibold text-brand-ink hover:bg-zinc-50 disabled:opacity-60"
+                  >
+                    Save
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setLeadTagDraft("");
+                      setLeadTagColorDraft("#111827");
+                      void patchLead(activeLead.id, { tag: null, tagColor: null });
+                    }}
+                    disabled={leadMutating}
+                    className="sm:col-span-6 rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm font-semibold text-brand-ink hover:bg-zinc-50 disabled:opacity-60"
+                  >
+                    Clear tag
+                  </button>
                 </div>
               </div>
 

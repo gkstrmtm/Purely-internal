@@ -10,6 +10,7 @@ export const revalidate = 0;
 
 const querySchema = z.object({
   take: z.number().int().min(1).max(500).default(200),
+  q: z.string().trim().max(200).default(""),
 });
 
 function isMissingColumnError(e: unknown) {
@@ -35,59 +36,116 @@ export async function GET(req: Request) {
 
   const url = new URL(req.url);
   const takeRaw = url.searchParams.get("take");
+  const qRaw = url.searchParams.get("q");
   const parsed = querySchema.safeParse({
     take: takeRaw ? Number(takeRaw) : undefined,
+    q: qRaw ?? undefined,
   });
   const take = parsed.success ? parsed.data.take : 200;
+  const q = parsed.success ? parsed.data.q : "";
 
-  const leads = await (async () => {
+  const search = q.trim();
+  const baseWhere = { ownerId };
+  const searchWhere = search
+    ? {
+        ownerId,
+        OR: [
+          { businessName: { contains: search, mode: "insensitive" as const } },
+          { email: { contains: search, mode: "insensitive" as const } },
+          { phone: { contains: search } },
+          { website: { contains: search, mode: "insensitive" as const } },
+          { address: { contains: search, mode: "insensitive" as const } },
+          { niche: { contains: search, mode: "insensitive" as const } },
+          { placeId: { contains: search, mode: "insensitive" as const } },
+          { tag: { contains: search, mode: "insensitive" as const } },
+        ],
+      }
+    : baseWhere;
+
+  const result = await (async () => {
     try {
-      return await prisma.portalLead.findMany({
-        where: { ownerId },
-        orderBy: [{ starred: "desc" }, { createdAt: "desc" }],
-        take,
-        select: {
-          id: true,
-          kind: true,
-          source: true,
-          businessName: true,
-          email: true,
-          phone: true,
-          website: true,
-          address: true,
-          niche: true,
-          placeId: true,
-          starred: true,
-          createdAt: true,
-        },
-      });
+      const [totalCount, matchedCount, leads] = await prisma.$transaction([
+        prisma.portalLead.count({ where: baseWhere }),
+        prisma.portalLead.count({ where: searchWhere as any }),
+        prisma.portalLead.findMany({
+          where: searchWhere as any,
+          orderBy: [{ starred: "desc" }, { createdAt: "desc" }],
+          take,
+          select: {
+            id: true,
+            kind: true,
+            source: true,
+            businessName: true,
+            email: true,
+            phone: true,
+            website: true,
+            address: true,
+            niche: true,
+            placeId: true,
+            starred: true,
+            tag: true,
+            tagColor: true,
+            createdAt: true,
+          } as any,
+        }),
+      ]);
+
+      return { totalCount, matchedCount, leads };
     } catch (e) {
       if (!isMissingColumnError(e)) throw e;
 
       // Backwards compatible read (when DB migrations haven't been applied yet).
-      const legacy = await prisma.portalLead.findMany({
-        where: { ownerId },
-        orderBy: [{ createdAt: "desc" }],
-        take,
-        select: {
-          id: true,
-          kind: true,
-          source: true,
-          businessName: true,
-          phone: true,
-          website: true,
-          address: true,
-          niche: true,
-          placeId: true,
-          createdAt: true,
-        },
-      });
+      const legacyWhere = search
+        ? {
+            ownerId,
+            OR: [
+              { businessName: { contains: search, mode: "insensitive" as const } },
+              { phone: { contains: search } },
+              { website: { contains: search, mode: "insensitive" as const } },
+              { address: { contains: search, mode: "insensitive" as const } },
+              { niche: { contains: search, mode: "insensitive" as const } },
+              { placeId: { contains: search, mode: "insensitive" as const } },
+            ],
+          }
+        : baseWhere;
 
-      return legacy.map((l) => ({ ...l, email: null as string | null, starred: false as boolean }));
+      const [totalCount, matchedCount, legacy] = await prisma.$transaction([
+        prisma.portalLead.count({ where: baseWhere }),
+        prisma.portalLead.count({ where: legacyWhere as any }),
+        prisma.portalLead.findMany({
+          where: legacyWhere as any,
+          orderBy: [{ createdAt: "desc" }],
+          take,
+          select: {
+            id: true,
+            kind: true,
+            source: true,
+            businessName: true,
+            phone: true,
+            website: true,
+            address: true,
+            niche: true,
+            placeId: true,
+            createdAt: true,
+          },
+        }),
+      ]);
+
+      return {
+        totalCount,
+        matchedCount,
+        leads: legacy.map((l) => ({
+          ...l,
+          email: null as string | null,
+          starred: false as boolean,
+          tag: null as string | null,
+          tagColor: null as string | null,
+        })),
+      };
     }
   })();
 
-  const normalized = leads.map((l) => ({
+  const normalized = result.leads.map((l) => ({
     id: l.id,
     kind: l.kind,
     source: l.source,
@@ -99,8 +157,10 @@ export async function GET(req: Request) {
     niche: l.niche,
     placeId: l.placeId,
     starred: Boolean(l.starred),
+    tag: (l as any).tag ?? null,
+    tagColor: (l as any).tagColor ?? null,
     createdAtIso: l.createdAt instanceof Date ? l.createdAt.toISOString() : String(l.createdAt),
   }));
 
-  return NextResponse.json({ ok: true, leads: normalized });
+  return NextResponse.json({ ok: true, totalCount: result.totalCount, matchedCount: result.matchedCount, leads: normalized });
 }

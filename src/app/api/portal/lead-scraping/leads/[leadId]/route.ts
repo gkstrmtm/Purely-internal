@@ -21,8 +21,20 @@ const patchSchema = z
       .max(200)
       .optional()
       .transform((v) => (v === "" ? null : v)),
+    tag: z
+      .string()
+      .trim()
+      .max(60)
+      .optional()
+      .transform((v) => (v === "" ? null : v)),
+    tagColor: z
+      .string()
+      .trim()
+      .max(16)
+      .optional()
+      .transform((v) => (v === "" ? null : v)),
   })
-  .refine((v) => v.starred !== undefined || v.email !== undefined, {
+  .refine((v) => v.starred !== undefined || v.email !== undefined || v.tag !== undefined || v.tagColor !== undefined, {
     message: "No changes provided",
   })
   .refine(
@@ -31,6 +43,13 @@ const patchSchema = z
       return /^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(v.email);
     },
     { message: "Invalid email" },
+  )
+  .refine(
+    (v) => {
+      if (v.tagColor === undefined || v.tagColor === null) return true;
+      return /^#[0-9a-fA-F]{6}$/.test(v.tagColor);
+    },
+    { message: "Invalid tag color" },
   );
 
 export async function PATCH(req: Request, ctx: { params: Promise<{ leadId: string }> }) {
@@ -60,6 +79,8 @@ export async function PATCH(req: Request, ctx: { params: Promise<{ leadId: strin
     data: {
       ...(parsed.data.starred !== undefined ? { starred: parsed.data.starred } : {}),
       ...(parsed.data.email !== undefined ? { email: parsed.data.email } : {}),
+      ...(parsed.data.tag !== undefined ? { tag: parsed.data.tag } : {}),
+      ...(parsed.data.tagColor !== undefined ? { tagColor: parsed.data.tagColor } : {}),
     },
   });
 

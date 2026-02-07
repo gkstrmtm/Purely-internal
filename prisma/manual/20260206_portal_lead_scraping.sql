@@ -41,6 +41,8 @@ CREATE TABLE IF NOT EXISTS "PortalLead" (
   "address" TEXT,
   "niche" TEXT,
   "starred" BOOLEAN NOT NULL DEFAULT FALSE,
+  "tag" TEXT,
+  "tagColor" TEXT,
   "placeId" TEXT,
   "dataJson" JSONB,
   "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
@@ -52,6 +54,12 @@ ALTER TABLE IF EXISTS "PortalLead"
 
 ALTER TABLE IF EXISTS "PortalLead"
   ADD COLUMN IF NOT EXISTS "starred" BOOLEAN NOT NULL DEFAULT FALSE;
+
+ALTER TABLE IF EXISTS "PortalLead"
+  ADD COLUMN IF NOT EXISTS "tag" TEXT;
+
+ALTER TABLE IF EXISTS "PortalLead"
+  ADD COLUMN IF NOT EXISTS "tagColor" TEXT;
 
 CREATE INDEX IF NOT EXISTS "PortalLeadScrapeRun_ownerId_createdAt_idx"
   ON "PortalLeadScrapeRun" ("ownerId", "createdAt");
