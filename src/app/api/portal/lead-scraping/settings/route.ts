@@ -4,6 +4,7 @@ import { z } from "zod";
 import { requireClientSession } from "@/lib/apiAuth";
 import { prisma } from "@/lib/db";
 import { getCreditsState } from "@/lib/credits";
+import { resolveEntitlements } from "@/lib/entitlements";
 import { hasPlacesKey } from "@/lib/googlePlaces";
 
 export const runtime = "nodejs";
@@ -15,7 +16,7 @@ const SERVICE_SLUG = "lead-scraping";
 const stringList = z.array(z.string()).max(500);
 
 const settingsSchema = z.object({
-  version: z.literal(1),
+  version: z.literal(2),
   b2b: z.object({
     niche: z.string().max(200),
     location: z.string().max(200),
@@ -35,9 +36,67 @@ const settingsSchema = z.object({
     frequencyDays: z.number().int().min(1).max(60),
     lastRunAtIso: z.string().nullable(),
   }),
+  outbound: z
+    .object({
+      enabled: z.boolean(),
+      trigger: z.enum(["MANUAL", "ON_SCRAPE", "ON_APPROVE"]),
+      sendEmail: z.boolean(),
+      sendSms: z.boolean(),
+      toEmailDefault: z.string().max(200),
+      emailSubject: z.string().max(120),
+      emailHtml: z.string().max(20000),
+      emailText: z.string().max(20000),
+      smsText: z.string().max(900),
+      resources: z
+        .array(
+          z.object({
+            label: z.string().max(120),
+            url: z.string().max(500),
+          }),
+        )
+        .max(30),
+    })
+    .optional(),
+  outboundState: z
+    .object({
+      approvedAtByLeadId: z.record(z.string().max(64), z.string().max(40)).optional(),
+      sentAtByLeadId: z.record(z.string().max(64), z.string().max(40)).optional(),
+    })
+    .optional(),
 });
 
 type LeadScrapingSettings = z.infer<typeof settingsSchema>;
+
+type LeadScrapingSettingsV1 = {
+  version: 1;
+  b2b: {
+    niche: string;
+    location: string;
+    count: number;
+    requirePhone: boolean;
+    requireWebsite: boolean;
+    excludeNameContains: string[];
+    excludeDomains: string[];
+    excludePhones: string[];
+    scheduleEnabled: boolean;
+    frequencyDays: number;
+    lastRunAtIso: string | null;
+  };
+  b2c: {
+    notes: string;
+    scheduleEnabled: boolean;
+    frequencyDays: number;
+    lastRunAtIso: string | null;
+  };
+};
+
+type OutboundSettings = NonNullable<LeadScrapingSettings["outbound"]>;
+type OutboundState = NonNullable<LeadScrapingSettings["outboundState"]>;
+
+type NormalizedLeadScrapingSettings = Omit<LeadScrapingSettings, "outbound" | "outboundState"> & {
+  outbound: OutboundSettings;
+  outboundState: OutboundState;
+};
 
 function normalizeStringList(xs: unknown, { lower }: { lower?: boolean } = {}) {
   const arr = Array.isArray(xs) ? xs : [];
@@ -57,13 +116,102 @@ function normalizeIsoString(value: unknown): string | null {
   return d.toISOString();
 }
 
-function normalizeSettings(value: unknown): LeadScrapingSettings {
+function normalizeUrl(value: unknown): string {
+  const s = typeof value === "string" ? value.trim() : "";
+  if (!s) return "";
+  if (s.startsWith("http://") || s.startsWith("https://") || s.startsWith("/")) return s.slice(0, 500);
+  return "";
+}
+
+function normalizeOutbound(value: unknown): OutboundSettings {
   const rec = value && typeof value === "object" ? (value as Record<string, unknown>) : {};
+  const resourcesRaw = Array.isArray(rec.resources) ? rec.resources : [];
+  const resources = resourcesRaw
+    .map((r) => (r && typeof r === "object" ? (r as Record<string, unknown>) : {}))
+    .map((r) => ({
+      label: (typeof r.label === "string" ? r.label.trim() : "").slice(0, 120) || "Resource",
+      url: normalizeUrl(r.url),
+    }))
+    .filter((r) => Boolean(r.url))
+    .slice(0, 30);
+
+  const triggerRaw = typeof rec.trigger === "string" ? rec.trigger.trim() : "MANUAL";
+  const trigger = triggerRaw === "ON_SCRAPE" || triggerRaw === "ON_APPROVE" ? triggerRaw : "MANUAL";
+
+  return {
+    enabled: Boolean(rec.enabled),
+    trigger,
+    sendEmail: rec.sendEmail === undefined ? true : Boolean(rec.sendEmail),
+    sendSms: Boolean(rec.sendSms),
+    toEmailDefault: (typeof rec.toEmailDefault === "string" ? rec.toEmailDefault.trim() : "").slice(0, 200),
+    emailSubject: (typeof rec.emailSubject === "string" ? rec.emailSubject : "").slice(0, 120),
+    emailHtml: (typeof rec.emailHtml === "string" ? rec.emailHtml : "").slice(0, 20000),
+    emailText: (typeof rec.emailText === "string" ? rec.emailText : "").slice(0, 20000),
+    smsText: (typeof rec.smsText === "string" ? rec.smsText : "").slice(0, 900),
+    resources,
+  };
+}
+
+function normalizeOutboundState(value: unknown): OutboundState {
+  const rec = value && typeof value === "object" ? (value as Record<string, unknown>) : {};
+  const approved = rec.approvedAtByLeadId && typeof rec.approvedAtByLeadId === "object" ? (rec.approvedAtByLeadId as Record<string, unknown>) : {};
+  const sent = rec.sentAtByLeadId && typeof rec.sentAtByLeadId === "object" ? (rec.sentAtByLeadId as Record<string, unknown>) : {};
+
+  const approvedAtByLeadId: Record<string, string> = {};
+  for (const [k, v] of Object.entries(approved)) {
+    if (typeof k !== "string" || k.length > 64) continue;
+    if (typeof v !== "string") continue;
+    const iso = normalizeIsoString(v);
+    if (!iso) continue;
+    approvedAtByLeadId[k] = iso;
+  }
+
+  const sentAtByLeadId: Record<string, string> = {};
+  for (const [k, v] of Object.entries(sent)) {
+    if (typeof k !== "string" || k.length > 64) continue;
+    if (typeof v !== "string") continue;
+    const iso = normalizeIsoString(v);
+    if (!iso) continue;
+    sentAtByLeadId[k] = iso;
+  }
+
+  // Keep maps bounded.
+  const cap = 5000;
+  const approvedEntries = Object.entries(approvedAtByLeadId).slice(0, cap);
+  const sentEntries = Object.entries(sentAtByLeadId).slice(0, cap);
+
+  return {
+    approvedAtByLeadId: Object.fromEntries(approvedEntries),
+    sentAtByLeadId: Object.fromEntries(sentEntries),
+  };
+}
+
+function normalizeSettings(value: unknown): NormalizedLeadScrapingSettings {
+  const rec = value && typeof value === "object" ? (value as Record<string, unknown>) : {};
+  const version = rec.version === 1 ? 1 : 2;
   const b2b = rec.b2b && typeof rec.b2b === "object" ? (rec.b2b as Record<string, unknown>) : {};
   const b2c = rec.b2c && typeof rec.b2c === "object" ? (rec.b2c as Record<string, unknown>) : {};
 
-  const settings: LeadScrapingSettings = {
-    version: 1,
+  const defaultOutbound: OutboundSettings = {
+    enabled: false,
+    trigger: "MANUAL",
+    sendEmail: true,
+    sendSms: false,
+    toEmailDefault: "",
+    emailSubject: "Quick question — {businessName}",
+    emailHtml:
+      "<p>Hi {businessName},</p><p>Quick question — are you taking on new work right now?</p><p>—</p>",
+    emailText:
+      "Hi {businessName},\n\nQuick question — are you taking on new work right now?\n\n—",
+    smsText: "Hi {businessName} — quick question. Are you taking on new work right now?",
+    resources: [],
+  };
+
+  const outbound = normalizeOutbound(rec.outbound);
+  const outboundState = normalizeOutboundState(rec.outboundState);
+
+  const settings: NormalizedLeadScrapingSettings = {
+    version: 2,
     b2b: {
       niche: typeof b2b.niche === "string" ? b2b.niche.slice(0, 200) : "",
       location: typeof b2b.location === "string" ? b2b.location.slice(0, 200) : "",
@@ -92,12 +240,19 @@ function normalizeSettings(value: unknown): LeadScrapingSettings {
           : 7,
       lastRunAtIso: normalizeIsoString(b2c.lastRunAtIso),
     },
+    outbound: {
+      ...defaultOutbound,
+      ...outbound,
+      // If this record came from v1 settings, don't accidentally enable new behavior.
+      enabled: version === 1 ? false : Boolean(outbound.enabled),
+    },
+    outboundState,
   };
 
   return settings;
 }
 
-async function loadSettings(ownerId: string): Promise<LeadScrapingSettings> {
+async function loadSettings(ownerId: string): Promise<NormalizedLeadScrapingSettings> {
   const row = await prisma.portalServiceSetup.findUnique({
     where: { ownerId_serviceSlug: { ownerId, serviceSlug: SERVICE_SLUG } },
     select: { dataJson: true },
@@ -116,23 +271,35 @@ export async function GET() {
   }
 
   const ownerId = auth.session.user.id;
+  const entitlements = await resolveEntitlements(auth.session.user.email);
 
   const [settings, credits] = await Promise.all([
     loadSettings(ownerId),
     getCreditsState(ownerId),
   ]);
 
+  // Outbound is a separately gated feature. If the account isn't entitled,
+  // never surface an enabled outbound config.
+  const gatedSettings: NormalizedLeadScrapingSettings = entitlements.leadOutbound
+    ? settings
+    : {
+        ...settings,
+        outbound: {
+          ...settings.outbound,
+          enabled: false,
+          trigger: "MANUAL",
+        },
+      };
+
   return NextResponse.json({
     ok: true,
-    settings,
+    settings: gatedSettings,
     credits: credits.balance,
     placesConfigured: hasPlacesKey(),
   });
 }
 
-const putSchema = z.object({
-  settings: settingsSchema,
-});
+const putSchema = z.object({ settings: settingsSchema });
 
 export async function PUT(req: Request) {
   const auth = await requireClientSession();
@@ -144,6 +311,7 @@ export async function PUT(req: Request) {
   }
 
   const ownerId = auth.session.user.id;
+  const entitlements = await resolveEntitlements(auth.session.user.email);
 
   const body = (await req.json().catch(() => null)) as unknown;
   const parsed = putSchema.safeParse(body);
@@ -151,7 +319,18 @@ export async function PUT(req: Request) {
     return NextResponse.json({ error: parsed.error.issues[0]?.message ?? "Invalid input" }, { status: 400 });
   }
 
-  const normalized = normalizeSettings(parsed.data.settings);
+  let normalized = normalizeSettings(parsed.data.settings);
+
+  if (!entitlements.leadOutbound) {
+    normalized = {
+      ...normalized,
+      outbound: {
+        ...normalized.outbound,
+        enabled: false,
+        trigger: "MANUAL",
+      },
+    };
+  }
 
   await prisma.portalServiceSetup.upsert({
     where: { ownerId_serviceSlug: { ownerId, serviceSlug: SERVICE_SLUG } },

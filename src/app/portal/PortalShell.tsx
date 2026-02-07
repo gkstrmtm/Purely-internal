@@ -22,7 +22,7 @@ const DEFAULT_FULL_DEMO_EMAIL = "demo-full@purelyautomation.dev";
 
 type Me = {
   user: { email: string; name: string; role: string };
-  entitlements: { blog: boolean; booking: boolean; crm: boolean };
+  entitlements: { blog: boolean; booking: boolean; crm: boolean; leadOutbound: boolean };
   metrics: { hoursSavedThisWeek: number; hoursSavedAllTime: number };
 };
 

@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 
-type ModuleKey = "blog" | "booking" | "crm";
+type ModuleKey = "blog" | "booking" | "crm" | "leadOutbound";
 
 type MeResponse = {
   user: { email: string; name: string; role: string };

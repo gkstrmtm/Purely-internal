@@ -2,86 +2,9 @@ import { NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
 
 import { authOptions } from "@/lib/auth";
-import { getOrCreateStripeCustomerId, isStripeConfigured, stripeGet } from "@/lib/stripeFetch";
-
-type ModuleKey = "blog" | "booking" | "crm";
-
-const DEFAULT_DEMO_PORTAL_FULL_EMAIL = "demo-full@purelyautomation.dev";
-const DEFAULT_DEMO_PORTAL_LIMITED_EMAIL = "demo-limited@purelyautomation.dev";
-
-function demoEntitlementsByEmail(email: string): Record<ModuleKey, boolean> | null {
-  const fullEmail = (
-    process.env.DEMO_PORTAL_FULL_EMAIL ?? DEFAULT_DEMO_PORTAL_FULL_EMAIL
-  )
-    .toLowerCase()
-    .trim();
-  const limitedEmail = (
-    process.env.DEMO_PORTAL_LIMITED_EMAIL ?? DEFAULT_DEMO_PORTAL_LIMITED_EMAIL
-  )
-    .toLowerCase()
-    .trim();
-  const normalized = email.toLowerCase().trim();
-
-  if (fullEmail && normalized === fullEmail) {
-    return { blog: true, booking: true, crm: true };
-  }
-
-  if (limitedEmail && normalized === limitedEmail) {
-    return { blog: true, booking: true, crm: false };
-  }
-
-  return null;
-}
-
-function priceEnv(key: string) {
-  const v = process.env[key];
-  return typeof v === "string" && v.trim().length > 0 ? v.trim() : null;
-}
-
-async function entitlementsFromStripe(email: string): Promise<Record<ModuleKey, boolean>> {
-  const blogPrice = priceEnv("STRIPE_PRICE_BLOG_AUTOMATION");
-  const bookingPrice = priceEnv("STRIPE_PRICE_BOOKING_AUTOMATION");
-  const crmPrice = priceEnv("STRIPE_PRICE_CRM_AUTOMATION");
-
-  const entitlements: Record<ModuleKey, boolean> = {
-    blog: false,
-    booking: false,
-    crm: false,
-  };
-
-  if (!isStripeConfigured()) return entitlements;
-
-  const customer = await getOrCreateStripeCustomerId(email);
-  const subs = await stripeGet<{
-    data: Array<{
-      status: string;
-      items?: { data?: Array<{ price?: { id?: string } }> };
-    }>;
-  }>("/v1/subscriptions", {
-    customer,
-    status: "all",
-    limit: 100,
-    "expand[]": "data.items.data.price",
-  });
-
-  const active = subs.data.filter((s) =>
-    ["active", "trialing", "past_due"].includes(String(s.status)),
-  );
-
-  const priceIds = new Set<string>();
-  for (const s of active) {
-    for (const item of s.items?.data ?? []) {
-      const id = item.price?.id;
-      if (id) priceIds.add(id);
-    }
-  }
-
-  if (blogPrice && priceIds.has(blogPrice)) entitlements.blog = true;
-  if (bookingPrice && priceIds.has(bookingPrice)) entitlements.booking = true;
-  if (crmPrice && priceIds.has(crmPrice)) entitlements.crm = true;
-
-  return entitlements;
-}
+import { isStripeConfigured } from "@/lib/stripeFetch";
+import type { Entitlements } from "@/lib/entitlements";
+import { resolveEntitlements } from "@/lib/entitlements";
 
 export async function GET() {
   const session = await getServerSession(authOptions);
@@ -93,31 +16,7 @@ export async function GET() {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
 
-  const entitlements: Record<ModuleKey, boolean> = {
-    blog: false,
-    booking: false,
-    crm: false,
-  };
-
-  const email = session.user.email;
-
-  if (email) {
-    const demo = demoEntitlementsByEmail(email);
-    if (demo) {
-      entitlements.blog = demo.blog;
-      entitlements.booking = demo.booking;
-      entitlements.crm = demo.crm;
-    } else if (isStripeConfigured()) {
-      try {
-        const resolved = await entitlementsFromStripe(email);
-        entitlements.blog = resolved.blog;
-        entitlements.booking = resolved.booking;
-        entitlements.crm = resolved.crm;
-      } catch {
-        // If Stripe is down/misconfigured, keep safe defaults.
-      }
-    }
-  }
+  const entitlements: Entitlements = await resolveEntitlements(session.user.email);
 
   return NextResponse.json({
     user: {
