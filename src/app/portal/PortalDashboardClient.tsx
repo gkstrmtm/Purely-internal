@@ -1,9 +1,9 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 
-import { Responsive as ResponsiveGridLayout, useContainerWidth } from "react-grid-layout";
+import { Responsive as ResponsiveGridLayout } from "react-grid-layout";
 import type { Layout, LayoutItem, ResponsiveLayouts } from "react-grid-layout";
 
 import "react-grid-layout/css/styles.css";
@@ -90,6 +90,56 @@ function Card({ title, children }: { title: string; children: React.ReactNode })
   );
 }
 
+function classNames(...xs: Array<string | false | null | undefined>) {
+  return xs.filter(Boolean).join(" ");
+}
+
+function accentForWidget(id: string) {
+  switch (id) {
+    case "creditsRemaining":
+    case "aiCalls":
+    case "bookingsCreated":
+      return {
+        bar: "bg-[linear-gradient(90deg,rgba(29,78,216,0.9),rgba(29,78,216,0.25))]",
+        ring: "ring-1 ring-[color:rgba(29,78,216,0.18)]",
+      };
+    case "creditsUsed":
+    case "missedCalls":
+    case "reviewsCollected":
+      return {
+        bar: "bg-[linear-gradient(90deg,rgba(251,113,133,0.9),rgba(251,113,133,0.22))]",
+        ring: "ring-1 ring-[color:rgba(251,113,133,0.18)]",
+      };
+    case "automationsRun":
+    case "leadScrapeRuns":
+    case "leadsCreated":
+    case "contactsCreated":
+      return {
+        bar: "bg-[linear-gradient(90deg,rgba(51,65,85,0.95),rgba(51,65,85,0.25))]",
+        ring: "ring-1 ring-[color:rgba(51,65,85,0.16)]",
+      };
+    default:
+      return {
+        bar: "bg-[linear-gradient(90deg,rgba(29,78,216,0.55),rgba(251,113,133,0.18))]",
+        ring: "ring-1 ring-[color:rgba(148,163,184,0.22)]",
+      };
+  }
+}
+
+function AccentCard({ title, widgetId, children }: { title: string; widgetId: string; children: React.ReactNode }) {
+  const a = accentForWidget(widgetId);
+  return (
+    <div className={classNames("h-full rounded-3xl border border-zinc-200 bg-white p-6 shadow-sm", a.ring)}>
+      <div className={classNames("mb-4 h-1.5 w-14 rounded-full", a.bar)} />
+      <div className="flex items-start justify-between gap-3">
+        <div className="text-sm font-semibold text-zinc-900">{title}</div>
+        <div className="drag-handle cursor-grab select-none text-zinc-300">⋮⋮</div>
+      </div>
+      <div className="mt-3 text-sm text-zinc-700">{children}</div>
+    </div>
+  );
+}
+
 function compactNum(n: number) {
   const v = typeof n === "number" && Number.isFinite(n) ? n : 0;
   return v.toLocaleString();
@@ -116,55 +166,92 @@ export function PortalDashboardClient() {
 
   const [layouts, setLayouts] = useState<ResponsiveLayouts>({} as ResponsiveLayouts);
 
-  const { width, containerRef, mounted } = useContainerWidth({ measureBeforeMount: true });
+  const containerRef = useRef<HTMLDivElement | null>(null);
+  const [width, setWidth] = useState(0);
+
+  useEffect(() => {
+    const el = containerRef.current;
+    if (!el) return;
+
+    const measure = () => {
+      const w = el.getBoundingClientRect().width;
+      const fallback = typeof window !== "undefined" ? Math.max(320, window.innerWidth - 32) : 1200;
+      setWidth(w > 0 ? Math.round(w) : fallback);
+    };
+
+    measure();
+
+    let ro: ResizeObserver | null = null;
+    try {
+      ro = new ResizeObserver(() => measure());
+      ro.observe(el);
+    } catch {
+      // ignore
+    }
+
+    window.addEventListener("resize", measure);
+    return () => {
+      window.removeEventListener("resize", measure);
+      ro?.disconnect();
+    };
+  }, []);
 
   useEffect(() => {
     let mounted = true;
     (async () => {
       setLoading(true);
       setError(null);
-      const [meRes, dashRes, repRes] = await Promise.all([
-        fetch("/api/customer/me", { cache: "no-store" }),
-        fetch("/api/portal/dashboard", { cache: "no-store" }),
-        fetch("/api/portal/reporting?range=30d", { cache: "no-store" }).catch(() => null as any),
-      ]);
 
-      if (!mounted) return;
+      const controller = new AbortController();
+      const timeout = window.setTimeout(() => controller.abort(), 15000);
 
-      if (!meRes.ok) {
-        const body = await meRes.json().catch(() => ({}));
-        setError(body?.error ?? "Unable to load portal");
-        setLoading(false);
-        return;
-      }
+      try {
+        const [meRes, dashRes, repRes] = await Promise.all([
+          fetch("/api/customer/me", { cache: "no-store", signal: controller.signal }),
+          fetch("/api/portal/dashboard", { cache: "no-store", signal: controller.signal }),
+          fetch("/api/portal/reporting?range=30d", { cache: "no-store", signal: controller.signal }).catch(() => null as any),
+        ]);
 
-      setData((await meRes.json()) as MeResponse);
+        if (!mounted) return;
 
-      if (dashRes.ok) {
-        const body = (await dashRes.json().catch(() => null)) as DashboardPayload | null;
-        if (body?.ok && body.data) {
-          setDashboard(body.data);
-
-          const base: LayoutItem[] = (body.data.layout ?? []).map((l) => ({
-            i: l.i,
-            x: l.x,
-            y: l.y,
-            w: l.w,
-            h: l.h,
-            ...(typeof l.minW === "number" ? { minW: l.minW } : {}),
-            ...(typeof l.minH === "number" ? { minH: l.minH } : {}),
-          }));
-
-          setLayouts({ lg: base, md: base, sm: base, xs: base, xxs: base });
+        if (!meRes.ok) {
+          const body = await meRes.json().catch(() => ({}));
+          setError(body?.error ?? "Unable to load dashboard");
+          return;
         }
-      }
 
-      if (repRes?.ok) {
-        const rep = (await repRes.json().catch(() => null)) as ReportingPayload | null;
-        if (rep?.ok) setReporting(rep);
-      }
+        setData((await meRes.json()) as MeResponse);
 
-      setLoading(false);
+        if (dashRes.ok) {
+          const body = (await dashRes.json().catch(() => null)) as DashboardPayload | null;
+          if (body?.ok && body.data) {
+            setDashboard(body.data);
+
+            const base: LayoutItem[] = (body.data.layout ?? []).map((l) => ({
+              i: l.i,
+              x: l.x,
+              y: l.y,
+              w: l.w,
+              h: l.h,
+              ...(typeof l.minW === "number" ? { minW: l.minW } : {}),
+              ...(typeof l.minH === "number" ? { minH: l.minH } : {}),
+            }));
+
+            setLayouts({ lg: base, md: base, sm: base, xs: base, xxs: base });
+          }
+        }
+
+        if (repRes?.ok) {
+          const rep = (await repRes.json().catch(() => null)) as ReportingPayload | null;
+          if (rep?.ok) setReporting(rep);
+        }
+      } catch (err) {
+        if (!mounted) return;
+        setError("Unable to load dashboard");
+      } finally {
+        window.clearTimeout(timeout);
+        if (mounted) setLoading(false);
+      }
     })();
     return () => {
       mounted = false;
@@ -344,18 +431,18 @@ export function PortalDashboardClient() {
     switch (id) {
       case "hoursSaved":
         return (
-          <Card title={widgetTitle(id)}>
+          <AccentCard title={widgetTitle(id)} widgetId={id}>
             <div className="text-2xl font-bold text-brand-ink">{Math.round(me.metrics.hoursSavedThisWeek)}h</div>
             <div className="mt-1 text-xs text-zinc-500">This week</div>
             <div className="mt-3 text-sm text-zinc-700">
               All-time: <span className="font-semibold">{Math.round(me.metrics.hoursSavedAllTime)}h</span>
             </div>
-          </Card>
+          </AccentCard>
         );
 
       case "billing":
         return (
-          <Card title={widgetTitle(id)}>
+          <AccentCard title={widgetTitle(id)} widgetId={id}>
             <div className="flex items-center justify-between gap-3">
               <div className="text-sm text-zinc-700">
                 {me.billing.configured ? "Manage your plan and payment method." : "View billing, credits, and top-ups."}
@@ -367,12 +454,12 @@ export function PortalDashboardClient() {
                 {me.billing.configured ? "Manage" : "Billing"}
               </button>
             </div>
-          </Card>
+          </AccentCard>
         );
 
       case "services":
         return (
-          <Card title={widgetTitle(id)}>
+          <AccentCard title={widgetTitle(id)} widgetId={id}>
             <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
               {modules.map((m) => (
                 <div
@@ -437,12 +524,12 @@ export function PortalDashboardClient() {
                 </Link>
               </div>
             </div>
-          </Card>
+          </AccentCard>
         );
 
       case "creditsRemaining":
         return (
-          <Card title={widgetTitle(id)}>
+          <AccentCard title={widgetTitle(id)} widgetId={id}>
             <div className="text-3xl font-bold text-brand-ink">{compactNum(reporting?.creditsRemaining ?? 0)}</div>
             <div className="mt-2 text-xs text-zinc-500">Usage-based services pull from credits.</div>
             <div className="mt-3">
@@ -450,7 +537,7 @@ export function PortalDashboardClient() {
                 Top up in Billing
               </Link>
             </div>
-          </Card>
+          </AccentCard>
         );
 
       case "creditsUsed":
@@ -492,7 +579,7 @@ export function PortalDashboardClient() {
         })();
 
         return (
-          <Card title={widgetTitle(id)}>
+          <AccentCard title={widgetTitle(id)} widgetId={id}>
             <div className="text-3xl font-bold text-brand-ink">{value}</div>
             {id === "aiCalls" && k ? (
               <div className="mt-3 space-y-2">
@@ -507,14 +594,14 @@ export function PortalDashboardClient() {
               </div>
             ) : null}
             {id === "creditsUsed" ? <div className="mt-2 text-xs text-zinc-500">Last 30 days</div> : null}
-          </Card>
+          </AccentCard>
         );
       }
 
       case "dailyActivity": {
         const rows = (reporting?.daily ?? []).slice().reverse().slice(0, 7);
         return (
-          <Card title={widgetTitle(id)}>
+          <AccentCard title={widgetTitle(id)} widgetId={id}>
             <div className="mt-1 text-xs text-zinc-500">Last 7 days (UTC)</div>
             <div className="mt-3 space-y-2">
               {rows.length ? (
@@ -532,12 +619,16 @@ export function PortalDashboardClient() {
                 <div className="text-sm text-zinc-600">No recent activity yet.</div>
               )}
             </div>
-          </Card>
+          </AccentCard>
         );
       }
 
       default:
-        return <Card title={widgetTitle(id)}>Widget</Card>;
+        return (
+          <AccentCard title={widgetTitle(id)} widgetId={id}>
+            Widget
+          </AccentCard>
+        );
     }
   }
 
@@ -585,7 +676,7 @@ export function PortalDashboardClient() {
       </div>
 
       <div ref={containerRef}>
-        {mounted && width > 0 ? (
+        {width > 0 ? (
           <ResponsiveGridLayout
             width={width}
             className="layout"

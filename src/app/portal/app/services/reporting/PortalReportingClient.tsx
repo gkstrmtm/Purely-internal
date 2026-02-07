@@ -64,10 +64,51 @@ function formatRating(value: number | null) {
   return value.toFixed(1);
 }
 
-function StatCard({ label, value, sub }: { label: string; value: string; sub?: string }) {
+function classNames(...xs: Array<string | false | null | undefined>) {
+  return xs.filter(Boolean).join(" ");
+}
+
+type StatTone = "blue" | "pink" | "ink" | "emerald";
+
+function toneClasses(tone: StatTone) {
+  switch (tone) {
+    case "blue":
+      return {
+        bar: "bg-[linear-gradient(90deg,rgba(29,78,216,0.92),rgba(29,78,216,0.22))]",
+        ring: "ring-1 ring-[color:rgba(29,78,216,0.16)]",
+        pill: "bg-[color:rgba(29,78,216,0.10)] text-[color:var(--color-brand-blue)]",
+      };
+    case "pink":
+      return {
+        bar: "bg-[linear-gradient(90deg,rgba(251,113,133,0.92),rgba(251,113,133,0.18))]",
+        ring: "ring-1 ring-[color:rgba(251,113,133,0.16)]",
+        pill: "bg-[color:rgba(251,113,133,0.14)] text-[color:var(--color-brand-pink)]",
+      };
+    case "emerald":
+      return {
+        bar: "bg-[linear-gradient(90deg,rgba(16,185,129,0.88),rgba(16,185,129,0.18))]",
+        ring: "ring-1 ring-[color:rgba(16,185,129,0.14)]",
+        pill: "bg-emerald-50 text-emerald-700",
+      };
+    case "ink":
+    default:
+      return {
+        bar: "bg-[linear-gradient(90deg,rgba(51,65,85,0.92),rgba(51,65,85,0.22))]",
+        ring: "ring-1 ring-[color:rgba(51,65,85,0.14)]",
+        pill: "bg-[color:rgba(51,65,85,0.10)] text-brand-ink",
+      };
+  }
+}
+
+function StatCard({ label, value, sub, tone }: { label: string; value: string; sub?: string; tone: StatTone }) {
+  const t = toneClasses(tone);
   return (
-    <div className="rounded-3xl border border-zinc-200 bg-white p-6">
-      <div className="text-xs font-semibold text-zinc-500">{label}</div>
+    <div className={classNames("rounded-3xl border border-zinc-200 bg-white p-6", t.ring)}>
+      <div className={classNames("mb-4 h-1.5 w-14 rounded-full", t.bar)} />
+      <div className="flex items-center justify-between gap-3">
+        <div className="text-xs font-semibold text-zinc-500">{label}</div>
+        <div className={classNames("rounded-full px-2 py-1 text-[11px] font-semibold", t.pill)}>{tone}</div>
+      </div>
       <div className="mt-2 text-3xl font-bold text-brand-ink">{value}</div>
       {sub ? <div className="mt-1 text-xs text-zinc-500">{sub}</div> : null}
     </div>
@@ -245,42 +286,43 @@ export function PortalReportingClient() {
               <div className="absolute right-4 top-4">
                 <MenuButton onAdd={() => void addWidget("creditsRemaining")} />
               </div>
-              <StatCard label="Credits remaining" value={data.creditsRemaining.toLocaleString()} sub="Top up in Billing" />
+              <StatCard label="Credits remaining" value={data.creditsRemaining.toLocaleString()} sub="Top up in Billing" tone="blue" />
             </div>
             <div className="relative">
               <div className="absolute right-4 top-4">
                 <MenuButton onAdd={() => void addWidget("creditsUsed")} />
               </div>
-              <StatCard label="Credits used" value={data.kpis.creditsUsed.toLocaleString()} sub="AI calls + lead scraping" />
+              <StatCard label="Credits used" value={data.kpis.creditsUsed.toLocaleString()} sub="AI calls + lead scraping" tone="pink" />
             </div>
             <div className="relative">
               <div className="absolute right-4 top-4">
                 <MenuButton onAdd={() => void addWidget("automationsRun")} />
               </div>
-              <StatCard label="Automations run" value={data.kpis.automationsRun.toLocaleString()} sub="Calls + texts + runs" />
+              <StatCard label="Automations run" value={data.kpis.automationsRun.toLocaleString()} sub="Calls + texts + runs" tone="ink" />
             </div>
             <div className="relative">
               <div className="absolute right-4 top-4">
                 <MenuButton onAdd={() => void addWidget("aiCalls")} />
               </div>
-              <StatCard label="AI calls" value={data.kpis.aiCalls.toLocaleString()} sub={`${data.kpis.aiCompleted} completed · ${data.kpis.aiFailed} failed`} />
+              <StatCard label="AI calls" value={data.kpis.aiCalls.toLocaleString()} sub={`${data.kpis.aiCompleted} completed · ${data.kpis.aiFailed} failed`} tone="blue" />
             </div>
             <div className="relative">
               <div className="absolute right-4 top-4">
                 <MenuButton onAdd={() => void addWidget("missedCalls")} />
               </div>
-              <StatCard label="Missed calls" value={data.kpis.missedCalls.toLocaleString()} sub={`${data.kpis.textsSent} texts sent · ${data.kpis.textsFailed} failed`} />
+              <StatCard label="Missed calls" value={data.kpis.missedCalls.toLocaleString()} sub={`${data.kpis.textsSent} texts sent · ${data.kpis.textsFailed} failed`} tone="pink" />
             </div>
             <div className="relative">
               <div className="absolute right-4 top-4">
                 <MenuButton onAdd={() => void addWidget("bookingsCreated")} />
               </div>
-              <StatCard label="Bookings created" value={data.kpis.bookingsCreated.toLocaleString()} sub="New appointments" />
+              <StatCard label="Bookings created" value={data.kpis.bookingsCreated.toLocaleString()} sub="New appointments" tone="emerald" />
             </div>
           </div>
 
           <div className="mt-4 grid grid-cols-1 gap-4 lg:grid-cols-3">
             <div className="rounded-3xl border border-zinc-200 bg-white p-6 lg:col-span-2">
+              <div className="mb-4 h-1.5 w-16 rounded-full bg-[linear-gradient(90deg,rgba(29,78,216,0.9),rgba(251,113,133,0.35))]" />
               <div className="flex items-start justify-between gap-3">
                 <div>
                   <div className="text-sm font-semibold text-zinc-900">Recent activity (UTC days)</div>
@@ -292,7 +334,7 @@ export function PortalReportingClient() {
               <div className="mt-4 overflow-x-auto">
                 <table className="w-full text-left text-sm">
                   <thead>
-                    <tr className="border-b border-zinc-200 text-xs text-zinc-500">
+                    <tr className="border-b border-zinc-200 bg-[color:rgba(29,78,216,0.04)] text-xs text-zinc-600">
                       <th className="py-2 pr-3">Day</th>
                       <th className="py-2 pr-3">AI calls</th>
                       <th className="py-2 pr-3">Missed calls</th>
@@ -306,8 +348,16 @@ export function PortalReportingClient() {
                     {dailyRows.map((r) => (
                       <tr key={r.day} className="border-b border-zinc-100">
                         <td className="py-2 pr-3 whitespace-nowrap text-zinc-700">{formatIsoDay(r.day)}</td>
-                        <td className="py-2 pr-3 text-zinc-700">{r.aiCalls}</td>
-                        <td className="py-2 pr-3 text-zinc-700">{r.missedCalls}</td>
+                        <td className="py-2 pr-3 text-zinc-700">
+                          <span className="inline-flex rounded-full bg-[color:rgba(29,78,216,0.08)] px-2 py-0.5 text-xs font-semibold text-[color:var(--color-brand-blue)]">
+                            {r.aiCalls}
+                          </span>
+                        </td>
+                        <td className="py-2 pr-3 text-zinc-700">
+                          <span className="inline-flex rounded-full bg-[color:rgba(251,113,133,0.10)] px-2 py-0.5 text-xs font-semibold text-[color:var(--color-brand-pink)]">
+                            {r.missedCalls}
+                          </span>
+                        </td>
                         <td className="py-2 pr-3 text-zinc-700">{r.leadScrapeRuns}</td>
                         <td className="py-2 pr-3 text-zinc-700">{r.bookings}</td>
                         <td className="py-2 pr-3 text-zinc-700">{r.reviews}</td>

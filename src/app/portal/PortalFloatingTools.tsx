@@ -24,7 +24,7 @@ function classNames(...xs: Array<string | false | null | undefined>) {
 }
 
 export function PortalFloatingTools() {
-  const [minimized, setMinimized] = useState(false);
+  const [minimized, setMinimized] = useState(true);
   const [version, setVersion] = useState<VersionPayload | null>(null);
   const [open, setOpen] = useState(false);
   const [message, setMessage] = useState("");
@@ -32,12 +32,8 @@ export function PortalFloatingTools() {
   const [note, setNote] = useState<string | null>(null);
 
   useEffect(() => {
-    try {
-      const saved = window.localStorage.getItem("portalFloatingToolsMinimized");
-      if (saved === "1") setMinimized(true);
-    } catch {
-      // ignore
-    }
+    // Always start minimized on fresh app loads.
+    setMinimized(true);
   }, []);
 
   useEffect(() => {
@@ -67,11 +63,6 @@ export function PortalFloatingTools() {
 
   function persistMinimized(next: boolean) {
     setMinimized(next);
-    try {
-      window.localStorage.setItem("portalFloatingToolsMinimized", next ? "1" : "0");
-    } catch {
-      // ignore
-    }
   }
 
   async function submit() {
@@ -129,7 +120,7 @@ export function PortalFloatingTools() {
   return (
     <>
       {note ? (
-        <div className="fixed bottom-24 right-4 z-[9999] max-w-sm rounded-2xl border border-zinc-200 bg-white px-4 py-3 text-sm text-zinc-800 shadow-lg">
+        <div className="fixed bottom-24 right-4 z-[9999] max-w-sm rounded-2xl border border-zinc-200 bg-white px-4 py-3 text-sm text-zinc-800 shadow-lg ring-1 ring-[color:rgba(29,78,216,0.14)]">
           {note}
         </div>
       ) : null}
@@ -144,6 +135,7 @@ export function PortalFloatingTools() {
           />
 
           <div className="absolute bottom-6 right-4 w-[min(520px,calc(100vw-2rem))] rounded-3xl border border-zinc-200 bg-white p-5 shadow-2xl">
+            <div className="mb-3 h-1.5 w-16 rounded-full bg-[linear-gradient(90deg,rgba(29,78,216,0.9),rgba(251,113,133,0.35))]" />
             <div className="flex items-start justify-between gap-3">
               <div>
                 <div className="text-sm font-semibold text-zinc-900">Report a bug</div>
@@ -189,15 +181,20 @@ export function PortalFloatingTools() {
         {minimized ? (
           <button
             type="button"
-            className="flex items-center gap-2 rounded-full border border-zinc-200 bg-white px-3 py-2 text-xs font-semibold text-zinc-800 shadow-lg hover:bg-zinc-50"
+            className="flex items-center gap-2 rounded-full border border-zinc-200 bg-white px-3 py-2 text-xs font-semibold text-zinc-800 shadow-lg ring-1 ring-[color:rgba(29,78,216,0.14)] hover:bg-zinc-50"
             onClick={() => persistMinimized(false)}
             aria-label="Open tools"
           >
-            {shortSha(version?.buildSha)}
-            <span className="rounded-full bg-zinc-100 px-2 py-1 text-[11px] font-semibold text-zinc-700">Report</span>
+            <span className="rounded-full bg-[color:rgba(29,78,216,0.10)] px-2 py-1 text-[11px] font-semibold text-[color:var(--color-brand-blue)]">
+              {shortSha(version?.buildSha)}
+            </span>
+            <span className="rounded-full bg-[color:rgba(251,113,133,0.16)] px-2 py-1 text-[11px] font-semibold text-[color:var(--color-brand-pink)]">
+              Report
+            </span>
           </button>
         ) : (
           <div className="w-[320px] rounded-3xl border border-zinc-200 bg-white p-4 shadow-2xl">
+            <div className="mb-3 h-1.5 w-14 rounded-full bg-[linear-gradient(90deg,rgba(29,78,216,0.9),rgba(29,78,216,0.25))]" />
             <div className="flex items-start justify-between gap-3">
               <div className="min-w-0">
                 <div className="truncate text-xs font-semibold text-zinc-500">Version</div>
