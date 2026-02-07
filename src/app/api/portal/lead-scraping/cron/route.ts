@@ -5,6 +5,7 @@ import { addCredits, consumeCredits } from "@/lib/credits";
 import { resolveEntitlements } from "@/lib/entitlements";
 import { hasPlacesKey, placeDetails, placesTextSearch } from "@/lib/googlePlaces";
 import { baseUrlFromRequest, renderTemplate, sendEmail, sendSms, stripHtml } from "@/lib/leadOutbound";
+import { createPortalLeadCompat } from "@/lib/portalLeadCompat";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -372,43 +373,30 @@ async function runB2BForOwner(ownerId: string, settingsJson: unknown, baseUrl: s
         if (settings.b2b.requirePhone && !phoneNorm) continue;
         if (settings.b2b.requireWebsite && !website) continue;
 
-        try {
-          const created = await prisma.portalLead.create({
-            data: {
-              ownerId,
-              kind: "B2B",
-              source: "GOOGLE_PLACES",
-              businessName,
-              phone: phoneNorm,
-              website,
-              address: details.formatted_address || place.formatted_address || null,
-              niche,
+        const created = await createPortalLeadCompat({
+          ownerId,
+          kind: "B2B",
+          source: "GOOGLE_PLACES",
+          businessName,
+          phone: phoneNorm,
+          website,
+          address: details.formatted_address || place.formatted_address || null,
+          niche,
+          placeId,
+          dataJson: {
+            googlePlaces: {
               placeId,
-              dataJson: {
-                googlePlaces: {
-                  placeId,
-                  details,
-                },
-              },
+              details,
             },
-            select: {
-              id: true,
-              businessName: true,
-              phone: true,
-              website: true,
-              address: true,
-              niche: true,
-            },
-          });
+          },
+        });
+
+        if (created) {
           createdLeads.push({
             ...created,
             email: null,
           });
           createdCount++;
-        } catch (e: any) {
-          const msg = typeof e?.message === "string" ? e.message : "";
-          const isUnique = msg.includes("Unique constraint") || msg.includes("unique constraint") || msg.includes("P2002");
-          if (!isUnique) throw e;
         }
       }
     }
