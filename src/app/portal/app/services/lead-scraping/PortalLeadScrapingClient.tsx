@@ -273,6 +273,7 @@ function ColorSwatches({
 export function PortalLeadScrapingClient() {
   const [tab, setTab] = useState<"b2b" | "b2c">("b2b");
   const [b2bSubTab, setB2bSubTab] = useState<"pull" | "settings">("pull");
+  const [b2cSubTab, setB2cSubTab] = useState<"pull" | "settings">("pull");
 
   const [leadOutboundEntitled, setLeadOutboundEntitled] = useState(false);
 
@@ -1169,7 +1170,7 @@ export function PortalLeadScrapingClient() {
     );
   }
 
-  const b2bSubTabButtonClass = (active: boolean) =>
+  const subTabButtonClass = (active: boolean) =>
     active
       ? "relative z-10 rounded-t-2xl border border-zinc-200 border-b-white bg-white px-4 py-2 text-sm font-semibold text-brand-ink"
       : "relative z-10 rounded-t-2xl border border-zinc-200 bg-zinc-100 px-4 py-2 text-sm font-semibold text-zinc-600 hover:bg-zinc-200";
@@ -1233,7 +1234,7 @@ export function PortalLeadScrapingClient() {
                     <button
                       type="button"
                       onClick={() => setB2bSubTab("pull")}
-                      className={b2bSubTabButtonClass(true)}
+                      className={subTabButtonClass(true)}
                       role="tab"
                       aria-selected={true}
                     >
@@ -1242,7 +1243,7 @@ export function PortalLeadScrapingClient() {
                     <button
                       type="button"
                       onClick={() => setB2bSubTab("settings")}
-                      className={b2bSubTabButtonClass(false)}
+                      className={subTabButtonClass(false)}
                       role="tab"
                       aria-selected={false}
                     >
@@ -1574,7 +1575,7 @@ export function PortalLeadScrapingClient() {
                   <button
                     type="button"
                     onClick={() => setB2bSubTab("pull")}
-                    className={b2bSubTabButtonClass(false)}
+                    className={subTabButtonClass(false)}
                     role="tab"
                     aria-selected={false}
                   >
@@ -1583,7 +1584,7 @@ export function PortalLeadScrapingClient() {
                   <button
                     type="button"
                     onClick={() => setB2bSubTab("settings")}
-                    className={b2bSubTabButtonClass(true)}
+                    className={subTabButtonClass(true)}
                     role="tab"
                     aria-selected={true}
                   >
@@ -1810,70 +1811,195 @@ export function PortalLeadScrapingClient() {
           )}
         </>
       ) : (
-        <div className="mt-6 rounded-3xl border border-zinc-200 bg-white p-6">
-          <div className="text-base font-semibold text-brand-ink">B2C (Consumer leads)</div>
-          <p className="mt-2 max-w-3xl text-sm text-zinc-600">
-            Consumer lead pulling depends on the data source (data broker, CSV import, partner API, etc.).
-            Tell us what list you want and we’ll connect the right source.
-          </p>
+        <>
+          {b2cSubTab === "pull" ? (
+            <div className="mt-4 grid grid-cols-1 gap-4 lg:grid-cols-3">
+              <div className="lg:col-span-2">
+                <div className="flex justify-end pr-2">
+                  <div className="-mb-px flex items-end gap-1" role="tablist" aria-label="B2C view">
+                    <button
+                      type="button"
+                      onClick={() => setB2cSubTab("pull")}
+                      className={subTabButtonClass(true)}
+                      role="tab"
+                      aria-selected={true}
+                    >
+                      Pull
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setB2cSubTab("settings")}
+                      className={subTabButtonClass(false)}
+                      role="tab"
+                      aria-selected={false}
+                    >
+                      Settings
+                    </button>
+                  </div>
+                </div>
 
-          <div className="mt-5 grid grid-cols-1 gap-4 sm:grid-cols-2">
-            <label className="block sm:col-span-2">
-              <div className="text-sm font-medium text-zinc-800">Notes / requirements</div>
-              <textarea
-                className="mt-2 min-h-[120px] w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm"
-                value={settings.b2c.notes}
-                onChange={(e) =>
-                  setSettings((prev) => (prev ? { ...prev, b2c: { ...prev.b2c, notes: e.target.value } } : prev))
-                }
-                placeholder="Describe what type of consumer list you want (geo, age, income, intent, etc.)"
-              />
-            </label>
+                <div className="rounded-3xl border border-zinc-200 bg-white p-6">
+                  <div className="flex items-start justify-between gap-4">
+                    <div>
+                      <div className="text-base font-semibold text-brand-ink">B2C pulls</div>
+                      <div className="mt-1 text-sm text-zinc-600">Pull consumer lead lists (source TBD).</div>
+                    </div>
+                  </div>
 
-            <div className="rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900 sm:col-span-2">
-              B2C runs are disabled until a consumer data source is connected.
-            </div>
+                  <div className="mt-4 rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
+                    B2C runs are disabled until a consumer data source is connected.
+                  </div>
 
-            <label className="flex items-center justify-between gap-3 rounded-2xl border border-zinc-200 bg-zinc-50 px-4 py-3 text-sm">
-              <span className="text-zinc-800">Scheduling (disabled)</span>
-              <input type="checkbox" checked={false} disabled />
-            </label>
+                  <div className="mt-5 grid grid-cols-1 gap-4">
+                    <label className="block">
+                      <div className="text-sm font-medium text-zinc-800">Notes / requirements</div>
+                      <textarea
+                        className="mt-2 min-h-[140px] w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm"
+                        value={settings.b2c.notes}
+                        onChange={(e) =>
+                          setSettings((prev) =>
+                            prev ? { ...prev, b2c: { ...prev.b2c, notes: e.target.value } } : prev,
+                          )
+                        }
+                        placeholder="Describe what type of consumer list you want (geo, age, income, intent, etc.)"
+                      />
+                    </label>
+                  </div>
 
-            <label className="block">
-              <div className="text-sm font-medium text-zinc-800">Frequency (days)</div>
-              <input
-                className="mt-2 w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm"
-                type="number"
-                min={1}
-                max={60}
-                value={settings.b2c.frequencyDays}
-                onChange={(e) =>
-                  setSettings((prev) =>
-                    prev
-                      ? { ...prev, b2c: { ...prev.b2c, frequencyDays: clampInt(Number(e.target.value), 1, 60) } }
-                      : prev,
-                  )
-                }
-              />
-              <div className="mt-1 text-xs text-zinc-500">
-                Last run: {settings.b2c.lastRunAtIso ? new Date(settings.b2c.lastRunAtIso).toLocaleString() : "Never"}
+                  <div className="mt-6 flex flex-col gap-3 sm:flex-row sm:items-center">
+                    <button
+                      type="button"
+                      onClick={save}
+                      disabled={saving}
+                      className="inline-flex items-center justify-center rounded-2xl bg-brand-ink px-5 py-3 text-sm font-semibold text-white hover:opacity-95 disabled:opacity-60"
+                    >
+                      {saving ? "Saving…" : "Save"}
+                    </button>
+
+                    <button
+                      type="button"
+                      disabled
+                      className="inline-flex cursor-not-allowed items-center justify-center rounded-2xl border border-zinc-200 bg-white px-5 py-3 text-sm font-semibold text-brand-ink opacity-60"
+                      title="B2C runs are disabled until a data source is connected"
+                    >
+                      Run now
+                    </button>
+
+                    <button
+                      type="button"
+                      disabled
+                      className="inline-flex cursor-not-allowed items-center justify-center rounded-2xl border border-zinc-200 bg-white px-5 py-3 text-sm font-semibold text-brand-ink opacity-60"
+                      title="B2C export will be enabled once a source is connected"
+                    >
+                      Export CSV
+                    </button>
+
+                    <div className="text-xs text-zinc-500 sm:ml-auto">0 leads shown</div>
+                  </div>
+                </div>
               </div>
-            </label>
-          </div>
 
-          {renderOutboundEditor()}
+              <div className="flex flex-col rounded-3xl border border-zinc-200 bg-white p-6 lg:sticky lg:top-8 lg:h-[calc(100vh-4rem)]">
+                <div className="flex items-start justify-between gap-4">
+                  <div>
+                    <div className="text-sm font-semibold text-zinc-900">Leads</div>
+                    <div className="mt-1 text-xs text-zinc-500">Consumer leads will appear here.</div>
+                  </div>
+                </div>
 
-          <div className="mt-6 flex flex-col gap-3 sm:flex-row">
-            <button
-              type="button"
-              onClick={save}
-              disabled={saving}
-              className="inline-flex items-center justify-center rounded-2xl bg-brand-ink px-5 py-3 text-sm font-semibold text-white hover:opacity-95 disabled:opacity-60"
-            >
-              {saving ? "Saving…" : "Save"}
-            </button>
-          </div>
-        </div>
+                <div className="mt-3">
+                  <input
+                    className="w-full rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm opacity-60"
+                    value={""}
+                    onChange={() => null}
+                    placeholder="Search leads (coming soon)"
+                    disabled
+                  />
+                </div>
+
+                <div className="mt-3 max-h-[70vh] min-h-[240px] space-y-3 overflow-y-auto pr-2 lg:max-h-none lg:min-h-0 lg:flex-1">
+                  <div className="rounded-2xl border border-dashed border-zinc-200 p-4 text-sm text-zinc-600">
+                    No consumer leads yet.
+                  </div>
+                </div>
+              </div>
+            </div>
+          ) : (
+            <div className="mt-4">
+              <div className="flex justify-end pr-2">
+                <div className="-mb-px flex items-end gap-1" role="tablist" aria-label="B2C view">
+                  <button
+                    type="button"
+                    onClick={() => setB2cSubTab("pull")}
+                    className={subTabButtonClass(false)}
+                    role="tab"
+                    aria-selected={false}
+                  >
+                    Pull
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setB2cSubTab("settings")}
+                    className={subTabButtonClass(true)}
+                    role="tab"
+                    aria-selected={true}
+                  >
+                    Settings
+                  </button>
+                </div>
+              </div>
+
+              <div className="rounded-3xl border border-zinc-200 bg-white p-6">
+                <div className="text-base font-semibold text-brand-ink">B2C settings</div>
+                <div className="mt-1 text-sm text-zinc-600">Scheduling and auto-outbound for consumer leads.</div>
+
+                <div className="mt-6 grid grid-cols-1 gap-4 sm:grid-cols-2">
+                  <label className="flex items-center justify-between gap-3 rounded-2xl border border-zinc-200 bg-zinc-50 px-4 py-3 text-sm">
+                    <span className="text-zinc-800">Scheduling (disabled)</span>
+                    <input type="checkbox" checked={false} disabled />
+                  </label>
+
+                  <label className="block">
+                    <div className="text-sm font-medium text-zinc-800">Frequency (days)</div>
+                    <input
+                      className="mt-2 w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm"
+                      type="number"
+                      min={1}
+                      max={60}
+                      value={settings.b2c.frequencyDays}
+                      onChange={(e) =>
+                        setSettings((prev) =>
+                          prev
+                            ? {
+                                ...prev,
+                                b2c: { ...prev.b2c, frequencyDays: clampInt(Number(e.target.value), 1, 60) },
+                              }
+                            : prev,
+                        )
+                      }
+                    />
+                    <div className="mt-1 text-xs text-zinc-500">
+                      Last run: {settings.b2c.lastRunAtIso ? new Date(settings.b2c.lastRunAtIso).toLocaleString() : "Never"}
+                    </div>
+                  </label>
+                </div>
+
+                {renderOutboundEditor()}
+
+                <div className="mt-6 flex flex-col gap-3 sm:flex-row">
+                  <button
+                    type="button"
+                    onClick={save}
+                    disabled={saving}
+                    className="inline-flex items-center justify-center rounded-2xl bg-brand-ink px-5 py-3 text-sm font-semibold text-white hover:opacity-95 disabled:opacity-60"
+                  >
+                    {saving ? "Saving…" : "Save"}
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
+        </>
       )}
 
       {leadOpen && activeLead ? (
