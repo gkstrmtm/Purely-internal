@@ -6,6 +6,7 @@ import { prisma } from "@/lib/db";
 import { getCreditsState } from "@/lib/credits";
 import { resolveEntitlements } from "@/lib/entitlements";
 import { hasPlacesKey } from "@/lib/googlePlaces";
+import { isB2cLeadPullUnlocked } from "@/lib/leadScrapingAccess";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -41,6 +42,7 @@ const settingsSchema = z.object({
   version: z.literal(3),
   tagPresets: tagPresetsSchema.optional(),
   b2b: z.object({
+    tagPresets: tagPresetsSchema.optional(),
     niche: z.string().max(200),
     location: z.string().max(200),
     fallbackEnabled: z.boolean().optional(),
@@ -62,6 +64,7 @@ const settingsSchema = z.object({
     location: z.string().max(200).optional(),
     country: z.string().max(80).optional(),
     count: z.number().int().min(1).max(500).optional(),
+    tagPresets: tagPresetsSchema.optional(),
     notes: z.string().max(5000),
     scheduleEnabled: z.boolean(),
     frequencyDays: z.number().int().min(1).max(60),
@@ -306,6 +309,10 @@ function normalizeSettings(value: unknown): NormalizedLeadScrapingSettings {
   const b2b = rec.b2b && typeof rec.b2b === "object" ? (rec.b2b as Record<string, unknown>) : {};
   const b2c = rec.b2c && typeof rec.b2c === "object" ? (rec.b2c as Record<string, unknown>) : {};
 
+  const legacyTagPresets = normalizeTagPresets((rec as any).tagPresets);
+  const b2bTagPresets = normalizeTagPresets((b2b as any).tagPresets ?? (rec as any).tagPresets);
+  const b2cTagPresets = normalizeTagPresets((b2c as any).tagPresets ?? (rec as any).tagPresets);
+
   const defaultOutbound: OutboundSettings = {
     enabled: false,
     email: {
@@ -327,8 +334,10 @@ function normalizeSettings(value: unknown): NormalizedLeadScrapingSettings {
 
   const settings: NormalizedLeadScrapingSettings = {
     version: 3,
-    tagPresets: normalizeTagPresets((rec as any).tagPresets),
+    // Legacy top-level presets for backwards compatibility.
+    tagPresets: legacyTagPresets,
     b2b: {
+      tagPresets: b2bTagPresets,
       niche: typeof b2b.niche === "string" ? b2b.niche.slice(0, 200) : "",
       location: typeof b2b.location === "string" ? b2b.location.slice(0, 200) : "",
       fallbackEnabled: Boolean((b2b as any).fallbackEnabled),
@@ -365,6 +374,7 @@ function normalizeSettings(value: unknown): NormalizedLeadScrapingSettings {
         typeof (b2c as any).count === "number" && Number.isFinite((b2c as any).count)
           ? Math.min(500, Math.max(1, Math.floor((b2c as any).count)))
           : 200,
+      tagPresets: b2cTagPresets,
       notes: typeof b2c.notes === "string" ? b2c.notes.slice(0, 5000) : "",
       scheduleEnabled: Boolean(b2c.scheduleEnabled),
       frequencyDays:
@@ -405,6 +415,7 @@ export async function GET() {
 
   const ownerId = auth.session.user.id;
   const entitlements = await resolveEntitlements(auth.session.user.email);
+  const b2cUnlocked = isB2cLeadPullUnlocked({ email: auth.session.user.email, role: auth.session.user.role });
 
   const [settings, credits] = await Promise.all([
     loadSettings(ownerId),
@@ -438,6 +449,7 @@ export async function GET() {
     settings: gatedSettings,
     credits: credits.balance,
     placesConfigured: hasPlacesKey(),
+    b2cUnlocked,
   });
 }
 
@@ -454,6 +466,7 @@ export async function PUT(req: Request) {
 
   const ownerId = auth.session.user.id;
   const entitlements = await resolveEntitlements(auth.session.user.email);
+  const b2cUnlocked = isB2cLeadPullUnlocked({ email: auth.session.user.email, role: auth.session.user.role });
 
   const body = (await req.json().catch(() => null)) as unknown;
   const parsed = putSchema.safeParse(body);
@@ -497,5 +510,6 @@ export async function PUT(req: Request) {
     settings: normalized,
     credits: credits.balance,
     placesConfigured: hasPlacesKey(),
+    b2cUnlocked,
   });
 }

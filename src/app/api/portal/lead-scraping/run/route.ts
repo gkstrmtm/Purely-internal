@@ -9,6 +9,7 @@ import { hasPlacesKey, placeDetails, placesTextSearch } from "@/lib/googlePlaces
 import { resolveEntitlements } from "@/lib/entitlements";
 import { getOwnerTwilioSmsConfig } from "@/lib/portalTwilio";
 import { createPortalLeadCompat } from "@/lib/portalLeadCompat";
+import { isB2cLeadPullUnlocked } from "@/lib/leadScrapingAccess";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -635,6 +636,18 @@ export async function POST(req: Request) {
   }
 
   if (parsed.data.kind === "B2C") {
+    const b2cUnlocked = isB2cLeadPullUnlocked({ email: auth.session.user.email, role: auth.session.user.role });
+    if (!b2cUnlocked) {
+      return NextResponse.json(
+        {
+          ok: false,
+          error: "B2C lead pulling is currently locked.",
+          code: "B2C_LOCKED",
+        },
+        { status: 403 },
+      );
+    }
+
     const setup = await prisma.portalServiceSetup.findUnique({
       where: { ownerId_serviceSlug: { ownerId, serviceSlug: SERVICE_SLUG } },
       select: { dataJson: true },

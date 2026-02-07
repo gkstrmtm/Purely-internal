@@ -33,6 +33,7 @@ type LeadScrapingSettings = {
   version: 3;
   tagPresets?: Array<{ label: string; color: string }>;
   b2b: {
+    tagPresets?: Array<{ label: string; color: string }>;
     niche: string;
     location: string;
     fallbackEnabled?: boolean;
@@ -54,6 +55,7 @@ type LeadScrapingSettings = {
     location?: string;
     country?: string;
     count?: number;
+    tagPresets?: Array<{ label: string; color: string }>;
     notes: string;
     scheduleEnabled: boolean;
     frequencyDays: number;
@@ -89,6 +91,7 @@ type SettingsResponse = {
   settings?: LeadScrapingSettings;
   credits?: number;
   placesConfigured?: boolean;
+  b2cUnlocked?: boolean;
   error?: string;
 };
 
@@ -284,6 +287,7 @@ export function PortalLeadScrapingClient() {
   const [settings, setSettings] = useState<LeadScrapingSettings | null>(null);
   const [credits, setCredits] = useState<number | null>(null);
   const [placesConfigured, setPlacesConfigured] = useState<boolean>(false);
+  const [b2cUnlocked, setB2cUnlocked] = useState<boolean>(false);
 
   const [leads, setLeads] = useState<LeadRow[]>([]);
   const [leadTotalCount, setLeadTotalCount] = useState<number | null>(null);
@@ -301,10 +305,10 @@ export function PortalLeadScrapingClient() {
   const activeLeadSentAt =
     activeLead && settings ? settings.outboundState.sentAtByLeadId[activeLead.id] ?? null : null;
 
-  const tagPresets = useMemo(
-    () => normalizeTagPresetsClient(settings?.tagPresets),
-    [settings?.tagPresets],
-  );
+  const tagPresets = useMemo(() => {
+    if (tab === "b2b") return normalizeTagPresetsClient(settings?.b2b?.tagPresets ?? settings?.tagPresets);
+    return normalizeTagPresetsClient(settings?.b2c?.tagPresets ?? settings?.tagPresets);
+  }, [tab, settings?.b2b?.tagPresets, settings?.b2c?.tagPresets, settings?.tagPresets]);
 
   const tagOptions = useMemo(() => {
     const opts: Array<{ label: string; color: string }> = [];
@@ -435,6 +439,7 @@ export function PortalLeadScrapingClient() {
     setSettings(settingsBody.settings ?? null);
     setCredits(typeof settingsBody.credits === "number" ? settingsBody.credits : null);
     setPlacesConfigured(Boolean(settingsBody.placesConfigured));
+    setB2cUnlocked(Boolean(settingsBody.b2cUnlocked));
 
     await loadLeads(leadQueryDebounced);
 
@@ -1787,9 +1792,12 @@ export function PortalLeadScrapingClient() {
                       onClick={() =>
                         setSettings((prev) => {
                           if (!prev) return prev;
-                          const next = coerceTagPresetsForEditing(prev.tagPresets);
+                          const next = coerceTagPresetsForEditing(prev.b2b.tagPresets);
                           if (next.length >= 10) return prev;
-                          return { ...prev, tagPresets: [...next, { label: "", color: "#111827" }].slice(0, 10) };
+                          return {
+                            ...prev,
+                            b2b: { ...prev.b2b, tagPresets: [...next, { label: "", color: "#111827" }].slice(0, 10) },
+                          };
                         })
                       }
                       className="shrink-0 rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm font-semibold text-brand-ink hover:bg-zinc-50"
@@ -1799,7 +1807,7 @@ export function PortalLeadScrapingClient() {
                   </div>
 
                   <div className="mt-4 space-y-3">
-                    {coerceTagPresetsForEditing(settings.tagPresets).map((p, idx) => (
+                    {coerceTagPresetsForEditing(settings.b2b.tagPresets).map((p, idx) => (
                       <div key={`${p.label}-${idx}`} className="rounded-2xl border border-zinc-200 bg-white p-4">
                         <div className="grid grid-cols-1 gap-3 sm:grid-cols-6 sm:items-center">
                           <label className="block sm:col-span-3">
@@ -1810,9 +1818,9 @@ export function PortalLeadScrapingClient() {
                               onChange={(e) =>
                                 setSettings((prev) => {
                                   if (!prev) return prev;
-                                  const base = coerceTagPresetsForEditing(prev.tagPresets);
+                                  const base = coerceTagPresetsForEditing(prev.b2b.tagPresets);
                                   const next = base.map((x, i) => (i === idx ? { ...x, label: e.target.value } : x));
-                                  return { ...prev, tagPresets: next };
+                                  return { ...prev, b2b: { ...prev.b2b, tagPresets: next } };
                                 })
                               }
                               placeholder="e.g. New"
@@ -1827,9 +1835,9 @@ export function PortalLeadScrapingClient() {
                                 onChange={(hex) =>
                                   setSettings((prev) => {
                                     if (!prev) return prev;
-                                    const base = coerceTagPresetsForEditing(prev.tagPresets);
+                                    const base = coerceTagPresetsForEditing(prev.b2b.tagPresets);
                                     const next = base.map((x, i) => (i === idx ? { ...x, color: hex } : x));
-                                    return { ...prev, tagPresets: next };
+                                    return { ...prev, b2b: { ...prev.b2b, tagPresets: next } };
                                   })
                                 }
                               />
@@ -1841,9 +1849,9 @@ export function PortalLeadScrapingClient() {
                             onClick={() =>
                               setSettings((prev) => {
                                 if (!prev) return prev;
-                                const base = coerceTagPresetsForEditing(prev.tagPresets);
+                                const base = coerceTagPresetsForEditing(prev.b2b.tagPresets);
                                 const next = base.filter((_, i) => i !== idx);
-                                return { ...prev, tagPresets: next };
+                                return { ...prev, b2b: { ...prev.b2b, tagPresets: next } };
                               })
                             }
                             className="sm:col-span-1 rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm font-semibold text-zinc-700 hover:bg-zinc-50"
@@ -1906,12 +1914,23 @@ export function PortalLeadScrapingClient() {
                     </div>
                   </div>
 
+                  {!b2cUnlocked ? (
+                    <div className="mt-4 rounded-2xl border border-zinc-200 bg-zinc-50 px-4 py-3 text-sm text-zinc-700">
+                      B2C lead pulling is currently locked. (We’re not selling this yet.)
+                    </div>
+                  ) : null}
+
                   <div className="mt-4 rounded-2xl border border-zinc-200 bg-zinc-50 px-4 py-3 text-sm text-zinc-700">
                     This is a free global source. It will usually return addresses only (no phone/email).
                     Use a city, ZIP/postcode, or similarly specific area.
                   </div>
 
-                  <div className="mt-5 grid grid-cols-1 gap-4 sm:grid-cols-2">
+                  <fieldset
+                    disabled={!b2cUnlocked}
+                    className={
+                      "mt-5 grid grid-cols-1 gap-4 sm:grid-cols-2" + (!b2cUnlocked ? " opacity-60" : "")
+                    }
+                  >
                     <label className="block">
                       <div className="text-sm font-medium text-zinc-800">Source</div>
                       <select
@@ -2006,7 +2025,7 @@ export function PortalLeadScrapingClient() {
                         placeholder="Describe what type of consumer list you want (geo, age, income, intent, etc.)"
                       />
                     </label>
-                  </div>
+                  </fieldset>
 
                   <div className="mt-6 flex flex-col gap-3 sm:flex-row sm:items-center">
                     <button
@@ -2021,7 +2040,7 @@ export function PortalLeadScrapingClient() {
                     <button
                       type="button"
                       onClick={runB2cNow}
-                      disabled={running || !(settings.b2c.location ?? "").trim()}
+                      disabled={!b2cUnlocked || running || !(settings.b2c.location ?? "").trim()}
                       className="inline-flex items-center justify-center rounded-2xl border border-zinc-200 bg-white px-5 py-3 text-sm font-semibold text-brand-ink hover:bg-zinc-50 disabled:opacity-60"
                       title={!(settings.b2c.location ?? "").trim() ? "Location is required" : undefined}
                     >
@@ -2177,6 +2196,91 @@ export function PortalLeadScrapingClient() {
                 </div>
 
                 {renderOutboundEditor()}
+
+                <div className="mt-6 rounded-3xl border border-zinc-200 bg-zinc-50 p-6">
+                  <div className="flex items-start justify-between gap-4">
+                    <div>
+                      <div className="text-sm font-semibold text-zinc-900">Tag presets</div>
+                      <div className="mt-1 text-sm text-zinc-600">
+                        These show up as quick-pick tags when you open a lead.
+                      </div>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() =>
+                        setSettings((prev) => {
+                          if (!prev) return prev;
+                          const next = coerceTagPresetsForEditing(prev.b2c.tagPresets);
+                          if (next.length >= 10) return prev;
+                          return {
+                            ...prev,
+                            b2c: { ...prev.b2c, tagPresets: [...next, { label: "", color: "#111827" }].slice(0, 10) },
+                          };
+                        })
+                      }
+                      className="shrink-0 rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm font-semibold text-brand-ink hover:bg-zinc-50"
+                    >
+                      + Add
+                    </button>
+                  </div>
+
+                  <div className="mt-4 space-y-3">
+                    {coerceTagPresetsForEditing(settings.b2c.tagPresets).map((p, idx) => (
+                      <div key={`${p.label}-${idx}`} className="rounded-2xl border border-zinc-200 bg-white p-4">
+                        <div className="grid grid-cols-1 gap-3 sm:grid-cols-6 sm:items-center">
+                          <label className="block sm:col-span-3">
+                            <div className="text-xs font-semibold text-zinc-600">Label</div>
+                            <input
+                              className="mt-1 w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm"
+                              value={p.label}
+                              onChange={(e) =>
+                                setSettings((prev) => {
+                                  if (!prev) return prev;
+                                  const base = coerceTagPresetsForEditing(prev.b2c.tagPresets);
+                                  const next = base.map((x, i) => (i === idx ? { ...x, label: e.target.value } : x));
+                                  return { ...prev, b2c: { ...prev.b2c, tagPresets: next } };
+                                })
+                              }
+                              placeholder="e.g. New"
+                            />
+                          </label>
+
+                          <div className="sm:col-span-2">
+                            <div className="text-xs font-semibold text-zinc-600">Color</div>
+                            <div className="mt-2">
+                              <ColorSwatches
+                                value={p.color}
+                                onChange={(hex) =>
+                                  setSettings((prev) => {
+                                    if (!prev) return prev;
+                                    const base = coerceTagPresetsForEditing(prev.b2c.tagPresets);
+                                    const next = base.map((x, i) => (i === idx ? { ...x, color: hex } : x));
+                                    return { ...prev, b2c: { ...prev.b2c, tagPresets: next } };
+                                  })
+                                }
+                              />
+                            </div>
+                          </div>
+
+                          <button
+                            type="button"
+                            onClick={() =>
+                              setSettings((prev) => {
+                                if (!prev) return prev;
+                                const base = coerceTagPresetsForEditing(prev.b2c.tagPresets);
+                                const next = base.filter((_, i) => i !== idx);
+                                return { ...prev, b2c: { ...prev.b2c, tagPresets: next } };
+                              })
+                            }
+                            className="sm:col-span-1 rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm font-semibold text-zinc-700 hover:bg-zinc-50"
+                          >
+                            Remove
+                          </button>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
 
                 <div className="mt-6 flex flex-col gap-3 sm:flex-row">
                   <button
