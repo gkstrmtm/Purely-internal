@@ -48,5 +48,18 @@ export async function GET(req: Request) {
     },
   });
 
-  return NextResponse.json({ ok: true, leads });
+  const normalized = leads.map((l) => ({
+    id: l.id,
+    kind: l.kind,
+    source: l.source,
+    businessName: l.businessName,
+    phone: l.phone,
+    website: l.website,
+    address: l.address,
+    niche: l.niche,
+    placeId: l.placeId,
+    createdAtIso: l.createdAt instanceof Date ? l.createdAt.toISOString() : String(l.createdAt),
+  }));
+
+  return NextResponse.json({ ok: true, leads: normalized });
 }

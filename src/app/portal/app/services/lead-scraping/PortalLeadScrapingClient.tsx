@@ -111,6 +111,34 @@ function downloadText(filename: string, text: string) {
   URL.revokeObjectURL(url);
 }
 
+function safeFormatDateTime(iso: string) {
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return "Just now";
+  return d.toLocaleString();
+}
+
+function toTelHref(phone: string) {
+  const digits = phone.replace(/\D+/g, "");
+  return digits ? `tel:${digits}` : `tel:${phone}`;
+}
+
+function buildMailtoHref(to: string, subject: string, body: string) {
+  const params = new URLSearchParams();
+  if (subject.trim()) params.set("subject", subject.trim().slice(0, 120));
+  if (body.trim()) params.set("body", body.trim().slice(0, 5000));
+  return `mailto:${encodeURIComponent(to.trim())}?${params.toString()}`;
+}
+
+function buildSmsHref(phone: string, body: string) {
+  const digits = phone.replace(/\D+/g, "");
+  const to = digits || phone;
+  const params = new URLSearchParams();
+  if (body.trim()) params.set("body", body.trim().slice(0, 900));
+  // `sms:` handling varies by platform; this format works on iOS and many Android browsers.
+  const q = params.toString();
+  return q ? `sms:${to}?${q}` : `sms:${to}`;
+}
+
 export function PortalLeadScrapingClient() {
   const [tab, setTab] = useState<"b2b" | "b2c">("b2b");
 
@@ -119,6 +147,17 @@ export function PortalLeadScrapingClient() {
   const [placesConfigured, setPlacesConfigured] = useState<boolean>(false);
 
   const [leads, setLeads] = useState<LeadRow[]>([]);
+
+  const [leadOpen, setLeadOpen] = useState(false);
+  const [leadIndex, setLeadIndex] = useState<number>(0);
+
+  const activeLead = leadOpen ? leads[leadIndex] ?? null : null;
+
+  const [composeOpen, setComposeOpen] = useState(false);
+  const [composeToEmail, setComposeToEmail] = useState("");
+  const [composeSubject, setComposeSubject] = useState("");
+  const [composeBody, setComposeBody] = useState("");
+  const [composeSmsBody, setComposeSmsBody] = useState("Hi — quick question.");
 
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -230,6 +269,34 @@ export function PortalLeadScrapingClient() {
     );
 
     await load();
+  }
+
+  function openLeadAtIndex(nextIndex: number) {
+    if (!leads.length) return;
+    const idx = Math.max(0, Math.min(leads.length - 1, Math.floor(nextIndex)));
+    setLeadIndex(idx);
+    setLeadOpen(true);
+  }
+
+  function closeLead() {
+    setLeadOpen(false);
+    setComposeOpen(false);
+  }
+
+  function openCompose() {
+    if (!activeLead) return;
+    setComposeOpen(true);
+    setComposeSubject(`Quick question — ${activeLead.businessName}`.slice(0, 120));
+    setComposeBody(
+      [
+        `Hi ${activeLead.businessName},`,
+        "",
+        "Quick question — are you taking on new work right now?",
+        "",
+        "—",
+      ].join("\n"),
+    );
+    setComposeSmsBody("Hi — quick question. Are you taking on new work right now?");
   }
 
   if (loading) {
@@ -577,17 +644,24 @@ export function PortalLeadScrapingClient() {
             <div className="text-sm font-semibold text-zinc-900">Recent leads</div>
             <div className="mt-3 space-y-3">
               {leads.length ? (
-                leads.map((l) => (
-                  <div key={l.id} className="rounded-2xl border border-zinc-200 p-3">
+                leads.map((l, idx) => (
+                  <button
+                    key={l.id}
+                    type="button"
+                    onClick={() => openLeadAtIndex(idx)}
+                    className="w-full rounded-2xl border border-zinc-200 p-3 text-left hover:bg-zinc-50"
+                  >
                     <div className="text-sm font-semibold text-brand-ink">{l.businessName}</div>
-                    <div className="mt-1 text-xs text-zinc-600">
-                      {[l.phone, l.website].filter(Boolean).join(" • ")}
+                    <div className="mt-1 flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1 text-xs text-zinc-600">
+                      {l.phone ? <span className="whitespace-nowrap">{l.phone}</span> : null}
+                      {l.phone && l.website ? <span>•</span> : null}
+                      {l.website ? (
+                        <span className="min-w-0 max-w-full truncate">{l.website}</span>
+                      ) : null}
                     </div>
                     <div className="mt-1 text-xs text-zinc-600">{[l.niche, l.address].filter(Boolean).join(" • ")}</div>
-                    <div className="mt-1 text-[11px] text-zinc-500">
-                      {new Date(l.createdAtIso).toLocaleString()}
-                    </div>
-                  </div>
+                    <div className="mt-1 text-[11px] text-zinc-500">{safeFormatDateTime(l.createdAtIso)}</div>
+                  </button>
                 ))
               ) : (
                 <div className="rounded-2xl border border-dashed border-zinc-200 p-4 text-sm text-zinc-600">
@@ -661,6 +735,236 @@ export function PortalLeadScrapingClient() {
           </div>
         </div>
       )}
+
+      {leadOpen && activeLead ? (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/30 p-4">
+          <button
+            type="button"
+            className="absolute inset-0"
+            aria-label="Close"
+            onClick={closeLead}
+          />
+
+          <div className="relative w-full max-w-2xl">
+            <button
+              type="button"
+              onClick={() => setLeadIndex((i) => Math.max(0, i - 1))}
+              disabled={leadIndex <= 0}
+              className="absolute -left-3 top-1/2 z-10 hidden h-10 w-10 -translate-y-1/2 items-center justify-center rounded-full border border-zinc-200 bg-white text-zinc-700 shadow-sm hover:bg-zinc-50 disabled:opacity-40 sm:flex"
+              aria-label="Previous lead"
+            >
+              ←
+            </button>
+            <button
+              type="button"
+              onClick={() => setLeadIndex((i) => Math.min(leads.length - 1, i + 1))}
+              disabled={leadIndex >= leads.length - 1}
+              className="absolute -right-3 top-1/2 z-10 hidden h-10 w-10 -translate-y-1/2 items-center justify-center rounded-full border border-zinc-200 bg-white text-zinc-700 shadow-sm hover:bg-zinc-50 disabled:opacity-40 sm:flex"
+              aria-label="Next lead"
+            >
+              →
+            </button>
+
+            <div className="relative rounded-3xl border border-zinc-200 bg-white p-6 shadow-xl">
+              <button
+                type="button"
+                onClick={closeLead}
+                className="absolute right-4 top-4 inline-flex h-9 w-9 items-center justify-center rounded-xl border border-zinc-200 bg-white text-zinc-700 hover:bg-zinc-50"
+                aria-label="Close"
+              >
+                ✕
+              </button>
+
+              <div className="pr-10">
+                <div className="text-lg font-semibold text-brand-ink">{activeLead.businessName}</div>
+                <div className="mt-1 text-xs text-zinc-500">Pulled: {safeFormatDateTime(activeLead.createdAtIso)}</div>
+              </div>
+
+              <div className="mt-4 grid grid-cols-1 gap-3 sm:grid-cols-2">
+                <div className="rounded-2xl border border-zinc-200 bg-zinc-50 p-4">
+                  <div className="text-xs font-semibold text-zinc-600">Phone</div>
+                  <div className="mt-1 text-sm text-zinc-900">{activeLead.phone ?? "—"}</div>
+                </div>
+                <div className="rounded-2xl border border-zinc-200 bg-zinc-50 p-4">
+                  <div className="text-xs font-semibold text-zinc-600">Website</div>
+                  <div className="mt-1 break-words text-sm text-zinc-900">
+                    {activeLead.website ? (
+                      <a
+                        href={activeLead.website}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="font-semibold text-[color:var(--color-brand-blue)] hover:underline"
+                        onClick={(e) => e.stopPropagation()}
+                      >
+                        {activeLead.website}
+                      </a>
+                    ) : (
+                      "—"
+                    )}
+                  </div>
+                </div>
+              </div>
+
+              {activeLead.address || activeLead.niche ? (
+                <div className="mt-4 text-sm text-zinc-700">
+                  {[activeLead.niche, activeLead.address].filter(Boolean).join(" • ")}
+                </div>
+              ) : null}
+
+              <div className="mt-5 flex flex-col gap-2 sm:flex-row sm:items-center">
+                {activeLead.phone ? (
+                  <a
+                    href={toTelHref(activeLead.phone)}
+                    className="inline-flex items-center justify-center rounded-2xl bg-brand-ink px-5 py-3 text-sm font-semibold text-white hover:opacity-95"
+                    onClick={(e) => e.stopPropagation()}
+                  >
+                    Call
+                  </a>
+                ) : (
+                  <button
+                    type="button"
+                    disabled
+                    className="inline-flex items-center justify-center rounded-2xl bg-brand-ink px-5 py-3 text-sm font-semibold text-white opacity-60"
+                  >
+                    Call
+                  </button>
+                )}
+
+                <button
+                  type="button"
+                  onClick={openCompose}
+                  className="inline-flex items-center justify-center rounded-2xl border border-zinc-200 bg-white px-5 py-3 text-sm font-semibold text-brand-ink hover:bg-zinc-50"
+                >
+                  Email / SMS
+                </button>
+
+                <div className="text-xs text-zinc-500 sm:ml-auto">
+                  {leadIndex + 1} / {leads.length}
+                </div>
+              </div>
+
+              <div className="mt-3 flex items-center gap-2 sm:hidden">
+                <button
+                  type="button"
+                  onClick={() => setLeadIndex((i) => Math.max(0, i - 1))}
+                  disabled={leadIndex <= 0}
+                  className="flex-1 rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm font-semibold text-brand-ink hover:bg-zinc-50 disabled:opacity-50"
+                >
+                  Prev
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setLeadIndex((i) => Math.min(leads.length - 1, i + 1))}
+                  disabled={leadIndex >= leads.length - 1}
+                  className="flex-1 rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm font-semibold text-brand-ink hover:bg-zinc-50 disabled:opacity-50"
+                >
+                  Next
+                </button>
+              </div>
+
+              {composeOpen ? (
+                <div className="mt-5 rounded-3xl border border-zinc-200 bg-white p-5">
+                  <div className="text-sm font-semibold text-zinc-900">Compose</div>
+                  <div className="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-2">
+                    <label className="block">
+                      <div className="text-xs font-semibold text-zinc-600">To (email)</div>
+                      <input
+                        value={composeToEmail}
+                        onChange={(e) => setComposeToEmail(e.target.value)}
+                        className="mt-1 w-full rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm outline-none focus:border-zinc-300"
+                        placeholder="name@company.com"
+                        autoComplete="off"
+                      />
+                    </label>
+                    <label className="block">
+                      <div className="text-xs font-semibold text-zinc-600">To (phone)</div>
+                      <input
+                        value={activeLead.phone ?? ""}
+                        disabled
+                        className="mt-1 w-full rounded-2xl border border-zinc-200 bg-zinc-50 px-4 py-2 text-sm text-zinc-700"
+                      />
+                    </label>
+                    <label className="block sm:col-span-2">
+                      <div className="text-xs font-semibold text-zinc-600">Subject (email)</div>
+                      <input
+                        value={composeSubject}
+                        onChange={(e) => setComposeSubject(e.target.value)}
+                        className="mt-1 w-full rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm outline-none focus:border-zinc-300"
+                        autoComplete="off"
+                      />
+                    </label>
+                    <label className="block sm:col-span-2">
+                      <div className="text-xs font-semibold text-zinc-600">Email body</div>
+                      <textarea
+                        value={composeBody}
+                        onChange={(e) => setComposeBody(e.target.value)}
+                        rows={5}
+                        className="mt-1 w-full rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm outline-none focus:border-zinc-300"
+                      />
+                    </label>
+                    <label className="block sm:col-span-2">
+                      <div className="text-xs font-semibold text-zinc-600">SMS body</div>
+                      <textarea
+                        value={composeSmsBody}
+                        onChange={(e) => setComposeSmsBody(e.target.value)}
+                        rows={3}
+                        className="mt-1 w-full rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm outline-none focus:border-zinc-300"
+                      />
+                    </label>
+                  </div>
+
+                  <div className="mt-4 flex flex-col gap-2 sm:flex-row">
+                    <a
+                      href={
+                        composeToEmail.trim().length >= 3
+                          ? buildMailtoHref(composeToEmail, composeSubject, composeBody)
+                          : undefined
+                      }
+                      onClick={(e) => {
+                        if (composeToEmail.trim().length < 3) e.preventDefault();
+                        e.stopPropagation();
+                      }}
+                      className={
+                        composeToEmail.trim().length >= 3
+                          ? "inline-flex items-center justify-center rounded-2xl bg-[color:var(--color-brand-blue)] px-5 py-3 text-sm font-semibold text-white hover:opacity-95"
+                          : "inline-flex items-center justify-center rounded-2xl bg-[color:var(--color-brand-blue)] px-5 py-3 text-sm font-semibold text-white opacity-60"
+                      }
+                    >
+                      Open email
+                    </a>
+
+                    {activeLead.phone ? (
+                      <a
+                        href={buildSmsHref(activeLead.phone, composeSmsBody)}
+                        onClick={(e) => e.stopPropagation()}
+                        className="inline-flex items-center justify-center rounded-2xl border border-zinc-200 bg-white px-5 py-3 text-sm font-semibold text-brand-ink hover:bg-zinc-50"
+                      >
+                        Open SMS
+                      </a>
+                    ) : (
+                      <button
+                        type="button"
+                        disabled
+                        className="inline-flex items-center justify-center rounded-2xl border border-zinc-200 bg-white px-5 py-3 text-sm font-semibold text-brand-ink opacity-60"
+                      >
+                        Open SMS
+                      </button>
+                    )}
+
+                    <button
+                      type="button"
+                      onClick={() => setComposeOpen(false)}
+                      className="inline-flex items-center justify-center rounded-2xl border border-zinc-200 bg-white px-5 py-3 text-sm font-semibold text-brand-ink hover:bg-zinc-50"
+                    >
+                      Done
+                    </button>
+                  </div>
+                </div>
+              ) : null}
+            </div>
+          </div>
+        </div>
+      ) : null}
     </div>
   );
 }
