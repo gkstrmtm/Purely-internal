@@ -58,7 +58,7 @@ const settingsSchema = z.object({
     lastRunAtIso: z.string().nullable(),
   }),
   b2c: z.object({
-    source: z.enum(["OSM_ADDRESS"]).optional(),
+    source: z.enum(["OSM_ADDRESS", "OSM_POI_PHONE"]).optional(),
     location: z.string().max(200).optional(),
     country: z.string().max(80).optional(),
     count: z.number().int().min(1).max(500).optional(),
@@ -352,7 +352,7 @@ function normalizeSettings(value: unknown): NormalizedLeadScrapingSettings {
       lastRunAtIso: normalizeIsoString(b2b.lastRunAtIso),
     },
     b2c: {
-      source: "OSM_ADDRESS",
+      source: (b2c as any).source === "OSM_POI_PHONE" ? "OSM_POI_PHONE" : "OSM_ADDRESS",
       location:
         typeof (b2c as any).location === "string"
           ? (((b2c as any).location as string).trim().slice(0, 200) || undefined)

@@ -50,7 +50,7 @@ type LeadScrapingSettings = {
     lastRunAtIso: string | null;
   };
   b2c: {
-    source?: "OSM_ADDRESS";
+    source?: "OSM_ADDRESS" | "OSM_POI_PHONE";
     location?: string;
     country?: string;
     count?: number;
@@ -1232,8 +1232,8 @@ export function PortalLeadScrapingClient() {
 
   const subTabButtonClass = (active: boolean) =>
     active
-      ? "relative z-10 rounded-t-2xl border border-zinc-200 border-b-white bg-white px-4 py-2 text-sm font-semibold text-brand-ink"
-      : "relative z-10 rounded-t-2xl border border-zinc-200 bg-zinc-100 px-4 py-2 text-sm font-semibold text-zinc-600 hover:bg-zinc-200";
+      ? "relative rounded-t-2xl border border-zinc-200 border-b-white bg-white px-4 py-2 text-sm font-semibold text-brand-ink"
+      : "relative rounded-t-2xl border border-zinc-200 bg-zinc-100 px-4 py-2 text-sm font-semibold text-zinc-600 hover:bg-zinc-200";
 
   return (
     <div className="mx-auto w-full max-w-6xl px-4 sm:px-6">
@@ -1912,6 +1912,33 @@ export function PortalLeadScrapingClient() {
                   </div>
 
                   <div className="mt-5 grid grid-cols-1 gap-4 sm:grid-cols-2">
+                    <label className="block">
+                      <div className="text-sm font-medium text-zinc-800">Source</div>
+                      <select
+                        className="mt-2 w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm"
+                        value={settings.b2c.source ?? "OSM_ADDRESS"}
+                        onChange={(e) =>
+                          setSettings((prev) =>
+                            prev
+                              ? {
+                                  ...prev,
+                                  b2c: {
+                                    ...prev.b2c,
+                                    source: e.target.value === "OSM_POI_PHONE" ? "OSM_POI_PHONE" : "OSM_ADDRESS",
+                                  },
+                                }
+                              : prev,
+                          )
+                        }
+                      >
+                        <option value="OSM_ADDRESS">OSM addresses (no phone)</option>
+                        <option value="OSM_POI_PHONE">OSM places w/ phone (name + address + phone)</option>
+                      </select>
+                      <div className="mt-1 text-xs text-zinc-500">
+                        Phone coverage varies by area. “Places w/ phone” tends to return small lists.
+                      </div>
+                    </label>
+
                     <label className="block sm:col-span-2">
                       <div className="text-sm font-medium text-zinc-800">Location</div>
                       <input

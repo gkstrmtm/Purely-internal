@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
+import https from "https";
 
 import { requireClientSession } from "@/lib/apiAuth";
 import { prisma } from "@/lib/db";
@@ -70,7 +71,7 @@ type Settings = {
     lastRunAtIso: string | null;
   };
   b2c: {
-    source?: "OSM_ADDRESS";
+    source?: "OSM_ADDRESS" | "OSM_POI_PHONE";
     location?: string;
     country?: string;
     count?: number;
@@ -99,6 +100,76 @@ type Settings = {
     sentAtByLeadId: Record<string, string>;
   };
 };
+
+function isDevTlsCertError(e: unknown): boolean {
+  if (process.env.NODE_ENV === "production") return false;
+  const anyErr = e as any;
+  const code = anyErr?.cause?.code;
+  if (code === "UNABLE_TO_GET_ISSUER_CERT_LOCALLY") return true;
+  const msg = anyErr?.cause?.message || anyErr?.message;
+  return typeof msg === "string" && msg.toLowerCase().includes("certificate");
+}
+
+async function httpsTextInsecure(urlStr: string, {
+  method,
+  headers,
+  body,
+}: {
+  method?: string;
+  headers?: Record<string, string>;
+  body?: string;
+}): Promise<{ status: number; text: string }> {
+  const url = new URL(urlStr);
+  if (url.protocol !== "https:") throw new Error("Only https:// URLs are supported");
+
+  const agent = new https.Agent({ rejectUnauthorized: false });
+
+  return await new Promise((resolve, reject) => {
+    const req = https.request(
+      {
+        protocol: url.protocol,
+        hostname: url.hostname,
+        port: url.port ? Number(url.port) : undefined,
+        path: url.pathname + url.search,
+        method: method ?? "GET",
+        headers,
+        agent,
+      },
+      (res) => {
+        const chunks: Buffer[] = [];
+        res.on("data", (c) => chunks.push(Buffer.isBuffer(c) ? c : Buffer.from(String(c))));
+        res.on("end", () => {
+          const text = Buffer.concat(chunks).toString("utf8");
+          resolve({ status: res.statusCode ?? 0, text });
+        });
+      },
+    );
+    req.on("error", reject);
+    if (body) req.write(body);
+    req.end();
+  });
+}
+
+async function fetchTextWithDevTlsFallback(
+  url: string,
+  init: RequestInit & { headers?: Record<string, string> } = {},
+): Promise<{ ok: boolean; status: number; text: string }> {
+  try {
+    const res = await fetch(url, init);
+    const text = await res.text().catch(() => "");
+    return { ok: res.ok, status: res.status, text };
+  } catch (e) {
+    if (!isDevTlsCertError(e)) throw e;
+
+    const insecure = await httpsTextInsecure(url, {
+      method: typeof init.method === "string" ? init.method : "GET",
+      headers: (init.headers ?? {}) as Record<string, string>,
+      body: typeof init.body === "string" ? init.body : undefined,
+    });
+
+    return { ok: insecure.status >= 200 && insecure.status < 300, status: insecure.status, text: insecure.text };
+  }
+}
 
 function normalizeStringList(xs: unknown, { lower }: { lower?: boolean } = {}) {
   const arr = Array.isArray(xs) ? xs : [];
@@ -415,7 +486,7 @@ function normalizeSettings(value: unknown): Settings {
       lastRunAtIso: normalizeIsoString(b2b.lastRunAtIso),
     },
     b2c: {
-      source: (typeof (b2c as any).source === "string" && (b2c as any).source.trim() === "OSM_ADDRESS") ? "OSM_ADDRESS" : "OSM_ADDRESS",
+      source: (b2c as any).source === "OSM_POI_PHONE" ? "OSM_POI_PHONE" : "OSM_ADDRESS",
       location: typeof (b2c as any).location === "string" ? ((b2c as any).location as string).slice(0, 200) : "",
       country: typeof (b2c as any).country === "string" ? ((b2c as any).country as string).slice(0, 80) : "",
       count:
@@ -448,19 +519,18 @@ async function geocodeToBbox(query: string) {
   url.searchParams.set("q", query);
   url.searchParams.set("limit", "1");
 
-  const res = await fetch(url.toString(), {
+  const res = await fetchTextWithDevTlsFallback(url.toString(), {
     headers: {
       "user-agent": "PurelyAutomation/1.0 (lead-scraping; contact: support@purelyautomation.com)",
-      "accept": "application/json",
+      accept: "application/json",
     },
   });
 
   if (!res.ok) {
-    const t = await res.text().catch(() => "");
-    throw new Error(`Nominatim failed (${res.status}): ${t.slice(0, 200)}`);
+    throw new Error(`Nominatim failed (${res.status}): ${res.text.slice(0, 200)}`);
   }
 
-  const json = (await res.json().catch(() => [])) as NominatimResult[];
+  const json = (JSON.parse(res.text || "[]") as NominatimResult[]) ?? [];
   const first = Array.isArray(json) ? json[0] : undefined;
   const bb = first?.boundingbox;
   if (!bb || bb.length !== 4) return null;
@@ -486,8 +556,24 @@ type OverpassElement = {
   tags?: Record<string, string>;
 };
 
-async function fetchOsmAddressesInBbox({ south, west, north, east }: { south: number; west: number; north: number; east: number }) {
-  const query = `[
+async function fetchOsmElementsInBbox(
+  { south, west, north, east }: { south: number; west: number; north: number; east: number },
+  { mode }: { mode: "OSM_ADDRESS" | "OSM_POI_PHONE" },
+) {
+  const query =
+    mode === "OSM_POI_PHONE"
+      ? `[
+out:json][timeout:25];
+(
+  node["name"]["addr:housenumber"]["addr:street"]["phone"](${south},${west},${north},${east});
+  way["name"]["addr:housenumber"]["addr:street"]["phone"](${south},${west},${north},${east});
+  relation["name"]["addr:housenumber"]["addr:street"]["phone"](${south},${west},${north},${east});
+  node["name"]["addr:housenumber"]["addr:street"]["contact:phone"](${south},${west},${north},${east});
+  way["name"]["addr:housenumber"]["addr:street"]["contact:phone"](${south},${west},${north},${east});
+  relation["name"]["addr:housenumber"]["addr:street"]["contact:phone"](${south},${west},${north},${east});
+);
+out body center;`
+      : `[
 out:json][timeout:25];
 (
   node["addr:housenumber"](${south},${west},${north},${east});
@@ -496,22 +582,22 @@ out:json][timeout:25];
 );
 out body center;`;
 
-  const res = await fetch("https://overpass-api.de/api/interpreter", {
+  const body = new URLSearchParams({ data: query }).toString();
+  const res = await fetchTextWithDevTlsFallback("https://overpass-api.de/api/interpreter", {
     method: "POST",
     headers: {
       "content-type": "application/x-www-form-urlencoded; charset=UTF-8",
       "user-agent": "PurelyAutomation/1.0 (lead-scraping; contact: support@purelyautomation.com)",
-      "accept": "application/json",
+      accept: "application/json",
     },
-    body: new URLSearchParams({ data: query }).toString(),
+    body,
   });
 
   if (!res.ok) {
-    const t = await res.text().catch(() => "");
-    throw new Error(`Overpass failed (${res.status}): ${t.slice(0, 200)}`);
+    throw new Error(`Overpass failed (${res.status}): ${res.text.slice(0, 200)}`);
   }
 
-  const json = (await res.json().catch(() => null)) as any;
+  const json = (JSON.parse(res.text || "{}") as any) ?? {};
   const elements = Array.isArray(json?.elements) ? (json.elements as OverpassElement[]) : [];
   return elements;
 }
@@ -558,6 +644,7 @@ export async function POST(req: Request) {
     const location = (settings.b2c.location ?? "").trim();
     const country = (settings.b2c.country ?? "").trim();
     const requestedCount = typeof settings.b2c.count === "number" ? settings.b2c.count : 200;
+    const source = settings.b2c.source === "OSM_POI_PHONE" ? "OSM_POI_PHONE" : "OSM_ADDRESS";
 
     if (!location) {
       return NextResponse.json(
@@ -601,18 +688,22 @@ export async function POST(req: Request) {
         throw new Error("Location is too broad for free pulling. Use a city/ZIP/postcode-sized area.");
       }
 
-      const elements = await fetchOsmAddressesInBbox(geo.bbox);
+      const elements = await fetchOsmElementsInBbox(geo.bbox, { mode: source });
       const seen = new Set<string>();
 
       for (const el of elements) {
         if (createdCount >= requestedCount) break;
         const tags = el.tags ?? {};
+        const name = (tags["name"] || "").trim();
         const house = (tags["addr:housenumber"] || "").trim();
         const street = (tags["addr:street"] || tags["name"] || "").trim();
         const city = (tags["addr:city"] || "").trim();
         const state = (tags["addr:state"] || "").trim();
         const postcode = (tags["addr:postcode"] || "").trim();
         const countryTag = (tags["addr:country"] || "").trim();
+
+        const phoneRaw = (tags["phone"] || tags["contact:phone"] || "").trim();
+        const phone = source === "OSM_POI_PHONE" ? normalizePhone(phoneRaw) : null;
 
         const line1 = [house, street].filter(Boolean).join(" ").trim();
         const line2 = [city, state, postcode].filter(Boolean).join(", ").trim();
@@ -627,8 +718,8 @@ export async function POST(req: Request) {
           ownerId,
           kind: "B2C",
           source: "GOOGLE_PLACES",
-          businessName: line1 || "Consumer lead",
-          phone: null,
+          businessName: (source === "OSM_POI_PHONE" ? (name || line1) : line1) || "Consumer lead",
+          phone,
           website: null,
           address,
           niche: location.slice(0, 200) || null,
@@ -641,7 +732,7 @@ export async function POST(req: Request) {
             },
             leadScraping: {
               kind: "B2C",
-              source: "OSM_ADDRESS",
+              source,
               geocode: { query: geocodeQuery, displayName: geo.displayName, bbox: geo.bbox },
             },
           },
