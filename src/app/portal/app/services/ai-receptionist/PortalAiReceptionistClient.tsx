@@ -74,6 +74,9 @@ export function PortalAiReceptionistClient() {
   const [error, setError] = useState<string | null>(null);
   const [note, setNote] = useState<string | null>(null);
 
+  const [credits, setCredits] = useState<number | null>(null);
+  const [billingPath, setBillingPath] = useState<string>("/portal/app/billing");
+
   const [tab, setTab] = useState<"settings" | "testing" | "activity" | "missed-call-textback">("settings");
 
   const [settings, setSettings] = useState<Settings | null>(null);
@@ -81,6 +84,19 @@ export function PortalAiReceptionistClient() {
   const [webhookUrl, setWebhookUrl] = useState<string>("");
 
   const [voiceAgentApiKey, setVoiceAgentApiKey] = useState<string>("");
+
+  async function loadCredits() {
+    const res = await fetch("/api/portal/credits", { cache: "no-store" }).catch(() => null as any);
+    if (!res?.ok) {
+      setCredits(0);
+      setBillingPath("/portal/app/billing");
+      return;
+    }
+
+    const data = (await res.json().catch(() => ({}))) as { credits?: number; billingPath?: string };
+    setCredits(typeof data.credits === "number" && Number.isFinite(data.credits) ? data.credits : 0);
+    setBillingPath(typeof data.billingPath === "string" && data.billingPath.trim() ? data.billingPath : "/portal/app/billing");
+  }
 
   async function load() {
     setLoading(true);
@@ -109,6 +125,7 @@ export function PortalAiReceptionistClient() {
 
   useEffect(() => {
     void load();
+    void loadCredits();
   }, []);
 
   function setTabWithUrl(nextTab: "settings" | "testing" | "activity" | "missed-call-textback") {
@@ -247,12 +264,25 @@ export function PortalAiReceptionistClient() {
             Configure call answering + routing, or forward calls to your team.
           </p>
         </div>
-        <Link
-          href="/portal/app/services"
-          className="inline-flex items-center justify-center rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm font-semibold text-brand-ink hover:bg-zinc-50"
-        >
-          All services
-        </Link>
+        <div className="flex items-start gap-3">
+          <div className="hidden rounded-2xl border border-zinc-200 bg-white px-4 py-2 sm:block">
+            <div className="text-[11px] font-semibold text-zinc-500">Credits remaining</div>
+            <div className="mt-1 flex items-end justify-between gap-3">
+              <div className="text-lg font-bold text-brand-ink">{credits === null ? "—" : credits.toLocaleString()}</div>
+              <Link href={billingPath} className="text-xs font-semibold text-brand-ink hover:underline">
+                Billing
+              </Link>
+            </div>
+            <div className="mt-1 text-[11px] text-zinc-500">AI calls are 1 credit / started minute.</div>
+          </div>
+
+          <Link
+            href="/portal/app/services"
+            className="inline-flex items-center justify-center rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm font-semibold text-brand-ink hover:bg-zinc-50"
+          >
+            All services
+          </Link>
+        </div>
       </div>
 
       <div className="mt-6 flex flex-wrap gap-2">

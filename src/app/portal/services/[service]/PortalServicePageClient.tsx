@@ -225,6 +225,26 @@ export function PortalServicePageClient({ slug }: { slug: string }) {
                 </Link>
               </div>
             </div>
+          ) : slug === "reporting" ? (
+            <div className="mt-3">
+              <div className="text-sm text-zinc-600">
+                See a dashboard-style view of activity, outcomes, and credit usage.
+              </div>
+              <div className="mt-5 flex flex-col gap-3 sm:flex-row">
+                <Link
+                  href="/portal/app/services/reporting"
+                  className="inline-flex items-center justify-center rounded-2xl bg-brand-ink px-5 py-3 text-sm font-semibold text-white hover:opacity-95"
+                >
+                  Open Reporting
+                </Link>
+                <Link
+                  href="/portal/app/billing"
+                  className="inline-flex items-center justify-center rounded-2xl border border-zinc-200 bg-white px-5 py-3 text-sm font-semibold text-brand-ink hover:bg-zinc-50"
+                >
+                  Billing
+                </Link>
+              </div>
+            </div>
           ) : (
             <div className="mt-3">
               <div className="text-sm text-zinc-600">
