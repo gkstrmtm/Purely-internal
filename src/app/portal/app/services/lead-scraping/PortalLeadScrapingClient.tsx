@@ -50,6 +50,10 @@ type LeadScrapingSettings = {
     lastRunAtIso: string | null;
   };
   b2c: {
+    source?: "OSM_ADDRESS";
+    location?: string;
+    country?: string;
+    count?: number;
     notes: string;
     scheduleEnabled: boolean;
     frequencyDays: number;
@@ -382,6 +386,9 @@ export function PortalLeadScrapingClient() {
     qs.set("take", String(leadsTake));
     if (q) qs.set("q", q);
 
+    const kind = tab === "b2b" ? "B2B" : "B2C";
+    qs.set("kind", kind);
+
     const leadsRes = await fetch(`/api/portal/lead-scraping/leads?${qs.toString()}`, { cache: "no-store" });
     const leadsBody = (await leadsRes.json().catch(() => ({}))) as LeadsResponse;
 
@@ -441,10 +448,10 @@ export function PortalLeadScrapingClient() {
   useEffect(() => {
     if (loading) return;
     void loadLeads(leadQueryDebounced);
-  }, [leadQueryDebounced]);
+  }, [leadQueryDebounced, tab]);
 
-  async function save() {
-    if (!settings) return;
+  async function save(): Promise<boolean> {
+    if (!settings) return false;
     setSaving(true);
     setError(null);
     setStatus(null);
@@ -460,17 +467,22 @@ export function PortalLeadScrapingClient() {
 
     if (!res.ok) {
       setError(getApiError(body) ?? "Failed to save settings");
-      return;
+      return false;
     }
 
     setSettings(body.settings ?? settings);
     setCredits(typeof body.credits === "number" ? body.credits : credits);
     setStatus("Saved");
     window.setTimeout(() => setStatus(null), 1500);
+    return true;
   }
 
   async function runB2bNow() {
     if (!settings) return;
+
+    const saved = await save();
+    if (!saved) return;
+
     setRunning(true);
     setError(null);
     setStatus(null);
@@ -523,6 +535,54 @@ export function PortalLeadScrapingClient() {
         created > 0
           ? `Added ${created} lead${created === 1 ? "" : "s"} • Charged ${charged} credit${charged === 1 ? "" : "s"}${refunded ? ` • Refunded ${refunded}` : ""}${fallbackNote}`
           : `No new leads matched${refunded ? ` (refunded ${refunded} credits)` : ""}${fallbackNote}`,
+      );
+    }
+
+    await load();
+  }
+
+  async function runB2cNow() {
+    if (!settings) return;
+
+    const saved = await save();
+    if (!saved) return;
+
+    setRunning(true);
+    setError(null);
+    setStatus(null);
+
+    const res = await fetch("/api/portal/lead-scraping/run", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ kind: "B2C" }),
+    });
+
+    const body = (await res.json().catch(() => ({}))) as RunResponse;
+    setRunning(false);
+
+    if (!res.ok) {
+      if (res.status === 402 && body?.code === "INSUFFICIENT_CREDITS") {
+        setError(body.error ?? "Not enough credits.");
+      } else {
+        setError(getApiError(body) ?? "Failed to run");
+      }
+      return;
+    }
+
+    const created = typeof body.createdCount === "number" ? body.createdCount : 0;
+    const charged = typeof body.chargedCredits === "number" ? body.chargedCredits : 0;
+    const refunded = typeof body.refundedCredits === "number" ? body.refundedCredits : 0;
+    const requested = typeof body.requestedCount === "number" ? body.requestedCount : (settings?.b2c?.count ?? 0);
+
+    if (requested > 0 && created < requested) {
+      setStatus(
+        `Found ${created} lead${created === 1 ? "" : "s"} within these constraints • Requested ${requested} • Charged ${charged} credit${charged === 1 ? "" : "s"}${refunded ? ` • Refunded ${refunded}` : ""}`,
+      );
+    } else {
+      setStatus(
+        created > 0
+          ? `Added ${created} lead${created === 1 ? "" : "s"} • Charged ${charged} credit${charged === 1 ? "" : "s"}${refunded ? ` • Refunded ${refunded}` : ""}`
+          : `No new leads matched${refunded ? ` (refunded ${refunded} credits)` : ""}`,
       );
     }
 
@@ -1842,16 +1902,71 @@ export function PortalLeadScrapingClient() {
                   <div className="flex items-start justify-between gap-4">
                     <div>
                       <div className="text-base font-semibold text-brand-ink">B2C pulls</div>
-                      <div className="mt-1 text-sm text-zinc-600">Pull consumer lead lists (source TBD).</div>
+                      <div className="mt-1 text-sm text-zinc-600">Pull consumer address lists from OpenStreetMap.</div>
                     </div>
                   </div>
 
-                  <div className="mt-4 rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
-                    B2C runs are disabled until a consumer data source is connected.
+                  <div className="mt-4 rounded-2xl border border-zinc-200 bg-zinc-50 px-4 py-3 text-sm text-zinc-700">
+                    This is a free global source. It will usually return addresses only (no phone/email).
+                    Use a city, ZIP/postcode, or similarly specific area.
                   </div>
 
-                  <div className="mt-5 grid grid-cols-1 gap-4">
+                  <div className="mt-5 grid grid-cols-1 gap-4 sm:grid-cols-2">
+                    <label className="block sm:col-span-2">
+                      <div className="text-sm font-medium text-zinc-800">Location</div>
+                      <input
+                        className="mt-2 w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm"
+                        value={settings.b2c.location ?? ""}
+                        onChange={(e) =>
+                          setSettings((prev) =>
+                            prev ? { ...prev, b2c: { ...prev.b2c, location: e.target.value } } : prev,
+                          )
+                        }
+                        placeholder="e.g. Austin, TX or 94110 or Berlin"
+                      />
+                    </label>
+
                     <label className="block">
+                      <div className="text-sm font-medium text-zinc-800">Country (optional)</div>
+                      <input
+                        className="mt-2 w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm"
+                        value={settings.b2c.country ?? ""}
+                        onChange={(e) =>
+                          setSettings((prev) =>
+                            prev ? { ...prev, b2c: { ...prev.b2c, country: e.target.value } } : prev,
+                          )
+                        }
+                        placeholder="e.g. US or Canada"
+                      />
+                      <div className="mt-1 text-xs text-zinc-500">Helps disambiguate geocoding.</div>
+                    </label>
+
+                    <label className="block">
+                      <div className="text-sm font-medium text-zinc-800">Count</div>
+                      <input
+                        className="mt-2 w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm"
+                        type="number"
+                        min={1}
+                        max={500}
+                        value={settings.b2c.count ?? 200}
+                        onChange={(e) =>
+                          setSettings((prev) =>
+                            prev
+                              ? {
+                                  ...prev,
+                                  b2c: {
+                                    ...prev.b2c,
+                                    count: clampInt(Number(e.target.value), 1, 500),
+                                  },
+                                }
+                              : prev,
+                          )
+                        }
+                      />
+                      <div className="mt-1 text-xs text-zinc-500">This reserves credits then refunds unused.</div>
+                    </label>
+
+                    <label className="block sm:col-span-2">
                       <div className="text-sm font-medium text-zinc-800">Notes / requirements</div>
                       <textarea
                         className="mt-2 min-h-[140px] w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm"
@@ -1878,23 +1993,26 @@ export function PortalLeadScrapingClient() {
 
                     <button
                       type="button"
-                      disabled
-                      className="inline-flex cursor-not-allowed items-center justify-center rounded-2xl border border-zinc-200 bg-white px-5 py-3 text-sm font-semibold text-brand-ink opacity-60"
-                      title="B2C runs are disabled until a data source is connected"
+                      onClick={runB2cNow}
+                      disabled={running || !(settings.b2c.location ?? "").trim()}
+                      className="inline-flex items-center justify-center rounded-2xl border border-zinc-200 bg-white px-5 py-3 text-sm font-semibold text-brand-ink hover:bg-zinc-50 disabled:opacity-60"
+                      title={!(settings.b2c.location ?? "").trim() ? "Location is required" : undefined}
                     >
-                      Run now
+                      {running ? "Pulling…" : "Run now"}
                     </button>
 
                     <button
                       type="button"
-                      disabled
-                      className="inline-flex cursor-not-allowed items-center justify-center rounded-2xl border border-zinc-200 bg-white px-5 py-3 text-sm font-semibold text-brand-ink opacity-60"
-                      title="B2C export will be enabled once a source is connected"
+                      onClick={() => downloadText(`leads_${new Date().toISOString().slice(0, 10)}.csv`, toCsv(leads))}
+                      disabled={!leads.length}
+                      className="inline-flex items-center justify-center rounded-2xl border border-zinc-200 bg-white px-5 py-3 text-sm font-semibold text-brand-ink hover:bg-zinc-50 disabled:opacity-60"
                     >
                       Export CSV
                     </button>
 
-                    <div className="text-xs text-zinc-500 sm:ml-auto">0 leads shown</div>
+                    <div className="text-xs text-zinc-500 sm:ml-auto">
+                      {leads.length} lead{leads.length === 1 ? "" : "s"} shown
+                    </div>
                   </div>
                 </div>
               </div>
@@ -1903,24 +2021,71 @@ export function PortalLeadScrapingClient() {
                 <div className="flex items-start justify-between gap-4">
                   <div>
                     <div className="text-sm font-semibold text-zinc-900">Leads</div>
-                    <div className="mt-1 text-xs text-zinc-500">Consumer leads will appear here.</div>
+                    <div className="mt-1 text-xs text-zinc-500">
+                      {typeof leadTotalCount === "number" ? (
+                        leadQueryDebounced
+                          ? `Showing ${leads.length} of ${leadMatchedCount ?? leads.length} matched • ${leadTotalCount} total`
+                          : `${leadTotalCount} total`
+                      ) : (
+                        `${leads.length} loaded`
+                      )}
+                      {typeof leadTotalCount === "number" && leadTotalCount > leadsTake ? ` • Loaded first ${leadsTake}` : ""}
+                    </div>
                   </div>
                 </div>
 
                 <div className="mt-3">
                   <input
-                    className="w-full rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm opacity-60"
-                    value={""}
-                    onChange={() => null}
-                    placeholder="Search leads (coming soon)"
-                    disabled
+                    className="w-full rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm"
+                    value={leadQuery}
+                    onChange={(e) => setLeadQuery(e.target.value)}
+                    placeholder="Search leads (name, email, phone, website, address, niche…)"
                   />
                 </div>
 
                 <div className="mt-3 max-h-[70vh] min-h-[240px] space-y-3 overflow-y-auto pr-2 lg:max-h-none lg:min-h-0 lg:flex-1">
-                  <div className="rounded-2xl border border-dashed border-zinc-200 p-4 text-sm text-zinc-600">
-                    No consumer leads yet.
-                  </div>
+                  {leads.length ? (
+                    leads.map((l, idx) => (
+                      <button
+                        key={l.id}
+                        type="button"
+                        onClick={() => openLeadAtIndex(idx)}
+                        className="w-full rounded-2xl border border-zinc-200 p-3 text-left hover:bg-zinc-50"
+                      >
+                        <div className="flex items-start justify-between gap-3">
+                          <div className="min-w-0">
+                            <div className="text-sm font-semibold text-brand-ink">
+                              {l.starred ? <span className="mr-1 text-amber-500">★</span> : null}
+                              {l.businessName}
+                            </div>
+                          </div>
+                          {l.tag ? (
+                            <span
+                              className={`shrink-0 rounded-full px-2 py-0.5 text-[11px] font-semibold ${pickTagTextColor(
+                                isHexColor(l.tagColor || "") ? (l.tagColor as string) : "#111827",
+                              )}`}
+                              style={{
+                                backgroundColor: isHexColor(l.tagColor || "") ? (l.tagColor as string) : "#111827",
+                              }}
+                            >
+                              {l.tag}
+                            </span>
+                          ) : null}
+                        </div>
+                        <div className="mt-1 flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1 text-xs text-zinc-600">
+                          {l.phone ? <span className="whitespace-nowrap">{l.phone}</span> : null}
+                          {l.phone && l.website ? <span>•</span> : null}
+                          {l.website ? <span className="min-w-0 max-w-full truncate">{l.website}</span> : null}
+                        </div>
+                        <div className="mt-1 text-xs text-zinc-600">{[l.niche, l.address].filter(Boolean).join(" • ")}</div>
+                        <div className="mt-1 text-[11px] text-zinc-500">{safeFormatDateTime(l.createdAtIso)}</div>
+                      </button>
+                    ))
+                  ) : (
+                    <div className="rounded-2xl border border-dashed border-zinc-200 p-4 text-sm text-zinc-600">
+                      No leads yet. Run your first pull.
+                    </div>
+                  )}
                 </div>
               </div>
             </div>

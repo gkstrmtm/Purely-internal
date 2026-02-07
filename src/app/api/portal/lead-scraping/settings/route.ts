@@ -58,6 +58,10 @@ const settingsSchema = z.object({
     lastRunAtIso: z.string().nullable(),
   }),
   b2c: z.object({
+    source: z.enum(["OSM_ADDRESS"]).optional(),
+    location: z.string().max(200).optional(),
+    country: z.string().max(80).optional(),
+    count: z.number().int().min(1).max(500).optional(),
     notes: z.string().max(5000),
     scheduleEnabled: z.boolean(),
     frequencyDays: z.number().int().min(1).max(60),
@@ -113,6 +117,10 @@ type LeadScrapingSettingsV1 = {
     lastRunAtIso: string | null;
   };
   b2c: {
+    source?: string;
+    location?: string;
+    country?: string;
+    count?: number;
     notes: string;
     scheduleEnabled: boolean;
     frequencyDays: number;
@@ -344,6 +352,19 @@ function normalizeSettings(value: unknown): NormalizedLeadScrapingSettings {
       lastRunAtIso: normalizeIsoString(b2b.lastRunAtIso),
     },
     b2c: {
+      source: "OSM_ADDRESS",
+      location:
+        typeof (b2c as any).location === "string"
+          ? (((b2c as any).location as string).trim().slice(0, 200) || undefined)
+          : undefined,
+      country:
+        typeof (b2c as any).country === "string"
+          ? (((b2c as any).country as string).trim().slice(0, 80) || undefined)
+          : undefined,
+      count:
+        typeof (b2c as any).count === "number" && Number.isFinite((b2c as any).count)
+          ? Math.min(500, Math.max(1, Math.floor((b2c as any).count)))
+          : 200,
       notes: typeof b2c.notes === "string" ? b2c.notes.slice(0, 5000) : "",
       scheduleEnabled: Boolean(b2c.scheduleEnabled),
       frequencyDays:

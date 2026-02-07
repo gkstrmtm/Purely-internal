@@ -11,6 +11,7 @@ export const revalidate = 0;
 const querySchema = z.object({
   take: z.number().int().min(1).max(500).default(200),
   q: z.string().trim().max(200).default(""),
+  kind: z.enum(["B2B", "B2C"]).optional(),
 });
 
 function isMissingColumnError(e: unknown) {
@@ -37,18 +38,21 @@ export async function GET(req: Request) {
   const url = new URL(req.url);
   const takeRaw = url.searchParams.get("take");
   const qRaw = url.searchParams.get("q");
+  const kindRaw = url.searchParams.get("kind");
   const parsed = querySchema.safeParse({
     take: takeRaw ? Number(takeRaw) : undefined,
     q: qRaw ?? undefined,
+    kind: kindRaw ?? undefined,
   });
   const take = parsed.success ? parsed.data.take : 200;
   const q = parsed.success ? parsed.data.q : "";
+  const kind = parsed.success ? parsed.data.kind : undefined;
 
   const search = q.trim();
-  const baseWhere = { ownerId };
+  const baseWhere = kind ? ({ ownerId, kind } as const) : ({ ownerId } as const);
   const searchWhere = search
     ? {
-        ownerId,
+        ...baseWhere,
         OR: [
           { businessName: { contains: search, mode: "insensitive" as const } },
           { email: { contains: search, mode: "insensitive" as const } },
@@ -97,7 +101,7 @@ export async function GET(req: Request) {
       // Backwards compatible read (when DB migrations haven't been applied yet).
       const legacyWhere = search
         ? {
-            ownerId,
+            ...baseWhere,
             OR: [
               { businessName: { contains: search, mode: "insensitive" as const } },
               { phone: { contains: search } },

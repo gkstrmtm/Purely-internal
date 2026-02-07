@@ -70,6 +70,10 @@ type Settings = {
     lastRunAtIso: string | null;
   };
   b2c: {
+    source?: "OSM_ADDRESS";
+    location?: string;
+    country?: string;
+    count?: number;
     notes: string;
     scheduleEnabled: boolean;
     frequencyDays: number;
@@ -411,6 +415,13 @@ function normalizeSettings(value: unknown): Settings {
       lastRunAtIso: normalizeIsoString(b2b.lastRunAtIso),
     },
     b2c: {
+      source: (typeof (b2c as any).source === "string" && (b2c as any).source.trim() === "OSM_ADDRESS") ? "OSM_ADDRESS" : "OSM_ADDRESS",
+      location: typeof (b2c as any).location === "string" ? ((b2c as any).location as string).slice(0, 200) : "",
+      country: typeof (b2c as any).country === "string" ? ((b2c as any).country as string).slice(0, 80) : "",
+      count:
+        typeof (b2c as any).count === "number" && Number.isFinite((b2c as any).count)
+          ? Math.min(500, Math.max(1, Math.floor((b2c as any).count)))
+          : 200,
       notes: typeof b2c.notes === "string" ? b2c.notes.slice(0, 5000) : "",
       scheduleEnabled: Boolean(b2c.scheduleEnabled),
       frequencyDays:
@@ -422,6 +433,87 @@ function normalizeSettings(value: unknown): Settings {
     outbound: mergedOutbound,
     outboundState,
   };
+}
+
+type NominatimResult = {
+  display_name?: string;
+  lat?: string;
+  lon?: string;
+  boundingbox?: [string, string, string, string]; // [south, north, west, east]
+};
+
+async function geocodeToBbox(query: string) {
+  const url = new URL("https://nominatim.openstreetmap.org/search");
+  url.searchParams.set("format", "json");
+  url.searchParams.set("q", query);
+  url.searchParams.set("limit", "1");
+
+  const res = await fetch(url.toString(), {
+    headers: {
+      "user-agent": "PurelyAutomation/1.0 (lead-scraping; contact: support@purelyautomation.com)",
+      "accept": "application/json",
+    },
+  });
+
+  if (!res.ok) {
+    const t = await res.text().catch(() => "");
+    throw new Error(`Nominatim failed (${res.status}): ${t.slice(0, 200)}`);
+  }
+
+  const json = (await res.json().catch(() => [])) as NominatimResult[];
+  const first = Array.isArray(json) ? json[0] : undefined;
+  const bb = first?.boundingbox;
+  if (!bb || bb.length !== 4) return null;
+
+  const south = Number(bb[0]);
+  const north = Number(bb[1]);
+  const west = Number(bb[2]);
+  const east = Number(bb[3]);
+  if (![south, north, west, east].every((n) => Number.isFinite(n))) return null;
+
+  return {
+    displayName: typeof first?.display_name === "string" ? first.display_name : query,
+    bbox: { south, north, west, east },
+  };
+}
+
+type OverpassElement = {
+  type: "node" | "way" | "relation";
+  id: number;
+  lat?: number;
+  lon?: number;
+  center?: { lat: number; lon: number };
+  tags?: Record<string, string>;
+};
+
+async function fetchOsmAddressesInBbox({ south, west, north, east }: { south: number; west: number; north: number; east: number }) {
+  const query = `[
+out:json][timeout:25];
+(
+  node["addr:housenumber"](${south},${west},${north},${east});
+  way["addr:housenumber"](${south},${west},${north},${east});
+  relation["addr:housenumber"](${south},${west},${north},${east});
+);
+out body center;`;
+
+  const res = await fetch("https://overpass-api.de/api/interpreter", {
+    method: "POST",
+    headers: {
+      "content-type": "application/x-www-form-urlencoded; charset=UTF-8",
+      "user-agent": "PurelyAutomation/1.0 (lead-scraping; contact: support@purelyautomation.com)",
+      "accept": "application/json",
+    },
+    body: new URLSearchParams({ data: query }).toString(),
+  });
+
+  if (!res.ok) {
+    const t = await res.text().catch(() => "");
+    throw new Error(`Overpass failed (${res.status}): ${t.slice(0, 200)}`);
+  }
+
+  const json = (await res.json().catch(() => null)) as any;
+  const elements = Array.isArray(json?.elements) ? (json.elements as OverpassElement[]) : [];
+  return elements;
 }
 
 function matchesNameExclusion(businessName: string, excludeNameContains: string[]) {
@@ -457,14 +549,164 @@ export async function POST(req: Request) {
   }
 
   if (parsed.data.kind === "B2C") {
-    return NextResponse.json(
-      {
-        ok: false,
-        error: "B2C is not configured yet.",
-        code: "B2C_NOT_CONFIGURED",
+    const setup = await prisma.portalServiceSetup.findUnique({
+      where: { ownerId_serviceSlug: { ownerId, serviceSlug: SERVICE_SLUG } },
+      select: { dataJson: true },
+    });
+
+    const settings = normalizeSettings(setup?.dataJson);
+    const location = (settings.b2c.location ?? "").trim();
+    const country = (settings.b2c.country ?? "").trim();
+    const requestedCount = typeof settings.b2c.count === "number" ? settings.b2c.count : 200;
+
+    if (!location) {
+      return NextResponse.json(
+        { ok: false, error: "Location is required.", code: "MISSING_REQUIRED" },
+        { status: 400 },
+      );
+    }
+
+    // Billing: reserve up to requestedCount, then refund unused.
+    const reservedCredits = requestedCount;
+    const consumed = await consumeCredits(ownerId, reservedCredits);
+    if (!consumed.ok) {
+      return NextResponse.json(
+        { ok: false, error: "Insufficient credits.", code: "INSUFFICIENT_CREDITS" },
+        { status: 402 },
+      );
+    }
+
+    const run = await prisma.portalLeadScrapeRun.create({
+      data: {
+        ownerId,
+        kind: "B2C",
+        requestedCount,
+        chargedCredits: reservedCredits,
+        settingsJson: settings,
       },
-      { status: 409 },
-    );
+      select: { id: true },
+    });
+
+    let createdCount = 0;
+    let error: string | null = null;
+
+    try {
+      const geocodeQuery = country ? `${location}, ${country}` : location;
+      const geo = await geocodeToBbox(geocodeQuery);
+      if (!geo) throw new Error("Unable to geocode location. Try a more specific location.");
+
+      const latSpan = Math.abs(geo.bbox.north - geo.bbox.south);
+      const lonSpan = Math.abs(geo.bbox.east - geo.bbox.west);
+      if (latSpan > 2.5 || lonSpan > 2.5) {
+        throw new Error("Location is too broad for free pulling. Use a city/ZIP/postcode-sized area.");
+      }
+
+      const elements = await fetchOsmAddressesInBbox(geo.bbox);
+      const seen = new Set<string>();
+
+      for (const el of elements) {
+        if (createdCount >= requestedCount) break;
+        const tags = el.tags ?? {};
+        const house = (tags["addr:housenumber"] || "").trim();
+        const street = (tags["addr:street"] || tags["name"] || "").trim();
+        const city = (tags["addr:city"] || "").trim();
+        const state = (tags["addr:state"] || "").trim();
+        const postcode = (tags["addr:postcode"] || "").trim();
+        const countryTag = (tags["addr:country"] || "").trim();
+
+        const line1 = [house, street].filter(Boolean).join(" ").trim();
+        const line2 = [city, state, postcode].filter(Boolean).join(", ").trim();
+        const address = [line1, line2, countryTag].filter(Boolean).join(" • ") || line1 || null;
+        if (!address) continue;
+
+        const placeId = `osm:${el.type}/${el.id}`;
+        if (seen.has(placeId)) continue;
+        seen.add(placeId);
+
+        const created = await createPortalLeadCompat({
+          ownerId,
+          kind: "B2C",
+          source: "GOOGLE_PLACES",
+          businessName: line1 || "Consumer lead",
+          phone: null,
+          website: null,
+          address,
+          niche: location.slice(0, 200) || null,
+          placeId,
+          dataJson: {
+            osm: {
+              placeId,
+              element: el,
+              tags,
+            },
+            leadScraping: {
+              kind: "B2C",
+              source: "OSM_ADDRESS",
+              geocode: { query: geocodeQuery, displayName: geo.displayName, bbox: geo.bbox },
+            },
+          },
+        });
+
+        if (created) createdCount++;
+      }
+    } catch (e: any) {
+      error = typeof e?.message === "string" ? e.message : "Unknown error";
+    }
+
+    const refundedCredits = Math.max(0, reservedCredits - createdCount);
+    if (refundedCredits > 0) {
+      await addCredits(ownerId, refundedCredits);
+    }
+
+    const nowIso = new Date().toISOString();
+    const updatedSettings: Settings = {
+      ...settings,
+      b2c: {
+        ...settings.b2c,
+        lastRunAtIso: nowIso,
+      },
+    };
+
+    await prisma.$transaction([
+      prisma.portalLeadScrapeRun.update({
+        where: { id: run.id },
+        data: { createdCount, refundedCredits, error },
+        select: { id: true },
+      }),
+      prisma.portalServiceSetup.upsert({
+        where: { ownerId_serviceSlug: { ownerId, serviceSlug: SERVICE_SLUG } },
+        create: { ownerId, serviceSlug: SERVICE_SLUG, status: "IN_PROGRESS", dataJson: updatedSettings },
+        update: { dataJson: updatedSettings, status: "IN_PROGRESS" },
+        select: { id: true },
+      }),
+    ]);
+
+    if (error) {
+      return NextResponse.json(
+        {
+          ok: false,
+          error,
+          code: "RUN_FAILED",
+          requestedCount,
+          chargedCredits: reservedCredits,
+          refundedCredits,
+          createdCount,
+          plannedBatches: 1,
+          batchesRan: 1,
+        },
+        { status: 500 },
+      );
+    }
+
+    return NextResponse.json({
+      ok: true,
+      requestedCount,
+      chargedCredits: reservedCredits,
+      refundedCredits,
+      createdCount,
+      plannedBatches: 1,
+      batchesRan: 1,
+    });
   }
 
   if (!hasPlacesKey()) {
