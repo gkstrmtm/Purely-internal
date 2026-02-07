@@ -16,11 +16,12 @@ const SERVICE_SLUG = "lead-scraping";
 const stringList = z.array(z.string()).max(500);
 
 const settingsSchema = z.object({
-  version: z.literal(2),
+  version: z.literal(3),
   b2b: z.object({
     niche: z.string().max(200),
     location: z.string().max(200),
-    count: z.number().int().min(1).max(50),
+    count: z.number().int().min(1).max(500),
+    requireEmail: z.boolean(),
     requirePhone: z.boolean(),
     requireWebsite: z.boolean(),
     excludeNameContains: stringList,
@@ -39,14 +40,17 @@ const settingsSchema = z.object({
   outbound: z
     .object({
       enabled: z.boolean(),
-      trigger: z.enum(["MANUAL", "ON_SCRAPE", "ON_APPROVE"]),
-      sendEmail: z.boolean(),
-      sendSms: z.boolean(),
-      toEmailDefault: z.string().max(200),
-      emailSubject: z.string().max(120),
-      emailHtml: z.string().max(20000),
-      emailText: z.string().max(20000),
-      smsText: z.string().max(900),
+      email: z.object({
+        enabled: z.boolean(),
+        trigger: z.enum(["MANUAL", "ON_SCRAPE", "ON_APPROVE"]),
+        subject: z.string().max(120),
+        text: z.string().max(20000),
+      }),
+      sms: z.object({
+        enabled: z.boolean(),
+        trigger: z.enum(["MANUAL", "ON_SCRAPE", "ON_APPROVE"]),
+        text: z.string().max(900),
+      }),
       resources: z
         .array(
           z.object({
@@ -123,9 +127,26 @@ function normalizeUrl(value: unknown): string {
   return "";
 }
 
+function stripHtml(html: string) {
+  return html
+    .replace(/<style[\s\S]*?<\/style>/gi, "")
+    .replace(/<script[\s\S]*?<\/script>/gi, "")
+    .replace(/<[^>]+>/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
 function normalizeOutbound(value: unknown): OutboundSettings {
   const rec = value && typeof value === "object" ? (value as Record<string, unknown>) : {};
-  const resourcesRaw = Array.isArray(rec.resources) ? rec.resources : [];
+
+  // v2 -> v3 migration.
+  const isV2 =
+    typeof (rec as any).sendEmail === "boolean" ||
+    typeof (rec as any).sendSms === "boolean" ||
+    typeof (rec as any).emailHtml === "string" ||
+    typeof (rec as any).emailText === "string";
+
+  const resourcesRaw = Array.isArray((rec as any).resources) ? ((rec as any).resources as unknown[]) : [];
   const resources = resourcesRaw
     .map((r) => (r && typeof r === "object" ? (r as Record<string, unknown>) : {}))
     .map((r) => ({
@@ -135,19 +156,54 @@ function normalizeOutbound(value: unknown): OutboundSettings {
     .filter((r) => Boolean(r.url))
     .slice(0, 30);
 
-  const triggerRaw = typeof rec.trigger === "string" ? rec.trigger.trim() : "MANUAL";
-  const trigger = triggerRaw === "ON_SCRAPE" || triggerRaw === "ON_APPROVE" ? triggerRaw : "MANUAL";
+  const parseTrigger = (t: unknown) => {
+    const raw = typeof t === "string" ? t.trim() : "MANUAL";
+    return raw === "ON_SCRAPE" || raw === "ON_APPROVE" ? raw : "MANUAL";
+  };
+
+  if (isV2) {
+    const enabled = Boolean((rec as any).enabled);
+    const trigger = parseTrigger((rec as any).trigger);
+    const sendEmail = (rec as any).sendEmail === undefined ? true : Boolean((rec as any).sendEmail);
+    const sendSms = Boolean((rec as any).sendSms);
+
+    const emailHtml = typeof (rec as any).emailHtml === "string" ? ((rec as any).emailHtml as string) : "";
+    const emailTextRaw = typeof (rec as any).emailText === "string" ? ((rec as any).emailText as string) : "";
+    const emailText = (emailTextRaw || stripHtml(emailHtml)).slice(0, 20000);
+
+    return {
+      enabled,
+      email: {
+        enabled: enabled && sendEmail,
+        trigger,
+        subject: (typeof (rec as any).emailSubject === "string" ? ((rec as any).emailSubject as string) : "").slice(0, 120),
+        text: emailText,
+      },
+      sms: {
+        enabled: enabled && sendSms,
+        trigger,
+        text: (typeof (rec as any).smsText === "string" ? ((rec as any).smsText as string) : "").slice(0, 900),
+      },
+      resources,
+    };
+  }
+
+  const emailRec = (rec as any).email && typeof (rec as any).email === "object" ? ((rec as any).email as Record<string, unknown>) : {};
+  const smsRec = (rec as any).sms && typeof (rec as any).sms === "object" ? ((rec as any).sms as Record<string, unknown>) : {};
 
   return {
-    enabled: Boolean(rec.enabled),
-    trigger,
-    sendEmail: rec.sendEmail === undefined ? true : Boolean(rec.sendEmail),
-    sendSms: Boolean(rec.sendSms),
-    toEmailDefault: (typeof rec.toEmailDefault === "string" ? rec.toEmailDefault.trim() : "").slice(0, 200),
-    emailSubject: (typeof rec.emailSubject === "string" ? rec.emailSubject : "").slice(0, 120),
-    emailHtml: (typeof rec.emailHtml === "string" ? rec.emailHtml : "").slice(0, 20000),
-    emailText: (typeof rec.emailText === "string" ? rec.emailText : "").slice(0, 20000),
-    smsText: (typeof rec.smsText === "string" ? rec.smsText : "").slice(0, 900),
+    enabled: Boolean((rec as any).enabled),
+    email: {
+      enabled: Boolean(emailRec.enabled),
+      trigger: parseTrigger(emailRec.trigger),
+      subject: (typeof emailRec.subject === "string" ? (emailRec.subject as string) : "").slice(0, 120),
+      text: (typeof emailRec.text === "string" ? (emailRec.text as string) : "").slice(0, 20000),
+    },
+    sms: {
+      enabled: Boolean(smsRec.enabled),
+      trigger: parseTrigger(smsRec.trigger),
+      text: (typeof smsRec.text === "string" ? (smsRec.text as string) : "").slice(0, 900),
+    },
     resources,
   };
 }
@@ -188,22 +244,23 @@ function normalizeOutboundState(value: unknown): OutboundState {
 
 function normalizeSettings(value: unknown): NormalizedLeadScrapingSettings {
   const rec = value && typeof value === "object" ? (value as Record<string, unknown>) : {};
-  const version = rec.version === 1 ? 1 : 2;
+  const version = rec.version === 1 ? 1 : rec.version === 2 ? 2 : 3;
   const b2b = rec.b2b && typeof rec.b2b === "object" ? (rec.b2b as Record<string, unknown>) : {};
   const b2c = rec.b2c && typeof rec.b2c === "object" ? (rec.b2c as Record<string, unknown>) : {};
 
   const defaultOutbound: OutboundSettings = {
     enabled: false,
-    trigger: "MANUAL",
-    sendEmail: true,
-    sendSms: false,
-    toEmailDefault: "",
-    emailSubject: "Quick question — {businessName}",
-    emailHtml:
-      "<p>Hi {businessName},</p><p>Quick question — are you taking on new work right now?</p><p>—</p>",
-    emailText:
-      "Hi {businessName},\n\nQuick question — are you taking on new work right now?\n\n—",
-    smsText: "Hi {businessName} — quick question. Are you taking on new work right now?",
+    email: {
+      enabled: true,
+      trigger: "MANUAL",
+      subject: "Quick question — {businessName}",
+      text: "Hi {businessName},\n\nQuick question — are you taking on new work right now?\n\n—",
+    },
+    sms: {
+      enabled: false,
+      trigger: "MANUAL",
+      text: "Hi {businessName} — quick question. Are you taking on new work right now?",
+    },
     resources: [],
   };
 
@@ -211,14 +268,15 @@ function normalizeSettings(value: unknown): NormalizedLeadScrapingSettings {
   const outboundState = normalizeOutboundState(rec.outboundState);
 
   const settings: NormalizedLeadScrapingSettings = {
-    version: 2,
+    version: 3,
     b2b: {
       niche: typeof b2b.niche === "string" ? b2b.niche.slice(0, 200) : "",
       location: typeof b2b.location === "string" ? b2b.location.slice(0, 200) : "",
       count:
         typeof b2b.count === "number" && Number.isFinite(b2b.count)
-          ? Math.min(50, Math.max(1, Math.floor(b2b.count)))
+          ? Math.min(500, Math.max(1, Math.floor(b2b.count)))
           : 25,
+      requireEmail: Boolean((b2b as any).requireEmail),
       requirePhone: Boolean(b2b.requirePhone),
       requireWebsite: Boolean(b2b.requireWebsite),
       excludeNameContains: normalizeStringList(b2b.excludeNameContains),
@@ -287,7 +345,16 @@ export async function GET() {
         outbound: {
           ...settings.outbound,
           enabled: false,
-          trigger: "MANUAL",
+          email: {
+            ...settings.outbound.email,
+            enabled: false,
+            trigger: "MANUAL",
+          },
+          sms: {
+            ...settings.outbound.sms,
+            enabled: false,
+            trigger: "MANUAL",
+          },
         },
       };
 
@@ -327,7 +394,16 @@ export async function PUT(req: Request) {
       outbound: {
         ...normalized.outbound,
         enabled: false,
-        trigger: "MANUAL",
+        email: {
+          ...normalized.outbound.email,
+          enabled: false,
+          trigger: "MANUAL",
+        },
+        sms: {
+          ...normalized.outbound.sms,
+          enabled: false,
+          trigger: "MANUAL",
+        },
       },
     };
   }

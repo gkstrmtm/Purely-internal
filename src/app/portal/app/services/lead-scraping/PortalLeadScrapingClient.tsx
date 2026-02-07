@@ -5,19 +5,22 @@ import { useEffect, useMemo, useState } from "react";
 type LeadRow = {
   id: string;
   businessName: string;
+  email: string | null;
   phone: string | null;
   website: string | null;
   address: string | null;
   niche: string | null;
+  starred: boolean;
   createdAtIso: string;
 };
 
 type LeadScrapingSettings = {
-  version: 2;
+  version: 3;
   b2b: {
     niche: string;
     location: string;
     count: number;
+    requireEmail: boolean;
     requirePhone: boolean;
     requireWebsite: boolean;
     excludeNameContains: string[];
@@ -35,14 +38,17 @@ type LeadScrapingSettings = {
   };
   outbound: {
     enabled: boolean;
-    trigger: "MANUAL" | "ON_SCRAPE" | "ON_APPROVE";
-    sendEmail: boolean;
-    sendSms: boolean;
-    toEmailDefault: string;
-    emailSubject: string;
-    emailHtml: string;
-    emailText: string;
-    smsText: string;
+    email: {
+      enabled: boolean;
+      trigger: "MANUAL" | "ON_SCRAPE" | "ON_APPROVE";
+      subject: string;
+      text: string;
+    };
+    sms: {
+      enabled: boolean;
+      trigger: "MANUAL" | "ON_SCRAPE" | "ON_APPROVE";
+      text: string;
+    };
     resources: Array<{ label: string; url: string }>;
   };
   outboundState: {
@@ -71,15 +77,13 @@ type LeadsResponse = {
 
 type RunResponse = {
   ok?: boolean;
-  kind?: "B2B" | "B2C";
-  created?: number;
+  createdCount?: number;
   chargedCredits?: number;
   refundedCredits?: number;
-  creditsRemaining?: number;
-  runId?: string;
+  plannedBatches?: number;
+  batchesRan?: number;
   error?: string;
   code?: string;
-  billingPath?: string;
 };
 
 type OutboundSendResponse = {
@@ -181,12 +185,14 @@ export function PortalLeadScrapingClient() {
     activeLead && settings ? settings.outboundState.sentAtByLeadId[activeLead.id] ?? null : null;
 
   const [composeOpen, setComposeOpen] = useState(false);
-  const [composeToEmail, setComposeToEmail] = useState("");
   const [composeSubject, setComposeSubject] = useState("");
   const [composeMessage, setComposeMessage] = useState("");
   const [composeSendEmail, setComposeSendEmail] = useState(true);
   const [composeSendSms, setComposeSendSms] = useState(false);
   const [composeBusy, setComposeBusy] = useState(false);
+
+  const [leadMutating, setLeadMutating] = useState(false);
+  const [leadEmailDraft, setLeadEmailDraft] = useState("");
 
   const [outboundBusy, setOutboundBusy] = useState(false);
   const [outboundUploadBusy, setOutboundUploadBusy] = useState(false);
@@ -202,8 +208,16 @@ export function PortalLeadScrapingClient() {
 
   const estimatedRunCost = useMemo(() => {
     const c = settings?.b2b?.count ?? 0;
-    return clampInt(c, 0, 50);
+    return clampInt(c, 0, 500);
   }, [settings?.b2b?.count]);
+
+  const plannedBatchesUi = useMemo(() => {
+    const c = settings?.b2b?.count ?? 0;
+    return Math.max(1, Math.ceil(Math.max(0, c) / 60));
+  }, [settings?.b2b?.count]);
+
+  const sortedLeads = (rows: LeadRow[]) =>
+    [...rows].sort((a, b) => (Number(b.starred) - Number(a.starred) || b.createdAtIso.localeCompare(a.createdAtIso)));
 
   async function load() {
     setLoading(true);
@@ -233,7 +247,7 @@ export function PortalLeadScrapingClient() {
     setPlacesConfigured(Boolean(settingsBody.placesConfigured));
 
     if (leadsRes.ok) {
-      setLeads(Array.isArray(leadsBody.leads) ? leadsBody.leads : []);
+      setLeads(sortedLeads(Array.isArray(leadsBody.leads) ? leadsBody.leads : []));
     } else {
       setLeads([]);
     }
@@ -277,6 +291,8 @@ export function PortalLeadScrapingClient() {
     setError(null);
     setStatus(null);
 
+    if (plannedBatchesUi > 1) setStatus(`Pulling ${plannedBatchesUi} batches…`);
+
     const res = await fetch("/api/portal/lead-scraping/run", {
       method: "POST",
       headers: { "content-type": "application/json" },
@@ -295,11 +311,10 @@ export function PortalLeadScrapingClient() {
       return;
     }
 
-    const created = typeof body.created === "number" ? body.created : 0;
+    const created = typeof body.createdCount === "number" ? body.createdCount : 0;
     const charged = typeof body.chargedCredits === "number" ? body.chargedCredits : 0;
     const refunded = typeof body.refundedCredits === "number" ? body.refundedCredits : 0;
 
-    setCredits(typeof body.creditsRemaining === "number" ? body.creditsRemaining : credits);
     setStatus(
       created > 0
         ? `Added ${created} lead${created === 1 ? "" : "s"} • Charged ${charged} credit${charged === 1 ? "" : "s"}${refunded ? ` • Refunded ${refunded}` : ""}`
@@ -474,7 +489,7 @@ export function PortalLeadScrapingClient() {
         "—",
       ].join("\n"),
     );
-    setComposeSendEmail(true);
+    setComposeSendEmail(Boolean(activeLead.email));
     setComposeSendSms(Boolean(activeLead.phone));
   }
 
@@ -497,10 +512,8 @@ export function PortalLeadScrapingClient() {
       return;
     }
 
-    const toEmail = composeToEmail.trim();
-    const emailLike = /^[^@\s]+@[^@\s]+\.[^@\s]+$/;
-    if (composeSendEmail && !emailLike.test(toEmail)) {
-      setError("Enter a valid email address.");
+    if (composeSendEmail && !activeLead.email) {
+      setError("Add an email address to this lead to send email.");
       return;
     }
     if (composeSendSms && !activeLead.phone) {
@@ -517,7 +530,6 @@ export function PortalLeadScrapingClient() {
       headers: { "content-type": "application/json" },
       body: JSON.stringify({
         leadId: activeLead.id,
-        toEmail,
         subject,
         message: msg,
         sendEmail: composeSendEmail,
@@ -533,12 +545,83 @@ export function PortalLeadScrapingClient() {
     }
 
     setComposeOpen(false);
-    setComposeToEmail("");
     setComposeSubject("");
     setComposeMessage("");
-    setComposeSendEmail(true);
+    setComposeSendEmail(Boolean(activeLead.email));
     setComposeSendSms(Boolean(activeLead.phone));
     setStatus("Sent message");
+    window.setTimeout(() => setStatus(null), 1500);
+  }
+
+  useEffect(() => {
+    if (!activeLead) return;
+    setLeadEmailDraft(activeLead.email ?? "");
+  }, [activeLead?.id]);
+
+  async function patchLead(leadId: string, patch: { starred?: boolean; email?: string | null }) {
+    setLeadMutating(true);
+    setError(null);
+    setStatus(null);
+
+    const res = await fetch(`/api/portal/lead-scraping/leads/${leadId}` as any, {
+      method: "PATCH",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(patch),
+    });
+
+    const body = await res.json().catch(() => ({}));
+    setLeadMutating(false);
+
+    if (!res.ok) {
+      setError(getApiError(body) ?? "Failed to update lead");
+      return;
+    }
+
+    setLeads((prev) =>
+      sortedLeads(
+        prev.map((l) =>
+          l.id === leadId
+            ? {
+                ...l,
+                ...(patch.starred !== undefined ? { starred: patch.starred } : {}),
+                ...(patch.email !== undefined ? { email: patch.email } : {}),
+              }
+            : l,
+        ),
+      ),
+    );
+  }
+
+  async function deleteLeadForever(leadId: string) {
+    setLeadMutating(true);
+    setError(null);
+    setStatus(null);
+
+    const res = await fetch(`/api/portal/lead-scraping/leads/${leadId}` as any, { method: "DELETE" });
+    const body = await res.json().catch(() => ({}));
+    setLeadMutating(false);
+
+    if (!res.ok) {
+      setError(getApiError(body) ?? "Failed to delete lead");
+      return;
+    }
+
+    setLeads((prev) => prev.filter((l) => l.id !== leadId));
+    setSettings((prev) => {
+      if (!prev) return prev;
+      const nextApproved = { ...prev.outboundState.approvedAtByLeadId };
+      const nextSent = { ...prev.outboundState.sentAtByLeadId };
+      delete nextApproved[leadId];
+      delete nextSent[leadId];
+      return {
+        ...prev,
+        outboundState: { ...prev.outboundState, approvedAtByLeadId: nextApproved, sentAtByLeadId: nextSent },
+      };
+    });
+
+    setLeadOpen(false);
+    setComposeOpen(false);
+    setStatus("Deleted");
     window.setTimeout(() => setStatus(null), 1500);
   }
 
@@ -581,138 +664,192 @@ export function PortalLeadScrapingClient() {
         </div>
 
         <div className="mt-4 grid grid-cols-1 gap-4 sm:grid-cols-2">
-          <label className="block">
-            <div className="text-sm font-medium text-zinc-800">Trigger</div>
-            <select
-              className="mt-2 w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm"
-              value={settings.outbound.trigger}
-              onChange={(e) =>
-                setSettings((prev) =>
-                  prev
-                    ? {
-                        ...prev,
-                        outbound: {
-                          ...prev.outbound,
-                          trigger: e.target.value as any,
-                        },
-                      }
-                    : prev,
-                )
-              }
-            >
-              <option value="MANUAL">Manual only</option>
-              <option value="ON_SCRAPE">Send on scrape</option>
-              <option value="ON_APPROVE">Send on approve</option>
-            </select>
-          </label>
-
-          <div className="rounded-2xl border border-zinc-200 bg-zinc-50 px-4 py-3 text-sm">
-            <div className="flex flex-wrap items-center gap-4">
+          <div className="rounded-2xl border border-zinc-200 bg-zinc-50 p-4">
+            <div className="flex items-center justify-between gap-3">
+              <div className="text-sm font-semibold text-zinc-900">Email</div>
               <label className="inline-flex items-center gap-2 text-sm text-zinc-700">
                 <input
                   type="checkbox"
-                  checked={settings.outbound.sendEmail}
+                  checked={settings.outbound.email.enabled}
                   onChange={(e) =>
                     setSettings((prev) =>
-                      prev ? { ...prev, outbound: { ...prev.outbound, sendEmail: e.target.checked } } : prev,
+                      prev
+                        ? {
+                            ...prev,
+                            outbound: {
+                              ...prev.outbound,
+                              email: { ...prev.outbound.email, enabled: e.target.checked },
+                            },
+                          }
+                        : prev,
                     )
                   }
+                  disabled={!settings.outbound.enabled}
                   className="h-4 w-4 rounded border-zinc-300"
                 />
-                Email
-              </label>
-              <label className="inline-flex items-center gap-2 text-sm text-zinc-700">
-                <input
-                  type="checkbox"
-                  checked={settings.outbound.sendSms}
-                  onChange={(e) =>
-                    setSettings((prev) =>
-                      prev ? { ...prev, outbound: { ...prev.outbound, sendSms: e.target.checked } } : prev,
-                    )
-                  }
-                  className="h-4 w-4 rounded border-zinc-300"
-                />
-                Text
+                Enabled
               </label>
             </div>
-            <div className="mt-2 text-xs text-zinc-500">
-              Scraped leads rarely include an email address, so Email sends use the default “To email”.
+
+            <div className="mt-3 grid grid-cols-1 gap-3">
+              <label className="block">
+                <div className="text-xs font-semibold text-zinc-600">Trigger</div>
+                <select
+                  className="mt-1 w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm"
+                  value={settings.outbound.email.trigger}
+                  onChange={(e) =>
+                    setSettings((prev) =>
+                      prev
+                        ? {
+                            ...prev,
+                            outbound: {
+                              ...prev.outbound,
+                              email: { ...prev.outbound.email, trigger: e.target.value as any },
+                            },
+                          }
+                        : prev,
+                    )
+                  }
+                  disabled={!settings.outbound.enabled || !settings.outbound.email.enabled}
+                >
+                  <option value="MANUAL">Manual only</option>
+                  <option value="ON_SCRAPE">Send on scrape</option>
+                  <option value="ON_APPROVE">Send on approve</option>
+                </select>
+              </label>
+
+              <label className="block">
+                <div className="text-xs font-semibold text-zinc-600">Subject</div>
+                <input
+                  className="mt-1 w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm"
+                  value={settings.outbound.email.subject}
+                  onChange={(e) =>
+                    setSettings((prev) =>
+                      prev
+                        ? {
+                            ...prev,
+                            outbound: {
+                              ...prev.outbound,
+                              email: { ...prev.outbound.email, subject: e.target.value },
+                            },
+                          }
+                        : prev,
+                    )
+                  }
+                  disabled={!settings.outbound.enabled || !settings.outbound.email.enabled}
+                  autoComplete="off"
+                />
+              </label>
+
+              <label className="block">
+                <div className="text-xs font-semibold text-zinc-600">Message (plain text)</div>
+                <textarea
+                  className="mt-1 w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm"
+                  rows={5}
+                  value={settings.outbound.email.text}
+                  onChange={(e) =>
+                    setSettings((prev) =>
+                      prev
+                        ? {
+                            ...prev,
+                            outbound: {
+                              ...prev.outbound,
+                              email: { ...prev.outbound.email, text: e.target.value },
+                            },
+                          }
+                        : prev,
+                    )
+                  }
+                  disabled={!settings.outbound.enabled || !settings.outbound.email.enabled}
+                />
+              </label>
+
+              <div className="text-xs text-zinc-500">
+                Email only sends to leads that have an email address. A copy is sent to your profile email.
+              </div>
             </div>
           </div>
 
-          <label className="block sm:col-span-2">
-            <div className="text-sm font-medium text-zinc-800">Default To (email)</div>
-            <input
-              className="mt-2 w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm"
-              value={settings.outbound.toEmailDefault}
-              onChange={(e) =>
-                setSettings((prev) =>
-                  prev ? { ...prev, outbound: { ...prev.outbound, toEmailDefault: e.target.value } } : prev,
-                )
-              }
-              placeholder="name@company.com"
-              autoComplete="off"
-            />
-          </label>
+          <div className="rounded-2xl border border-zinc-200 bg-zinc-50 p-4">
+            <div className="flex items-center justify-between gap-3">
+              <div className="text-sm font-semibold text-zinc-900">Text message</div>
+              <label className="inline-flex items-center gap-2 text-sm text-zinc-700">
+                <input
+                  type="checkbox"
+                  checked={settings.outbound.sms.enabled}
+                  onChange={(e) =>
+                    setSettings((prev) =>
+                      prev
+                        ? {
+                            ...prev,
+                            outbound: {
+                              ...prev.outbound,
+                              sms: { ...prev.outbound.sms, enabled: e.target.checked },
+                            },
+                          }
+                        : prev,
+                    )
+                  }
+                  disabled={!settings.outbound.enabled}
+                  className="h-4 w-4 rounded border-zinc-300"
+                />
+                Enabled
+              </label>
+            </div>
 
-          <label className="block sm:col-span-2">
-            <div className="text-sm font-medium text-zinc-800">Email subject</div>
-            <input
-              className="mt-2 w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm"
-              value={settings.outbound.emailSubject}
-              onChange={(e) =>
-                setSettings((prev) =>
-                  prev ? { ...prev, outbound: { ...prev.outbound, emailSubject: e.target.value } } : prev,
-                )
-              }
-              disabled={!settings.outbound.sendEmail}
-            />
-          </label>
+            <div className="mt-3 grid grid-cols-1 gap-3">
+              <label className="block">
+                <div className="text-xs font-semibold text-zinc-600">Trigger</div>
+                <select
+                  className="mt-1 w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm"
+                  value={settings.outbound.sms.trigger}
+                  onChange={(e) =>
+                    setSettings((prev) =>
+                      prev
+                        ? {
+                            ...prev,
+                            outbound: {
+                              ...prev.outbound,
+                              sms: { ...prev.outbound.sms, trigger: e.target.value as any },
+                            },
+                          }
+                        : prev,
+                    )
+                  }
+                  disabled={!settings.outbound.enabled || !settings.outbound.sms.enabled}
+                >
+                  <option value="MANUAL">Manual only</option>
+                  <option value="ON_SCRAPE">Send on scrape</option>
+                  <option value="ON_APPROVE">Send on approve</option>
+                </select>
+              </label>
 
-          <label className="block sm:col-span-2">
-            <div className="text-sm font-medium text-zinc-800">Email HTML</div>
-            <textarea
-              className="mt-2 w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm"
-              rows={6}
-              value={settings.outbound.emailHtml}
-              onChange={(e) =>
-                setSettings((prev) =>
-                  prev ? { ...prev, outbound: { ...prev.outbound, emailHtml: e.target.value } } : prev,
-                )
-              }
-              disabled={!settings.outbound.sendEmail}
-            />
-          </label>
+              <label className="block">
+                <div className="text-xs font-semibold text-zinc-600">Message</div>
+                <textarea
+                  className="mt-1 w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm"
+                  rows={5}
+                  value={settings.outbound.sms.text}
+                  onChange={(e) =>
+                    setSettings((prev) =>
+                      prev
+                        ? {
+                            ...prev,
+                            outbound: {
+                              ...prev.outbound,
+                              sms: { ...prev.outbound.sms, text: e.target.value },
+                            },
+                          }
+                        : prev,
+                    )
+                  }
+                  disabled={!settings.outbound.enabled || !settings.outbound.sms.enabled}
+                />
+              </label>
 
-          <label className="block sm:col-span-2">
-            <div className="text-sm font-medium text-zinc-800">Email text fallback</div>
-            <textarea
-              className="mt-2 w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm"
-              rows={4}
-              value={settings.outbound.emailText}
-              onChange={(e) =>
-                setSettings((prev) =>
-                  prev ? { ...prev, outbound: { ...prev.outbound, emailText: e.target.value } } : prev,
-                )
-              }
-              disabled={!settings.outbound.sendEmail}
-            />
-          </label>
-
-          <label className="block sm:col-span-2">
-            <div className="text-sm font-medium text-zinc-800">SMS template</div>
-            <textarea
-              className="mt-2 w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm"
-              rows={3}
-              value={settings.outbound.smsText}
-              onChange={(e) =>
-                setSettings((prev) =>
-                  prev ? { ...prev, outbound: { ...prev.outbound, smsText: e.target.value } } : prev,
-                )
-              }
-              disabled={!settings.outbound.sendSms}
-            />
-          </label>
+              <div className="text-xs text-zinc-500">Texts only send when the lead has a phone number.</div>
+            </div>
+          </div>
         </div>
 
         <div className="mt-5 rounded-2xl border border-zinc-200 bg-zinc-50 p-4">
@@ -826,7 +963,7 @@ export function PortalLeadScrapingClient() {
         <div>
           <h1 className="text-2xl font-bold text-brand-ink sm:text-3xl">Lead Scraping</h1>
           <p className="mt-2 max-w-2xl text-sm text-zinc-600">
-            B2B pulls business listings (any niche). B2C is a stub until we select a consumer data source.
+            Pull business listings by niche + location. Optionally auto-send a plain-text email and/or text message.
           </p>
         </div>
         <div className="flex flex-col items-stretch gap-2 sm:items-end">
@@ -934,12 +1071,12 @@ export function PortalLeadScrapingClient() {
               </label>
 
               <label className="block">
-                <div className="text-sm font-medium text-zinc-800">Count (max 50)</div>
+                <div className="text-sm font-medium text-zinc-800">Count</div>
                 <input
                   className="mt-2 w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm"
                   type="number"
                   min={1}
-                  max={50}
+                  max={500}
                   value={settings.b2b.count}
                   onChange={(e) =>
                     setSettings((prev) =>
@@ -948,17 +1085,32 @@ export function PortalLeadScrapingClient() {
                             ...prev,
                             b2b: {
                               ...prev.b2b,
-                              count: clampInt(Number(e.target.value), 1, 50),
+                              count: clampInt(Number(e.target.value), 1, 500),
                             },
                           }
                         : prev,
                     )
                   }
                 />
+                <div className="mt-1 text-xs text-zinc-500">
+                  Google returns up to ~60 results per batch; larger counts automatically run multiple batches.
+                </div>
               </label>
 
               <div className="rounded-2xl border border-zinc-200 bg-zinc-50 p-4">
                 <div className="text-sm font-medium text-zinc-800">Filters</div>
+                <label className="mt-3 flex items-center justify-between gap-3 text-sm">
+                  <span className="text-zinc-700">Require email</span>
+                  <input
+                    type="checkbox"
+                    checked={settings.b2b.requireEmail}
+                    onChange={(e) =>
+                      setSettings((prev) =>
+                        prev ? { ...prev, b2b: { ...prev.b2b, requireEmail: e.target.checked } } : prev,
+                      )
+                    }
+                  />
+                </label>
                 <label className="mt-3 flex items-center justify-between gap-3 text-sm">
                   <span className="text-zinc-700">Require phone</span>
                   <input
@@ -1125,7 +1277,11 @@ export function PortalLeadScrapingClient() {
                 disabled={running || !placesConfigured}
                 className="inline-flex items-center justify-center rounded-2xl border border-zinc-200 bg-white px-5 py-3 text-sm font-semibold text-brand-ink hover:bg-zinc-50 disabled:opacity-60"
               >
-                {running ? "Running…" : "Run now"}
+                {running
+                  ? plannedBatchesUi > 1
+                    ? `Pulling ${plannedBatchesUi} batches…`
+                    : "Pulling…"
+                  : "Run now"}
               </button>
 
               <button
@@ -1154,7 +1310,10 @@ export function PortalLeadScrapingClient() {
                     onClick={() => openLeadAtIndex(idx)}
                     className="w-full rounded-2xl border border-zinc-200 p-3 text-left hover:bg-zinc-50"
                   >
-                    <div className="text-sm font-semibold text-brand-ink">{l.businessName}</div>
+                      <div className="text-sm font-semibold text-brand-ink">
+                        {l.starred ? <span className="mr-1 text-amber-500">★</span> : null}
+                        {l.businessName}
+                      </div>
                     <div className="mt-1 flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1 text-xs text-zinc-600">
                       {l.phone ? <span className="whitespace-nowrap">{l.phone}</span> : null}
                       {l.phone && l.website ? <span>•</span> : null}
@@ -1179,7 +1338,7 @@ export function PortalLeadScrapingClient() {
           <div className="text-base font-semibold text-brand-ink">B2C (Consumer leads)</div>
           <p className="mt-2 max-w-3xl text-sm text-zinc-600">
             Consumer lead pulling depends on the data source (data broker, CSV import, partner API, etc.).
-            This iteration ships the portal UX + settings storage so we can plug in a source next.
+            Tell us what list you want and we’ll connect the right source.
           </p>
 
           <div className="mt-5 grid grid-cols-1 gap-4 sm:grid-cols-2">
@@ -1285,10 +1444,30 @@ export function PortalLeadScrapingClient() {
                 <div className="mt-1 text-xs text-zinc-500">Pulled: {safeFormatDateTime(activeLead.createdAtIso)}</div>
               </div>
 
-              <div className="mt-4 grid grid-cols-1 gap-3 sm:grid-cols-2">
+              <div className="mt-4 grid grid-cols-1 gap-3 sm:grid-cols-3">
                 <div className="rounded-2xl border border-zinc-200 bg-zinc-50 p-4">
                   <div className="text-xs font-semibold text-zinc-600">Phone</div>
                   <div className="mt-1 text-sm text-zinc-900">{activeLead.phone ?? "—"}</div>
+                </div>
+                <div className="rounded-2xl border border-zinc-200 bg-zinc-50 p-4">
+                  <div className="text-xs font-semibold text-zinc-600">Email</div>
+                  <div className="mt-2 flex items-center gap-2">
+                    <input
+                      value={leadEmailDraft}
+                      onChange={(e) => setLeadEmailDraft(e.target.value)}
+                      placeholder="Add email to enable email sends"
+                      className="w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm outline-none focus:border-zinc-300"
+                      autoComplete="off"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => patchLead(activeLead.id, { email: leadEmailDraft.trim() || null })}
+                      disabled={leadMutating}
+                      className="shrink-0 rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm font-semibold text-brand-ink hover:bg-zinc-50 disabled:opacity-60"
+                    >
+                      Save
+                    </button>
+                  </div>
                 </div>
                 <div className="rounded-2xl border border-zinc-200 bg-zinc-50 p-4">
                   <div className="text-xs font-semibold text-zinc-600">Website</div>
@@ -1317,6 +1496,15 @@ export function PortalLeadScrapingClient() {
               ) : null}
 
               <div className="mt-5 flex flex-col gap-2 sm:flex-row sm:items-center">
+                <button
+                  type="button"
+                  onClick={() => patchLead(activeLead.id, { starred: !activeLead.starred })}
+                  disabled={leadMutating}
+                  className="inline-flex items-center justify-center rounded-2xl border border-zinc-200 bg-white px-5 py-3 text-sm font-semibold text-brand-ink hover:bg-zinc-50 disabled:opacity-60"
+                >
+                  {activeLead.starred ? "★ Starred" : "☆ Star"}
+                </button>
+
                 {leadOutboundEntitled && settings.outbound.enabled ? (
                   <button
                     type="button"
@@ -1365,6 +1553,17 @@ export function PortalLeadScrapingClient() {
                   Email / SMS
                 </button>
 
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (window.confirm("Delete this lead forever? This cannot be undone.")) void deleteLeadForever(activeLead.id);
+                  }}
+                  disabled={leadMutating}
+                  className="inline-flex items-center justify-center rounded-2xl border border-red-200 bg-white px-5 py-3 text-sm font-semibold text-red-700 hover:bg-red-50 disabled:opacity-60"
+                >
+                  Delete forever
+                </button>
+
                 <div className="text-xs text-zinc-500 sm:ml-auto flex flex-wrap items-center gap-x-3 gap-y-1">
                   {activeLeadApprovedAt ? (
                     <span className="whitespace-nowrap">Approved: {safeFormatDateTime(activeLeadApprovedAt)}</span>
@@ -1402,13 +1601,12 @@ export function PortalLeadScrapingClient() {
                   <div className="text-sm font-semibold text-zinc-900">Compose</div>
                   <div className="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-2">
                     <label className="block">
-                      <div className="text-xs font-semibold text-zinc-600">To (email)</div>
+                      <div className="text-xs font-semibold text-zinc-600">Lead email</div>
                       <input
-                        value={composeToEmail}
-                        onChange={(e) => setComposeToEmail(e.target.value)}
+                        value={activeLead.email ?? ""}
+                        disabled
                         className="mt-1 w-full rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm outline-none focus:border-zinc-300"
-                        placeholder="name@company.com"
-                        autoComplete="off"
+                        placeholder="—"
                       />
                     </label>
                     <label className="block">
@@ -1426,6 +1624,7 @@ export function PortalLeadScrapingClient() {
                           type="checkbox"
                           checked={composeSendEmail}
                           onChange={(e) => setComposeSendEmail(e.target.checked)}
+                          disabled={!activeLead.email}
                           className="h-4 w-4 rounded border-zinc-300"
                         />
                         Email
@@ -1442,6 +1641,9 @@ export function PortalLeadScrapingClient() {
                       </label>
                       {!activeLead.phone ? (
                         <span className="text-xs text-zinc-500">No phone on this lead</span>
+                      ) : null}
+                      {!activeLead.email ? (
+                        <span className="text-xs text-zinc-500">No email on this lead</span>
                       ) : null}
                     </div>
 

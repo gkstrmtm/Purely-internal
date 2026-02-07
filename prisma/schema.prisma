@@ -143,10 +143,14 @@ model PortalLead {
 
   businessName String
 
+  email String?
+
   phone   String?
   website String?
   address String?
   niche   String?
+
+  starred Boolean @default(false)
 
   placeId String?
   dataJson Json?
@@ -159,6 +163,7 @@ model PortalLead {
   @@unique([ownerId, phone])
   @@index([ownerId, createdAt])
   @@index([ownerId, kind, createdAt])
+  @@index([ownerId, starred, createdAt])
 }
 
 model PortalContact {

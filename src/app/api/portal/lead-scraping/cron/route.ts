@@ -12,12 +12,13 @@ export const revalidate = 0;
 
 const SERVICE_SLUG = "lead-scraping";
 
-type SettingsV2 = {
-  version: 2;
+type Settings = {
+  version: 3;
   b2b: {
     niche: string;
     location: string;
     count: number;
+    requireEmail: boolean;
     requirePhone: boolean;
     requireWebsite: boolean;
     excludeNameContains: string[];
@@ -34,14 +35,17 @@ type SettingsV2 = {
   };
   outbound: {
     enabled: boolean;
-    trigger: "MANUAL" | "ON_SCRAPE" | "ON_APPROVE";
-    sendEmail: boolean;
-    sendSms: boolean;
-    toEmailDefault: string;
-    emailSubject: string;
-    emailHtml: string;
-    emailText: string;
-    smsText: string;
+    email: {
+      enabled: boolean;
+      trigger: "MANUAL" | "ON_SCRAPE" | "ON_APPROVE";
+      subject: string;
+      text: string;
+    };
+    sms: {
+      enabled: boolean;
+      trigger: "MANUAL" | "ON_SCRAPE" | "ON_APPROVE";
+      text: string;
+    };
     resources: Array<{ label: string; url: string }>;
   };
   outboundState: {
@@ -75,27 +79,15 @@ function normalizeUrl(value: unknown): string {
   return "";
 }
 
-function normalizeSettings(value: unknown): SettingsV2 {
+function normalizeOutbound(value: unknown): Settings["outbound"] {
   const rec = value && typeof value === "object" ? (value as Record<string, unknown>) : {};
-  const version = rec.version === 1 ? 1 : 2;
-  const b2b = rec.b2b && typeof rec.b2b === "object" ? (rec.b2b as Record<string, unknown>) : {};
-  const b2c = rec.b2c && typeof rec.b2c === "object" ? (rec.b2c as Record<string, unknown>) : {};
+  const isV2 =
+    typeof (rec as any).sendEmail === "boolean" ||
+    typeof (rec as any).sendSms === "boolean" ||
+    typeof (rec as any).emailHtml === "string" ||
+    typeof (rec as any).emailText === "string";
 
-  const defaultOutbound: SettingsV2["outbound"] = {
-    enabled: false,
-    trigger: "MANUAL",
-    sendEmail: true,
-    sendSms: false,
-    toEmailDefault: "",
-    emailSubject: "Quick question — {businessName}",
-    emailHtml: "<p>Hi {businessName},</p><p>Quick question — are you taking on new work right now?</p><p>—</p>",
-    emailText: "Hi {businessName},\n\nQuick question — are you taking on new work right now?\n\n—",
-    smsText: "Hi {businessName} — quick question. Are you taking on new work right now?",
-    resources: [],
-  };
-
-  const outboundRaw = rec.outbound && typeof rec.outbound === "object" ? (rec.outbound as Record<string, unknown>) : {};
-  const resourcesRaw = Array.isArray(outboundRaw.resources) ? outboundRaw.resources : [];
+  const resourcesRaw = Array.isArray(rec.resources) ? rec.resources : [];
   const resources = resourcesRaw
     .map((r) => (r && typeof r === "object" ? (r as Record<string, unknown>) : {}))
     .map((r) => ({
@@ -105,36 +97,70 @@ function normalizeSettings(value: unknown): SettingsV2 {
     .filter((r) => Boolean(r.url))
     .slice(0, 30);
 
-  const triggerRaw = typeof outboundRaw.trigger === "string" ? outboundRaw.trigger.trim() : "MANUAL";
-  const trigger = triggerRaw === "ON_SCRAPE" || triggerRaw === "ON_APPROVE" ? triggerRaw : "MANUAL";
-
-  const outbound: SettingsV2["outbound"] = {
-    ...defaultOutbound,
-    enabled: version === 1 ? false : Boolean(outboundRaw.enabled),
-    trigger,
-    sendEmail: outboundRaw.sendEmail === undefined ? true : Boolean(outboundRaw.sendEmail),
-    sendSms: Boolean(outboundRaw.sendSms),
-    toEmailDefault: (typeof outboundRaw.toEmailDefault === "string" ? outboundRaw.toEmailDefault.trim() : "").slice(0, 200),
-    emailSubject: (typeof outboundRaw.emailSubject === "string" ? outboundRaw.emailSubject : "").slice(0, 120),
-    emailHtml: (typeof outboundRaw.emailHtml === "string" ? outboundRaw.emailHtml : "").slice(0, 20000),
-    emailText: (typeof outboundRaw.emailText === "string" ? outboundRaw.emailText : "").slice(0, 20000),
-    smsText: (typeof outboundRaw.smsText === "string" ? outboundRaw.smsText : "").slice(0, 900),
-    resources,
+  const parseTrigger = (t: unknown) => {
+    const raw = typeof t === "string" ? t.trim() : "MANUAL";
+    return raw === "ON_SCRAPE" || raw === "ON_APPROVE" ? raw : "MANUAL";
   };
 
-  const outboundStateRaw = rec.outboundState && typeof rec.outboundState === "object" ? (rec.outboundState as Record<string, unknown>) : {};
-  const approvedRaw =
-    outboundStateRaw.approvedAtByLeadId && typeof outboundStateRaw.approvedAtByLeadId === "object"
-      ? (outboundStateRaw.approvedAtByLeadId as Record<string, unknown>)
+  if (isV2) {
+    const enabled = Boolean((rec as any).enabled);
+    const trigger = parseTrigger((rec as any).trigger);
+    const sendEmail = (rec as any).sendEmail === undefined ? true : Boolean((rec as any).sendEmail);
+    const sendSms = Boolean((rec as any).sendSms);
+
+    const html = typeof (rec as any).emailHtml === "string" ? ((rec as any).emailHtml as string) : "";
+    const textRaw = typeof (rec as any).emailText === "string" ? ((rec as any).emailText as string) : "";
+    const text = (textRaw || stripHtml(html)).slice(0, 20000);
+
+    return {
+      enabled,
+      email: {
+        enabled: enabled && sendEmail,
+        trigger,
+        subject: (typeof (rec as any).emailSubject === "string" ? ((rec as any).emailSubject as string) : "").slice(0, 120),
+        text,
+      },
+      sms: {
+        enabled: enabled && sendSms,
+        trigger,
+        text: (typeof (rec as any).smsText === "string" ? ((rec as any).smsText as string) : "").slice(0, 900),
+      },
+      resources,
+    };
+  }
+
+  const emailRec = (rec as any).email && typeof (rec as any).email === "object" ? ((rec as any).email as Record<string, unknown>) : {};
+  const smsRec = (rec as any).sms && typeof (rec as any).sms === "object" ? ((rec as any).sms as Record<string, unknown>) : {};
+
+  return {
+    enabled: Boolean((rec as any).enabled),
+    email: {
+      enabled: Boolean((emailRec as any).enabled),
+      trigger: parseTrigger((emailRec as any).trigger),
+      subject: (typeof (emailRec as any).subject === "string" ? ((emailRec as any).subject as string) : "").slice(0, 120),
+      text: (typeof (emailRec as any).text === "string" ? ((emailRec as any).text as string) : "").slice(0, 20000),
+    },
+    sms: {
+      enabled: Boolean((smsRec as any).enabled),
+      trigger: parseTrigger((smsRec as any).trigger),
+      text: (typeof (smsRec as any).text === "string" ? ((smsRec as any).text as string) : "").slice(0, 900),
+    },
+    resources,
+  };
+}
+
+function normalizeOutboundState(value: unknown): Settings["outboundState"] {
+  const rec = value && typeof value === "object" ? (value as Record<string, unknown>) : {};
+  const approved =
+    rec.approvedAtByLeadId && typeof rec.approvedAtByLeadId === "object"
+      ? (rec.approvedAtByLeadId as Record<string, unknown>)
       : {};
-  const sentRaw =
-    outboundStateRaw.sentAtByLeadId && typeof outboundStateRaw.sentAtByLeadId === "object"
-      ? (outboundStateRaw.sentAtByLeadId as Record<string, unknown>)
-      : {};
+  const sent =
+    rec.sentAtByLeadId && typeof rec.sentAtByLeadId === "object" ? (rec.sentAtByLeadId as Record<string, unknown>) : {};
 
   const approvedAtByLeadId: Record<string, string> = {};
-  for (const [k, v] of Object.entries(approvedRaw)) {
-    if (typeof k !== "string" || k.length > 64) continue;
+  for (const [k, v] of Object.entries(approved)) {
+    if (k.length > 64) continue;
     if (typeof v !== "string") continue;
     const iso = normalizeIsoString(v);
     if (!iso) continue;
@@ -142,27 +168,70 @@ function normalizeSettings(value: unknown): SettingsV2 {
   }
 
   const sentAtByLeadId: Record<string, string> = {};
-  for (const [k, v] of Object.entries(sentRaw)) {
-    if (typeof k !== "string" || k.length > 64) continue;
+  for (const [k, v] of Object.entries(sent)) {
+    if (k.length > 64) continue;
     if (typeof v !== "string") continue;
     const iso = normalizeIsoString(v);
     if (!iso) continue;
     sentAtByLeadId[k] = iso;
   }
 
+  return {
+    approvedAtByLeadId: Object.fromEntries(Object.entries(approvedAtByLeadId).slice(0, 5000)),
+    sentAtByLeadId: Object.fromEntries(Object.entries(sentAtByLeadId).slice(0, 5000)),
+  };
+}
+
+function normalizeSettings(value: unknown): Settings {
+  const rec = value && typeof value === "object" ? (value as Record<string, unknown>) : {};
+  const legacyVersion = rec.version === 1 ? 1 : rec.version === 3 ? 3 : 2;
+  const b2b = rec.b2b && typeof rec.b2b === "object" ? (rec.b2b as Record<string, unknown>) : {};
+  const b2c = rec.b2c && typeof rec.b2c === "object" ? (rec.b2c as Record<string, unknown>) : {};
+
+  const defaultOutbound: Settings["outbound"] = {
+    enabled: false,
+    email: {
+      enabled: false,
+      trigger: "MANUAL",
+      subject: "Quick question — {businessName}",
+      text: "Hi {businessName},\n\nQuick question — are you taking on new work right now?\n\n—",
+    },
+    sms: {
+      enabled: false,
+      trigger: "MANUAL",
+      text: "Hi {businessName} — quick question. Are you taking on new work right now?",
+    },
+    resources: [],
+  };
+
+  const outbound = normalizeOutbound(rec.outbound);
+  const outboundState = normalizeOutboundState(rec.outboundState);
+
+  const mergedOutbound: Settings["outbound"] = {
+    ...defaultOutbound,
+    ...outbound,
+    email: { ...defaultOutbound.email, ...outbound.email },
+    sms: { ...defaultOutbound.sms, ...outbound.sms },
+    resources: outbound.resources ?? defaultOutbound.resources,
+  };
+
+  if (legacyVersion === 1) {
+    mergedOutbound.enabled = false;
+  }
+
   const toInt = (n: unknown, def: number, max: number) => {
     if (typeof n !== "number" || !Number.isFinite(n)) return def;
     return Math.min(max, Math.max(1, Math.floor(n)));
   };
-
   const toStr = (s: unknown, max = 200) => (typeof s === "string" ? s.trim().slice(0, max) : "");
 
   return {
-    version: 2,
+    version: 3,
     b2b: {
       niche: toStr(b2b.niche),
       location: toStr(b2b.location),
-      count: toInt(b2b.count, 25, 50),
+      count: toInt(b2b.count, 25, 500),
+      requireEmail: Boolean((b2b as any).requireEmail),
       requirePhone: Boolean(b2b.requirePhone),
       requireWebsite: Boolean(b2b.requireWebsite),
       excludeNameContains: normalizeStringList(b2b.excludeNameContains),
@@ -177,11 +246,8 @@ function normalizeSettings(value: unknown): SettingsV2 {
       frequencyDays: toInt(b2c.frequencyDays, 7, 60),
       lastRunAtIso: normalizeIsoString(b2c.lastRunAtIso),
     },
-    outbound,
-    outboundState: {
-      approvedAtByLeadId: Object.fromEntries(Object.entries(approvedAtByLeadId).slice(0, 5000)),
-      sentAtByLeadId: Object.fromEntries(Object.entries(sentAtByLeadId).slice(0, 5000)),
-    },
+    outbound: mergedOutbound,
+    outboundState,
   };
 }
 
@@ -258,9 +324,12 @@ async function runB2BForOwner(ownerId: string, settingsJson: unknown, baseUrl: s
 
   let createdCount = 0;
   let error: string | null = null;
+  const maxPerPlacesBatch = 60;
+  const plannedBatches = Math.max(1, Math.ceil(requestedCount / maxPerPlacesBatch));
   const createdLeads: Array<{
     id: string;
     businessName: string;
+    email: string | null;
     phone: string | null;
     website: string | null;
     address: string | null;
@@ -268,72 +337,79 @@ async function runB2BForOwner(ownerId: string, settingsJson: unknown, baseUrl: s
   }> = [];
 
   try {
-    const results = await placesTextSearch(`${niche} in ${location}`, Math.min(60, Math.max(1, requestedCount * 4)));
-
     const excludedPhones = new Set(
       settings.b2b.excludePhones
         .map((p) => normalizePhone(p))
         .filter((p): p is string => Boolean(p)),
     );
+    const query = `${niche} in ${location}`;
 
-    for (const place of results) {
+    for (let batchIndex = 0; batchIndex < plannedBatches; batchIndex++) {
       if (createdCount >= requestedCount) break;
 
-      const businessName = place.name?.trim() || "";
-      if (!businessName) continue;
-      if (matchesNameExclusion(businessName, settings.b2b.excludeNameContains)) continue;
+      const remaining = requestedCount - createdCount;
+      const targetThisBatch = Math.min(maxPerPlacesBatch, Math.max(1, remaining));
+      const results = await placesTextSearch(query, Math.max(1, targetThisBatch * 4));
 
-      const placeId = place.place_id;
-      const details = await placeDetails(placeId);
+      for (const place of results) {
+        if (createdCount >= requestedCount) break;
 
-      const phoneCandidate = details.international_phone_number || details.formatted_phone_number || null;
-      const phoneNorm = normalizePhone(phoneCandidate);
-      if (phoneNorm && excludedPhones.has(phoneNorm)) continue;
+        const businessName = place.name?.trim() || "";
+        if (!businessName) continue;
+        if (matchesNameExclusion(businessName, settings.b2b.excludeNameContains)) continue;
 
-      const website = details.website || null;
-      const domain = website ? extractDomain(website) : null;
-      if (domain && settings.b2b.excludeDomains.includes(domain)) continue;
+        const placeId = place.place_id;
+        const details = await placeDetails(placeId);
 
-      if (settings.b2b.requirePhone && !phoneNorm) continue;
-      if (settings.b2b.requireWebsite && !website) continue;
+        const phoneCandidate = details.international_phone_number || details.formatted_phone_number || null;
+        const phoneNorm = normalizePhone(phoneCandidate);
+        if (phoneNorm && excludedPhones.has(phoneNorm)) continue;
 
-      try {
-        const created = await prisma.portalLead.create({
-          data: {
-            ownerId,
-            kind: "B2B",
-            source: "GOOGLE_PLACES",
-            businessName,
-            phone: phoneNorm,
-            website,
-            address: details.formatted_address || place.formatted_address || null,
-            niche,
-            placeId,
-            dataJson: {
-              googlePlaces: {
-                placeId,
-                details,
+        const website = details.website || null;
+        const domain = website ? extractDomain(website) : null;
+        if (domain && settings.b2b.excludeDomains.includes(domain)) continue;
+
+        if (settings.b2b.requirePhone && !phoneNorm) continue;
+        if (settings.b2b.requireWebsite && !website) continue;
+
+        try {
+          const created = await prisma.portalLead.create({
+            data: {
+              ownerId,
+              kind: "B2B",
+              source: "GOOGLE_PLACES",
+              businessName,
+              phone: phoneNorm,
+              website,
+              address: details.formatted_address || place.formatted_address || null,
+              niche,
+              placeId,
+              dataJson: {
+                googlePlaces: {
+                  placeId,
+                  details,
+                },
               },
             },
-          },
-          select: {
-            id: true,
-            businessName: true,
-            phone: true,
-            website: true,
-            address: true,
-            niche: true,
-          },
-        });
-        createdLeads.push(created);
-        createdCount++;
-      } catch (e: any) {
-        const msg = typeof e?.message === "string" ? e.message : "";
-        const isUnique =
-          msg.includes("Unique constraint") ||
-          msg.includes("unique constraint") ||
-          msg.includes("P2002");
-        if (!isUnique) throw e;
+            select: {
+              id: true,
+              businessName: true,
+              phone: true,
+              website: true,
+              address: true,
+              niche: true,
+            },
+          });
+          createdLeads.push({
+            ...created,
+            email: null,
+          });
+          createdCount++;
+        } catch (e: any) {
+          const msg = typeof e?.message === "string" ? e.message : "";
+          const isUnique = msg.includes("Unique constraint") || msg.includes("unique constraint") || msg.includes("P2002");
+          if (!isUnique) throw e;
+        }
       }
     }
   } catch (e: any) {
@@ -349,13 +425,18 @@ async function runB2BForOwner(ownerId: string, settingsJson: unknown, baseUrl: s
 
   const nextSentAtByLeadId: Record<string, string> = { ...settings.outboundState.sentAtByLeadId };
 
-  if (
+  const shouldSendEmail =
     outboundUnlocked &&
     settings.outbound.enabled &&
-    settings.outbound.trigger === "ON_SCRAPE" &&
-    (settings.outbound.sendEmail || settings.outbound.sendSms) &&
-    createdLeads.length
-  ) {
+    settings.outbound.email.enabled &&
+    settings.outbound.email.trigger === "ON_SCRAPE";
+  const shouldSendSms =
+    outboundUnlocked &&
+    settings.outbound.enabled &&
+    settings.outbound.sms.enabled &&
+    settings.outbound.sms.trigger === "ON_SCRAPE";
+
+  if ((shouldSendEmail || shouldSendSms) && createdLeads.length) {
     for (const lead of createdLeads) {
       try {
         const resources = settings.outbound.resources
@@ -365,37 +446,25 @@ async function runB2BForOwner(ownerId: string, settingsJson: unknown, baseUrl: s
           }))
           .filter((r) => Boolean(r.url));
 
-        const subject = renderTemplate(settings.outbound.emailSubject, lead).slice(0, 120);
+        if (shouldSendEmail && lead.email) {
+          const subject = renderTemplate(settings.outbound.email.subject, lead).slice(0, 120);
+          const textBase = renderTemplate(settings.outbound.email.text, lead);
+          const textResources = resources.length
+            ? `\n\nResources:\n${resources.map((r) => `- ${r.label}: ${r.url}`).join("\n")}`
+            : "";
+          const text = (textBase + textResources).slice(0, 20000);
 
-        const htmlBase = renderTemplate(settings.outbound.emailHtml, lead);
-        const htmlResources = resources.length
-          ? `<hr/><p><strong>Resources</strong></p><ul>${resources
-              .map((r) => `<li><a href=\"${r.url}\">${r.label}</a></li>`)
-              .join("")}</ul>`
-          : "";
-        const html = (htmlBase + htmlResources).slice(0, 20000);
-
-        const textBase = renderTemplate(settings.outbound.emailText, lead) || stripHtml(htmlBase);
-        const textResources = resources.length
-          ? `\n\nResources:\n${resources.map((r) => `- ${r.label}: ${r.url}`).join("\n")}`
-          : "";
-        const text = (textBase + textResources).slice(0, 20000);
-
-        if (settings.outbound.sendEmail) {
-          const to = settings.outbound.toEmailDefault.trim();
-          if (to) {
-            await sendEmail({
-              to,
-              subject: subject || `Follow-up: ${lead.businessName}`,
-              text,
-              html,
-              fromName,
-            });
-          }
+          await sendEmail({
+            to: lead.email,
+            cc: owner?.email,
+            subject: subject || `Follow-up: ${lead.businessName}`,
+            text,
+            fromName,
+          });
         }
 
-        if (settings.outbound.sendSms && lead.phone) {
-          const smsBody = renderTemplate(settings.outbound.smsText, lead).slice(0, 900);
+        if (shouldSendSms && lead.phone) {
+          const smsBody = renderTemplate(settings.outbound.sms.text, lead).slice(0, 900);
           if (smsBody.trim()) {
             await sendSms({ ownerId, to: lead.phone, body: smsBody });
           }
@@ -408,7 +477,7 @@ async function runB2BForOwner(ownerId: string, settingsJson: unknown, baseUrl: s
     }
   }
 
-  const updatedSettings: SettingsV2 = {
+  const updatedSettings: Settings = {
     ...settings,
     b2b: {
       ...settings.b2b,

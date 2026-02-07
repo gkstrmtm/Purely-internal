@@ -35,15 +35,23 @@ CREATE TABLE IF NOT EXISTS "PortalLead" (
   "source" "PortalLeadSource" NOT NULL DEFAULT 'GOOGLE_PLACES',
   "kind" "PortalLeadScrapeKind" NOT NULL DEFAULT 'B2B',
   "businessName" TEXT NOT NULL,
+  "email" TEXT,
   "phone" TEXT,
   "website" TEXT,
   "address" TEXT,
   "niche" TEXT,
+  "starred" BOOLEAN NOT NULL DEFAULT FALSE,
   "placeId" TEXT,
   "dataJson" JSONB,
   "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
   CONSTRAINT "PortalLead_pkey" PRIMARY KEY ("id")
 );
+
+ALTER TABLE IF EXISTS "PortalLead"
+  ADD COLUMN IF NOT EXISTS "email" TEXT;
+
+ALTER TABLE IF EXISTS "PortalLead"
+  ADD COLUMN IF NOT EXISTS "starred" BOOLEAN NOT NULL DEFAULT FALSE;
 
 CREATE INDEX IF NOT EXISTS "PortalLeadScrapeRun_ownerId_createdAt_idx"
   ON "PortalLeadScrapeRun" ("ownerId", "createdAt");
@@ -56,6 +64,9 @@ CREATE INDEX IF NOT EXISTS "PortalLead_ownerId_createdAt_idx"
 
 CREATE INDEX IF NOT EXISTS "PortalLead_ownerId_kind_createdAt_idx"
   ON "PortalLead" ("ownerId", "kind", "createdAt");
+
+CREATE INDEX IF NOT EXISTS "PortalLead_ownerId_starred_createdAt_idx"
+  ON "PortalLead" ("ownerId", "starred", "createdAt");
 
 CREATE UNIQUE INDEX IF NOT EXISTS "PortalLead_ownerId_placeId_key"
   ON "PortalLead" ("ownerId", "placeId");

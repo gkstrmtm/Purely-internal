@@ -78,6 +78,22 @@ export async function POST(req: Request) {
       }),
     ]);
 
+    // Ensure the full demo account has a healthy credit balance for demos.
+    await prisma.portalServiceSetup.upsert({
+      where: { ownerId_serviceSlug: { ownerId: fullUser.id, serviceSlug: "credits" } },
+      create: {
+        ownerId: fullUser.id,
+        serviceSlug: "credits",
+        status: "COMPLETE",
+        dataJson: { balance: 100, autoTopUp: false },
+      },
+      update: {
+        dataJson: { balance: 100, autoTopUp: false },
+        status: "COMPLETE",
+      },
+      select: { id: true },
+    });
+
     return [fullUser, limitedUser] as const;
   };
 

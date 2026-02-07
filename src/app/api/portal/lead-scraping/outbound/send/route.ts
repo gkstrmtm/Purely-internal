@@ -4,7 +4,7 @@ import { z } from "zod";
 import { requireClientSession } from "@/lib/apiAuth";
 import { prisma } from "@/lib/db";
 import { resolveEntitlements } from "@/lib/entitlements";
-import { baseUrlFromRequest, renderTemplate, sendEmail, sendSms, stripHtml } from "@/lib/leadOutbound";
+import { baseUrlFromRequest, renderTemplate, sendEmail, sendSms } from "@/lib/leadOutbound";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -16,18 +16,21 @@ const bodySchema = z.object({
   leadId: z.string().trim().min(1).max(64),
 });
 
-type SettingsV2 = {
-  version: 2;
+type SettingsV3 = {
+  version: 3;
   outbound: {
     enabled: boolean;
-    trigger: "MANUAL" | "ON_SCRAPE" | "ON_APPROVE";
-    sendEmail: boolean;
-    sendSms: boolean;
-    toEmailDefault: string;
-    emailSubject: string;
-    emailHtml: string;
-    emailText: string;
-    smsText: string;
+    email: {
+      enabled: boolean;
+      trigger: "MANUAL" | "ON_SCRAPE" | "ON_APPROVE";
+      subject: string;
+      text: string;
+    };
+    sms: {
+      enabled: boolean;
+      trigger: "MANUAL" | "ON_SCRAPE" | "ON_APPROVE";
+      text: string;
+    };
     resources: Array<{ label: string; url: string }>;
   };
   outboundState: {
@@ -52,25 +55,37 @@ function normalizeIsoString(value: unknown): string | null {
   return d.toISOString();
 }
 
-function normalizeSettings(value: unknown): SettingsV2 {
-  const rec = value && typeof value === "object" ? (value as Record<string, unknown>) : {};
-  const version = rec.version === 1 ? 1 : 2;
+function stripHtml(html: string) {
+  return html
+    .replace(/<style[\s\S]*?<\/style>/gi, "")
+    .replace(/<script[\s\S]*?<\/script>/gi, "")
+    .replace(/<[^>]+>/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
 
-  const defaultOutbound: SettingsV2["outbound"] = {
+function normalizeSettings(value: unknown): SettingsV3 {
+  const rec = value && typeof value === "object" ? (value as Record<string, unknown>) : {};
+  const version = rec.version === 1 ? 1 : rec.version === 2 ? 2 : 3;
+
+  const defaultOutbound: SettingsV3["outbound"] = {
     enabled: false,
-    trigger: "MANUAL",
-    sendEmail: true,
-    sendSms: false,
-    toEmailDefault: "",
-    emailSubject: "Quick question — {businessName}",
-    emailHtml: "<p>Hi {businessName},</p><p>Quick question — are you taking on new work right now?</p><p>—</p>",
-    emailText: "Hi {businessName},\n\nQuick question — are you taking on new work right now?\n\n—",
-    smsText: "Hi {businessName} — quick question. Are you taking on new work right now?",
+    email: {
+      enabled: true,
+      trigger: "MANUAL",
+      subject: "Quick question — {businessName}",
+      text: "Hi {businessName},\n\nQuick question — are you taking on new work right now?\n\n—",
+    },
+    sms: {
+      enabled: false,
+      trigger: "MANUAL",
+      text: "Hi {businessName} — quick question. Are you taking on new work right now?",
+    },
     resources: [],
   };
 
   const outboundRaw = rec.outbound && typeof rec.outbound === "object" ? (rec.outbound as Record<string, unknown>) : {};
-  const resourcesRaw = Array.isArray(outboundRaw.resources) ? outboundRaw.resources : [];
+  const resourcesRaw = Array.isArray((outboundRaw as any).resources) ? ((outboundRaw as any).resources as unknown[]) : [];
   const resources = resourcesRaw
     .map((r) => (r && typeof r === "object" ? (r as Record<string, unknown>) : {}))
     .map((r) => ({
@@ -80,22 +95,65 @@ function normalizeSettings(value: unknown): SettingsV2 {
     .filter((r) => Boolean(r.url))
     .slice(0, 30);
 
-  const triggerRaw = typeof outboundRaw.trigger === "string" ? outboundRaw.trigger.trim() : "MANUAL";
-  const trigger = triggerRaw === "ON_SCRAPE" || triggerRaw === "ON_APPROVE" ? triggerRaw : "MANUAL";
-
-  const outbound: SettingsV2["outbound"] = {
-    ...defaultOutbound,
-    enabled: version === 1 ? false : Boolean(outboundRaw.enabled),
-    trigger,
-    sendEmail: outboundRaw.sendEmail === undefined ? true : Boolean(outboundRaw.sendEmail),
-    sendSms: Boolean(outboundRaw.sendSms),
-    toEmailDefault: (typeof outboundRaw.toEmailDefault === "string" ? outboundRaw.toEmailDefault.trim() : "").slice(0, 200),
-    emailSubject: (typeof outboundRaw.emailSubject === "string" ? outboundRaw.emailSubject : "").slice(0, 120),
-    emailHtml: (typeof outboundRaw.emailHtml === "string" ? outboundRaw.emailHtml : "").slice(0, 20000),
-    emailText: (typeof outboundRaw.emailText === "string" ? outboundRaw.emailText : "").slice(0, 20000),
-    smsText: (typeof outboundRaw.smsText === "string" ? outboundRaw.smsText : "").slice(0, 900),
-    resources,
+  const parseTrigger = (t: unknown) => {
+    const raw = typeof t === "string" ? t.trim() : "MANUAL";
+    return raw === "ON_SCRAPE" || raw === "ON_APPROVE" ? raw : "MANUAL";
   };
+
+  const isV2 =
+    typeof (outboundRaw as any).sendEmail === "boolean" ||
+    typeof (outboundRaw as any).sendSms === "boolean" ||
+    typeof (outboundRaw as any).emailHtml === "string" ||
+    typeof (outboundRaw as any).emailText === "string";
+
+  const outbound: SettingsV3["outbound"] = (() => {
+    if (isV2) {
+      const enabled = version === 1 ? false : Boolean((outboundRaw as any).enabled);
+      const trigger = parseTrigger((outboundRaw as any).trigger);
+      const sendEmail = (outboundRaw as any).sendEmail === undefined ? true : Boolean((outboundRaw as any).sendEmail);
+      const sendSms = Boolean((outboundRaw as any).sendSms);
+      const emailHtml = typeof (outboundRaw as any).emailHtml === "string" ? ((outboundRaw as any).emailHtml as string) : "";
+      const emailTextRaw = typeof (outboundRaw as any).emailText === "string" ? ((outboundRaw as any).emailText as string) : "";
+      const emailText = (emailTextRaw || stripHtml(emailHtml)).slice(0, 20000);
+
+      return {
+        ...defaultOutbound,
+        enabled,
+        email: {
+          enabled: enabled && sendEmail,
+          trigger,
+          subject: (typeof (outboundRaw as any).emailSubject === "string" ? ((outboundRaw as any).emailSubject as string) : "").slice(0, 120),
+          text: emailText,
+        },
+        sms: {
+          enabled: enabled && sendSms,
+          trigger,
+          text: (typeof (outboundRaw as any).smsText === "string" ? ((outboundRaw as any).smsText as string) : "").slice(0, 900),
+        },
+        resources,
+      };
+    }
+
+    const emailRec = (outboundRaw as any).email && typeof (outboundRaw as any).email === "object" ? ((outboundRaw as any).email as Record<string, unknown>) : {};
+    const smsRec = (outboundRaw as any).sms && typeof (outboundRaw as any).sms === "object" ? ((outboundRaw as any).sms as Record<string, unknown>) : {};
+
+    return {
+      ...defaultOutbound,
+      enabled: Boolean((outboundRaw as any).enabled),
+      email: {
+        enabled: Boolean((emailRec as any).enabled),
+        trigger: parseTrigger((emailRec as any).trigger),
+        subject: (typeof (emailRec as any).subject === "string" ? ((emailRec as any).subject as string) : "").slice(0, 120),
+        text: (typeof (emailRec as any).text === "string" ? ((emailRec as any).text as string) : "").slice(0, 20000),
+      },
+      sms: {
+        enabled: Boolean((smsRec as any).enabled),
+        trigger: parseTrigger((smsRec as any).trigger),
+        text: (typeof (smsRec as any).text === "string" ? ((smsRec as any).text as string) : "").slice(0, 900),
+      },
+      resources,
+    };
+  })();
 
   const outboundStateRaw = rec.outboundState && typeof rec.outboundState === "object" ? (rec.outboundState as Record<string, unknown>) : {};
   const approvedRaw =
@@ -126,7 +184,7 @@ function normalizeSettings(value: unknown): SettingsV2 {
   }
 
   return {
-    version: 2,
+    version: 3,
     outbound,
     outboundState: {
       approvedAtByLeadId: Object.fromEntries(Object.entries(approvedAtByLeadId).slice(0, 5000)),
@@ -162,6 +220,7 @@ export async function POST(req: Request) {
     select: {
       id: true,
       businessName: true,
+      email: true,
       phone: true,
       website: true,
       address: true,
@@ -196,17 +255,9 @@ export async function POST(req: Request) {
     }))
     .filter((r) => Boolean(r.url));
 
-  const subject = renderTemplate(settings.outbound.emailSubject, lead).slice(0, 120);
+  const subject = renderTemplate(settings.outbound.email.subject, lead).slice(0, 120);
 
-  const htmlBase = renderTemplate(settings.outbound.emailHtml, lead);
-  const htmlResources = resources.length
-    ? `<hr/><p><strong>Resources</strong></p><ul>${resources
-        .map((r) => `<li><a href=\"${r.url}\">${r.label}</a></li>`)
-        .join("")}</ul>`
-    : "";
-  const html = (htmlBase + htmlResources).slice(0, 20000);
-
-  const textBase = renderTemplate(settings.outbound.emailText, lead) || stripHtml(htmlBase);
+  const textBase = renderTemplate(settings.outbound.email.text, lead);
   const textResources = resources.length
     ? `\n\nResources:\n${resources.map((r) => `- ${r.label}: ${r.url}`).join("\n")}`
     : "";
@@ -216,27 +267,27 @@ export async function POST(req: Request) {
   const skipped: string[] = [];
 
   try {
-    if (settings.outbound.sendEmail) {
-      const to = settings.outbound.toEmailDefault.trim();
+    if (settings.outbound.email.enabled) {
+      const to = (lead.email || "").trim();
       if (!to) {
-        skipped.push("Email skipped: no default To email configured.");
+        skipped.push("Email skipped: lead has no email.");
       } else {
         await sendEmail({
           to,
+          cc: auth.session.user.email,
           subject: subject || `Follow-up: ${lead.businessName}`,
           text,
-          html,
           fromName,
         });
         sent.email = true;
       }
     }
 
-    if (settings.outbound.sendSms) {
+    if (settings.outbound.sms.enabled) {
       if (!lead.phone) {
         skipped.push("Text skipped: lead has no phone.");
       } else {
-        const smsBody = renderTemplate(settings.outbound.smsText, lead).slice(0, 900);
+        const smsBody = renderTemplate(settings.outbound.sms.text, lead).slice(0, 900);
         if (!smsBody.trim()) {
           skipped.push("Text skipped: SMS template is empty.");
         } else {
@@ -252,7 +303,7 @@ export async function POST(req: Request) {
     );
   }
 
-  const nextSettings: SettingsV2 = {
+  const nextSettings: SettingsV3 = {
     ...settings,
     outboundState: {
       ...settings.outboundState,

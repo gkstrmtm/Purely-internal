@@ -32,18 +32,20 @@ export async function GET(req: Request) {
 
   const leads = await prisma.portalLead.findMany({
     where: { ownerId },
-    orderBy: { createdAt: "desc" },
+    orderBy: [{ starred: "desc" }, { createdAt: "desc" }],
     take,
     select: {
       id: true,
       kind: true,
       source: true,
       businessName: true,
+      email: true,
       phone: true,
       website: true,
       address: true,
       niche: true,
       placeId: true,
+      starred: true,
       createdAt: true,
     },
   });
@@ -53,11 +55,13 @@ export async function GET(req: Request) {
     kind: l.kind,
     source: l.source,
     businessName: l.businessName,
+    email: l.email ?? null,
     phone: l.phone,
     website: l.website,
     address: l.address,
     niche: l.niche,
     placeId: l.placeId,
+    starred: Boolean(l.starred),
     createdAtIso: l.createdAt instanceof Date ? l.createdAt.toISOString() : String(l.createdAt),
   }));
 

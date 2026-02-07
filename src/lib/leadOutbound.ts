@@ -41,39 +41,37 @@ export function baseUrlFromRequest(req?: Request): string {
 
 export async function sendEmail({
   to,
+  cc,
   subject,
   text,
-  html,
   fromName,
 }: {
   to: string;
+  cc?: string | null;
   subject: string;
   text: string;
-  html: string;
   fromName?: string;
 }) {
   const apiKey = process.env.SENDGRID_API_KEY;
   const fromEmail = process.env.SENDGRID_FROM_EMAIL;
   if (!apiKey || !fromEmail) throw new Error("Email is not configured yet.");
 
-  const safeText = text || stripHtml(html) || " ";
-  const safeHtml =
-    html ||
-    `<pre>${safeText.replace(/[&<>]/g, (m) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;" }[m] as string))}</pre>`;
+  const safeText = (text || "").trim() || " ";
 
-  const content = [
-    { type: "text/plain", value: safeText },
-    { type: "text/html", value: safeHtml },
-  ];
+  const ccEmail = (cc || "").trim();
+  const personalizations: any = {
+    to: [{ email: to }],
+    ...(ccEmail ? { cc: [{ email: ccEmail }] } : {}),
+  };
 
   const res = await fetch("https://api.sendgrid.com/v3/mail/send", {
     method: "POST",
     headers: { authorization: `Bearer ${apiKey}`, "content-type": "application/json" },
     body: JSON.stringify({
-      personalizations: [{ to: [{ email: to }] }],
+      personalizations: [personalizations],
       from: { email: fromEmail, name: fromName ?? "Purely Automation" },
       subject,
-      content,
+      content: [{ type: "text/plain", value: safeText }],
     }),
   });
 
