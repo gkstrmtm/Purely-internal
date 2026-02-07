@@ -15,13 +15,37 @@ const SERVICE_SLUG = "lead-scraping";
 
 const stringList = z.array(z.string()).max(500);
 
+const TAG_COLORS = [
+  "#0EA5E9", // sky
+  "#2563EB", // blue
+  "#7C3AED", // violet
+  "#EC4899", // pink
+  "#F97316", // orange
+  "#F59E0B", // amber
+  "#10B981", // emerald
+  "#22C55E", // green
+  "#64748B", // slate
+  "#111827", // gray-900
+] as const;
+
+const tagPresetsSchema = z
+  .array(
+    z.object({
+      label: z.string().max(40),
+      color: z.string().max(32),
+    }),
+  )
+  .max(10);
+
 const settingsSchema = z.object({
   version: z.literal(3),
+  tagPresets: tagPresetsSchema.optional(),
   b2b: z.object({
     niche: z.string().max(200),
     location: z.string().max(200),
     fallbackEnabled: z.boolean().optional(),
     fallbackLocations: stringList.optional(),
+    fallbackNiches: stringList.optional(),
     count: z.number().int().min(1).max(500),
     requireEmail: z.boolean(),
     requirePhone: z.boolean(),
@@ -103,6 +127,30 @@ type NormalizedLeadScrapingSettings = Omit<LeadScrapingSettings, "outbound" | "o
   outbound: OutboundSettings;
   outboundState: OutboundState;
 };
+
+function normalizeTagPresets(value: unknown) {
+  const raw = Array.isArray(value) ? value : [];
+  const presets = raw
+    .map((p) => (p && typeof p === "object" ? (p as Record<string, unknown>) : {}))
+    .map((p) => {
+      const label = (typeof p.label === "string" ? p.label.trim() : "").slice(0, 40);
+      const colorRaw = typeof p.color === "string" ? p.color.trim() : "";
+      const color = (TAG_COLORS as readonly string[]).includes(colorRaw) ? colorRaw : "#111827";
+      return { label, color };
+    })
+    .filter((p) => Boolean(p.label))
+    .slice(0, 10);
+
+  if (presets.length) return presets;
+
+  return [
+    { label: "New", color: "#2563EB" },
+    { label: "Follow-up", color: "#F59E0B" },
+    { label: "Outbound sent", color: "#10B981" },
+    { label: "Interested", color: "#7C3AED" },
+    { label: "Not interested", color: "#64748B" },
+  ];
+}
 
 function normalizeStringList(xs: unknown, { lower }: { lower?: boolean } = {}) {
   const arr = Array.isArray(xs) ? xs : [];
@@ -271,11 +319,13 @@ function normalizeSettings(value: unknown): NormalizedLeadScrapingSettings {
 
   const settings: NormalizedLeadScrapingSettings = {
     version: 3,
+    tagPresets: normalizeTagPresets((rec as any).tagPresets),
     b2b: {
       niche: typeof b2b.niche === "string" ? b2b.niche.slice(0, 200) : "",
       location: typeof b2b.location === "string" ? b2b.location.slice(0, 200) : "",
       fallbackEnabled: Boolean((b2b as any).fallbackEnabled),
       fallbackLocations: normalizeStringList((b2b as any).fallbackLocations),
+      fallbackNiches: normalizeStringList((b2b as any).fallbackNiches),
       count:
         typeof b2b.count === "number" && Number.isFinite(b2b.count)
           ? Math.min(500, Math.max(1, Math.floor(b2b.count)))

@@ -2,6 +2,19 @@
 
 import { useEffect, useMemo, useState } from "react";
 
+const TAG_COLORS = [
+  "#0EA5E9", // sky
+  "#2563EB", // blue
+  "#7C3AED", // violet
+  "#EC4899", // pink
+  "#F97316", // orange
+  "#F59E0B", // amber
+  "#10B981", // emerald
+  "#22C55E", // green
+  "#64748B", // slate
+  "#111827", // gray-900
+] as const;
+
 type LeadRow = {
   id: string;
   businessName: string;
@@ -18,11 +31,13 @@ type LeadRow = {
 
 type LeadScrapingSettings = {
   version: 3;
+  tagPresets?: Array<{ label: string; color: string }>;
   b2b: {
     niche: string;
     location: string;
     fallbackEnabled?: boolean;
     fallbackLocations?: string[];
+    fallbackNiches?: string[];
     count: number;
     requireEmail: boolean;
     requirePhone: boolean;
@@ -90,6 +105,7 @@ type RunResponse = {
   plannedBatches?: number;
   batchesRan?: number;
   usedFallbackLocations?: string[];
+  usedFallbackNiches?: string[];
   error?: string;
   code?: string;
 };
@@ -124,6 +140,42 @@ function getApiError(body: unknown): string | undefined {
 function clampInt(n: number, min: number, max: number) {
   if (!Number.isFinite(n)) return min;
   return Math.min(max, Math.max(min, Math.floor(n)));
+}
+
+function normalizeTagPresetsClient(value: unknown): Array<{ label: string; color: string }> {
+  const raw = Array.isArray(value) ? value : [];
+  const presets = raw
+    .map((p) => (p && typeof p === "object" ? (p as Record<string, unknown>) : {}))
+    .map((p) => {
+      const label = (typeof p.label === "string" ? p.label.trim() : "").slice(0, 40);
+      const colorRaw = typeof p.color === "string" ? p.color.trim() : "";
+      const color = (TAG_COLORS as readonly string[]).includes(colorRaw) ? colorRaw : "#111827";
+      return { label, color };
+    })
+    .filter((p) => Boolean(p.label))
+    .slice(0, 10);
+
+  if (presets.length) return presets;
+  return [
+    { label: "New", color: "#2563EB" },
+    { label: "Follow-up", color: "#F59E0B" },
+    { label: "Outbound sent", color: "#10B981" },
+    { label: "Interested", color: "#7C3AED" },
+    { label: "Not interested", color: "#64748B" },
+  ];
+}
+
+function coerceTagPresetsForEditing(value: unknown): Array<{ label: string; color: string }> {
+  if (!Array.isArray(value)) return normalizeTagPresetsClient(undefined);
+  return value
+    .map((p) => (p && typeof p === "object" ? (p as Record<string, unknown>) : {}))
+    .map((p) => {
+      const label = (typeof p.label === "string" ? p.label : "").slice(0, 40);
+      const colorRaw = typeof p.color === "string" ? p.color.trim() : "";
+      const color = (TAG_COLORS as readonly string[]).includes(colorRaw) ? colorRaw : "#111827";
+      return { label, color };
+    })
+    .slice(0, 10);
 }
 
 function csvEscape(v: string) {
@@ -175,6 +227,49 @@ function toTelHref(phone: string) {
   return digits ? `tel:${digits}` : `tel:${phone}`;
 }
 
+function isHexColor(s: string) {
+  return /^#[0-9a-fA-F]{6}$/.test(s);
+}
+
+function ColorSwatches({
+  value,
+  onChange,
+  className,
+}: {
+  value: string;
+  onChange: (hex: string) => void;
+  className?: string;
+}) {
+  const colors = (TAG_COLORS as readonly string[]).includes(value)
+    ? (TAG_COLORS as readonly string[])
+    : ([value, ...TAG_COLORS] as const);
+
+  return (
+    <div className={className ?? "flex flex-wrap gap-2"}>
+      {colors.map((c) => {
+        const selected = c.toLowerCase() === value.toLowerCase();
+        return (
+          <button
+            key={c}
+            type="button"
+            onClick={(e) => {
+              e.stopPropagation();
+              onChange(c);
+            }}
+            className={
+              selected
+                ? "h-7 w-7 rounded-full ring-2 ring-zinc-900 ring-offset-2"
+                : "h-7 w-7 rounded-full ring-1 ring-zinc-300 hover:ring-zinc-400"
+            }
+            style={{ backgroundColor: c }}
+            aria-label={`Color ${c}`}
+          />
+        );
+      })}
+    </div>
+  );
+}
+
 export function PortalLeadScrapingClient() {
   const [tab, setTab] = useState<"b2b" | "b2c">("b2b");
 
@@ -200,6 +295,35 @@ export function PortalLeadScrapingClient() {
   const activeLeadSentAt =
     activeLead && settings ? settings.outboundState.sentAtByLeadId[activeLead.id] ?? null : null;
 
+  const tagPresets = useMemo(
+    () => normalizeTagPresetsClient(settings?.tagPresets),
+    [settings?.tagPresets],
+  );
+
+  const tagOptions = useMemo(() => {
+    const opts: Array<{ label: string; color: string }> = [];
+    const seen = new Set<string>();
+
+    for (const p of tagPresets) {
+      const key = p.label.trim().toLowerCase();
+      if (!key || seen.has(key)) continue;
+      seen.add(key);
+      opts.push({ label: p.label, color: p.color });
+    }
+
+    for (const l of leads) {
+      const label = (l.tag ?? "").trim();
+      const key = label.toLowerCase();
+      if (!key || seen.has(key)) continue;
+      const color = isHexColor(l.tagColor || "") ? (l.tagColor as string) : "#111827";
+      seen.add(key);
+      opts.push({ label, color });
+      if (opts.length >= 50) break;
+    }
+
+    return opts;
+  }, [leads, tagPresets]);
+
   const [composeOpen, setComposeOpen] = useState(false);
   const [composeSubject, setComposeSubject] = useState("");
   const [composeMessage, setComposeMessage] = useState("");
@@ -211,6 +335,13 @@ export function PortalLeadScrapingClient() {
   const [leadEmailDraft, setLeadEmailDraft] = useState("");
   const [leadTagDraft, setLeadTagDraft] = useState("");
   const [leadTagColorDraft, setLeadTagColorDraft] = useState("#111827");
+
+  const selectedTagPickValue = useMemo(() => {
+    const key = leadTagDraft.trim().toLowerCase();
+    if (!key) return "__custom";
+    const found = tagOptions.find((o) => o.label.trim().toLowerCase() === key);
+    return found ? found.label : "__custom";
+  }, [leadTagDraft, tagOptions]);
 
   const [outboundBusy, setOutboundBusy] = useState(false);
   const [outboundUploadBusy, setOutboundUploadBusy] = useState(false);
@@ -262,8 +393,6 @@ export function PortalLeadScrapingClient() {
       setLeadMatchedCount(null);
     }
   }
-
-  const isHexColor = (s: string) => /^#[0-9a-fA-F]{6}$/.test(s);
   const pickTagTextColor = (hex: string) => {
     if (!isHexColor(hex)) return "text-white";
     const r = parseInt(hex.slice(1, 3), 16);
@@ -373,7 +502,15 @@ export function PortalLeadScrapingClient() {
       ? body.usedFallbackLocations.filter((s) => typeof s === "string" && s.trim())
       : [];
 
-    const fallbackNote = usedFallbacks.length ? ` • Used fallback: ${usedFallbacks.join(", ")}` : "";
+    const usedFallbackNiches = Array.isArray(body.usedFallbackNiches)
+      ? body.usedFallbackNiches.filter((s) => typeof s === "string" && s.trim())
+      : [];
+
+    const fallbackNotes = [
+      usedFallbacks.length ? `Locations: ${usedFallbacks.join(", ")}` : null,
+      usedFallbackNiches.length ? `Niches: ${usedFallbackNiches.join(", ")}` : null,
+    ].filter(Boolean);
+    const fallbackNote = fallbackNotes.length ? ` • Used fallback: ${fallbackNotes.join(" • ")}` : "";
 
     if (requested > 0 && created < requested) {
       setStatus(
@@ -623,8 +760,9 @@ export function PortalLeadScrapingClient() {
     if (!activeLead) return;
     setLeadEmailDraft(activeLead.email ?? "");
     setLeadTagDraft(activeLead.tag ?? "");
-    setLeadTagColorDraft(isHexColor(activeLead.tagColor || "") ? (activeLead.tagColor as string) : "#111827");
-  }, [activeLead?.id]);
+    const defaultColor = tagPresets[0]?.color ?? "#111827";
+    setLeadTagColorDraft(isHexColor(activeLead.tagColor || "") ? (activeLead.tagColor as string) : defaultColor);
+  }, [activeLead?.id, tagPresets]);
 
   async function patchLead(
     leadId: string,
@@ -1119,6 +1257,36 @@ export function PortalLeadScrapingClient() {
                   }
                   placeholder="e.g. Roofing, Med Spa, Dentist"
                 />
+
+                <div className="mt-3">
+                  <div className="text-xs font-semibold text-zinc-600">Fallback niches / keywords (one per line)</div>
+                  <textarea
+                    className="mt-2 min-h-[90px] w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm"
+                    value={(settings.b2b.fallbackNiches ?? []).join("\n")}
+                    onChange={(e) =>
+                      setSettings((prev) => {
+                        if (!prev) return prev;
+                        const next = e.target.value
+                          .split("\n")
+                          .map((x) => x.trim())
+                          .filter(Boolean)
+                          .slice(0, 20);
+                        return {
+                          ...prev,
+                          b2b: {
+                            ...prev.b2b,
+                            fallbackNiches: next,
+                          },
+                        };
+                      })
+                    }
+                    placeholder="e.g. Roofing contractor\nRoofing company\nCommercial roofing"
+                    disabled={!Boolean(settings.b2b.fallbackEnabled)}
+                  />
+                  <div className="mt-1 text-xs text-zinc-500">
+                    If the main niche is too tight, we’ll keep trying these keywords (in your location + fallbacks) until we hit your requested count.
+                  </div>
+                </div>
               </label>
 
               <label className="block">
@@ -1262,6 +1430,91 @@ export function PortalLeadScrapingClient() {
                     }
                   />
                 </label>
+              </div>
+            </div>
+
+            <div className="mt-6 rounded-3xl border border-zinc-200 bg-zinc-50 p-6">
+              <div className="flex items-start justify-between gap-4">
+                <div>
+                  <div className="text-sm font-semibold text-zinc-900">Tag presets</div>
+                  <div className="mt-1 text-sm text-zinc-600">
+                    These show up as quick-pick tags when you open a lead.
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  onClick={() =>
+                    setSettings((prev) => {
+                      if (!prev) return prev;
+                      const next = coerceTagPresetsForEditing(prev.tagPresets);
+                      if (next.length >= 10) return prev;
+                      return {
+                        ...prev,
+                        tagPresets: [...next, { label: "", color: "#111827" }].slice(0, 10),
+                      };
+                    })
+                  }
+                  className="shrink-0 rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm font-semibold text-brand-ink hover:bg-zinc-50"
+                >
+                  + Add
+                </button>
+              </div>
+
+              <div className="mt-4 space-y-3">
+                {coerceTagPresetsForEditing(settings.tagPresets).map((p, idx) => (
+                  <div key={`${p.label}-${idx}`} className="rounded-2xl border border-zinc-200 bg-white p-4">
+                    <div className="grid grid-cols-1 gap-3 sm:grid-cols-6 sm:items-center">
+                      <label className="block sm:col-span-3">
+                        <div className="text-xs font-semibold text-zinc-600">Label</div>
+                        <input
+                          className="mt-1 w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm"
+                          value={p.label}
+                          onChange={(e) =>
+                            setSettings((prev) => {
+                              if (!prev) return prev;
+                              const base = coerceTagPresetsForEditing(prev.tagPresets);
+                              const next = base.map((x, i) => (i === idx ? { ...x, label: e.target.value } : x));
+                              return { ...prev, tagPresets: next };
+                            })
+                          }
+                          placeholder="e.g. New"
+                        />
+                      </label>
+
+                      <div className="sm:col-span-2">
+                        <div className="text-xs font-semibold text-zinc-600">Color</div>
+                        <div className="mt-2">
+                          <ColorSwatches
+                            value={p.color}
+                            onChange={(hex) =>
+                              setSettings((prev) => {
+                                if (!prev) return prev;
+                                const base = coerceTagPresetsForEditing(prev.tagPresets);
+                                const next = base.map((x, i) => (i === idx ? { ...x, color: hex } : x));
+                                return { ...prev, tagPresets: next };
+                              })
+                            }
+                          />
+                        </div>
+                      </div>
+
+                      <button
+                        type="button"
+                        onClick={() =>
+                          setSettings((prev) => {
+                            if (!prev) return prev;
+                            const base = coerceTagPresetsForEditing(prev.tagPresets);
+                            const next = base.filter((_, i) => i !== idx);
+                            return { ...prev, tagPresets: next };
+                          })
+                        }
+                        className="sm:col-span-1 rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm font-semibold text-zinc-700 hover:bg-zinc-50"
+                      >
+                        Remove
+                      </button>
+                    </div>
+                  </div>
+                ))}
               </div>
             </div>
 
@@ -1653,32 +1906,57 @@ export function PortalLeadScrapingClient() {
               <div className="mt-3 rounded-2xl border border-zinc-200 bg-white p-4">
                 <div className="text-xs font-semibold text-zinc-600">Tag</div>
                 <div className="mt-2 grid grid-cols-1 gap-2 sm:grid-cols-6 sm:items-end">
-                  <label className="block sm:col-span-4">
-                    <div className="text-xs font-medium text-zinc-700">Category</div>
+                  <label className="block sm:col-span-3">
+                    <div className="text-xs font-medium text-zinc-700">Pick a tag</div>
+                    <select
+                      value={selectedTagPickValue}
+                      onChange={(e) => {
+                        const v = e.target.value;
+                        if (v === "__custom") return;
+                        const found = tagOptions.find((o) => o.label === v);
+                        if (!found) return;
+                        setLeadTagDraft(found.label);
+                        setLeadTagColorDraft(found.color);
+                      }}
+                      className="mt-1 w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm"
+                    >
+                      <option value="__custom">Custom / type below</option>
+                      {tagOptions.map((o) => (
+                        <option key={`${o.label}-${o.color}`} value={o.label}>
+                          {o.label}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+
+                  <label className="block sm:col-span-3">
+                    <div className="text-xs font-medium text-zinc-700">Label</div>
                     <input
                       value={leadTagDraft}
                       onChange={(e) => setLeadTagDraft(e.target.value)}
-                      placeholder="e.g. New, Outreach sent, Follow up"
+                      placeholder="e.g. New"
                       className="mt-1 w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm outline-none focus:border-zinc-300"
                       autoComplete="off"
                     />
                   </label>
 
-                  <label className="block sm:col-span-1">
+                  <div className="sm:col-span-6">
                     <div className="text-xs font-medium text-zinc-700">Color</div>
-                    <input
-                      type="color"
-                      value={leadTagColorDraft}
-                      onChange={(e) => setLeadTagColorDraft(e.target.value)}
-                      className="mt-1 h-10 w-full rounded-xl border border-zinc-200 bg-white px-2"
-                    />
-                  </label>
+                    <div className="mt-2">
+                      <ColorSwatches value={leadTagColorDraft} onChange={setLeadTagColorDraft} />
+                    </div>
+                  </div>
 
                   <button
                     type="button"
-                    onClick={() => patchLead(activeLead.id, { tag: leadTagDraft.trim() || null, tagColor: leadTagDraft.trim() ? leadTagColorDraft : null })}
+                    onClick={() =>
+                      patchLead(activeLead.id, {
+                        tag: leadTagDraft.trim() || null,
+                        tagColor: leadTagDraft.trim() ? leadTagColorDraft : null,
+                      })
+                    }
                     disabled={leadMutating}
-                    className="sm:col-span-1 shrink-0 rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm font-semibold text-brand-ink hover:bg-zinc-50 disabled:opacity-60"
+                    className="sm:col-span-6 shrink-0 rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm font-semibold text-brand-ink hover:bg-zinc-50 disabled:opacity-60"
                   >
                     Save
                   </button>
@@ -1687,7 +1965,7 @@ export function PortalLeadScrapingClient() {
                     type="button"
                     onClick={() => {
                       setLeadTagDraft("");
-                      setLeadTagColorDraft("#111827");
+                      setLeadTagColorDraft(tagPresets[0]?.color ?? "#111827");
                       void patchLead(activeLead.id, { tag: null, tagColor: null });
                     }}
                     disabled={leadMutating}

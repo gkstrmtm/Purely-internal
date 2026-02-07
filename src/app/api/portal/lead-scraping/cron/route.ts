@@ -13,13 +13,28 @@ export const revalidate = 0;
 
 const SERVICE_SLUG = "lead-scraping";
 
+const TAG_COLORS = [
+  "#0EA5E9", // sky
+  "#2563EB", // blue
+  "#7C3AED", // violet
+  "#EC4899", // pink
+  "#F97316", // orange
+  "#F59E0B", // amber
+  "#10B981", // emerald
+  "#22C55E", // green
+  "#64748B", // slate
+  "#111827", // gray-900
+] as const;
+
 type Settings = {
   version: 3;
+  tagPresets: Array<{ label: string; color: string }>;
   b2b: {
     niche: string;
     location: string;
     fallbackEnabled: boolean;
     fallbackLocations: string[];
+    fallbackNiches: string[];
     count: number;
     requireEmail: boolean;
     requirePhone: boolean;
@@ -185,6 +200,30 @@ function normalizeOutboundState(value: unknown): Settings["outboundState"] {
   };
 }
 
+function normalizeTagPresets(value: unknown): Settings["tagPresets"] {
+  const raw = Array.isArray(value) ? value : [];
+  const presets = raw
+    .map((p) => (p && typeof p === "object" ? (p as Record<string, unknown>) : {}))
+    .map((p) => {
+      const label = (typeof p.label === "string" ? p.label.trim() : "").slice(0, 40);
+      const colorRaw = typeof p.color === "string" ? p.color.trim() : "";
+      const color = (TAG_COLORS as readonly string[]).includes(colorRaw) ? colorRaw : "#111827";
+      return { label, color };
+    })
+    .filter((p) => Boolean(p.label))
+    .slice(0, 10);
+
+  if (presets.length) return presets;
+
+  return [
+    { label: "New", color: "#2563EB" },
+    { label: "Follow-up", color: "#F59E0B" },
+    { label: "Outbound sent", color: "#10B981" },
+    { label: "Interested", color: "#7C3AED" },
+    { label: "Not interested", color: "#64748B" },
+  ];
+}
+
 function normalizeSettings(value: unknown): Settings {
   const rec = value && typeof value === "object" ? (value as Record<string, unknown>) : {};
   const legacyVersion = rec.version === 1 ? 1 : rec.version === 3 ? 3 : 2;
@@ -230,11 +269,13 @@ function normalizeSettings(value: unknown): Settings {
 
   return {
     version: 3,
+    tagPresets: normalizeTagPresets((rec as any).tagPresets),
     b2b: {
       niche: toStr(b2b.niche),
       location: toStr(b2b.location),
       fallbackEnabled: Boolean((b2b as any).fallbackEnabled),
       fallbackLocations: normalizeStringList((b2b as any).fallbackLocations),
+      fallbackNiches: normalizeStringList((b2b as any).fallbackNiches),
       count: toInt(b2b.count, 25, 500),
       requireEmail: Boolean((b2b as any).requireEmail),
       requirePhone: Boolean(b2b.requirePhone),
@@ -335,7 +376,15 @@ async function runB2BForOwner(ownerId: string, settingsJson: unknown, baseUrl: s
   const fallbackLocations = settings.b2b.fallbackEnabled
     ? settings.b2b.fallbackLocations.map((s) => s.trim()).filter(Boolean).slice(0, 5)
     : [];
-  const plannedBatches = Math.min(25, plannedPrimaryBatches + (fallbackLocations.length ? fallbackLocations.length * 2 : 0));
+  const fallbackNiches = settings.b2b.fallbackEnabled
+    ? settings.b2b.fallbackNiches.map((s) => s.trim()).filter(Boolean).slice(0, 5)
+    : [];
+  const plannedBatches = Math.min(
+    25,
+    plannedPrimaryBatches +
+      (fallbackLocations.length ? fallbackLocations.length * 2 : 0) +
+      (fallbackNiches.length ? fallbackNiches.length * 2 : 0),
+  );
   const createdLeads: Array<{
     id: string;
     businessName: string;
@@ -346,6 +395,7 @@ async function runB2BForOwner(ownerId: string, settingsJson: unknown, baseUrl: s
     niche: string | null;
   }> = [];
   const usedFallbackLocations: string[] = [];
+  const usedFallbackNiches: string[] = [];
 
   try {
     const excludedPhones = new Set(
@@ -353,14 +403,14 @@ async function runB2BForOwner(ownerId: string, settingsJson: unknown, baseUrl: s
         .map((p) => normalizePhone(p))
         .filter((p): p is string => Boolean(p)),
     );
-    const buildQueryVariants = (loc: string) =>
+    const buildQueryVariants = ({ nicheTerm, loc }: { nicheTerm: string; loc: string }) =>
       Array.from(
         new Set(
           [
-            `${niche} in ${loc}`,
-            `${niche} near ${loc}`,
-            `${niche} services in ${loc}`,
-            `${niche} company in ${loc}`,
+            `${nicheTerm} in ${loc}`,
+            `${nicheTerm} near ${loc}`,
+            `${nicheTerm} services in ${loc}`,
+            `${nicheTerm} company in ${loc}`,
           ]
             .map((s) => s.trim())
             .filter(Boolean),
@@ -369,27 +419,40 @@ async function runB2BForOwner(ownerId: string, settingsJson: unknown, baseUrl: s
 
     const seenPlaceIds = new Set<string>();
     const locationsToTry = [location, ...fallbackLocations];
+    const nichesToTry = [niche, ...fallbackNiches];
     let batchesRan = 0;
 
-    for (let locIndex = 0; locIndex < locationsToTry.length; locIndex++) {
+    const combos: Array<{ nicheTerm: string; loc: string; isFallbackLocation: boolean; isFallbackNiche: boolean }> = [];
+    for (let nicheIndex = 0; nicheIndex < nichesToTry.length; nicheIndex++) {
+      for (let locIndex = 0; locIndex < locationsToTry.length; locIndex++) {
+        combos.push({
+          nicheTerm: nichesToTry[nicheIndex] || niche,
+          loc: locationsToTry[locIndex] || location,
+          isFallbackLocation: locIndex > 0,
+          isFallbackNiche: nicheIndex > 0,
+        });
+      }
+    }
+
+    for (let comboIndex = 0; comboIndex < combos.length; comboIndex++) {
       if (createdCount >= requestedCount) break;
 
-      const loc = locationsToTry[locIndex] || location;
-      const isFallback = locIndex > 0;
-      const queryVariants = buildQueryVariants(loc);
+      const combo = combos[comboIndex];
+      const queryVariants = buildQueryVariants({ nicheTerm: combo.nicheTerm, loc: combo.loc });
 
-      const attemptsForThisLocation = isFallback
-        ? Math.min(5, Math.max(1, Math.ceil((requestedCount - createdCount) / maxPerPlacesBatch) + 1))
-        : plannedPrimaryBatches;
+      const isPrimaryCombo = comboIndex === 0;
+      const attemptsForThisCombo = isPrimaryCombo
+        ? plannedPrimaryBatches
+        : Math.min(5, Math.max(1, Math.ceil((requestedCount - createdCount) / maxPerPlacesBatch) + 1));
 
-      for (let attempt = 0; attempt < attemptsForThisLocation; attempt++) {
+      for (let attempt = 0; attempt < attemptsForThisCombo; attempt++) {
         if (createdCount >= requestedCount) break;
         if (batchesRan >= plannedBatches) break;
         batchesRan++;
 
         const remaining = requestedCount - createdCount;
         const targetThisBatch = Math.min(maxPerPlacesBatch, Math.max(1, remaining));
-        const query = queryVariants[attempt % queryVariants.length] || `${niche} in ${loc}`;
+        const query = queryVariants[attempt % queryVariants.length] || `${combo.nicheTerm} in ${combo.loc}`;
         const results = await placesTextSearch(query, Math.max(1, targetThisBatch * 4));
 
         let createdThisAttempt = 0;
@@ -425,7 +488,7 @@ async function runB2BForOwner(ownerId: string, settingsJson: unknown, baseUrl: s
             phone: phoneNorm,
             website,
             address: details.formatted_address || place.formatted_address || null,
-            niche,
+            niche: combo.nicheTerm,
             placeId,
             dataJson: {
               googlePlaces: {
@@ -433,8 +496,10 @@ async function runB2BForOwner(ownerId: string, settingsJson: unknown, baseUrl: s
                 details,
               },
               leadScraping: {
-                location: loc,
-                isFallback,
+                location: combo.loc,
+                niche: combo.nicheTerm,
+                isFallbackLocation: combo.isFallbackLocation,
+                isFallbackNiche: combo.isFallbackNiche,
               },
             },
           });
@@ -449,8 +514,11 @@ async function runB2BForOwner(ownerId: string, settingsJson: unknown, baseUrl: s
           }
       }
 
-        if (isFallback && createdThisAttempt > 0 && !usedFallbackLocations.includes(loc)) {
-          usedFallbackLocations.push(loc);
+        if (combo.isFallbackLocation && createdThisAttempt > 0 && !usedFallbackLocations.includes(combo.loc)) {
+          usedFallbackLocations.push(combo.loc);
+        }
+        if (combo.isFallbackNiche && createdThisAttempt > 0 && !usedFallbackNiches.includes(combo.nicheTerm)) {
+          usedFallbackNiches.push(combo.nicheTerm);
         }
 
         await prisma.portalLeadScrapeRun.update({
