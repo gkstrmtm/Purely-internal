@@ -17,6 +17,7 @@ import {
   IconServiceGlyph,
 } from "@/app/portal/PortalIcons";
 import { PORTAL_SERVICES } from "@/app/portal/services/catalog";
+import { PortalFloatingTools } from "@/app/portal/PortalFloatingTools";
 
 const DEFAULT_FULL_DEMO_EMAIL = "demo-full@purelyautomation.dev";
 
@@ -382,6 +383,7 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
           </header>
 
           <main className="min-w-0 flex-1 p-4 sm:p-8">{children}</main>
+          <PortalFloatingTools />
         </div>
       </div>
     </div>
