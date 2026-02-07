@@ -30,7 +30,7 @@ export default async function PortalAppServicesPage() {
       </div>
 
       <div className="mt-6 grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
-        {PORTAL_SERVICES.map((s) => (
+        {PORTAL_SERVICES.filter((s) => !s.hidden).map((s) => (
           <Link
             key={s.slug}
             href={`/portal/app/services/${s.slug}`}

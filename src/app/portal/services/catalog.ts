@@ -5,6 +5,7 @@ export type PortalService = {
   highlights?: string[];
   entitlementKey?: "blog" | "booking" | "crm";
   accent: "blue" | "coral" | "ink";
+  hidden?: boolean;
 };
 
 export const PORTAL_SERVICES: PortalService[] = [
@@ -43,6 +44,7 @@ export const PORTAL_SERVICES: PortalService[] = [
     ],
     entitlementKey: "crm",
     accent: "ink",
+    hidden: true,
   },
   {
     slug: "ai-receptionist",

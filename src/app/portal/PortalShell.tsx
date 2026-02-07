@@ -163,7 +163,7 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
                   Services
                 </div>
                 <div className="mt-2 space-y-1">
-                  {PORTAL_SERVICES.map((s) => {
+                  {PORTAL_SERVICES.filter((s) => !s.hidden).map((s) => {
                     const unlocked = serviceUnlocked(s.entitlementKey);
                     return (
                       <Link
@@ -289,7 +289,7 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
                 </div>
               ) : null}
               <div className="mt-2 space-y-1">
-                {PORTAL_SERVICES.map((s) => {
+                {PORTAL_SERVICES.filter((s) => !s.hidden).map((s) => {
                   const unlocked = serviceUnlocked(s.entitlementKey);
                   return (
                     <Link

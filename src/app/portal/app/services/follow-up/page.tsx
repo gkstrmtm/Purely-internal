@@ -2,7 +2,6 @@ import { getServerSession } from "next-auth";
 import { redirect } from "next/navigation";
 
 import { authOptions } from "@/lib/auth";
-import { PortalFollowUpClient } from "@/app/portal/app/services/follow-up/PortalFollowUpClient";
 
 export default async function PortalFollowUpServicePage() {
   const session = await getServerSession(authOptions);
@@ -12,5 +11,5 @@ export default async function PortalFollowUpServicePage() {
     redirect("/app");
   }
 
-  return <PortalFollowUpClient />;
+  redirect("/portal/app/services/booking?tab=follow-up");
 }

@@ -3,6 +3,8 @@
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 
+import { PortalFollowUpClient } from "@/app/portal/app/services/follow-up/PortalFollowUpClient";
+
 type BookingFormConfig = {
   version: 1;
   thankYouMessage?: string;
@@ -217,7 +219,7 @@ export function PortalBookingClient() {
   const [calMonth, setCalMonth] = useState(() => startOfMonth(new Date()));
   const [calSelectedYmd, setCalSelectedYmd] = useState<string | null>(null);
 
-  const [topTab, setTopTab] = useState<"settings" | "appointments" | "reminders">("settings");
+  const [topTab, setTopTab] = useState<"settings" | "appointments" | "reminders" | "follow-up">("settings");
   const [appointmentsView, setAppointmentsView] = useState<"week" | "month">("week");
 
   const [contactOpen, setContactOpen] = useState(false);
@@ -249,6 +251,29 @@ export function PortalBookingClient() {
     if (!cal) return reminderEvents;
     return reminderEvents.filter((e) => e.calendarId === cal);
   }, [reminderEvents, reminderCalendarId]);
+
+  function setTopTabWithUrl(next: "settings" | "appointments" | "reminders" | "follow-up") {
+    setTopTab(next);
+    try {
+      const url = new URL(window.location.href);
+      if (next === "settings") url.searchParams.delete("tab");
+      else url.searchParams.set("tab", next);
+      window.history.replaceState({}, "", url.toString());
+    } catch {
+      // ignore
+    }
+  }
+
+  useEffect(() => {
+    try {
+      const tab = new URLSearchParams(window.location.search).get("tab");
+      if (tab === "appointments" || tab === "reminders" || tab === "follow-up") {
+        setTopTab(tab);
+      }
+    } catch {
+      // ignore
+    }
+  }, []);
 
   function maxValueForUnit(unit: AppointmentReminderSettings["steps"][number]["leadTime"]["unit"]) {
     if (unit === "weeks") return 2;
@@ -738,7 +763,7 @@ export function PortalBookingClient() {
               ? "rounded-2xl bg-zinc-900 px-4 py-2 text-sm font-semibold text-white"
               : "rounded-2xl px-4 py-2 text-sm font-semibold text-zinc-700 hover:bg-zinc-50"
           }
-          onClick={() => setTopTab("settings")}
+          onClick={() => setTopTabWithUrl("settings")}
         >
           Settings
         </button>
@@ -749,7 +774,7 @@ export function PortalBookingClient() {
               ? "rounded-2xl bg-zinc-900 px-4 py-2 text-sm font-semibold text-white"
               : "rounded-2xl px-4 py-2 text-sm font-semibold text-zinc-700 hover:bg-zinc-50"
           }
-          onClick={() => setTopTab("appointments")}
+          onClick={() => setTopTabWithUrl("appointments")}
         >
           Appointments
         </button>
@@ -760,9 +785,20 @@ export function PortalBookingClient() {
               ? "rounded-2xl bg-zinc-900 px-4 py-2 text-sm font-semibold text-white"
               : "rounded-2xl px-4 py-2 text-sm font-semibold text-zinc-700 hover:bg-zinc-50"
           }
-          onClick={() => setTopTab("reminders")}
+          onClick={() => setTopTabWithUrl("reminders")}
         >
           Reminders
+        </button>
+        <button
+          type="button"
+          className={
+            topTab === "follow-up"
+              ? "rounded-2xl bg-zinc-900 px-4 py-2 text-sm font-semibold text-white"
+              : "rounded-2xl px-4 py-2 text-sm font-semibold text-zinc-700 hover:bg-zinc-50"
+          }
+          onClick={() => setTopTabWithUrl("follow-up")}
+        >
+          Follow-up
         </button>
       </div>
 
@@ -1331,6 +1367,12 @@ export function PortalBookingClient() {
               )}
             </div>
           </div>
+        </div>
+      ) : null}
+
+      {topTab === "follow-up" ? (
+        <div className="mt-6">
+          <PortalFollowUpClient embedded />
         </div>
       ) : null}
 
