@@ -272,6 +272,7 @@ function ColorSwatches({
 
 export function PortalLeadScrapingClient() {
   const [tab, setTab] = useState<"b2b" | "b2c">("b2b");
+  const [b2bSubTab, setB2bSubTab] = useState<"pull" | "settings">("pull");
 
   const [leadOutboundEntitled, setLeadOutboundEntitled] = useState(false);
 
@@ -1218,535 +1219,566 @@ export function PortalLeadScrapingClient() {
       ) : null}
 
       {tab === "b2b" ? (
-        <div className="mt-6 grid grid-cols-1 gap-4 lg:grid-cols-3">
-          <div className="rounded-3xl border border-zinc-200 bg-white p-6 lg:col-span-2">
-            <div className="flex items-start justify-between gap-4">
-              <div>
-                <div className="text-base font-semibold text-brand-ink">B2B pulls</div>
-                <div className="mt-1 text-sm text-zinc-600">Search businesses by niche/keywords + location.</div>
-              </div>
-              <div className="text-right text-xs text-zinc-500">
-                Est. max cost per run: <span className="font-semibold text-zinc-900">{estimatedRunCost}</span> credits
-              </div>
-            </div>
+        <>
+          <div className="mt-6 flex flex-wrap gap-2">
+            <button
+              type="button"
+              onClick={() => setB2bSubTab("pull")}
+              className={
+                b2bSubTab === "pull"
+                  ? "rounded-full bg-brand-ink px-4 py-2 text-sm font-semibold text-white"
+                  : "rounded-full border border-zinc-200 bg-white px-4 py-2 text-sm font-semibold text-brand-ink hover:bg-zinc-50"
+              }
+            >
+              Pull
+            </button>
+            <button
+              type="button"
+              onClick={() => setB2bSubTab("settings")}
+              className={
+                b2bSubTab === "settings"
+                  ? "rounded-full bg-brand-ink px-4 py-2 text-sm font-semibold text-white"
+                  : "rounded-full border border-zinc-200 bg-white px-4 py-2 text-sm font-semibold text-brand-ink hover:bg-zinc-50"
+              }
+            >
+              Settings
+            </button>
+          </div>
 
-            {!placesConfigured ? (
-              <div className="mt-4 rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
-                Google Places is not configured in this environment (missing GOOGLE_PLACES_API_KEY / GOOGLE_MAPS_API_KEY).
-              </div>
-            ) : null}
-
-            <div className="mt-6 grid grid-cols-1 gap-4 sm:grid-cols-2">
-              <label className="block">
-                <div className="text-sm font-medium text-zinc-800">Niche / keywords</div>
-                <input
-                  className="mt-2 w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm"
-                  value={settings.b2b.niche}
-                  onChange={(e) =>
-                    setSettings((prev) =>
-                      prev
-                        ? {
-                            ...prev,
-                            b2b: {
-                              ...prev.b2b,
-                              niche: e.target.value,
-                            },
-                          }
-                        : prev,
-                    )
-                  }
-                  placeholder="e.g. Roofing, Med Spa, Dentist"
-                />
-
-                <div className="mt-3">
-                  <div className="text-xs font-semibold text-zinc-600">Fallback niches / keywords (one per line)</div>
-                  <textarea
-                    className="mt-2 min-h-[90px] w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm"
-                    value={(settings.b2b.fallbackNiches ?? []).join("\n")}
-                    onChange={(e) =>
-                      setSettings((prev) => {
-                        if (!prev) return prev;
-                        const next = e.target.value
-                          .split("\n")
-                          .map((x) => x.trim())
-                          .filter(Boolean)
-                          .slice(0, 20);
-                        return {
-                          ...prev,
-                          b2b: {
-                            ...prev.b2b,
-                            fallbackNiches: next,
-                          },
-                        };
-                      })
-                    }
-                    placeholder="e.g. Roofing contractor\nRoofing company\nCommercial roofing"
-                    disabled={!Boolean(settings.b2b.fallbackEnabled)}
-                  />
-                  <div className="mt-1 text-xs text-zinc-500">
-                    If the main niche is too tight, we’ll keep trying these keywords (in your location + fallbacks) until we hit your requested count.
+          {b2bSubTab === "pull" ? (
+            <div className="mt-4 grid grid-cols-1 gap-4 lg:grid-cols-3">
+              <div className="rounded-3xl border border-zinc-200 bg-white p-6 lg:col-span-2">
+                <div className="flex items-start justify-between gap-4">
+                  <div>
+                    <div className="text-base font-semibold text-brand-ink">B2B pulls</div>
+                    <div className="mt-1 text-sm text-zinc-600">Search businesses by niche/keywords + location.</div>
+                  </div>
+                  <div className="text-right text-xs text-zinc-500">
+                    Est. max cost per run: <span className="font-semibold text-zinc-900">{estimatedRunCost}</span> credits
                   </div>
                 </div>
-              </label>
 
-              <label className="block">
-                <div className="text-sm font-medium text-zinc-800">Location</div>
-                <input
-                  className="mt-2 w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm"
-                  value={settings.b2b.location}
-                  onChange={(e) =>
-                    setSettings((prev) =>
-                      prev
-                        ? {
-                            ...prev,
-                            b2b: {
-                              ...prev.b2b,
-                              location: e.target.value,
-                            },
-                          }
-                        : prev,
-                    )
-                  }
-                  placeholder="e.g. Austin TX"
-                />
+                {!placesConfigured ? (
+                  <div className="mt-4 rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
+                    Google Places is not configured in this environment (missing GOOGLE_PLACES_API_KEY / GOOGLE_MAPS_API_KEY).
+                  </div>
+                ) : null}
 
-                <label className="mt-3 flex items-center justify-between gap-3 rounded-2xl border border-zinc-200 bg-zinc-50 px-4 py-3 text-sm">
-                  <span className="text-zinc-800">Use fallback locations to reach count</span>
-                  <input
-                    type="checkbox"
-                    checked={Boolean((settings.b2b as any).fallbackEnabled)}
-                    onChange={(e) =>
-                      setSettings((prev) =>
-                        prev
-                          ? {
+                <div className="mt-6 grid grid-cols-1 gap-4 sm:grid-cols-2">
+                  <label className="block">
+                    <div className="text-sm font-medium text-zinc-800">Niche / keywords</div>
+                    <input
+                      className="mt-2 w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm"
+                      value={settings.b2b.niche}
+                      onChange={(e) =>
+                        setSettings((prev) =>
+                          prev
+                            ? {
+                                ...prev,
+                                b2b: {
+                                  ...prev.b2b,
+                                  niche: e.target.value,
+                                },
+                              }
+                            : prev,
+                        )
+                      }
+                      placeholder="e.g. Roofing, Med Spa, Dentist"
+                    />
+
+                    <div className="mt-3">
+                      <div className="text-xs font-semibold text-zinc-600">Fallback niches / keywords (one per line)</div>
+                      <textarea
+                        className="mt-2 min-h-[90px] w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm"
+                        value={(settings.b2b.fallbackNiches ?? []).join("\n")}
+                        onChange={(e) =>
+                          setSettings((prev) => {
+                            if (!prev) return prev;
+                            const next = e.target.value
+                              .split("\n")
+                              .map((x) => x.trim())
+                              .filter(Boolean)
+                              .slice(0, 20);
+                            return {
                               ...prev,
                               b2b: {
                                 ...prev.b2b,
-                                fallbackEnabled: e.target.checked,
+                                fallbackNiches: next,
+                              },
+                            };
+                          })
+                        }
+                        placeholder="e.g. Roofing contractor\nRoofing company\nCommercial roofing"
+                        disabled={!Boolean(settings.b2b.fallbackEnabled)}
+                      />
+                      <div className="mt-1 text-xs text-zinc-500">
+                        If the main niche is too tight, we’ll keep trying these keywords (in your location + fallbacks) until we hit your requested count.
+                      </div>
+                    </div>
+                  </label>
+
+                  <label className="block">
+                    <div className="text-sm font-medium text-zinc-800">Location</div>
+                    <input
+                      className="mt-2 w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm"
+                      value={settings.b2b.location}
+                      onChange={(e) =>
+                        setSettings((prev) =>
+                          prev
+                            ? {
+                                ...prev,
+                                b2b: {
+                                  ...prev.b2b,
+                                  location: e.target.value,
+                                },
+                              }
+                            : prev,
+                        )
+                      }
+                      placeholder="e.g. Austin TX"
+                    />
+
+                    <label className="mt-3 flex items-center justify-between gap-3 rounded-2xl border border-zinc-200 bg-zinc-50 px-4 py-3 text-sm">
+                      <span className="text-zinc-800">Use fallbacks to reach count</span>
+                      <input
+                        type="checkbox"
+                        checked={Boolean((settings.b2b as any).fallbackEnabled)}
+                        onChange={(e) =>
+                          setSettings((prev) =>
+                            prev
+                              ? {
+                                  ...prev,
+                                  b2b: {
+                                    ...prev.b2b,
+                                    fallbackEnabled: e.target.checked,
+                                  } as any,
+                                }
+                              : prev,
+                          )
+                        }
+                      />
+                    </label>
+
+                    <div className="mt-3">
+                      <div className="text-xs font-semibold text-zinc-600">Fallback locations (one per line)</div>
+                      <textarea
+                        className="mt-2 min-h-[90px] w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm"
+                        value={((settings.b2b as any).fallbackLocations ?? []).join("\n")}
+                        onChange={(e) =>
+                          setSettings((prev) => {
+                            if (!prev) return prev;
+                            const next = e.target.value
+                              .split("\n")
+                              .map((x) => x.trim())
+                              .filter(Boolean)
+                              .slice(0, 20);
+                            return {
+                              ...prev,
+                              b2b: {
+                                ...prev.b2b,
+                                fallbackLocations: next,
                               } as any,
-                            }
-                          : prev,
-                      )
-                    }
-                  />
-                </label>
+                            };
+                          })
+                        }
+                        placeholder="e.g. Dallas TX\nSan Antonio TX"
+                      />
+                    </div>
+                  </label>
+
+                  <label className="block">
+                    <div className="text-sm font-medium text-zinc-800">Count</div>
+                    <input
+                      className="mt-2 w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm"
+                      type="number"
+                      min={1}
+                      max={500}
+                      value={settings.b2b.count}
+                      onChange={(e) =>
+                        setSettings((prev) =>
+                          prev
+                            ? {
+                                ...prev,
+                                b2b: {
+                                  ...prev.b2b,
+                                  count: clampInt(Number(e.target.value), 1, 500),
+                                },
+                              }
+                            : prev,
+                        )
+                      }
+                    />
+                    <div className="mt-1 text-xs text-zinc-500">Recommended: 60 or less per scrape.</div>
+                  </label>
+
+                  <div className="rounded-2xl border border-zinc-200 bg-zinc-50 p-4">
+                    <div className="text-sm font-medium text-zinc-800">Filters</div>
+                    <label className="mt-3 flex items-center justify-between gap-3 text-sm">
+                      <span className="text-zinc-700">Require email</span>
+                      <input
+                        type="checkbox"
+                        checked={settings.b2b.requireEmail}
+                        onChange={(e) =>
+                          setSettings((prev) =>
+                            prev ? { ...prev, b2b: { ...prev.b2b, requireEmail: e.target.checked } } : prev,
+                          )
+                        }
+                      />
+                    </label>
+                    <label className="mt-3 flex items-center justify-between gap-3 text-sm">
+                      <span className="text-zinc-700">Require phone</span>
+                      <input
+                        type="checkbox"
+                        checked={settings.b2b.requirePhone}
+                        onChange={(e) =>
+                          setSettings((prev) =>
+                            prev ? { ...prev, b2b: { ...prev.b2b, requirePhone: e.target.checked } } : prev,
+                          )
+                        }
+                      />
+                    </label>
+                    <label className="mt-2 flex items-center justify-between gap-3 text-sm">
+                      <span className="text-zinc-700">Require website</span>
+                      <input
+                        type="checkbox"
+                        checked={settings.b2b.requireWebsite}
+                        onChange={(e) =>
+                          setSettings((prev) =>
+                            prev ? { ...prev, b2b: { ...prev.b2b, requireWebsite: e.target.checked } } : prev,
+                          )
+                        }
+                      />
+                    </label>
+                  </div>
+                </div>
+
+                <div className="mt-6 flex flex-col gap-3 sm:flex-row sm:items-center">
+                  <button
+                    type="button"
+                    onClick={save}
+                    disabled={saving}
+                    className="inline-flex items-center justify-center rounded-2xl bg-brand-ink px-5 py-3 text-sm font-semibold text-white hover:opacity-95 disabled:opacity-60"
+                  >
+                    {saving ? "Saving…" : "Save"}
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={runB2bNow}
+                    disabled={running || !placesConfigured}
+                    className="inline-flex items-center justify-center rounded-2xl border border-zinc-200 bg-white px-5 py-3 text-sm font-semibold text-brand-ink hover:bg-zinc-50 disabled:opacity-60"
+                  >
+                    {running
+                      ? plannedBatchesUi > 1
+                        ? `Pulling ${plannedBatchesUi} batches…`
+                        : "Pulling…"
+                      : "Run now"}
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => downloadText(`leads_${new Date().toISOString().slice(0, 10)}.csv`, toCsv(leads))}
+                    disabled={!leads.length}
+                    className="inline-flex items-center justify-center rounded-2xl border border-zinc-200 bg-white px-5 py-3 text-sm font-semibold text-brand-ink hover:bg-zinc-50 disabled:opacity-60"
+                  >
+                    Export CSV
+                  </button>
+
+                  <div className="text-xs text-zinc-500 sm:ml-auto">
+                    {leads.length} lead{leads.length === 1 ? "" : "s"} shown
+                  </div>
+                </div>
+              </div>
+
+              <div className="flex flex-col rounded-3xl border border-zinc-200 bg-white p-6 lg:sticky lg:top-8 lg:h-[calc(100vh-4rem)]">
+                <div className="flex items-start justify-between gap-4">
+                  <div>
+                    <div className="text-sm font-semibold text-zinc-900">Leads</div>
+                    <div className="mt-1 text-xs text-zinc-500">
+                      {typeof leadTotalCount === "number" ? (
+                        leadQueryDebounced
+                          ? `Showing ${leads.length} of ${leadMatchedCount ?? leads.length} matched • ${leadTotalCount} total`
+                          : `${leadTotalCount} total`
+                      ) : (
+                        `${leads.length} loaded`
+                      )}
+                      {typeof leadTotalCount === "number" && leadTotalCount > leadsTake ? ` • Loaded first ${leadsTake}` : ""}
+                    </div>
+                  </div>
+                </div>
 
                 <div className="mt-3">
-                  <div className="text-xs font-semibold text-zinc-600">Fallback locations (one per line)</div>
-                  <textarea
-                    className="mt-2 min-h-[90px] w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm"
-                    value={((settings.b2b as any).fallbackLocations ?? []).join("\n")}
-                    onChange={(e) =>
-                      setSettings((prev) => {
-                        if (!prev) return prev;
-                        const next = e.target.value
-                          .split("\n")
-                          .map((x) => x.trim())
-                          .filter(Boolean)
-                          .slice(0, 20);
-                        return {
-                          ...prev,
-                          b2b: {
-                            ...prev.b2b,
-                            fallbackLocations: next,
-                          } as any,
-                        };
-                      })
-                    }
-                    placeholder="e.g. Dallas TX\nSan Antonio TX"
+                  <input
+                    className="w-full rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm"
+                    value={leadQuery}
+                    onChange={(e) => setLeadQuery(e.target.value)}
+                    placeholder="Search leads (name, email, phone, website, address, niche…)"
                   />
-                  <div className="mt-1 text-xs text-zinc-500">
-                    If we can’t find enough leads in your main location, we’ll keep going in these locations until we hit your requested count.
-                  </div>
                 </div>
-              </label>
 
-              <label className="block">
-                <div className="text-sm font-medium text-zinc-800">Count</div>
-                <input
-                  className="mt-2 w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm"
-                  type="number"
-                  min={1}
-                  max={500}
-                  value={settings.b2b.count}
-                  onChange={(e) =>
-                    setSettings((prev) =>
-                      prev
-                        ? {
-                            ...prev,
-                            b2b: {
-                              ...prev.b2b,
-                              count: clampInt(Number(e.target.value), 1, 500),
-                            },
-                          }
-                        : prev,
-                    )
-                  }
-                />
-                <div className="mt-1 text-xs text-zinc-500">
-                  Recommended: 60 or less per scrape.
+                <div className="mt-3 max-h-[70vh] min-h-[240px] space-y-3 overflow-y-auto pr-2 lg:max-h-none lg:min-h-0 lg:flex-1">
+                  {leads.length ? (
+                    leads.map((l, idx) => (
+                      <button
+                        key={l.id}
+                        type="button"
+                        onClick={() => openLeadAtIndex(idx)}
+                        className="w-full rounded-2xl border border-zinc-200 p-3 text-left hover:bg-zinc-50"
+                      >
+                        <div className="flex items-start justify-between gap-3">
+                          <div className="min-w-0">
+                            <div className="text-sm font-semibold text-brand-ink">
+                              {l.starred ? <span className="mr-1 text-amber-500">★</span> : null}
+                              {l.businessName}
+                            </div>
+                          </div>
+                          {l.tag ? (
+                            <span
+                              className={`shrink-0 rounded-full px-2 py-0.5 text-[11px] font-semibold ${pickTagTextColor(
+                                isHexColor(l.tagColor || "") ? (l.tagColor as string) : "#111827",
+                              )}`}
+                              style={{
+                                backgroundColor: isHexColor(l.tagColor || "") ? (l.tagColor as string) : "#111827",
+                              }}
+                            >
+                              {l.tag}
+                            </span>
+                          ) : null}
+                        </div>
+                        <div className="mt-1 flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1 text-xs text-zinc-600">
+                          {l.phone ? <span className="whitespace-nowrap">{l.phone}</span> : null}
+                          {l.phone && l.website ? <span>•</span> : null}
+                          {l.website ? <span className="min-w-0 max-w-full truncate">{l.website}</span> : null}
+                        </div>
+                        <div className="mt-1 text-xs text-zinc-600">{[l.niche, l.address].filter(Boolean).join(" • ")}</div>
+                        <div className="mt-1 text-[11px] text-zinc-500">{safeFormatDateTime(l.createdAtIso)}</div>
+                      </button>
+                    ))
+                  ) : (
+                    <div className="rounded-2xl border border-dashed border-zinc-200 p-4 text-sm text-zinc-600">
+                      No leads yet. Run your first pull.
+                    </div>
+                  )}
                 </div>
-              </label>
-
-              <div className="rounded-2xl border border-zinc-200 bg-zinc-50 p-4">
-                <div className="text-sm font-medium text-zinc-800">Filters</div>
-                <label className="mt-3 flex items-center justify-between gap-3 text-sm">
-                  <span className="text-zinc-700">Require email</span>
-                  <input
-                    type="checkbox"
-                    checked={settings.b2b.requireEmail}
-                    onChange={(e) =>
-                      setSettings((prev) =>
-                        prev ? { ...prev, b2b: { ...prev.b2b, requireEmail: e.target.checked } } : prev,
-                      )
-                    }
-                  />
-                </label>
-                <label className="mt-3 flex items-center justify-between gap-3 text-sm">
-                  <span className="text-zinc-700">Require phone</span>
-                  <input
-                    type="checkbox"
-                    checked={settings.b2b.requirePhone}
-                    onChange={(e) =>
-                      setSettings((prev) =>
-                        prev
-                          ? { ...prev, b2b: { ...prev.b2b, requirePhone: e.target.checked } }
-                          : prev,
-                      )
-                    }
-                  />
-                </label>
-                <label className="mt-2 flex items-center justify-between gap-3 text-sm">
-                  <span className="text-zinc-700">Require website</span>
-                  <input
-                    type="checkbox"
-                    checked={settings.b2b.requireWebsite}
-                    onChange={(e) =>
-                      setSettings((prev) =>
-                        prev
-                          ? { ...prev, b2b: { ...prev.b2b, requireWebsite: e.target.checked } }
-                          : prev,
-                      )
-                    }
-                  />
-                </label>
               </div>
             </div>
-
-            <div className="mt-6 rounded-3xl border border-zinc-200 bg-zinc-50 p-6">
-              <div className="flex items-start justify-between gap-4">
-                <div>
-                  <div className="text-sm font-semibold text-zinc-900">Tag presets</div>
-                  <div className="mt-1 text-sm text-zinc-600">
-                    These show up as quick-pick tags when you open a lead.
-                  </div>
-                </div>
-                <button
-                  type="button"
-                  onClick={() =>
-                    setSettings((prev) => {
-                      if (!prev) return prev;
-                      const next = coerceTagPresetsForEditing(prev.tagPresets);
-                      if (next.length >= 10) return prev;
-                      return {
-                        ...prev,
-                        tagPresets: [...next, { label: "", color: "#111827" }].slice(0, 10),
-                      };
-                    })
-                  }
-                  className="shrink-0 rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm font-semibold text-brand-ink hover:bg-zinc-50"
-                >
-                  + Add
-                </button>
+          ) : (
+            <div className="mt-4 rounded-3xl border border-zinc-200 bg-white p-6">
+              <div className="text-base font-semibold text-brand-ink">B2B settings</div>
+              <div className="mt-1 text-sm text-zinc-600">
+                Manage tags, exclusions, scheduling, and auto-outbound.
               </div>
 
-              <div className="mt-4 space-y-3">
-                {coerceTagPresetsForEditing(settings.tagPresets).map((p, idx) => (
-                  <div key={`${p.label}-${idx}`} className="rounded-2xl border border-zinc-200 bg-white p-4">
-                    <div className="grid grid-cols-1 gap-3 sm:grid-cols-6 sm:items-center">
-                      <label className="block sm:col-span-3">
-                        <div className="text-xs font-semibold text-zinc-600">Label</div>
-                        <input
-                          className="mt-1 w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm"
-                          value={p.label}
-                          onChange={(e) =>
-                            setSettings((prev) => {
-                              if (!prev) return prev;
-                              const base = coerceTagPresetsForEditing(prev.tagPresets);
-                              const next = base.map((x, i) => (i === idx ? { ...x, label: e.target.value } : x));
-                              return { ...prev, tagPresets: next };
-                            })
-                          }
-                          placeholder="e.g. New"
-                        />
-                      </label>
+              <div className="mt-6 rounded-3xl border border-zinc-200 bg-zinc-50 p-6">
+                <div className="flex items-start justify-between gap-4">
+                  <div>
+                    <div className="text-sm font-semibold text-zinc-900">Tag presets</div>
+                    <div className="mt-1 text-sm text-zinc-600">These show up as quick-pick tags when you open a lead.</div>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() =>
+                      setSettings((prev) => {
+                        if (!prev) return prev;
+                        const next = coerceTagPresetsForEditing(prev.tagPresets);
+                        if (next.length >= 10) return prev;
+                        return { ...prev, tagPresets: [...next, { label: "", color: "#111827" }].slice(0, 10) };
+                      })
+                    }
+                    className="shrink-0 rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm font-semibold text-brand-ink hover:bg-zinc-50"
+                  >
+                    + Add
+                  </button>
+                </div>
 
-                      <div className="sm:col-span-2">
-                        <div className="text-xs font-semibold text-zinc-600">Color</div>
-                        <div className="mt-2">
-                          <ColorSwatches
-                            value={p.color}
-                            onChange={(hex) =>
+                <div className="mt-4 space-y-3">
+                  {coerceTagPresetsForEditing(settings.tagPresets).map((p, idx) => (
+                    <div key={`${p.label}-${idx}`} className="rounded-2xl border border-zinc-200 bg-white p-4">
+                      <div className="grid grid-cols-1 gap-3 sm:grid-cols-6 sm:items-center">
+                        <label className="block sm:col-span-3">
+                          <div className="text-xs font-semibold text-zinc-600">Label</div>
+                          <input
+                            className="mt-1 w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm"
+                            value={p.label}
+                            onChange={(e) =>
                               setSettings((prev) => {
                                 if (!prev) return prev;
                                 const base = coerceTagPresetsForEditing(prev.tagPresets);
-                                const next = base.map((x, i) => (i === idx ? { ...x, color: hex } : x));
+                                const next = base.map((x, i) => (i === idx ? { ...x, label: e.target.value } : x));
                                 return { ...prev, tagPresets: next };
                               })
                             }
+                            placeholder="e.g. New"
                           />
+                        </label>
+
+                        <div className="sm:col-span-2">
+                          <div className="text-xs font-semibold text-zinc-600">Color</div>
+                          <div className="mt-2">
+                            <ColorSwatches
+                              value={p.color}
+                              onChange={(hex) =>
+                                setSettings((prev) => {
+                                  if (!prev) return prev;
+                                  const base = coerceTagPresetsForEditing(prev.tagPresets);
+                                  const next = base.map((x, i) => (i === idx ? { ...x, color: hex } : x));
+                                  return { ...prev, tagPresets: next };
+                                })
+                              }
+                            />
+                          </div>
                         </div>
-                      </div>
 
-                      <button
-                        type="button"
-                        onClick={() =>
-                          setSettings((prev) => {
-                            if (!prev) return prev;
-                            const base = coerceTagPresetsForEditing(prev.tagPresets);
-                            const next = base.filter((_, i) => i !== idx);
-                            return { ...prev, tagPresets: next };
-                          })
-                        }
-                        className="sm:col-span-1 rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm font-semibold text-zinc-700 hover:bg-zinc-50"
-                      >
-                        Remove
-                      </button>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            </div>
-
-            <div className="mt-6 grid grid-cols-1 gap-4 sm:grid-cols-3">
-              <label className="block">
-                <div className="text-sm font-medium text-zinc-800">Exclude business names (one per line)</div>
-                <textarea
-                  className="mt-2 min-h-[110px] w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm"
-                  value={settings.b2b.excludeNameContains.join("\n")}
-                  onChange={(e) =>
-                    setSettings((prev) => {
-                      if (!prev) return prev;
-                      const next = e.target.value
-                        .split("\n")
-                        .map((x) => x.trim())
-                        .filter(Boolean)
-                        .slice(0, 200);
-                      return { ...prev, b2b: { ...prev.b2b, excludeNameContains: next } };
-                    })
-                  }
-                  placeholder="e.g. walmart\nverizon"
-                />
-              </label>
-
-              <label className="block">
-                <div className="text-sm font-medium text-zinc-800">Exclude domains (one per line)</div>
-                <textarea
-                  className="mt-2 min-h-[110px] w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm"
-                  value={settings.b2b.excludeDomains.join("\n")}
-                  onChange={(e) =>
-                    setSettings((prev) => {
-                      if (!prev) return prev;
-                      const next = e.target.value
-                        .split("\n")
-                        .map((x) => x.trim().toLowerCase())
-                        .filter(Boolean)
-                        .slice(0, 200);
-                      return { ...prev, b2b: { ...prev.b2b, excludeDomains: next } };
-                    })
-                  }
-                  placeholder="e.g. yelp.com\nfacebook.com"
-                />
-              </label>
-
-              <label className="block">
-                <div className="text-sm font-medium text-zinc-800">Exclude phones (one per line)</div>
-                <textarea
-                  className="mt-2 min-h-[110px] w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm"
-                  value={settings.b2b.excludePhones.join("\n")}
-                  onChange={(e) =>
-                    setSettings((prev) => {
-                      if (!prev) return prev;
-                      const next = e.target.value
-                        .split("\n")
-                        .map((x) => x.trim())
-                        .filter(Boolean)
-                        .slice(0, 200);
-                      return { ...prev, b2b: { ...prev.b2b, excludePhones: next } };
-                    })
-                  }
-                  placeholder="e.g. +15551234567"
-                />
-              </label>
-            </div>
-
-            <div className="mt-6 rounded-3xl border border-zinc-200 bg-zinc-50 p-6">
-              <div className="flex items-start justify-between gap-4">
-                <div>
-                  <div className="text-sm font-semibold text-zinc-900">Scheduling</div>
-                  <div className="mt-1 text-sm text-zinc-600">
-                    Runs via a secure cron endpoint (server-side). You can still run manually any time.
-                  </div>
-                </div>
-              </div>
-
-              <div className="mt-4 grid grid-cols-1 gap-4 sm:grid-cols-3">
-                <label className="flex items-center justify-between gap-3 rounded-2xl border border-zinc-200 bg-white px-4 py-3 text-sm">
-                  <span className="text-zinc-800">Enabled</span>
-                  <input
-                    type="checkbox"
-                    checked={settings.b2b.scheduleEnabled}
-                    onChange={(e) =>
-                      setSettings((prev) =>
-                        prev
-                          ? { ...prev, b2b: { ...prev.b2b, scheduleEnabled: e.target.checked } }
-                          : prev,
-                      )
-                    }
-                  />
-                </label>
-
-                <label className="block sm:col-span-2">
-                  <div className="text-sm font-medium text-zinc-800">Frequency (days)</div>
-                  <input
-                    className="mt-2 w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm"
-                    type="number"
-                    min={1}
-                    max={60}
-                    value={settings.b2b.frequencyDays}
-                    onChange={(e) =>
-                      setSettings((prev) =>
-                        prev
-                          ? {
-                              ...prev,
-                              b2b: {
-                                ...prev.b2b,
-                                frequencyDays: clampInt(Number(e.target.value), 1, 60),
-                              },
-                            }
-                          : prev,
-                      )
-                    }
-                  />
-                  <div className="mt-1 text-xs text-zinc-500">
-                    Last run: {settings.b2b.lastRunAtIso ? new Date(settings.b2b.lastRunAtIso).toLocaleString() : "Never"}
-                  </div>
-                </label>
-              </div>
-            </div>
-
-            {renderOutboundEditor()}
-
-            <div className="mt-6 flex flex-col gap-3 sm:flex-row sm:items-center">
-              <button
-                type="button"
-                onClick={save}
-                disabled={saving}
-                className="inline-flex items-center justify-center rounded-2xl bg-brand-ink px-5 py-3 text-sm font-semibold text-white hover:opacity-95 disabled:opacity-60"
-              >
-                {saving ? "Saving…" : "Save"}
-              </button>
-
-              <button
-                type="button"
-                onClick={runB2bNow}
-                disabled={running || !placesConfigured}
-                className="inline-flex items-center justify-center rounded-2xl border border-zinc-200 bg-white px-5 py-3 text-sm font-semibold text-brand-ink hover:bg-zinc-50 disabled:opacity-60"
-              >
-                {running
-                  ? plannedBatchesUi > 1
-                    ? `Pulling ${plannedBatchesUi} batches…`
-                    : "Pulling…"
-                  : "Run now"}
-              </button>
-
-              <button
-                type="button"
-                onClick={() => downloadText(`leads_${new Date().toISOString().slice(0, 10)}.csv`, toCsv(leads))}
-                disabled={!leads.length}
-                className="inline-flex items-center justify-center rounded-2xl border border-zinc-200 bg-white px-5 py-3 text-sm font-semibold text-brand-ink hover:bg-zinc-50 disabled:opacity-60"
-              >
-                Export CSV
-              </button>
-
-              <div className="text-xs text-zinc-500 sm:ml-auto">
-                {leads.length} lead{leads.length === 1 ? "" : "s"} shown
-              </div>
-            </div>
-          </div>
-
-          <div className="flex flex-col rounded-3xl border border-zinc-200 bg-white p-6 lg:sticky lg:top-8 lg:h-[calc(100vh-4rem)]">
-            <div className="flex items-start justify-between gap-4">
-              <div>
-                <div className="text-sm font-semibold text-zinc-900">Leads</div>
-                <div className="mt-1 text-xs text-zinc-500">
-                  {typeof leadTotalCount === "number" ? (
-                    leadQueryDebounced
-                      ? `Showing ${leads.length} of ${leadMatchedCount ?? leads.length} matched • ${leadTotalCount} total`
-                      : `${leadTotalCount} total`
-                  ) : (
-                    `${leads.length} loaded`
-                  )}
-                  {typeof leadTotalCount === "number" && leadTotalCount > leadsTake ? ` • Loaded first ${leadsTake}` : ""}
-                </div>
-              </div>
-            </div>
-
-            <div className="mt-3">
-              <input
-                className="w-full rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm"
-                value={leadQuery}
-                onChange={(e) => setLeadQuery(e.target.value)}
-                placeholder="Search leads (name, email, phone, website, address, niche…)"
-              />
-            </div>
-
-            <div className="mt-3 max-h-[70vh] min-h-[240px] space-y-3 overflow-y-auto pr-2 lg:max-h-none lg:min-h-0 lg:flex-1">
-              {leads.length ? (
-                leads.map((l, idx) => (
-                  <button
-                    key={l.id}
-                    type="button"
-                    onClick={() => openLeadAtIndex(idx)}
-                    className="w-full rounded-2xl border border-zinc-200 p-3 text-left hover:bg-zinc-50"
-                  >
-                    <div className="flex items-start justify-between gap-3">
-                      <div className="min-w-0">
-                        <div className="text-sm font-semibold text-brand-ink">
-                          {l.starred ? <span className="mr-1 text-amber-500">★</span> : null}
-                          {l.businessName}
-                        </div>
-                      </div>
-                      {l.tag ? (
-                        <span
-                          className={`shrink-0 rounded-full px-2 py-0.5 text-[11px] font-semibold ${pickTagTextColor(
-                            isHexColor(l.tagColor || "") ? (l.tagColor as string) : "#111827",
-                          )}`}
-                          style={{
-                            backgroundColor: isHexColor(l.tagColor || "") ? (l.tagColor as string) : "#111827",
-                          }}
+                        <button
+                          type="button"
+                          onClick={() =>
+                            setSettings((prev) => {
+                              if (!prev) return prev;
+                              const base = coerceTagPresetsForEditing(prev.tagPresets);
+                              const next = base.filter((_, i) => i !== idx);
+                              return { ...prev, tagPresets: next };
+                            })
+                          }
+                          className="sm:col-span-1 rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm font-semibold text-zinc-700 hover:bg-zinc-50"
                         >
-                          {l.tag}
-                        </span>
-                      ) : null}
+                          Remove
+                        </button>
+                      </div>
                     </div>
-                    <div className="mt-1 flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1 text-xs text-zinc-600">
-                      {l.phone ? <span className="whitespace-nowrap">{l.phone}</span> : null}
-                      {l.phone && l.website ? <span>•</span> : null}
-                      {l.website ? <span className="min-w-0 max-w-full truncate">{l.website}</span> : null}
-                    </div>
-                    <div className="mt-1 text-xs text-zinc-600">{[l.niche, l.address].filter(Boolean).join(" • ")}</div>
-                    <div className="mt-1 text-[11px] text-zinc-500">{safeFormatDateTime(l.createdAtIso)}</div>
-                  </button>
-                ))
-              ) : (
-                <div className="rounded-2xl border border-dashed border-zinc-200 p-4 text-sm text-zinc-600">
-                  No leads yet. Run your first pull.
+                  ))}
                 </div>
-              )}
+              </div>
+
+              <div className="mt-6 grid grid-cols-1 gap-4 sm:grid-cols-3">
+                <label className="block">
+                  <div className="text-sm font-medium text-zinc-800">Exclude business names (one per line)</div>
+                  <textarea
+                    className="mt-2 min-h-[110px] w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm"
+                    value={settings.b2b.excludeNameContains.join("\n")}
+                    onChange={(e) =>
+                      setSettings((prev) => {
+                        if (!prev) return prev;
+                        const next = e.target.value
+                          .split("\n")
+                          .map((x) => x.trim())
+                          .filter(Boolean)
+                          .slice(0, 200);
+                        return { ...prev, b2b: { ...prev.b2b, excludeNameContains: next } };
+                      })
+                    }
+                    placeholder="e.g. walmart\nverizon"
+                  />
+                </label>
+
+                <label className="block">
+                  <div className="text-sm font-medium text-zinc-800">Exclude domains (one per line)</div>
+                  <textarea
+                    className="mt-2 min-h-[110px] w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm"
+                    value={settings.b2b.excludeDomains.join("\n")}
+                    onChange={(e) =>
+                      setSettings((prev) => {
+                        if (!prev) return prev;
+                        const next = e.target.value
+                          .split("\n")
+                          .map((x) => x.trim().toLowerCase())
+                          .filter(Boolean)
+                          .slice(0, 200);
+                        return { ...prev, b2b: { ...prev.b2b, excludeDomains: next } };
+                      })
+                    }
+                    placeholder="e.g. yelp.com\nfacebook.com"
+                  />
+                </label>
+
+                <label className="block">
+                  <div className="text-sm font-medium text-zinc-800">Exclude phones (one per line)</div>
+                  <textarea
+                    className="mt-2 min-h-[110px] w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm"
+                    value={settings.b2b.excludePhones.join("\n")}
+                    onChange={(e) =>
+                      setSettings((prev) => {
+                        if (!prev) return prev;
+                        const next = e.target.value
+                          .split("\n")
+                          .map((x) => x.trim())
+                          .filter(Boolean)
+                          .slice(0, 200);
+                        return { ...prev, b2b: { ...prev.b2b, excludePhones: next } };
+                      })
+                    }
+                    placeholder="e.g. +15551234567"
+                  />
+                </label>
+              </div>
+
+              <div className="mt-6 rounded-3xl border border-zinc-200 bg-zinc-50 p-6">
+                <div className="flex items-start justify-between gap-4">
+                  <div>
+                    <div className="text-sm font-semibold text-zinc-900">Scheduling</div>
+                    <div className="mt-1 text-sm text-zinc-600">
+                      Runs via a secure cron endpoint (server-side). You can still run manually any time.
+                    </div>
+                  </div>
+                </div>
+
+                <div className="mt-4 grid grid-cols-1 gap-4 sm:grid-cols-3">
+                  <label className="flex items-center justify-between gap-3 rounded-2xl border border-zinc-200 bg-white px-4 py-3 text-sm">
+                    <span className="text-zinc-800">Enabled</span>
+                    <input
+                      type="checkbox"
+                      checked={settings.b2b.scheduleEnabled}
+                      onChange={(e) =>
+                        setSettings((prev) =>
+                          prev ? { ...prev, b2b: { ...prev.b2b, scheduleEnabled: e.target.checked } } : prev,
+                        )
+                      }
+                    />
+                  </label>
+
+                  <label className="block sm:col-span-2">
+                    <div className="text-sm font-medium text-zinc-800">Frequency (days)</div>
+                    <input
+                      className="mt-2 w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm"
+                      type="number"
+                      min={1}
+                      max={60}
+                      value={settings.b2b.frequencyDays}
+                      onChange={(e) =>
+                        setSettings((prev) =>
+                          prev
+                            ? {
+                                ...prev,
+                                b2b: {
+                                  ...prev.b2b,
+                                  frequencyDays: clampInt(Number(e.target.value), 1, 60),
+                                },
+                              }
+                            : prev,
+                        )
+                      }
+                    />
+                    <div className="mt-1 text-xs text-zinc-500">
+                      Last run: {settings.b2b.lastRunAtIso ? new Date(settings.b2b.lastRunAtIso).toLocaleString() : "Never"}
+                    </div>
+                  </label>
+                </div>
+              </div>
+
+              {renderOutboundEditor()}
+
+              <div className="mt-6 flex flex-col gap-3 sm:flex-row">
+                <button
+                  type="button"
+                  onClick={save}
+                  disabled={saving}
+                  className="inline-flex items-center justify-center rounded-2xl bg-brand-ink px-5 py-3 text-sm font-semibold text-white hover:opacity-95 disabled:opacity-60"
+                >
+                  {saving ? "Saving…" : "Save"}
+                </button>
+              </div>
             </div>
-          </div>
-        </div>
+          )}
+        </>
       ) : (
         <div className="mt-6 rounded-3xl border border-zinc-200 bg-white p-6">
           <div className="text-base font-semibold text-brand-ink">B2C (Consumer leads)</div>
