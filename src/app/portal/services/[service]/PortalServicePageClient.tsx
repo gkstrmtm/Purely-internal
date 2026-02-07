@@ -205,6 +205,26 @@ export function PortalServicePageClient({ slug }: { slug: string }) {
                 </Link>
               </div>
             </div>
+          ) : slug === "lead-scraping" ? (
+            <div className="mt-3">
+              <div className="text-sm text-zinc-600">
+                Pull fresh leads from business directories with exclusions, de-dupe, and scheduling.
+              </div>
+              <div className="mt-5 flex flex-col gap-3 sm:flex-row">
+                <Link
+                  href="/portal/app/services/lead-scraping"
+                  className="inline-flex items-center justify-center rounded-2xl bg-brand-ink px-5 py-3 text-sm font-semibold text-white hover:opacity-95"
+                >
+                  Open Lead Scraping
+                </Link>
+                <Link
+                  href="/portal/app/billing"
+                  className="inline-flex items-center justify-center rounded-2xl border border-zinc-200 bg-white px-5 py-3 text-sm font-semibold text-brand-ink hover:bg-zinc-50"
+                >
+                  Billing
+                </Link>
+              </div>
+            </div>
           ) : (
             <div className="mt-3">
               <div className="text-sm text-zinc-600">

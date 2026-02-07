@@ -96,6 +96,69 @@ model User {
   portalReviewQuestions PortalReviewQuestion[]
   portalReviewPhotos PortalReviewPhoto[]
   portalContacts PortalContact[]
+
+  portalLeadScrapeRuns  PortalLeadScrapeRun[]
+  portalLeads           PortalLead[]
+}
+
+enum PortalLeadScrapeKind {
+  B2B
+  B2C
+}
+
+enum PortalLeadSource {
+  GOOGLE_PLACES
+}
+
+model PortalLeadScrapeRun {
+  id String @id @default(cuid())
+
+  ownerId String
+  kind    PortalLeadScrapeKind
+
+  requestedCount Int @default(0)
+  createdCount   Int @default(0)
+
+  chargedCredits  Int @default(0)
+  refundedCredits Int @default(0)
+
+  settingsJson Json?
+  error        String?
+
+  createdAt DateTime @default(now())
+
+  owner User @relation(fields: [ownerId], references: [id])
+
+  @@index([ownerId, createdAt])
+  @@index([ownerId, kind, createdAt])
+}
+
+model PortalLead {
+  id String @id @default(cuid())
+
+  ownerId String
+
+  source PortalLeadSource @default(GOOGLE_PLACES)
+  kind   PortalLeadScrapeKind @default(B2B)
+
+  businessName String
+
+  phone   String?
+  website String?
+  address String?
+  niche   String?
+
+  placeId String?
+  dataJson Json?
+
+  createdAt DateTime @default(now())
+
+  owner User @relation(fields: [ownerId], references: [id])
+
+  @@unique([ownerId, placeId])
+  @@unique([ownerId, phone])
+  @@index([ownerId, createdAt])
+  @@index([ownerId, kind, createdAt])
 }
 
 model PortalContact {

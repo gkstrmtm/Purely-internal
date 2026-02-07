@@ -78,6 +78,18 @@ export const PORTAL_SERVICES: PortalService[] = [
     accent: "coral",
   },
   {
+    slug: "lead-scraping",
+    title: "Lead Scraping",
+    description: "Pull fresh leads with exclusions and usage-based credits.",
+    highlights: [
+      "Search by niche and location",
+      "Exclude lists + de-dupe against past pulls",
+      "Schedule recurring pulls",
+    ],
+    entitlementKey: "crm",
+    accent: "ink",
+  },
+  {
     slug: "reporting",
     title: "Reporting",
     description: "Visibility into what’s live and what’s saving time.",
