@@ -1169,6 +1169,11 @@ export function PortalLeadScrapingClient() {
     );
   }
 
+  const b2bSubTabButtonClass = (active: boolean) =>
+    active
+      ? "relative z-10 rounded-t-2xl border border-zinc-200 border-b-white bg-white px-4 py-2 text-sm font-semibold text-brand-ink"
+      : "relative z-10 rounded-t-2xl border border-zinc-200 bg-zinc-100 px-4 py-2 text-sm font-semibold text-zinc-600 hover:bg-zinc-200";
+
   return (
     <div className="mx-auto w-full max-w-6xl px-4 sm:px-6">
       <div className="flex flex-col items-start justify-between gap-3 sm:flex-row sm:items-end">
@@ -1220,35 +1225,34 @@ export function PortalLeadScrapingClient() {
 
       {tab === "b2b" ? (
         <>
-          <div className="mt-6 flex flex-wrap gap-2">
-            <button
-              type="button"
-              onClick={() => setB2bSubTab("pull")}
-              className={
-                b2bSubTab === "pull"
-                  ? "rounded-full bg-brand-ink px-4 py-2 text-sm font-semibold text-white"
-                  : "rounded-full border border-zinc-200 bg-white px-4 py-2 text-sm font-semibold text-brand-ink hover:bg-zinc-50"
-              }
-            >
-              Pull
-            </button>
-            <button
-              type="button"
-              onClick={() => setB2bSubTab("settings")}
-              className={
-                b2bSubTab === "settings"
-                  ? "rounded-full bg-brand-ink px-4 py-2 text-sm font-semibold text-white"
-                  : "rounded-full border border-zinc-200 bg-white px-4 py-2 text-sm font-semibold text-brand-ink hover:bg-zinc-50"
-              }
-            >
-              Settings
-            </button>
-          </div>
-
           {b2bSubTab === "pull" ? (
             <div className="mt-4 grid grid-cols-1 gap-4 lg:grid-cols-3">
-              <div className="rounded-3xl border border-zinc-200 bg-white p-6 lg:col-span-2">
-                <div className="flex items-start justify-between gap-4">
+              <div className="lg:col-span-2">
+                <div className="flex justify-end pr-2">
+                  <div className="-mb-px flex items-end gap-1" role="tablist" aria-label="B2B view">
+                    <button
+                      type="button"
+                      onClick={() => setB2bSubTab("pull")}
+                      className={b2bSubTabButtonClass(true)}
+                      role="tab"
+                      aria-selected={true}
+                    >
+                      Pull
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setB2bSubTab("settings")}
+                      className={b2bSubTabButtonClass(false)}
+                      role="tab"
+                      aria-selected={false}
+                    >
+                      Settings
+                    </button>
+                  </div>
+                </div>
+
+                <div className="rounded-3xl border border-zinc-200 bg-white p-6">
+                  <div className="flex items-start justify-between gap-4">
                   <div>
                     <div className="text-base font-semibold text-brand-ink">B2B pulls</div>
                     <div className="mt-1 text-sm text-zinc-600">Search businesses by niche/keywords + location.</div>
@@ -1489,6 +1493,7 @@ export function PortalLeadScrapingClient() {
                   </div>
                 </div>
               </div>
+              </div>
 
               <div className="flex flex-col rounded-3xl border border-zinc-200 bg-white p-6 lg:sticky lg:top-8 lg:h-[calc(100vh-4rem)]">
                 <div className="flex items-start justify-between gap-4">
@@ -1563,93 +1568,35 @@ export function PortalLeadScrapingClient() {
               </div>
             </div>
           ) : (
-            <div className="mt-4 rounded-3xl border border-zinc-200 bg-white p-6">
-              <div className="text-base font-semibold text-brand-ink">B2B settings</div>
-              <div className="mt-1 text-sm text-zinc-600">
-                Manage tags, exclusions, scheduling, and auto-outbound.
-              </div>
-
-              <div className="mt-6 rounded-3xl border border-zinc-200 bg-zinc-50 p-6">
-                <div className="flex items-start justify-between gap-4">
-                  <div>
-                    <div className="text-sm font-semibold text-zinc-900">Tag presets</div>
-                    <div className="mt-1 text-sm text-zinc-600">These show up as quick-pick tags when you open a lead.</div>
-                  </div>
+            <div className="mt-4">
+              <div className="flex justify-end pr-2">
+                <div className="-mb-px flex items-end gap-1" role="tablist" aria-label="B2B view">
                   <button
                     type="button"
-                    onClick={() =>
-                      setSettings((prev) => {
-                        if (!prev) return prev;
-                        const next = coerceTagPresetsForEditing(prev.tagPresets);
-                        if (next.length >= 10) return prev;
-                        return { ...prev, tagPresets: [...next, { label: "", color: "#111827" }].slice(0, 10) };
-                      })
-                    }
-                    className="shrink-0 rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm font-semibold text-brand-ink hover:bg-zinc-50"
+                    onClick={() => setB2bSubTab("pull")}
+                    className={b2bSubTabButtonClass(false)}
+                    role="tab"
+                    aria-selected={false}
                   >
-                    + Add
+                    Pull
                   </button>
-                </div>
-
-                <div className="mt-4 space-y-3">
-                  {coerceTagPresetsForEditing(settings.tagPresets).map((p, idx) => (
-                    <div key={`${p.label}-${idx}`} className="rounded-2xl border border-zinc-200 bg-white p-4">
-                      <div className="grid grid-cols-1 gap-3 sm:grid-cols-6 sm:items-center">
-                        <label className="block sm:col-span-3">
-                          <div className="text-xs font-semibold text-zinc-600">Label</div>
-                          <input
-                            className="mt-1 w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm"
-                            value={p.label}
-                            onChange={(e) =>
-                              setSettings((prev) => {
-                                if (!prev) return prev;
-                                const base = coerceTagPresetsForEditing(prev.tagPresets);
-                                const next = base.map((x, i) => (i === idx ? { ...x, label: e.target.value } : x));
-                                return { ...prev, tagPresets: next };
-                              })
-                            }
-                            placeholder="e.g. New"
-                          />
-                        </label>
-
-                        <div className="sm:col-span-2">
-                          <div className="text-xs font-semibold text-zinc-600">Color</div>
-                          <div className="mt-2">
-                            <ColorSwatches
-                              value={p.color}
-                              onChange={(hex) =>
-                                setSettings((prev) => {
-                                  if (!prev) return prev;
-                                  const base = coerceTagPresetsForEditing(prev.tagPresets);
-                                  const next = base.map((x, i) => (i === idx ? { ...x, color: hex } : x));
-                                  return { ...prev, tagPresets: next };
-                                })
-                              }
-                            />
-                          </div>
-                        </div>
-
-                        <button
-                          type="button"
-                          onClick={() =>
-                            setSettings((prev) => {
-                              if (!prev) return prev;
-                              const base = coerceTagPresetsForEditing(prev.tagPresets);
-                              const next = base.filter((_, i) => i !== idx);
-                              return { ...prev, tagPresets: next };
-                            })
-                          }
-                          className="sm:col-span-1 rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm font-semibold text-zinc-700 hover:bg-zinc-50"
-                        >
-                          Remove
-                        </button>
-                      </div>
-                    </div>
-                  ))}
+                  <button
+                    type="button"
+                    onClick={() => setB2bSubTab("settings")}
+                    className={b2bSubTabButtonClass(true)}
+                    role="tab"
+                    aria-selected={true}
+                  >
+                    Settings
+                  </button>
                 </div>
               </div>
 
-              <div className="mt-6 grid grid-cols-1 gap-4 sm:grid-cols-3">
+              <div className="rounded-3xl border border-zinc-200 bg-white p-6">
+                <div className="text-base font-semibold text-brand-ink">B2B settings</div>
+                <div className="mt-1 text-sm text-zinc-600">Manage exclusions, scheduling, and auto-outbound.</div>
+
+                <div className="mt-6 grid grid-cols-1 gap-4 sm:grid-cols-3">
                 <label className="block">
                   <div className="text-sm font-medium text-zinc-800">Exclude business names (one per line)</div>
                   <textarea
@@ -1711,7 +1658,7 @@ export function PortalLeadScrapingClient() {
                 </label>
               </div>
 
-              <div className="mt-6 rounded-3xl border border-zinc-200 bg-zinc-50 p-6">
+                <div className="mt-6 rounded-3xl border border-zinc-200 bg-zinc-50 p-6">
                 <div className="flex items-start justify-between gap-4">
                   <div>
                     <div className="text-sm font-semibold text-zinc-900">Scheduling</div>
@@ -1764,9 +1711,91 @@ export function PortalLeadScrapingClient() {
                 </div>
               </div>
 
-              {renderOutboundEditor()}
+                {renderOutboundEditor()}
 
-              <div className="mt-6 flex flex-col gap-3 sm:flex-row">
+                <div className="mt-6 rounded-3xl border border-zinc-200 bg-zinc-50 p-6">
+                  <div className="flex items-start justify-between gap-4">
+                    <div>
+                      <div className="text-sm font-semibold text-zinc-900">Tag presets</div>
+                      <div className="mt-1 text-sm text-zinc-600">
+                        These show up as quick-pick tags when you open a lead.
+                      </div>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() =>
+                        setSettings((prev) => {
+                          if (!prev) return prev;
+                          const next = coerceTagPresetsForEditing(prev.tagPresets);
+                          if (next.length >= 10) return prev;
+                          return { ...prev, tagPresets: [...next, { label: "", color: "#111827" }].slice(0, 10) };
+                        })
+                      }
+                      className="shrink-0 rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm font-semibold text-brand-ink hover:bg-zinc-50"
+                    >
+                      + Add
+                    </button>
+                  </div>
+
+                  <div className="mt-4 space-y-3">
+                    {coerceTagPresetsForEditing(settings.tagPresets).map((p, idx) => (
+                      <div key={`${p.label}-${idx}`} className="rounded-2xl border border-zinc-200 bg-white p-4">
+                        <div className="grid grid-cols-1 gap-3 sm:grid-cols-6 sm:items-center">
+                          <label className="block sm:col-span-3">
+                            <div className="text-xs font-semibold text-zinc-600">Label</div>
+                            <input
+                              className="mt-1 w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm"
+                              value={p.label}
+                              onChange={(e) =>
+                                setSettings((prev) => {
+                                  if (!prev) return prev;
+                                  const base = coerceTagPresetsForEditing(prev.tagPresets);
+                                  const next = base.map((x, i) => (i === idx ? { ...x, label: e.target.value } : x));
+                                  return { ...prev, tagPresets: next };
+                                })
+                              }
+                              placeholder="e.g. New"
+                            />
+                          </label>
+
+                          <div className="sm:col-span-2">
+                            <div className="text-xs font-semibold text-zinc-600">Color</div>
+                            <div className="mt-2">
+                              <ColorSwatches
+                                value={p.color}
+                                onChange={(hex) =>
+                                  setSettings((prev) => {
+                                    if (!prev) return prev;
+                                    const base = coerceTagPresetsForEditing(prev.tagPresets);
+                                    const next = base.map((x, i) => (i === idx ? { ...x, color: hex } : x));
+                                    return { ...prev, tagPresets: next };
+                                  })
+                                }
+                              />
+                            </div>
+                          </div>
+
+                          <button
+                            type="button"
+                            onClick={() =>
+                              setSettings((prev) => {
+                                if (!prev) return prev;
+                                const base = coerceTagPresetsForEditing(prev.tagPresets);
+                                const next = base.filter((_, i) => i !== idx);
+                                return { ...prev, tagPresets: next };
+                              })
+                            }
+                            className="sm:col-span-1 rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm font-semibold text-zinc-700 hover:bg-zinc-50"
+                          >
+                            Remove
+                          </button>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+
+                <div className="mt-6 flex flex-col gap-3 sm:flex-row">
                 <button
                   type="button"
                   onClick={save}
@@ -1775,6 +1804,7 @@ export function PortalLeadScrapingClient() {
                 >
                   {saving ? "Saving…" : "Save"}
                 </button>
+              </div>
               </div>
             </div>
           )}
