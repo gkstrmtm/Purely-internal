@@ -28,6 +28,11 @@ type DashboardWidgetId =
   | "creditsRemaining"
   | "creditsUsed"
   | "automationsRun"
+  | "successRate"
+  | "failures"
+  | "creditsRunway"
+  | "leadsCaptured"
+  | "reliabilitySummary"
   | "aiCalls"
   | "missedCalls"
   | "bookingsCreated"
@@ -36,7 +41,12 @@ type DashboardWidgetId =
   | "leadsCreated"
   | "contactsCreated"
   | "leadScrapeRuns"
-  | "dailyActivity";
+  | "dailyActivity"
+  | "perfAiReceptionist"
+  | "perfMissedCallTextBack"
+  | "perfLeadScraping"
+  | "perfReviews"
+  | "recommendedNext";
 
 type DashboardPayload = {
   ok: boolean;
@@ -50,6 +60,8 @@ type DashboardPayload = {
 
 type ReportingPayload = {
   ok: boolean;
+  startIso: string;
+  endIso: string;
   creditsRemaining: number;
   kpis: {
     automationsRun: number;
@@ -156,6 +168,23 @@ function AccentCard({
 function compactNum(n: number) {
   const v = typeof n === "number" && Number.isFinite(n) ? n : 0;
   return v.toLocaleString();
+}
+
+function formatPct(value: number | null) {
+  if (typeof value !== "number" || !Number.isFinite(value)) return "—";
+  return `${Math.round(value * 100)}%`;
+}
+
+function clampInt(n: number, min: number, max: number) {
+  return Math.max(min, Math.min(max, Math.floor(n)));
+}
+
+function daysBetweenIso(startIso: string, endIso: string) {
+  const start = new Date(startIso).getTime();
+  const end = new Date(endIso).getTime();
+  if (!Number.isFinite(start) || !Number.isFinite(end)) return 1;
+  const days = Math.round((end - start) / 86_400_000);
+  return clampInt(days || 1, 1, 3650);
 }
 
 function StatLine({ label, value }: { label: string; value: string }) {
@@ -359,6 +388,16 @@ export function PortalDashboardClient() {
         return "Credits used";
       case "automationsRun":
         return "Automations run";
+      case "successRate":
+        return "Success rate";
+      case "failures":
+        return "Failures";
+      case "creditsRunway":
+        return "Credits runway";
+      case "leadsCaptured":
+        return "Leads captured";
+      case "reliabilitySummary":
+        return "Reliability";
       case "aiCalls":
         return "AI calls";
       case "missedCalls":
@@ -377,6 +416,16 @@ export function PortalDashboardClient() {
         return "Lead scraping runs";
       case "dailyActivity":
         return "Daily activity";
+      case "perfAiReceptionist":
+        return "AI Receptionist performance";
+      case "perfMissedCallTextBack":
+        return "Missed-call Text Back performance";
+      case "perfLeadScraping":
+        return "Lead Scraping performance";
+      case "perfReviews":
+        return "Review Requests performance";
+      case "recommendedNext":
+        return "Recommended next";
       default:
         return "Widget";
     }
@@ -468,6 +517,48 @@ export function PortalDashboardClient() {
 
   function renderWidget(id: DashboardWidgetId) {
     const k = reporting?.kpis;
+    const derived = (() => {
+      if (!reporting?.kpis || !reporting) {
+        return {
+          overallSuccessRate: null as number | null,
+          totalFailures: 0,
+          aiSuccessRate: null as number | null,
+          textSuccessRate: null as number | null,
+          missedCaptureRate: null as number | null,
+          creditsPerDay: null as number | null,
+          creditRunwayDays: null as number | null,
+        };
+      }
+
+      const successes = (reporting.kpis.aiCompleted ?? 0) + (reporting.kpis.textsSent ?? 0);
+      const failures = (reporting.kpis.aiFailed ?? 0) + (reporting.kpis.textsFailed ?? 0);
+      const overall = successes + failures > 0 ? successes / (successes + failures) : null;
+
+      const aiDen = (reporting.kpis.aiCompleted ?? 0) + (reporting.kpis.aiFailed ?? 0);
+      const aiRate = aiDen > 0 ? (reporting.kpis.aiCompleted ?? 0) / aiDen : null;
+
+      const txtDen = (reporting.kpis.textsSent ?? 0) + (reporting.kpis.textsFailed ?? 0);
+      const txtRate = txtDen > 0 ? (reporting.kpis.textsSent ?? 0) / txtDen : null;
+
+      const attempts = (reporting.kpis.missedCallAttempts ?? 0) as number;
+      const missed = (reporting.kpis.missedCalls ?? 0) as number;
+      const missedRate = attempts > 0 ? missed / attempts : null;
+
+      const days = daysBetweenIso(reporting.startIso, reporting.endIso);
+      const creditsPerDay = days > 0 ? (reporting.kpis.creditsUsed ?? 0) / days : null;
+      const runwayDays = creditsPerDay && creditsPerDay > 0 ? (reporting.creditsRemaining ?? 0) / creditsPerDay : null;
+
+      return {
+        overallSuccessRate: overall,
+        totalFailures: failures,
+        aiSuccessRate: aiRate,
+        textSuccessRate: txtRate,
+        missedCaptureRate: missedRate,
+        creditsPerDay,
+        creditRunwayDays: runwayDays,
+      };
+    })();
+
     switch (id) {
       case "hoursSaved":
         return (
@@ -580,6 +671,100 @@ export function PortalDashboardClient() {
           </AccentCard>
         );
 
+      case "successRate":
+        return (
+          <AccentCard title={widgetTitle(id)} widgetId={id} showHandle={editMode}>
+            <div className="text-3xl font-bold text-brand-ink">{formatPct(derived.overallSuccessRate)}</div>
+            <div className="mt-2 text-xs text-zinc-500">AI completed + texts sent vs failures (last 30 days)</div>
+            <div className="mt-3 grid grid-cols-2 gap-2">
+              <div className="rounded-2xl border border-zinc-200 bg-zinc-50 p-3">
+                <div className="text-xs font-semibold text-zinc-600">AI success</div>
+                <div className="mt-1 text-sm font-bold text-brand-ink">{formatPct(derived.aiSuccessRate)}</div>
+              </div>
+              <div className="rounded-2xl border border-zinc-200 bg-zinc-50 p-3">
+                <div className="text-xs font-semibold text-zinc-600">Text success</div>
+                <div className="mt-1 text-sm font-bold text-brand-ink">{formatPct(derived.textSuccessRate)}</div>
+              </div>
+            </div>
+          </AccentCard>
+        );
+
+      case "failures":
+        return (
+          <AccentCard title={widgetTitle(id)} widgetId={id} showHandle={editMode}>
+            <div className="text-3xl font-bold text-brand-ink">{derived.totalFailures.toLocaleString()}</div>
+            <div className="mt-2 text-xs text-zinc-500">AI failed + texts failed (last 30 days)</div>
+            <div className="mt-3 space-y-2">
+              <StatLine label="AI failed" value={compactNum(k?.aiFailed ?? 0)} />
+              <StatLine label="Text failures" value={compactNum(k?.textsFailed ?? 0)} />
+            </div>
+          </AccentCard>
+        );
+
+      case "creditsRunway":
+        return (
+          <AccentCard title={widgetTitle(id)} widgetId={id} showHandle={editMode}>
+            <div className="text-3xl font-bold text-brand-ink">
+              {typeof derived.creditRunwayDays === "number" && Number.isFinite(derived.creditRunwayDays)
+                ? `~${Math.max(0, Math.round(derived.creditRunwayDays))} days`
+                : "—"}
+            </div>
+            <div className="mt-2 text-xs text-zinc-500">Estimated based on your current spend rate</div>
+            <div className="mt-3 space-y-2">
+              <StatLine label="Credits remaining" value={compactNum(reporting?.creditsRemaining ?? 0)} />
+              <StatLine
+                label="Spend rate"
+                value={
+                  typeof derived.creditsPerDay === "number" && Number.isFinite(derived.creditsPerDay)
+                    ? `~${Math.max(0, derived.creditsPerDay).toFixed(1)} / day`
+                    : "—"
+                }
+              />
+            </div>
+            <div className="mt-3">
+              <Link href="/portal/app/billing" className="text-sm font-semibold text-brand-ink hover:underline">
+                Top up in Billing
+              </Link>
+            </div>
+          </AccentCard>
+        );
+
+      case "leadsCaptured":
+        return (
+          <AccentCard title={widgetTitle(id)} widgetId={id} showHandle={editMode}>
+            <div className="text-3xl font-bold text-brand-ink">{compactNum(k?.leadsCreated ?? 0)}</div>
+            <div className="mt-2 text-xs text-zinc-500">Leads created (last 30 days)</div>
+            <div className="mt-3 space-y-2">
+              <StatLine label="Contacts created" value={compactNum(k?.contactsCreated ?? 0)} />
+              <StatLine label="Appointments booked" value={compactNum(k?.bookingsCreated ?? 0)} />
+            </div>
+          </AccentCard>
+        );
+
+      case "reliabilitySummary":
+        return (
+          <AccentCard title={widgetTitle(id)} widgetId={id} showHandle={editMode}>
+            <div className="grid grid-cols-2 gap-3">
+              <div className="rounded-2xl border border-zinc-200 bg-zinc-50 p-3">
+                <div className="text-xs font-semibold text-zinc-600">AI success rate</div>
+                <div className="mt-1 text-sm font-bold text-brand-ink">{formatPct(derived.aiSuccessRate)}</div>
+              </div>
+              <div className="rounded-2xl border border-zinc-200 bg-zinc-50 p-3">
+                <div className="text-xs font-semibold text-zinc-600">Text success rate</div>
+                <div className="mt-1 text-sm font-bold text-brand-ink">{formatPct(derived.textSuccessRate)}</div>
+              </div>
+              <div className="rounded-2xl border border-zinc-200 bg-zinc-50 p-3">
+                <div className="text-xs font-semibold text-zinc-600">Missed call capture</div>
+                <div className="mt-1 text-sm font-bold text-brand-ink">{formatPct(derived.missedCaptureRate)}</div>
+              </div>
+              <div className="rounded-2xl border border-zinc-200 bg-zinc-50 p-3">
+                <div className="text-xs font-semibold text-zinc-600">Failures</div>
+                <div className="mt-1 text-sm font-bold text-brand-ink">{derived.totalFailures.toLocaleString()}</div>
+              </div>
+            </div>
+          </AccentCard>
+        );
+
       case "creditsUsed":
       case "automationsRun":
       case "aiCalls":
@@ -662,6 +847,123 @@ export function PortalDashboardClient() {
           </AccentCard>
         );
       }
+
+      case "perfAiReceptionist":
+        return (
+          <AccentCard title={widgetTitle(id)} widgetId={id} showHandle={editMode}>
+            <div className="space-y-2">
+              <StatLine label="Calls" value={compactNum(k?.aiCalls ?? 0)} />
+              <StatLine label="Completed" value={compactNum(k?.aiCompleted ?? 0)} />
+              <StatLine label="Failed" value={compactNum(k?.aiFailed ?? 0)} />
+              <StatLine label="Success rate" value={formatPct(derived.aiSuccessRate)} />
+            </div>
+            <div className="mt-3">
+              <Link href="/portal/app/services/ai-receptionist" className="text-sm font-semibold text-brand-ink hover:underline">
+                Go to AI Receptionist
+              </Link>
+            </div>
+          </AccentCard>
+        );
+
+      case "perfMissedCallTextBack":
+        return (
+          <AccentCard title={widgetTitle(id)} widgetId={id} showHandle={editMode}>
+            <div className="space-y-2">
+              <StatLine label="Missed calls" value={compactNum(k?.missedCalls ?? 0)} />
+              <StatLine label="Texts sent" value={compactNum(k?.textsSent ?? 0)} />
+              <StatLine label="Text failures" value={compactNum(k?.textsFailed ?? 0)} />
+              <StatLine label="Text success" value={formatPct(derived.textSuccessRate)} />
+            </div>
+            <div className="mt-3">
+              <Link href="/portal/app/services/missed-call-textback" className="text-sm font-semibold text-brand-ink hover:underline">
+                Go to Missed-Call Text Back
+              </Link>
+            </div>
+          </AccentCard>
+        );
+
+      case "perfLeadScraping":
+        return (
+          <AccentCard title={widgetTitle(id)} widgetId={id} showHandle={editMode}>
+            <div className="space-y-2">
+              <StatLine label="Runs" value={compactNum(k?.leadScrapeRuns ?? 0)} />
+              <StatLine label="Leads created" value={compactNum(k?.leadsCreated ?? 0)} />
+              <StatLine label="Contacts" value={compactNum(k?.contactsCreated ?? 0)} />
+              <StatLine label="Credits used" value={compactNum(k?.leadScrapeChargedCredits ?? 0)} />
+            </div>
+            <div className="mt-3">
+              <Link href="/portal/app/services/lead-scraping" className="text-sm font-semibold text-brand-ink hover:underline">
+                Go to Lead Scraping
+              </Link>
+            </div>
+          </AccentCard>
+        );
+
+      case "perfReviews":
+        return (
+          <AccentCard title={widgetTitle(id)} widgetId={id} showHandle={editMode}>
+            <div className="space-y-2">
+              <StatLine label="Reviews collected" value={compactNum(k?.reviewsCollected ?? 0)} />
+              <StatLine
+                label="Avg rating"
+                value={typeof k?.avgReviewRating === "number" ? k.avgReviewRating.toFixed(1) : "—"}
+              />
+              <StatLine label="Bookings" value={compactNum(k?.bookingsCreated ?? 0)} />
+            </div>
+            <div className="mt-3">
+              <Link href="/portal/app/services/reviews" className="text-sm font-semibold text-brand-ink hover:underline">
+                Go to Review Requests
+              </Link>
+            </div>
+          </AccentCard>
+        );
+
+      case "recommendedNext":
+        return (
+          <AccentCard title={widgetTitle(id)} widgetId={id} showHandle={editMode}>
+            <div className="text-sm text-zinc-700">Unlock deeper ROI and pipeline reporting by activating more modules.</div>
+            <div className="mt-4 grid grid-cols-1 gap-3 sm:grid-cols-2">
+              {!me.entitlements.blog ? (
+                <div className="rounded-2xl border border-zinc-200 bg-zinc-50 p-4">
+                  <div className="text-xs font-semibold text-zinc-600">Blog automation</div>
+                  <div className="mt-1 text-sm font-semibold text-brand-ink">Turn runs into SEO traffic</div>
+                  <div className="mt-3">
+                    <Link href="/portal/app/services/blogs" className="text-xs font-semibold text-brand-ink hover:underline">
+                      Explore Blog Automation
+                    </Link>
+                  </div>
+                </div>
+              ) : null}
+              {!me.entitlements.booking ? (
+                <div className="rounded-2xl border border-zinc-200 bg-zinc-50 p-4">
+                  <div className="text-xs font-semibold text-zinc-600">Booking automation</div>
+                  <div className="mt-1 text-sm font-semibold text-brand-ink">Convert leads into booked appointments</div>
+                  <div className="mt-3">
+                    <Link href="/portal/app/services/booking" className="text-xs font-semibold text-brand-ink hover:underline">
+                      Explore Booking Automation
+                    </Link>
+                  </div>
+                </div>
+              ) : null}
+              {!me.entitlements.crm ? (
+                <div className="rounded-2xl border border-zinc-200 bg-zinc-50 p-4">
+                  <div className="text-xs font-semibold text-zinc-600">CRM pipeline</div>
+                  <div className="mt-1 text-sm font-semibold text-brand-ink">Unlock pipeline + ROI reporting</div>
+                  <div className="mt-3">
+                    <Link href="/portal/app/services/follow-up" className="text-xs font-semibold text-brand-ink hover:underline">
+                      Explore CRM / Follow-up
+                    </Link>
+                  </div>
+                </div>
+              ) : null}
+            </div>
+            <div className="mt-4">
+              <Link href="/portal/app/billing" className="text-sm font-semibold text-brand-ink hover:underline">
+                Manage billing
+              </Link>
+            </div>
+          </AccentCard>
+        );
 
       default:
         return (

@@ -9,6 +9,11 @@ export type DashboardWidgetId =
   | "creditsRemaining"
   | "creditsUsed"
   | "automationsRun"
+  | "successRate"
+  | "failures"
+  | "creditsRunway"
+  | "leadsCaptured"
+  | "reliabilitySummary"
   | "aiCalls"
   | "missedCalls"
   | "bookingsCreated"
@@ -17,7 +22,12 @@ export type DashboardWidgetId =
   | "leadsCreated"
   | "contactsCreated"
   | "leadScrapeRuns"
-  | "dailyActivity";
+  | "dailyActivity"
+  | "perfAiReceptionist"
+  | "perfMissedCallTextBack"
+  | "perfLeadScraping"
+  | "perfReviews"
+  | "recommendedNext";
 
 export type DashboardWidget = {
   id: DashboardWidgetId;
@@ -52,6 +62,11 @@ const ALL_WIDGET_IDS: DashboardWidgetId[] = [
   "creditsRemaining",
   "creditsUsed",
   "automationsRun",
+  "successRate",
+  "failures",
+  "creditsRunway",
+  "leadsCaptured",
+  "reliabilitySummary",
   "aiCalls",
   "missedCalls",
   "bookingsCreated",
@@ -61,6 +76,11 @@ const ALL_WIDGET_IDS: DashboardWidgetId[] = [
   "contactsCreated",
   "leadScrapeRuns",
   "dailyActivity",
+  "perfAiReceptionist",
+  "perfMissedCallTextBack",
+  "perfLeadScraping",
+  "perfReviews",
+  "recommendedNext",
 ];
 
 export function isDashboardWidgetId(value: unknown): value is DashboardWidgetId {
@@ -164,10 +184,28 @@ export async function addPortalDashboardWidget(ownerId: string, widgetId: Dashbo
         i: widgetId,
         x: 0,
         y: 9999,
-        w: widgetId === "services" || widgetId === "dailyActivity" ? 12 : 6,
-        h: widgetId === "services" ? 10 : widgetId === "dailyActivity" ? 12 : 6,
-        minW: widgetId === "services" || widgetId === "dailyActivity" ? 6 : 3,
-        minH: widgetId === "dailyActivity" ? 8 : 4,
+        w:
+          widgetId === "services" || widgetId === "dailyActivity" || widgetId === "recommendedNext"
+            ? 12
+            : 6,
+        h:
+          widgetId === "services"
+            ? 10
+            : widgetId === "dailyActivity"
+              ? 12
+              : widgetId === "recommendedNext"
+                ? 10
+                : widgetId.startsWith("perf")
+                  ? 10
+                  : 6,
+        minW:
+          widgetId === "services" || widgetId === "dailyActivity" || widgetId === "recommendedNext"
+            ? 6
+            : 3,
+        minH:
+          widgetId === "dailyActivity" || widgetId === "recommendedNext" || widgetId.startsWith("perf")
+            ? 8
+            : 4,
       },
     ],
   };

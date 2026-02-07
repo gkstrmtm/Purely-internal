@@ -120,9 +120,25 @@ function serviceForWidget(widgetId: string): ServiceInfo {
       return SERVICE_INFOS.find((s) => s.key === "leadScraping")!;
     case "dailyActivity":
     case "automationsRun":
+    case "successRate":
+    case "failures":
+    case "creditsRunway":
+    case "leadsCaptured":
+    case "reliabilitySummary":
     default:
       // We are already on Reporting; don’t show a redundant “Go to reporting” menu item.
       return { key: "reporting", name: "Reporting", href: null };
+
+    case "perfAiReceptionist":
+      return SERVICE_INFOS.find((s) => s.key === "aiReceptionist")!;
+    case "perfMissedCallTextBack":
+      return SERVICE_INFOS.find((s) => s.key === "missedCallTextBack")!;
+    case "perfLeadScraping":
+      return SERVICE_INFOS.find((s) => s.key === "leadScraping")!;
+    case "perfReviews":
+      return SERVICE_INFOS.find((s) => s.key === "reviews")!;
+    case "recommendedNext":
+      return SERVICE_INFOS.find((s) => s.key === "billing")!;
   }
 }
 
@@ -230,20 +246,25 @@ function ServicePerfCard({
   title,
   href,
   stats,
+  menu,
 }: {
   title: string;
   href: string | null;
   stats: Array<{ label: string; value: string }>;
+  menu?: React.ReactNode;
 }) {
   return (
     <div className="rounded-3xl border border-zinc-200 bg-white p-6">
       <div className="flex items-start justify-between gap-3">
         <div className="text-sm font-semibold text-zinc-900">{title}</div>
-        {href ? (
-          <Link href={href} className="text-xs font-semibold text-brand-ink hover:underline">
-            View
-          </Link>
-        ) : null}
+        <div className="flex items-center gap-2">
+          {href ? (
+            <Link href={href} className="text-xs font-semibold text-brand-ink hover:underline">
+              View
+            </Link>
+          ) : null}
+          {menu}
+        </div>
       </div>
       <div className="mt-4 grid grid-cols-2 gap-3">
         {stats.slice(0, 6).map((s) => (
@@ -744,22 +765,81 @@ export function PortalReportingClient() {
             if (!show) return null;
             return (
               <div className="mt-4 grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
-                <MiniCard label="Success rate" value={formatPct(derived.overallSuccessRate)} sub="AI + text-back" />
-                <MiniCard label="Failures" value={derived.totalFailures.toLocaleString()} sub="AI failed + texts failed" />
-                <MiniCard
-                  label="Credits runway"
-                  value={
-                    typeof derived.creditRunwayDays === "number" && Number.isFinite(derived.creditRunwayDays)
-                      ? `~${Math.max(0, Math.round(derived.creditRunwayDays))} days`
-                      : "—"
-                  }
-                  sub={
-                    typeof derived.creditsPerDay === "number" && Number.isFinite(derived.creditsPerDay)
-                      ? `~${Math.max(0, derived.creditsPerDay).toFixed(1)} credits/day (${rangeLabel.toLowerCase()})`
-                      : undefined
-                  }
-                />
-                <MiniCard label="Leads captured" value={data.kpis.leadsCreated.toLocaleString()} sub={`${data.kpis.contactsCreated.toLocaleString()} contacts created`} />
+                <div className="relative">
+                  <div className="absolute right-4 top-4">
+                    <MenuButton
+                      id="successRate"
+                      openId={openMenuId}
+                      setOpenId={setOpenMenuId}
+                      onAdd={() => void addWidget("successRate")}
+                      addDisabled={dashboardWidgetIds.has("successRate")}
+                      addLabel={dashboardWidgetIds.has("successRate") ? "Already on dashboard" : "Add to dashboard"}
+                      goToHref={serviceForWidget("successRate").href}
+                      goToLabel={serviceForWidget("successRate").name}
+                    />
+                  </div>
+                  <MiniCard label="Success rate" value={formatPct(derived.overallSuccessRate)} sub="AI + text-back" />
+                </div>
+
+                <div className="relative">
+                  <div className="absolute right-4 top-4">
+                    <MenuButton
+                      id="failures"
+                      openId={openMenuId}
+                      setOpenId={setOpenMenuId}
+                      onAdd={() => void addWidget("failures")}
+                      addDisabled={dashboardWidgetIds.has("failures")}
+                      addLabel={dashboardWidgetIds.has("failures") ? "Already on dashboard" : "Add to dashboard"}
+                      goToHref={serviceForWidget("failures").href}
+                      goToLabel={serviceForWidget("failures").name}
+                    />
+                  </div>
+                  <MiniCard label="Failures" value={derived.totalFailures.toLocaleString()} sub="AI failed + texts failed" />
+                </div>
+
+                <div className="relative">
+                  <div className="absolute right-4 top-4">
+                    <MenuButton
+                      id="creditsRunway"
+                      openId={openMenuId}
+                      setOpenId={setOpenMenuId}
+                      onAdd={() => void addWidget("creditsRunway")}
+                      addDisabled={dashboardWidgetIds.has("creditsRunway")}
+                      addLabel={dashboardWidgetIds.has("creditsRunway") ? "Already on dashboard" : "Add to dashboard"}
+                      goToHref={serviceForWidget("creditsRunway").href}
+                      goToLabel={serviceForWidget("creditsRunway").name}
+                    />
+                  </div>
+                  <MiniCard
+                    label="Credits runway"
+                    value={
+                      typeof derived.creditRunwayDays === "number" && Number.isFinite(derived.creditRunwayDays)
+                        ? `~${Math.max(0, Math.round(derived.creditRunwayDays))} days`
+                        : "—"
+                    }
+                    sub={
+                      typeof derived.creditsPerDay === "number" && Number.isFinite(derived.creditsPerDay)
+                        ? `~${Math.max(0, derived.creditsPerDay).toFixed(1)} credits/day (${rangeLabel.toLowerCase()})`
+                        : undefined
+                    }
+                  />
+                </div>
+
+                <div className="relative">
+                  <div className="absolute right-4 top-4">
+                    <MenuButton
+                      id="leadsCaptured"
+                      openId={openMenuId}
+                      setOpenId={setOpenMenuId}
+                      onAdd={() => void addWidget("leadsCaptured")}
+                      addDisabled={dashboardWidgetIds.has("leadsCaptured")}
+                      addLabel={dashboardWidgetIds.has("leadsCaptured") ? "Already on dashboard" : "Add to dashboard"}
+                      goToHref={serviceForWidget("leadsCaptured").href}
+                      goToLabel={serviceForWidget("leadsCaptured").name}
+                    />
+                  </div>
+                  <MiniCard label="Leads captured" value={data.kpis.leadsCreated.toLocaleString()} sub={`${data.kpis.contactsCreated.toLocaleString()} contacts created`} />
+                </div>
               </div>
             );
           })()}
@@ -915,7 +995,19 @@ export function PortalReportingClient() {
                 return (
                   <div className="mt-4 grid grid-cols-1 gap-3">
                     <div className="rounded-2xl border border-zinc-200 bg-white p-4">
-                      <div className="text-xs font-semibold text-zinc-600">Reliability</div>
+                      <div className="flex items-start justify-between gap-3">
+                        <div className="text-xs font-semibold text-zinc-600">Reliability</div>
+                        <MenuButton
+                          id="reliabilitySummary"
+                          openId={openMenuId}
+                          setOpenId={setOpenMenuId}
+                          onAdd={() => void addWidget("reliabilitySummary")}
+                          addDisabled={dashboardWidgetIds.has("reliabilitySummary")}
+                          addLabel={dashboardWidgetIds.has("reliabilitySummary") ? "Already on dashboard" : "Add to dashboard"}
+                          goToHref={serviceForWidget("reliabilitySummary").href}
+                          goToLabel={serviceForWidget("reliabilitySummary").name}
+                        />
+                      </div>
                       <div className="mt-2 grid grid-cols-2 gap-3">
                         <div className="rounded-2xl border border-zinc-200 bg-zinc-50 p-3">
                           <div className="text-[11px] font-semibold text-zinc-600">AI success rate</div>
@@ -951,6 +1043,18 @@ export function PortalReportingClient() {
                   <ServicePerfCard
                     title="AI Receptionist"
                     href="/portal/app/services/ai-receptionist"
+                    menu={
+                      <MenuButton
+                        id="perfAiReceptionist"
+                        openId={openMenuId}
+                        setOpenId={setOpenMenuId}
+                        onAdd={() => void addWidget("perfAiReceptionist")}
+                        addDisabled={dashboardWidgetIds.has("perfAiReceptionist")}
+                        addLabel={dashboardWidgetIds.has("perfAiReceptionist") ? "Already on dashboard" : "Add to dashboard"}
+                        goToHref={serviceForWidget("perfAiReceptionist").href}
+                        goToLabel={serviceForWidget("perfAiReceptionist").name}
+                      />
+                    }
                     stats={[
                       { label: "Calls", value: data.kpis.aiCalls.toLocaleString() },
                       { label: "Completed", value: data.kpis.aiCompleted.toLocaleString() },
@@ -962,6 +1066,18 @@ export function PortalReportingClient() {
                   <ServicePerfCard
                     title="Missed-Call Text Back"
                     href="/portal/app/services/missed-call-textback"
+                    menu={
+                      <MenuButton
+                        id="perfMissedCallTextBack"
+                        openId={openMenuId}
+                        setOpenId={setOpenMenuId}
+                        onAdd={() => void addWidget("perfMissedCallTextBack")}
+                        addDisabled={dashboardWidgetIds.has("perfMissedCallTextBack")}
+                        addLabel={dashboardWidgetIds.has("perfMissedCallTextBack") ? "Already on dashboard" : "Add to dashboard"}
+                        goToHref={serviceForWidget("perfMissedCallTextBack").href}
+                        goToLabel={serviceForWidget("perfMissedCallTextBack").name}
+                      />
+                    }
                     stats={[
                       { label: "Missed calls", value: data.kpis.missedCalls.toLocaleString() },
                       { label: "Texts sent", value: data.kpis.textsSent.toLocaleString() },
@@ -973,6 +1089,18 @@ export function PortalReportingClient() {
                   <ServicePerfCard
                     title="Lead Scraping"
                     href="/portal/app/services/lead-scraping"
+                    menu={
+                      <MenuButton
+                        id="perfLeadScraping"
+                        openId={openMenuId}
+                        setOpenId={setOpenMenuId}
+                        onAdd={() => void addWidget("perfLeadScraping")}
+                        addDisabled={dashboardWidgetIds.has("perfLeadScraping")}
+                        addLabel={dashboardWidgetIds.has("perfLeadScraping") ? "Already on dashboard" : "Add to dashboard"}
+                        goToHref={serviceForWidget("perfLeadScraping").href}
+                        goToLabel={serviceForWidget("perfLeadScraping").name}
+                      />
+                    }
                     stats={[
                       { label: "Runs", value: data.kpis.leadScrapeRuns.toLocaleString() },
                       { label: "Leads created", value: data.kpis.leadsCreated.toLocaleString() },
@@ -984,6 +1112,18 @@ export function PortalReportingClient() {
                   <ServicePerfCard
                     title="Review Requests"
                     href="/portal/app/services/reviews"
+                    menu={
+                      <MenuButton
+                        id="perfReviews"
+                        openId={openMenuId}
+                        setOpenId={setOpenMenuId}
+                        onAdd={() => void addWidget("perfReviews")}
+                        addDisabled={dashboardWidgetIds.has("perfReviews")}
+                        addLabel={dashboardWidgetIds.has("perfReviews") ? "Already on dashboard" : "Add to dashboard"}
+                        goToHref={serviceForWidget("perfReviews").href}
+                        goToLabel={serviceForWidget("perfReviews").name}
+                      />
+                    }
                     stats={[
                       { label: "Reviews collected", value: data.kpis.reviewsCollected.toLocaleString() },
                       { label: "Avg rating", value: formatRating(data.kpis.avgReviewRating) },
@@ -997,7 +1137,19 @@ export function PortalReportingClient() {
           })()}
 
           {me?.entitlements ? (
-            <div className="mt-6 rounded-3xl border border-zinc-200 bg-white p-6">
+            <div className="relative mt-6 rounded-3xl border border-zinc-200 bg-white p-6">
+              <div className="absolute right-6 top-6">
+                <MenuButton
+                  id="recommendedNext"
+                  openId={openMenuId}
+                  setOpenId={setOpenMenuId}
+                  onAdd={() => void addWidget("recommendedNext")}
+                  addDisabled={dashboardWidgetIds.has("recommendedNext")}
+                  addLabel={dashboardWidgetIds.has("recommendedNext") ? "Already on dashboard" : "Add to dashboard"}
+                  goToHref={serviceForWidget("recommendedNext").href}
+                  goToLabel={serviceForWidget("recommendedNext").name}
+                />
+              </div>
               <div className="flex flex-wrap items-center justify-between gap-3">
                 <div>
                   <div className="text-sm font-semibold text-zinc-900">Recommended next</div>
