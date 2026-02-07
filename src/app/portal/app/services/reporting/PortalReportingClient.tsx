@@ -50,6 +50,69 @@ type TwilioMasked = {
   updatedAtIso: string | null;
 };
 
+type ServiceKey =
+  | "all"
+  | "reporting"
+  | "billing"
+  | "aiReceptionist"
+  | "missedCallTextBack"
+  | "booking"
+  | "reviews"
+  | "leadScraping";
+
+type ServiceInfo = { key: ServiceKey; name: string; href: string | null };
+
+const SERVICE_INFOS: ServiceInfo[] = [
+  { key: "all", name: "All services", href: null },
+  { key: "reporting", name: "Reporting", href: "/portal/app/services/reporting" },
+  { key: "billing", name: "Billing", href: "/portal/app/billing" },
+  { key: "aiReceptionist", name: "AI Receptionist", href: "/portal/app/services/ai-receptionist" },
+  { key: "missedCallTextBack", name: "Missed-Call Text Back", href: "/portal/app/services/missed-call-textback" },
+  { key: "booking", name: "Booking Automation", href: "/portal/app/services/booking" },
+  { key: "reviews", name: "Review Requests", href: "/portal/app/services/reviews" },
+  { key: "leadScraping", name: "Lead Scraping", href: "/portal/app/services/lead-scraping" },
+];
+
+function matchTokens(query: string, terms: string[]) {
+  const q = (query ?? "").toLowerCase().trim();
+  if (!q) return true;
+  const haystack = terms
+    .filter(Boolean)
+    .join(" ")
+    .toLowerCase();
+  const tokens = q.split(/\s+/).filter(Boolean);
+  return tokens.every((t) => haystack.includes(t));
+}
+
+function isPlainNonEmptyString(value: unknown): value is string {
+  return typeof value === "string" && value.trim().length > 0;
+}
+
+function serviceForWidget(widgetId: string): ServiceInfo {
+  switch (widgetId) {
+    case "creditsRemaining":
+    case "creditsUsed":
+      return SERVICE_INFOS.find((s) => s.key === "billing")!;
+    case "aiCalls":
+      return SERVICE_INFOS.find((s) => s.key === "aiReceptionist")!;
+    case "missedCalls":
+      return SERVICE_INFOS.find((s) => s.key === "missedCallTextBack")!;
+    case "bookingsCreated":
+      return SERVICE_INFOS.find((s) => s.key === "booking")!;
+    case "reviewsCollected":
+    case "avgReviewRating":
+      return SERVICE_INFOS.find((s) => s.key === "reviews")!;
+    case "leadScrapeRuns":
+    case "leadsCreated":
+    case "contactsCreated":
+      return SERVICE_INFOS.find((s) => s.key === "leadScraping")!;
+    case "dailyActivity":
+    case "automationsRun":
+    default:
+      return SERVICE_INFOS.find((s) => s.key === "reporting")!;
+  }
+}
+
 function formatIsoDay(isoDay: string) {
   try {
     const d = new Date(`${isoDay}T00:00:00.000Z`);
@@ -115,14 +178,32 @@ function StatCard({ label, value, sub, tone }: { label: string; value: string; s
   );
 }
 
-function MenuButton({ onAdd }: { onAdd: () => void }) {
-  const [open, setOpen] = useState(false);
+function MenuButton({
+  id,
+  openId,
+  setOpenId,
+  onAdd,
+  goToHref,
+  goToLabel,
+}: {
+  id: string;
+  openId: string | null;
+  setOpenId: (id: string | null) => void;
+  onAdd: () => void;
+  goToHref?: string | null;
+  goToLabel?: string | null;
+}) {
+  const open = openId === id;
   return (
-    <div className="relative">
+    <div
+      className="relative"
+      onMouseDown={(e) => e.stopPropagation()}
+      onTouchStart={(e) => e.stopPropagation()}
+    >
       <button
         type="button"
         className="rounded-xl border border-zinc-200 bg-white px-2 py-1 text-xs font-semibold text-zinc-700 hover:bg-zinc-50"
-        onClick={() => setOpen((v) => !v)}
+        onClick={() => setOpenId(open ? null : id)}
         aria-label="More"
       >
         ⋯
@@ -134,16 +215,28 @@ function MenuButton({ onAdd }: { onAdd: () => void }) {
             type="button"
             className="w-full rounded-xl px-3 py-2 text-left text-sm font-semibold text-brand-ink hover:bg-zinc-50"
             onClick={() => {
-              setOpen(false);
+              setOpenId(null);
               onAdd();
             }}
           >
             Add to dashboard
           </button>
+          {isPlainNonEmptyString(goToHref) && isPlainNonEmptyString(goToLabel) ? (
+            <button
+              type="button"
+              className="mt-1 w-full rounded-xl px-3 py-2 text-left text-sm text-zinc-700 hover:bg-zinc-50"
+              onClick={() => {
+                setOpenId(null);
+                window.location.href = goToHref;
+              }}
+            >
+              Go to {goToLabel}
+            </button>
+          ) : null}
           <button
             type="button"
             className="mt-1 w-full rounded-xl px-3 py-2 text-left text-sm text-zinc-700 hover:bg-zinc-50"
-            onClick={() => setOpen(false)}
+            onClick={() => setOpenId(null)}
           >
             Close
           </button>
@@ -160,6 +253,10 @@ export function PortalReportingClient() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [note, setNote] = useState<string | null>(null);
+
+  const [openMenuId, setOpenMenuId] = useState<string | null>(null);
+  const [search, setSearch] = useState("");
+  const [serviceFilter, setServiceFilter] = useState<ServiceKey>("all");
 
   async function addWidget(widgetId: string) {
     setNote(null);
@@ -220,6 +317,29 @@ export function PortalReportingClient() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  useEffect(() => {
+    if (!openMenuId) return;
+    const onDown = () => setOpenMenuId(null);
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setOpenMenuId(null);
+    };
+    document.addEventListener("mousedown", onDown);
+    document.addEventListener("touchstart", onDown, { passive: true });
+    document.addEventListener("keydown", onKey);
+    return () => {
+      document.removeEventListener("mousedown", onDown);
+      document.removeEventListener("touchstart", onDown);
+      document.removeEventListener("keydown", onKey);
+    };
+  }, [openMenuId]);
+
+  function visible(widgetId: string, serviceKey: ServiceKey, terms: string[]) {
+    const service = SERVICE_INFOS.find((s) => s.key === serviceKey);
+    const serviceName = service?.name ?? "";
+    const serviceOk = serviceFilter === "all" || serviceFilter === serviceKey;
+    return serviceOk && matchTokens(search, [...terms, serviceName]);
+  }
+
   const dailyRows = useMemo(() => {
     const rows = Array.isArray(data?.daily) ? data!.daily : [];
     return rows.slice().reverse().slice(0, 14);
@@ -274,6 +394,31 @@ export function PortalReportingClient() {
         </div>
       </div>
 
+      <div className="mt-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+        <div className="flex flex-1 items-center gap-2">
+          <input
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            placeholder="Search metrics or services…"
+            className="w-full rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm text-zinc-900 outline-none focus:border-[color:var(--color-brand-blue)]"
+          />
+        </div>
+        <div className="flex items-center gap-2">
+          <div className="text-xs font-semibold text-zinc-500">Service</div>
+          <select
+            value={serviceFilter}
+            onChange={(e) => setServiceFilter(e.target.value as ServiceKey)}
+            className="rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-sm font-semibold text-brand-ink outline-none focus:border-[color:var(--color-brand-blue)]"
+          >
+            {SERVICE_INFOS.map((s) => (
+              <option key={s.key} value={s.key}>
+                {s.name}
+              </option>
+            ))}
+          </select>
+        </div>
+      </div>
+
       {error ? <div className="mt-4 rounded-2xl border border-red-200 bg-red-50 p-4 text-sm text-red-700">{error}</div> : null}
       {note ? <div className="mt-4 rounded-2xl border border-emerald-200 bg-emerald-50 p-4 text-sm text-emerald-800">{note}</div> : null}
 
@@ -282,53 +427,130 @@ export function PortalReportingClient() {
       ) : !data ? null : (
         <>
           <div className="mt-4 grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
-            <div className="relative">
-              <div className="absolute right-4 top-4">
-                <MenuButton onAdd={() => void addWidget("creditsRemaining")} />
+            {visible("creditsRemaining", "billing", ["Credits remaining", "Top up", "Billing", "Credits"]) ? (
+              <div className="relative">
+                <div className="absolute right-4 top-4">
+                  <MenuButton
+                    id="creditsRemaining"
+                    openId={openMenuId}
+                    setOpenId={setOpenMenuId}
+                    onAdd={() => void addWidget("creditsRemaining")}
+                    goToHref={serviceForWidget("creditsRemaining").href}
+                    goToLabel={serviceForWidget("creditsRemaining").name}
+                  />
+                </div>
+                <StatCard label="Credits remaining" value={data.creditsRemaining.toLocaleString()} sub="Top up in Billing" tone="blue" />
               </div>
-              <StatCard label="Credits remaining" value={data.creditsRemaining.toLocaleString()} sub="Top up in Billing" tone="blue" />
-            </div>
-            <div className="relative">
-              <div className="absolute right-4 top-4">
-                <MenuButton onAdd={() => void addWidget("creditsUsed")} />
+            ) : null}
+
+            {visible("creditsUsed", "billing", ["Credits used", "AI calls", "Lead scraping", "Billing", "Credits"]) ? (
+              <div className="relative">
+                <div className="absolute right-4 top-4">
+                  <MenuButton
+                    id="creditsUsed"
+                    openId={openMenuId}
+                    setOpenId={setOpenMenuId}
+                    onAdd={() => void addWidget("creditsUsed")}
+                    goToHref={serviceForWidget("creditsUsed").href}
+                    goToLabel={serviceForWidget("creditsUsed").name}
+                  />
+                </div>
+                <StatCard label="Credits used" value={data.kpis.creditsUsed.toLocaleString()} sub="AI calls + lead scraping" tone="pink" />
               </div>
-              <StatCard label="Credits used" value={data.kpis.creditsUsed.toLocaleString()} sub="AI calls + lead scraping" tone="pink" />
-            </div>
-            <div className="relative">
-              <div className="absolute right-4 top-4">
-                <MenuButton onAdd={() => void addWidget("automationsRun")} />
+            ) : null}
+
+            {visible("automationsRun", "reporting", ["Automations run", "Calls", "Texts", "Runs"]) ? (
+              <div className="relative">
+                <div className="absolute right-4 top-4">
+                  <MenuButton
+                    id="automationsRun"
+                    openId={openMenuId}
+                    setOpenId={setOpenMenuId}
+                    onAdd={() => void addWidget("automationsRun")}
+                    goToHref={serviceForWidget("automationsRun").href}
+                    goToLabel={serviceForWidget("automationsRun").name}
+                  />
+                </div>
+                <StatCard label="Automations run" value={data.kpis.automationsRun.toLocaleString()} sub="Calls + texts + runs" tone="ink" />
               </div>
-              <StatCard label="Automations run" value={data.kpis.automationsRun.toLocaleString()} sub="Calls + texts + runs" tone="ink" />
-            </div>
-            <div className="relative">
-              <div className="absolute right-4 top-4">
-                <MenuButton onAdd={() => void addWidget("aiCalls")} />
+            ) : null}
+
+            {visible("aiCalls", "aiReceptionist", ["AI calls", "Completed", "Failed", "Receptionist"]) ? (
+              <div className="relative">
+                <div className="absolute right-4 top-4">
+                  <MenuButton
+                    id="aiCalls"
+                    openId={openMenuId}
+                    setOpenId={setOpenMenuId}
+                    onAdd={() => void addWidget("aiCalls")}
+                    goToHref={serviceForWidget("aiCalls").href}
+                    goToLabel={serviceForWidget("aiCalls").name}
+                  />
+                </div>
+                <StatCard
+                  label="AI calls"
+                  value={data.kpis.aiCalls.toLocaleString()}
+                  sub={`${data.kpis.aiCompleted} completed · ${data.kpis.aiFailed} failed`}
+                  tone="blue"
+                />
               </div>
-              <StatCard label="AI calls" value={data.kpis.aiCalls.toLocaleString()} sub={`${data.kpis.aiCompleted} completed · ${data.kpis.aiFailed} failed`} tone="blue" />
-            </div>
-            <div className="relative">
-              <div className="absolute right-4 top-4">
-                <MenuButton onAdd={() => void addWidget("missedCalls")} />
+            ) : null}
+
+            {visible("missedCalls", "missedCallTextBack", ["Missed calls", "Texts sent", "Text back"]) ? (
+              <div className="relative">
+                <div className="absolute right-4 top-4">
+                  <MenuButton
+                    id="missedCalls"
+                    openId={openMenuId}
+                    setOpenId={setOpenMenuId}
+                    onAdd={() => void addWidget("missedCalls")}
+                    goToHref={serviceForWidget("missedCalls").href}
+                    goToLabel={serviceForWidget("missedCalls").name}
+                  />
+                </div>
+                <StatCard
+                  label="Missed calls"
+                  value={data.kpis.missedCalls.toLocaleString()}
+                  sub={`${data.kpis.textsSent} texts sent · ${data.kpis.textsFailed} failed`}
+                  tone="pink"
+                />
               </div>
-              <StatCard label="Missed calls" value={data.kpis.missedCalls.toLocaleString()} sub={`${data.kpis.textsSent} texts sent · ${data.kpis.textsFailed} failed`} tone="pink" />
-            </div>
-            <div className="relative">
-              <div className="absolute right-4 top-4">
-                <MenuButton onAdd={() => void addWidget("bookingsCreated")} />
+            ) : null}
+
+            {visible("bookingsCreated", "booking", ["Bookings created", "Appointments"]) ? (
+              <div className="relative">
+                <div className="absolute right-4 top-4">
+                  <MenuButton
+                    id="bookingsCreated"
+                    openId={openMenuId}
+                    setOpenId={setOpenMenuId}
+                    onAdd={() => void addWidget("bookingsCreated")}
+                    goToHref={serviceForWidget("bookingsCreated").href}
+                    goToLabel={serviceForWidget("bookingsCreated").name}
+                  />
+                </div>
+                <StatCard label="Bookings created" value={data.kpis.bookingsCreated.toLocaleString()} sub="New appointments" tone="emerald" />
               </div>
-              <StatCard label="Bookings created" value={data.kpis.bookingsCreated.toLocaleString()} sub="New appointments" tone="emerald" />
-            </div>
+            ) : null}
           </div>
 
           <div className="mt-4 grid grid-cols-1 gap-4 lg:grid-cols-3">
-            <div className="rounded-3xl border border-zinc-200 bg-white p-6 lg:col-span-2">
+            {visible("dailyActivity", "reporting", ["Recent activity", "UTC", "Day", "AI calls", "Missed calls", "Credits used"]) ? (
+              <div className="rounded-3xl border border-zinc-200 bg-white p-6 lg:col-span-2">
               <div className="mb-4 h-1.5 w-16 rounded-full bg-[linear-gradient(90deg,rgba(29,78,216,0.9),rgba(251,113,133,0.35))]" />
               <div className="flex items-start justify-between gap-3">
                 <div>
                   <div className="text-sm font-semibold text-zinc-900">Recent activity (UTC days)</div>
                   <div className="mt-1 text-xs text-zinc-500">Showing the last 14 days of breakdown.</div>
                 </div>
-                <MenuButton onAdd={() => void addWidget("dailyActivity")} />
+                <MenuButton
+                  id="dailyActivity"
+                  openId={openMenuId}
+                  setOpenId={setOpenMenuId}
+                  onAdd={() => void addWidget("dailyActivity")}
+                  goToHref={serviceForWidget("dailyActivity").href}
+                  goToLabel={serviceForWidget("dailyActivity").name}
+                />
               </div>
 
               <div className="mt-4 overflow-x-auto">
@@ -368,39 +590,68 @@ export function PortalReportingClient() {
                 </table>
               </div>
             </div>
+            ) : null}
 
             <div className="rounded-3xl border border-zinc-200 bg-white p-6">
               <div className="text-sm font-semibold text-zinc-900">Quality & inputs</div>
 
-              <div className="mt-3 rounded-2xl border border-zinc-200 bg-zinc-50 p-4">
+              {visible("reviewsCollected", "reviews", ["Reviews collected", "Average rating", "Review" ]) ? (
+                <div className="mt-3 rounded-2xl border border-zinc-200 bg-zinc-50 p-4">
                 <div className="text-xs font-semibold text-zinc-600">Reviews collected</div>
                 <div className="mt-1 text-lg font-bold text-brand-ink">{data.kpis.reviewsCollected.toLocaleString()}</div>
                 <div className="mt-1 text-xs text-zinc-500">Avg rating: {formatRating(data.kpis.avgReviewRating)}</div>
                 <div className="mt-3 flex justify-end">
-                  <MenuButton onAdd={() => void addWidget("reviewsCollected")} />
+                  <MenuButton
+                    id="reviewsCollected"
+                    openId={openMenuId}
+                    setOpenId={setOpenMenuId}
+                    onAdd={() => void addWidget("reviewsCollected")}
+                    goToHref={serviceForWidget("reviewsCollected").href}
+                    goToLabel={serviceForWidget("reviewsCollected").name}
+                  />
                 </div>
               </div>
+              ) : null}
 
-              <div className="mt-3 rounded-2xl border border-zinc-200 bg-zinc-50 p-4">
+              {visible("leadsCreated", "leadScraping", ["Leads created", "Contacts created", "Lead", "Contact"]) ? (
+                <div className="mt-3 rounded-2xl border border-zinc-200 bg-zinc-50 p-4">
                 <div className="text-xs font-semibold text-zinc-600">Leads created</div>
                 <div className="mt-1 text-lg font-bold text-brand-ink">{data.kpis.leadsCreated.toLocaleString()}</div>
                 <div className="mt-1 text-xs text-zinc-500">Contacts created: {data.kpis.contactsCreated.toLocaleString()}</div>
                 <div className="mt-3 flex justify-end">
-                  <MenuButton onAdd={() => void addWidget("leadsCreated")} />
+                  <MenuButton
+                    id="leadsCreated"
+                    openId={openMenuId}
+                    setOpenId={setOpenMenuId}
+                    onAdd={() => void addWidget("leadsCreated")}
+                    goToHref={serviceForWidget("leadsCreated").href}
+                    goToLabel={serviceForWidget("leadsCreated").name}
+                  />
                 </div>
               </div>
+              ) : null}
 
-              <div className="mt-3 rounded-2xl border border-zinc-200 bg-zinc-50 p-4">
+              {visible("leadScrapeRuns", "leadScraping", ["Lead scraping", "Runs", "Charged", "Refunded"]) ? (
+                <div className="mt-3 rounded-2xl border border-zinc-200 bg-zinc-50 p-4">
                 <div className="text-xs font-semibold text-zinc-600">Lead scraping</div>
                 <div className="mt-1 text-sm text-zinc-700">Runs: {data.kpis.leadScrapeRuns.toLocaleString()}</div>
                 <div className="mt-1 text-sm text-zinc-700">Charged: {data.kpis.leadScrapeChargedCredits.toLocaleString()} credits</div>
                 <div className="mt-1 text-sm text-zinc-700">Refunded: {data.kpis.leadScrapeRefundedCredits.toLocaleString()} credits</div>
                 <div className="mt-3 flex justify-end">
-                  <MenuButton onAdd={() => void addWidget("leadScrapeRuns")} />
+                  <MenuButton
+                    id="leadScrapeRuns"
+                    openId={openMenuId}
+                    setOpenId={setOpenMenuId}
+                    onAdd={() => void addWidget("leadScrapeRuns")}
+                    goToHref={serviceForWidget("leadScrapeRuns").href}
+                    goToLabel={serviceForWidget("leadScrapeRuns").name}
+                  />
                 </div>
               </div>
+              ) : null}
 
-              <div className="mt-4 rounded-2xl border border-zinc-200 bg-white p-4">
+              {visible("integrationStatus", "billing", ["Integration status", "Twilio", "SMS", "connected", "not connected"]) ? (
+                <div className="mt-4 rounded-2xl border border-zinc-200 bg-white p-4">
                 <div className="text-xs font-semibold text-zinc-600">Integration status</div>
                 <div className="mt-2 text-sm text-zinc-700">
                   {twilio?.configured ? (
@@ -418,6 +669,7 @@ export function PortalReportingClient() {
                   )}
                 </div>
               </div>
+              ) : null}
 
               <div className="mt-4 text-xs text-zinc-500">
                 More KPIs (ROI, deliverability, attribution, exports) can be added as those data sources are wired in.

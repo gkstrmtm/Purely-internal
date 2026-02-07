@@ -2,12 +2,15 @@
 
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
+import type { ComponentType } from "react";
 
 import { Responsive as ResponsiveGridLayout } from "react-grid-layout";
 import type { Layout, LayoutItem, ResponsiveLayouts } from "react-grid-layout";
 
 import "react-grid-layout/css/styles.css";
 import "react-resizable/css/styles.css";
+
+const ResponsiveGridLayoutAny = ResponsiveGridLayout as unknown as ComponentType<any>;
 
 type ModuleKey = "blog" | "booking" | "crm" | "leadOutbound";
 
@@ -78,12 +81,12 @@ type ReportingPayload = {
   }>;
 };
 
-function Card({ title, children }: { title: string; children: React.ReactNode }) {
+function Card({ title, children, showHandle }: { title: string; children: React.ReactNode; showHandle: boolean }) {
   return (
-    <div className="h-full rounded-3xl border border-zinc-200 bg-white p-6 shadow-sm">
+    <div className="h-full overflow-hidden rounded-3xl border border-zinc-200 bg-white p-6 shadow-sm">
       <div className="flex items-start justify-between gap-3">
         <div className="text-sm font-semibold text-zinc-900">{title}</div>
-        <div className="drag-handle cursor-grab select-none text-zinc-300">⋮⋮</div>
+        {showHandle ? <div className="drag-handle cursor-grab select-none text-zinc-400">⋮⋮</div> : null}
       </div>
       <div className="mt-3 text-sm text-zinc-700">{children}</div>
     </div>
@@ -126,14 +129,24 @@ function accentForWidget(id: string) {
   }
 }
 
-function AccentCard({ title, widgetId, children }: { title: string; widgetId: string; children: React.ReactNode }) {
+function AccentCard({
+  title,
+  widgetId,
+  children,
+  showHandle,
+}: {
+  title: string;
+  widgetId: string;
+  children: React.ReactNode;
+  showHandle: boolean;
+}) {
   const a = accentForWidget(widgetId);
   return (
-    <div className={classNames("h-full rounded-3xl border border-zinc-200 bg-white p-6 shadow-sm", a.ring)}>
+    <div className={classNames("h-full overflow-hidden rounded-3xl border border-zinc-200 bg-white p-6 shadow-sm", a.ring)}>
       <div className={classNames("mb-4 h-1.5 w-14 rounded-full", a.bar)} />
       <div className="flex items-start justify-between gap-3">
         <div className="text-sm font-semibold text-zinc-900">{title}</div>
-        <div className="drag-handle cursor-grab select-none text-zinc-300">⋮⋮</div>
+        {showHandle ? <div className="drag-handle cursor-grab select-none text-zinc-400">⋮⋮</div> : null}
       </div>
       <div className="mt-3 text-sm text-zinc-700">{children}</div>
     </div>
@@ -163,6 +176,8 @@ export function PortalDashboardClient() {
 
   const [editMode, setEditMode] = useState(false);
   const [savingLayout, setSavingLayout] = useState(false);
+
+  const [editSnapshot, setEditSnapshot] = useState<ResponsiveLayouts | null>(null);
 
   const [layouts, setLayouts] = useState<ResponsiveLayouts>({} as ResponsiveLayouts);
 
@@ -394,8 +409,33 @@ export function PortalDashboardClient() {
     const body = (await res.json().catch(() => ({}))) as DashboardPayload;
     if (res.ok && body?.ok && body.data) {
       setDashboard(body.data);
+      setSavingLayout(false);
+      return true;
     }
     setSavingLayout(false);
+    return false;
+  }
+
+  function beginEdit() {
+    setEditSnapshot(layouts);
+    setEditMode(true);
+  }
+
+  function cancelEdit() {
+    if (editSnapshot) setLayouts(editSnapshot);
+    setEditSnapshot(null);
+    setEditMode(false);
+  }
+
+  async function doneEdit() {
+    const ok = await saveDashboard(layouts);
+    if (ok) {
+      setEditSnapshot(null);
+      setEditMode(false);
+    } else {
+      setError("Unable to save dashboard");
+      window.setTimeout(() => setError(null), 2500);
+    }
   }
 
   async function removeWidget(id: DashboardWidgetId) {
@@ -431,7 +471,7 @@ export function PortalDashboardClient() {
     switch (id) {
       case "hoursSaved":
         return (
-          <AccentCard title={widgetTitle(id)} widgetId={id}>
+          <AccentCard title={widgetTitle(id)} widgetId={id} showHandle={editMode}>
             <div className="text-2xl font-bold text-brand-ink">{Math.round(me.metrics.hoursSavedThisWeek)}h</div>
             <div className="mt-1 text-xs text-zinc-500">This week</div>
             <div className="mt-3 text-sm text-zinc-700">
@@ -442,7 +482,7 @@ export function PortalDashboardClient() {
 
       case "billing":
         return (
-          <AccentCard title={widgetTitle(id)} widgetId={id}>
+          <AccentCard title={widgetTitle(id)} widgetId={id} showHandle={editMode}>
             <div className="flex items-center justify-between gap-3">
               <div className="text-sm text-zinc-700">
                 {me.billing.configured ? "Manage your plan and payment method." : "View billing, credits, and top-ups."}
@@ -459,7 +499,7 @@ export function PortalDashboardClient() {
 
       case "services":
         return (
-          <AccentCard title={widgetTitle(id)} widgetId={id}>
+          <AccentCard title={widgetTitle(id)} widgetId={id} showHandle={editMode}>
             <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
               {modules.map((m) => (
                 <div
@@ -529,7 +569,7 @@ export function PortalDashboardClient() {
 
       case "creditsRemaining":
         return (
-          <AccentCard title={widgetTitle(id)} widgetId={id}>
+          <AccentCard title={widgetTitle(id)} widgetId={id} showHandle={editMode}>
             <div className="text-3xl font-bold text-brand-ink">{compactNum(reporting?.creditsRemaining ?? 0)}</div>
             <div className="mt-2 text-xs text-zinc-500">Usage-based services pull from credits.</div>
             <div className="mt-3">
@@ -579,7 +619,7 @@ export function PortalDashboardClient() {
         })();
 
         return (
-          <AccentCard title={widgetTitle(id)} widgetId={id}>
+          <AccentCard title={widgetTitle(id)} widgetId={id} showHandle={editMode}>
             <div className="text-3xl font-bold text-brand-ink">{value}</div>
             {id === "aiCalls" && k ? (
               <div className="mt-3 space-y-2">
@@ -601,7 +641,7 @@ export function PortalDashboardClient() {
       case "dailyActivity": {
         const rows = (reporting?.daily ?? []).slice().reverse().slice(0, 7);
         return (
-          <AccentCard title={widgetTitle(id)} widgetId={id}>
+          <AccentCard title={widgetTitle(id)} widgetId={id} showHandle={editMode}>
             <div className="mt-1 text-xs text-zinc-500">Last 7 days (UTC)</div>
             <div className="mt-3 space-y-2">
               {rows.length ? (
@@ -625,7 +665,7 @@ export function PortalDashboardClient() {
 
       default:
         return (
-          <AccentCard title={widgetTitle(id)} widgetId={id}>
+          <AccentCard title={widgetTitle(id)} widgetId={id} showHandle={editMode}>
             Widget
           </AccentCard>
         );
@@ -651,33 +691,40 @@ export function PortalDashboardClient() {
               Reset
             </button>
             {editMode ? (
+              <>
+                <button
+                  type="button"
+                  className="rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm font-semibold text-brand-ink hover:bg-zinc-50 disabled:opacity-60"
+                  onClick={cancelEdit}
+                  disabled={savingLayout}
+                >
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  className="rounded-2xl bg-brand-ink px-4 py-2 text-sm font-semibold text-white hover:opacity-95 disabled:opacity-60"
+                  onClick={() => void doneEdit()}
+                  disabled={savingLayout}
+                >
+                  {savingLayout ? "Saving…" : "Done"}
+                </button>
+              </>
+            ) : (
               <button
                 type="button"
-                className="rounded-2xl bg-brand-ink px-4 py-2 text-sm font-semibold text-white hover:opacity-95 disabled:opacity-60"
-                onClick={() => void saveDashboard(layouts)}
-                disabled={savingLayout}
+                className="rounded-2xl bg-[color:var(--color-brand-blue)] px-4 py-2 text-sm font-semibold text-white hover:opacity-95"
+                onClick={beginEdit}
               >
-                {savingLayout ? "Saving…" : "Save"}
+                Edit
               </button>
-            ) : null}
-            <button
-              type="button"
-              className={
-                editMode
-                  ? "rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm font-semibold text-brand-ink hover:bg-zinc-50"
-                  : "rounded-2xl bg-[color:var(--color-brand-blue)] px-4 py-2 text-sm font-semibold text-white hover:opacity-95"
-              }
-              onClick={() => setEditMode((v) => !v)}
-            >
-              {editMode ? "Done" : "Edit"}
-            </button>
+            )}
           </div>
         ) : null}
       </div>
 
       <div ref={setContainerEl}>
         {width > 0 ? (
-          <ResponsiveGridLayout
+          <ResponsiveGridLayoutAny
             width={width}
             className="layout"
             layouts={layouts as any}
@@ -686,9 +733,11 @@ export function PortalDashboardClient() {
             rowHeight={12}
             margin={[16, 16]}
             containerPadding={[0, 0]}
+            compactType={null}
+            preventCollision={true}
             dragConfig={{ enabled: editMode, handle: ".drag-handle" }}
             resizeConfig={{ enabled: editMode, handles: ["se"] }}
-            onLayoutChange={(_current: Layout, all: ResponsiveLayouts) => setLayouts(all)}
+            onLayoutChange={(current: Layout) => setLayouts({ lg: current, md: current, sm: current, xs: current, xxs: current })}
           >
             {widgetIds.map((id) => (
               <div key={id} className="group relative">
@@ -704,7 +753,7 @@ export function PortalDashboardClient() {
                 {renderWidget(id)}
               </div>
             ))}
-          </ResponsiveGridLayout>
+          </ResponsiveGridLayoutAny>
         ) : (
           <div className="rounded-3xl border border-zinc-200 bg-white p-6 text-sm text-zinc-600">Loading dashboard…</div>
         )}
