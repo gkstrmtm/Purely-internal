@@ -18,6 +18,8 @@ type Settings = {
   b2b: {
     niche: string;
     location: string;
+    fallbackEnabled: boolean;
+    fallbackLocations: string[];
     count: number;
     requireEmail: boolean;
     requirePhone: boolean;
@@ -231,6 +233,8 @@ function normalizeSettings(value: unknown): Settings {
     b2b: {
       niche: toStr(b2b.niche),
       location: toStr(b2b.location),
+      fallbackEnabled: Boolean((b2b as any).fallbackEnabled),
+      fallbackLocations: normalizeStringList((b2b as any).fallbackLocations),
       count: toInt(b2b.count, 25, 500),
       requireEmail: Boolean((b2b as any).requireEmail),
       requirePhone: Boolean(b2b.requirePhone),
@@ -327,7 +331,11 @@ async function runB2BForOwner(ownerId: string, settingsJson: unknown, baseUrl: s
   let error: string | null = null;
   const maxPerPlacesBatch = 60;
   const baseBatches = Math.max(1, Math.ceil(requestedCount / maxPerPlacesBatch));
-  const plannedBatches = Math.min(10, baseBatches + (requestedCount >= 50 ? 1 : 0));
+  const plannedPrimaryBatches = Math.min(10, baseBatches + (requestedCount >= 50 ? 1 : 0));
+  const fallbackLocations = settings.b2b.fallbackEnabled
+    ? settings.b2b.fallbackLocations.map((s) => s.trim()).filter(Boolean).slice(0, 5)
+    : [];
+  const plannedBatches = Math.min(25, plannedPrimaryBatches + (fallbackLocations.length ? fallbackLocations.length * 2 : 0));
   const createdLeads: Array<{
     id: string;
     businessName: string;
@@ -337,6 +345,7 @@ async function runB2BForOwner(ownerId: string, settingsJson: unknown, baseUrl: s
     address: string | null;
     niche: string | null;
   }> = [];
+  const usedFallbackLocations: string[] = [];
 
   try {
     const excludedPhones = new Set(
@@ -344,40 +353,58 @@ async function runB2BForOwner(ownerId: string, settingsJson: unknown, baseUrl: s
         .map((p) => normalizePhone(p))
         .filter((p): p is string => Boolean(p)),
     );
-    const queryVariants = Array.from(
-      new Set(
-        [
-          `${niche} in ${location}`,
-          `${niche} near ${location}`,
-          `${niche} services in ${location}`,
-          `${niche} company in ${location}`,
-        ]
-          .map((s) => s.trim())
-          .filter(Boolean),
-      ),
-    );
+    const buildQueryVariants = (loc: string) =>
+      Array.from(
+        new Set(
+          [
+            `${niche} in ${loc}`,
+            `${niche} near ${loc}`,
+            `${niche} services in ${loc}`,
+            `${niche} company in ${loc}`,
+          ]
+            .map((s) => s.trim())
+            .filter(Boolean),
+        ),
+      );
 
     const seenPlaceIds = new Set<string>();
+    const locationsToTry = [location, ...fallbackLocations];
+    let batchesRan = 0;
 
-    for (let batchIndex = 0; batchIndex < plannedBatches; batchIndex++) {
+    for (let locIndex = 0; locIndex < locationsToTry.length; locIndex++) {
       if (createdCount >= requestedCount) break;
 
-      const remaining = requestedCount - createdCount;
-      const targetThisBatch = Math.min(maxPerPlacesBatch, Math.max(1, remaining));
-      const query = queryVariants[batchIndex % queryVariants.length] || `${niche} in ${location}`;
-      const results = await placesTextSearch(query, Math.max(1, targetThisBatch * 4));
+      const loc = locationsToTry[locIndex] || location;
+      const isFallback = locIndex > 0;
+      const queryVariants = buildQueryVariants(loc);
 
-      for (const place of results) {
+      const attemptsForThisLocation = isFallback
+        ? Math.min(5, Math.max(1, Math.ceil((requestedCount - createdCount) / maxPerPlacesBatch) + 1))
+        : plannedPrimaryBatches;
+
+      for (let attempt = 0; attempt < attemptsForThisLocation; attempt++) {
         if (createdCount >= requestedCount) break;
+        if (batchesRan >= plannedBatches) break;
+        batchesRan++;
+
+        const remaining = requestedCount - createdCount;
+        const targetThisBatch = Math.min(maxPerPlacesBatch, Math.max(1, remaining));
+        const query = queryVariants[attempt % queryVariants.length] || `${niche} in ${loc}`;
+        const results = await placesTextSearch(query, Math.max(1, targetThisBatch * 4));
+
+        let createdThisAttempt = 0;
+
+        for (const place of results) {
+          if (createdCount >= requestedCount) break;
 
         const businessName = place.name?.trim() || "";
         if (!businessName) continue;
         if (matchesNameExclusion(businessName, settings.b2b.excludeNameContains)) continue;
 
-        const placeId = place.place_id;
-        if (seenPlaceIds.has(placeId)) continue;
-        seenPlaceIds.add(placeId);
-        const details = await placeDetails(placeId);
+          const placeId = place.place_id;
+          if (seenPlaceIds.has(placeId)) continue;
+          seenPlaceIds.add(placeId);
+          const details = await placeDetails(placeId);
 
         const phoneCandidate = details.international_phone_number || details.formatted_phone_number || null;
         const phoneNorm = normalizePhone(phoneCandidate);
@@ -390,31 +417,47 @@ async function runB2BForOwner(ownerId: string, settingsJson: unknown, baseUrl: s
         if (settings.b2b.requirePhone && !phoneNorm) continue;
         if (settings.b2b.requireWebsite && !website) continue;
 
-        const created = await createPortalLeadCompat({
-          ownerId,
-          kind: "B2B",
-          source: "GOOGLE_PLACES",
-          businessName,
-          phone: phoneNorm,
-          website,
-          address: details.formatted_address || place.formatted_address || null,
-          niche,
-          placeId,
-          dataJson: {
-            googlePlaces: {
-              placeId,
-              details,
+          const created = await createPortalLeadCompat({
+            ownerId,
+            kind: "B2B",
+            source: "GOOGLE_PLACES",
+            businessName,
+            phone: phoneNorm,
+            website,
+            address: details.formatted_address || place.formatted_address || null,
+            niche,
+            placeId,
+            dataJson: {
+              googlePlaces: {
+                placeId,
+                details,
+              },
+              leadScraping: {
+                location: loc,
+                isFallback,
+              },
             },
-          },
-        });
-
-        if (created) {
-          createdLeads.push({
-            ...created,
-            email: null,
           });
-          createdCount++;
+
+          if (created) {
+            createdLeads.push({
+              ...created,
+              email: null,
+            });
+            createdCount++;
+            createdThisAttempt++;
+          }
+      }
+
+        if (isFallback && createdThisAttempt > 0 && !usedFallbackLocations.includes(loc)) {
+          usedFallbackLocations.push(loc);
         }
+
+        await prisma.portalLeadScrapeRun.update({
+          where: { id: run.id },
+          data: { createdCount },
+          select: { id: true },
+        });
       }
     }
   } catch (e: any) {

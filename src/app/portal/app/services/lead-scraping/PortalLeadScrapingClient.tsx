@@ -21,6 +21,8 @@ type LeadScrapingSettings = {
   b2b: {
     niche: string;
     location: string;
+    fallbackEnabled?: boolean;
+    fallbackLocations?: string[];
     count: number;
     requireEmail: boolean;
     requirePhone: boolean;
@@ -81,11 +83,13 @@ type LeadsResponse = {
 
 type RunResponse = {
   ok?: boolean;
+  requestedCount?: number;
   createdCount?: number;
   chargedCredits?: number;
   refundedCredits?: number;
   plannedBatches?: number;
   batchesRan?: number;
+  usedFallbackLocations?: string[];
   error?: string;
   code?: string;
 };
@@ -363,12 +367,25 @@ export function PortalLeadScrapingClient() {
     const created = typeof body.createdCount === "number" ? body.createdCount : 0;
     const charged = typeof body.chargedCredits === "number" ? body.chargedCredits : 0;
     const refunded = typeof body.refundedCredits === "number" ? body.refundedCredits : 0;
+    const requested =
+      typeof body.requestedCount === "number" ? body.requestedCount : (settings?.b2b?.count ?? 0);
+    const usedFallbacks = Array.isArray(body.usedFallbackLocations)
+      ? body.usedFallbackLocations.filter((s) => typeof s === "string" && s.trim())
+      : [];
 
-    setStatus(
-      created > 0
-        ? `Added ${created} lead${created === 1 ? "" : "s"} • Charged ${charged} credit${charged === 1 ? "" : "s"}${refunded ? ` • Refunded ${refunded}` : ""}`
-        : `No new leads matched (refunded ${refunded} credits)`,
-    );
+    const fallbackNote = usedFallbacks.length ? ` • Used fallback: ${usedFallbacks.join(", ")}` : "";
+
+    if (requested > 0 && created < requested) {
+      setStatus(
+        `Found ${created} lead${created === 1 ? "" : "s"} within these constraints • Requested ${requested} • Charged ${charged} credit${charged === 1 ? "" : "s"}${refunded ? ` • Refunded ${refunded}` : ""}${fallbackNote}`,
+      );
+    } else {
+      setStatus(
+        created > 0
+          ? `Added ${created} lead${created === 1 ? "" : "s"} • Charged ${charged} credit${charged === 1 ? "" : "s"}${refunded ? ` • Refunded ${refunded}` : ""}${fallbackNote}`
+          : `No new leads matched${refunded ? ` (refunded ${refunded} credits)` : ""}${fallbackNote}`,
+      );
+    }
 
     await load();
   }
@@ -1124,6 +1141,56 @@ export function PortalLeadScrapingClient() {
                   }
                   placeholder="e.g. Austin TX"
                 />
+
+                <label className="mt-3 flex items-center justify-between gap-3 rounded-2xl border border-zinc-200 bg-zinc-50 px-4 py-3 text-sm">
+                  <span className="text-zinc-800">Use fallback locations to reach count</span>
+                  <input
+                    type="checkbox"
+                    checked={Boolean((settings.b2b as any).fallbackEnabled)}
+                    onChange={(e) =>
+                      setSettings((prev) =>
+                        prev
+                          ? {
+                              ...prev,
+                              b2b: {
+                                ...prev.b2b,
+                                fallbackEnabled: e.target.checked,
+                              } as any,
+                            }
+                          : prev,
+                      )
+                    }
+                  />
+                </label>
+
+                <div className="mt-3">
+                  <div className="text-xs font-semibold text-zinc-600">Fallback locations (one per line)</div>
+                  <textarea
+                    className="mt-2 min-h-[90px] w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm"
+                    value={((settings.b2b as any).fallbackLocations ?? []).join("\n")}
+                    onChange={(e) =>
+                      setSettings((prev) => {
+                        if (!prev) return prev;
+                        const next = e.target.value
+                          .split("\n")
+                          .map((x) => x.trim())
+                          .filter(Boolean)
+                          .slice(0, 20);
+                        return {
+                          ...prev,
+                          b2b: {
+                            ...prev.b2b,
+                            fallbackLocations: next,
+                          } as any,
+                        };
+                      })
+                    }
+                    placeholder="e.g. Dallas TX\nSan Antonio TX"
+                  />
+                  <div className="mt-1 text-xs text-zinc-500">
+                    If we can’t find enough leads in your main location, we’ll keep going in these locations until we hit your requested count.
+                  </div>
+                </div>
               </label>
 
               <label className="block">
@@ -1355,7 +1422,7 @@ export function PortalLeadScrapingClient() {
             </div>
           </div>
 
-          <div className="flex h-full flex-col rounded-3xl border border-zinc-200 bg-white p-6">
+          <div className="flex flex-col rounded-3xl border border-zinc-200 bg-white p-6 lg:sticky lg:top-8 lg:h-[calc(100vh-4rem)]">
             <div className="flex items-start justify-between gap-4">
               <div>
                 <div className="text-sm font-semibold text-zinc-900">Leads</div>
@@ -1381,7 +1448,7 @@ export function PortalLeadScrapingClient() {
               />
             </div>
 
-            <div className="mt-3 max-h-[70vh] space-y-3 overflow-y-auto pr-2 lg:max-h-none lg:min-h-0 lg:flex-1">
+            <div className="mt-3 max-h-[70vh] min-h-[240px] space-y-3 overflow-y-auto pr-2 lg:max-h-none lg:min-h-0 lg:flex-1">
               {leads.length ? (
                 leads.map((l, idx) => (
                   <button

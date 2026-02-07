@@ -41,6 +41,8 @@ type Settings = {
   b2b: {
     niche: string;
     location: string;
+    fallbackEnabled: boolean;
+    fallbackLocations: string[];
     count: number;
     requireEmail: boolean;
     requirePhone: boolean;
@@ -348,6 +350,8 @@ function normalizeSettings(value: unknown): Settings {
     b2b: {
       niche: typeof b2b.niche === "string" ? b2b.niche.slice(0, 200) : "",
       location: typeof b2b.location === "string" ? b2b.location.slice(0, 200) : "",
+      fallbackEnabled: Boolean((b2b as any).fallbackEnabled),
+      fallbackLocations: normalizeStringList((b2b as any).fallbackLocations),
       count:
         typeof b2b.count === "number" && Number.isFinite(b2b.count)
           ? Math.min(500, Math.max(1, Math.floor(b2b.count)))
@@ -485,8 +489,13 @@ export async function POST(req: Request) {
   let error: string | null = null;
   const maxPerPlacesBatch = 60;
   const baseBatches = Math.max(1, Math.ceil(requestedCount / maxPerPlacesBatch));
-  const plannedBatches = Math.min(10, baseBatches + (requestedCount >= 50 ? 1 : 0));
+  const plannedPrimaryBatches = Math.min(10, baseBatches + (requestedCount >= 50 ? 1 : 0));
+  const fallbackLocations = settings.b2b.fallbackEnabled
+    ? settings.b2b.fallbackLocations.map((s) => s.trim()).filter(Boolean).slice(0, 5)
+    : [];
+  const plannedBatches = Math.min(25, plannedPrimaryBatches + (fallbackLocations.length ? fallbackLocations.length * 2 : 0));
   let batchesRan = 0;
+  const usedFallbackLocations: string[] = [];
   const createdLeads: Array<{
     id: string;
     businessName: string;
@@ -498,18 +507,19 @@ export async function POST(req: Request) {
   }> = [];
 
   try {
-    const queryVariants = Array.from(
-      new Set(
-        [
-          `${niche} in ${location}`,
-          `${niche} near ${location}`,
-          `${niche} services in ${location}`,
-          `${niche} company in ${location}`,
-        ]
-          .map((s) => s.trim())
-          .filter(Boolean),
-      ),
-    );
+    const buildQueryVariants = (loc: string) =>
+      Array.from(
+        new Set(
+          [
+            `${niche} in ${loc}`,
+            `${niche} near ${loc}`,
+            `${niche} services in ${loc}`,
+            `${niche} company in ${loc}`,
+          ]
+            .map((s) => s.trim())
+            .filter(Boolean),
+        ),
+      );
 
     const excludedPhones = new Set(
       settings.b2b.excludePhones
@@ -519,72 +529,98 @@ export async function POST(req: Request) {
 
     const seenPlaceIds = new Set<string>();
 
-    for (let batchIndex = 0; batchIndex < plannedBatches; batchIndex++) {
+    const locationsToTry = [location, ...fallbackLocations];
+
+    for (let locIndex = 0; locIndex < locationsToTry.length; locIndex++) {
       if (createdCount >= requestedCount) break;
-      batchesRan++;
 
-      const remaining = requestedCount - createdCount;
-      const targetThisBatch = Math.min(maxPerPlacesBatch, Math.max(1, remaining));
-      const query = queryVariants[batchIndex % queryVariants.length] || `${niche} in ${location}`;
-      const results = await placesTextSearch(query, Math.max(1, targetThisBatch * 4));
+      const loc = locationsToTry[locIndex] || location;
+      const isFallback = locIndex > 0;
+      const queryVariants = buildQueryVariants(loc);
 
-      for (const place of results) {
+      const attemptsForThisLocation = isFallback
+        ? Math.min(5, Math.max(1, Math.ceil((requestedCount - createdCount) / maxPerPlacesBatch) + 1))
+        : plannedPrimaryBatches;
+
+      for (let attempt = 0; attempt < attemptsForThisLocation; attempt++) {
         if (createdCount >= requestedCount) break;
+        if (batchesRan >= plannedBatches) break;
+        batchesRan++;
 
-        const businessName = place.name?.trim() || "";
-        if (!businessName) continue;
+        const remaining = requestedCount - createdCount;
+        const targetThisBatch = Math.min(maxPerPlacesBatch, Math.max(1, remaining));
+        const query = queryVariants[attempt % queryVariants.length] || `${niche} in ${loc}`;
+        const results = await placesTextSearch(query, Math.max(1, targetThisBatch * 4));
 
-        if (matchesNameExclusion(businessName, settings.b2b.excludeNameContains)) continue;
+        let createdThisAttempt = 0;
 
-        const placeId = place.place_id;
-        if (seenPlaceIds.has(placeId)) continue;
-        seenPlaceIds.add(placeId);
-        const details = await placeDetails(placeId);
+        for (const place of results) {
+          if (createdCount >= requestedCount) break;
 
-        const phoneCandidate = details.international_phone_number || details.formatted_phone_number || null;
-        const phoneNorm = normalizePhone(phoneCandidate);
-        if (phoneNorm && excludedPhones.has(phoneNorm)) continue;
+          const businessName = place.name?.trim() || "";
+          if (!businessName) continue;
 
-        const website = details.website || null;
-        const domain = website ? extractDomain(website) : null;
-        if (domain && settings.b2b.excludeDomains.includes(domain)) continue;
+          if (matchesNameExclusion(businessName, settings.b2b.excludeNameContains)) continue;
 
-        if (settings.b2b.requirePhone && !phoneNorm) continue;
-        if (settings.b2b.requireWebsite && !website) continue;
+          const placeId = place.place_id;
+          if (seenPlaceIds.has(placeId)) continue;
+          seenPlaceIds.add(placeId);
+          const details = await placeDetails(placeId);
 
-        const created = await createPortalLeadCompat({
-          ownerId,
-          kind: "B2B",
-          source: "GOOGLE_PLACES",
-          businessName,
-          phone: phoneNorm,
-          website,
-          address: details.formatted_address || place.formatted_address || null,
-          niche,
-          placeId,
-          dataJson: {
-            googlePlaces: {
-              placeId,
-              details,
+          const phoneCandidate = details.international_phone_number || details.formatted_phone_number || null;
+          const phoneNorm = normalizePhone(phoneCandidate);
+          if (phoneNorm && excludedPhones.has(phoneNorm)) continue;
+
+          const website = details.website || null;
+          const domain = website ? extractDomain(website) : null;
+          if (domain && settings.b2b.excludeDomains.includes(domain)) continue;
+
+          if (settings.b2b.requirePhone && !phoneNorm) continue;
+          if (settings.b2b.requireWebsite && !website) continue;
+
+          const created = await createPortalLeadCompat({
+            ownerId,
+            kind: "B2B",
+            source: "GOOGLE_PLACES",
+            businessName,
+            phone: phoneNorm,
+            website,
+            address: details.formatted_address || place.formatted_address || null,
+            niche,
+            placeId,
+            dataJson: {
+              googlePlaces: {
+                placeId,
+                details,
+              },
+              leadScraping: {
+                location: loc,
+                isFallback,
+              },
             },
-          },
-        });
-
-        if (created) {
-          createdLeads.push({
-            ...created,
-            email: null,
           });
-          createdCount++;
-        }
-      }
 
-      // Best-effort progress update so the UI can poll run history if needed.
-      await prisma.portalLeadScrapeRun.update({
-        where: { id: run.id },
-        data: { createdCount },
-        select: { id: true },
-      });
+          if (created) {
+            createdLeads.push({
+              ...created,
+              email: null,
+            });
+            createdCount++;
+            createdThisAttempt++;
+          }
+        }
+
+        if (isFallback && createdThisAttempt > 0 && !usedFallbackLocations.includes(loc)) {
+          usedFallbackLocations.push(loc);
+        }
+
+        // Best-effort progress update so the UI can poll run history if needed.
+        await prisma.portalLeadScrapeRun.update({
+          where: { id: run.id },
+          data: { createdCount },
+          select: { id: true },
+        });
+      }
     }
   } catch (e: any) {
     error = typeof e?.message === "string" ? e.message : "Unknown error";
@@ -692,11 +728,13 @@ export async function POST(req: Request) {
         ok: false,
         error,
         code: "RUN_FAILED",
+        requestedCount,
         chargedCredits: reservedCredits,
         refundedCredits,
         createdCount,
         plannedBatches,
         batchesRan,
+        usedFallbackLocations,
       },
       { status: 500 },
     );
@@ -704,10 +742,12 @@ export async function POST(req: Request) {
 
   return NextResponse.json({
     ok: true,
+    requestedCount,
     chargedCredits: reservedCredits,
     refundedCredits,
     createdCount,
     plannedBatches,
     batchesRan,
+    usedFallbackLocations,
   });
 }

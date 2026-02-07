@@ -20,6 +20,8 @@ const settingsSchema = z.object({
   b2b: z.object({
     niche: z.string().max(200),
     location: z.string().max(200),
+    fallbackEnabled: z.boolean().optional(),
+    fallbackLocations: stringList.optional(),
     count: z.number().int().min(1).max(500),
     requireEmail: z.boolean(),
     requirePhone: z.boolean(),
@@ -272,6 +274,8 @@ function normalizeSettings(value: unknown): NormalizedLeadScrapingSettings {
     b2b: {
       niche: typeof b2b.niche === "string" ? b2b.niche.slice(0, 200) : "",
       location: typeof b2b.location === "string" ? b2b.location.slice(0, 200) : "",
+      fallbackEnabled: Boolean((b2b as any).fallbackEnabled),
+      fallbackLocations: normalizeStringList((b2b as any).fallbackLocations),
       count:
         typeof b2b.count === "number" && Number.isFinite(b2b.count)
           ? Math.min(500, Math.max(1, Math.floor(b2b.count)))
