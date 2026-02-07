@@ -277,6 +277,56 @@ function ColorSwatches({
   );
 }
 
+function SettingsSection({
+  title,
+  description,
+  accent,
+  defaultOpen,
+  children,
+}: {
+  title: string;
+  description?: string;
+  accent: "blue" | "pink" | "amber" | "emerald" | "slate";
+  defaultOpen?: boolean;
+  children: React.ReactNode;
+}) {
+  const accentDotClass =
+    accent === "blue"
+      ? "bg-[color:var(--color-brand-blue)]"
+      : accent === "pink"
+        ? "bg-[color:var(--color-brand-pink)]"
+        : accent === "amber"
+          ? "bg-amber-500"
+          : accent === "emerald"
+            ? "bg-emerald-500"
+            : "bg-slate-500";
+
+  return (
+    <details
+      className="group rounded-3xl border border-zinc-200 bg-zinc-50"
+      open={defaultOpen ? true : undefined}
+    >
+      <summary className="flex cursor-pointer list-none items-start justify-between gap-4 rounded-3xl px-5 py-4 select-none hover:bg-zinc-100 [&::-webkit-details-marker]:hidden [&::marker]:content-none">
+        <div className="min-w-0">
+          <div className="flex items-center gap-3">
+            <span className={"h-2.5 w-2.5 shrink-0 rounded-full " + accentDotClass} />
+            <div className="text-sm font-semibold text-zinc-900">{title}</div>
+          </div>
+          {description ? <div className="mt-1 text-sm text-zinc-600">{description}</div> : null}
+        </div>
+        <div className="shrink-0 rounded-full border border-zinc-200 bg-white px-3 py-1 text-xs font-semibold text-zinc-700">
+          <span className="hidden group-open:inline">Hide</span>
+          <span className="group-open:hidden">Show</span>
+        </div>
+      </summary>
+
+      <div className="px-5 pb-5">
+        <div className="rounded-2xl border border-zinc-200 bg-white p-4">{children}</div>
+      </div>
+    </details>
+  );
+}
+
 export function PortalLeadScrapingClient() {
   const [tab, setTab] = useState<"b2b" | "b2c">("b2b");
   const [b2bSubTab, setB2bSubTab] = useState<"pull" | "settings">("pull");
@@ -903,12 +953,14 @@ export function PortalLeadScrapingClient() {
     window.setTimeout(() => setStatus(null), 1500);
   }
 
-  function renderOutboundEditor() {
+  function renderOutboundEditor(opts?: { outerClassName?: string }) {
     if (!settings) return null;
+
+    const outerClassName = opts?.outerClassName ?? "mt-6";
 
     if (!leadOutboundEntitled) {
       return (
-        <div className="mt-6 rounded-3xl border border-zinc-200 bg-white p-6">
+        <div className={outerClassName + " rounded-3xl border border-zinc-200 bg-white p-6"}>
           <div className="text-base font-semibold text-brand-ink">Auto-outbound (add-on)</div>
           <div className="mt-2 text-sm text-zinc-600">
             This feature is gated separately from Lead Scraping. Contact support to enable it on your account.
@@ -918,7 +970,7 @@ export function PortalLeadScrapingClient() {
     }
 
     return (
-      <div className="mt-6 rounded-3xl border border-zinc-200 bg-white p-6">
+      <div className={outerClassName + " rounded-3xl border border-zinc-200 bg-white p-6"}>
         <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
           <div>
             <div className="text-base font-semibold text-brand-ink">Auto-outbound</div>
@@ -1250,9 +1302,9 @@ export function PortalLeadScrapingClient() {
           </p>
         </div>
         <div className="flex flex-col items-stretch gap-2 sm:items-end">
-          <div className="rounded-2xl border border-zinc-200 bg-white px-4 py-3 text-sm">
-            <div className="text-xs text-zinc-500">Credits</div>
-            <div className="mt-0.5 font-semibold text-brand-ink">{credits ?? "—"}</div>
+          <div className="rounded-2xl border border-[color:rgba(29,78,216,0.18)] bg-[color:rgba(29,78,216,0.06)] px-4 py-3 text-sm">
+            <div className="text-xs font-semibold text-[color:var(--color-brand-blue)]">Credits</div>
+            <div className="mt-0.5 font-semibold text-zinc-900">{credits ?? "—"}</div>
           </div>
         </div>
       </div>
@@ -1662,206 +1714,214 @@ export function PortalLeadScrapingClient() {
                 <div className="text-base font-semibold text-brand-ink">B2B settings</div>
                 <div className="mt-1 text-sm text-zinc-600">Manage exclusions, scheduling, and auto-outbound.</div>
 
-                <div className="mt-6 grid grid-cols-1 gap-4 sm:grid-cols-3">
-                <label className="block">
-                  <div className="text-sm font-medium text-zinc-800">Exclude business names (one per line)</div>
-                  <textarea
-                    className="mt-2 min-h-[110px] w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm"
-                    value={settings.b2b.excludeNameContains.join("\n")}
-                    onChange={(e) =>
-                      setSettings((prev) => {
-                        if (!prev) return prev;
-                        const next = e.target.value
-                          .split("\n")
-                          .map((x) => x.trim())
-                          .filter(Boolean)
-                          .slice(0, 200);
-                        return { ...prev, b2b: { ...prev.b2b, excludeNameContains: next } };
-                      })
-                    }
-                    placeholder="e.g. walmart\nverizon"
-                  />
-                </label>
+                <div className="mt-6 space-y-4">
+                  <SettingsSection
+                    title="Exclusions"
+                    description="Keep junk out of your pulls (names, domains, phones)."
+                    accent="slate"
+                  >
+                    <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
+                      <label className="block">
+                        <div className="text-sm font-medium text-zinc-800">Exclude business names (one per line)</div>
+                        <textarea
+                          className="mt-2 min-h-[110px] w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm"
+                          value={settings.b2b.excludeNameContains.join("\n")}
+                          onChange={(e) =>
+                            setSettings((prev) => {
+                              if (!prev) return prev;
+                              const next = e.target.value
+                                .split("\n")
+                                .map((x) => x.trim())
+                                .filter(Boolean)
+                                .slice(0, 200);
+                              return { ...prev, b2b: { ...prev.b2b, excludeNameContains: next } };
+                            })
+                          }
+                          placeholder="e.g. walmart\nverizon"
+                        />
+                      </label>
 
-                <label className="block">
-                  <div className="text-sm font-medium text-zinc-800">Exclude domains (one per line)</div>
-                  <textarea
-                    className="mt-2 min-h-[110px] w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm"
-                    value={settings.b2b.excludeDomains.join("\n")}
-                    onChange={(e) =>
-                      setSettings((prev) => {
-                        if (!prev) return prev;
-                        const next = e.target.value
-                          .split("\n")
-                          .map((x) => x.trim().toLowerCase())
-                          .filter(Boolean)
-                          .slice(0, 200);
-                        return { ...prev, b2b: { ...prev.b2b, excludeDomains: next } };
-                      })
-                    }
-                    placeholder="e.g. yelp.com\nfacebook.com"
-                  />
-                </label>
+                      <label className="block">
+                        <div className="text-sm font-medium text-zinc-800">Exclude domains (one per line)</div>
+                        <textarea
+                          className="mt-2 min-h-[110px] w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm"
+                          value={settings.b2b.excludeDomains.join("\n")}
+                          onChange={(e) =>
+                            setSettings((prev) => {
+                              if (!prev) return prev;
+                              const next = e.target.value
+                                .split("\n")
+                                .map((x) => x.trim().toLowerCase())
+                                .filter(Boolean)
+                                .slice(0, 200);
+                              return { ...prev, b2b: { ...prev.b2b, excludeDomains: next } };
+                            })
+                          }
+                          placeholder="e.g. yelp.com\nfacebook.com"
+                        />
+                      </label>
 
-                <label className="block">
-                  <div className="text-sm font-medium text-zinc-800">Exclude phones (one per line)</div>
-                  <textarea
-                    className="mt-2 min-h-[110px] w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm"
-                    value={settings.b2b.excludePhones.join("\n")}
-                    onChange={(e) =>
-                      setSettings((prev) => {
-                        if (!prev) return prev;
-                        const next = e.target.value
-                          .split("\n")
-                          .map((x) => x.trim())
-                          .filter(Boolean)
-                          .slice(0, 200);
-                        return { ...prev, b2b: { ...prev.b2b, excludePhones: next } };
-                      })
-                    }
-                    placeholder="e.g. +15551234567"
-                  />
-                </label>
-              </div>
-
-                <div className="mt-6 rounded-3xl border border-zinc-200 bg-zinc-50 p-6">
-                <div className="flex items-start justify-between gap-4">
-                  <div>
-                    <div className="text-sm font-semibold text-zinc-900">Scheduling</div>
-                    <div className="mt-1 text-sm text-zinc-600">
-                      Runs via a secure cron endpoint (server-side). You can still run manually any time.
+                      <label className="block">
+                        <div className="text-sm font-medium text-zinc-800">Exclude phones (one per line)</div>
+                        <textarea
+                          className="mt-2 min-h-[110px] w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm"
+                          value={settings.b2b.excludePhones.join("\n")}
+                          onChange={(e) =>
+                            setSettings((prev) => {
+                              if (!prev) return prev;
+                              const next = e.target.value
+                                .split("\n")
+                                .map((x) => x.trim())
+                                .filter(Boolean)
+                                .slice(0, 200);
+                              return { ...prev, b2b: { ...prev.b2b, excludePhones: next } };
+                            })
+                          }
+                          placeholder="e.g. +15551234567"
+                        />
+                      </label>
                     </div>
-                  </div>
-                </div>
+                  </SettingsSection>
 
-                <div className="mt-4 grid grid-cols-1 gap-4 sm:grid-cols-3">
-                  <label className="flex items-center justify-between gap-3 rounded-2xl border border-zinc-200 bg-white px-4 py-3 text-sm">
-                    <span className="text-zinc-800">Enabled</span>
-                    <input
-                      type="checkbox"
-                      checked={settings.b2b.scheduleEnabled}
-                      onChange={(e) =>
-                        setSettings((prev) =>
-                          prev ? { ...prev, b2b: { ...prev.b2b, scheduleEnabled: e.target.checked } } : prev,
-                        )
-                      }
-                    />
-                  </label>
+                  <SettingsSection
+                    title="Scheduling"
+                    description="Runs via a secure cron endpoint (server-side). You can still run manually any time."
+                    accent="amber"
+                  >
+                    <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
+                      <label className="flex items-center justify-between gap-3 rounded-2xl border border-zinc-200 bg-white px-4 py-3 text-sm">
+                        <span className="text-zinc-800">Enabled</span>
+                        <input
+                          type="checkbox"
+                          checked={settings.b2b.scheduleEnabled}
+                          onChange={(e) =>
+                            setSettings((prev) =>
+                              prev ? { ...prev, b2b: { ...prev.b2b, scheduleEnabled: e.target.checked } } : prev,
+                            )
+                          }
+                        />
+                      </label>
 
-                  <label className="block sm:col-span-2">
-                    <div className="text-sm font-medium text-zinc-800">Frequency (days)</div>
-                    <input
-                      className="mt-2 w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm"
-                      type="number"
-                      min={1}
-                      max={60}
-                      value={settings.b2b.frequencyDays}
-                      onChange={(e) =>
-                        setSettings((prev) =>
-                          prev
-                            ? {
-                                ...prev,
-                                b2b: {
-                                  ...prev.b2b,
-                                  frequencyDays: clampInt(Number(e.target.value), 1, 60),
-                                },
-                              }
-                            : prev,
-                        )
-                      }
-                    />
-                    <div className="mt-1 text-xs text-zinc-500">
-                      Last run: {settings.b2b.lastRunAtIso ? new Date(settings.b2b.lastRunAtIso).toLocaleString() : "Never"}
+                      <label className="block sm:col-span-2">
+                        <div className="text-sm font-medium text-zinc-800">Frequency (days)</div>
+                        <input
+                          className="mt-2 w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm"
+                          type="number"
+                          min={1}
+                          max={60}
+                          value={settings.b2b.frequencyDays}
+                          onChange={(e) =>
+                            setSettings((prev) =>
+                              prev
+                                ? {
+                                    ...prev,
+                                    b2b: {
+                                      ...prev.b2b,
+                                      frequencyDays: clampInt(Number(e.target.value), 1, 60),
+                                    },
+                                  }
+                                : prev,
+                            )
+                          }
+                        />
+                        <div className="mt-1 text-xs text-zinc-500">
+                          Last run: {settings.b2b.lastRunAtIso ? new Date(settings.b2b.lastRunAtIso).toLocaleString() : "Never"}
+                        </div>
+                      </label>
                     </div>
-                  </label>
-                </div>
-              </div>
+                  </SettingsSection>
 
-                {renderOutboundEditor()}
+                  <SettingsSection
+                    title="Auto-outbound"
+                    description="Optional email/text templates that can send automatically."
+                    accent="emerald"
+                  >
+                    {renderOutboundEditor({ outerClassName: "" })}
+                  </SettingsSection>
 
-                <div className="mt-6 rounded-3xl border border-zinc-200 bg-zinc-50 p-6">
-                  <div className="flex items-start justify-between gap-4">
-                    <div>
-                      <div className="text-sm font-semibold text-zinc-900">Tag presets</div>
-                      <div className="mt-1 text-sm text-zinc-600">
-                        These show up as quick-pick tags when you open a lead.
-                      </div>
+                  <SettingsSection
+                    title="Tag presets"
+                    description="Quick-pick tags when you open a lead."
+                    accent="pink"
+                  >
+                    <div className="flex items-start justify-between gap-4">
+                      <div className="text-sm text-zinc-600">Up to 10 presets.</div>
+                      <button
+                        type="button"
+                        onClick={() =>
+                          setSettings((prev) => {
+                            if (!prev) return prev;
+                            const next = coerceTagPresetsForEditing(prev.b2b.tagPresets);
+                            if (next.length >= 10) return prev;
+                            return {
+                              ...prev,
+                              b2b: { ...prev.b2b, tagPresets: [...next, { label: "", color: "#111827" }].slice(0, 10) },
+                            };
+                          })
+                        }
+                        className="shrink-0 rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm font-semibold text-brand-ink hover:bg-zinc-50"
+                      >
+                        + Add
+                      </button>
                     </div>
-                    <button
-                      type="button"
-                      onClick={() =>
-                        setSettings((prev) => {
-                          if (!prev) return prev;
-                          const next = coerceTagPresetsForEditing(prev.b2b.tagPresets);
-                          if (next.length >= 10) return prev;
-                          return {
-                            ...prev,
-                            b2b: { ...prev.b2b, tagPresets: [...next, { label: "", color: "#111827" }].slice(0, 10) },
-                          };
-                        })
-                      }
-                      className="shrink-0 rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm font-semibold text-brand-ink hover:bg-zinc-50"
-                    >
-                      + Add
-                    </button>
-                  </div>
 
-                  <div className="mt-4 space-y-3">
-                    {coerceTagPresetsForEditing(settings.b2b.tagPresets).map((p, idx) => (
-                      <div key={`${p.label}-${idx}`} className="rounded-2xl border border-zinc-200 bg-white p-4">
-                        <div className="grid grid-cols-1 gap-3 sm:grid-cols-6 sm:items-center">
-                          <label className="block sm:col-span-3">
-                            <div className="text-xs font-semibold text-zinc-600">Label</div>
-                            <input
-                              className="mt-1 w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm"
-                              value={p.label}
-                              onChange={(e) =>
-                                setSettings((prev) => {
-                                  if (!prev) return prev;
-                                  const base = coerceTagPresetsForEditing(prev.b2b.tagPresets);
-                                  const next = base.map((x, i) => (i === idx ? { ...x, label: e.target.value } : x));
-                                  return { ...prev, b2b: { ...prev.b2b, tagPresets: next } };
-                                })
-                              }
-                              placeholder="e.g. New"
-                            />
-                          </label>
-
-                          <div className="sm:col-span-2">
-                            <div className="text-xs font-semibold text-zinc-600">Color</div>
-                            <div className="mt-2">
-                              <ColorSwatches
-                                value={p.color}
-                                onChange={(hex) =>
+                    <div className="mt-4 space-y-3">
+                      {coerceTagPresetsForEditing(settings.b2b.tagPresets).map((p, idx) => (
+                        <div key={`${p.label}-${idx}`} className="rounded-2xl border border-zinc-200 bg-white p-4">
+                          <div className="grid grid-cols-1 gap-3 sm:grid-cols-6 sm:items-center">
+                            <label className="block sm:col-span-3">
+                              <div className="text-xs font-semibold text-zinc-600">Label</div>
+                              <input
+                                className="mt-1 w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm"
+                                value={p.label}
+                                onChange={(e) =>
                                   setSettings((prev) => {
                                     if (!prev) return prev;
                                     const base = coerceTagPresetsForEditing(prev.b2b.tagPresets);
-                                    const next = base.map((x, i) => (i === idx ? { ...x, color: hex } : x));
+                                    const next = base.map((x, i) => (i === idx ? { ...x, label: e.target.value } : x));
                                     return { ...prev, b2b: { ...prev.b2b, tagPresets: next } };
                                   })
                                 }
+                                placeholder="e.g. New"
                               />
-                            </div>
-                          </div>
+                            </label>
 
-                          <button
-                            type="button"
-                            onClick={() =>
-                              setSettings((prev) => {
-                                if (!prev) return prev;
-                                const base = coerceTagPresetsForEditing(prev.b2b.tagPresets);
-                                const next = base.filter((_, i) => i !== idx);
-                                return { ...prev, b2b: { ...prev.b2b, tagPresets: next } };
-                              })
-                            }
-                            className="sm:col-span-1 rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm font-semibold text-zinc-700 hover:bg-zinc-50"
-                          >
-                            Remove
-                          </button>
+                            <div className="sm:col-span-2">
+                              <div className="text-xs font-semibold text-zinc-600">Color</div>
+                              <div className="mt-2">
+                                <ColorSwatches
+                                  value={p.color}
+                                  onChange={(hex) =>
+                                    setSettings((prev) => {
+                                      if (!prev) return prev;
+                                      const base = coerceTagPresetsForEditing(prev.b2b.tagPresets);
+                                      const next = base.map((x, i) => (i === idx ? { ...x, color: hex } : x));
+                                      return { ...prev, b2b: { ...prev.b2b, tagPresets: next } };
+                                    })
+                                  }
+                                />
+                              </div>
+                            </div>
+
+                            <button
+                              type="button"
+                              onClick={() =>
+                                setSettings((prev) => {
+                                  if (!prev) return prev;
+                                  const base = coerceTagPresetsForEditing(prev.b2b.tagPresets);
+                                  const next = base.filter((_, i) => i !== idx);
+                                  return { ...prev, b2b: { ...prev.b2b, tagPresets: next } };
+                                })
+                              }
+                              className="sm:col-span-1 rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm font-semibold text-zinc-700 hover:bg-zinc-50"
+                            >
+                              Remove
+                            </button>
+                          </div>
                         </div>
-                      </div>
-                    ))}
-                  </div>
+                      ))}
+                    </div>
+                  </SettingsSection>
                 </div>
 
                 <div className="mt-6 flex flex-col gap-3 sm:flex-row">
@@ -2164,122 +2224,135 @@ export function PortalLeadScrapingClient() {
                 <div className="text-base font-semibold text-brand-ink">B2C settings</div>
                 <div className="mt-1 text-sm text-zinc-600">Scheduling and auto-outbound for consumer leads.</div>
 
-                <div className="mt-6 grid grid-cols-1 gap-4 sm:grid-cols-2">
-                  <label className="flex items-center justify-between gap-3 rounded-2xl border border-zinc-200 bg-zinc-50 px-4 py-3 text-sm">
-                    <span className="text-zinc-800">Scheduling (disabled)</span>
-                    <input type="checkbox" checked={false} disabled />
-                  </label>
+                <div className="mt-6 space-y-4">
+                  <SettingsSection
+                    title="Scheduling"
+                    description="Currently disabled for B2C (coming soon)."
+                    accent="amber"
+                  >
+                    <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+                      <label className="flex items-center justify-between gap-3 rounded-2xl border border-zinc-200 bg-zinc-50 px-4 py-3 text-sm">
+                        <span className="text-zinc-800">Scheduling (disabled)</span>
+                        <input type="checkbox" checked={false} disabled />
+                      </label>
 
-                  <label className="block">
-                    <div className="text-sm font-medium text-zinc-800">Frequency (days)</div>
-                    <input
-                      className="mt-2 w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm"
-                      type="number"
-                      min={1}
-                      max={60}
-                      value={settings.b2c.frequencyDays}
-                      onChange={(e) =>
-                        setSettings((prev) =>
-                          prev
-                            ? {
-                                ...prev,
-                                b2c: { ...prev.b2c, frequencyDays: clampInt(Number(e.target.value), 1, 60) },
-                              }
-                            : prev,
-                        )
-                      }
-                    />
-                    <div className="mt-1 text-xs text-zinc-500">
-                      Last run: {settings.b2c.lastRunAtIso ? new Date(settings.b2c.lastRunAtIso).toLocaleString() : "Never"}
+                      <label className="block">
+                        <div className="text-sm font-medium text-zinc-800">Frequency (days)</div>
+                        <input
+                          className="mt-2 w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm"
+                          type="number"
+                          min={1}
+                          max={60}
+                          value={settings.b2c.frequencyDays}
+                          onChange={(e) =>
+                            setSettings((prev) =>
+                              prev
+                                ? {
+                                    ...prev,
+                                    b2c: { ...prev.b2c, frequencyDays: clampInt(Number(e.target.value), 1, 60) },
+                                  }
+                                : prev,
+                            )
+                          }
+                        />
+                        <div className="mt-1 text-xs text-zinc-500">
+                          Last run: {settings.b2c.lastRunAtIso ? new Date(settings.b2c.lastRunAtIso).toLocaleString() : "Never"}
+                        </div>
+                      </label>
                     </div>
-                  </label>
-                </div>
+                  </SettingsSection>
 
-                {renderOutboundEditor()}
+                  <SettingsSection
+                    title="Auto-outbound"
+                    description="Optional email/text templates that can send automatically."
+                    accent="emerald"
+                  >
+                    {renderOutboundEditor({ outerClassName: "" })}
+                  </SettingsSection>
 
-                <div className="mt-6 rounded-3xl border border-zinc-200 bg-zinc-50 p-6">
-                  <div className="flex items-start justify-between gap-4">
-                    <div>
-                      <div className="text-sm font-semibold text-zinc-900">Tag presets</div>
-                      <div className="mt-1 text-sm text-zinc-600">
-                        These show up as quick-pick tags when you open a lead.
-                      </div>
+                  <SettingsSection
+                    title="Tag presets"
+                    description="Quick-pick tags when you open a lead."
+                    accent="pink"
+                  >
+                    <div className="flex items-start justify-between gap-4">
+                      <div className="text-sm text-zinc-600">Up to 10 presets.</div>
+                      <button
+                        type="button"
+                        onClick={() =>
+                          setSettings((prev) => {
+                            if (!prev) return prev;
+                            const next = coerceTagPresetsForEditing(prev.b2c.tagPresets);
+                            if (next.length >= 10) return prev;
+                            return {
+                              ...prev,
+                              b2c: { ...prev.b2c, tagPresets: [...next, { label: "", color: "#111827" }].slice(0, 10) },
+                            };
+                          })
+                        }
+                        className="shrink-0 rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm font-semibold text-brand-ink hover:bg-zinc-50"
+                      >
+                        + Add
+                      </button>
                     </div>
-                    <button
-                      type="button"
-                      onClick={() =>
-                        setSettings((prev) => {
-                          if (!prev) return prev;
-                          const next = coerceTagPresetsForEditing(prev.b2c.tagPresets);
-                          if (next.length >= 10) return prev;
-                          return {
-                            ...prev,
-                            b2c: { ...prev.b2c, tagPresets: [...next, { label: "", color: "#111827" }].slice(0, 10) },
-                          };
-                        })
-                      }
-                      className="shrink-0 rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm font-semibold text-brand-ink hover:bg-zinc-50"
-                    >
-                      + Add
-                    </button>
-                  </div>
 
-                  <div className="mt-4 space-y-3">
-                    {coerceTagPresetsForEditing(settings.b2c.tagPresets).map((p, idx) => (
-                      <div key={`${p.label}-${idx}`} className="rounded-2xl border border-zinc-200 bg-white p-4">
-                        <div className="grid grid-cols-1 gap-3 sm:grid-cols-6 sm:items-center">
-                          <label className="block sm:col-span-3">
-                            <div className="text-xs font-semibold text-zinc-600">Label</div>
-                            <input
-                              className="mt-1 w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm"
-                              value={p.label}
-                              onChange={(e) =>
-                                setSettings((prev) => {
-                                  if (!prev) return prev;
-                                  const base = coerceTagPresetsForEditing(prev.b2c.tagPresets);
-                                  const next = base.map((x, i) => (i === idx ? { ...x, label: e.target.value } : x));
-                                  return { ...prev, b2c: { ...prev.b2c, tagPresets: next } };
-                                })
-                              }
-                              placeholder="e.g. New"
-                            />
-                          </label>
-
-                          <div className="sm:col-span-2">
-                            <div className="text-xs font-semibold text-zinc-600">Color</div>
-                            <div className="mt-2">
-                              <ColorSwatches
-                                value={p.color}
-                                onChange={(hex) =>
+                    <div className="mt-4 space-y-3">
+                      {coerceTagPresetsForEditing(settings.b2c.tagPresets).map((p, idx) => (
+                        <div key={`${p.label}-${idx}`} className="rounded-2xl border border-zinc-200 bg-white p-4">
+                          <div className="grid grid-cols-1 gap-3 sm:grid-cols-6 sm:items-center">
+                            <label className="block sm:col-span-3">
+                              <div className="text-xs font-semibold text-zinc-600">Label</div>
+                              <input
+                                className="mt-1 w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm"
+                                value={p.label}
+                                onChange={(e) =>
                                   setSettings((prev) => {
                                     if (!prev) return prev;
                                     const base = coerceTagPresetsForEditing(prev.b2c.tagPresets);
-                                    const next = base.map((x, i) => (i === idx ? { ...x, color: hex } : x));
+                                    const next = base.map((x, i) => (i === idx ? { ...x, label: e.target.value } : x));
                                     return { ...prev, b2c: { ...prev.b2c, tagPresets: next } };
                                   })
                                 }
+                                placeholder="e.g. New"
                               />
-                            </div>
-                          </div>
+                            </label>
 
-                          <button
-                            type="button"
-                            onClick={() =>
-                              setSettings((prev) => {
-                                if (!prev) return prev;
-                                const base = coerceTagPresetsForEditing(prev.b2c.tagPresets);
-                                const next = base.filter((_, i) => i !== idx);
-                                return { ...prev, b2c: { ...prev.b2c, tagPresets: next } };
-                              })
-                            }
-                            className="sm:col-span-1 rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm font-semibold text-zinc-700 hover:bg-zinc-50"
-                          >
-                            Remove
-                          </button>
+                            <div className="sm:col-span-2">
+                              <div className="text-xs font-semibold text-zinc-600">Color</div>
+                              <div className="mt-2">
+                                <ColorSwatches
+                                  value={p.color}
+                                  onChange={(hex) =>
+                                    setSettings((prev) => {
+                                      if (!prev) return prev;
+                                      const base = coerceTagPresetsForEditing(prev.b2c.tagPresets);
+                                      const next = base.map((x, i) => (i === idx ? { ...x, color: hex } : x));
+                                      return { ...prev, b2c: { ...prev.b2c, tagPresets: next } };
+                                    })
+                                  }
+                                />
+                              </div>
+                            </div>
+
+                            <button
+                              type="button"
+                              onClick={() =>
+                                setSettings((prev) => {
+                                  if (!prev) return prev;
+                                  const base = coerceTagPresetsForEditing(prev.b2c.tagPresets);
+                                  const next = base.filter((_, i) => i !== idx);
+                                  return { ...prev, b2c: { ...prev.b2c, tagPresets: next } };
+                                })
+                              }
+                              className="sm:col-span-1 rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm font-semibold text-zinc-700 hover:bg-zinc-50"
+                            >
+                              Remove
+                            </button>
+                          </div>
                         </div>
-                      </div>
-                    ))}
-                  </div>
+                      ))}
+                    </div>
+                  </SettingsSection>
                 </div>
 
                 <div className="mt-6 flex flex-col gap-3 sm:flex-row">
