@@ -41,16 +41,10 @@ export async function POST(req: Request, ctx: { params: Promise<{ postId: string
 
   const post = await prisma.clientBlogPost.findFirst({
     where: { id: postId, site: { ownerId } },
-    select: { id: true, status: true },
+    select: { id: true, status: true, siteId: true },
   });
 
   if (!post) return NextResponse.json({ error: "Not found" }, { status: 404 });
-  if (post.status !== "DRAFT") {
-    return NextResponse.json(
-      { error: "AI generation is only available for drafts." },
-      { status: 409 },
-    );
-  }
 
   if (!aiConfigured()) {
     return NextResponse.json(
@@ -106,20 +100,17 @@ export async function POST(req: Request, ctx: { params: Promise<{ postId: string
   });
 
   try {
-    const site = await prisma.clientBlogSite.findUnique({ where: { ownerId }, select: { id: true } });
-    if (site?.id) {
-      await prisma.portalBlogGenerationEvent.create({
-        data: {
-          ownerId,
-          siteId: site.id,
-          postId: post.id,
-          source: "DRAFT_GENERATE",
-          chargedCredits: needCredits,
-          topic: (parsed.data?.prompt ?? parsed.data?.topic)?.trim() || undefined,
-        },
-        select: { id: true },
-      });
-    }
+    await prisma.portalBlogGenerationEvent.create({
+      data: {
+        ownerId,
+        siteId: post.siteId,
+        postId: post.id,
+        source: "DRAFT_GENERATE",
+        chargedCredits: needCredits,
+        topic: (parsed.data?.prompt ?? parsed.data?.topic)?.trim() || undefined,
+      },
+      select: { id: true },
+    });
   } catch {
     // Best-effort usage tracking.
   }

@@ -3,7 +3,7 @@ import { notFound } from "next/navigation";
 import type { CSSProperties } from "react";
 
 import { prisma } from "@/lib/db";
-import { formatBlogDate, parseBlogContent } from "@/lib/blog";
+import { formatBlogDate, inlineMarkdownToHtmlSafe, parseBlogContent } from "@/lib/blog";
 import { hasPublicColumn } from "@/lib/dbSchema";
 import { findOwnerIdByStoredBlogSiteSlug } from "@/lib/blogSiteSlug";
 
@@ -183,14 +183,14 @@ export default async function ClientBlogPostPage(props: PageProps) {
               if (b.type === "h2") {
                 return (
                   <h2 key={idx} className="pt-4 font-brand text-2xl" style={{ color: "var(--client-text)" }}>
-                    {b.text}
+                    <span dangerouslySetInnerHTML={{ __html: inlineMarkdownToHtmlSafe(b.text) }} />
                   </h2>
                 );
               }
               if (b.type === "h3") {
                 return (
                   <h3 key={idx} className="pt-2 text-lg font-bold" style={{ color: "var(--client-text)" }}>
-                    {b.text}
+                    <span dangerouslySetInnerHTML={{ __html: inlineMarkdownToHtmlSafe(b.text) }} />
                   </h3>
                 );
               }
@@ -206,14 +206,14 @@ export default async function ClientBlogPostPage(props: PageProps) {
                 return (
                   <ul key={idx} className="list-disc space-y-2 pl-6 text-sm leading-relaxed text-zinc-700">
                     {b.items.map((item, itemIdx) => (
-                      <li key={itemIdx}>{item}</li>
+                      <li key={itemIdx} dangerouslySetInnerHTML={{ __html: inlineMarkdownToHtmlSafe(item) }} />
                     ))}
                   </ul>
                 );
               }
               return (
                 <p key={idx} className="text-sm leading-relaxed text-zinc-700">
-                  {b.text}
+                  <span dangerouslySetInnerHTML={{ __html: inlineMarkdownToHtmlSafe(b.text) }} />
                 </p>
               );
             })}

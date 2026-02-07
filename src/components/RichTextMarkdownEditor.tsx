@@ -70,6 +70,9 @@ function markdownToHtmlBasic(markdown: string): string {
     // Bold **x**
     t = t.replace(/\*\*([^*]+)\*\*/g, "<strong>$1</strong>");
 
+    // Underline __x__
+    t = t.replace(/__([^_]+)__/g, "<u>$1</u>");
+
     // Italic *x*
     t = t.replace(/(^|[^*])\*([^*]+)\*(?!\*)/g, "$1<em>$2</em>");
 
@@ -204,6 +207,10 @@ function htmlToMarkdownBasic(html: string): string {
       return `*${Array.from(node.childNodes).map(inline).join("")}*`;
     }
 
+    if (tag === "u") {
+      return `__${Array.from(node.childNodes).map(inline).join("")}__`;
+    }
+
     if (tag === "code" && node.parentElement?.tagName.toLowerCase() !== "pre") {
       return `\`${Array.from(node.childNodes).map(inline).join("")}\``;
     }
@@ -302,6 +309,7 @@ export function RichTextMarkdownEditor({
   const editorRef = useRef<HTMLDivElement | null>(null);
   const lastMarkdownRef = useRef<string>(String(markdown || ""));
   const [focused, setFocused] = useState(false);
+  const [formats, setFormats] = useState<Array<"bold" | "italic" | "underline">>([]);
 
   const initialHtml = useMemo(() => markdownToHtmlBasic(markdown), [markdown]);
 
@@ -343,6 +351,27 @@ export function RichTextMarkdownEditor({
     onChange(nextMd);
   };
 
+  const refreshFormats = () => {
+    if (disabled) return;
+    try {
+      const next: Array<"bold" | "italic" | "underline"> = [];
+      if (document.queryCommandState("bold")) next.push("bold");
+      if (document.queryCommandState("italic")) next.push("italic");
+      if (document.queryCommandState("underline")) next.push("underline");
+      setFormats(next);
+    } catch {
+      // ignore
+    }
+  };
+
+  useEffect(() => {
+    if (!focused) return;
+    const onSel = () => refreshFormats();
+    document.addEventListener("selectionchange", onSel);
+    return () => document.removeEventListener("selectionchange", onSel);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [focused]);
+
   return (
     <div className="rounded-2xl border border-zinc-200 bg-white">
       <div className="flex flex-wrap items-center gap-2 border-b border-zinc-200 bg-zinc-50 px-3 py-2">
@@ -353,12 +382,61 @@ export function RichTextMarkdownEditor({
           Redo
         </button>
         <div className="mx-1 h-4 w-px bg-zinc-200" />
-        <button type="button" className="rounded-lg border border-zinc-200 bg-white px-2 py-1 text-xs font-semibold text-zinc-700 hover:bg-zinc-100" onClick={() => run("bold")} disabled={disabled}>
-          Bold
-        </button>
-        <button type="button" className="rounded-lg border border-zinc-200 bg-white px-2 py-1 text-xs font-semibold text-zinc-700 hover:bg-zinc-100" onClick={() => run("italic")} disabled={disabled}>
-          Italic
-        </button>
+
+        <div className="inline-flex overflow-hidden rounded-lg border border-zinc-200 bg-white">
+          {(
+            [
+              { key: "bold" as const, label: "B", title: "Bold" },
+              { key: "italic" as const, label: "I", title: "Italic" },
+              { key: "underline" as const, label: "U", title: "Underline" },
+            ]
+          ).map((item, idx) => {
+            const pressed = formats.includes(item.key);
+            return (
+              <button
+                key={item.key}
+                type="button"
+                title={item.title}
+                aria-pressed={pressed}
+                disabled={disabled}
+                onClick={() => {
+                  const was = new Set(formats);
+                  const next = new Set(formats);
+                  if (next.has(item.key)) next.delete(item.key);
+                  else next.add(item.key);
+
+                  // Toggle only the changed command(s).
+                  if (was.has(item.key) !== next.has(item.key)) {
+                    if (item.key === "bold") run("bold");
+                    if (item.key === "italic") run("italic");
+                    if (item.key === "underline") run("underline");
+                    refreshFormats();
+                  }
+                }}
+                className={
+                  "px-2 py-1 text-xs font-semibold text-zinc-700 hover:bg-zinc-100 disabled:opacity-60 " +
+                  (idx !== 0 ? "border-l border-zinc-200 " : "") +
+                  (pressed ? "bg-zinc-100 text-zinc-900" : "bg-white")
+                }
+              >
+                <span
+                  className={
+                    item.key === "bold"
+                      ? "font-extrabold"
+                      : item.key === "italic"
+                        ? "italic"
+                        : item.key === "underline"
+                          ? "underline"
+                          : ""
+                  }
+                >
+                  {item.label}
+                </span>
+              </button>
+            );
+          })}
+        </div>
+
         <button type="button" className="rounded-lg border border-zinc-200 bg-white px-2 py-1 text-xs font-semibold text-zinc-700 hover:bg-zinc-100" onClick={() => run("formatBlock", "<h2>")} disabled={disabled}>
           H2
         </button>
@@ -387,7 +465,10 @@ export function RichTextMarkdownEditor({
         ref={editorRef}
         contentEditable={!disabled}
         suppressContentEditableWarning
-        onFocus={() => setFocused(true)}
+        onFocus={() => {
+          setFocused(true);
+          refreshFormats();
+        }}
         onBlur={() => {
           setFocused(false);
           // Final sync on blur.
@@ -401,7 +482,10 @@ export function RichTextMarkdownEditor({
           const nextMd = htmlToMarkdownBasic(html);
           lastMarkdownRef.current = nextMd;
           onChange(nextMd);
+          refreshFormats();
         }}
+        onKeyUp={() => refreshFormats()}
+        onMouseUp={() => refreshFormats()}
         className="min-h-[320px] px-4 py-3 text-sm leading-6 outline-none"
         data-placeholder={placeholder || "Write…"}
         style={{
@@ -452,6 +536,9 @@ export function RichTextMarkdownEditor({
           border: 1px solid #e4e4e7;
           padding: 0 0.25em;
           border-radius: 0.4em;
+        }
+        [contenteditable='true'] u {
+          text-decoration: underline;
         }
         [contenteditable='true'] img {
           max-width: 100%;

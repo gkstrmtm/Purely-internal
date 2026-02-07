@@ -9,12 +9,49 @@ export function stripDoubleAsterisks(input: string): string {
   return input.replace(/\*\*/g, "");
 }
 
+function escapeHtml(text: string) {
+  return String(text || "")
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/\"/g, "&quot;")
+    .replace(/'/g, "&#039;");
+}
+
+// Safe, minimal inline Markdown -> HTML for public rendering.
+// Supports: **bold**, *italic*, __underline__, `code`, [label](url)
+export function inlineMarkdownToHtmlSafe(text: string): string {
+  let t = escapeHtml(text);
+
+  // Links [text](url)
+  t = t.replace(/\[([^\]]+)\]\(([^)]+)\)/g, (_m, label, url) => {
+    const safeLabel = escapeHtml(String(label || ""));
+    const safeUrl = escapeHtml(String(url || ""));
+    if (!safeUrl) return safeLabel;
+    return `<a href="${safeUrl}" target="_blank" rel="noreferrer">${safeLabel}</a>`;
+  });
+
+  // Inline code `x`
+  t = t.replace(/`([^`]+)`/g, "<code>$1</code>");
+
+  // Bold **x**
+  t = t.replace(/\*\*([^*]+)\*\*/g, "<strong>$1</strong>");
+
+  // Underline __x__
+  t = t.replace(/__([^_]+)__/g, "<u>$1</u>");
+
+  // Italic *x*
+  t = t.replace(/(^|[^*])\*([^*]+)\*(?!\*)/g, "$1<em>$2</em>");
+
+  return t;
+}
+
 function normalizeLine(line: string): string {
   return line.replace(/\s+/g, " ").trim();
 }
 
 export function parseBlogContent(content: string): BlogBlock[] {
-  const lines = stripDoubleAsterisks(content).replace(/\r\n/g, "\n").split("\n");
+  const lines = String(content || "").replace(/\r\n/g, "\n").split("\n");
   const blocks: BlogBlock[] = [];
 
   let paragraph: string[] = [];

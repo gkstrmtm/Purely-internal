@@ -124,6 +124,30 @@ export async function GET(req: Request) {
       safe("contactsCount", () => prisma.portalContact.count({ where: { ownerId, createdAt: { gte: start } } }), 0),
     ]);
 
+  const [blogAgg, blogEvents] = await Promise.all([
+    safe(
+      "blogGenerationAgg",
+      () =>
+        prisma.portalBlogGenerationEvent.aggregate({
+          where: { ownerId, createdAt: { gte: start } },
+          _count: { id: true },
+          _sum: { chargedCredits: true },
+        }),
+      { _count: { id: 0 }, _sum: { chargedCredits: 0 } } as any,
+    ),
+    safe(
+      "blogGenerationEvents",
+      () =>
+        prisma.portalBlogGenerationEvent.findMany({
+          where: { ownerId, createdAt: { gte: start } },
+          select: { createdAt: true, chargedCredits: true },
+          orderBy: { createdAt: "desc" },
+          take: 500,
+        }),
+      [],
+    ),
+  ]);
+
   const bookingCount = bookingSite
     ? await safe(
         "bookingCount",
@@ -154,9 +178,12 @@ export async function GET(req: Request) {
   const leadScrapeRefunded = leadRuns.reduce((sum, r) => sum + (r.refundedCredits || 0), 0);
   const leadScrapeNetCredits = Math.max(0, leadScrapeCharged - leadScrapeRefunded);
 
-  const creditsUsed = aiCreditsUsed + leadScrapeNetCredits;
+  const blogGenerations = typeof (blogAgg as any)?._count?.id === "number" ? (blogAgg as any)._count.id : 0;
+  const blogCreditsUsed = typeof (blogAgg as any)?._sum?.chargedCredits === "number" ? (blogAgg as any)._sum.chargedCredits : 0;
 
-  const automationsRun = aiEvents.length + missedEvents.length + leadScrapeRuns;
+  const creditsUsed = aiCreditsUsed + leadScrapeNetCredits + blogCreditsUsed;
+
+  const automationsRun = aiEvents.length + missedEvents.length + leadScrapeRuns + blogGenerations;
 
   // Daily breakdown (UTC) for charting/table.
   const daysBack = range === "today" ? 1 : range === "7d" ? 7 : range === "30d" ? 30 : range === "90d" ? 90 : 30;
@@ -197,6 +224,16 @@ export async function GET(req: Request) {
     row.leadScrapeRuns += 1;
     const net = Math.max(0, (r.chargedCredits || 0) - (r.refundedCredits || 0));
     row.creditsUsed += net;
+  }
+
+  for (const e of blogEvents as any[]) {
+    const d = (e && typeof e === "object" && (e as any).createdAt instanceof Date) ? (e as any).createdAt : null;
+    if (!d) continue;
+    const key = dayKeyUtc(d);
+    const row = dailyMap.get(key);
+    if (!row) continue;
+    const charged = typeof (e as any).chargedCredits === "number" ? (e as any).chargedCredits : 0;
+    row.creditsUsed += charged;
   }
 
   if (bookingSite) {
@@ -253,6 +290,8 @@ export async function GET(req: Request) {
       leadScrapeRuns,
       leadScrapeChargedCredits: leadScrapeCharged,
       leadScrapeRefundedCredits: leadScrapeRefunded,
+      blogGenerations,
+      blogCreditsUsed,
       creditsUsed,
       bookingsCreated: bookingCount,
       reviewsCollected: reviewsAgg._count.id,

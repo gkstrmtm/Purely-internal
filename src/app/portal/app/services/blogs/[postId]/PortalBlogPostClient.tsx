@@ -238,10 +238,6 @@ export function PortalBlogPostClient({ postId }: { postId: string }) {
 
   async function generateWithAi() {
     if (!post) return;
-    if (post.status !== "DRAFT") {
-      setError("AI generation is only available for drafts.");
-      return;
-    }
 
     if (working !== null) return;
 
@@ -507,7 +503,7 @@ export function PortalBlogPostClient({ postId }: { postId: string }) {
           <button
             type="button"
             onClick={generateWithAi}
-            disabled={working !== null || post.status !== "DRAFT"}
+            disabled={working !== null}
             className="inline-flex items-center justify-center rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm font-semibold text-brand-ink hover:bg-zinc-50 disabled:opacity-60"
           >
             {working === "generate" ? "Generating…" : "Generate with AI"}

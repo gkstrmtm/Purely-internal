@@ -29,7 +29,7 @@ function assertDraft(value: unknown): ClientBlogDraft {
   return {
     title: stripDoubleAsterisks(v.title.trim()).slice(0, 180),
     excerpt: stripDoubleAsterisks(v.excerpt.trim()).slice(0, 6000),
-    content: stripDoubleAsterisks(v.content.trim()).slice(0, 200000),
+    content: v.content.trim().slice(0, 200000),
     seoKeywords,
   };
 }

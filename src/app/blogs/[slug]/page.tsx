@@ -4,7 +4,7 @@ import { notFound } from "next/navigation";
 
 import { prisma } from "@/lib/db";
 import { hasPublicColumn } from "@/lib/dbSchema";
-import { buildBlogCtaText, formatBlogDate, parseBlogContent } from "@/lib/blog";
+import { buildBlogCtaText, formatBlogDate, inlineMarkdownToHtmlSafe, parseBlogContent } from "@/lib/blog";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
@@ -111,14 +111,14 @@ export default async function BlogPostPage(props: PageProps) {
               if (b.type === "h2") {
                 return (
                   <h2 key={idx} className="pt-4 font-brand text-2xl text-zinc-900">
-                    {b.text}
+                    <span dangerouslySetInnerHTML={{ __html: inlineMarkdownToHtmlSafe(b.text) }} />
                   </h2>
                 );
               }
               if (b.type === "h3") {
                 return (
                   <h3 key={idx} className="pt-2 text-lg font-bold text-zinc-900">
-                    {b.text}
+                    <span dangerouslySetInnerHTML={{ __html: inlineMarkdownToHtmlSafe(b.text) }} />
                   </h3>
                 );
               }
@@ -134,14 +134,14 @@ export default async function BlogPostPage(props: PageProps) {
                 return (
                   <ul key={idx} className="list-disc space-y-2 pl-6 text-sm leading-relaxed text-zinc-700">
                     {b.items.map((item, itemIdx) => (
-                      <li key={itemIdx}>{item}</li>
+                      <li key={itemIdx} dangerouslySetInnerHTML={{ __html: inlineMarkdownToHtmlSafe(item) }} />
                     ))}
                   </ul>
                 );
               }
               return (
                 <p key={idx} className="text-sm leading-relaxed text-zinc-700">
-                  {b.text}
+                  <span dangerouslySetInnerHTML={{ __html: inlineMarkdownToHtmlSafe(b.text) }} />
                 </p>
               );
             })}

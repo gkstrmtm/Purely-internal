@@ -23,6 +23,8 @@ type ReportingPayload = {
     leadScrapeRuns: number;
     leadScrapeChargedCredits: number;
     leadScrapeRefundedCredits: number;
+    blogGenerations: number;
+    blogCreditsUsed: number;
     creditsUsed: number;
     bookingsCreated: number;
     reviewsCollected: number;
@@ -69,6 +71,7 @@ type ServiceKey =
   | "aiReceptionist"
   | "missedCallTextBack"
   | "booking"
+  | "blogs"
   | "reviews"
   | "leadScraping";
 
@@ -81,6 +84,7 @@ const SERVICE_INFOS: ServiceInfo[] = [
   { key: "aiReceptionist", name: "AI Receptionist", href: "/portal/app/services/ai-receptionist" },
   { key: "missedCallTextBack", name: "Missed-Call Text Back", href: "/portal/app/services/missed-call-textback" },
   { key: "booking", name: "Booking Automation", href: "/portal/app/services/booking" },
+  { key: "blogs", name: "Automated Blogs", href: "/portal/app/services/blogs" },
   { key: "reviews", name: "Review Requests", href: "/portal/app/services/reviews" },
   { key: "leadScraping", name: "Lead Scraping", href: "/portal/app/services/lead-scraping" },
 ];
@@ -105,6 +109,9 @@ function serviceForWidget(widgetId: string): ServiceInfo {
     case "creditsRemaining":
     case "creditsUsed":
       return SERVICE_INFOS.find((s) => s.key === "billing")!;
+    case "blogGenerations":
+    case "blogCreditsUsed":
+      return SERVICE_INFOS.find((s) => s.key === "blogs")!;
     case "aiCalls":
       return SERVICE_INFOS.find((s) => s.key === "aiReceptionist")!;
     case "missedCalls":
@@ -177,7 +184,7 @@ function classNames(...xs: Array<string | false | null | undefined>) {
   return xs.filter(Boolean).join(" ");
 }
 
-type StatTone = "blue" | "pink" | "ink" | "emerald";
+type StatTone = "blue" | "pink" | "ink" | "emerald" | "slate";
 
 function toneClasses(tone: StatTone) {
   switch (tone) {
@@ -198,6 +205,12 @@ function toneClasses(tone: StatTone) {
         bar: "bg-[linear-gradient(90deg,rgba(16,185,129,0.88),rgba(16,185,129,0.18))]",
         ring: "ring-1 ring-[color:rgba(16,185,129,0.14)]",
         pill: "bg-emerald-50 text-emerald-700",
+      };
+    case "slate":
+      return {
+        bar: "bg-[linear-gradient(90deg,rgba(100,116,139,0.92),rgba(100,116,139,0.22))]",
+        ring: "ring-1 ring-[color:rgba(100,116,139,0.14)]",
+        pill: "bg-slate-50 text-slate-700",
       };
     case "ink":
     default:
@@ -643,7 +656,9 @@ export function PortalReportingClient() {
                     );
                   })()}
                 </div>
-                <StatCard label="Credits used" value={data.kpis.creditsUsed.toLocaleString()} sub="AI calls + lead scraping" tone="pink" />
+                <StatCard label="Credits used" value={data.kpis.creditsUsed.toLocaleString()} sub="AI calls + lead scraping + blogs" tone="pink" />
+                <StatCard label="Blogs generated" value={data.kpis.blogGenerations.toLocaleString()} sub="Generated posts" tone="slate" />
+                <StatCard label="Blog credits used" value={data.kpis.blogCreditsUsed.toLocaleString()} sub="AI generation" tone="slate" />
               </div>
             ) : null}
 
