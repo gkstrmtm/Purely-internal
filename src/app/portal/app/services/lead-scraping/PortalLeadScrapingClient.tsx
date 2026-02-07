@@ -122,23 +122,6 @@ function toTelHref(phone: string) {
   return digits ? `tel:${digits}` : `tel:${phone}`;
 }
 
-function buildMailtoHref(to: string, subject: string, body: string) {
-  const params = new URLSearchParams();
-  if (subject.trim()) params.set("subject", subject.trim().slice(0, 120));
-  if (body.trim()) params.set("body", body.trim().slice(0, 5000));
-  return `mailto:${encodeURIComponent(to.trim())}?${params.toString()}`;
-}
-
-function buildSmsHref(phone: string, body: string) {
-  const digits = phone.replace(/\D+/g, "");
-  const to = digits || phone;
-  const params = new URLSearchParams();
-  if (body.trim()) params.set("body", body.trim().slice(0, 900));
-  // `sms:` handling varies by platform; this format works on iOS and many Android browsers.
-  const q = params.toString();
-  return q ? `sms:${to}?${q}` : `sms:${to}`;
-}
-
 export function PortalLeadScrapingClient() {
   const [tab, setTab] = useState<"b2b" | "b2c">("b2b");
 
@@ -156,8 +139,10 @@ export function PortalLeadScrapingClient() {
   const [composeOpen, setComposeOpen] = useState(false);
   const [composeToEmail, setComposeToEmail] = useState("");
   const [composeSubject, setComposeSubject] = useState("");
-  const [composeBody, setComposeBody] = useState("");
-  const [composeSmsBody, setComposeSmsBody] = useState("Hi — quick question.");
+  const [composeMessage, setComposeMessage] = useState("");
+  const [composeSendEmail, setComposeSendEmail] = useState(true);
+  const [composeSendSms, setComposeSendSms] = useState(false);
+  const [composeBusy, setComposeBusy] = useState(false);
 
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -287,7 +272,7 @@ export function PortalLeadScrapingClient() {
     if (!activeLead) return;
     setComposeOpen(true);
     setComposeSubject(`Quick question — ${activeLead.businessName}`.slice(0, 120));
-    setComposeBody(
+    setComposeMessage(
       [
         `Hi ${activeLead.businessName},`,
         "",
@@ -296,7 +281,72 @@ export function PortalLeadScrapingClient() {
         "—",
       ].join("\n"),
     );
-    setComposeSmsBody("Hi — quick question. Are you taking on new work right now?");
+    setComposeSendEmail(true);
+    setComposeSendSms(Boolean(activeLead.phone));
+  }
+
+  async function sendLeadMessage() {
+    if (!activeLead) return;
+
+    const msg = composeMessage.trim();
+    if (!msg) {
+      setError("Please enter a message.");
+      return;
+    }
+    if (!composeSendEmail && !composeSendSms) {
+      setError("Choose Email and/or Text.");
+      return;
+    }
+
+    const subject = composeSubject.trim();
+    if (composeSendEmail && subject.length > 120) {
+      setError("Subject is too long (max 120 characters).");
+      return;
+    }
+
+    const toEmail = composeToEmail.trim();
+    const emailLike = /^[^@\s]+@[^@\s]+\.[^@\s]+$/;
+    if (composeSendEmail && !emailLike.test(toEmail)) {
+      setError("Enter a valid email address.");
+      return;
+    }
+    if (composeSendSms && !activeLead.phone) {
+      setError("This lead has no phone number.");
+      return;
+    }
+
+    setComposeBusy(true);
+    setError(null);
+    setStatus(null);
+
+    const res = await fetch("/api/portal/lead-scraping/contact", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        leadId: activeLead.id,
+        toEmail,
+        subject,
+        message: msg,
+        sendEmail: composeSendEmail,
+        sendSms: composeSendSms,
+      }),
+    });
+    const body = await res.json().catch(() => ({}));
+    setComposeBusy(false);
+
+    if (!res.ok) {
+      setError(getApiError(body) ?? "Failed to send message");
+      return;
+    }
+
+    setComposeOpen(false);
+    setComposeToEmail("");
+    setComposeSubject("");
+    setComposeMessage("");
+    setComposeSendEmail(true);
+    setComposeSendSms(Boolean(activeLead.phone));
+    setStatus("Sent message");
+    window.setTimeout(() => setStatus(null), 1500);
   }
 
   if (loading) {
@@ -884,79 +934,73 @@ export function PortalLeadScrapingClient() {
                         className="mt-1 w-full rounded-2xl border border-zinc-200 bg-zinc-50 px-4 py-2 text-sm text-zinc-700"
                       />
                     </label>
+
+                    <div className="sm:col-span-2 flex flex-wrap items-center gap-4 pt-1">
+                      <label className="inline-flex items-center gap-2 text-sm text-zinc-700">
+                        <input
+                          type="checkbox"
+                          checked={composeSendEmail}
+                          onChange={(e) => setComposeSendEmail(e.target.checked)}
+                          className="h-4 w-4 rounded border-zinc-300"
+                        />
+                        Email
+                      </label>
+                      <label className="inline-flex items-center gap-2 text-sm text-zinc-700">
+                        <input
+                          type="checkbox"
+                          checked={composeSendSms}
+                          onChange={(e) => setComposeSendSms(e.target.checked)}
+                          disabled={!activeLead.phone}
+                          className="h-4 w-4 rounded border-zinc-300"
+                        />
+                        Text
+                      </label>
+                      {!activeLead.phone ? (
+                        <span className="text-xs text-zinc-500">No phone on this lead</span>
+                      ) : null}
+                    </div>
+
                     <label className="block sm:col-span-2">
                       <div className="text-xs font-semibold text-zinc-600">Subject (email)</div>
                       <input
                         value={composeSubject}
                         onChange={(e) => setComposeSubject(e.target.value)}
+                        disabled={!composeSendEmail}
                         className="mt-1 w-full rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm outline-none focus:border-zinc-300"
                         autoComplete="off"
                       />
                     </label>
                     <label className="block sm:col-span-2">
-                      <div className="text-xs font-semibold text-zinc-600">Email body</div>
+                      <div className="text-xs font-semibold text-zinc-600">Message</div>
                       <textarea
-                        value={composeBody}
-                        onChange={(e) => setComposeBody(e.target.value)}
+                        value={composeMessage}
+                        onChange={(e) => setComposeMessage(e.target.value)}
                         rows={5}
-                        className="mt-1 w-full rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm outline-none focus:border-zinc-300"
-                      />
-                    </label>
-                    <label className="block sm:col-span-2">
-                      <div className="text-xs font-semibold text-zinc-600">SMS body</div>
-                      <textarea
-                        value={composeSmsBody}
-                        onChange={(e) => setComposeSmsBody(e.target.value)}
-                        rows={3}
                         className="mt-1 w-full rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm outline-none focus:border-zinc-300"
                       />
                     </label>
                   </div>
 
                   <div className="mt-4 flex flex-col gap-2 sm:flex-row">
-                    <a
-                      href={
-                        composeToEmail.trim().length >= 3
-                          ? buildMailtoHref(composeToEmail, composeSubject, composeBody)
-                          : undefined
-                      }
-                      onClick={(e) => {
-                        if (composeToEmail.trim().length < 3) e.preventDefault();
-                        e.stopPropagation();
-                      }}
+                    <button
+                      type="button"
+                      onClick={sendLeadMessage}
+                      disabled={composeBusy}
                       className={
-                        composeToEmail.trim().length >= 3
-                          ? "inline-flex items-center justify-center rounded-2xl bg-[color:var(--color-brand-blue)] px-5 py-3 text-sm font-semibold text-white hover:opacity-95"
-                          : "inline-flex items-center justify-center rounded-2xl bg-[color:var(--color-brand-blue)] px-5 py-3 text-sm font-semibold text-white opacity-60"
+                        composeBusy
+                          ? "inline-flex items-center justify-center rounded-2xl bg-[color:var(--color-brand-blue)] px-5 py-3 text-sm font-semibold text-white opacity-70"
+                          : "inline-flex items-center justify-center rounded-2xl bg-[color:var(--color-brand-blue)] px-5 py-3 text-sm font-semibold text-white hover:opacity-95"
                       }
                     >
-                      Open email
-                    </a>
-
-                    {activeLead.phone ? (
-                      <a
-                        href={buildSmsHref(activeLead.phone, composeSmsBody)}
-                        onClick={(e) => e.stopPropagation()}
-                        className="inline-flex items-center justify-center rounded-2xl border border-zinc-200 bg-white px-5 py-3 text-sm font-semibold text-brand-ink hover:bg-zinc-50"
-                      >
-                        Open SMS
-                      </a>
-                    ) : (
-                      <button
-                        type="button"
-                        disabled
-                        className="inline-flex items-center justify-center rounded-2xl border border-zinc-200 bg-white px-5 py-3 text-sm font-semibold text-brand-ink opacity-60"
-                      >
-                        Open SMS
-                      </button>
-                    )}
+                      {composeBusy ? "Sending…" : "Send"}
+                    </button>
 
                     <button
                       type="button"
                       onClick={() => setComposeOpen(false)}
                       className="inline-flex items-center justify-center rounded-2xl border border-zinc-200 bg-white px-5 py-3 text-sm font-semibold text-brand-ink hover:bg-zinc-50"
                     >
-                      Done
+                      Close
                     </button>
                   </div>
                 </div>
