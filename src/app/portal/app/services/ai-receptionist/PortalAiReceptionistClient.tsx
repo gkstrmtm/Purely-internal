@@ -14,8 +14,8 @@ type Settings = {
   greeting: string;
   systemPrompt: string;
   forwardToPhoneE164: string | null;
-  elevenLabsAgentId: string;
-  elevenLabsConfigured: boolean;
+  voiceAgentId: string;
+  voiceAgentConfigured: boolean;
 };
 
 type EventRow = {
@@ -80,7 +80,7 @@ export function PortalAiReceptionistClient() {
   const [events, setEvents] = useState<EventRow[]>([]);
   const [webhookUrl, setWebhookUrl] = useState<string>("");
 
-  const [elevenLabsApiKey, setElevenLabsApiKey] = useState<string>("");
+  const [voiceAgentApiKey, setVoiceAgentApiKey] = useState<string>("");
 
   async function load() {
     setLoading(true);
@@ -138,12 +138,12 @@ export function PortalAiReceptionistClient() {
     if (!settings) return false;
     if (!settings.greeting.trim()) return false;
     if (settings.mode === "FORWARD" && !String(settings.forwardToPhoneE164 || "").trim()) return false;
-    if (settings.mode === "AI" && (!settings.elevenLabsConfigured && !elevenLabsApiKey.trim())) {
+    if (settings.mode === "AI" && (!settings.voiceAgentConfigured && !voiceAgentApiKey.trim())) {
       // Allow saving without a voice agent key.
       return true;
     }
     return true;
-  }, [settings, elevenLabsApiKey]);
+  }, [settings, voiceAgentApiKey]);
 
   async function save(next: Settings) {
     setSaving(true);
@@ -151,7 +151,7 @@ export function PortalAiReceptionistClient() {
     setNote(null);
 
     const payload: any = { ...next };
-    if (elevenLabsApiKey.trim()) payload.elevenLabsApiKey = elevenLabsApiKey.trim();
+    if (voiceAgentApiKey.trim()) payload.voiceAgentApiKey = voiceAgentApiKey.trim();
 
     const res = await fetch("/api/portal/ai-receptionist/settings", {
       method: "PUT",
@@ -169,7 +169,7 @@ export function PortalAiReceptionistClient() {
     setSettings(data.settings);
     setEvents(Array.isArray(data.events) ? data.events : []);
     setWebhookUrl(data.webhookUrl || webhookUrl);
-    setElevenLabsApiKey("");
+    setVoiceAgentApiKey("");
 
     setSaving(false);
     setNote("Saved.");
@@ -202,7 +202,7 @@ export function PortalAiReceptionistClient() {
     window.setTimeout(() => setNote(null), 2000);
   }
 
-  async function clearElevenLabsKey() {
+  async function clearVoiceAgentKey() {
     setSaving(true);
     setError(null);
     setNote(null);
@@ -210,7 +210,7 @@ export function PortalAiReceptionistClient() {
     const res = await fetch("/api/portal/ai-receptionist/settings", {
       method: "PUT",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ clearElevenLabsKey: true, settings: settings ?? {} }),
+      body: JSON.stringify({ clearVoiceAgentKey: true, settings: settings ?? {} }),
     });
 
     const data = (await res.json().catch(() => null)) as ApiPayload | null;
@@ -223,7 +223,7 @@ export function PortalAiReceptionistClient() {
     setSettings(data.settings);
     setEvents(Array.isArray(data.events) ? data.events : []);
     setWebhookUrl(data.webhookUrl || webhookUrl);
-    setElevenLabsApiKey("");
+    setVoiceAgentApiKey("");
 
     setSaving(false);
     setNote("Cleared API key.");
@@ -380,8 +380,8 @@ export function PortalAiReceptionistClient() {
                 <div className="text-xs font-semibold text-zinc-600">Agent ID</div>
                 <input
                   className="mt-2 w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm"
-                  value={settings?.elevenLabsAgentId ?? ""}
-                  onChange={(e) => settings && setSettings({ ...settings, elevenLabsAgentId: e.target.value })}
+                  value={settings?.voiceAgentId ?? ""}
+                  onChange={(e) => settings && setSettings({ ...settings, voiceAgentId: e.target.value })}
                   placeholder="agent_..."
                 />
               </label>
@@ -389,21 +389,21 @@ export function PortalAiReceptionistClient() {
               <label className="rounded-2xl border border-zinc-200 bg-zinc-50 px-4 py-3 text-sm">
                 <div className="flex items-center justify-between">
                   <div className="text-xs font-semibold text-zinc-600">API key</div>
-                  <div className="text-xs text-zinc-500">{settings?.elevenLabsConfigured ? "configured" : "not set"}</div>
+                    <div className="text-xs text-zinc-500">{settings?.voiceAgentConfigured ? "configured" : "not set"}</div>
                 </div>
                 <input
                   type="password"
                   className="mt-2 w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm"
-                  value={elevenLabsApiKey}
-                  onChange={(e) => setElevenLabsApiKey(e.target.value)}
-                  placeholder={settings?.elevenLabsConfigured ? "(leave blank to keep)" : "(paste key)"}
+                  value={voiceAgentApiKey}
+                  onChange={(e) => setVoiceAgentApiKey(e.target.value)}
+                  placeholder={settings?.voiceAgentConfigured ? "(leave blank to keep)" : "(paste key)"}
                 />
                 <div className="mt-2 flex items-center justify-end">
                   <button
                     type="button"
                     className="rounded-xl border border-zinc-200 bg-white px-3 py-2 text-xs font-semibold hover:bg-zinc-50 disabled:opacity-60"
-                    disabled={saving || !settings?.elevenLabsConfigured}
-                    onClick={() => void clearElevenLabsKey()}
+                    disabled={saving || !settings?.voiceAgentConfigured}
+                    onClick={() => void clearVoiceAgentKey()}
                   >
                     Clear key
                   </button>

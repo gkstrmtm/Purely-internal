@@ -62,6 +62,7 @@ export async function GET(req: Request) {
 const putSchema = z.object({
   settings: z.unknown().optional(),
   regenerateToken: z.boolean().optional(),
+  clearVoiceAgentKey: z.boolean().optional(),
   clearElevenLabsKey: z.boolean().optional(),
 });
 
@@ -98,7 +99,9 @@ export async function PUT(req: Request) {
     ? (rawSettings as Record<string, unknown>)
     : {};
 
-  if (parsed.data.clearElevenLabsKey) {
+  if (parsed.data.clearVoiceAgentKey || parsed.data.clearElevenLabsKey) {
+    rawRec.voiceAgentApiKey = "";
+    // Legacy key name kept for older stored payloads.
     rawRec.elevenLabsApiKey = "";
   }
 

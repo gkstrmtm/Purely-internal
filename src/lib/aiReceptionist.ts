@@ -34,8 +34,8 @@ export type AiReceptionistSettings = {
 
   forwardToPhoneE164: string | null;
 
-  elevenLabsAgentId: string;
-  elevenLabsApiKey: string | null;
+  voiceAgentId: string;
+  voiceAgentApiKey: string | null;
 };
 
 export type AiReceptionistCallEvent = {
@@ -46,6 +46,10 @@ export type AiReceptionistCallEvent = {
   createdAtIso: string;
   status: "IN_PROGRESS" | "COMPLETED" | "FAILED" | "UNKNOWN";
   notes?: string;
+  recordingSid?: string;
+  recordingDurationSec?: number;
+  chargedCredits?: number;
+  creditsChargedPartial?: boolean;
 };
 
 export type AiReceptionistServiceData = {
@@ -54,8 +58,8 @@ export type AiReceptionistServiceData = {
   events: AiReceptionistCallEvent[];
 };
 
-export type PublicAiReceptionistSettings = Omit<AiReceptionistSettings, "elevenLabsApiKey"> & {
-  elevenLabsConfigured: boolean;
+export type PublicAiReceptionistSettings = Omit<AiReceptionistSettings, "voiceAgentApiKey"> & {
+  voiceAgentConfigured: boolean;
 };
 
 export function parseAiReceptionistSettings(
@@ -76,8 +80,8 @@ export function parseAiReceptionistSettings(
 
     forwardToPhoneE164: null,
 
-    elevenLabsAgentId: "",
-    elevenLabsApiKey: prev?.elevenLabsApiKey ?? null,
+    voiceAgentId: "",
+    voiceAgentApiKey: prev?.voiceAgentApiKey ?? null,
   };
 
   if (!raw || typeof raw !== "object" || Array.isArray(raw)) return base;
@@ -101,12 +105,20 @@ export function parseAiReceptionistSettings(
       ? rec.webhookToken.trim()
       : base.webhookToken;
 
-  const elevenLabsAgentId = typeof rec.elevenLabsAgentId === "string" ? rec.elevenLabsAgentId.trim().slice(0, 120) : base.elevenLabsAgentId;
+  const voiceAgentIdRaw =
+    typeof rec.voiceAgentId === "string"
+      ? rec.voiceAgentId
+      : (typeof rec.elevenLabsAgentId === "string" ? rec.elevenLabsAgentId : "");
+  const voiceAgentId = voiceAgentIdRaw.trim().slice(0, 120) || base.voiceAgentId;
 
-  let elevenLabsApiKey = base.elevenLabsApiKey;
-  if (typeof rec.elevenLabsApiKey === "string") {
-    const k = rec.elevenLabsApiKey.trim();
-    if (k) elevenLabsApiKey = k.slice(0, 400);
+  let voiceAgentApiKey = base.voiceAgentApiKey;
+  const voiceAgentApiKeyRaw =
+    typeof rec.voiceAgentApiKey === "string"
+      ? rec.voiceAgentApiKey
+      : (typeof rec.elevenLabsApiKey === "string" ? rec.elevenLabsApiKey : undefined);
+  if (typeof voiceAgentApiKeyRaw === "string") {
+    const k = voiceAgentApiKeyRaw.trim();
+    if (k) voiceAgentApiKey = k.slice(0, 400);
   }
 
   return {
@@ -118,8 +130,8 @@ export function parseAiReceptionistSettings(
     greeting: greeting || base.greeting,
     systemPrompt: systemPrompt || base.systemPrompt,
     forwardToPhoneE164,
-    elevenLabsAgentId,
-    elevenLabsApiKey,
+    voiceAgentId,
+    voiceAgentApiKey,
   };
 }
 
@@ -154,6 +166,15 @@ function parseServiceData(raw: unknown): AiReceptionistServiceData {
 
           if (!callSid || !from) return [] as AiReceptionistCallEvent[];
 
+          const recordingSid = typeof r.recordingSid === "string" ? r.recordingSid : undefined;
+          const recordingDurationSec = typeof r.recordingDurationSec === "number" && Number.isFinite(r.recordingDurationSec)
+            ? Math.max(0, Math.floor(r.recordingDurationSec))
+            : undefined;
+          const chargedCredits = typeof r.chargedCredits === "number" && Number.isFinite(r.chargedCredits)
+            ? Math.max(0, Math.floor(r.chargedCredits))
+            : undefined;
+          const creditsChargedPartial = typeof r.creditsChargedPartial === "boolean" ? r.creditsChargedPartial : undefined;
+
           return [
             {
               id: typeof r.id === "string" ? r.id : `call_${callSid}`,
@@ -163,6 +184,10 @@ function parseServiceData(raw: unknown): AiReceptionistServiceData {
               createdAtIso,
               status,
               ...(typeof r.notes === "string" && r.notes.trim() ? { notes: r.notes.trim().slice(0, 800) } : {}),
+              ...(recordingSid ? { recordingSid } : {}),
+              ...(typeof recordingDurationSec === "number" ? { recordingDurationSec } : {}),
+              ...(typeof chargedCredits === "number" ? { chargedCredits } : {}),
+              ...(typeof creditsChargedPartial === "boolean" ? { creditsChargedPartial } : {}),
             },
           ];
         })
@@ -173,10 +198,10 @@ function parseServiceData(raw: unknown): AiReceptionistServiceData {
 }
 
 export function toPublicSettings(settings: AiReceptionistSettings): PublicAiReceptionistSettings {
-  const { elevenLabsApiKey, ...rest } = settings;
+  const { voiceAgentApiKey, ...rest } = settings;
   return {
     ...rest,
-    elevenLabsConfigured: Boolean(elevenLabsApiKey && elevenLabsApiKey.trim()),
+    voiceAgentConfigured: Boolean(voiceAgentApiKey && voiceAgentApiKey.trim()),
   };
 }
 
@@ -190,7 +215,7 @@ export async function getAiReceptionistServiceData(ownerId: string): Promise<AiR
   const parsed = parseServiceData(row?.dataJson ?? null);
   const prev = parsed.settings;
 
-  // Re-parse settings from storage with prev to keep elevenLabsApiKey stable.
+  // Re-parse settings from storage with prev to keep voiceAgentApiKey stable.
   const rec = row?.dataJson && typeof row.dataJson === "object" && !Array.isArray(row.dataJson)
     ? (row.dataJson as Record<string, unknown>)
     : null;
