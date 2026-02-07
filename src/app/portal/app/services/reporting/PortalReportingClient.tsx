@@ -42,6 +42,12 @@ type ReportingPayload = {
   error?: string;
 };
 
+type DashboardData = {
+  version: 1;
+  widgets: Array<{ id: string }>;
+  layout: Array<any>;
+};
+
 type TwilioMasked = {
   configured: boolean;
   accountSidMasked: string | null;
@@ -109,7 +115,8 @@ function serviceForWidget(widgetId: string): ServiceInfo {
     case "dailyActivity":
     case "automationsRun":
     default:
-      return SERVICE_INFOS.find((s) => s.key === "reporting")!;
+      // We are already on Reporting; don’t show a redundant “Go to reporting” menu item.
+      return { key: "reporting", name: "Reporting", href: null };
   }
 }
 
@@ -183,6 +190,8 @@ function MenuButton({
   openId,
   setOpenId,
   onAdd,
+  addDisabled,
+  addLabel,
   goToHref,
   goToLabel,
 }: {
@@ -190,6 +199,8 @@ function MenuButton({
   openId: string | null;
   setOpenId: (id: string | null) => void;
   onAdd: () => void;
+  addDisabled?: boolean;
+  addLabel?: string;
   goToHref?: string | null;
   goToLabel?: string | null;
 }) {
@@ -213,13 +224,17 @@ function MenuButton({
         <div className="absolute right-0 top-9 z-10 w-56 rounded-2xl border border-zinc-200 bg-white p-2 shadow-lg">
           <button
             type="button"
-            className="w-full rounded-xl px-3 py-2 text-left text-sm font-semibold text-brand-ink hover:bg-zinc-50"
+            className={classNames(
+              "w-full rounded-xl px-3 py-2 text-left text-sm font-semibold",
+              addDisabled ? "cursor-not-allowed bg-zinc-50 text-zinc-400" : "text-brand-ink hover:bg-zinc-50",
+            )}
+            disabled={Boolean(addDisabled)}
             onClick={() => {
               setOpenId(null);
               onAdd();
             }}
           >
-            Add to dashboard
+            {addLabel ?? "Add to dashboard"}
           </button>
           {isPlainNonEmptyString(goToHref) && isPlainNonEmptyString(goToLabel) ? (
             <button
@@ -257,6 +272,7 @@ export function PortalReportingClient() {
   const [openMenuId, setOpenMenuId] = useState<string | null>(null);
   const [search, setSearch] = useState("");
   const [serviceFilter, setServiceFilter] = useState<ServiceKey>("all");
+  const [dashboardWidgetIds, setDashboardWidgetIds] = useState<Set<string>>(() => new Set());
 
   async function addWidget(widgetId: string) {
     setNote(null);
@@ -265,14 +281,26 @@ export function PortalReportingClient() {
       headers: { "content-type": "application/json" },
       body: JSON.stringify({ action: "add", widgetId }),
     });
-    const body = (await res.json().catch(() => ({}))) as { ok?: boolean; error?: string };
+    const body = (await res.json().catch(() => ({}))) as { ok?: boolean; error?: string; data?: DashboardData };
     if (!res.ok || !body?.ok) {
       setNote(body?.error ?? "Unable to add to dashboard");
       window.setTimeout(() => setNote(null), 2500);
       return;
     }
+
+    const ids = new Set<string>(Array.isArray(body?.data?.widgets) ? body!.data!.widgets.map((w) => w.id).filter(Boolean) : []);
+    if (ids.size) setDashboardWidgetIds(ids);
+
     setNote("Added to dashboard.");
     window.setTimeout(() => setNote(null), 1800);
+  }
+
+  async function loadDashboardWidgetIds() {
+    const res = await fetch("/api/portal/dashboard", { cache: "no-store" }).catch(() => null as any);
+    if (!res?.ok) return;
+    const body = (await res.json().catch(() => ({}))) as { ok?: boolean; data?: DashboardData };
+    const ids = new Set<string>(Array.isArray(body?.data?.widgets) ? body!.data!.widgets.map((w) => w.id).filter(Boolean) : []);
+    if (ids.size) setDashboardWidgetIds(ids);
   }
 
   async function load(nextRange: RangeKey) {
@@ -314,21 +342,22 @@ export function PortalReportingClient() {
 
   useEffect(() => {
     void load(range);
+    void loadDashboardWidgetIds();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   useEffect(() => {
     if (!openMenuId) return;
-    const onDown = () => setOpenMenuId(null);
+    // Use click (not mousedown/touchstart) so menu items can fire reliably
+    // before we close the menu.
+    const onClick = () => setOpenMenuId(null);
     const onKey = (e: KeyboardEvent) => {
       if (e.key === "Escape") setOpenMenuId(null);
     };
-    document.addEventListener("mousedown", onDown);
-    document.addEventListener("touchstart", onDown, { passive: true });
+    document.addEventListener("click", onClick);
     document.addEventListener("keydown", onKey);
     return () => {
-      document.removeEventListener("mousedown", onDown);
-      document.removeEventListener("touchstart", onDown);
+      document.removeEventListener("click", onClick);
       document.removeEventListener("keydown", onKey);
     };
   }, [openMenuId]);
@@ -430,14 +459,21 @@ export function PortalReportingClient() {
             {visible("creditsRemaining", "billing", ["Credits remaining", "Top up", "Billing", "Credits"]) ? (
               <div className="relative">
                 <div className="absolute right-4 top-4">
+                  {(() => {
+                    const added = dashboardWidgetIds.has("creditsRemaining");
+                    return (
                   <MenuButton
                     id="creditsRemaining"
                     openId={openMenuId}
                     setOpenId={setOpenMenuId}
                     onAdd={() => void addWidget("creditsRemaining")}
+                    addDisabled={added}
+                    addLabel={added ? "Already on dashboard" : "Add to dashboard"}
                     goToHref={serviceForWidget("creditsRemaining").href}
                     goToLabel={serviceForWidget("creditsRemaining").name}
                   />
+                    );
+                  })()}
                 </div>
                 <StatCard label="Credits remaining" value={data.creditsRemaining.toLocaleString()} sub="Top up in Billing" tone="blue" />
               </div>
@@ -446,14 +482,21 @@ export function PortalReportingClient() {
             {visible("creditsUsed", "billing", ["Credits used", "AI calls", "Lead scraping", "Billing", "Credits"]) ? (
               <div className="relative">
                 <div className="absolute right-4 top-4">
+                  {(() => {
+                    const added = dashboardWidgetIds.has("creditsUsed");
+                    return (
                   <MenuButton
                     id="creditsUsed"
                     openId={openMenuId}
                     setOpenId={setOpenMenuId}
                     onAdd={() => void addWidget("creditsUsed")}
+                    addDisabled={added}
+                    addLabel={added ? "Already on dashboard" : "Add to dashboard"}
                     goToHref={serviceForWidget("creditsUsed").href}
                     goToLabel={serviceForWidget("creditsUsed").name}
                   />
+                    );
+                  })()}
                 </div>
                 <StatCard label="Credits used" value={data.kpis.creditsUsed.toLocaleString()} sub="AI calls + lead scraping" tone="pink" />
               </div>
@@ -462,14 +505,21 @@ export function PortalReportingClient() {
             {visible("automationsRun", "reporting", ["Automations run", "Calls", "Texts", "Runs"]) ? (
               <div className="relative">
                 <div className="absolute right-4 top-4">
+                  {(() => {
+                    const added = dashboardWidgetIds.has("automationsRun");
+                    return (
                   <MenuButton
                     id="automationsRun"
                     openId={openMenuId}
                     setOpenId={setOpenMenuId}
                     onAdd={() => void addWidget("automationsRun")}
+                    addDisabled={added}
+                    addLabel={added ? "Already on dashboard" : "Add to dashboard"}
                     goToHref={serviceForWidget("automationsRun").href}
                     goToLabel={serviceForWidget("automationsRun").name}
                   />
+                    );
+                  })()}
                 </div>
                 <StatCard label="Automations run" value={data.kpis.automationsRun.toLocaleString()} sub="Calls + texts + runs" tone="ink" />
               </div>
@@ -478,14 +528,21 @@ export function PortalReportingClient() {
             {visible("aiCalls", "aiReceptionist", ["AI calls", "Completed", "Failed", "Receptionist"]) ? (
               <div className="relative">
                 <div className="absolute right-4 top-4">
+                  {(() => {
+                    const added = dashboardWidgetIds.has("aiCalls");
+                    return (
                   <MenuButton
                     id="aiCalls"
                     openId={openMenuId}
                     setOpenId={setOpenMenuId}
                     onAdd={() => void addWidget("aiCalls")}
+                    addDisabled={added}
+                    addLabel={added ? "Already on dashboard" : "Add to dashboard"}
                     goToHref={serviceForWidget("aiCalls").href}
                     goToLabel={serviceForWidget("aiCalls").name}
                   />
+                    );
+                  })()}
                 </div>
                 <StatCard
                   label="AI calls"
@@ -499,14 +556,21 @@ export function PortalReportingClient() {
             {visible("missedCalls", "missedCallTextBack", ["Missed calls", "Texts sent", "Text back"]) ? (
               <div className="relative">
                 <div className="absolute right-4 top-4">
+                  {(() => {
+                    const added = dashboardWidgetIds.has("missedCalls");
+                    return (
                   <MenuButton
                     id="missedCalls"
                     openId={openMenuId}
                     setOpenId={setOpenMenuId}
                     onAdd={() => void addWidget("missedCalls")}
+                    addDisabled={added}
+                    addLabel={added ? "Already on dashboard" : "Add to dashboard"}
                     goToHref={serviceForWidget("missedCalls").href}
                     goToLabel={serviceForWidget("missedCalls").name}
                   />
+                    );
+                  })()}
                 </div>
                 <StatCard
                   label="Missed calls"
@@ -520,14 +584,21 @@ export function PortalReportingClient() {
             {visible("bookingsCreated", "booking", ["Bookings created", "Appointments"]) ? (
               <div className="relative">
                 <div className="absolute right-4 top-4">
+                  {(() => {
+                    const added = dashboardWidgetIds.has("bookingsCreated");
+                    return (
                   <MenuButton
                     id="bookingsCreated"
                     openId={openMenuId}
                     setOpenId={setOpenMenuId}
                     onAdd={() => void addWidget("bookingsCreated")}
+                    addDisabled={added}
+                    addLabel={added ? "Already on dashboard" : "Add to dashboard"}
                     goToHref={serviceForWidget("bookingsCreated").href}
                     goToLabel={serviceForWidget("bookingsCreated").name}
                   />
+                    );
+                  })()}
                 </div>
                 <StatCard label="Bookings created" value={data.kpis.bookingsCreated.toLocaleString()} sub="New appointments" tone="emerald" />
               </div>
@@ -548,6 +619,8 @@ export function PortalReportingClient() {
                   openId={openMenuId}
                   setOpenId={setOpenMenuId}
                   onAdd={() => void addWidget("dailyActivity")}
+                  addDisabled={dashboardWidgetIds.has("dailyActivity")}
+                  addLabel={dashboardWidgetIds.has("dailyActivity") ? "Already on dashboard" : "Add to dashboard"}
                   goToHref={serviceForWidget("dailyActivity").href}
                   goToLabel={serviceForWidget("dailyActivity").name}
                 />
@@ -606,6 +679,8 @@ export function PortalReportingClient() {
                     openId={openMenuId}
                     setOpenId={setOpenMenuId}
                     onAdd={() => void addWidget("reviewsCollected")}
+                    addDisabled={dashboardWidgetIds.has("reviewsCollected")}
+                    addLabel={dashboardWidgetIds.has("reviewsCollected") ? "Already on dashboard" : "Add to dashboard"}
                     goToHref={serviceForWidget("reviewsCollected").href}
                     goToLabel={serviceForWidget("reviewsCollected").name}
                   />
@@ -624,6 +699,8 @@ export function PortalReportingClient() {
                     openId={openMenuId}
                     setOpenId={setOpenMenuId}
                     onAdd={() => void addWidget("leadsCreated")}
+                    addDisabled={dashboardWidgetIds.has("leadsCreated")}
+                    addLabel={dashboardWidgetIds.has("leadsCreated") ? "Already on dashboard" : "Add to dashboard"}
                     goToHref={serviceForWidget("leadsCreated").href}
                     goToLabel={serviceForWidget("leadsCreated").name}
                   />
@@ -643,6 +720,8 @@ export function PortalReportingClient() {
                     openId={openMenuId}
                     setOpenId={setOpenMenuId}
                     onAdd={() => void addWidget("leadScrapeRuns")}
+                    addDisabled={dashboardWidgetIds.has("leadScrapeRuns")}
+                    addLabel={dashboardWidgetIds.has("leadScrapeRuns") ? "Already on dashboard" : "Add to dashboard"}
                     goToHref={serviceForWidget("leadScrapeRuns").href}
                     goToLabel={serviceForWidget("leadScrapeRuns").name}
                   />
@@ -670,10 +749,6 @@ export function PortalReportingClient() {
                 </div>
               </div>
               ) : null}
-
-              <div className="mt-4 text-xs text-zinc-500">
-                More KPIs (ROI, deliverability, attribution, exports) can be added as those data sources are wired in.
-              </div>
             </div>
           </div>
         </>
