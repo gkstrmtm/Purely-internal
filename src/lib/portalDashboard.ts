@@ -8,6 +8,8 @@ export type DashboardWidgetId =
   | "services"
   | "creditsRemaining"
   | "creditsUsed"
+  | "blogGenerations"
+  | "blogCreditsUsed"
   | "automationsRun"
   | "successRate"
   | "failures"
@@ -61,6 +63,8 @@ const ALL_WIDGET_IDS: DashboardWidgetId[] = [
   "services",
   "creditsRemaining",
   "creditsUsed",
+  "blogGenerations",
+  "blogCreditsUsed",
   "automationsRun",
   "successRate",
   "failures",

@@ -20,7 +20,7 @@ export async function POST(_req: Request, ctx: { params: Promise<{ postId: strin
 
   const existing = await prisma.clientBlogPost.findFirst({
     where: { id: postId, site: { ownerId } },
-    select: { id: true, archivedAt: true },
+    select: { id: true, archivedAt: true, publishedAt: true },
   });
   if (!existing) return NextResponse.json({ error: "Not found" }, { status: 404 });
   if (existing.archivedAt) return NextResponse.json({ error: "Post is archived" }, { status: 400 });
@@ -29,7 +29,7 @@ export async function POST(_req: Request, ctx: { params: Promise<{ postId: strin
     where: { id: existing.id },
     data: {
       status: "PUBLISHED",
-      publishedAt: new Date(),
+      ...(existing.publishedAt ? {} : { publishedAt: new Date() }),
     },
     select: {
       id: true,

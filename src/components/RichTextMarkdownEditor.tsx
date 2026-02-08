@@ -311,6 +311,13 @@ export function RichTextMarkdownEditor({
   const [focused, setFocused] = useState(false);
   const [formats, setFormats] = useState<Array<"bold" | "italic" | "underline">>([]);
 
+  const syncFromDom = () => {
+    const html = editorRef.current?.innerHTML ?? "";
+    const nextMd = htmlToMarkdownBasic(html);
+    lastMarkdownRef.current = nextMd;
+    onChange(nextMd);
+  };
+
   const initialHtml = useMemo(() => markdownToHtmlBasic(markdown), [markdown]);
 
   useEffect(() => {
@@ -345,10 +352,101 @@ export function RichTextMarkdownEditor({
       // ignore
     }
     // Sync markdown after command.
-    const html = editorRef.current?.innerHTML ?? "";
-    const nextMd = htmlToMarkdownBasic(html);
-    lastMarkdownRef.current = nextMd;
-    onChange(nextMd);
+    syncFromDom();
+  };
+
+  const selectImageNode = (img: HTMLImageElement) => {
+    try {
+      const sel = window.getSelection();
+      if (!sel) return;
+      const r = document.createRange();
+      r.selectNode(img);
+      sel.removeAllRanges();
+      sel.addRange(r);
+    } catch {
+      // ignore
+    }
+  };
+
+  const removeSelectedOrAdjacentImage = (dir: "backward" | "forward") => {
+    const sel = window.getSelection();
+    if (!sel || !sel.rangeCount) return false;
+    const range = sel.getRangeAt(0);
+
+    // If an image is directly selected, delete it.
+    if (!range.collapsed) {
+      try {
+        const frag = range.cloneContents();
+        const hasImg = (frag as any)?.querySelector?.("img");
+        if (hasImg) {
+          range.deleteContents();
+          syncFromDom();
+          refreshFormats();
+          return true;
+        }
+      } catch {
+        // ignore
+      }
+      return false;
+    }
+
+    const container = range.startContainer;
+    const offset = range.startOffset;
+
+    // If the cursor is inside a text node at the edge, check adjacent siblings.
+    if (container.nodeType === Node.TEXT_NODE) {
+      const text = container.textContent ?? "";
+      const parent = container.parentNode;
+      if (!parent) return false;
+
+      if (dir === "backward" && offset === 0) {
+        const prev = (container as any).previousSibling as Node | null;
+        const img = prev && prev instanceof HTMLElement ? (prev.tagName.toLowerCase() === "img" ? prev : prev.querySelector?.("img")) : null;
+        if (img && img instanceof HTMLImageElement) {
+          img.remove();
+          syncFromDom();
+          refreshFormats();
+          return true;
+        }
+      }
+
+      if (dir === "forward" && offset === text.length) {
+        const next = (container as any).nextSibling as Node | null;
+        const img = next && next instanceof HTMLElement ? (next.tagName.toLowerCase() === "img" ? next : next.querySelector?.("img")) : null;
+        if (img && img instanceof HTMLImageElement) {
+          img.remove();
+          syncFromDom();
+          refreshFormats();
+          return true;
+        }
+      }
+
+      return false;
+    }
+
+    // If the cursor is in an element node, check the child before/after the caret.
+    if (container instanceof HTMLElement) {
+      const children = Array.from(container.childNodes);
+      const idx = Math.max(0, Math.min(children.length, offset));
+      const candidate = dir === "backward" ? children[idx - 1] : children[idx];
+      if (candidate instanceof HTMLImageElement) {
+        candidate.remove();
+        syncFromDom();
+        refreshFormats();
+        return true;
+      }
+      if (candidate instanceof HTMLElement) {
+        const img = candidate.querySelector?.("img");
+        if (img && img instanceof HTMLImageElement) {
+          img.remove();
+          syncFromDom();
+          refreshFormats();
+          return true;
+        }
+      }
+    }
+
+    return false;
   };
 
   const refreshFormats = () => {
@@ -465,6 +563,23 @@ export function RichTextMarkdownEditor({
         ref={editorRef}
         contentEditable={!disabled}
         suppressContentEditableWarning
+        onMouseDown={(e) => {
+          const target = e.target as HTMLElement | null;
+          if (!target) return;
+          const img = target instanceof HTMLImageElement ? target : (target.closest?.("img") as HTMLImageElement | null);
+          if (!img) return;
+          // Selecting the image node makes Backspace/Delete reliable.
+          window.requestAnimationFrame(() => selectImageNode(img));
+        }}
+        onKeyDown={(e) => {
+          if (disabled) return;
+          if (e.key === "Backspace") {
+            if (removeSelectedOrAdjacentImage("backward")) e.preventDefault();
+          }
+          if (e.key === "Delete") {
+            if (removeSelectedOrAdjacentImage("forward")) e.preventDefault();
+          }
+        }}
         onFocus={() => {
           setFocused(true);
           refreshFormats();
@@ -472,16 +587,10 @@ export function RichTextMarkdownEditor({
         onBlur={() => {
           setFocused(false);
           // Final sync on blur.
-          const html = editorRef.current?.innerHTML ?? "";
-          const nextMd = htmlToMarkdownBasic(html);
-          lastMarkdownRef.current = nextMd;
-          onChange(nextMd);
+          syncFromDom();
         }}
         onInput={() => {
-          const html = editorRef.current?.innerHTML ?? "";
-          const nextMd = htmlToMarkdownBasic(html);
-          lastMarkdownRef.current = nextMd;
-          onChange(nextMd);
+          syncFromDom();
           refreshFormats();
         }}
         onKeyUp={() => refreshFormats()}
@@ -544,6 +653,9 @@ export function RichTextMarkdownEditor({
           max-width: 100%;
           border-radius: 0.75em;
           border: 1px solid #e4e4e7;
+          display: block;
+          margin: 0.75em 0;
+          cursor: pointer;
         }
       `}</style>
     </div>

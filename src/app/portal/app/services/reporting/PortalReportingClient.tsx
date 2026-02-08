@@ -657,7 +657,51 @@ export function PortalReportingClient() {
                   })()}
                 </div>
                 <StatCard label="Credits used" value={data.kpis.creditsUsed.toLocaleString()} sub="AI calls + lead scraping + blogs" tone="pink" />
+              </div>
+            ) : null}
+
+            {visible("blogGenerations", "blogs", ["Blogs generated", "Automated blogs", "Blogs", "Generations"]) ? (
+              <div className="relative">
+                <div className="absolute right-4 top-4">
+                  {(() => {
+                    const added = dashboardWidgetIds.has("blogGenerations");
+                    return (
+                  <MenuButton
+                    id="blogGenerations"
+                    openId={openMenuId}
+                    setOpenId={setOpenMenuId}
+                    onAdd={() => void addWidget("blogGenerations")}
+                    addDisabled={added}
+                    addLabel={added ? "Already on dashboard" : "Add to dashboard"}
+                    goToHref={serviceForWidget("blogGenerations").href}
+                    goToLabel={serviceForWidget("blogGenerations").name}
+                  />
+                    );
+                  })()}
+                </div>
                 <StatCard label="Blogs generated" value={data.kpis.blogGenerations.toLocaleString()} sub="Generated posts" tone="slate" />
+              </div>
+            ) : null}
+
+            {visible("blogCreditsUsed", "blogs", ["Blog credits used", "Automated blogs", "Blogs", "Credits"]) ? (
+              <div className="relative">
+                <div className="absolute right-4 top-4">
+                  {(() => {
+                    const added = dashboardWidgetIds.has("blogCreditsUsed");
+                    return (
+                  <MenuButton
+                    id="blogCreditsUsed"
+                    openId={openMenuId}
+                    setOpenId={setOpenMenuId}
+                    onAdd={() => void addWidget("blogCreditsUsed")}
+                    addDisabled={added}
+                    addLabel={added ? "Already on dashboard" : "Add to dashboard"}
+                    goToHref={serviceForWidget("blogCreditsUsed").href}
+                    goToLabel={serviceForWidget("blogCreditsUsed").name}
+                  />
+                    );
+                  })()}
+                </div>
                 <StatCard label="Blog credits used" value={data.kpis.blogCreditsUsed.toLocaleString()} sub="AI generation" tone="slate" />
               </div>
             ) : null}

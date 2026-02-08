@@ -18,6 +18,8 @@ type Post = {
   updatedAt: string;
 };
 
+type ConfirmKind = "publishUnsaved" | "generateOverwrite" | "delete" | "leave";
+
 function uiSlugify(input: string): string {
   return String(input || "")
     .trim()
@@ -61,6 +63,70 @@ function formatLastSaved(updatedAt: string | null | undefined) {
   return d.toLocaleString();
 }
 
+function pad2(n: number) {
+  return String(n).padStart(2, "0");
+}
+
+function toDateTimeLocalValue(iso: string | null) {
+  if (!iso) return "";
+  const d = new Date(iso);
+  if (!Number.isFinite(d.getTime())) return "";
+  return `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}T${pad2(d.getHours())}:${pad2(d.getMinutes())}`;
+}
+
+function extractMarkdownImages(md: string): Array<{ alt: string; src: string; raw: string }> {
+  const out: Array<{ alt: string; src: string; raw: string }> = [];
+  const text = String(md || "");
+  const re = /!\[([^\]]*)\]\(([^)]+)\)/g;
+  for (const m of text.matchAll(re)) {
+    const raw = String(m[0] || "");
+    const alt = String(m[1] || "").trim();
+    const src = String(m[2] || "").trim();
+    if (!src) continue;
+    out.push({ alt, src, raw });
+  }
+  return out;
+}
+
+function escapeRegExp(text: string) {
+  return text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+function removeImageFromMarkdown(md: string, src: string) {
+  const s = String(src || "").trim();
+  if (!s) return md;
+  const re = new RegExp(`(^|\\n)\\s*!\\[[^\\]]*\\]\\(\\s*${escapeRegExp(s)}\\s*\\)\\s*(?=\\n|$)`, "g");
+  return String(md || "").replace(re, "\n").replace(/\n{3,}/g, "\n\n").trim() + "\n";
+}
+
+function replaceImageInMarkdown(md: string, oldSrc: string, nextSrc: string, nextAlt?: string) {
+  const a = String(oldSrc || "").trim();
+  const b = String(nextSrc || "").trim();
+  if (!a || !b) return md;
+  const re = new RegExp(`!\\[([^\\]]*)\\]\\(\\s*${escapeRegExp(a)}\\s*\\)`, "g");
+  return String(md || "").replace(re, (_m, alt) => `![${(nextAlt ?? String(alt || "")).trim()}](${b})`);
+}
+
+function validateMarkdownForPublish(md: string): string | null {
+  const text = String(md || "");
+  const lines = text.split("\n");
+  if (lines.some((l) => l.trim() === "!")) {
+    return "It looks like there’s a stray '!' where an image used to be. Please remove it before publishing.";
+  }
+
+  const imageStarts = Array.from(text.matchAll(/!\[/g)).length;
+  const imageFull = Array.from(text.matchAll(/!\[[^\]]*\]\([^)]+\)/g)).length;
+  if (imageStarts > imageFull) {
+    return "One of your images looks incomplete (broken Markdown). Remove it or fix it before publishing.";
+  }
+
+  if (/!\[\s*\]\([^)]+\)/.test(text)) {
+    return "Please add alt text for your image(s) before publishing.";
+  }
+
+  return null;
+}
+
 export function PortalBlogPostClient({ postId }: { postId: string }) {
   const [loading, setLoading] = useState(true);
   const [working, setWorking] = useState<"save" | "publish" | "delete" | "archive" | "generate" | null>(null);
@@ -79,6 +145,8 @@ export function PortalBlogPostClient({ postId }: { postId: string }) {
   const [content, setContent] = useState("");
   const [keywordsText, setKeywordsText] = useState("");
 
+  const [publishedAtText, setPublishedAtText] = useState("");
+
   const [aiPrompt, setAiPrompt] = useState("");
   const [aiIncludeCoverImage, setAiIncludeCoverImage] = useState(true);
   const [creditsRemaining, setCreditsRemaining] = useState<number | null>(null);
@@ -87,10 +155,22 @@ export function PortalBlogPostClient({ postId }: { postId: string }) {
   const [imageAlt, setImageAlt] = useState("");
   const [imageUrl, setImageUrl] = useState<string | null>(null);
 
+  const [confirmKind, setConfirmKind] = useState<ConfirmKind | null>(null);
+
+  const imagesInContent = useMemo(() => {
+    const all = extractMarkdownImages(content);
+    const bySrc = new Map<string, { alt: string; src: string; raw: string }>();
+    for (const img of all) {
+      if (!bySrc.has(img.src)) bySrc.set(img.src, img);
+    }
+    return Array.from(bySrc.values());
+  }, [content]);
+
   const keywords = useMemo(() => parseKeywords(keywordsText), [keywordsText]);
 
   const isDirty = useMemo(() => {
     if (!post) return false;
+    const dateChanged = publishedAtText !== toDateTimeLocalValue(post.publishedAt);
     const baseChanged =
       title !== (post.title ?? "") ||
       slug !== (post.slug ?? "") ||
@@ -100,8 +180,8 @@ export function PortalBlogPostClient({ postId }: { postId: string }) {
     const prevKw = Array.isArray(post.seoKeywords) ? post.seoKeywords : [];
     const prevText = prevKw.join("\n");
     const kwChanged = keywordsText !== prevText;
-    return baseChanged || kwChanged;
-  }, [content, excerpt, keywordsText, post, slug, title]);
+    return baseChanged || kwChanged || dateChanged;
+  }, [content, excerpt, keywordsText, post, publishedAtText, slug, title]);
 
   const refresh = useCallback(async () => {
     setLoading(true);
@@ -125,6 +205,7 @@ export function PortalBlogPostClient({ postId }: { postId: string }) {
     setExcerpt(loaded.excerpt ?? "");
     setContent(loaded.content ?? "");
     setKeywordsText((loaded.seoKeywords ?? []).join("\n"));
+    setPublishedAtText(toDateTimeLocalValue(loaded.publishedAt));
 
     setAiPrompt((prev) => (prev.trim() ? prev : loaded.title ?? ""));
 
@@ -170,6 +251,22 @@ export function PortalBlogPostClient({ postId }: { postId: string }) {
     setWorking("save");
     setError(null);
 
+    const publishedAtBase = toDateTimeLocalValue(post?.publishedAt ?? null);
+    const dateChanged = publishedAtText !== publishedAtBase;
+    let publishedAtIso: string | null | undefined = undefined;
+    if (dateChanged) {
+      if (!publishedAtText.trim()) publishedAtIso = null;
+      else {
+        const d = new Date(publishedAtText);
+        if (!Number.isFinite(d.getTime())) {
+          setWorking(null);
+          setError("Invalid published date");
+          return null;
+        }
+        publishedAtIso = d.toISOString();
+      }
+    }
+
     const res = await fetch(`/api/portal/blogs/posts/${postId}`, {
       method: "PUT",
       headers: { "content-type": "application/json" },
@@ -179,6 +276,7 @@ export function PortalBlogPostClient({ postId }: { postId: string }) {
         excerpt,
         content,
         seoKeywords: keywords.length ? keywords : undefined,
+        ...(typeof publishedAtIso !== "undefined" ? { publishedAt: publishedAtIso } : {}),
       }),
     });
 
@@ -196,6 +294,7 @@ export function PortalBlogPostClient({ postId }: { postId: string }) {
     setExcerpt(json.post.excerpt ?? "");
     setContent(json.post.content ?? "");
     setKeywordsText((json.post.seoKeywords ?? []).join("\n"));
+    setPublishedAtText(toDateTimeLocalValue(json.post.publishedAt));
     return json.post;
   }
 
@@ -206,15 +305,15 @@ export function PortalBlogPostClient({ postId }: { postId: string }) {
   async function publish() {
     if (!post) return;
 
-    if (isDirty) {
-      const shouldSave = window.confirm(
-        "You have unsaved changes.\n\nOK = Save changes, then publish\nCancel = Publish the last saved version",
-      );
+    const mdError = validateMarkdownForPublish(content);
+    if (mdError) {
+      setError(mdError);
+      return;
+    }
 
-      if (shouldSave) {
-        const saved = await saveInternal();
-        if (!saved) return;
-      }
+    if (isDirty) {
+      setConfirmKind("publishUnsaved");
+      return;
     }
 
     setWorking("publish");
@@ -236,16 +335,14 @@ export function PortalBlogPostClient({ postId }: { postId: string }) {
     await refresh();
   }
 
-  async function generateWithAi() {
+  async function generateWithAi(opts?: { forceOverwrite?: boolean }) {
     if (!post) return;
 
     if (working !== null) return;
 
-    if (isDirty || title.trim() || excerpt.trim() || content.trim()) {
-      const ok = window.confirm(
-        "Generate with AI will overwrite the editor fields (title, excerpt, content, keywords).\n\nYou can cancel if you want to save first.",
-      );
-      if (!ok) return;
+    if (!opts?.forceOverwrite && (isDirty || title.trim() || excerpt.trim() || content.trim())) {
+      setConfirmKind("generateOverwrite");
+      return;
     }
 
     const promptText = aiPrompt.trim();
@@ -277,7 +374,7 @@ export function PortalBlogPostClient({ postId }: { postId: string }) {
 
     const json = (await res.json().catch(() => ({}))) as {
       ok?: boolean;
-      draft?: { title: string; excerpt: string; content: string; seoKeywords?: string[] };
+      draft?: { title: string; excerpt: string; content: string; seoKeywords?: string[]; coverImageAlt?: string };
       estimatedCredits?: number;
       creditsRemaining?: number;
       billingPath?: string;
@@ -342,7 +439,7 @@ export function PortalBlogPostClient({ postId }: { postId: string }) {
 
     if (aiIncludeCoverImage && nextTitle.trim()) {
       const url = coverImageUrlFor(nextTitle);
-      const alt = nextTitle.trim();
+      const alt = (json.draft.coverImageAlt || nextTitle).trim();
       nextMd = ensureCoverAtTop(nextMd, url, alt);
       setImageAlt(alt);
       setImageUrl(url);
@@ -384,22 +481,8 @@ export function PortalBlogPostClient({ postId }: { postId: string }) {
   }
 
   async function destroy() {
-    const ok = window.confirm("Delete this post permanently? This cannot be undone.");
-    if (!ok) return;
-
-    setWorking("delete");
-    setError(null);
-
-    const res = await fetch(`/api/portal/blogs/posts/${postId}`, { method: "DELETE" });
-    const json = (await res.json().catch(() => ({}))) as { ok?: boolean; error?: string };
-    setWorking(null);
-
-    if (!res.ok || !json.ok) {
-      setError(json.error ?? "Unable to delete post");
-      return;
-    }
-
-    window.location.href = "/portal/app/services/blogs";
+    setConfirmKind("delete");
+    return;
   }
 
   function insertIntoContent(snippet: string) {
@@ -457,6 +540,14 @@ export function PortalBlogPostClient({ postId }: { postId: string }) {
   }
 
   const canPublish = !post.archivedAt;
+  const saveDisabled = working !== null || !isDirty;
+  const publishDisabled =
+    working !== null ||
+    !canPublish ||
+    (post.status === "PUBLISHED" && !isDirty);
+  const publishLabel =
+    post.status === "PUBLISHED" ? (isDirty ? "Update" : "Published") : "Publish";
+
   const exportUrl = `/api/portal/blogs/posts/${post.id}/export`;
 
   return (
@@ -485,8 +576,8 @@ export function PortalBlogPostClient({ postId }: { postId: string }) {
             type="button"
             onClick={() => {
               if (isDirty) {
-                const ok = window.confirm("You have unsaved changes. Leave without saving?");
-                if (!ok) return;
+                setConfirmKind("leave");
+                return;
               }
               window.location.href = "/portal/app/services/blogs";
             }}
@@ -502,7 +593,9 @@ export function PortalBlogPostClient({ postId }: { postId: string }) {
           </a>
           <button
             type="button"
-            onClick={generateWithAi}
+            onClick={(_e) => {
+              void generateWithAi();
+            }}
             disabled={working !== null}
             className="inline-flex items-center justify-center rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm font-semibold text-brand-ink hover:bg-zinc-50 disabled:opacity-60"
           >
@@ -524,7 +617,7 @@ export function PortalBlogPostClient({ postId }: { postId: string }) {
           <button
             type="button"
             onClick={save}
-            disabled={working !== null}
+            disabled={saveDisabled}
             className="inline-flex items-center justify-center rounded-2xl bg-brand-ink px-4 py-2 text-sm font-semibold text-white hover:opacity-95 disabled:opacity-60"
           >
             {working === "save" ? "Saving…" : "Save"}
@@ -532,13 +625,139 @@ export function PortalBlogPostClient({ postId }: { postId: string }) {
           <button
             type="button"
             onClick={publish}
-            disabled={!canPublish || working !== null}
+            disabled={publishDisabled}
             className="inline-flex items-center justify-center rounded-2xl bg-[color:var(--color-brand-blue)] px-4 py-2 text-sm font-semibold text-white hover:opacity-95 disabled:opacity-60"
           >
-            {working === "publish" ? "Publishing…" : "Publish"}
+            {working === "publish" ? "Publishing…" : publishLabel}
           </button>
         </div>
       </div>
+
+      {confirmKind ? (
+        <div className="mt-4 rounded-2xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900">
+          <div className="font-semibold">
+            {confirmKind === "publishUnsaved"
+              ? "You have unsaved changes."
+              : confirmKind === "generateOverwrite"
+                ? "Generate with AI will overwrite your editor fields."
+                : confirmKind === "delete"
+                  ? "Delete this post permanently?"
+                  : "Leave without saving?"}
+          </div>
+          <div className="mt-1 text-sm text-amber-900/80">
+            {confirmKind === "publishUnsaved"
+              ? "Choose whether to publish the last saved version or save first."
+              : confirmKind === "generateOverwrite"
+                ? "This will overwrite title, excerpt, content, and keywords."
+                : confirmKind === "delete"
+                  ? "This cannot be undone."
+                  : "Your changes will be lost."}
+          </div>
+          <div className="mt-3 flex flex-col gap-2 sm:flex-row">
+            {confirmKind === "publishUnsaved" ? (
+              <>
+                <button
+                  type="button"
+                  className="inline-flex items-center justify-center rounded-2xl bg-brand-ink px-4 py-2 text-sm font-semibold text-white hover:opacity-95"
+                  onClick={async () => {
+                    setConfirmKind(null);
+                    const saved = await saveInternal();
+                    if (!saved) return;
+                    await publish();
+                  }}
+                >
+                  Save & publish
+                </button>
+                <button
+                  type="button"
+                  className="inline-flex items-center justify-center rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm font-semibold text-brand-ink hover:bg-zinc-50"
+                  onClick={async () => {
+                    setConfirmKind(null);
+                    // publish last saved
+                    setWorking("publish");
+                    setError(null);
+                    const res = await fetch(`/api/portal/blogs/posts/${postId}/publish`, {
+                      method: "POST",
+                      headers: { "content-type": "application/json" },
+                    });
+                    const json = (await res.json().catch(() => ({}))) as { ok?: boolean; error?: string };
+                    setWorking(null);
+                    if (!res.ok || !json.ok) {
+                      setError(json.error ?? "Unable to publish");
+                      return;
+                    }
+                    await refresh();
+                  }}
+                >
+                  Publish last saved
+                </button>
+              </>
+            ) : null}
+
+            {confirmKind === "generateOverwrite" ? (
+              <button
+                type="button"
+                className="inline-flex items-center justify-center rounded-2xl bg-brand-ink px-4 py-2 text-sm font-semibold text-white hover:opacity-95"
+                onClick={() => {
+                  setConfirmKind(null);
+                  void (async () => {
+                    // Re-run generation now that user confirmed.
+                    await generateWithAi({ forceOverwrite: true });
+                  })();
+                }}
+              >
+                Generate now
+              </button>
+            ) : null}
+
+            {confirmKind === "delete" ? (
+              <button
+                type="button"
+                className="inline-flex items-center justify-center rounded-2xl bg-red-600 px-4 py-2 text-sm font-semibold text-white hover:bg-red-700"
+                onClick={async () => {
+                  setConfirmKind(null);
+                  setWorking("delete");
+                  setError(null);
+
+                  const res = await fetch(`/api/portal/blogs/posts/${postId}`, { method: "DELETE" });
+                  const json = (await res.json().catch(() => ({}))) as { ok?: boolean; error?: string };
+                  setWorking(null);
+
+                  if (!res.ok || !json.ok) {
+                    setError(json.error ?? "Unable to delete post");
+                    return;
+                  }
+
+                  window.location.href = "/portal/app/services/blogs";
+                }}
+              >
+                Delete
+              </button>
+            ) : null}
+
+            {confirmKind === "leave" ? (
+              <button
+                type="button"
+                className="inline-flex items-center justify-center rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm font-semibold text-brand-ink hover:bg-zinc-50"
+                onClick={() => {
+                  setConfirmKind(null);
+                  window.location.href = "/portal/app/services/blogs";
+                }}
+              >
+                Leave without saving
+              </button>
+            ) : null}
+
+            <button
+              type="button"
+              className="inline-flex items-center justify-center rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm font-semibold text-brand-ink hover:bg-zinc-50"
+              onClick={() => setConfirmKind(null)}
+            >
+              Cancel
+            </button>
+          </div>
+        </div>
+      ) : null}
 
       {billingCta ? (
         <div className="mt-4 rounded-2xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900">
@@ -624,6 +843,29 @@ export function PortalBlogPostClient({ postId }: { postId: string }) {
         </div>
 
         <div className="rounded-3xl border border-zinc-200 bg-white p-6">
+          <div className="text-sm font-semibold text-zinc-900">Post settings</div>
+          <div className="mt-2 text-sm text-zinc-600">Control publish date, SEO, and images.</div>
+
+          <div className="mt-4">
+            <label className="text-xs font-semibold text-zinc-600">Published date (editable)</label>
+            <input
+              type="datetime-local"
+              value={publishedAtText}
+              onChange={(e) => setPublishedAtText(e.target.value)}
+              className="mt-1 w-full rounded-2xl border border-zinc-200 bg-white px-4 py-3 text-sm outline-none focus:border-zinc-300"
+            />
+            <div className="mt-1 flex items-center justify-between gap-3 text-xs text-zinc-500">
+              <div>Leave blank for drafts or to clear the date.</div>
+              <button
+                type="button"
+                className="font-semibold text-brand-ink hover:underline"
+                onClick={() => setPublishedAtText("")}
+              >
+                Clear
+              </button>
+            </div>
+          </div>
+
           <div className="text-sm font-semibold text-zinc-900">SEO</div>
           <div className="mt-2 text-sm text-zinc-600">Optional keywords for internal targeting.</div>
 
@@ -650,6 +892,16 @@ export function PortalBlogPostClient({ postId }: { postId: string }) {
                   onChange={(e) => setImageAlt(e.target.value)}
                   className="mt-1 w-full rounded-2xl border border-zinc-200 bg-white px-4 py-3 text-sm outline-none focus:border-zinc-300"
                   placeholder="Team photo, product screenshot, etc."
+                />
+              </div>
+
+              <div>
+                <label className="text-xs font-semibold text-zinc-600">Image URL (optional)</label>
+                <input
+                  value={imageUrl ?? ""}
+                  onChange={(e) => setImageUrl(e.target.value.trim() ? e.target.value : null)}
+                  className="mt-1 w-full rounded-2xl border border-zinc-200 bg-white px-4 py-3 text-sm outline-none focus:border-zinc-300"
+                  placeholder="https://…"
                 />
               </div>
 
@@ -703,9 +955,89 @@ export function PortalBlogPostClient({ postId }: { postId: string }) {
                 >
                   Insert into content
                 </button>
+
+                <button
+                  type="button"
+                  disabled={!imageUrl || imagesInContent.length === 0}
+                  onClick={() => {
+                    if (!imageUrl) return;
+                    const first = imagesInContent[0];
+                    if (!first) return;
+                    const alt = imageAlt.trim() || first.alt || "image";
+                    setContent((prev) => replaceImageInMarkdown(prev, first.src, imageUrl, alt));
+                  }}
+                  className="inline-flex items-center justify-center rounded-2xl border border-zinc-200 bg-white px-4 py-3 text-sm font-semibold text-brand-ink hover:bg-zinc-50 disabled:opacity-60"
+                >
+                  Replace first image
+                </button>
+
+                <button
+                  type="button"
+                  disabled={working !== null}
+                  onClick={() => {
+                    const t = title.trim() || post.title || "Blog post";
+                    const url = `/api/blogs/cover?title=${encodeURIComponent(t)}&v=${encodeURIComponent(String(Date.now()))}`;
+                    const alt = (imageAlt.trim() || t).trim();
+                    setImageUrl(url);
+                    setImageAlt(alt);
+                    setContent((prev) => {
+                      // Replace an existing cover image, or ensure at top.
+                      const cleared = prev.replace(/^\s*!\[[^\]]*\]\(\s*\/api\/blogs\/cover\?[^\)]*\)\s*\n\n?/m, "");
+                      return ensureCoverAtTop(cleared, url, alt);
+                    });
+                  }}
+                  className="inline-flex items-center justify-center rounded-2xl border border-zinc-200 bg-white px-4 py-3 text-sm font-semibold text-brand-ink hover:bg-zinc-50 disabled:opacity-60"
+                >
+                  Regenerate cover image
+                </button>
               </div>
 
-              {imageUrl ? <div className="text-xs text-zinc-500">Inserted as: ![alt]({imageUrl})</div> : null}
+              {imageUrl ? <div className="text-xs text-zinc-500 break-all">Inserted as: ![alt]({imageUrl})</div> : null}
+
+              {imagesInContent.length ? (
+                <div className="mt-4 rounded-2xl border border-zinc-200 bg-zinc-50 p-4">
+                  <div className="text-xs font-semibold text-zinc-700">Images in this post</div>
+                  <div className="mt-3 space-y-3">
+                    {imagesInContent.map((img) => (
+                      <div key={img.src} className="rounded-2xl border border-zinc-200 bg-white p-3">
+                        <div className="overflow-hidden rounded-xl border border-zinc-200 bg-zinc-50">
+                          {/* eslint-disable-next-line @next/next/no-img-element */}
+                          <img src={img.src} alt={img.alt || "Post image"} className="h-28 w-full object-cover" />
+                        </div>
+                        <div className="mt-2 text-xs text-zinc-600">
+                          <div className="font-semibold text-zinc-800">Alt:</div>
+                          <div className="break-words">{img.alt || "(none)"}</div>
+                        </div>
+                        <div className="mt-2 text-xs text-zinc-600">
+                          <div className="font-semibold text-zinc-800">URL:</div>
+                          <div className="break-all">{img.src}</div>
+                        </div>
+                        <div className="mt-3 flex flex-col gap-2 sm:flex-row">
+                          <button
+                            type="button"
+                            className="inline-flex items-center justify-center rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-xs font-semibold text-brand-ink hover:bg-zinc-50"
+                            onClick={() => setContent((prev) => removeImageFromMarkdown(prev, img.src))}
+                          >
+                            Remove
+                          </button>
+                          <button
+                            type="button"
+                            disabled={!imageUrl}
+                            className="inline-flex items-center justify-center rounded-2xl bg-brand-ink px-3 py-2 text-xs font-semibold text-white hover:opacity-95 disabled:opacity-60"
+                            onClick={() => {
+                              if (!imageUrl) return;
+                              const alt = imageAlt.trim() || img.alt || "image";
+                              setContent((prev) => replaceImageInMarkdown(prev, img.src, imageUrl, alt));
+                            }}
+                          >
+                            Replace with current URL
+                          </button>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              ) : null}
             </div>
           </div>
 

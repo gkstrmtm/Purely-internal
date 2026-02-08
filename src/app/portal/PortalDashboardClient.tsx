@@ -27,6 +27,8 @@ type DashboardWidgetId =
   | "services"
   | "creditsRemaining"
   | "creditsUsed"
+  | "blogGenerations"
+  | "blogCreditsUsed"
   | "automationsRun"
   | "successRate"
   | "failures"
@@ -75,6 +77,8 @@ type ReportingPayload = {
     leadScrapeRuns: number;
     leadScrapeChargedCredits: number;
     leadScrapeRefundedCredits: number;
+    blogGenerations: number;
+    blogCreditsUsed: number;
     creditsUsed: number;
     bookingsCreated: number;
     reviewsCollected: number;
@@ -119,12 +123,14 @@ function accentForWidget(id: string) {
         ring: "ring-1 ring-[color:rgba(29,78,216,0.18)]",
       };
     case "creditsUsed":
+    case "blogCreditsUsed":
     case "missedCalls":
     case "reviewsCollected":
       return {
         bar: "bg-[linear-gradient(90deg,rgba(251,113,133,0.9),rgba(251,113,133,0.22))]",
         ring: "ring-1 ring-[color:rgba(251,113,133,0.18)]",
       };
+    case "blogGenerations":
     case "automationsRun":
     case "leadScrapeRuns":
     case "leadsCreated":
@@ -386,6 +392,10 @@ export function PortalDashboardClient() {
         return "Credits remaining";
       case "creditsUsed":
         return "Credits used";
+      case "blogGenerations":
+        return "Blogs generated";
+      case "blogCreditsUsed":
+        return "Blog credits used";
       case "automationsRun":
         return "Automations run";
       case "successRate":
@@ -666,6 +676,32 @@ export function PortalDashboardClient() {
             <div className="mt-3">
               <Link href="/portal/app/billing" className="text-sm font-semibold text-brand-ink hover:underline">
                 Top up in Billing
+              </Link>
+            </div>
+          </AccentCard>
+        );
+
+      case "blogGenerations":
+        return (
+          <AccentCard title={widgetTitle(id)} widgetId={id} showHandle={editMode}>
+            <div className="text-3xl font-bold text-brand-ink">{compactNum(k?.blogGenerations ?? 0)}</div>
+            <div className="mt-2 text-xs text-zinc-500">Generated blog posts (last 30 days)</div>
+            <div className="mt-3">
+              <Link href="/portal/app/services/blogs" className="text-sm font-semibold text-brand-ink hover:underline">
+                Open blogs
+              </Link>
+            </div>
+          </AccentCard>
+        );
+
+      case "blogCreditsUsed":
+        return (
+          <AccentCard title={widgetTitle(id)} widgetId={id} showHandle={editMode}>
+            <div className="text-3xl font-bold text-brand-ink">{compactNum(k?.blogCreditsUsed ?? 0)}</div>
+            <div className="mt-2 text-xs text-zinc-500">Credits used by blog generation (last 30 days)</div>
+            <div className="mt-3">
+              <Link href="/portal/app/services/reporting" className="text-sm font-semibold text-brand-ink hover:underline">
+                View reporting
               </Link>
             </div>
           </AccentCard>

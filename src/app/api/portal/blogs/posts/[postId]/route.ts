@@ -15,6 +15,11 @@ const updateSchema = z.object({
   excerpt: z.string().max(6000),
   content: z.string().max(200000),
   seoKeywords: z.array(z.string().trim().min(1)).max(50).optional(),
+  publishedAt: z
+    .string()
+    .datetime({ offset: true })
+    .nullable()
+    .optional(),
   archived: z.boolean().optional(),
 });
 
@@ -103,6 +108,9 @@ export async function PUT(req: Request, ctx: { params: Promise<{ postId: string 
       content: parsed.data.content ?? "",
       seoKeywords: parsed.data.seoKeywords?.length ? parsed.data.seoKeywords : Prisma.DbNull,
       archivedAt: parsed.data.archived ? new Date() : null,
+      ...(typeof parsed.data.publishedAt !== "undefined"
+        ? { publishedAt: parsed.data.publishedAt ? new Date(parsed.data.publishedAt) : null }
+        : {}),
     },
     select: {
       id: true,

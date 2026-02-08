@@ -6,6 +6,7 @@ export type ClientBlogDraft = {
   excerpt: string;
   content: string;
   seoKeywords?: string[];
+  coverImageAlt?: string;
 };
 
 function tryParseJson(text: string): unknown {
@@ -26,11 +27,14 @@ function assertDraft(value: unknown): ClientBlogDraft {
     ? v.seoKeywords.filter((k) => typeof k === "string").map((k) => k.trim()).filter(Boolean).slice(0, 50)
     : undefined;
 
+  const coverImageAlt = typeof v.coverImageAlt === "string" ? v.coverImageAlt.trim().slice(0, 180) : undefined;
+
   return {
     title: stripDoubleAsterisks(v.title.trim()).slice(0, 180),
     excerpt: stripDoubleAsterisks(v.excerpt.trim()).slice(0, 6000),
     content: v.content.trim().slice(0, 200000),
     seoKeywords,
+    coverImageAlt,
   };
 }
 
@@ -71,10 +75,12 @@ export async function generateClientBlogDraft(ctx: ClientBlogGenerationContext):
 
   const instructions = [
     "Return ONLY valid JSON.",
-    "Schema: { title: string, excerpt: string, content: string, seoKeywords?: string[] }.",
+    "Schema: { title: string, excerpt: string, content: string, seoKeywords?: string[], coverImageAlt?: string }.",
     "Write content in Markdown.",
     "No code fences, no extra commentary.",
     "Keep it practical for a small service business.",
+    "SEO: include 20-40 relevant, unique SEO keywords/phrases in seoKeywords (mix of short + long-tail).",
+    "If you propose a cover image concept, put the descriptive alt text in coverImageAlt (plain text, no Markdown).",
   ].join(" ");
 
   const prompt = {
