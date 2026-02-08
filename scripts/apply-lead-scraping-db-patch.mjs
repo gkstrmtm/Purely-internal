@@ -1,6 +1,43 @@
+import fs from "node:fs";
+import path from "node:path";
 import { PrismaClient } from "@prisma/client";
 
+function loadEnvFromFile(filePath) {
+  if (!fs.existsSync(filePath)) return;
+  const raw = fs.readFileSync(filePath, "utf8");
+  for (const line of raw.split(/\r?\n/)) {
+    const trimmed = line.trim();
+    if (!trimmed || trimmed.startsWith("#")) continue;
+    const eq = trimmed.indexOf("=");
+    if (eq <= 0) continue;
+    const key = trimmed.slice(0, eq).trim();
+    let val = trimmed.slice(eq + 1).trim();
+    if ((val.startsWith('"') && val.endsWith('"')) || (val.startsWith("'") && val.endsWith("'"))) {
+      val = val.slice(1, -1);
+    }
+    if (!key) continue;
+    process.env[key] = val;
+  }
+}
+
+function loadEnv() {
+  const cwd = process.cwd();
+  loadEnvFromFile(path.join(cwd, ".env"));
+  loadEnvFromFile(path.join(cwd, ".env.local"));
+}
+
+loadEnv();
+
+const dbUrl = process.env.DIRECT_URL || process.env.DATABASE_URL;
+if (!dbUrl) {
+  console.error("Missing DIRECT_URL/DATABASE_URL. Set env vars or add them to .env/.env.local.");
+  process.exit(1);
+}
+
 const prisma = new PrismaClient({
+  datasources: {
+    db: { url: dbUrl },
+  },
   log: [
     { emit: "event", level: "error" },
     { emit: "event", level: "warn" },
