@@ -85,6 +85,9 @@ Implementation note: credits state is stored in `PortalServiceSetup` (`serviceSl
 This repo may be deployed to environments where DB migrations are not guaranteed to run (or schema changes roll out gradually).
 For public/portal APIs, prefer narrow `select` clauses and avoid assuming optional columns always exist.
 
+Portal Inbox note: the portal Inbox/Outbox APIs will attempt an idempotent runtime schema install for the inbox tables/types (see `ensurePortalInboxSchema()`), to avoid hard failures if migrations were skipped.
+This requires the database role to allow `CREATE TYPE`, `CREATE TABLE`, `CREATE INDEX`, and `ALTER TABLE ... ADD CONSTRAINT` in the `public` schema.
+
 3) In Vercel → Project → Settings → Build & Development Settings:
 
 - Build Command: `npm run vercel-build`

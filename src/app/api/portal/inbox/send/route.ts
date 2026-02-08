@@ -4,7 +4,8 @@ import { z } from "zod";
 import { requireClientSession } from "@/lib/apiAuth";
 import { prisma } from "@/lib/db";
 import { getOwnerTwilioSmsConfig, sendOwnerTwilioSms } from "@/lib/portalTwilio";
-import { sendEmail } from "@/lib/leadOutbound";
+import { baseUrlFromRequest, sendEmail } from "@/lib/leadOutbound";
+import { ensurePortalInboxSchema } from "@/lib/portalInboxSchema";
 import {
   makeEmailThreadKey,
   makeSmsThreadKey,
@@ -20,7 +21,8 @@ const postSchema = z.object({
   channel: z.enum(["email", "sms"]),
   to: z.string().min(1),
   subject: z.string().optional(),
-  body: z.string().min(1),
+  body: z.string().optional(),
+  attachmentIds: z.array(z.string().min(1)).max(10).optional(),
   threadId: z.string().optional(),
 });
 
@@ -38,9 +40,36 @@ export async function POST(req: Request) {
 
   const ownerId = auth.session.user.id;
 
+  // Avoid runtime failures if migrations haven't been applied yet.
+  await ensurePortalInboxSchema();
+
   const channel = parsed.data.channel;
-  const body = parsed.data.body.trim();
+  const body = String(parsed.data.body ?? "").trim();
   const toRaw = parsed.data.to.trim();
+  const attachmentIds = Array.isArray(parsed.data.attachmentIds) ? parsed.data.attachmentIds : [];
+
+  if (!body && attachmentIds.length === 0) {
+    return NextResponse.json({ ok: false, error: "Message or attachment is required" }, { status: 400 });
+  }
+
+  const attachments = attachmentIds.length
+    ? await (prisma as any).portalInboxAttachment.findMany({
+        where: { ownerId, id: { in: attachmentIds }, messageId: null },
+        select: { id: true, fileName: true, mimeType: true, fileSize: true, bytes: true, publicToken: true },
+      })
+    : [];
+
+  if (attachmentIds.length && attachments.length !== attachmentIds.length) {
+    return NextResponse.json({ ok: false, error: "One or more attachments are missing." }, { status: 400 });
+  }
+
+  const fallbackBodyText =
+    body ||
+    (attachments.length === 1
+      ? `[Attachment] ${String(attachments[0].fileName ?? "").trim() || "file"}`
+      : attachments.length > 1
+        ? `[${attachments.length} attachments]`
+        : "");
 
   const profile = await prisma.businessProfile.findUnique({
     where: { ownerId },
@@ -61,7 +90,10 @@ export async function POST(req: Request) {
     if (!peer.peer || !peer.peerKey) return NextResponse.json({ ok: false, error: "Invalid phone" }, { status: 400 });
 
     const twilioCfg = await getOwnerTwilioSmsConfig(ownerId);
-    const sendResult = await sendOwnerTwilioSms({ ownerId, to: peer.peer, body });
+    const baseUrl = baseUrlFromRequest(req);
+    const mediaUrls = attachments.map((a: any) => `${baseUrl}/api/public/inbox/attachment/${a.id}/${a.publicToken}`);
+
+    const sendResult = await sendOwnerTwilioSms({ ownerId, to: peer.peer, body, mediaUrls });
     if (!sendResult.ok) {
       const msg = String(sendResult.error ?? "").toLowerCase();
       if (msg.includes("not configured") || msg.includes("texting not configured")) {
@@ -97,10 +129,17 @@ export async function POST(req: Request) {
       peerKey,
       fromAddress: twilioCfg?.fromNumberE164 || "TWILIO",
       toAddress: peer.peer,
-      bodyText: body,
+      bodyText: fallbackBodyText,
       provider: "TWILIO",
       providerMessageId: sendResult.messageSid ?? null,
     });
+
+    if (attachments.length) {
+      await (prisma as any).portalInboxAttachment.updateMany({
+        where: { ownerId, id: { in: attachments.map((a: any) => a.id) }, messageId: null },
+        data: { messageId: logged.messageId },
+      });
+    }
 
     return NextResponse.json({ ok: true, threadId: logged.threadId });
   }
@@ -117,8 +156,13 @@ export async function POST(req: Request) {
     await sendEmail({
       to: thread.peerKey,
       subject,
-      text: body,
+      text: body || " ",
       fromName: profile?.businessName || "Purely Automation",
+      attachments: attachments.map((a: any) => ({
+        fileName: String(a.fileName || "attachment").slice(0, 200),
+        mimeType: String(a.mimeType || "application/octet-stream"),
+        bytes: a.bytes as Buffer,
+      })),
     });
   } catch (e) {
     return NextResponse.json(
@@ -142,10 +186,17 @@ export async function POST(req: Request) {
     subjectKey: thread.subjectKey,
     fromAddress: process.env.SENDGRID_FROM_EMAIL || "purelyautomation@purelyautomation.com",
     toAddress: thread.peerKey,
-    bodyText: body,
+    bodyText: fallbackBodyText,
     provider: "SENDGRID",
     providerMessageId: null,
   });
+
+  if (attachments.length) {
+    await (prisma as any).portalInboxAttachment.updateMany({
+      where: { ownerId, id: { in: attachments.map((a: any) => a.id) }, messageId: null },
+      data: { messageId: logged.messageId },
+    });
+  }
 
   return NextResponse.json({ ok: true, threadId: logged.threadId });
 }

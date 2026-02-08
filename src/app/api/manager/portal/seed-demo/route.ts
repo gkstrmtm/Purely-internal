@@ -7,6 +7,7 @@ import { prisma } from "@/lib/db";
 import { hashPassword } from "@/lib/password";
 import { ensureClientRoleAllowed, isClientRoleMissingError } from "@/lib/ensureClientRoleAllowed";
 import { makeEmailThreadKey, makeSmsThreadKey, upsertPortalInboxMessage } from "@/lib/portalInbox";
+import { ensurePortalInboxSchema } from "@/lib/portalInboxSchema";
 
 export const runtime = "nodejs";
 
@@ -140,6 +141,7 @@ export async function POST(req: Request) {
     // Seed sample Inbox / Outbox data for the full demo user.
     // Idempotent: only seeds when the user has no inbox messages.
     try {
+      await ensurePortalInboxSchema();
       const existingCount = await (prisma as any).portalInboxMessage.count({
         where: { ownerId: fullUser.id },
       });

@@ -29,6 +29,13 @@ type Message = {
   subject: string | null;
   bodyText: string;
   createdAt: string;
+  attachments?: Array<{
+    id: string;
+    fileName: string;
+    mimeType: string;
+    fileSize: number;
+    url: string;
+  }>;
 };
 
 type SettingsRes = {
@@ -41,6 +48,8 @@ type SettingsRes = {
 type ApiErrorRes = { ok: false; code?: string; error?: string };
 type ThreadsRes = { ok: true; threads: Thread[] } | ApiErrorRes;
 type MessagesRes = { ok: true; messages: Message[] } | ApiErrorRes;
+
+type UploadedAttachment = NonNullable<Message["attachments"]>[number];
 
 function classNames(...xs: Array<string | false | null | undefined>) {
   return xs.filter(Boolean).join(" ");
@@ -66,6 +75,19 @@ function formatDayOrTime(iso: string) {
   return sameDay
     ? d.toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" })
     : d.toLocaleDateString(undefined, { month: "short", day: "numeric" });
+}
+
+function formatBytes(n: number) {
+  const v = Number(n);
+  if (!Number.isFinite(v) || v <= 0) return "0 B";
+  const units = ["B", "KB", "MB", "GB"];
+  let i = 0;
+  let x = v;
+  while (x >= 1024 && i < units.length - 1) {
+    x /= 1024;
+    i += 1;
+  }
+  return `${x.toFixed(i === 0 ? 0 : 1)} ${units[i]}`;
 }
 
 function firstLinePreview(text: string) {
@@ -113,9 +135,13 @@ export function PortalInboxClient() {
   const [composeTo, setComposeTo] = useState<string>("");
   const [composeSubject, setComposeSubject] = useState<string>("");
   const [composeBody, setComposeBody] = useState<string>("");
+  const [composeAttachments, setComposeAttachments] = useState<UploadedAttachment[]>([]);
+  const [uploading, setUploading] = useState(false);
   const [sending, setSending] = useState(false);
 
   const smsScrollRef = useRef<HTMLDivElement | null>(null);
+  const smsFileRef = useRef<HTMLInputElement | null>(null);
+  const emailFileRef = useRef<HTMLInputElement | null>(null);
 
   useEffect(() => {
     let mounted = true;
@@ -210,6 +236,7 @@ export function PortalInboxClient() {
     if (!activeThread) return;
     setComposeTo(activeThread.peerAddress);
     if (tab === "email") setComposeSubject(activeThread.subject ?? "");
+    setComposeAttachments([]);
   }, [activeThread, tab]);
 
   useEffect(() => {
@@ -220,6 +247,50 @@ export function PortalInboxClient() {
     el.scrollTop = el.scrollHeight;
   }, [tab, activeThreadId, messages.length]);
 
+  async function uploadAttachments(files: FileList | null) {
+    if (!files || !files.length) return;
+    if (uploading) return;
+    setError(null);
+    setUploading(true);
+
+    try {
+      const form = new FormData();
+      Array.from(files).forEach((f) => form.append("files", f));
+
+      const res = await fetch("/api/portal/inbox/attachments", {
+        method: "POST",
+        body: form,
+      });
+
+      const json = (await res.json().catch(() => null)) as any;
+
+      if (!res.ok || !json || json.ok !== true) {
+        setUploading(false);
+        setError(typeof json?.error === "string" ? json.error : "Upload failed");
+        return;
+      }
+
+      const uploaded = (Array.isArray(json.attachments) ? json.attachments : []) as UploadedAttachment[];
+
+      setComposeAttachments((prev) => {
+        const next = [...prev];
+        for (const a of uploaded) {
+          if (!next.some((x) => x.id === a.id)) next.push(a);
+        }
+        return next.slice(0, 10);
+      });
+      setUploading(false);
+    } catch {
+      setUploading(false);
+      setError("Upload failed. Please try again.");
+    }
+  }
+
+  async function removeAttachment(id: string) {
+    setComposeAttachments((prev) => prev.filter((a) => a.id !== id));
+    await fetch(`/api/portal/inbox/attachments/${id}`, { method: "DELETE" }).catch(() => null);
+  }
+
   async function onSend() {
     if (sending) return;
     setError(null);
@@ -228,8 +299,8 @@ export function PortalInboxClient() {
     const body = composeBody.trim();
     const subject = composeSubject.trim();
 
-    if (!to || !body) {
-      setError("To and message are required");
+    if (!to || (!body && composeAttachments.length === 0)) {
+      setError("To and message or attachment are required");
       return;
     }
 
@@ -242,6 +313,7 @@ export function PortalInboxClient() {
         to,
         subject: tab === "email" ? subject : undefined,
         body,
+        attachmentIds: composeAttachments.map((a) => a.id),
         ...(activeThreadId ? { threadId: activeThreadId } : {}),
       }),
     });
@@ -256,6 +328,7 @@ export function PortalInboxClient() {
     const threadId = typeof json.threadId === "string" ? json.threadId : activeThreadId;
 
     setComposeBody("");
+    setComposeAttachments([]);
     setSending(false);
 
     // Refresh threads + messages.
@@ -517,6 +590,35 @@ export function PortalInboxClient() {
                         <div key={m.id} className={classNames("flex", mine ? "justify-end" : "justify-start", startsGroup ? "mt-2" : "mt-0")}
                         >
                           <div className={bubbleCls}>
+                            {m.attachments?.length ? (
+                              <div className="mb-2 space-y-2">
+                                {m.attachments.map((a) => {
+                                  const isImg = String(a.mimeType || "").startsWith("image/");
+                                  if (isImg) {
+                                    return (
+                                      <a key={a.id} href={a.url} target="_blank" rel="noreferrer" className="block">
+                                        <img src={a.url} alt={a.fileName} className="max-h-56 w-full max-w-[240px] rounded-2xl object-cover" />
+                                      </a>
+                                    );
+                                  }
+
+                                  return (
+                                    <a
+                                      key={a.id}
+                                      href={a.url}
+                                      target="_blank"
+                                      rel="noreferrer"
+                                      className={classNames(
+                                        "block rounded-2xl px-3 py-2 text-xs font-semibold",
+                                        mine ? "bg-white/15 text-white" : "bg-zinc-100 text-zinc-800",
+                                      )}
+                                    >
+                                      {a.fileName} · {formatBytes(a.fileSize)}
+                                    </a>
+                                  );
+                                })}
+                              </div>
+                            ) : null}
                             <div className="whitespace-pre-wrap break-words">{m.bodyText}</div>
                             {endsGroup ? (
                               <div className={classNames("mt-1 text-[11px]", mine ? "text-white/80" : "text-zinc-600")}>
@@ -534,15 +636,57 @@ export function PortalInboxClient() {
               </div>
 
               <div className={classNames("border-t border-zinc-100 p-3", styles.inputBar)}>
+                {composeAttachments.length ? (
+                  <div className="mb-2 flex flex-wrap gap-2 px-1">
+                    {composeAttachments.map((a) => {
+                      const isImg = String(a.mimeType || "").startsWith("image/");
+                      return (
+                        <div key={a.id} className="flex items-center gap-2 rounded-2xl border border-zinc-200 bg-white px-2 py-1">
+                          {isImg ? (
+                            <img src={a.url} alt={a.fileName} className="h-8 w-8 rounded-xl object-cover" />
+                          ) : (
+                            <div className="flex h-8 w-8 items-center justify-center rounded-xl bg-zinc-100 text-xs font-semibold text-zinc-700">
+                              FILE
+                            </div>
+                          )}
+                          <div className="min-w-0">
+                            <div className="max-w-[180px] truncate text-xs font-semibold text-zinc-900">{a.fileName}</div>
+                            <div className="text-[11px] text-zinc-500">{formatBytes(a.fileSize)}</div>
+                          </div>
+                          <button
+                            type="button"
+                            onClick={() => removeAttachment(a.id)}
+                            className="ml-1 rounded-xl px-2 py-1 text-xs font-semibold text-zinc-600 hover:bg-zinc-50"
+                            aria-label="Remove attachment"
+                          >
+                            ×
+                          </button>
+                        </div>
+                      );
+                    })}
+                  </div>
+                ) : null}
                 <div className={classNames("flex items-center gap-2 px-2 py-2", styles.inputPill)}>
                   <button
                     type="button"
                     className={classNames(styles.iconButton, styles.iconButtonMuted)}
-                    onClick={() => { /* Placeholder for iOS-style plus actions */ }}
+                    onClick={() => smsFileRef.current?.click()}
                     aria-label="More"
                   >
                     <span className="text-lg leading-none">+</span>
                   </button>
+
+                  <input
+                    ref={smsFileRef}
+                    type="file"
+                    multiple
+                    className="hidden"
+                    onChange={(e) => {
+                      void uploadAttachments(e.currentTarget.files);
+                      e.currentTarget.value = "";
+                    }}
+                    accept="image/*,video/*,audio/*,application/pdf,text/plain"
+                  />
 
                   <input
                     value={composeBody}
@@ -567,7 +711,9 @@ export function PortalInboxClient() {
                     <span className="text-[13px] font-semibold">↑</span>
                   </button>
                 </div>
-                <div className="mt-1 px-2 text-[11px] text-zinc-500">Press Enter to send</div>
+                <div className="mt-1 px-2 text-[11px] text-zinc-500">
+                  {uploading ? "Uploading…" : "Press Enter to send"}
+                </div>
               </div>
             </div>
           ) : (
@@ -621,6 +767,21 @@ export function PortalInboxClient() {
                         </div>
                         <div className="mt-1 text-xs text-zinc-500">To: {m.toAddress}</div>
                         <div className="mt-3 whitespace-pre-wrap break-words text-sm text-zinc-800">{m.bodyText}</div>
+                        {m.attachments?.length ? (
+                          <div className="mt-3 flex flex-wrap gap-2">
+                            {m.attachments.map((a) => (
+                              <a
+                                key={a.id}
+                                href={a.url}
+                                target="_blank"
+                                rel="noreferrer"
+                                className="rounded-2xl border border-zinc-200 bg-zinc-50 px-3 py-2 text-xs font-semibold text-zinc-800 hover:bg-zinc-100"
+                              >
+                                {a.fileName} · {formatBytes(a.fileSize)}
+                              </a>
+                            ))}
+                          </div>
+                        ) : null}
                       </div>
                     ))}
                   </div>
@@ -642,21 +803,59 @@ export function PortalInboxClient() {
                   placeholder={activeThread ? "Type your reply…" : "Type your email…"}
                   className="w-full resize-y rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-sm text-zinc-900 placeholder:text-zinc-400"
                 />
+                {composeAttachments.length ? (
+                  <div className="mt-2 flex flex-wrap gap-2">
+                    {composeAttachments.map((a) => (
+                      <div key={a.id} className="flex items-center gap-2 rounded-2xl border border-zinc-200 bg-white px-2 py-1">
+                        <div className="max-w-[220px] truncate text-xs font-semibold text-zinc-900">{a.fileName}</div>
+                        <div className="text-[11px] text-zinc-500">{formatBytes(a.fileSize)}</div>
+                        <button
+                          type="button"
+                          onClick={() => removeAttachment(a.id)}
+                          className="ml-1 rounded-xl px-2 py-1 text-xs font-semibold text-zinc-600 hover:bg-zinc-50"
+                          aria-label="Remove attachment"
+                        >
+                          ×
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                ) : null}
                 <div className="mt-3 flex items-center justify-between gap-3">
                   <div className="text-xs text-zinc-500">
                     {activeThread ? `Replying to ${activeThread.peerAddress}` : ""}
                   </div>
-                  <button
-                    type="button"
-                    onClick={onSend}
-                    disabled={sending}
-                    className={classNames(
-                      "rounded-2xl bg-brand-ink px-5 py-2 text-sm font-semibold text-white hover:opacity-95",
-                      sending && "opacity-60",
-                    )}
-                  >
-                    {sending ? "Sending…" : "Send"}
-                  </button>
+                  <div className="flex items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={() => emailFileRef.current?.click()}
+                      className="rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm font-semibold text-zinc-700 hover:bg-zinc-50"
+                    >
+                      Attach
+                    </button>
+                    <input
+                      ref={emailFileRef}
+                      type="file"
+                      multiple
+                      className="hidden"
+                      onChange={(e) => {
+                        void uploadAttachments(e.currentTarget.files);
+                        e.currentTarget.value = "";
+                      }}
+                      accept="image/*,video/*,audio/*,application/pdf,text/plain,.csv,.doc,.docx,.xls,.xlsx"
+                    />
+                    <button
+                      type="button"
+                      onClick={onSend}
+                      disabled={sending}
+                      className={classNames(
+                        "rounded-2xl bg-brand-ink px-5 py-2 text-sm font-semibold text-white hover:opacity-95",
+                        sending && "opacity-60",
+                      )}
+                    >
+                      {sending ? "Sending…" : uploading ? "Uploading…" : "Send"}
+                    </button>
+                  </div>
                 </div>
               </div>
             </div>

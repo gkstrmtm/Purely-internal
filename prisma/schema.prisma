@@ -104,6 +104,7 @@ model User {
 
   portalInboxThreads  PortalInboxThread[]
   portalInboxMessages PortalInboxMessage[]
+  portalInboxAttachments PortalInboxAttachment[]
 }
 
 enum PortalLeadScrapeKind {
@@ -307,9 +308,34 @@ model PortalInboxMessage {
   owner  User             @relation(fields: [ownerId], references: [id])
   thread PortalInboxThread @relation(fields: [threadId], references: [id], onDelete: Cascade)
 
+  attachments PortalInboxAttachment[]
+
   @@index([threadId, createdAt])
   @@index([ownerId, channel, createdAt])
   @@index([providerMessageId])
+}
+
+model PortalInboxAttachment {
+  id String @id @default(cuid())
+
+  ownerId   String
+  messageId String?
+
+  fileName String
+  mimeType String
+  fileSize Int
+  bytes    Bytes
+
+  // Used to serve the attachment via a public URL (Twilio MMS needs a public fetchable URL).
+  publicToken String
+
+  createdAt DateTime @default(now())
+
+  owner   User             @relation(fields: [ownerId], references: [id])
+  message PortalInboxMessage? @relation(fields: [messageId], references: [id], onDelete: SetNull)
+
+  @@index([ownerId, createdAt])
+  @@index([messageId])
 }
 
 model MarketingDemoRequest {

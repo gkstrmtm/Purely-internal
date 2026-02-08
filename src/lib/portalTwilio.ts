@@ -145,6 +145,7 @@ export async function sendOwnerTwilioSms(opts: {
   ownerId: string;
   to: string;
   body: string;
+  mediaUrls?: string[];
 }): Promise<{ ok: true; messageSid?: string } | { ok: false; error: string }> {
   const config = await getOwnerTwilioSmsConfig(opts.ownerId);
   if (!config) return { ok: false, error: "Texting not configured" };
@@ -155,7 +156,13 @@ export async function sendOwnerTwilioSms(opts: {
   const form = new URLSearchParams();
   form.set("To", opts.to);
   form.set("From", config.fromNumberE164);
-  form.set("Body", (opts.body || "").slice(0, 900));
+  const body = (opts.body || "").slice(0, 900);
+  if (body.trim()) form.set("Body", body);
+
+  const mediaUrls = Array.isArray(opts.mediaUrls) ? opts.mediaUrls.filter(Boolean).slice(0, 10) : [];
+  for (const url of mediaUrls) {
+    form.append("MediaUrl", url);
+  }
 
   const res = await fetch(url, {
     method: "POST",

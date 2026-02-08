@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 
 import { requireClientSession } from "@/lib/apiAuth";
 import { prisma } from "@/lib/db";
+import { ensurePortalInboxSchema } from "@/lib/portalInboxSchema";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
@@ -56,6 +57,9 @@ export async function GET(req: Request) {
   const ownerId = auth.session.user.id;
   const url = new URL(req.url);
   const channel = parseChannel(url.searchParams.get("channel"));
+
+  // Avoid runtime failures if migrations haven't been applied yet.
+  await ensurePortalInboxSchema();
 
   try {
     const threads = await (prisma as any).portalInboxThread.findMany({

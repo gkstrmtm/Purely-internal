@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 
 import { requireClientSession } from "@/lib/apiAuth";
 import { prisma } from "@/lib/db";
+import { ensurePortalInboxSchema } from "@/lib/portalInboxSchema";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
@@ -41,6 +42,9 @@ export async function GET(
   const ownerId = auth.session.user.id;
   const { threadId } = await params;
 
+  // Avoid runtime failures if migrations haven't been applied yet.
+  await ensurePortalInboxSchema();
+
   try {
     const thread = await (prisma as any).portalInboxThread.findFirst({
       where: { id: threadId, ownerId },
@@ -67,10 +71,26 @@ export async function GET(
         provider: true,
         providerMessageId: true,
         createdAt: true,
+        attachments: {
+          select: { id: true, fileName: true, mimeType: true, fileSize: true, publicToken: true },
+        },
       },
     });
 
-    return NextResponse.json({ ok: true, messages });
+    const withUrls = (messages ?? []).map((m: any) => ({
+      ...m,
+      attachments: Array.isArray(m.attachments)
+        ? m.attachments.map((a: any) => ({
+            id: a.id,
+            fileName: a.fileName,
+            mimeType: a.mimeType,
+            fileSize: a.fileSize,
+            url: `/api/public/inbox/attachment/${a.id}/${a.publicToken}`,
+          }))
+        : [],
+    }));
+
+    return NextResponse.json({ ok: true, messages: withUrls });
   } catch (e) {
     const friendly = customerFriendlyError(e);
     return NextResponse.json({ ok: false, code: friendly.code, error: friendly.error }, { status: friendly.status });

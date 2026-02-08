@@ -47,6 +47,7 @@ export async function sendEmail({
   text,
   fromName,
   ownerId,
+  attachments,
 }: {
   to: string;
   cc?: string | null;
@@ -54,6 +55,7 @@ export async function sendEmail({
   text: string;
   fromName?: string;
   ownerId?: string;
+  attachments?: Array<{ fileName: string; mimeType: string; bytes: Buffer }>;
 }) {
   const apiKey = process.env.SENDGRID_API_KEY;
   const fromEmail = process.env.SENDGRID_FROM_EMAIL;
@@ -75,6 +77,16 @@ export async function sendEmail({
       from: { email: fromEmail, name: fromName ?? "Purely Automation" },
       subject,
       content: [{ type: "text/plain", value: safeText }],
+      ...(attachments?.length
+        ? {
+            attachments: attachments.slice(0, 10).map((a) => ({
+              content: Buffer.from(a.bytes).toString("base64"),
+              type: String(a.mimeType || "application/octet-stream"),
+              filename: String(a.fileName || "attachment").slice(0, 200),
+              disposition: "attachment",
+            })),
+          }
+        : {}),
     }),
   });
 
