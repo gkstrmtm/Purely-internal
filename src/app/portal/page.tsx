@@ -26,7 +26,7 @@ export default async function PortalDashboardPage() {
                 Get started
               </Link>
               <Link
-                href="/portal/login"
+                href="/login"
                 className="inline-flex items-center justify-center rounded-2xl bg-[color:var(--color-brand-pink)] px-6 py-3 text-base font-semibold text-white hover:opacity-95"
               >
                 Sign in
@@ -187,7 +187,7 @@ export default async function PortalDashboardPage() {
                 Create account
               </Link>
               <Link
-                href="/portal/login"
+                href="/login"
                 className="inline-flex w-full items-center justify-center rounded-2xl bg-white px-6 py-3 text-sm font-semibold text-[color:var(--color-brand-blue)] hover:bg-zinc-50 sm:w-auto"
               >
                 Sign in

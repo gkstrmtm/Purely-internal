@@ -1,10 +1,9 @@
 import Link from "next/link";
 import Image from "next/image";
-import { getServerSession } from "next-auth";
 import type { Metadata } from "next";
 
 import { SignOutButton } from "@/components/SignOutButton";
-import { authOptions } from "@/lib/auth";
+import { getPortalUser } from "@/lib/portalAuth";
 
 export const metadata: Metadata = {
   icons: {
@@ -17,7 +16,7 @@ function PortalPublicNav() {
   return (
     <nav className="flex flex-nowrap items-center gap-2 overflow-x-auto whitespace-nowrap text-sm sm:text-base">
       <Link
-        href="/portal/login"
+        href="/login"
         className="rounded-xl px-3 py-2 font-medium text-zinc-600 hover:bg-zinc-100 hover:text-zinc-900"
       >
         Sign in
@@ -37,9 +36,8 @@ export default async function PortalLayout({
 }: {
   children: React.ReactNode;
 }) {
-  const session = await getServerSession(authOptions);
-  const canOpenPortalApp =
-    session?.user?.role === "CLIENT" || session?.user?.role === "ADMIN";
+  const user = await getPortalUser();
+  const canOpenPortalApp = user?.role === "CLIENT" || user?.role === "ADMIN";
 
   return (
     <div className="min-h-screen bg-brand-mist text-brand-ink">
@@ -57,10 +55,10 @@ export default async function PortalLayout({
           </Link>
 
           <div className="flex items-center gap-3">
-            {session?.user ? (
+            {user ? (
               <>
                 <div className="hidden text-sm text-zinc-600 sm:block">
-                  {session?.user?.email}
+                  {user.email}
                 </div>
                 {canOpenPortalApp ? (
                   <Link

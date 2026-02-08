@@ -81,7 +81,8 @@ export default function EmployeeLoginClient() {
             />
           </div>
 
-          <p className="mt-6 text-base text-zinc-600">Sign in to the employee dashboard.</p>
+          <h1 className="mt-6 text-xl font-semibold text-zinc-900">Employee Login</h1>
+          <p className="mt-2 text-base text-zinc-600">Sign in to the employee dashboard.</p>
 
           {switching ? (
             <div className="mt-4 rounded-2xl border border-zinc-200 bg-zinc-50 px-4 py-3 text-sm text-zinc-700">

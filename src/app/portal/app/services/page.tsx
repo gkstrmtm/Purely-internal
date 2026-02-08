@@ -1,18 +1,10 @@
-import { getServerSession } from "next-auth";
 import Link from "next/link";
-import { redirect } from "next/navigation";
-
-import { authOptions } from "@/lib/auth";
+import { requirePortalUser } from "@/lib/portalAuth";
 import { PORTAL_SERVICES } from "@/app/portal/services/catalog";
 import { IconServiceGlyph } from "@/app/portal/PortalIcons";
 
 export default async function PortalAppServicesPage() {
-  const session = await getServerSession(authOptions);
-  if (!session?.user) redirect("/portal/login");
-
-  if (session.user.role !== "CLIENT" && session.user.role !== "ADMIN") {
-    redirect("/app");
-  }
+  await requirePortalUser();
 
   return (
     <div className="mx-auto w-full max-w-6xl">

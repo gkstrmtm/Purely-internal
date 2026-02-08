@@ -1,11 +1,16 @@
 import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
-import { getToken } from "next-auth/jwt";
+import { decode, getToken } from "next-auth/jwt";
+
+const PORTAL_SESSION_COOKIE_NAME = "pa.portal.session";
 
 export async function middleware(req: NextRequest) {
-  const token = await getToken({ req, secret: process.env.NEXTAUTH_SECRET });
-
   const path = req.nextUrl.pathname;
+
+  const secret = process.env.NEXTAUTH_SECRET;
+  const employeeToken = await getToken({ req, secret });
+  const portalCookie = req.cookies.get(PORTAL_SESSION_COOKIE_NAME)?.value;
+  const portalToken = portalCookie && secret ? await decode({ token: portalCookie, secret }).catch(() => null) : null;
 
   const isPortalMarketingHome = path === "/portal" || path === "/portal/";
   const isPortalPublicAuth = path === "/portal/login" || path === "/portal/get-started";
@@ -22,12 +27,12 @@ export async function middleware(req: NextRequest) {
     path.startsWith("/portal/modules/");
 
   function requireClientOrAdmin() {
-    if (!token) {
+    if (!portalToken) {
       const url = req.nextUrl.clone();
-      url.pathname = "/portal/login";
+      url.pathname = "/login";
       return url;
     }
-    const role = (token as unknown as { role?: string }).role;
+    const role = (portalToken as unknown as { role?: string }).role;
     if (role !== "CLIENT" && role !== "ADMIN") {
       return new URL("/app", req.url);
     }
@@ -48,7 +53,7 @@ export async function middleware(req: NextRequest) {
   if (isLegacyPortalAppRoute) {
     const guard = requireClientOrAdmin();
     if (guard) {
-      if (guard.pathname === "/portal/login") {
+      if (guard.pathname === "/login") {
         let target = path;
         if (path === "/portal/modules" || path.startsWith("/portal/modules/")) {
           target = "/portal/app/services";
@@ -82,7 +87,7 @@ export async function middleware(req: NextRequest) {
   if (isPortalApp) {
     const guard = requireClientOrAdmin();
     if (guard) {
-      if (guard.pathname === "/portal/login") {
+      if (guard.pathname === "/login") {
         guard.searchParams.set("from", path);
       }
       return NextResponse.redirect(guard);
@@ -96,34 +101,31 @@ export async function middleware(req: NextRequest) {
     const url = req.nextUrl.clone();
     url.pathname = path === "/dashboard" ? "/app" : path.replace("/dashboard", "/app");
 
-    if (!token) {
+    if (!employeeToken) {
       const login = req.nextUrl.clone();
       login.pathname = "/employeelogin";
       login.searchParams.set("from", req.nextUrl.pathname);
       return NextResponse.redirect(login);
     }
 
-    const role = (token as unknown as { role?: string }).role;
+    const role = (employeeToken as unknown as { role?: string }).role;
     if (role === "CLIENT") {
-      const login = req.nextUrl.clone();
-      login.pathname = "/employeelogin";
-      login.searchParams.set("from", req.nextUrl.pathname);
-      // Force clearing the client session before signing into the employee dashboard.
-      login.searchParams.set("switch", "1");
-      return NextResponse.redirect(login);
+      const url = req.nextUrl.clone();
+      url.pathname = "/login";
+      return NextResponse.redirect(url);
     }
 
     return NextResponse.rewrite(url);
   }
 
-  if (!token) {
+  if (!employeeToken) {
     const url = req.nextUrl.clone();
     url.pathname = "/employeelogin";
     url.searchParams.set("from", req.nextUrl.pathname);
     return NextResponse.redirect(url);
   }
 
-  const role = (token as unknown as { role?: string }).role;
+  const role = (employeeToken as unknown as { role?: string }).role;
 
   // The client portal should not live under the employee dashboard route tree.
   if (path === "/app/customer" || path.startsWith("/app/customer/")) {

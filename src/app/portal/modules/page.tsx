@@ -1,15 +1,9 @@
-import { getServerSession } from "next-auth";
 import { redirect } from "next/navigation";
 
-import { authOptions } from "@/lib/auth";
+import { requirePortalUser } from "@/lib/portalAuth";
 
 export default async function PortalModulesPage() {
-  const session = await getServerSession(authOptions);
-  if (!session?.user) redirect("/portal/login");
-
-  if (session.user.role !== "CLIENT" && session.user.role !== "ADMIN") {
-    redirect("/app");
-  }
+  await requirePortalUser();
 
   redirect("/portal/app/services");
 }

@@ -1,18 +1,19 @@
-import { redirect } from "next/navigation";
+import { Suspense } from "react";
 
-function safeFrom(raw: unknown) {
-  if (typeof raw !== "string") return null;
-  if (!raw.startsWith("/")) return null;
-  if (raw.startsWith("//")) return null;
-  return raw;
-}
+import PortalLoginClient from "./PortalLoginClient";
 
-export default function LoginPage({
-  searchParams,
-}: {
-  searchParams?: { from?: string | string[] };
-}) {
-  const from = safeFrom(Array.isArray(searchParams?.from) ? searchParams?.from[0] : searchParams?.from);
-  const qs = from ? `?from=${encodeURIComponent(from)}` : "";
-  redirect(`/employeelogin${qs}`);
+export const dynamic = "force-dynamic";
+
+export default function LoginPage() {
+  return (
+    <Suspense
+      fallback={
+        <div className="min-h-screen bg-brand-mist text-brand-ink">
+          <div className="mx-auto flex min-h-screen max-w-lg flex-col justify-center px-6 py-12" />
+        </div>
+      }
+    >
+      <PortalLoginClient />
+    </Suspense>
+  );
 }

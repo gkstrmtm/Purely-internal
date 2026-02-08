@@ -1,15 +1,26 @@
 "use client";
 
 import Image from "next/image";
-import { useRouter } from "next/navigation";
-import { useState } from "react";
+import Link from "next/link";
+import { useRouter, useSearchParams } from "next/navigation";
+import { useMemo, useState } from "react";
 
-export default function PortalGetStartedPage() {
+function safeInternalPath(raw: string | null | undefined, fallback: string) {
+  if (!raw) return fallback;
+  if (!raw.startsWith("/")) return fallback;
+  if (raw.startsWith("//")) return fallback;
+  return raw;
+}
+
+export default function PortalLoginClient() {
   const router = useRouter();
-  const [name, setName] = useState("");
+  const searchParams = useSearchParams();
+
+  const fromRaw = searchParams.get("from");
+  const from = useMemo(() => safeInternalPath(fromRaw, "/portal/app"), [fromRaw]);
+
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
-
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
 
@@ -18,20 +29,7 @@ export default function PortalGetStartedPage() {
     setError(null);
     setLoading(true);
 
-    const res = await fetch("/api/auth/client-signup", {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({ name, email, password }),
-    });
-
-    if (!res.ok) {
-      const body = await res.json().catch(() => ({}));
-      setLoading(false);
-      setError(body?.error ?? "Unable to create account");
-      return;
-    }
-
-    const loginRes = await fetch("/portal/api/login", {
+    const res = await fetch("/portal/api/login", {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({ email, password }),
@@ -39,12 +37,12 @@ export default function PortalGetStartedPage() {
 
     setLoading(false);
 
-    if (!loginRes.ok) {
-      router.push("/login");
+    if (!res.ok) {
+      setError("Invalid email or password");
       return;
     }
 
-    router.push("/portal/app");
+    router.push(from);
     router.refresh();
   }
 
@@ -63,26 +61,18 @@ export default function PortalGetStartedPage() {
             />
           </div>
 
-          <p className="mt-6 text-base text-zinc-600">Create your client portal account.</p>
+          <h1 className="mt-6 text-xl font-semibold text-zinc-900">Client Portal Login</h1>
+          <p className="mt-2 text-base text-zinc-600">Sign in to your client portal.</p>
 
           <form className="mt-6 space-y-5" onSubmit={onSubmit}>
             <div>
-              <label className="text-base font-medium">Name</label>
-              <input
-                className="mt-2 w-full rounded-2xl border border-zinc-200 bg-white px-4 py-3 text-base outline-none focus:border-zinc-400"
-                value={name}
-                onChange={(e) => setName(e.target.value)}
-                required
-              />
-            </div>
-
-            <div>
               <label className="text-base font-medium">Email</label>
               <input
-                className="mt-2 w-full rounded-2xl border border-zinc-200 bg-white px-4 py-3 text-base outline-none focus:border-zinc-400"
+                className="mt-2 w-full rounded-2xl border border-zinc-200 bg-white px-4 py-3 text-base outline-none ring-0 focus:border-zinc-400"
                 type="email"
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
+                autoComplete="email"
                 required
               />
             </div>
@@ -90,11 +80,11 @@ export default function PortalGetStartedPage() {
             <div>
               <label className="text-base font-medium">Password</label>
               <input
-                className="mt-2 w-full rounded-2xl border border-zinc-200 bg-white px-4 py-3 text-base outline-none focus:border-zinc-400"
+                className="mt-2 w-full rounded-2xl border border-zinc-200 bg-white px-4 py-3 text-base outline-none ring-0 focus:border-zinc-400"
                 type="password"
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
-                autoComplete="new-password"
+                autoComplete="current-password"
                 required
               />
             </div>
@@ -108,15 +98,22 @@ export default function PortalGetStartedPage() {
               disabled={loading}
               type="submit"
             >
-              {loading ? "Creating…" : "Create account"}
+              {loading ? "Signing in…" : "Sign in"}
             </button>
           </form>
 
           <div className="mt-6 text-base text-zinc-600">
-            Already have an account?{" "}
-            <a className="font-medium text-brand-ink hover:underline" href="/login">
-              Sign in
-            </a>
+            Need an account?{" "}
+            <Link className="font-medium text-brand-ink hover:underline" href="/portal/get-started">
+              Get started
+            </Link>
+          </div>
+
+          <div className="mt-3 text-base text-zinc-600">
+            Employee?{" "}
+            <Link className="font-medium text-brand-ink hover:underline" href="/employeelogin">
+              Log in as an employee
+            </Link>
           </div>
         </div>
       </div>
