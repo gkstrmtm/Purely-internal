@@ -1,0 +1,78 @@
+.smsPane {
+  background: #f2f2f7;
+}
+
+.bubble {
+  position: relative;
+  max-width: 78%;
+  padding: 10px 14px;
+  font-size: 15px;
+  line-height: 1.25;
+  border-radius: 22px;
+  box-shadow: 0 1px 0 rgba(0, 0, 0, 0.05);
+}
+
+.bubbleIn {
+  background: #e5e5ea;
+  color: #111827;
+}
+
+.bubbleOut {
+  background: #007aff;
+  color: #ffffff;
+}
+
+/* Tail: a small rotated rounded square approximates iOS. */
+.tailIn::after {
+  content: "";
+  position: absolute;
+  left: -6px;
+  bottom: 6px;
+  width: 14px;
+  height: 14px;
+  background: #e5e5ea;
+  transform: rotate(45deg);
+  border-radius: 3px;
+}
+
+.tailOut::after {
+  content: "";
+  position: absolute;
+  right: -6px;
+  bottom: 6px;
+  width: 14px;
+  height: 14px;
+  background: #007aff;
+  transform: rotate(45deg);
+  border-radius: 3px;
+}
+
+.inputBar {
+  background: rgba(242, 242, 247, 0.92);
+  backdrop-filter: saturate(180%) blur(18px);
+}
+
+.inputPill {
+  background: #ffffff;
+  border: 1px solid rgba(0, 0, 0, 0.08);
+  border-radius: 9999px;
+}
+
+.iconButton {
+  width: 34px;
+  height: 34px;
+  border-radius: 9999px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.iconButtonPrimary {
+  background: #007aff;
+  color: white;
+}
+
+.iconButtonMuted {
+  background: rgba(0, 0, 0, 0.06);
+  color: rgba(17, 24, 39, 0.9);
+}

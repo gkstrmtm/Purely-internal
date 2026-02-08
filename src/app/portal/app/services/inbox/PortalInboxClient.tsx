@@ -1,6 +1,8 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
+
+import styles from "./PortalInboxClient.module.css";
 
 type Channel = "email" | "sms";
 type EmailBox = "inbox" | "sent" | "all";
@@ -50,6 +52,40 @@ function formatWhen(iso: string) {
   return d.toLocaleString(undefined, { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" });
 }
 
+function formatTimeOnly(iso: string) {
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return "";
+  return d.toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" });
+}
+
+function formatDayOrTime(iso: string) {
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return "";
+  const now = new Date();
+  const sameDay = d.getFullYear() === now.getFullYear() && d.getMonth() === now.getMonth() && d.getDate() === now.getDate();
+  return sameDay
+    ? d.toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" })
+    : d.toLocaleDateString(undefined, { month: "short", day: "numeric" });
+}
+
+function firstLinePreview(text: string) {
+  const s = String(text ?? "").replace(/\s+/g, " ").trim();
+  return s.slice(0, 90);
+}
+
+function mailSubjectOrNo(subject: string | null) {
+  const s = String(subject ?? "").trim();
+  return s || "(no subject)";
+}
+
+function displayNameFromAddress(addrRaw: string) {
+  const addr = String(addrRaw ?? "").trim();
+  if (!addr) return "Unknown";
+  const at = addr.indexOf("@");
+  if (at > 0) return addr.slice(0, at);
+  return addr;
+}
+
 export function PortalInboxClient() {
   const [tab, setTab] = useState<Channel>("email");
   const [emailBox, setEmailBox] = useState<EmailBox>("inbox");
@@ -78,6 +114,8 @@ export function PortalInboxClient() {
   const [composeSubject, setComposeSubject] = useState<string>("");
   const [composeBody, setComposeBody] = useState<string>("");
   const [sending, setSending] = useState(false);
+
+  const smsScrollRef = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
     let mounted = true;
@@ -173,6 +211,14 @@ export function PortalInboxClient() {
     setComposeTo(activeThread.peerAddress);
     if (tab === "email") setComposeSubject(activeThread.subject ?? "");
   }, [activeThread, tab]);
+
+  useEffect(() => {
+    if (tab !== "sms") return;
+    // Scroll to bottom for SMS like Messages.
+    const el = smsScrollRef.current;
+    if (!el) return;
+    el.scrollTop = el.scrollHeight;
+  }, [tab, activeThreadId, messages.length]);
 
   async function onSend() {
     if (sending) return;
@@ -307,17 +353,20 @@ export function PortalInboxClient() {
       ) : null}
 
       <div className="mt-4 grid grid-cols-1 gap-4 lg:grid-cols-12">
-        <div className="rounded-3xl border border-zinc-200 bg-white p-3 lg:col-span-4">
-          <div className="flex items-center justify-between gap-3 px-2 py-2">
-            <div className="text-sm font-semibold text-zinc-900">Threads</div>
-            {tab === "email" ? (
-              <div className="flex items-center gap-1 rounded-2xl border border-zinc-200 bg-white p-1">
+        {/* Left panel: thread list */}
+        <div className={classNames(
+          "overflow-hidden rounded-3xl border border-zinc-200 bg-white lg:col-span-4",
+        )}>
+          {tab === "email" ? (
+            <div className="border-b border-zinc-100 p-3">
+              <div className="text-sm font-semibold text-zinc-900">Mailboxes</div>
+              <div className="mt-2 flex items-center gap-2">
                 <button
                   type="button"
                   onClick={() => setEmailBox("inbox")}
                   className={classNames(
-                    "rounded-2xl px-3 py-1.5 text-xs font-semibold",
-                    emailBox === "inbox" ? "bg-zinc-100 text-zinc-900" : "text-zinc-600 hover:bg-zinc-50",
+                    "flex-1 rounded-2xl border px-3 py-2 text-sm font-semibold",
+                    emailBox === "inbox" ? "border-zinc-900 bg-zinc-900 text-white" : "border-zinc-200 bg-white text-zinc-700 hover:bg-zinc-50",
                   )}
                 >
                   Inbox
@@ -326,185 +375,292 @@ export function PortalInboxClient() {
                   type="button"
                   onClick={() => setEmailBox("sent")}
                   className={classNames(
-                    "rounded-2xl px-3 py-1.5 text-xs font-semibold",
-                    emailBox === "sent" ? "bg-zinc-100 text-zinc-900" : "text-zinc-600 hover:bg-zinc-50",
+                    "flex-1 rounded-2xl border px-3 py-2 text-sm font-semibold",
+                    emailBox === "sent" ? "border-zinc-900 bg-zinc-900 text-white" : "border-zinc-200 bg-white text-zinc-700 hover:bg-zinc-50",
                   )}
                 >
                   Sent
                 </button>
-                <button
-                  type="button"
-                  onClick={() => setEmailBox("all")}
-                  className={classNames(
-                    "rounded-2xl px-3 py-1.5 text-xs font-semibold",
-                    emailBox === "all" ? "bg-zinc-100 text-zinc-900" : "text-zinc-600 hover:bg-zinc-50",
-                  )}
-                >
-                  All
-                </button>
               </div>
-            ) : null}
-          </div>
+            </div>
+          ) : (
+            <div className="border-b border-zinc-100 p-3">
+              <div className="text-sm font-semibold text-zinc-900">Messages</div>
+              <div className="mt-1 text-xs text-zinc-500">Your text conversations</div>
+            </div>
+          )}
+
           {loadingThreads ? (
-            <div className="px-2 py-3 text-sm text-zinc-600">Loading…</div>
+            <div className="px-3 py-4 text-sm text-zinc-600">Loading…</div>
           ) : visibleThreads.length ? (
-            <div className="max-h-[70vh] overflow-y-auto">
+            <div className="max-h-[76vh] overflow-y-auto p-2">
               {visibleThreads.map((t) => {
                 const active = t.id === activeThreadId;
-                const title =
-                  tab === "sms"
-                    ? t.peerAddress
-                    : (t.peerAddress || "Unknown sender");
-                const subtitle =
-                  tab === "sms"
-                    ? t.lastMessagePreview
-                    : (t.subject || "(no subject)");
+
+                if (tab === "sms") {
+                  const title = displayNameFromAddress(t.peerAddress);
+                  const subtitle = firstLinePreview(t.lastMessagePreview);
+                  return (
+                    <button
+                      key={t.id}
+                      type="button"
+                      onClick={() => setActiveThreadId(t.id)}
+                      className={classNames(
+                        "w-full rounded-2xl px-3 py-2 text-left transition",
+                        active ? "bg-zinc-100" : "hover:bg-zinc-50",
+                      )}
+                    >
+                      <div className="flex items-start justify-between gap-3">
+                        <div className="min-w-0">
+                          <div className="truncate text-[15px] font-semibold text-zinc-900">{title}</div>
+                          <div className="mt-0.5 truncate text-xs text-zinc-600">{subtitle || " "}</div>
+                        </div>
+                        <div className="shrink-0 text-[11px] text-zinc-500">{formatDayOrTime(t.lastMessageAt)}</div>
+                      </div>
+                    </button>
+                  );
+                }
+
+                // EMAIL list item (Gmail-ish)
+                const sender = t.lastMessageDirection === "IN" ? t.peerAddress : "You";
+                const subject = mailSubjectOrNo(t.subject);
+                const snippet = firstLinePreview(t.lastMessagePreview);
+
                 return (
                   <button
                     key={t.id}
                     type="button"
                     onClick={() => setActiveThreadId(t.id)}
                     className={classNames(
-                      "w-full rounded-2xl px-3 py-2 text-left",
+                      "w-full rounded-2xl px-3 py-2 text-left transition",
                       active ? "bg-zinc-100" : "hover:bg-zinc-50",
                     )}
                   >
                     <div className="flex items-start justify-between gap-3">
                       <div className="min-w-0">
                         <div className="flex items-center gap-2">
-                          <div className={classNames("truncate text-sm", active ? "font-semibold text-zinc-900" : "font-semibold text-zinc-900")}>
-                            {title}
+                          <div className={classNames("truncate text-sm text-zinc-900", t.lastMessageDirection === "IN" ? "font-semibold" : "font-medium")}>
+                            {sender}
                           </div>
-                          {tab === "email" && t.lastMessageDirection === "IN" ? (
-                            <span className="shrink-0 rounded-full bg-zinc-900 px-2 py-0.5 text-[10px] font-semibold text-white">New</span>
+                          {t.lastMessageDirection === "IN" ? (
+                            <span className="shrink-0 text-[10px] font-semibold text-zinc-900">•</span>
                           ) : null}
                         </div>
-                        <div className="mt-0.5 truncate text-xs text-zinc-600">{subtitle}</div>
+                        <div className={classNames("mt-0.5 truncate text-sm", t.lastMessageDirection === "IN" ? "font-semibold text-zinc-900" : "font-medium text-zinc-800")}>
+                          {subject}
+                        </div>
+                        <div className="mt-0.5 truncate text-xs text-zinc-600">{snippet || " "}</div>
                       </div>
-                      <div className="shrink-0 text-[11px] text-zinc-500">{formatWhen(t.lastMessageAt)}</div>
+                      <div className="shrink-0 text-[11px] text-zinc-500">{formatDayOrTime(t.lastMessageAt)}</div>
                     </div>
                   </button>
                 );
               })}
             </div>
           ) : (
-            <div className="px-2 py-3 text-sm text-zinc-600">
-              No threads yet.
+            <div className="px-3 py-4 text-sm text-zinc-600">
+              No conversations yet.
               <div className="mt-2 text-xs text-zinc-500">Send something, or enable inbound webhooks.</div>
             </div>
           )}
         </div>
 
-        <div className="rounded-3xl border border-zinc-200 bg-white p-3 lg:col-span-8">
-          <div className="flex items-center justify-between gap-3 px-2 py-2">
-            <div className="min-w-0">
-              <div className="truncate text-sm font-semibold text-zinc-900">
-                {activeThread ? (tab === "sms" ? activeThread.peerAddress : activeThread.subject || "(no subject)") : "Compose"}
-              </div>
-              <div className="truncate text-xs text-zinc-500">
-                {activeThread ? (tab === "sms" ? "SMS thread" : activeThread.peerAddress) : "Start a new conversation"}
-              </div>
-            </div>
-          </div>
-
-          <div
-            className={classNames(
-              "h-[46vh] overflow-y-auto rounded-2xl border border-zinc-100 p-3",
-              tab === "sms" ? "bg-[#F5F5F7]" : "bg-zinc-50",
-            )}
-          >
-            {loadingMessages ? (
-              <div className="text-sm text-zinc-600">Loading…</div>
-            ) : messages.length ? (
-              <div className="space-y-3">
-                {messages.map((m) => {
-                  if (tab === "sms") {
-                    const mine = m.direction === "OUT";
-                    return (
-                      <div key={m.id} className={classNames("flex", mine ? "justify-end" : "justify-start")}>
-                        <div
-                          className={classNames(
-                            "max-w-[78%] rounded-3xl px-4 py-2.5 text-[15px] leading-snug shadow-sm",
-                            mine ? "bg-[#007AFF] text-white" : "bg-white text-zinc-900",
-                          )}
-                        >
-                          <div className="whitespace-pre-wrap break-words">{m.bodyText}</div>
-                          <div className={classNames("mt-1 text-[11px]", mine ? "text-white/80" : "text-zinc-500")}>
-                            {formatWhen(m.createdAt)}
-                          </div>
-                        </div>
-                      </div>
-                    );
-                  }
-
-                  return (
-                    <div key={m.id} className="rounded-2xl border border-zinc-200 bg-white p-3">
-                      <div className="flex flex-wrap items-center justify-between gap-2">
-                        <div className="text-xs font-semibold text-zinc-800">
-                          {m.direction === "OUT" ? "You" : m.fromAddress}
-                        </div>
-                        <div className="text-[11px] text-zinc-500">{formatWhen(m.createdAt)}</div>
-                      </div>
-                      <div className="mt-2 whitespace-pre-wrap break-words text-sm text-zinc-800">{m.bodyText}</div>
-                    </div>
-                  );
-                })}
-              </div>
-            ) : (
-              <div className="text-sm text-zinc-600">No messages yet.</div>
-            )}
-          </div>
-
-          <div className="mt-3 rounded-2xl border border-zinc-200 bg-white p-3">
-            <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
-              <div>
-                <div className="text-xs font-semibold text-zinc-700">To</div>
-                <input
-                  value={composeTo}
-                  onChange={(e) => setComposeTo(e.target.value)}
-                  placeholder={tab === "sms" ? "+15551234567" : "name@company.com"}
-                  className="mt-1 w-full rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-sm text-zinc-900 placeholder:text-zinc-400"
-                />
+        {/* Right panel: conversation view */}
+        <div className={classNames(
+          "overflow-hidden rounded-3xl border border-zinc-200 bg-white lg:col-span-8",
+          tab === "sms" ? "" : "",
+        )}>
+          {tab === "sms" ? (
+            <div className="flex h-full min-h-[68vh] flex-col">
+              <div className="border-b border-zinc-100 px-4 py-3">
+                <div className="truncate text-base font-semibold text-zinc-900">
+                  {activeThread ? displayNameFromAddress(activeThread.peerAddress) : "New Message"}
+                </div>
+                <div className="truncate text-xs text-zinc-500">
+                  {activeThread ? activeThread.peerAddress : "Enter a phone number to start a text"}
+                </div>
               </div>
 
-              {tab === "email" ? (
-                <div>
-                  <div className="text-xs font-semibold text-zinc-700">Subject</div>
-                  <input
-                    value={composeSubject}
-                    onChange={(e) => setComposeSubject(e.target.value)}
-                    placeholder="Subject"
-                    className="mt-1 w-full rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-sm text-zinc-900 placeholder:text-zinc-400"
-                  />
+              {!activeThread ? (
+                <div className="border-b border-zinc-100 p-3">
+                  <div className="flex items-center gap-2 rounded-2xl border border-zinc-200 bg-white px-3 py-2">
+                    <div className="text-xs font-semibold text-zinc-600">To:</div>
+                    <input
+                      value={composeTo}
+                      onChange={(e) => setComposeTo(e.target.value)}
+                      placeholder="+15551234567"
+                      className="w-full bg-transparent text-sm text-zinc-900 placeholder:text-zinc-400 focus:outline-none"
+                    />
+                  </div>
                 </div>
               ) : null}
-            </div>
 
-            <div className="mt-3">
-              <div className="text-xs font-semibold text-zinc-700">Message</div>
-              <textarea
-                value={composeBody}
-                onChange={(e) => setComposeBody(e.target.value)}
-                rows={4}
-                placeholder={tab === "sms" ? "Type a text…" : "Type an email…"}
-                className="mt-1 w-full resize-y rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-sm text-zinc-900 placeholder:text-zinc-400"
-              />
-            </div>
+              <div ref={smsScrollRef} className={classNames("flex-1 overflow-y-auto px-4 py-4", styles.smsPane)}>
+                {loadingMessages ? (
+                  <div className="text-sm text-zinc-600">Loading…</div>
+                ) : messages.length ? (
+                  <div className="space-y-2">
+                    {messages.map((m, idx) => {
+                      const mine = m.direction === "OUT";
+                      const prev = idx > 0 ? messages[idx - 1] : null;
+                      const next = idx + 1 < messages.length ? messages[idx + 1] : null;
+                      const startsGroup = !prev || prev.direction !== m.direction;
+                      const endsGroup = !next || next.direction !== m.direction;
 
-            <div className="mt-3 flex items-center justify-end">
-              <button
-                type="button"
-                onClick={onSend}
-                disabled={sending}
-                className={classNames(
-                  "rounded-2xl bg-brand-ink px-5 py-2 text-sm font-semibold text-white hover:opacity-95",
-                  sending && "opacity-60",
+                      const bubbleCls = classNames(
+                        styles.bubble,
+                        mine ? styles.bubbleOut : styles.bubbleIn,
+                        endsGroup ? (mine ? styles.tailOut : styles.tailIn) : "",
+                      );
+
+                      return (
+                        <div key={m.id} className={classNames("flex", mine ? "justify-end" : "justify-start", startsGroup ? "mt-2" : "mt-0")}
+                        >
+                          <div className={bubbleCls}>
+                            <div className="whitespace-pre-wrap break-words">{m.bodyText}</div>
+                            {endsGroup ? (
+                              <div className={classNames("mt-1 text-[11px]", mine ? "text-white/80" : "text-zinc-600")}>
+                                {formatTimeOnly(m.createdAt)}
+                              </div>
+                            ) : null}
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                ) : (
+                  <div className="text-sm text-zinc-600">No messages yet.</div>
                 )}
-              >
-                {sending ? "Sending…" : tab === "sms" ? "Send SMS" : "Send Email"}
-              </button>
+              </div>
+
+              <div className={classNames("border-t border-zinc-100 p-3", styles.inputBar)}>
+                <div className={classNames("flex items-center gap-2 px-2 py-2", styles.inputPill)}>
+                  <button
+                    type="button"
+                    className={classNames(styles.iconButton, styles.iconButtonMuted)}
+                    onClick={() => { /* Placeholder for iOS-style plus actions */ }}
+                    aria-label="More"
+                  >
+                    <span className="text-lg leading-none">+</span>
+                  </button>
+
+                  <input
+                    value={composeBody}
+                    onChange={(e) => setComposeBody(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter") {
+                        e.preventDefault();
+                        onSend();
+                      }
+                    }}
+                    placeholder="iMessage"
+                    className="w-full bg-transparent px-1 text-[15px] text-zinc-900 placeholder:text-zinc-400 focus:outline-none"
+                  />
+
+                  <button
+                    type="button"
+                    onClick={onSend}
+                    disabled={sending}
+                    className={classNames(styles.iconButton, styles.iconButtonPrimary, sending && "opacity-60")}
+                    aria-label="Send"
+                  >
+                    <span className="text-[13px] font-semibold">↑</span>
+                  </button>
+                </div>
+                <div className="mt-1 px-2 text-[11px] text-zinc-500">Press Enter to send</div>
+              </div>
             </div>
-          </div>
+          ) : (
+            <div className="flex h-full min-h-[68vh] flex-col">
+              <div className="border-b border-zinc-100 px-4 py-3">
+                <div className="truncate text-base font-semibold text-zinc-900">
+                  {activeThread ? mailSubjectOrNo(activeThread.subject) : "New Email"}
+                </div>
+                <div className="truncate text-xs text-zinc-500">
+                  {activeThread ? activeThread.peerAddress : "Compose a new message"}
+                </div>
+              </div>
+
+              {!activeThread ? (
+                <div className="border-b border-zinc-100 p-4">
+                  <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                    <div>
+                      <div className="text-xs font-semibold text-zinc-700">To</div>
+                      <input
+                        value={composeTo}
+                        onChange={(e) => setComposeTo(e.target.value)}
+                        placeholder="name@company.com"
+                        className="mt-1 w-full rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-sm text-zinc-900 placeholder:text-zinc-400"
+                      />
+                    </div>
+                    <div>
+                      <div className="text-xs font-semibold text-zinc-700">Subject</div>
+                      <input
+                        value={composeSubject}
+                        onChange={(e) => setComposeSubject(e.target.value)}
+                        placeholder="Subject"
+                        className="mt-1 w-full rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-sm text-zinc-900 placeholder:text-zinc-400"
+                      />
+                    </div>
+                  </div>
+                </div>
+              ) : null}
+
+              <div className="flex-1 overflow-y-auto bg-zinc-50 p-4">
+                {loadingMessages ? (
+                  <div className="text-sm text-zinc-600">Loading…</div>
+                ) : messages.length ? (
+                  <div className="space-y-3">
+                    {messages.map((m) => (
+                      <div key={m.id} className="rounded-2xl border border-zinc-200 bg-white p-4">
+                        <div className="flex flex-wrap items-center justify-between gap-2">
+                          <div className="text-xs font-semibold text-zinc-800">
+                            {m.direction === "OUT" ? "You" : m.fromAddress}
+                          </div>
+                          <div className="text-[11px] text-zinc-500">{formatWhen(m.createdAt)}</div>
+                        </div>
+                        <div className="mt-1 text-xs text-zinc-500">To: {m.toAddress}</div>
+                        <div className="mt-3 whitespace-pre-wrap break-words text-sm text-zinc-800">{m.bodyText}</div>
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <div className="text-sm text-zinc-600">No emails yet.</div>
+                )}
+              </div>
+
+              <div className="border-t border-zinc-100 bg-white p-4">
+                {activeThread ? (
+                  <div className="mb-2 text-xs font-semibold text-zinc-700">Reply</div>
+                ) : (
+                  <div className="mb-2 text-xs font-semibold text-zinc-700">Message</div>
+                )}
+                <textarea
+                  value={composeBody}
+                  onChange={(e) => setComposeBody(e.target.value)}
+                  rows={4}
+                  placeholder={activeThread ? "Type your reply…" : "Type your email…"}
+                  className="w-full resize-y rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-sm text-zinc-900 placeholder:text-zinc-400"
+                />
+                <div className="mt-3 flex items-center justify-between gap-3">
+                  <div className="text-xs text-zinc-500">
+                    {activeThread ? `Replying to ${activeThread.peerAddress}` : ""}
+                  </div>
+                  <button
+                    type="button"
+                    onClick={onSend}
+                    disabled={sending}
+                    className={classNames(
+                      "rounded-2xl bg-brand-ink px-5 py-2 text-sm font-semibold text-white hover:opacity-95",
+                      sending && "opacity-60",
+                    )}
+                  >
+                    {sending ? "Sending…" : "Send"}
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
         </div>
       </div>
     </div>
