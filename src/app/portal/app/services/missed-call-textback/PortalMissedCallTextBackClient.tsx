@@ -42,21 +42,6 @@ type ApiPayload = {
   notes?: { variables?: string[] };
 };
 
-type TwilioMasked = {
-  configured: boolean;
-  accountSidMasked: string | null;
-  fromNumberE164: string | null;
-  hasAuthToken: boolean;
-  updatedAtIso: string | null;
-};
-
-type TwilioApiPayload = {
-  ok: boolean;
-  twilio: TwilioMasked;
-  note?: string;
-  error?: string;
-};
-
 function formatWhen(iso: string) {
   try {
     return new Date(iso).toLocaleString();
@@ -96,20 +81,12 @@ export function PortalMissedCallTextBackClient({ embedded }: { embedded?: boolea
   const [webhookUrl, setWebhookUrl] = useState<string>("");
   const [webhookUrlLegacy, setWebhookUrlLegacy] = useState<string>("");
 
-  const [twilioMasked, setTwilioMasked] = useState<TwilioMasked | null>(null);
-  const [twilioAccountSid, setTwilioAccountSid] = useState<string>("");
-  const [twilioAuthToken, setTwilioAuthToken] = useState<string>("");
-  const [twilioFromNumber, setTwilioFromNumber] = useState<string>("");
-
   async function load() {
     setLoading(true);
     setError(null);
     setNote(null);
 
-    const [res, twilioRes] = await Promise.all([
-      fetch("/api/portal/missed-call-textback/settings", { cache: "no-store" }),
-      fetch("/api/portal/integrations/twilio", { cache: "no-store" }).catch(() => null as any),
-    ]);
+    const res = await fetch("/api/portal/missed-call-textback/settings", { cache: "no-store" });
 
     if (!res.ok) {
       setLoading(false);
@@ -125,14 +102,6 @@ export function PortalMissedCallTextBackClient({ embedded }: { embedded?: boolea
     setTwilioReason(data.twilioReason);
     setWebhookUrl(data.webhookUrl || "");
     setWebhookUrlLegacy(data.webhookUrlLegacy || "");
-
-    if (twilioRes && twilioRes.ok) {
-      const t = (await twilioRes.json()) as TwilioApiPayload;
-      if (t && t.ok && t.twilio) {
-        setTwilioMasked(t.twilio);
-        setTwilioFromNumber(t.twilio.fromNumberE164 ?? "");
-      }
-    }
 
     setLoading(false);
   }
@@ -180,67 +149,6 @@ export function PortalMissedCallTextBackClient({ embedded }: { embedded?: boolea
     window.setTimeout(() => setNote(null), 1800);
   }
 
-  async function saveTwilio() {
-    setSaving(true);
-    setError(null);
-    setNote(null);
-
-    const payload: any = {};
-    if (twilioAccountSid.trim()) payload.accountSid = twilioAccountSid.trim();
-    if (twilioAuthToken.trim()) payload.authToken = twilioAuthToken.trim();
-    if (twilioFromNumber.trim()) payload.fromNumberE164 = twilioFromNumber.trim();
-
-    const res = await fetch("/api/portal/integrations/twilio", {
-      method: "PUT",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify(payload),
-    });
-
-    const data = (await res.json().catch(() => null)) as TwilioApiPayload | null;
-    if (!res.ok || !data?.ok) {
-      setSaving(false);
-      setError(data?.error || "Failed to save Twilio.");
-      return;
-    }
-
-    setTwilioMasked(data.twilio);
-    setTwilioAccountSid("");
-    setTwilioAuthToken("");
-    setTwilioConfigured(Boolean(data.twilio.configured));
-    setTwilioReason(data.twilio.configured ? undefined : "Twilio not configured in portal");
-    setSaving(false);
-    setNote(data.note || "Saved Twilio.");
-    window.setTimeout(() => setNote(null), 2000);
-  }
-
-  async function clearTwilio() {
-    setSaving(true);
-    setError(null);
-    setNote(null);
-
-    const res = await fetch("/api/portal/integrations/twilio", {
-      method: "PUT",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({ clear: true }),
-    });
-
-    const data = (await res.json().catch(() => null)) as TwilioApiPayload | null;
-    if (!res.ok || !data?.ok) {
-      setSaving(false);
-      setError(data?.error || "Failed to clear Twilio.");
-      return;
-    }
-
-    setTwilioMasked(data.twilio);
-    setTwilioAccountSid("");
-    setTwilioAuthToken("");
-    setTwilioFromNumber("");
-    setTwilioConfigured(false);
-    setTwilioReason("Twilio not configured in portal");
-    setSaving(false);
-    setNote(data.note || "Cleared Twilio.");
-    window.setTimeout(() => setNote(null), 2000);
-  }
 
   async function regenerateToken() {
     setSaving(true);
@@ -319,8 +227,13 @@ export function PortalMissedCallTextBackClient({ embedded }: { embedded?: boolea
         <div className="mt-5 rounded-3xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900">
           <div className="font-semibold">Twilio isn’t configured</div>
           <div className="mt-1 text-amber-900/80">
-            Add your Twilio credentials below to enable texting.
+            Configure Twilio in your Profile to enable texting.
             {twilioReason ? ` (${twilioReason})` : ""}
+            <span className="ml-2">
+              <Link href="/portal/profile" className="underline">
+                Open Profile
+              </Link>
+            </span>
           </div>
         </div>
       ) : null}
@@ -439,63 +352,6 @@ export function PortalMissedCallTextBackClient({ embedded }: { embedded?: boolea
         </div>
 
         <div className="space-y-4">
-          <div className="rounded-3xl border border-zinc-200 bg-white p-6">
-            <div className="text-sm font-semibold text-zinc-900">Twilio SMS</div>
-            <div className="mt-2 text-xs text-zinc-500">
-              Stored per account in the portal. We never show your Auth Token back.
-            </div>
-
-            <div className="mt-4 grid grid-cols-1 gap-3">
-              <div>
-                <label className="text-xs font-semibold text-zinc-700">Account SID</label>
-                <input
-                  value={twilioAccountSid}
-                  onChange={(e) => setTwilioAccountSid(e.target.value)}
-                  placeholder={twilioMasked?.accountSidMasked ? `Current: ${twilioMasked.accountSidMasked}` : "AC…"}
-                  className="mt-2 w-full rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-sm"
-                />
-              </div>
-              <div>
-                <label className="text-xs font-semibold text-zinc-700">Auth Token</label>
-                <input
-                  value={twilioAuthToken}
-                  onChange={(e) => setTwilioAuthToken(e.target.value)}
-                  type="password"
-                  placeholder={twilioMasked?.configured ? "•••••• (leave blank to keep)" : ""}
-                  className="mt-2 w-full rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-sm"
-                />
-              </div>
-              <div>
-                <label className="text-xs font-semibold text-zinc-700">From number</label>
-                <input
-                  value={twilioFromNumber}
-                  onChange={(e) => setTwilioFromNumber(e.target.value)}
-                  placeholder={twilioMasked?.fromNumberE164 ?? "+1…"}
-                  className="mt-2 w-full rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-sm"
-                />
-              </div>
-            </div>
-
-            <div className="mt-4 flex flex-col gap-2 sm:flex-row">
-              <button
-                type="button"
-                onClick={() => void saveTwilio()}
-                disabled={saving}
-                className="inline-flex items-center justify-center rounded-2xl bg-[color:var(--color-brand-blue)] px-4 py-2 text-sm font-semibold text-white hover:opacity-95 disabled:opacity-60"
-              >
-                {saving ? "Saving…" : "Save Twilio"}
-              </button>
-              <button
-                type="button"
-                onClick={() => void clearTwilio()}
-                disabled={saving}
-                className="inline-flex items-center justify-center rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm font-semibold text-brand-ink hover:bg-zinc-50 disabled:opacity-60"
-              >
-                Clear
-              </button>
-            </div>
-          </div>
-
           <PortalSettingsSection
             title="Twilio"
             description="Webhook URLs and setup steps for inbound calls."

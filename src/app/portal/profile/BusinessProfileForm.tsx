@@ -38,10 +38,12 @@ function textToGoals(text: string) {
 export function BusinessProfileForm({
   title,
   description,
+  embedded,
   onSaved,
 }: {
   title?: string;
   description?: string;
+  embedded?: boolean;
   onSaved?: () => void;
 }) {
   const [loading, setLoading] = useState(true);
@@ -137,23 +139,29 @@ export function BusinessProfileForm({
   }
 
   if (loading) {
-    return (
+    return embedded ? (
+      <div className="text-sm text-zinc-600">Loading business profile…</div>
+    ) : (
       <div className="rounded-3xl border border-zinc-200 bg-white p-6 text-sm text-zinc-600">
         Loading business profile…
       </div>
     );
   }
 
-  return (
-    <div className="rounded-3xl border border-zinc-200 bg-white p-6">
-      <div className="text-sm font-semibold text-zinc-900">{title ?? "Business profile"}</div>
-      <div className="mt-2 text-sm text-zinc-600">
-        {description ?? "This helps us tailor services and onboarding to your business."}
-      </div>
+  const content = (
+    <>
+      {!embedded ? (
+        <>
+          <div className="text-sm font-semibold text-zinc-900">{title ?? "Business profile"}</div>
+          <div className="mt-2 text-sm text-zinc-600">
+            {description ?? "This helps us tailor services and onboarding to your business."}
+          </div>
+        </>
+      ) : null}
 
-      {error ? <div className="mt-3 text-sm text-red-700">{error}</div> : null}
+      {error ? <div className={embedded ? "text-sm text-red-700" : "mt-3 text-sm text-red-700"}>{error}</div> : null}
 
-      <div className="mt-5 grid grid-cols-1 gap-4 sm:grid-cols-2">
+      <div className={(embedded ? "mt-2" : "mt-5") + " grid grid-cols-1 gap-4 sm:grid-cols-2"}>
         <div className="sm:col-span-2">
           <label className="text-xs font-semibold text-zinc-600">Logo (optional)</label>
           <div className="mt-2 flex flex-col gap-3 sm:flex-row sm:items-center">
@@ -328,6 +336,12 @@ export function BusinessProfileForm({
           We use this to personalize onboarding and content.
         </div>
       </div>
-    </div>
+    </>
   );
+
+  if (embedded) {
+    return <div>{content}</div>;
+  }
+
+  return <div className="rounded-3xl border border-zinc-200 bg-white p-6">{content}</div>;
 }
