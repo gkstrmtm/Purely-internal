@@ -35,6 +35,10 @@ type ListRes =
     }
   | { ok: false; error?: string };
 
+type AllFoldersRes =
+  | { ok: true; folders: Array<{ id: string; parentId: string | null; name: string; tag: string; createdAt: string }> }
+  | { ok: false; error?: string };
+
 function classNames(...xs: Array<string | false | null | undefined>) {
   return xs.filter(Boolean).join(" ");
 }
@@ -78,6 +82,16 @@ export function PortalMediaLibraryClient() {
 
   const [uploading, setUploading] = useState(false);
   const uploadRef = useRef<HTMLInputElement | null>(null);
+
+  const [renaming, setRenaming] = useState<null | { kind: "folder" | "item"; id: string; initial: string }>(null);
+  const [renameValue, setRenameValue] = useState("");
+
+  const [moving, setMoving] = useState<null | { kind: "folder" | "item"; id: string }>(null);
+  const [allFolders, setAllFolders] = useState<Array<{ id: string; parentId: string | null; name: string }>>([]);
+  const [foldersLoading, setFoldersLoading] = useState(false);
+  const [moveDestId, setMoveDestId] = useState<string | null>(null);
+  const [moveCreatingName, setMoveCreatingName] = useState("");
+  const [moveWorking, setMoveWorking] = useState(false);
 
   const selectedFolder = useMemo(() => {
     if (!selected || selected.kind !== "folder") return null;
@@ -220,6 +234,138 @@ export function PortalMediaLibraryClient() {
     await load(folderId);
   }
 
+  async function ensureAllFoldersLoaded() {
+    if (foldersLoading) return;
+    setFoldersLoading(true);
+    const res = await fetch("/api/portal/media/folders", { cache: "no-store" });
+    const json = (await res.json().catch(() => null)) as AllFoldersRes | null;
+    if (!res.ok || !json || json.ok !== true) {
+      setFoldersLoading(false);
+      setError(typeof (json as any)?.error === "string" ? (json as any).error : "Failed to load folders");
+      return;
+    }
+    setAllFolders((json.folders || []).map((f) => ({ id: f.id, parentId: f.parentId, name: f.name })));
+    setFoldersLoading(false);
+  }
+
+  function openRename(kind: "folder" | "item", id: string, initial: string) {
+    setOpenMenu(null);
+    setRenaming({ kind, id, initial });
+    setRenameValue(initial);
+  }
+
+  async function submitRename() {
+    if (!renaming) return;
+    const next = renameValue.replace(/[\r\n\t\0]/g, " ").replace(/\s+/g, " ").trim();
+    if (!next) return;
+
+    setMoveWorking(true);
+    setError(null);
+
+    const endpoint =
+      renaming.kind === "item" ? `/api/portal/media/items/${renaming.id}` : `/api/portal/media/folders/${renaming.id}`;
+    const payload = renaming.kind === "item" ? { fileName: next } : { name: next };
+
+    const res = await fetch(endpoint, {
+      method: "PATCH",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(payload),
+    });
+    const json = (await res.json().catch(() => null)) as any;
+    if (!res.ok || (json && json.ok === false)) {
+      setMoveWorking(false);
+      setError(typeof json?.error === "string" ? json.error : "Rename failed");
+      return;
+    }
+
+    setRenaming(null);
+    setMoveWorking(false);
+    await load(folderId);
+  }
+
+  async function openMove(kind: "folder" | "item", id: string) {
+    setOpenMenu(null);
+    setMoving({ kind, id });
+    setMoveDestId(kind === "item" ? folderId : folderId);
+    await ensureAllFoldersLoaded();
+  }
+
+  function buildFolderOptions() {
+    const children = new Map<string | null, Array<{ id: string; parentId: string | null; name: string }>>();
+    for (const f of allFolders) {
+      const k = f.parentId ?? null;
+      const arr = children.get(k) ?? [];
+      arr.push(f);
+      children.set(k, arr);
+    }
+    for (const [k, arr] of children) {
+      arr.sort((a, b) => a.name.localeCompare(b.name));
+      children.set(k, arr);
+    }
+
+    const out: Array<{ id: string; name: string; depth: number }> = [];
+    const walk = (parentId: string | null, depth: number) => {
+      const list = children.get(parentId) ?? [];
+      for (const f of list) {
+        out.push({ id: f.id, name: f.name, depth });
+        walk(f.id, depth + 1);
+      }
+    };
+    walk(null, 0);
+    return out;
+  }
+
+  async function submitMove() {
+    if (!moving) return;
+    setMoveWorking(true);
+    setError(null);
+
+    const endpoint = moving.kind === "item" ? `/api/portal/media/items/${moving.id}` : `/api/portal/media/folders/${moving.id}`;
+    const payload = moving.kind === "item" ? { folderId: moveDestId } : { parentId: moveDestId };
+
+    const res = await fetch(endpoint, {
+      method: "PATCH",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(payload),
+    });
+    const json = (await res.json().catch(() => null)) as any;
+    if (!res.ok || (json && json.ok === false)) {
+      setMoveWorking(false);
+      setError(typeof json?.error === "string" ? json.error : "Move failed");
+      return;
+    }
+
+    setMoving(null);
+    setMoveWorking(false);
+    await load(folderId);
+  }
+
+  async function createFolderInMove() {
+    const name = moveCreatingName.trim();
+    if (!name) return;
+    if (moveWorking) return;
+    setMoveWorking(true);
+    setError(null);
+
+    const res = await fetch("/api/portal/media/folders", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ parentId: moveDestId, name }),
+    });
+    const json = (await res.json().catch(() => null)) as any;
+    if (!res.ok || !json?.ok) {
+      setMoveWorking(false);
+      setError(typeof json?.error === "string" ? json.error : "Could not create folder");
+      return;
+    }
+
+    setMoveCreatingName("");
+    await ensureAllFoldersLoaded();
+    setMoveDestId(String(json.folderId));
+    setMoveWorking(false);
+    await load(folderId);
+  }
+
   return (
     <div className="mx-auto w-full max-w-7xl">
       <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
@@ -251,10 +397,9 @@ export function PortalMediaLibraryClient() {
             type="button"
             onClick={() => uploadRef.current?.click()}
             disabled={uploading}
-            className={
-              "inline-flex h-10 items-center justify-center rounded-2xl border border-zinc-200 bg-white px-4 text-sm font-semibold text-brand-ink hover:bg-zinc-50 disabled:opacity-60"
-            }
+            className="inline-flex h-10 items-center justify-center gap-2 rounded-2xl bg-[color:var(--color-brand-blue)] px-4 text-sm font-semibold text-white shadow-sm hover:opacity-95 disabled:opacity-60"
           >
+            <span className="inline-flex h-6 w-6 items-center justify-center rounded-full bg-white/15 text-base leading-none">+</span>
             {uploading ? "Uploading…" : "Upload"}
           </button>
         </div>
@@ -264,31 +409,30 @@ export function PortalMediaLibraryClient() {
         <div className="mt-4 rounded-3xl border border-red-200 bg-red-50 p-4 text-sm text-red-700">{error}</div>
       ) : null}
 
-      <div className="mt-4 flex flex-wrap items-center gap-2 text-sm">
-        <button
-          type="button"
-          onClick={() => setFolderId(null)}
-          className={classNames(
-            "rounded-full border px-3 py-1 text-xs font-semibold",
-            !folderId ? "border-zinc-900 bg-zinc-900 text-white" : "border-zinc-200 bg-white text-zinc-700 hover:bg-zinc-50",
-          )}
-        >
-          Root
-        </button>
-        {breadcrumbs.map((b) => (
+      {folderId ? (
+        <div className="mt-4 flex flex-wrap items-center gap-2 text-sm">
           <button
-            key={b.id}
             type="button"
-            onClick={() => setFolderId(b.id)}
-            className={
-              "rounded-full border border-zinc-200 bg-white px-3 py-1 text-xs font-semibold text-zinc-700 hover:bg-zinc-50"
-            }
-            title={b.tag}
+            onClick={() => setFolderId(null)}
+            className="text-xs font-semibold text-[color:var(--color-brand-blue)] hover:underline"
           >
-            {b.name}
+            All media
           </button>
-        ))}
-      </div>
+          {breadcrumbs.map((b) => (
+            <div key={b.id} className="flex items-center gap-2">
+              <span className="text-xs text-zinc-400">/</span>
+              <button
+                type="button"
+                onClick={() => setFolderId(b.id)}
+                className="text-xs font-semibold text-zinc-700 hover:underline"
+                title={b.tag}
+              >
+                {b.name}
+              </button>
+            </div>
+          ))}
+        </div>
+      ) : null}
 
       <div className="mt-4 grid grid-cols-1 gap-4 lg:grid-cols-12">
         <div className="overflow-hidden rounded-3xl border border-zinc-200 bg-white lg:col-span-7">
@@ -493,6 +637,26 @@ export function PortalMediaLibraryClient() {
                       type="button"
                       className="w-full px-4 py-3 text-left text-sm font-semibold text-zinc-900 hover:bg-zinc-50"
                       onClick={() => {
+                        const it = menuTarget as Item;
+                        openRename("item", it.id, it.fileName);
+                      }}
+                    >
+                      Rename
+                    </button>
+                    <button
+                      type="button"
+                      className="w-full px-4 py-3 text-left text-sm font-semibold text-zinc-900 hover:bg-zinc-50"
+                      onClick={() => {
+                        const it = menuTarget as Item;
+                        void openMove("item", it.id);
+                      }}
+                    >
+                      Add to folder
+                    </button>
+                    <button
+                      type="button"
+                      className="w-full px-4 py-3 text-left text-sm font-semibold text-zinc-900 hover:bg-zinc-50"
+                      onClick={() => {
                         setOpenMenu(null);
                         void copy(window.location.origin + (menuTarget as Item).shareUrl);
                       }}
@@ -526,6 +690,26 @@ export function PortalMediaLibraryClient() {
                       type="button"
                       className="w-full px-4 py-3 text-left text-sm font-semibold text-zinc-900 hover:bg-zinc-50"
                       onClick={() => {
+                        const f = menuTarget as Folder;
+                        openRename("folder", f.id, f.name);
+                      }}
+                    >
+                      Rename
+                    </button>
+                    <button
+                      type="button"
+                      className="w-full px-4 py-3 text-left text-sm font-semibold text-zinc-900 hover:bg-zinc-50"
+                      onClick={() => {
+                        const f = menuTarget as Folder;
+                        void openMove("folder", f.id);
+                      }}
+                    >
+                      Move to folder
+                    </button>
+                    <button
+                      type="button"
+                      className="w-full px-4 py-3 text-left text-sm font-semibold text-zinc-900 hover:bg-zinc-50"
+                      onClick={() => {
                         setOpenMenu(null);
                         void copy(window.location.origin + (menuTarget as Folder).shareUrl);
                       }}
@@ -534,6 +718,121 @@ export function PortalMediaLibraryClient() {
                     </button>
                   </>
                 )}
+              </div>
+            </div>,
+            document.body,
+          )
+        : null}
+
+      {renaming && typeof document !== "undefined"
+        ? createPortal(
+            <div className="fixed inset-0 z-[100] flex items-center justify-center p-4">
+              <div className="absolute inset-0 bg-black/40" onMouseDown={() => setRenaming(null)} />
+              <div className="relative w-full max-w-md rounded-3xl border border-zinc-200 bg-white p-5 shadow-xl">
+                <div className="text-sm font-semibold text-zinc-900">Rename</div>
+                <div className="mt-1 text-xs text-zinc-500">Update the display name.</div>
+
+                <input
+                  autoFocus
+                  value={renameValue}
+                  onChange={(e) => setRenameValue(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") void submitRename();
+                    if (e.key === "Escape") setRenaming(null);
+                  }}
+                  className="mt-4 h-10 w-full rounded-2xl border border-zinc-200 bg-white px-4 text-sm"
+                />
+
+                <div className="mt-4 flex items-center justify-end gap-2">
+                  <button
+                    type="button"
+                    className="h-10 rounded-2xl border border-zinc-200 bg-white px-4 text-sm font-semibold text-zinc-700 hover:bg-zinc-50"
+                    onClick={() => setRenaming(null)}
+                    disabled={moveWorking}
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="button"
+                    className="h-10 rounded-2xl bg-brand-ink px-4 text-sm font-semibold text-white hover:opacity-95 disabled:opacity-60"
+                    onClick={() => void submitRename()}
+                    disabled={moveWorking || !renameValue.trim()}
+                  >
+                    Save
+                  </button>
+                </div>
+              </div>
+            </div>,
+            document.body,
+          )
+        : null}
+
+      {moving && typeof document !== "undefined"
+        ? createPortal(
+            <div className="fixed inset-0 z-[100] flex items-center justify-center p-4">
+              <div className="absolute inset-0 bg-black/40" onMouseDown={() => setMoving(null)} />
+              <div className="relative w-full max-w-lg rounded-3xl border border-zinc-200 bg-white p-5 shadow-xl">
+                <div className="text-sm font-semibold text-zinc-900">
+                  {moving.kind === "item" ? "Add to folder" : "Move folder"}
+                </div>
+                <div className="mt-1 text-xs text-zinc-500">Pick a destination, or create a new folder.</div>
+
+                <div className="mt-4">
+                  <label className="text-xs font-semibold text-zinc-600">Destination</label>
+                  <select
+                    value={moveDestId ?? ""}
+                    onChange={(e) => setMoveDestId(e.target.value ? e.target.value : null)}
+                    className="mt-2 h-10 w-full rounded-2xl border border-zinc-200 bg-white px-3 text-sm"
+                    disabled={foldersLoading || moveWorking}
+                  >
+                    <option value="">Top level</option>
+                    {buildFolderOptions().map((opt) => (
+                      <option key={opt.id} value={opt.id}>
+                        {"\u00A0".repeat(opt.depth * 2) + opt.name}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                <div className="mt-4 rounded-2xl border border-zinc-200 bg-zinc-50 p-3">
+                  <div className="text-xs font-semibold text-zinc-700">Create a new folder here</div>
+                  <div className="mt-2 flex flex-col gap-2 sm:flex-row sm:items-center">
+                    <input
+                      value={moveCreatingName}
+                      onChange={(e) => setMoveCreatingName(e.target.value)}
+                      placeholder="Folder name"
+                      className="h-10 flex-1 rounded-2xl border border-zinc-200 bg-white px-4 text-sm"
+                      disabled={moveWorking}
+                    />
+                    <button
+                      type="button"
+                      onClick={() => void createFolderInMove()}
+                      disabled={moveWorking || !moveCreatingName.trim()}
+                      className="h-10 rounded-2xl bg-brand-ink px-4 text-sm font-semibold text-white hover:opacity-95 disabled:opacity-60"
+                    >
+                      Create
+                    </button>
+                  </div>
+                </div>
+
+                <div className="mt-4 flex items-center justify-end gap-2">
+                  <button
+                    type="button"
+                    className="h-10 rounded-2xl border border-zinc-200 bg-white px-4 text-sm font-semibold text-zinc-700 hover:bg-zinc-50"
+                    onClick={() => setMoving(null)}
+                    disabled={moveWorking}
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="button"
+                    className="h-10 rounded-2xl bg-[color:var(--color-brand-blue)] px-4 text-sm font-semibold text-white hover:opacity-95 disabled:opacity-60"
+                    onClick={() => void submitMove()}
+                    disabled={moveWorking}
+                  >
+                    Save
+                  </button>
+                </div>
               </div>
             </div>,
             document.body,
