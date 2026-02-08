@@ -58,7 +58,7 @@ export default function EmployeeLoginClient() {
     setLoading(false);
 
     if (!res || res.error) {
-      setError("Invalid email or password");
+      setError("Incorrect username or incorrect password");
       return;
     }
 

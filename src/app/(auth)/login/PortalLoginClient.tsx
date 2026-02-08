@@ -38,7 +38,7 @@ export default function PortalLoginClient() {
     setLoading(false);
 
     if (!res.ok) {
-      setError("Invalid email or password");
+      setError("Incorrect username or incorrect password");
       return;
     }
 

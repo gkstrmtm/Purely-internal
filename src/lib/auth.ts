@@ -33,6 +33,9 @@ export const authOptions: NextAuthOptions = {
         });
         if (!user || !user.active) return null;
 
+        // Employee login should never authenticate client-only accounts.
+        if (user.role === "CLIENT") return null;
+
         const ok = await verifyPassword(parsed.data.password, user.passwordHash);
         if (!ok) return null;
 

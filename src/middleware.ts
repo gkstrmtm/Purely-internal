@@ -14,6 +14,7 @@ export async function middleware(req: NextRequest) {
 
   const isPortalMarketingHome = path === "/portal" || path === "/portal/";
   const isPortalPublicAuth = path === "/portal/login" || path === "/portal/get-started";
+  const isPortalPublicApiAuth = path === "/portal/api/login" || path === "/portal/api/logout";
 
   const isPortalApp = path === "/portal/app" || path.startsWith("/portal/app/");
   const isLegacyPortalAppRoute =
@@ -46,6 +47,12 @@ export async function middleware(req: NextRequest) {
 
   // Public portal auth pages
   if (isPortalPublicAuth) {
+    return NextResponse.next();
+  }
+
+  // Portal auth API routes must remain accessible without an employee session.
+  // These endpoints manage the portal session cookie directly.
+  if (isPortalPublicApiAuth) {
     return NextResponse.next();
   }
 
