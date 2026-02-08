@@ -10,7 +10,7 @@ import { deriveInterestedServiceFromNotes } from "@/lib/leadDerived";
 
 export default async function ManagerLeadsPage() {
   const session = await getServerSession(authOptions);
-  if (!session?.user) redirect("/login");
+  if (!session?.user) redirect("/employeelogin");
 
   const role = session.user.role;
   if (role !== "MANAGER" && role !== "ADMIN") redirect("/app");

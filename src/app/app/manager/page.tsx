@@ -24,7 +24,7 @@ function pct(n: number) {
 
 export default async function ManagerHome() {
   const session = await getServerSession(authOptions);
-  if (!session?.user) redirect("/login");
+  if (!session?.user) redirect("/employeelogin");
 
   const role = session.user.role;
   if (role !== "MANAGER" && role !== "ADMIN") {

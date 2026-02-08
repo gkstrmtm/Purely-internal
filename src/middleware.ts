@@ -98,14 +98,19 @@ export async function middleware(req: NextRequest) {
 
     if (!token) {
       const login = req.nextUrl.clone();
-      login.pathname = "/login";
+      login.pathname = "/employeelogin";
       login.searchParams.set("from", req.nextUrl.pathname);
       return NextResponse.redirect(login);
     }
 
     const role = (token as unknown as { role?: string }).role;
     if (role === "CLIENT") {
-      return NextResponse.redirect(new URL("/portal/app", req.url));
+      const login = req.nextUrl.clone();
+      login.pathname = "/employeelogin";
+      login.searchParams.set("from", req.nextUrl.pathname);
+      // Force clearing the client session before signing into the employee dashboard.
+      login.searchParams.set("switch", "1");
+      return NextResponse.redirect(login);
     }
 
     return NextResponse.rewrite(url);
@@ -113,7 +118,7 @@ export async function middleware(req: NextRequest) {
 
   if (!token) {
     const url = req.nextUrl.clone();
-    url.pathname = "/login";
+    url.pathname = "/employeelogin";
     url.searchParams.set("from", req.nextUrl.pathname);
     return NextResponse.redirect(url);
   }

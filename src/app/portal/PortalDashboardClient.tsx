@@ -47,8 +47,7 @@ type DashboardWidgetId =
   | "perfAiReceptionist"
   | "perfMissedCallTextBack"
   | "perfLeadScraping"
-  | "perfReviews"
-  | "recommendedNext";
+  | "perfReviews";
 
 type DashboardPayload = {
   ok: boolean;
@@ -434,8 +433,6 @@ export function PortalDashboardClient() {
         return "Lead Scraping performance";
       case "perfReviews":
         return "Review Requests performance";
-      case "recommendedNext":
-        return "Recommended next";
       default:
         return "Widget";
     }
@@ -954,52 +951,6 @@ export function PortalDashboardClient() {
           </AccentCard>
         );
 
-      case "recommendedNext":
-        return (
-          <AccentCard title={widgetTitle(id)} widgetId={id} showHandle={editMode}>
-            <div className="text-sm text-zinc-700">Unlock deeper ROI and pipeline reporting by activating more modules.</div>
-            <div className="mt-4 grid grid-cols-1 gap-3 sm:grid-cols-2">
-              {!me.entitlements.blog ? (
-                <div className="rounded-2xl border border-zinc-200 bg-zinc-50 p-4">
-                  <div className="text-xs font-semibold text-zinc-600">Blog automation</div>
-                  <div className="mt-1 text-sm font-semibold text-brand-ink">Turn runs into SEO traffic</div>
-                  <div className="mt-3">
-                    <Link href="/portal/app/services/blogs" className="text-xs font-semibold text-brand-ink hover:underline">
-                      Explore Blog Automation
-                    </Link>
-                  </div>
-                </div>
-              ) : null}
-              {!me.entitlements.booking ? (
-                <div className="rounded-2xl border border-zinc-200 bg-zinc-50 p-4">
-                  <div className="text-xs font-semibold text-zinc-600">Booking automation</div>
-                  <div className="mt-1 text-sm font-semibold text-brand-ink">Convert leads into booked appointments</div>
-                  <div className="mt-3">
-                    <Link href="/portal/app/services/booking" className="text-xs font-semibold text-brand-ink hover:underline">
-                      Explore Booking Automation
-                    </Link>
-                  </div>
-                </div>
-              ) : null}
-              {!me.entitlements.crm ? (
-                <div className="rounded-2xl border border-zinc-200 bg-zinc-50 p-4">
-                  <div className="text-xs font-semibold text-zinc-600">CRM pipeline</div>
-                  <div className="mt-1 text-sm font-semibold text-brand-ink">Unlock pipeline + ROI reporting</div>
-                  <div className="mt-3">
-                    <Link href="/portal/app/services/follow-up" className="text-xs font-semibold text-brand-ink hover:underline">
-                      Explore CRM / Follow-up
-                    </Link>
-                  </div>
-                </div>
-              ) : null}
-            </div>
-            <div className="mt-4">
-              <Link href="/portal/app/billing" className="text-sm font-semibold text-brand-ink hover:underline">
-                Manage billing
-              </Link>
-            </div>
-          </AccentCard>
-        );
 
       default:
         return (

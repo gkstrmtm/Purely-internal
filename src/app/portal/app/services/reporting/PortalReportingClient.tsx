@@ -144,8 +144,6 @@ function serviceForWidget(widgetId: string): ServiceInfo {
       return SERVICE_INFOS.find((s) => s.key === "leadScraping")!;
     case "perfReviews":
       return SERVICE_INFOS.find((s) => s.key === "reviews")!;
-    case "recommendedNext":
-      return SERVICE_INFOS.find((s) => s.key === "billing")!;
   }
 }
 
@@ -1291,86 +1289,6 @@ export function PortalReportingClient() {
               </div>
             );
           })()}
-
-          {me?.entitlements ? (
-            <div className="relative mt-6 rounded-3xl border border-zinc-200 bg-white p-6">
-              <div className="absolute right-6 top-6">
-                <MenuButton
-                  id="recommendedNext"
-                  openId={openMenuId}
-                  setOpenId={setOpenMenuId}
-                  onAdd={() => void addWidget("recommendedNext")}
-                  addDisabled={dashboardWidgetIds.has("recommendedNext")}
-                  addLabel={dashboardWidgetIds.has("recommendedNext") ? "Already on dashboard" : "Add to dashboard"}
-                  goToHref={serviceForWidget("recommendedNext").href}
-                  goToLabel={serviceForWidget("recommendedNext").name}
-                />
-              </div>
-              <div className="flex flex-wrap items-center justify-between gap-3">
-                <div>
-                  <div className="text-sm font-semibold text-zinc-900">Recommended next</div>
-                  <div className="mt-1 text-xs text-zinc-500">Add modules to unlock deeper ROI and pipeline reporting.</div>
-                </div>
-                <Link href="/portal/app/billing" className="text-xs font-semibold text-brand-ink hover:underline">
-                  Manage billing
-                </Link>
-              </div>
-
-              <div className="mt-4 grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
-                {!me.entitlements.blog ? (
-                  <div className="rounded-2xl border border-zinc-200 bg-zinc-50 p-4">
-                    <div className="text-xs font-semibold text-zinc-600">Blog automation</div>
-                    <div className="mt-1 text-sm font-semibold text-brand-ink">Turn runs into SEO traffic</div>
-                    <div className="mt-3">
-                      <Link href="/portal/app/services/blogs" className="text-xs font-semibold text-brand-ink hover:underline">
-                        Explore Blog Automation
-                      </Link>
-                    </div>
-                  </div>
-                ) : null}
-
-                {!me.entitlements.booking ? (
-                  <div className="rounded-2xl border border-zinc-200 bg-zinc-50 p-4">
-                    <div className="text-xs font-semibold text-zinc-600">Booking automation</div>
-                    <div className="mt-1 text-sm font-semibold text-brand-ink">Convert leads into booked appointments</div>
-                    <div className="mt-3">
-                      <Link href="/portal/app/services/booking" className="text-xs font-semibold text-brand-ink hover:underline">
-                        Explore Booking Automation
-                      </Link>
-                    </div>
-                  </div>
-                ) : null}
-
-                {!me.entitlements.crm ? (
-                  <div className="rounded-2xl border border-zinc-200 bg-zinc-50 p-4">
-                    <div className="text-xs font-semibold text-zinc-600">CRM pipeline</div>
-                    <div className="mt-1 text-sm font-semibold text-brand-ink">Unlock pipeline + ROI reporting</div>
-                    <div className="mt-3">
-                      <Link href="/portal/app/services/follow-up" className="text-xs font-semibold text-brand-ink hover:underline">
-                        Explore CRM / Follow-up
-                      </Link>
-                    </div>
-                  </div>
-                ) : null}
-              </div>
-
-              {typeof me?.metrics?.hoursSavedThisWeek === "number" || typeof me?.metrics?.hoursSavedAllTime === "number" ? (
-                <div className="mt-4 rounded-2xl border border-zinc-200 bg-white p-4">
-                  <div className="text-xs font-semibold text-zinc-600">Hours saved</div>
-                  <div className="mt-2 grid grid-cols-2 gap-3">
-                    <div className="rounded-2xl border border-zinc-200 bg-zinc-50 p-3">
-                      <div className="text-[11px] font-semibold text-zinc-600">This week</div>
-                      <div className="mt-1 text-sm font-bold text-brand-ink">{Math.round(me?.metrics?.hoursSavedThisWeek ?? 0).toLocaleString()}</div>
-                    </div>
-                    <div className="rounded-2xl border border-zinc-200 bg-zinc-50 p-3">
-                      <div className="text-[11px] font-semibold text-zinc-600">All time</div>
-                      <div className="mt-1 text-sm font-bold text-brand-ink">{Math.round(me?.metrics?.hoursSavedAllTime ?? 0).toLocaleString()}</div>
-                    </div>
-                  </div>
-                </div>
-              ) : null}
-            </div>
-          ) : null}
         </>
       )}
     </div>

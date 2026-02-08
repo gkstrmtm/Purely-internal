@@ -6,7 +6,7 @@ import { prisma } from "@/lib/db";
 
 export default async function ManagerCallsPage() {
   const session = await getServerSession(authOptions);
-  if (!session?.user) redirect("/login");
+  if (!session?.user) redirect("/employeelogin");
 
   const role = session.user.role;
   if (role !== "MANAGER" && role !== "ADMIN") redirect("/app");

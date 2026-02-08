@@ -6,7 +6,7 @@ import { authOptions } from "@/lib/auth";
 
 export default async function DialerHome() {
   const session = await getServerSession(authOptions);
-  if (!session?.user) redirect("/login");
+  if (!session?.user) redirect("/employeelogin");
 
   const role = session.user.role;
   if (role !== "DIALER" && role !== "MANAGER" && role !== "ADMIN") {

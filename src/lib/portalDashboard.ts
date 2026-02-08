@@ -28,8 +28,7 @@ export type DashboardWidgetId =
   | "perfAiReceptionist"
   | "perfMissedCallTextBack"
   | "perfLeadScraping"
-  | "perfReviews"
-  | "recommendedNext";
+  | "perfReviews";
 
 export type DashboardWidget = {
   id: DashboardWidgetId;
@@ -84,7 +83,6 @@ const ALL_WIDGET_IDS: DashboardWidgetId[] = [
   "perfMissedCallTextBack",
   "perfLeadScraping",
   "perfReviews",
-  "recommendedNext",
 ];
 
 export function isDashboardWidgetId(value: unknown): value is DashboardWidgetId {
@@ -189,7 +187,7 @@ export async function addPortalDashboardWidget(ownerId: string, widgetId: Dashbo
         x: 0,
         y: 9999,
         w:
-          widgetId === "services" || widgetId === "dailyActivity" || widgetId === "recommendedNext"
+          widgetId === "services" || widgetId === "dailyActivity"
             ? 12
             : 6,
         h:
@@ -197,17 +195,15 @@ export async function addPortalDashboardWidget(ownerId: string, widgetId: Dashbo
             ? 10
             : widgetId === "dailyActivity"
               ? 12
-              : widgetId === "recommendedNext"
-                ? 10
                 : widgetId.startsWith("perf")
                   ? 10
                   : 6,
         minW:
-          widgetId === "services" || widgetId === "dailyActivity" || widgetId === "recommendedNext"
+          widgetId === "services" || widgetId === "dailyActivity"
             ? 6
             : 3,
         minH:
-          widgetId === "dailyActivity" || widgetId === "recommendedNext" || widgetId.startsWith("perf")
+          widgetId === "dailyActivity" || widgetId.startsWith("perf")
             ? 8
             : 4,
       },

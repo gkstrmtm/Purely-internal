@@ -1276,7 +1276,7 @@ export function MarketingLanding() {
                     automated blogs
                   </Link>
                   <Link
-                    href="/login"
+                    href="/employeelogin"
                     onClick={() => setMenuOpen(false)}
                     className="px-4 py-3 text-sm font-semibold text-white/95 hover:bg-white/10"
                   >
@@ -1395,7 +1395,7 @@ export function MarketingLanding() {
           <div className="mx-auto max-w-6xl px-6 pt-10">
             <div className="flex flex-col items-center justify-between gap-3 border-t border-zinc-200 pt-8 text-base font-semibold text-zinc-700 sm:flex-row">
               <div>© {new Date().getFullYear()} Purely Automation. All rights reserved.</div>
-              <Link className="underline underline-offset-4 hover:text-zinc-900" href="/login">
+              <Link className="underline underline-offset-4 hover:text-zinc-900" href="/employeelogin">
                 employee? log in here
               </Link>
             </div>
