@@ -1,4 +1,5 @@
 import { getOwnerTwilioSmsConfig } from "@/lib/portalTwilio";
+import { makeEmailThreadKey, normalizeSubjectKey, tryUpsertPortalInboxMessage } from "@/lib/portalInbox";
 
 export type LeadTemplateVars = {
   businessName: string;
@@ -45,12 +46,14 @@ export async function sendEmail({
   subject,
   text,
   fromName,
+  ownerId,
 }: {
   to: string;
   cc?: string | null;
   subject: string;
   text: string;
   fromName?: string;
+  ownerId?: string;
 }) {
   const apiKey = process.env.SENDGRID_API_KEY;
   const fromEmail = process.env.SENDGRID_FROM_EMAIL;
@@ -78,6 +81,28 @@ export async function sendEmail({
   if (!res.ok) {
     const t = await res.text().catch(() => "");
     throw new Error(`SendGrid failed (${res.status}): ${t.slice(0, 400)}`);
+  }
+
+  if (ownerId) {
+    const subjectKey = normalizeSubjectKey(subject);
+    const thread = makeEmailThreadKey(to, subjectKey);
+    if (thread) {
+      await tryUpsertPortalInboxMessage({
+        ownerId,
+        channel: "EMAIL",
+        direction: "OUT",
+        threadKey: thread.threadKey,
+        peerAddress: thread.peerAddress,
+        peerKey: thread.peerKey,
+        subject,
+        subjectKey: thread.subjectKey,
+        fromAddress: fromEmail,
+        toAddress: thread.peerKey,
+        bodyText: safeText,
+        provider: "SENDGRID",
+        providerMessageId: null,
+      });
+    }
   }
 }
 

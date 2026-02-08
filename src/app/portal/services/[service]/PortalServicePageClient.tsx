@@ -54,6 +54,7 @@ export function PortalServicePageClient({ slug }: { slug: string }) {
   const isFullDemo = (me?.user.email ?? "").toLowerCase().trim() === DEFAULT_FULL_DEMO_EMAIL;
   const unlocked =
     isFullDemo ||
+    Boolean(service?.included) ||
     (service?.entitlementKey ? Boolean(me?.entitlements?.[service.entitlementKey]) : false);
 
   if (!service) {
@@ -245,6 +246,26 @@ export function PortalServicePageClient({ slug }: { slug: string }) {
                   className="inline-flex items-center justify-center rounded-2xl border border-zinc-200 bg-white px-5 py-3 text-sm font-semibold text-brand-ink hover:bg-zinc-50"
                 >
                   Billing
+                </Link>
+              </div>
+            </div>
+          ) : slug === "inbox" ? (
+            <div className="mt-3">
+              <div className="text-sm text-zinc-600">
+                View email and SMS threads, and send messages from one inbox.
+              </div>
+              <div className="mt-5 flex flex-col gap-3 sm:flex-row">
+                <Link
+                  href="/portal/app/services/inbox"
+                  className="inline-flex items-center justify-center rounded-2xl bg-brand-ink px-5 py-3 text-sm font-semibold text-white hover:opacity-95"
+                >
+                  Open Inbox
+                </Link>
+                <Link
+                  href="/portal/app/onboarding"
+                  className="inline-flex items-center justify-center rounded-2xl border border-zinc-200 bg-white px-5 py-3 text-sm font-semibold text-brand-ink hover:bg-zinc-50"
+                >
+                  Onboarding
                 </Link>
               </div>
             </div>

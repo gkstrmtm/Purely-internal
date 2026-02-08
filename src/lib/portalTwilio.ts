@@ -1,5 +1,6 @@
 import { prisma } from "@/lib/db";
 import { normalizePhoneStrict } from "@/lib/phone";
+import { makeSmsThreadKey, tryUpsertPortalInboxMessage } from "@/lib/portalInbox";
 
 const SERVICE_SLUG = "integrations";
 
@@ -172,8 +173,39 @@ export async function sendOwnerTwilioSms(opts: {
 
   try {
     const json = JSON.parse(text) as any;
-    return { ok: true, messageSid: typeof json?.sid === "string" ? json.sid : undefined };
+    const messageSid = typeof json?.sid === "string" ? json.sid : undefined;
+    if (messageSid) {
+      const { threadKey, peerAddress, peerKey } = makeSmsThreadKey(opts.to);
+      await tryUpsertPortalInboxMessage({
+        ownerId: opts.ownerId,
+        channel: "SMS",
+        direction: "OUT",
+        threadKey,
+        peerAddress,
+        peerKey,
+        fromAddress: config.fromNumberE164,
+        toAddress: opts.to,
+        bodyText: opts.body,
+        provider: "TWILIO",
+        providerMessageId: messageSid,
+      });
+    }
+    return { ok: true, messageSid };
   } catch {
+    const { threadKey, peerAddress, peerKey } = makeSmsThreadKey(opts.to);
+    await tryUpsertPortalInboxMessage({
+      ownerId: opts.ownerId,
+      channel: "SMS",
+      direction: "OUT",
+      threadKey,
+      peerAddress,
+      peerKey,
+      fromAddress: config.fromNumberE164,
+      toAddress: opts.to,
+      bodyText: opts.body,
+      provider: "TWILIO",
+      providerMessageId: null,
+    });
     return { ok: true };
   }
 }

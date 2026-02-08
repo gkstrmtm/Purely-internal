@@ -115,6 +115,7 @@ export async function POST(req: Request) {
         subject,
         text: parsed.data.message,
         fromName,
+        ownerId,
       });
       sent.email = true;
     }

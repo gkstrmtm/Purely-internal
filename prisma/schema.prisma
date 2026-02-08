@@ -101,6 +101,9 @@ model User {
   portalLeads           PortalLead[]
 
   portalBlogGenerationEvents PortalBlogGenerationEvent[]
+
+  portalInboxThreads  PortalInboxThread[]
+  portalInboxMessages PortalInboxMessage[]
 }
 
 enum PortalLeadScrapeKind {
@@ -236,6 +239,77 @@ enum MarketingMessageStatus {
   SENT
   SKIPPED
   FAILED
+}
+
+enum PortalInboxChannel {
+  EMAIL
+  SMS
+}
+
+enum PortalInboxDirection {
+  IN
+  OUT
+}
+
+model PortalInboxThread {
+  id String @id @default(cuid())
+
+  ownerId String
+  channel PortalInboxChannel
+
+  // Stable key used for de-duping/lookup (e.g. other party + subject).
+  threadKey String
+
+  peerAddress String
+  peerKey     String
+
+  subject    String?
+  subjectKey String?
+
+  lastMessageAt        DateTime @default(now())
+  lastMessagePreview   String   @default("")
+  lastMessageDirection PortalInboxDirection @default(IN)
+  lastMessageFrom      String   @default("")
+  lastMessageTo        String   @default("")
+  lastMessageSubject   String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  owner    User               @relation(fields: [ownerId], references: [id])
+  messages PortalInboxMessage[]
+
+  @@unique([ownerId, channel, threadKey])
+  @@index([ownerId, channel, lastMessageAt])
+  @@index([ownerId, channel, peerKey])
+}
+
+model PortalInboxMessage {
+  id String @id @default(cuid())
+
+  ownerId  String
+  threadId String
+
+  channel   PortalInboxChannel
+  direction PortalInboxDirection
+
+  fromAddress String
+  toAddress   String
+
+  subject String?
+  bodyText String
+
+  provider          String?
+  providerMessageId String?
+
+  createdAt DateTime @default(now())
+
+  owner  User             @relation(fields: [ownerId], references: [id])
+  thread PortalInboxThread @relation(fields: [threadId], references: [id], onDelete: Cascade)
+
+  @@index([threadId, createdAt])
+  @@index([ownerId, channel, createdAt])
+  @@index([providerMessageId])
 }
 
 model MarketingDemoRequest {

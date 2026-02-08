@@ -4,11 +4,24 @@ export type PortalService = {
   description: string;
   highlights?: string[];
   entitlementKey?: "blog" | "booking" | "crm";
+  included?: boolean;
   accent: "blue" | "coral" | "ink";
   hidden?: boolean;
 };
 
 export const PORTAL_SERVICES: PortalService[] = [
+  {
+    slug: "inbox",
+    title: "Inbox / Outbox",
+    description: "Email + SMS threads in one place.",
+    highlights: [
+      "Email threads (Gmail-style)",
+      "SMS threads (iMessage-style)",
+      "Send messages directly from the portal",
+    ],
+    included: true,
+    accent: "blue",
+  },
   {
     slug: "blogs",
     title: "Automated Blogs",

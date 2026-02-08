@@ -85,8 +85,10 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
     return pathname === href || pathname.startsWith(href + "/");
   }
 
-  function serviceUnlocked(entitlementKey?: "blog" | "booking" | "crm") {
+  function serviceUnlocked(service: { entitlementKey?: "blog" | "booking" | "crm"; included?: boolean }) {
     if (isFullDemo) return true;
+    if (service.included) return true;
+    const entitlementKey = service.entitlementKey;
     if (!entitlementKey) return false;
     const ent = me?.entitlements;
     if (!ent) return false;
@@ -168,7 +170,7 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
                 </div>
                 <div className="mt-2 space-y-1">
                   {PORTAL_SERVICES.filter((s) => !s.hidden).map((s) => {
-                    const unlocked = serviceUnlocked(s.entitlementKey);
+                    const unlocked = serviceUnlocked(s);
                     return (
                       <Link
                         key={s.slug}
@@ -294,7 +296,7 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
               ) : null}
               <div className="mt-2 space-y-1">
                 {PORTAL_SERVICES.filter((s) => !s.hidden).map((s) => {
-                  const unlocked = serviceUnlocked(s.entitlementKey);
+                  const unlocked = serviceUnlocked(s);
                   return (
                     <Link
                       key={s.slug}

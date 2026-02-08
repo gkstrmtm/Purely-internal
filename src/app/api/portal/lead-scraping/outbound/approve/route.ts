@@ -316,6 +316,7 @@ export async function POST(req: Request) {
             subject: subject || `Follow-up: ${lead.businessName}`,
             text,
             fromName,
+            ownerId,
           });
           sentNow.email = true;
         }

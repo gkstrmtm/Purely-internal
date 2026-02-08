@@ -576,6 +576,7 @@ async function runB2BForOwner(ownerId: string, settingsJson: unknown, baseUrl: s
             subject: subject || `Follow-up: ${lead.businessName}`,
             text,
             fromName,
+            ownerId,
           });
         }
 
