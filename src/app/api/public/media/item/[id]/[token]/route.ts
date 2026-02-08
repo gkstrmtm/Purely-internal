@@ -10,11 +10,18 @@ function contentDispositionInline(fileName: string) {
   return `inline; filename="${safe}"`;
 }
 
+function contentDispositionAttachment(fileName: string) {
+  const safe = String(fileName || "file").replace(/[\r\n"]/g, "").slice(0, 200);
+  return `attachment; filename="${safe}"`;
+}
+
 export async function GET(
-  _req: Request,
+  req: Request,
   { params }: { params: Promise<{ id: string; token: string }> },
 ) {
   const { id, token } = await params;
+  const { searchParams } = new URL(req.url);
+  const shouldDownload = searchParams.get("download") === "1";
 
   const row = await (prisma as any).portalMediaItem.findFirst({
     where: { id: String(id), publicToken: String(token) },
@@ -26,7 +33,10 @@ export async function GET(
   const headers = new Headers();
   headers.set("content-type", String(row.mimeType || "application/octet-stream"));
   headers.set("content-length", String(row.fileSize || (row.bytes?.length ?? 0)));
-  headers.set("content-disposition", contentDispositionInline(row.fileName));
+  headers.set(
+    "content-disposition",
+    shouldDownload ? contentDispositionAttachment(row.fileName) : contentDispositionInline(row.fileName),
+  );
   headers.set("cache-control", "public, max-age=3600");
 
   const bytes = row.bytes as unknown as Uint8Array;

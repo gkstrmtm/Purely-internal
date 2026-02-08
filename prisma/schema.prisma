@@ -126,6 +126,9 @@ model PortalMediaFolder {
   // Public share token for folder links.
   publicToken String
 
+  // Optional display color for the folder icon in the UI.
+  color String?
+
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 

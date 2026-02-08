@@ -11,6 +11,7 @@ export const revalidate = 0;
 const patchSchema = z.object({
   name: z.string().min(1).max(120).optional(),
   parentId: z.string().min(1).optional().nullable(),
+  color: z.string().min(1).max(32).optional().nullable(),
 });
 
 function sanitizeName(raw: string) {
@@ -78,6 +79,11 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
     }
 
     data.parentId = nextParentId;
+  }
+
+  if (parsed.data.color !== undefined) {
+    const c = parsed.data.color ? String(parsed.data.color).trim().slice(0, 32) : null;
+    data.color = c;
   }
 
   if (!Object.keys(data).length) return NextResponse.json({ ok: true });

@@ -7,14 +7,15 @@ export const dynamic = "force-dynamic";
 export const revalidate = 0;
 
 function mediaItemUrls(row: { id: string; publicToken: string; mimeType: string }) {
-  const downloadUrl = `/api/public/media/item/${row.id}/${row.publicToken}`;
+  const openUrl = `/api/public/media/item/${row.id}/${row.publicToken}`;
+  const downloadUrl = `/api/public/media/item/${row.id}/${row.publicToken}?download=1`;
   const shareUrl = `/media/i/${row.id}/${row.publicToken}`;
-  const previewUrl = String(row.mimeType || "").startsWith("image/") ? downloadUrl : undefined;
-  return { downloadUrl, shareUrl, previewUrl };
+  const previewUrl = String(row.mimeType || "").startsWith("image/") ? openUrl : undefined;
+  return { openUrl, downloadUrl, shareUrl, previewUrl };
 }
 
 function folderShareUrl(row: { id: string; publicToken: string }) {
-  return `/media/f/${row.id}/${row.publicToken}`;
+  return `/api/public/media/folder/${row.id}/${row.publicToken}`;
 }
 
 export async function GET(req: Request) {
@@ -28,7 +29,7 @@ export async function GET(req: Request) {
   const folder = folderId
     ? await (prisma as any).portalMediaFolder.findFirst({
         where: { id: folderId, ownerId },
-        select: { id: true, name: true, parentId: true, tag: true, publicToken: true, createdAt: true },
+        select: { id: true, name: true, parentId: true, tag: true, publicToken: true, color: true, createdAt: true },
       })
     : null;
 
@@ -47,7 +48,7 @@ export async function GET(req: Request) {
       // eslint-disable-next-line no-await-in-loop
       const parent = await (prisma as any).portalMediaFolder.findFirst({
         where: { id: cur.parentId, ownerId },
-        select: { id: true, name: true, parentId: true, tag: true, publicToken: true, createdAt: true },
+        select: { id: true, name: true, parentId: true, tag: true, publicToken: true, color: true, createdAt: true },
       });
       if (!parent) break;
       breadcrumbs.unshift(parent);
@@ -59,7 +60,7 @@ export async function GET(req: Request) {
     (prisma as any).portalMediaFolder.findMany({
       where: { ownerId, parentId: folderId },
       orderBy: [{ nameKey: "asc" }],
-      select: { id: true, name: true, parentId: true, tag: true, publicToken: true, createdAt: true },
+      select: { id: true, name: true, parentId: true, tag: true, publicToken: true, color: true, createdAt: true },
     }),
     (prisma as any).portalMediaItem.findMany({
       where: { ownerId, folderId: folderId },
@@ -79,6 +80,7 @@ export async function GET(req: Request) {
           tag: folder.tag,
           createdAt: folder.createdAt.toISOString(),
           shareUrl: folderShareUrl(folder),
+          color: folder.color ?? null,
         }
       : null,
     breadcrumbs: breadcrumbs.map((b) => ({
@@ -88,6 +90,7 @@ export async function GET(req: Request) {
       tag: b.tag,
       createdAt: b.createdAt.toISOString(),
       shareUrl: folderShareUrl(b),
+      color: (b as any).color ?? null,
     })),
     folders: folders.map((f: any) => ({
       id: f.id,
@@ -96,6 +99,7 @@ export async function GET(req: Request) {
       tag: f.tag,
       createdAt: f.createdAt.toISOString(),
       shareUrl: folderShareUrl(f),
+      color: f.color ?? null,
     })),
     items: items.map((it: any) => ({
       id: it.id,

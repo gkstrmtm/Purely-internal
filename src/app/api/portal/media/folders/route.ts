@@ -16,7 +16,7 @@ export async function GET() {
   const rows = await (prisma as any).portalMediaFolder.findMany({
     where: { ownerId },
     orderBy: [{ nameKey: "asc" }],
-    select: { id: true, parentId: true, name: true, tag: true, createdAt: true },
+    select: { id: true, parentId: true, name: true, tag: true, color: true, createdAt: true },
     take: 5000,
   });
 
@@ -27,6 +27,7 @@ export async function GET() {
       parentId: r.parentId,
       name: r.name,
       tag: r.tag,
+      color: r.color ?? null,
       createdAt: r.createdAt.toISOString(),
     })),
   });
@@ -35,6 +36,7 @@ export async function GET() {
 const postSchema = z.object({
   parentId: z.string().min(1).optional().nullable(),
   name: z.string().min(1).max(120),
+  color: z.string().min(1).max(32).optional().nullable(),
 });
 
 export async function POST(req: Request) {
@@ -50,6 +52,7 @@ export async function POST(req: Request) {
 
   const parentId = parsed.data.parentId ? String(parsed.data.parentId) : null;
   const name = String(parsed.data.name).trim();
+  const color = parsed.data.color ? String(parsed.data.color).trim().slice(0, 32) : null;
 
   if (parentId) {
     const parent = await (prisma as any).portalMediaFolder.findFirst({ where: { id: parentId, ownerId }, select: { id: true } });
@@ -72,6 +75,7 @@ export async function POST(req: Request) {
       nameKey: normalizeNameKey(name),
       tag,
       publicToken: newPublicToken(),
+      color,
     },
     select: { id: true },
   });

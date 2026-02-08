@@ -10,6 +10,7 @@ type Folder = {
   tag: string;
   createdAt: string;
   shareUrl: string;
+  color?: string | null;
 };
 
 type Item = {
@@ -21,6 +22,7 @@ type Item = {
   tag: string;
   createdAt: string;
   previewUrl?: string;
+  openUrl?: string;
   downloadUrl: string;
   shareUrl: string;
 };
@@ -82,6 +84,15 @@ export function PortalMediaLibraryClient() {
 
   const [uploading, setUploading] = useState(false);
   const uploadRef = useRef<HTMLInputElement | null>(null);
+
+  const [toast, setToast] = useState<null | { text: string; left: number; top: number }>(null);
+  const toastTimer = useRef<number | null>(null);
+
+  useEffect(() => {
+    return () => {
+      if (toastTimer.current) window.clearTimeout(toastTimer.current);
+    };
+  }, []);
 
   const [renaming, setRenaming] = useState<null | { kind: "folder" | "item"; id: string; initial: string }>(null);
   const [renameValue, setRenameValue] = useState("");
@@ -203,6 +214,66 @@ export function PortalMediaLibraryClient() {
     } catch {
       // ignore
     }
+  }
+
+  function showToastNear(el: HTMLElement | null, text: string) {
+    if (!el) return;
+    const r = el.getBoundingClientRect();
+    const left = Math.min(window.innerWidth - 220, Math.max(12, r.left));
+    const top = Math.min(window.innerHeight - 48, Math.max(12, r.top - 42));
+    setToast({ text, left, top });
+    if (toastTimer.current) window.clearTimeout(toastTimer.current);
+    toastTimer.current = window.setTimeout(() => setToast(null), 1400);
+  }
+
+  async function copyAbsoluteUrl(urlPath: string, el?: HTMLElement | null) {
+    const absolute = urlPath.startsWith("http") ? urlPath : window.location.origin + urlPath;
+    await copy(absolute);
+    showToastNear(el ?? null, "Link copied");
+  }
+
+  function triggerDownload(urlPath: string, fileName?: string) {
+    const a = document.createElement("a");
+    a.href = urlPath.startsWith("http") ? urlPath : window.location.origin + urlPath;
+    a.download = fileName || "";
+    a.rel = "noreferrer";
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+  }
+
+  function folderColorClass(color?: string | null) {
+    switch (String(color || "").toLowerCase()) {
+      case "blue":
+        return "bg-[color:var(--color-brand-blue)]";
+      case "green":
+        return "bg-emerald-500";
+      case "amber":
+        return "bg-amber-500";
+      case "purple":
+        return "bg-violet-500";
+      case "pink":
+        return "bg-pink-500";
+      case "red":
+        return "bg-red-500";
+      default:
+        return "bg-zinc-400";
+    }
+  }
+
+  async function setFolderColor(folderIdToSet: string, color: string | null) {
+    setError(null);
+    const res = await fetch(`/api/portal/media/folders/${folderIdToSet}`, {
+      method: "PATCH",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ color }),
+    });
+    const json = (await res.json().catch(() => null)) as any;
+    if (!res.ok || (json && json.ok === false)) {
+      setError(typeof json?.error === "string" ? json.error : "Could not update folder color");
+      return;
+    }
+    await load(folderId);
   }
 
   function openDotsMenu(e: MouseEvent, kind: "folder" | "item", id: string) {
@@ -381,7 +452,7 @@ export function PortalMediaLibraryClient() {
             value={search}
             onChange={(e) => setSearch(e.target.value)}
             placeholder="Search files and tags…"
-            className="h-10 w-[240px] max-w-full rounded-2xl border border-zinc-200 bg-white px-4 text-sm"
+            className="h-10 w-[240px] max-w-full rounded-2xl border border-zinc-200 bg-white px-4 text-sm text-zinc-900 placeholder:text-zinc-500"
           />
           <input
             ref={uploadRef}
@@ -447,7 +518,7 @@ export function PortalMediaLibraryClient() {
                   value={newFolderName}
                   onChange={(e) => setNewFolderName(e.target.value)}
                   placeholder="New folder name"
-                  className="h-9 w-[220px] max-w-full rounded-2xl border border-zinc-200 bg-white px-3 text-sm"
+                  className="h-9 w-[220px] max-w-full rounded-2xl border border-zinc-200 bg-white px-3 text-sm text-zinc-900 placeholder:text-zinc-500"
                 />
                 <button
                   type="button"
@@ -483,9 +554,20 @@ export function PortalMediaLibraryClient() {
                           }}
                           className="flex w-full items-center justify-between gap-3 rounded-2xl border border-zinc-200 bg-white px-4 py-3 text-left hover:bg-zinc-50"
                         >
-                          <div className="min-w-0">
-                            <div className="truncate text-sm font-semibold text-zinc-900">{f.name}</div>
-                            <div className="mt-1 truncate font-mono text-[11px] text-zinc-500">tag: {f.tag}</div>
+                          <div className="flex min-w-0 items-center gap-3">
+                            <div className={classNames("flex h-10 w-10 items-center justify-center rounded-2xl", folderColorClass(f.color))}>
+                              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                                <path
+                                  d="M3.75 7.5C3.75 6.25736 4.75736 5.25 6 5.25H10.05C10.4478 5.25 10.8293 5.40767 11.1107 5.68934L12.1716 6.75H18C19.2426 6.75 20.25 7.75736 20.25 9V16.5C20.25 17.7426 19.2426 18.75 18 18.75H6C4.75736 18.75 3.75 17.7426 3.75 16.5V7.5Z"
+                                  stroke="white"
+                                  strokeWidth="1.8"
+                                />
+                              </svg>
+                            </div>
+                            <div className="min-w-0">
+                              <div className="truncate text-sm font-semibold text-zinc-900">{f.name}</div>
+                              <div className="mt-1 truncate font-mono text-[11px] text-zinc-500">tag: {f.tag}</div>
+                            </div>
                           </div>
                           <div className="flex shrink-0 items-center gap-2">
                             <div className="text-xs font-semibold text-zinc-600">Open</div>
@@ -525,7 +607,14 @@ export function PortalMediaLibraryClient() {
                                 <img src={it.previewUrl} alt={it.fileName} className="h-10 w-10 rounded-2xl object-cover" />
                               ) : (
                                 <div className="flex h-10 w-10 items-center justify-center rounded-2xl bg-zinc-100 text-[10px] font-semibold text-zinc-700">
-                                  FILE
+                                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                                    <path
+                                      d="M7.5 3.75H13.5L16.5 6.75V20.25H7.5V3.75Z"
+                                      stroke="#3f3f46"
+                                      strokeWidth="1.8"
+                                    />
+                                    <path d="M13.5 3.75V6.75H16.5" stroke="#3f3f46" strokeWidth="1.8" />
+                                  </svg>
                                 </div>
                               )}
                               <div className="min-w-0">
@@ -584,18 +673,39 @@ export function PortalMediaLibraryClient() {
                 <div className="mt-4 grid grid-cols-1 gap-2 sm:grid-cols-2">
                   <button
                     type="button"
-                    onClick={() => void copy(selectedItem.shareUrl)}
+                    onClick={(e) => void copyAbsoluteUrl(selectedItem.shareUrl, e.currentTarget)}
                     className="rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm font-semibold text-zinc-700 hover:bg-zinc-50"
                   >
                     Copy link
                   </button>
+                  <button
+                    type="button"
+                    onClick={() => triggerDownload(selectedItem.downloadUrl, selectedItem.fileName)}
+                    className="inline-flex items-center justify-center rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm font-semibold text-zinc-700 hover:bg-zinc-50"
+                  >
+                    Download
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => openRename("item", selectedItem.id, selectedItem.fileName)}
+                    className="rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm font-semibold text-zinc-700 hover:bg-zinc-50"
+                  >
+                    Rename
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => void openMove("item", selectedItem.id)}
+                    className="rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm font-semibold text-zinc-700 hover:bg-zinc-50"
+                  >
+                    Add to folder
+                  </button>
                   <a
-                    href={selectedItem.downloadUrl}
+                    href={selectedItem.openUrl || selectedItem.previewUrl || selectedItem.downloadUrl}
                     target="_blank"
                     rel="noreferrer"
                     className="inline-flex items-center justify-center rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm font-semibold text-zinc-700 hover:bg-zinc-50"
                   >
-                    Download
+                    Open
                   </a>
                   <button
                     type="button"
@@ -610,8 +720,62 @@ export function PortalMediaLibraryClient() {
               <div>
                 <div className="text-base font-semibold text-zinc-900">{selectedFolder.name}</div>
                 <div className="mt-1 font-mono text-xs text-zinc-500">tag: {selectedFolder.tag}</div>
-                <div className="mt-4 rounded-2xl border border-dashed border-zinc-200 bg-zinc-50 p-6 text-sm text-zinc-600">
-                  Folder preview. Select a file to see download + share actions.
+                <div className="mt-4 grid grid-cols-1 gap-2 sm:grid-cols-2">
+                  <button
+                    type="button"
+                    onClick={(e) => void copyAbsoluteUrl(selectedFolder.shareUrl, e.currentTarget)}
+                    className="rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm font-semibold text-zinc-700 hover:bg-zinc-50"
+                  >
+                    Copy folder link
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => triggerDownload(selectedFolder.shareUrl, `${selectedFolder.name}.zip`)}
+                    className="rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm font-semibold text-zinc-700 hover:bg-zinc-50"
+                  >
+                    Download zip
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => openRename("folder", selectedFolder.id, selectedFolder.name)}
+                    className="rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm font-semibold text-zinc-700 hover:bg-zinc-50"
+                  >
+                    Rename
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => void openMove("folder", selectedFolder.id)}
+                    className="rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm font-semibold text-zinc-700 hover:bg-zinc-50"
+                  >
+                    Move to folder
+                  </button>
+                </div>
+
+                <div className="mt-4 rounded-2xl border border-zinc-200 bg-zinc-50 p-4">
+                  <div className="text-xs font-semibold text-zinc-700">Folder color</div>
+                  <div className="mt-2 flex flex-wrap gap-2">
+                    {[
+                      { k: null, c: "bg-zinc-400", label: "Gray" },
+                      { k: "blue", c: "bg-[color:var(--color-brand-blue)]", label: "Blue" },
+                      { k: "green", c: "bg-emerald-500", label: "Green" },
+                      { k: "amber", c: "bg-amber-500", label: "Amber" },
+                      { k: "purple", c: "bg-violet-500", label: "Purple" },
+                      { k: "pink", c: "bg-pink-500", label: "Pink" },
+                      { k: "red", c: "bg-red-500", label: "Red" },
+                    ].map((x) => (
+                      <button
+                        key={String(x.k)}
+                        type="button"
+                        className={classNames(
+                          "h-8 w-8 rounded-2xl border",
+                          x.c,
+                          (selectedFolder.color ?? null) === x.k ? "border-zinc-900" : "border-white",
+                        )}
+                        title={x.label}
+                        onClick={() => void setFolderColor(selectedFolder.id, x.k)}
+                      />
+                    ))}
+                  </div>
                 </div>
               </div>
             ) : (
@@ -656,21 +820,32 @@ export function PortalMediaLibraryClient() {
                     <button
                       type="button"
                       className="w-full px-4 py-3 text-left text-sm font-semibold text-zinc-900 hover:bg-zinc-50"
-                      onClick={() => {
+                      onClick={(e) => {
                         setOpenMenu(null);
-                        void copy(window.location.origin + (menuTarget as Item).shareUrl);
+                        void copyAbsoluteUrl((menuTarget as Item).shareUrl, e.currentTarget);
                       }}
                     >
                       Copy link
                     </button>
+                    <button
+                      type="button"
+                      className="w-full px-4 py-3 text-left text-sm font-semibold text-zinc-900 hover:bg-zinc-50"
+                      onClick={() => {
+                        const it = menuTarget as Item;
+                        setOpenMenu(null);
+                        triggerDownload(it.downloadUrl, it.fileName);
+                      }}
+                    >
+                      Download
+                    </button>
                     <a
                       className="block w-full px-4 py-3 text-left text-sm font-semibold text-zinc-900 hover:bg-zinc-50"
-                      href={(menuTarget as Item).downloadUrl}
+                      href={(menuTarget as Item).openUrl || (menuTarget as Item).previewUrl || (menuTarget as Item).downloadUrl}
                       target="_blank"
                       rel="noreferrer"
                       onClick={() => setOpenMenu(null)}
                     >
-                      Download
+                      Open in new tab
                     </a>
                     <button
                       type="button"
@@ -706,19 +881,65 @@ export function PortalMediaLibraryClient() {
                     >
                       Move to folder
                     </button>
+                    <div className="px-4 py-2 text-[11px] font-semibold text-zinc-500">Color</div>
+                    <div className="flex flex-wrap gap-2 px-4 pb-3">
+                      {[
+                        { k: null, c: "bg-zinc-400" },
+                        { k: "blue", c: "bg-[color:var(--color-brand-blue)]" },
+                        { k: "green", c: "bg-emerald-500" },
+                        { k: "amber", c: "bg-amber-500" },
+                        { k: "purple", c: "bg-violet-500" },
+                        { k: "pink", c: "bg-pink-500" },
+                        { k: "red", c: "bg-red-500" },
+                      ].map((x) => (
+                        <button
+                          key={String(x.k)}
+                          type="button"
+                          className={classNames("h-6 w-6 rounded-xl border border-white", x.c)}
+                          onClick={() => {
+                            setOpenMenu(null);
+                            const f = menuTarget as Folder;
+                            void setFolderColor(f.id, x.k);
+                          }}
+                        />
+                      ))}
+                    </div>
                     <button
                       type="button"
                       className="w-full px-4 py-3 text-left text-sm font-semibold text-zinc-900 hover:bg-zinc-50"
-                      onClick={() => {
+                      onClick={(e) => {
                         setOpenMenu(null);
-                        void copy(window.location.origin + (menuTarget as Folder).shareUrl);
+                        void copyAbsoluteUrl((menuTarget as Folder).shareUrl, e.currentTarget);
                       }}
                     >
                       Copy folder link
                     </button>
+                    <button
+                      type="button"
+                      className="w-full px-4 py-3 text-left text-sm font-semibold text-zinc-900 hover:bg-zinc-50"
+                      onClick={() => {
+                        const f = menuTarget as Folder;
+                        setOpenMenu(null);
+                        triggerDownload(f.shareUrl, `${f.name}.zip`);
+                      }}
+                    >
+                      Download zip
+                    </button>
                   </>
                 )}
               </div>
+            </div>,
+            document.body,
+          )
+        : null}
+
+      {toast && typeof document !== "undefined"
+        ? createPortal(
+            <div
+              className="fixed z-[200] rounded-2xl bg-zinc-900 px-3 py-2 text-xs font-semibold text-white shadow-lg"
+              style={{ left: toast.left, top: toast.top }}
+            >
+              {toast.text}
             </div>,
             document.body,
           )
@@ -740,7 +961,7 @@ export function PortalMediaLibraryClient() {
                     if (e.key === "Enter") void submitRename();
                     if (e.key === "Escape") setRenaming(null);
                   }}
-                  className="mt-4 h-10 w-full rounded-2xl border border-zinc-200 bg-white px-4 text-sm"
+                  className="mt-4 h-10 w-full rounded-2xl border border-zinc-200 bg-white px-4 text-sm text-zinc-900 placeholder:text-zinc-500"
                 />
 
                 <div className="mt-4 flex items-center justify-end gap-2">
@@ -782,7 +1003,7 @@ export function PortalMediaLibraryClient() {
                   <select
                     value={moveDestId ?? ""}
                     onChange={(e) => setMoveDestId(e.target.value ? e.target.value : null)}
-                    className="mt-2 h-10 w-full rounded-2xl border border-zinc-200 bg-white px-3 text-sm"
+                    className="mt-2 h-10 w-full rounded-2xl border border-zinc-200 bg-white px-3 text-sm text-zinc-900"
                     disabled={foldersLoading || moveWorking}
                   >
                     <option value="">Top level</option>
@@ -801,7 +1022,7 @@ export function PortalMediaLibraryClient() {
                       value={moveCreatingName}
                       onChange={(e) => setMoveCreatingName(e.target.value)}
                       placeholder="Folder name"
-                      className="h-10 flex-1 rounded-2xl border border-zinc-200 bg-white px-4 text-sm"
+                      className="h-10 flex-1 rounded-2xl border border-zinc-200 bg-white px-4 text-sm text-zinc-900 placeholder:text-zinc-500"
                       disabled={moveWorking}
                     />
                     <button

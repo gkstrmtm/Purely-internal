@@ -11,10 +11,11 @@ const MAX_FILES = 20;
 const MAX_BYTES = 25 * 1024 * 1024; // 25MB per file
 
 function mediaItemUrls(row: { id: string; publicToken: string; mimeType: string }) {
-  const downloadUrl = `/api/public/media/item/${row.id}/${row.publicToken}`;
+  const openUrl = `/api/public/media/item/${row.id}/${row.publicToken}`;
+  const downloadUrl = `/api/public/media/item/${row.id}/${row.publicToken}?download=1`;
   const shareUrl = `/media/i/${row.id}/${row.publicToken}`;
-  const previewUrl = String(row.mimeType || "").startsWith("image/") ? downloadUrl : undefined;
-  return { downloadUrl, shareUrl, previewUrl };
+  const previewUrl = String(row.mimeType || "").startsWith("image/") ? openUrl : undefined;
+  return { openUrl, downloadUrl, shareUrl, previewUrl };
 }
 
 export async function GET(req: Request) {
