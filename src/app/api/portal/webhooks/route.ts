@@ -30,13 +30,6 @@ export async function GET(req: Request) {
   const aiToken = ai?.settings?.webhookToken || null;
   const missedToken = missed?.settings?.webhookToken || null;
 
-  const twilioSmsWebhookUrl = webhookUrlFromRequest(req, "/api/public/twilio/sms");
-  const twilioVoiceWebhookUrl = webhookUrlFromRequest(req, "/api/public/twilio/voice");
-
-  const sendgridInboundEmailUrl = inboxToken
-    ? webhookUrlFromRequest(req, `/api/public/inbox/${encodeURIComponent(inboxToken)}/sendgrid/inbound`)
-    : null;
-
   const inboxTwilioSmsUrlLegacy = inboxToken
     ? webhookUrlFromRequest(req, `/api/public/inbox/${encodeURIComponent(inboxToken)}/twilio/sms`)
     : null;
@@ -52,13 +45,6 @@ export async function GET(req: Request) {
   return NextResponse.json({
     ok: true,
     baseUrl: webhookBaseUrlFromRequest(req),
-    twilio: {
-      smsWebhookUrl: twilioSmsWebhookUrl,
-      voiceWebhookUrl: twilioVoiceWebhookUrl,
-    },
-    sendgrid: {
-      inboundParseUrl: sendgridInboundEmailUrl,
-    },
     legacy: {
       inboxTwilioSmsUrl: inboxTwilioSmsUrlLegacy,
       aiReceptionistVoiceUrl: aiReceptionistVoiceUrlLegacy,

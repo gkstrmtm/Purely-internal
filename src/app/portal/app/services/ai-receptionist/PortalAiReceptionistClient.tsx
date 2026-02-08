@@ -483,14 +483,14 @@ export function PortalAiReceptionistClient() {
           >
             <div className="space-y-3">
               <div className="rounded-2xl border border-zinc-200 bg-zinc-50 p-4">
-                <div className="text-xs font-semibold text-zinc-600">Webhook URL (recommended)</div>
-                <div className="mt-2 break-all font-mono text-xs text-zinc-800">{webhookUrl || "—"}</div>
+                <div className="text-xs font-semibold text-zinc-600">Webhook URL (token-based)</div>
+                <div className="mt-2 break-all font-mono text-xs text-zinc-800">{webhookUrlLegacy || "—"}</div>
                 <div className="mt-3 flex items-center justify-between gap-2">
                   <button
                     type="button"
                     className="rounded-xl border border-zinc-200 bg-white px-3 py-2 text-xs font-semibold hover:bg-zinc-50 disabled:opacity-60"
-                    disabled={!webhookUrl}
-                    onClick={async () => webhookUrl && navigator.clipboard.writeText(webhookUrl)}
+                    disabled={!webhookUrlLegacy}
+                    onClick={async () => webhookUrlLegacy && navigator.clipboard.writeText(webhookUrlLegacy)}
                   >
                     Copy
                   </button>
@@ -499,31 +499,12 @@ export function PortalAiReceptionistClient() {
                     className="rounded-xl border border-zinc-200 bg-white px-3 py-2 text-xs font-semibold hover:bg-zinc-50 disabled:opacity-60"
                     disabled={saving}
                     onClick={() => void regenerateToken()}
-                    title="Regenerates the legacy token-based webhook"
+                    title="Regenerates the token in this URL"
                   >
                     Regenerate token
                   </button>
                 </div>
               </div>
-
-              {webhookUrlLegacy ? (
-                <PortalSettingsSection
-                  title="Legacy webhook"
-                  description="Token-based URL (changes when you regenerate token)."
-                  accent="slate"
-                >
-                  <div className="break-all font-mono text-xs text-zinc-800">{webhookUrlLegacy}</div>
-                  <div className="mt-3 flex items-center justify-end">
-                    <button
-                      type="button"
-                      className="rounded-xl border border-zinc-200 bg-white px-3 py-2 text-xs font-semibold hover:bg-zinc-50"
-                      onClick={async () => navigator.clipboard.writeText(webhookUrlLegacy)}
-                    >
-                      Copy
-                    </button>
-                  </div>
-                </PortalSettingsSection>
-              ) : null}
 
               <div className="rounded-2xl border border-zinc-200 bg-white p-4">
                 <div className="text-xs font-semibold text-zinc-600">Startup checklist</div>
@@ -547,7 +528,7 @@ export function PortalAiReceptionistClient() {
 
           <div className="mt-4 rounded-2xl border border-zinc-200 bg-zinc-50 p-4">
             <div className="text-xs font-semibold text-zinc-600">Webhook URL</div>
-            <div className="mt-2 break-all font-mono text-xs text-zinc-800">{webhookUrl || "—"}</div>
+            <div className="mt-2 break-all font-mono text-xs text-zinc-800">{webhookUrlLegacy || "—"}</div>
           </div>
 
         </div>

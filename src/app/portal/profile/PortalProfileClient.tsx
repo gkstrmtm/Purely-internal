@@ -16,8 +16,6 @@ type WebhooksRes = {
   ok?: boolean;
   error?: string;
   baseUrl?: string;
-  twilio?: { smsWebhookUrl?: string; voiceWebhookUrl?: string };
-  sendgrid?: { inboundParseUrl?: string | null };
   legacy?: {
     inboxTwilioSmsUrl?: string | null;
     aiReceptionistVoiceUrl?: string | null;
@@ -375,25 +373,13 @@ export function PortalProfileClient() {
 
           <PortalSettingsSection
             title="Webhooks"
-            description="Copy/paste inbound webhook URLs (Twilio + SendGrid)."
+            description="Copy/paste inbound webhook URLs (token-based)."
             accent="blue"
           >
             <div className="space-y-3">
-              <CopyRow label="Twilio SMS webhook (recommended)" value={webhooks?.twilio?.smsWebhookUrl} />
-              <CopyRow label="Twilio Voice webhook (recommended)" value={webhooks?.twilio?.voiceWebhookUrl} />
-              <CopyRow label="SendGrid inbound parse (email inbound)" value={webhooks?.sendgrid?.inboundParseUrl ?? null} />
-
-              <PortalSettingsSection
-                title="Legacy / token-based"
-                description="Older per-service URLs that include a token. Regenerating tokens changes these URLs."
-                accent="slate"
-              >
-                <div className="space-y-3">
-                  <CopyRow label="Inbox Twilio SMS (legacy)" value={webhooks?.legacy?.inboxTwilioSmsUrl ?? null} />
-                  <CopyRow label="AI Receptionist voice (legacy)" value={webhooks?.legacy?.aiReceptionistVoiceUrl ?? null} />
-                  <CopyRow label="Missed call text back voice (legacy)" value={webhooks?.legacy?.missedCallVoiceUrl ?? null} />
-                </div>
-              </PortalSettingsSection>
+              <CopyRow label="Inbox (Twilio SMS)" value={webhooks?.legacy?.inboxTwilioSmsUrl ?? null} />
+              <CopyRow label="AI Receptionist (Twilio Voice)" value={webhooks?.legacy?.aiReceptionistVoiceUrl ?? null} />
+              <CopyRow label="Missed Call Text Back (Twilio Voice)" value={webhooks?.legacy?.missedCallVoiceUrl ?? null} />
 
               {webhooks?.baseUrl ? (
                 <div className="text-xs text-zinc-500">
