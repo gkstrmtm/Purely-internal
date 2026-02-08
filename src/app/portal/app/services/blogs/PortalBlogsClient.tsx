@@ -39,6 +39,11 @@ type AutomationSettings = {
   lastRunAt?: string | null;
 };
 
+type PostConfirm =
+  | { kind: "delete"; postId: string; title: string }
+  | { kind: "archive"; postId: string; title: string; archived: boolean }
+  | null;
+
 function sanitizeTopics(items: string[]): string[] {
   const raw = (Array.isArray(items) ? items : []).map((x) => String(x || "").trim()).filter(Boolean);
   const seen = new Set<string>();
@@ -76,7 +81,9 @@ export function PortalBlogsClient() {
   const [siteName, setSiteName] = useState("");
   const [siteSlug, setSiteSlug] = useState("");
   const [siteSaving, setSiteSaving] = useState(false);
-  const [rightTab, setRightTab] = useState<"automation" | "settings">("automation");
+  const [tab, setTab] = useState<"posts" | "automation" | "settings">("posts");
+  const [openPostMenuId, setOpenPostMenuId] = useState<string | null>(null);
+  const [confirm, setConfirm] = useState<PostConfirm>(null);
 
   const [autoEnabled, setAutoEnabled] = useState(false);
   const [autoFrequencyDays, setAutoFrequencyDays] = useState(7);
@@ -85,6 +92,9 @@ export function PortalBlogsClient() {
   const [autoSaving, setAutoSaving] = useState(false);
 
   const entitled = Boolean(me?.entitlements?.blog);
+
+  const siteHandle = useMemo(() => site?.slug ?? site?.id ?? null, [site?.id, site?.slug]);
+  const blogPagePath = siteHandle ? `/${siteHandle}/blogs` : null;
 
   const publicBlogUrl = useMemo(() => {
     const handle = site?.slug ?? site?.id;
@@ -197,8 +207,57 @@ export function PortalBlogsClient() {
   }, [refreshAll]);
 
   useEffect(() => {
-    setRightTab(site ? "automation" : "settings");
+    setTab(site ? "posts" : "settings");
   }, [site]);
+
+  useEffect(() => {
+    if (!openPostMenuId) return;
+    const onClick = () => setOpenPostMenuId(null);
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setOpenPostMenuId(null);
+    };
+    document.addEventListener("click", onClick);
+    document.addEventListener("keydown", onKey);
+    return () => {
+      document.removeEventListener("click", onClick);
+      document.removeEventListener("keydown", onKey);
+    };
+  }, [openPostMenuId]);
+
+  useEffect(() => {
+    if (!confirm) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setConfirm(null);
+    };
+    document.addEventListener("keydown", onKey);
+    return () => document.removeEventListener("keydown", onKey);
+  }, [confirm]);
+
+  async function archivePost(postId: string, archived: boolean) {
+    setError(null);
+    const res = await fetch(`/api/portal/blogs/posts/${postId}/archive`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ archived }),
+    });
+    const json = (await res.json().catch(() => ({}))) as { ok?: boolean; error?: string };
+    if (!res.ok || !json.ok) {
+      setError(json.error ?? "Unable to update archive state");
+      return;
+    }
+    await refreshAll();
+  }
+
+  async function deletePost(postId: string) {
+    setError(null);
+    const res = await fetch(`/api/portal/blogs/posts/${postId}`, { method: "DELETE" });
+    const json = (await res.json().catch(() => ({}))) as { ok?: boolean; error?: string };
+    if (!res.ok || !json.ok) {
+      setError(json.error ?? "Unable to delete post");
+      return;
+    }
+    await refreshAll();
+  }
 
   async function createSite() {
     setSiteSaving(true);
@@ -256,7 +315,7 @@ export function PortalBlogsClient() {
 
   async function newDraft() {
     if (!site) {
-      setError("Create your blog workspace first (Blog settings → Create blog workspace).");
+      setError("Create your blog workspace first (Settings → Create blog workspace).");
       return;
     }
 
@@ -357,6 +416,17 @@ export function PortalBlogsClient() {
           >
             Onboarding
           </Link>
+          <a
+            href={blogPagePath ?? undefined}
+            target="_blank"
+            rel="noreferrer"
+            className={
+              "inline-flex items-center justify-center rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm font-semibold text-brand-ink hover:bg-zinc-50 " +
+              (!blogPagePath ? "pointer-events-none opacity-60" : "")
+            }
+          >
+            Preview blogs page
+          </a>
           <button
             type="button"
             onClick={newDraft}
@@ -369,72 +439,46 @@ export function PortalBlogsClient() {
 
       {error ? <div className="mt-4 rounded-2xl border border-red-200 bg-red-50 p-4 text-sm text-red-700">{error}</div> : null}
 
-      <div className="mt-6 grid grid-cols-1 gap-4 lg:grid-cols-3">
-        <div className="rounded-3xl border border-zinc-200 bg-white p-6 lg:col-span-2">
-          <div className="text-sm font-semibold text-zinc-900">Your posts</div>
-          <div className="mt-2 text-sm text-zinc-600">
-            Edit drafts, export Markdown, and keep everything organized.
-          </div>
+      <div className="mt-6 inline-flex w-full overflow-hidden rounded-2xl border border-zinc-200 bg-white">
+        <button
+          type="button"
+          onClick={() => setTab("posts")}
+          className={
+            "flex-1 px-4 py-2 text-sm font-semibold " +
+            (tab === "posts" ? "bg-zinc-50 text-brand-ink" : "text-zinc-600 hover:bg-zinc-50")
+          }
+        >
+          Posts
+        </button>
+        <button
+          type="button"
+          onClick={() => setTab("automation")}
+          className={
+            "flex-1 border-l border-zinc-200 px-4 py-2 text-sm font-semibold " +
+            (tab === "automation" ? "bg-zinc-50 text-brand-ink" : "text-zinc-600 hover:bg-zinc-50")
+          }
+        >
+          Automation
+        </button>
+        <button
+          type="button"
+          onClick={() => setTab("settings")}
+          className={
+            "flex-1 border-l border-zinc-200 px-4 py-2 text-sm font-semibold " +
+            (tab === "settings" ? "bg-zinc-50 text-brand-ink" : "text-zinc-600 hover:bg-zinc-50")
+          }
+        >
+          Settings
+        </button>
+      </div>
 
-          <div className="mt-5 overflow-hidden rounded-2xl border border-zinc-200">
-            <table className="w-full text-left text-sm">
-              <thead className="bg-zinc-50 text-xs font-semibold text-zinc-600">
-                <tr>
-                  <th className="px-4 py-3">Title</th>
-                  <th className="px-4 py-3">Status</th>
-                  <th className="px-4 py-3">Updated</th>
-                </tr>
-              </thead>
-              <tbody>
-                {posts.length === 0 ? (
-                  <tr>
-                    <td className="px-4 py-4 text-zinc-600" colSpan={3}>
-                      No posts yet. Click “New draft” to start.
-                    </td>
-                  </tr>
-                ) : (
-                  posts.map((p) => (
-                    <tr key={p.id} className="border-t border-zinc-200">
-                      <td className="px-4 py-3">
-                        <Link
-                          href={`/portal/app/services/blogs/${p.id}`}
-                          className="font-semibold text-brand-ink hover:underline"
-                        >
-                          {p.title || "Untitled"}
-                        </Link>
-                        <div className="mt-1 truncate text-xs text-zinc-500">/{p.slug}</div>
-                      </td>
-                      <td className="px-4 py-3">
-                        <span
-                          className={
-                            "inline-flex rounded-full px-2 py-1 text-xs font-semibold " +
-                            (p.status === "PUBLISHED"
-                              ? "bg-emerald-50 text-emerald-700"
-                              : "bg-zinc-100 text-zinc-700")
-                          }
-                        >
-                          {p.status === "PUBLISHED" ? "Published" : "Draft"}
-                        </span>
-                      </td>
-                      <td className="px-4 py-3 text-zinc-600">{formatDate(p.updatedAt)}</td>
-                    </tr>
-                  ))
-                )}
-              </tbody>
-            </table>
-          </div>
-
-          <div className="mt-4 rounded-2xl border border-zinc-200 bg-zinc-50 p-4 text-xs text-zinc-600">
-            Your website publishing is up to you (WordPress, Webflow, Shopify, etc.). We’ll keep drafts exportable.
-          </div>
-        </div>
-
-        <div className="space-y-4">
-          <div className="rounded-3xl border border-zinc-200 bg-white p-6">
-            <div className="flex items-start justify-between gap-3">
+      {tab === "posts" ? (
+        <>
+          <div className="mt-6 rounded-3xl border border-zinc-200 bg-white p-6">
+            <div className="flex flex-col items-start justify-between gap-3 sm:flex-row sm:items-center">
               <div>
-                <div className="text-sm font-semibold text-zinc-900">Credits</div>
-                <div className="mt-2 text-sm text-zinc-600">Usage-based: 1 credit per generated blog post.</div>
+                <div className="text-sm font-semibold text-zinc-900">Your posts</div>
+                <div className="mt-2 text-sm text-zinc-600">Edit drafts, export Markdown, and keep everything organized.</div>
               </div>
               <Link
                 href={billingPath}
@@ -444,13 +488,13 @@ export function PortalBlogsClient() {
               </Link>
             </div>
 
-            <div className="mt-4 grid grid-cols-1 gap-3 sm:grid-cols-2">
+            <div className="mt-5 grid grid-cols-1 gap-3 sm:grid-cols-2">
               <div className="rounded-2xl border border-zinc-200 bg-zinc-50 p-4">
                 <div className="text-xs font-semibold text-zinc-600">Total credits</div>
                 <div className="mt-2 text-2xl font-bold text-brand-ink">{credits === null ? "—" : credits.toLocaleString()}</div>
               </div>
               <div className="rounded-2xl border border-zinc-200 bg-zinc-50 p-4">
-                <div className="text-xs font-semibold text-zinc-600">Credits used</div>
+                <div className="text-xs font-semibold text-zinc-600">Blog credits used</div>
                 <div className="mt-2 text-2xl font-bold text-brand-ink">
                   {blogCreditsUsed30d === null ? "—" : blogCreditsUsed30d.toLocaleString()}
                 </div>
@@ -459,268 +503,449 @@ export function PortalBlogsClient() {
                 </div>
               </div>
             </div>
+
+            <div className="mt-5 overflow-hidden rounded-2xl border border-zinc-200">
+              <table className="w-full text-left text-sm">
+                <thead className="bg-zinc-50 text-xs font-semibold text-zinc-600">
+                  <tr>
+                    <th className="px-4 py-3">Title</th>
+                    <th className="px-4 py-3">Status</th>
+                    <th className="px-4 py-3">Updated</th>
+                    <th className="px-4 py-3 text-right"></th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {posts.length === 0 ? (
+                    <tr>
+                      <td className="px-4 py-4 text-zinc-600" colSpan={4}>
+                        No posts yet. Click “New draft” to start.
+                      </td>
+                    </tr>
+                  ) : (
+                    posts.map((p) => {
+                      const livePath = siteHandle ? `/${siteHandle}/blogs/${p.slug}` : null;
+                      const canViewLive = Boolean(livePath) && p.status === "PUBLISHED" && !p.archivedAt;
+                      const statusLabel = p.archivedAt ? "Archived" : p.status === "PUBLISHED" ? "Published" : "Draft";
+                      const statusClasses = p.archivedAt
+                        ? "bg-zinc-100 text-zinc-700"
+                        : p.status === "PUBLISHED"
+                          ? "bg-emerald-50 text-emerald-700"
+                          : "bg-zinc-100 text-zinc-700";
+
+                      return (
+                        <tr key={p.id} className="border-t border-zinc-200">
+                          <td className="px-4 py-3">
+                            <Link href={`/portal/app/services/blogs/${p.id}`} className="font-semibold text-brand-ink hover:underline">
+                              {p.title || "Untitled"}
+                            </Link>
+                            <div className="mt-1 truncate text-xs text-zinc-500">/{p.slug}</div>
+                          </td>
+                          <td className="px-4 py-3">
+                            <span className={"inline-flex rounded-full px-2 py-1 text-xs font-semibold " + statusClasses}>
+                              {statusLabel}
+                            </span>
+                          </td>
+                          <td className="px-4 py-3 text-zinc-600">{formatDate(p.updatedAt)}</td>
+                          <td className="px-4 py-3">
+                            <div className="relative flex justify-end" onMouseDown={(e) => e.stopPropagation()} onTouchStart={(e) => e.stopPropagation()}>
+                              <button
+                                type="button"
+                                aria-label="Post actions"
+                                className="inline-flex h-9 w-9 items-center justify-center rounded-2xl border border-zinc-200 bg-white text-lg font-semibold text-zinc-700 hover:bg-zinc-50"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  setOpenPostMenuId((prev) => (prev === p.id ? null : p.id));
+                                }}
+                              >
+                                ⋯
+                              </button>
+
+                              {openPostMenuId === p.id ? (
+                                <div className="absolute right-0 top-10 z-20 w-56 overflow-hidden rounded-2xl border border-zinc-200 bg-white shadow-lg">
+                                  <button
+                                    type="button"
+                                    className="w-full px-4 py-3 text-left text-sm font-semibold text-brand-ink hover:bg-zinc-50"
+                                    onClick={() => {
+                                      setOpenPostMenuId(null);
+                                      window.location.href = `/portal/app/services/blogs/${p.id}`;
+                                    }}
+                                  >
+                                    Edit
+                                  </button>
+
+                                  <button
+                                    type="button"
+                                    disabled={!canViewLive}
+                                    className={
+                                      "w-full px-4 py-3 text-left text-sm font-semibold hover:bg-zinc-50 " +
+                                      (canViewLive ? "text-zinc-900" : "text-zinc-400")
+                                    }
+                                    onClick={() => {
+                                      if (!canViewLive || !livePath) return;
+                                      setOpenPostMenuId(null);
+                                      window.open(livePath, "_blank", "noopener,noreferrer");
+                                    }}
+                                  >
+                                    View live
+                                  </button>
+
+                                  <button
+                                    type="button"
+                                    className="w-full px-4 py-3 text-left text-sm font-semibold text-zinc-900 hover:bg-zinc-50"
+                                    onClick={() => {
+                                      setOpenPostMenuId(null);
+                                      setConfirm({
+                                        kind: "archive",
+                                        postId: p.id,
+                                        title: p.title || "Untitled",
+                                        archived: !Boolean(p.archivedAt),
+                                      });
+                                    }}
+                                  >
+                                    {p.archivedAt ? "Unarchive" : "Archive"}
+                                  </button>
+
+                                  <button
+                                    type="button"
+                                    className="w-full px-4 py-3 text-left text-sm font-semibold text-red-700 hover:bg-red-50"
+                                    onClick={() => {
+                                      setOpenPostMenuId(null);
+                                      setConfirm({ kind: "delete", postId: p.id, title: p.title || "Untitled" });
+                                    }}
+                                  >
+                                    Delete
+                                  </button>
+                                </div>
+                              ) : null}
+                            </div>
+                          </td>
+                        </tr>
+                      );
+                    })
+                  )}
+                </tbody>
+              </table>
+            </div>
+
+            <div className="mt-4 rounded-2xl border border-zinc-200 bg-zinc-50 p-4 text-xs text-zinc-600">
+              Your website publishing is up to you (WordPress, Webflow, Shopify, etc.). We’ll keep drafts exportable.
+            </div>
+          </div>
+        </>
+      ) : null}
+
+      {tab === "automation" ? (
+        <div className="mt-6 rounded-3xl border border-zinc-200 bg-white p-6">
+          <div className="text-sm font-semibold text-zinc-900">Automation schedule</div>
+          <div className="mt-2 text-sm text-zinc-600">Set it once, and we’ll generate posts on schedule.</div>
+
+          <div className="mt-5 space-y-4">
+            <label className="flex items-center justify-between gap-3 text-sm">
+              <span className="font-semibold text-zinc-800">Enable automation</span>
+              <input
+                type="checkbox"
+                checked={autoEnabled}
+                onChange={(e) => setAutoEnabled(e.target.checked)}
+                className="h-5 w-5"
+              />
+            </label>
+
+            <div>
+              <label className="text-xs font-semibold text-zinc-600">Frequency</label>
+              <div className="mt-1 flex items-center gap-2">
+                <input
+                  type="number"
+                  min={1}
+                  max={30}
+                  value={autoFrequencyDays}
+                  onChange={(e) => setAutoFrequencyDays(Number(e.target.value))}
+                  className="w-24 rounded-2xl border border-zinc-200 bg-white px-4 py-3 text-sm outline-none focus:border-zinc-300"
+                />
+                <div className="text-sm text-zinc-600">days per post</div>
+              </div>
+              <div className="mt-1 text-xs text-zinc-500">Example: 7 = weekly, 14 = every 2 weeks.</div>
+              {Number(autoFrequencyDays) < 7 ? (
+                <div className="mt-2 rounded-2xl border border-amber-200 bg-amber-50 p-3 text-xs text-amber-800">
+                  More often than weekly uses credits. Estimated: {creditsPerWeekEstimate} credit{creditsPerWeekEstimate === 1 ? "" : "s"} / week.
+                </div>
+              ) : null}
+            </div>
+
+            <div>
+              <label className="text-xs font-semibold text-zinc-600">Topics (optional)</label>
+              <div className="mt-1 space-y-2">
+                {autoTopics.length === 0 ? (
+                  <div className="rounded-2xl border border-zinc-200 bg-zinc-50 px-4 py-3 text-sm text-zinc-600">
+                    Add a few topics to guide what gets generated.
+                  </div>
+                ) : null}
+
+                {autoTopics.map((t, idx) => (
+                  <div key={idx} className="flex items-center gap-2">
+                    <input
+                      value={t}
+                      onChange={(e) => {
+                        const next = [...autoTopics];
+                        next[idx] = e.target.value;
+                        setAutoTopics(next);
+                      }}
+                      className="w-full rounded-2xl border border-zinc-200 bg-white px-4 py-3 text-sm outline-none focus:border-zinc-300"
+                      placeholder={idx === 0 ? "Local SEO tips" : "Another topic"}
+                    />
+                    <button
+                      type="button"
+                      className="rounded-2xl border border-zinc-200 bg-white px-3 py-3 text-sm font-semibold text-zinc-700 hover:bg-zinc-50"
+                      onClick={() => {
+                        const next = autoTopics.filter((_, i) => i !== idx);
+                        setAutoTopics(next);
+                      }}
+                      aria-label="Remove topic"
+                    >
+                      Remove
+                    </button>
+                  </div>
+                ))}
+
+                <button
+                  type="button"
+                  className="inline-flex items-center justify-center rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm font-semibold text-brand-ink hover:bg-zinc-50"
+                  onClick={() => setAutoTopics((prev) => [...prev, ""]) }
+                >
+                  + Add topic
+                </button>
+              </div>
+              <div className="mt-1 text-xs text-zinc-500">Topics in queue: {sanitizeTopics(autoTopics).length}</div>
+            </div>
+
+            <label className="flex items-center justify-between gap-3 text-sm">
+              <span className="font-semibold text-zinc-800">Auto-publish (optional)</span>
+              <input
+                type="checkbox"
+                checked={autoPublish}
+                onChange={(e) => setAutoPublish(e.target.checked)}
+                className="h-5 w-5"
+              />
+            </label>
+            <div className="text-xs text-zinc-500">
+              Auto-publish marks posts as “Published” in this portal (and backdates when catching up). If you publish elsewhere, keep this off and export.
+            </div>
+
+            <div className="flex flex-col gap-3 sm:flex-row">
+              <button
+                type="button"
+                onClick={saveAutomation}
+                disabled={autoSaving}
+                className="inline-flex w-full items-center justify-center rounded-2xl bg-[color:var(--color-brand-blue)] px-5 py-3 text-sm font-semibold text-white hover:opacity-95 disabled:opacity-60"
+              >
+                {autoSaving ? "Saving…" : "Save automation"}
+              </button>
+
+              <button
+                type="button"
+                disabled={generatingNow || !site}
+                onClick={async () => {
+                  if (!site) {
+                    setError("Create your blog workspace first (Settings → Create blog workspace).");
+                    return;
+                  }
+
+                  setGeneratingNow(true);
+                  setError(null);
+
+                  const res = await fetch("/api/portal/blogs/automation/generate-now", { method: "POST" });
+                  const json = (await res.json().catch(() => ({}))) as any;
+
+                  if (res.status === 402 && json?.code === "INSUFFICIENT_CREDITS") {
+                    setGeneratingNow(false);
+                    setError(json?.error ?? "Not enough credits.");
+                    return;
+                  }
+
+                  if (!res.ok || !json?.ok || !json?.postId) {
+                    setGeneratingNow(false);
+                    setError(json?.error ?? "Unable to generate a post right now.");
+                    return;
+                  }
+
+                  window.location.href = `/portal/app/services/blogs/${json.postId}`;
+                }}
+                className="inline-flex w-full items-center justify-center rounded-2xl border border-zinc-200 bg-white px-5 py-3 text-sm font-semibold text-brand-ink hover:bg-zinc-50 disabled:opacity-60"
+              >
+                {generatingNow ? "Generating…" : "Generate next post now"}
+              </button>
+            </div>
+
+            {automation ? (
+              <div className="rounded-2xl border border-zinc-200 bg-zinc-50 p-4 text-xs text-zinc-600">
+                <div>Last generated: {automation.lastGeneratedAt ? formatDate(automation.lastGeneratedAt) : "—"}</div>
+                <div>Next due: {automation.nextDueAt ? formatDate(automation.nextDueAt) : "—"}</div>
+                <div>Scheduler last ran: {automation.lastRunAt ? formatDate(automation.lastRunAt) : "—"}</div>
+                <div className="mt-1 text-zinc-500">Scheduler checks about hourly. If Next due is in the past, a new post should appear within ~1 hour.</div>
+              </div>
+            ) : null}
+          </div>
+        </div>
+      ) : null}
+
+      {tab === "settings" ? (
+        <div className="mt-6 rounded-3xl border border-zinc-200 bg-white p-6">
+          <div className="text-sm font-semibold text-zinc-900">Blog settings</div>
+          <div className="mt-2 text-sm text-zinc-600">Configure your hosted blog link and workspace.</div>
+
+          <div className="mt-5 grid grid-cols-1 gap-4 lg:grid-cols-2">
+            <div>
+              <label className="text-xs font-semibold text-zinc-600">Blog name</label>
+              <input
+                value={siteName}
+                onChange={(e) => setSiteName(e.target.value)}
+                onBlur={() => {
+                  if (!site) return;
+                  if (siteSaving) return;
+                  void saveSite();
+                }}
+                className="mt-1 w-full rounded-2xl border border-zinc-200 bg-white px-4 py-3 text-sm outline-none focus:border-zinc-300"
+                placeholder="My Company Blog"
+              />
+            </div>
+
+            <div>
+              <label className="text-xs font-semibold text-zinc-600">Blog URL slug</label>
+              <input
+                value={siteSlug}
+                onChange={(e) => setSiteSlug(e.target.value)}
+                onBlur={() => {
+                  if (!site) return;
+                  if (siteSaving) return;
+                  void saveSite();
+                }}
+                className="mt-1 w-full rounded-2xl border border-zinc-200 bg-white px-4 py-3 text-sm outline-none focus:border-zinc-300"
+                placeholder="home2smart"
+              />
+              <div className="mt-1 text-xs text-zinc-500">
+                Your public blog will be at {publicBlogUrlPreview ?? "…"}. Leave blank to use your business name.
+              </div>
+            </div>
           </div>
 
-          <div className="rounded-3xl border border-zinc-200 bg-white p-6">
-            <div className="text-sm font-semibold text-zinc-900">Blog automation</div>
-            <div className="mt-2 text-sm text-zinc-600">Schedule generation and manage workspace settings.</div>
-
-            <div className="mt-4 inline-flex w-full overflow-hidden rounded-2xl border border-zinc-200 bg-white">
+          <div className="mt-5">
+            <label className="text-xs font-semibold text-zinc-600">Hosted blog link</label>
+            <div className="mt-1 flex flex-col gap-3 sm:flex-row sm:items-center">
+              <div className="min-w-0 flex-1 rounded-2xl border border-zinc-200 bg-zinc-50 px-4 py-3 text-sm text-zinc-800">
+                <div className="truncate">{publicBlogUrlPreview ?? "Create your blog workspace to get a link."}</div>
+              </div>
               <button
                 type="button"
-                onClick={() => setRightTab("automation")}
+                className="inline-flex items-center justify-center rounded-2xl bg-brand-ink px-4 py-3 text-sm font-semibold text-white hover:opacity-95 disabled:opacity-60"
+                disabled={!publicBlogUrlPreview}
+                onClick={async () => {
+                  if (!publicBlogUrlPreview) return;
+                  await navigator.clipboard.writeText(publicBlogUrlPreview);
+                }}
+              >
+                Copy
+              </button>
+              <a
+                href={blogPagePath ?? undefined}
+                target="_blank"
+                rel="noreferrer"
                 className={
-                  "flex-1 px-4 py-2 text-sm font-semibold " +
-                  (rightTab === "automation" ? "bg-zinc-50 text-brand-ink" : "text-zinc-600 hover:bg-zinc-50")
+                  "inline-flex items-center justify-center rounded-2xl border border-zinc-200 bg-white px-4 py-3 text-sm font-semibold text-brand-ink hover:bg-zinc-50 " +
+                  (!blogPagePath ? "pointer-events-none opacity-60" : "")
                 }
               >
-                Automation
-              </button>
+                Preview blogs page
+              </a>
+            </div>
+            <div className="mt-1 text-xs text-zinc-500">
+              This is your public blog hosted on Purely Automation. If you also want to publish elsewhere, use “Export Markdown”.
+            </div>
+          </div>
+
+          <div className="mt-6 flex flex-col gap-3 sm:flex-row">
+            {!site ? (
               <button
                 type="button"
-                onClick={() => setRightTab("settings")}
-                className={
-                  "flex-1 border-l border-zinc-200 px-4 py-2 text-sm font-semibold " +
-                  (rightTab === "settings" ? "bg-zinc-50 text-brand-ink" : "text-zinc-600 hover:bg-zinc-50")
-                }
+                onClick={createSite}
+                disabled={siteSaving || !siteName.trim()}
+                className="inline-flex items-center justify-center rounded-2xl bg-brand-ink px-5 py-3 text-sm font-semibold text-white hover:opacity-95 disabled:opacity-60"
               >
-                Settings
+                {siteSaving ? "Creating…" : "Create blog workspace"}
               </button>
-            </div>
-
-            {rightTab === "settings" ? (
-              <div className="mt-4 space-y-3">
-              <div>
-                <label className="text-xs font-semibold text-zinc-600">Blog name</label>
-                <input
-                  value={siteName}
-                  onChange={(e) => setSiteName(e.target.value)}
-                  onBlur={() => {
-                    if (!site) return;
-                    if (siteSaving) return;
-                    void saveSite();
-                  }}
-                  className="mt-1 w-full rounded-2xl border border-zinc-200 bg-white px-4 py-3 text-sm outline-none focus:border-zinc-300"
-                  placeholder="My Company Blog"
-                />
-              </div>
-
-              <div>
-                <label className="text-xs font-semibold text-zinc-600">Blog URL slug</label>
-                <input
-                  value={siteSlug}
-                  onChange={(e) => setSiteSlug(e.target.value)}
-                  onBlur={() => {
-                    if (!site) return;
-                    if (siteSaving) return;
-                    void saveSite();
-                  }}
-                  className="mt-1 w-full rounded-2xl border border-zinc-200 bg-white px-4 py-3 text-sm outline-none focus:border-zinc-300"
-                  placeholder="home2smart"
-                />
-                <div className="mt-1 text-xs text-zinc-500">
-                  Your public blog will be at {publicBlogUrlPreview ?? "…"}. Leave blank to use your business name.
-                </div>
-              </div>
-
-              <div>
-                <label className="text-xs font-semibold text-zinc-600">Hosted blog link</label>
-                <div className="mt-1 flex flex-col gap-3 sm:flex-row sm:items-center">
-                  <div className="min-w-0 flex-1 rounded-2xl border border-zinc-200 bg-zinc-50 px-4 py-3 text-sm text-zinc-800">
-                    <div className="truncate">{publicBlogUrlPreview ?? "Create your blog workspace to get a link."}</div>
-                  </div>
-                  <button
-                    type="button"
-                    className="inline-flex items-center justify-center rounded-2xl bg-brand-ink px-4 py-3 text-sm font-semibold text-white hover:opacity-95 disabled:opacity-60"
-                    disabled={!publicBlogUrlPreview}
-                    onClick={async () => {
-                      if (!publicBlogUrlPreview) return;
-                      await navigator.clipboard.writeText(publicBlogUrlPreview);
-                    }}
-                  >
-                    Copy
-                  </button>
-                </div>
-                <div className="mt-1 text-xs text-zinc-500">
-                  This is your public blog hosted on Purely Automation. If you also want to publish elsewhere, use “Export Markdown”.
-                </div>
-              </div>
-
-              <div className="flex flex-col gap-3">
-                {!site ? (
-                  <button
-                    type="button"
-                    onClick={createSite}
-                    disabled={siteSaving || !siteName.trim()}
-                    className="inline-flex items-center justify-center rounded-2xl bg-brand-ink px-5 py-3 text-sm font-semibold text-white hover:opacity-95 disabled:opacity-60"
-                  >
-                    {siteSaving ? "Creating…" : "Create blog workspace"}
-                  </button>
-                ) : (
-                  <button
-                    type="button"
-                    onClick={saveSite}
-                    disabled={siteSaving || !siteName.trim()}
-                    className="inline-flex items-center justify-center rounded-2xl bg-brand-ink px-5 py-3 text-sm font-semibold text-white hover:opacity-95 disabled:opacity-60"
-                  >
-                    {siteSaving ? "Saving…" : "Save settings"}
-                  </button>
-                )}
-              </div>
-            </div>
             ) : (
-              <div className="mt-4 rounded-2xl border border-zinc-200 bg-zinc-50 p-4">
-                <div className="text-sm font-semibold text-zinc-900">Automation schedule</div>
-                <div className="mt-1 text-sm text-zinc-600">Set it once, and we’ll generate posts on schedule.</div>
-
-                <div className="mt-4 space-y-3">
-                  <label className="flex items-center justify-between gap-3 text-sm">
-                    <span className="font-semibold text-zinc-800">Enable automation</span>
-                    <input
-                      type="checkbox"
-                      checked={autoEnabled}
-                      onChange={(e) => setAutoEnabled(e.target.checked)}
-                      className="h-5 w-5"
-                    />
-                  </label>
-
-                  <div>
-                    <label className="text-xs font-semibold text-zinc-600">Frequency</label>
-                    <div className="mt-1 flex items-center gap-2">
-                      <input
-                        type="number"
-                        min={1}
-                        max={30}
-                        value={autoFrequencyDays}
-                        onChange={(e) => setAutoFrequencyDays(Number(e.target.value))}
-                        className="w-24 rounded-2xl border border-zinc-200 bg-white px-4 py-3 text-sm outline-none focus:border-zinc-300"
-                      />
-                      <div className="text-sm text-zinc-600">days per post</div>
-                    </div>
-                    <div className="mt-1 text-xs text-zinc-500">Example: 7 = weekly, 14 = every 2 weeks.</div>
-                    {Number(autoFrequencyDays) < 7 ? (
-                      <div className="mt-2 rounded-2xl border border-amber-200 bg-amber-50 p-3 text-xs text-amber-800">
-                        More often than weekly uses credits. Estimated: {creditsPerWeekEstimate} credit{creditsPerWeekEstimate === 1 ? "" : "s"} / week.
-                      </div>
-                    ) : null}
-                  </div>
-
-                  <div>
-                    <label className="text-xs font-semibold text-zinc-600">Topics (optional)</label>
-                    <div className="mt-1 space-y-2">
-                      {autoTopics.length === 0 ? (
-                        <div className="rounded-2xl border border-zinc-200 bg-zinc-50 px-4 py-3 text-sm text-zinc-600">
-                          Add a few topics to guide what gets generated.
-                        </div>
-                      ) : null}
-
-                      {autoTopics.map((t, idx) => (
-                        <div key={idx} className="flex items-center gap-2">
-                          <input
-                            value={t}
-                            onChange={(e) => {
-                              const next = [...autoTopics];
-                              next[idx] = e.target.value;
-                              setAutoTopics(next);
-                            }}
-                            className="w-full rounded-2xl border border-zinc-200 bg-white px-4 py-3 text-sm outline-none focus:border-zinc-300"
-                            placeholder={idx === 0 ? "Local SEO tips" : "Another topic"}
-                          />
-                          <button
-                            type="button"
-                            className="rounded-2xl border border-zinc-200 bg-white px-3 py-3 text-sm font-semibold text-zinc-700 hover:bg-zinc-50"
-                            onClick={() => {
-                              const next = autoTopics.filter((_, i) => i !== idx);
-                              setAutoTopics(next);
-                            }}
-                            aria-label="Remove topic"
-                          >
-                            Remove
-                          </button>
-                        </div>
-                      ))}
-
-                      <button
-                        type="button"
-                        className="inline-flex items-center justify-center rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm font-semibold text-brand-ink hover:bg-zinc-50"
-                        onClick={() => setAutoTopics((prev) => [...prev, ""]) }
-                      >
-                        + Add topic
-                      </button>
-                    </div>
-                    <div className="mt-1 text-xs text-zinc-500">Topics in queue: {sanitizeTopics(autoTopics).length}</div>
-                  </div>
-
-                  <label className="flex items-center justify-between gap-3 text-sm">
-                    <span className="font-semibold text-zinc-800">Auto-publish (optional)</span>
-                    <input
-                      type="checkbox"
-                      checked={autoPublish}
-                      onChange={(e) => setAutoPublish(e.target.checked)}
-                      className="h-5 w-5"
-                    />
-                  </label>
-                  <div className="text-xs text-zinc-500">
-                    Auto-publish marks posts as “Published” in this portal (and backdates when catching up). If you publish elsewhere, keep this off and export.
-                  </div>
-
-                  <button
-                    type="button"
-                    onClick={saveAutomation}
-                    disabled={autoSaving}
-                    className="mt-2 inline-flex w-full items-center justify-center rounded-2xl bg-[color:var(--color-brand-blue)] px-5 py-3 text-sm font-semibold text-white hover:opacity-95 disabled:opacity-60"
-                  >
-                    {autoSaving ? "Saving…" : "Save automation"}
-                  </button>
-
-                  <button
-                    type="button"
-                    disabled={generatingNow || !site}
-                    onClick={async () => {
-                      if (!site) {
-                        setError("Create your blog workspace first (Settings → Create blog workspace). ");
-                        return;
-                      }
-
-                      setGeneratingNow(true);
-                      setError(null);
-
-                      const res = await fetch("/api/portal/blogs/automation/generate-now", { method: "POST" });
-                      const json = (await res.json().catch(() => ({}))) as any;
-
-                      if (res.status === 402 && json?.code === "INSUFFICIENT_CREDITS") {
-                        setGeneratingNow(false);
-                        setError(json?.error ?? "Not enough credits.");
-                        return;
-                      }
-
-                      if (!res.ok || !json?.ok || !json?.postId) {
-                        setGeneratingNow(false);
-                        setError(json?.error ?? "Unable to generate a post right now.");
-                        return;
-                      }
-
-                      window.location.href = `/portal/app/services/blogs/${json.postId}`;
-                    }}
-                    className="mt-3 inline-flex w-full items-center justify-center rounded-2xl border border-zinc-200 bg-white px-5 py-3 text-sm font-semibold text-brand-ink hover:bg-zinc-50 disabled:opacity-60"
-                  >
-                    {generatingNow ? "Generating…" : "Generate next post now"}
-                  </button>
-
-                  {automation ? (
-                    <div className="mt-2 space-y-1 text-xs text-zinc-600">
-                      <div>Last generated: {automation.lastGeneratedAt ? formatDate(automation.lastGeneratedAt) : "—"}</div>
-                      <div>Next due: {automation.nextDueAt ? formatDate(automation.nextDueAt) : "—"}</div>
-                      <div>Scheduler last ran: {automation.lastRunAt ? formatDate(automation.lastRunAt) : "—"}</div>
-                      <div className="text-zinc-500">Scheduler checks about hourly. If Next due is in the past, a new post should appear within ~1 hour.</div>
-                    </div>
-                  ) : null}
-                </div>
-              </div>
+              <button
+                type="button"
+                onClick={saveSite}
+                disabled={siteSaving || !siteName.trim()}
+                className="inline-flex items-center justify-center rounded-2xl bg-brand-ink px-5 py-3 text-sm font-semibold text-white hover:opacity-95 disabled:opacity-60"
+              >
+                {siteSaving ? "Saving…" : "Save settings"}
+              </button>
             )}
           </div>
         </div>
-      </div>
+      ) : null}
+
+      {confirm ? (
+        <div
+          className="fixed inset-0 z-50 flex items-start justify-center bg-black/20 px-4 pt-8"
+          role="dialog"
+          aria-modal="true"
+          onMouseDown={() => setConfirm(null)}
+        >
+          <div
+            className="w-full max-w-lg rounded-3xl border border-zinc-200 bg-white p-5 shadow-xl"
+            onMouseDown={(e) => e.stopPropagation()}
+          >
+            <div className="text-sm font-semibold text-zinc-900">
+              {confirm.kind === "delete" ? "Delete post permanently?" : confirm.archived ? "Archive this post?" : "Unarchive this post?"}
+            </div>
+            <div className="mt-2 text-sm text-zinc-600">
+              {confirm.kind === "delete"
+                ? `This will permanently delete “${confirm.title}”.`
+                : confirm.archived
+                  ? `Archived posts won’t show up on your public blog. (${confirm.title})`
+                  : `This will restore “${confirm.title}” back to your list.`}
+            </div>
+
+            <div className="mt-4 flex flex-col gap-2 sm:flex-row sm:justify-end">
+              <button
+                type="button"
+                className="inline-flex items-center justify-center rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm font-semibold text-brand-ink hover:bg-zinc-50"
+                onClick={() => setConfirm(null)}
+              >
+                Cancel
+              </button>
+
+              {confirm.kind === "delete" ? (
+                <button
+                  type="button"
+                  className="inline-flex items-center justify-center rounded-2xl bg-red-600 px-4 py-2 text-sm font-semibold text-white hover:bg-red-700"
+                  onClick={async () => {
+                    const postId = confirm.postId;
+                    setConfirm(null);
+                    await deletePost(postId);
+                  }}
+                >
+                  Delete
+                </button>
+              ) : (
+                <button
+                  type="button"
+                  className="inline-flex items-center justify-center rounded-2xl bg-brand-ink px-4 py-2 text-sm font-semibold text-white hover:opacity-95"
+                  onClick={async () => {
+                    const postId = confirm.postId;
+                    const nextArchived = confirm.archived;
+                    setConfirm(null);
+                    await archivePost(postId, nextArchived);
+                  }}
+                >
+                  {confirm.archived ? "Archive" : "Unarchive"}
+                </button>
+              )}
+            </div>
+          </div>
+        </div>
+      ) : null}
     </div>
   );
 }

@@ -20,6 +20,36 @@ type Post = {
 
 type ConfirmKind = "publishUnsaved" | "generateOverwrite" | "delete" | "leave";
 
+function confirmTitle(kind: ConfirmKind) {
+  switch (kind) {
+    case "publishUnsaved":
+      return "You have unsaved changes";
+    case "generateOverwrite":
+      return "Generate with AI will overwrite your editor fields";
+    case "delete":
+      return "Delete this post permanently?";
+    case "leave":
+      return "Leave without saving?";
+    default:
+      return "Confirm";
+  }
+}
+
+function confirmBody(kind: ConfirmKind) {
+  switch (kind) {
+    case "publishUnsaved":
+      return "Choose whether to publish the last saved version, or save first.";
+    case "generateOverwrite":
+      return "This will overwrite title, excerpt, content, and keywords.";
+    case "delete":
+      return "This cannot be undone.";
+    case "leave":
+      return "Your changes will be lost.";
+    default:
+      return "";
+  }
+}
+
 function uiSlugify(input: string): string {
   return String(input || "")
     .trim()
@@ -156,6 +186,15 @@ export function PortalBlogPostClient({ postId }: { postId: string }) {
   const [imageUrl, setImageUrl] = useState<string | null>(null);
 
   const [confirmKind, setConfirmKind] = useState<ConfirmKind | null>(null);
+
+  useEffect(() => {
+    if (!confirmKind) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setConfirmKind(null);
+    };
+    document.addEventListener("keydown", onKey);
+    return () => document.removeEventListener("keydown", onKey);
+  }, [confirmKind]);
 
   const imagesInContent = useMemo(() => {
     const all = extractMarkdownImages(content);
@@ -302,7 +341,7 @@ export function PortalBlogPostClient({ postId }: { postId: string }) {
     await saveInternal();
   }
 
-  async function publish() {
+  async function publishInternal(opts?: { bypassUnsavedConfirm?: boolean }) {
     if (!post) return;
 
     const mdError = validateMarkdownForPublish(content);
@@ -311,7 +350,7 @@ export function PortalBlogPostClient({ postId }: { postId: string }) {
       return;
     }
 
-    if (isDirty) {
+    if (!opts?.bypassUnsavedConfirm && isDirty) {
       setConfirmKind("publishUnsaved");
       return;
     }
@@ -333,6 +372,10 @@ export function PortalBlogPostClient({ postId }: { postId: string }) {
     }
 
     await refresh();
+  }
+
+  async function publish() {
+    await publishInternal();
   }
 
   async function generateWithAi(opts?: { forceOverwrite?: boolean }) {
@@ -634,127 +677,108 @@ export function PortalBlogPostClient({ postId }: { postId: string }) {
       </div>
 
       {confirmKind ? (
-        <div className="mt-4 rounded-2xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900">
-          <div className="font-semibold">
-            {confirmKind === "publishUnsaved"
-              ? "You have unsaved changes."
-              : confirmKind === "generateOverwrite"
-                ? "Generate with AI will overwrite your editor fields."
-                : confirmKind === "delete"
-                  ? "Delete this post permanently?"
-                  : "Leave without saving?"}
-          </div>
-          <div className="mt-1 text-sm text-amber-900/80">
-            {confirmKind === "publishUnsaved"
-              ? "Choose whether to publish the last saved version or save first."
-              : confirmKind === "generateOverwrite"
-                ? "This will overwrite title, excerpt, content, and keywords."
-                : confirmKind === "delete"
-                  ? "This cannot be undone."
-                  : "Your changes will be lost."}
-          </div>
-          <div className="mt-3 flex flex-col gap-2 sm:flex-row">
-            {confirmKind === "publishUnsaved" ? (
-              <>
+        <div
+          className="fixed inset-0 z-50 flex items-start justify-center bg-black/20 px-4 pt-8"
+          role="dialog"
+          aria-modal="true"
+          onMouseDown={() => setConfirmKind(null)}
+        >
+          <div
+            className="w-full max-w-lg rounded-3xl border border-zinc-200 bg-white p-5 shadow-xl"
+            onMouseDown={(e) => e.stopPropagation()}
+          >
+            <div className="text-sm font-semibold text-zinc-900">{confirmTitle(confirmKind)}</div>
+            <div className="mt-2 text-sm text-zinc-600">{confirmBody(confirmKind)}</div>
+
+            <div className="mt-4 flex flex-col gap-2 sm:flex-row sm:justify-end">
+              {confirmKind === "publishUnsaved" ? (
+                <>
+                  <button
+                    type="button"
+                    className="inline-flex items-center justify-center rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm font-semibold text-brand-ink hover:bg-zinc-50"
+                    onClick={async () => {
+                      setConfirmKind(null);
+                      // Discard unsaved edits, then publish the server-saved version.
+                      await refresh();
+                      await publishInternal({ bypassUnsavedConfirm: true });
+                    }}
+                  >
+                    Publish last saved
+                  </button>
+                  <button
+                    type="button"
+                    className="inline-flex items-center justify-center rounded-2xl bg-[color:var(--color-brand-blue)] px-4 py-2 text-sm font-semibold text-white hover:opacity-95"
+                    onClick={async () => {
+                      setConfirmKind(null);
+                      const saved = await saveInternal();
+                      if (!saved) return;
+                      await publishInternal({ bypassUnsavedConfirm: true });
+                    }}
+                  >
+                    Save & publish
+                  </button>
+                </>
+              ) : null}
+
+              {confirmKind === "generateOverwrite" ? (
                 <button
                   type="button"
                   className="inline-flex items-center justify-center rounded-2xl bg-brand-ink px-4 py-2 text-sm font-semibold text-white hover:opacity-95"
-                  onClick={async () => {
+                  onClick={() => {
                     setConfirmKind(null);
-                    const saved = await saveInternal();
-                    if (!saved) return;
-                    await publish();
+                    void generateWithAi({ forceOverwrite: true });
                   }}
                 >
-                  Save & publish
+                  Generate now
                 </button>
+              ) : null}
+
+              {confirmKind === "delete" ? (
+                <button
+                  type="button"
+                  className="inline-flex items-center justify-center rounded-2xl bg-red-600 px-4 py-2 text-sm font-semibold text-white hover:bg-red-700"
+                  onClick={async () => {
+                    setConfirmKind(null);
+                    setWorking("delete");
+                    setError(null);
+
+                    const res = await fetch(`/api/portal/blogs/posts/${postId}`, { method: "DELETE" });
+                    const json = (await res.json().catch(() => ({}))) as { ok?: boolean; error?: string };
+                    setWorking(null);
+
+                    if (!res.ok || !json.ok) {
+                      setError(json.error ?? "Unable to delete post");
+                      return;
+                    }
+
+                    window.location.href = "/portal/app/services/blogs";
+                  }}
+                >
+                  Delete
+                </button>
+              ) : null}
+
+              {confirmKind === "leave" ? (
                 <button
                   type="button"
                   className="inline-flex items-center justify-center rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm font-semibold text-brand-ink hover:bg-zinc-50"
-                  onClick={async () => {
+                  onClick={() => {
                     setConfirmKind(null);
-                    // publish last saved
-                    setWorking("publish");
-                    setError(null);
-                    const res = await fetch(`/api/portal/blogs/posts/${postId}/publish`, {
-                      method: "POST",
-                      headers: { "content-type": "application/json" },
-                    });
-                    const json = (await res.json().catch(() => ({}))) as { ok?: boolean; error?: string };
-                    setWorking(null);
-                    if (!res.ok || !json.ok) {
-                      setError(json.error ?? "Unable to publish");
-                      return;
-                    }
-                    await refresh();
+                    window.location.href = "/portal/app/services/blogs";
                   }}
                 >
-                  Publish last saved
+                  Leave without saving
                 </button>
-              </>
-            ) : null}
+              ) : null}
 
-            {confirmKind === "generateOverwrite" ? (
-              <button
-                type="button"
-                className="inline-flex items-center justify-center rounded-2xl bg-brand-ink px-4 py-2 text-sm font-semibold text-white hover:opacity-95"
-                onClick={() => {
-                  setConfirmKind(null);
-                  void (async () => {
-                    // Re-run generation now that user confirmed.
-                    await generateWithAi({ forceOverwrite: true });
-                  })();
-                }}
-              >
-                Generate now
-              </button>
-            ) : null}
-
-            {confirmKind === "delete" ? (
-              <button
-                type="button"
-                className="inline-flex items-center justify-center rounded-2xl bg-red-600 px-4 py-2 text-sm font-semibold text-white hover:bg-red-700"
-                onClick={async () => {
-                  setConfirmKind(null);
-                  setWorking("delete");
-                  setError(null);
-
-                  const res = await fetch(`/api/portal/blogs/posts/${postId}`, { method: "DELETE" });
-                  const json = (await res.json().catch(() => ({}))) as { ok?: boolean; error?: string };
-                  setWorking(null);
-
-                  if (!res.ok || !json.ok) {
-                    setError(json.error ?? "Unable to delete post");
-                    return;
-                  }
-
-                  window.location.href = "/portal/app/services/blogs";
-                }}
-              >
-                Delete
-              </button>
-            ) : null}
-
-            {confirmKind === "leave" ? (
               <button
                 type="button"
                 className="inline-flex items-center justify-center rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm font-semibold text-brand-ink hover:bg-zinc-50"
-                onClick={() => {
-                  setConfirmKind(null);
-                  window.location.href = "/portal/app/services/blogs";
-                }}
+                onClick={() => setConfirmKind(null)}
               >
-                Leave without saving
+                Cancel
               </button>
-            ) : null}
-
-            <button
-              type="button"
-              className="inline-flex items-center justify-center rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm font-semibold text-brand-ink hover:bg-zinc-50"
-              onClick={() => setConfirmKind(null)}
-            >
-              Cancel
-            </button>
+            </div>
           </div>
         </div>
       ) : null}
