@@ -194,6 +194,7 @@ function toneClasses(tone: StatTone) {
         ring: "ring-1 ring-[color:rgba(29,78,216,0.16)]",
         pill: "bg-[color:rgba(29,78,216,0.10)] text-[color:var(--color-brand-blue)]",
         icon: "border-[color:rgba(29,78,216,0.20)] bg-[color:rgba(29,78,216,0.10)] text-[color:rgba(29,78,216,0.95)]",
+        softBg: "bg-[color:rgba(29,78,216,0.04)]",
       };
     case "pink":
       return {
@@ -201,6 +202,7 @@ function toneClasses(tone: StatTone) {
         ring: "ring-1 ring-[color:rgba(251,113,133,0.16)]",
         pill: "bg-[color:rgba(251,113,133,0.14)] text-[color:var(--color-brand-pink)]",
         icon: "border-[color:rgba(251,113,133,0.22)] bg-[color:rgba(251,113,133,0.14)] text-[color:rgba(251,113,133,0.95)]",
+        softBg: "bg-[color:rgba(251,113,133,0.05)]",
       };
     case "emerald":
       return {
@@ -208,6 +210,7 @@ function toneClasses(tone: StatTone) {
         ring: "ring-1 ring-[color:rgba(16,185,129,0.14)]",
         pill: "bg-emerald-50 text-emerald-700",
         icon: "border-emerald-200 bg-emerald-50 text-emerald-700",
+        softBg: "bg-[color:rgba(16,185,129,0.05)]",
       };
     case "violet":
       return {
@@ -215,6 +218,7 @@ function toneClasses(tone: StatTone) {
         ring: "ring-1 ring-[color:rgba(124,58,237,0.16)]",
         pill: "bg-[color:rgba(124,58,237,0.10)] text-[color:rgba(124,58,237,0.95)]",
         icon: "border-[color:rgba(124,58,237,0.20)] bg-[color:rgba(124,58,237,0.10)] text-[color:rgba(124,58,237,0.95)]",
+        softBg: "bg-[color:rgba(124,58,237,0.05)]",
       };
     case "amber":
       return {
@@ -222,6 +226,7 @@ function toneClasses(tone: StatTone) {
         ring: "ring-1 ring-[color:rgba(245,158,11,0.18)]",
         pill: "bg-[color:rgba(245,158,11,0.12)] text-[color:rgba(180,83,9,0.95)]",
         icon: "border-[color:rgba(245,158,11,0.22)] bg-[color:rgba(245,158,11,0.12)] text-[color:rgba(180,83,9,0.95)]",
+        softBg: "bg-[color:rgba(245,158,11,0.06)]",
       };
     case "slate":
       return {
@@ -229,6 +234,7 @@ function toneClasses(tone: StatTone) {
         ring: "ring-1 ring-[color:rgba(100,116,139,0.14)]",
         pill: "bg-slate-50 text-slate-700",
         icon: "border-slate-200 bg-slate-50 text-slate-700",
+        softBg: "bg-slate-50",
       };
     case "ink":
     default:
@@ -237,6 +243,7 @@ function toneClasses(tone: StatTone) {
         ring: "ring-1 ring-[color:rgba(51,65,85,0.14)]",
         pill: "bg-[color:rgba(51,65,85,0.10)] text-brand-ink",
         icon: "border-[color:rgba(51,65,85,0.16)] bg-[color:rgba(51,65,85,0.10)] text-brand-ink",
+        softBg: "bg-zinc-50",
       };
   }
 }
@@ -327,14 +334,18 @@ function ServicePerfCard({
   href,
   stats,
   menu,
+  tone,
 }: {
   title: string;
   href: string | null;
   stats: Array<{ label: string; value: string }>;
   menu?: React.ReactNode;
+  tone?: StatTone;
 }) {
+  const t = toneClasses(tone ?? "slate");
   return (
-    <div className="rounded-3xl border border-zinc-200 bg-white p-6">
+    <div className={classNames("rounded-3xl border border-zinc-200 bg-white p-6", t.ring)}>
+      <div className={classNames("mb-4 h-1.5 w-14 rounded-full", t.bar)} />
       <div className="flex items-start justify-between gap-3">
         <div className="text-sm font-semibold text-zinc-900">{title}</div>
         <div className="flex items-center gap-2">
@@ -348,8 +359,11 @@ function ServicePerfCard({
       </div>
       <div className="mt-4 grid grid-cols-2 gap-3">
         {stats.slice(0, 6).map((s) => (
-          <div key={s.label} className="rounded-2xl border border-zinc-200 bg-zinc-50 p-3">
-            <div className="text-[11px] font-semibold text-zinc-600">{s.label}</div>
+          <div key={s.label} className={classNames("rounded-2xl border border-zinc-200 p-3", t.softBg)}>
+            <div className="flex items-center justify-between gap-2">
+              <div className="text-[11px] font-semibold text-zinc-600">{s.label}</div>
+              <div className={classNames("h-2.5 w-2.5 rounded-full", t.pill)} aria-hidden="true" />
+            </div>
             <div className="mt-1 text-sm font-bold text-brand-ink">{s.value}</div>
           </div>
         ))}
@@ -1180,6 +1194,7 @@ export function PortalReportingClient() {
                 <div className="mt-3 grid grid-cols-1 gap-4 lg:grid-cols-2">
                   <ServicePerfCard
                     title="AI Receptionist"
+                    tone="blue"
                     href="/portal/app/services/ai-receptionist"
                     menu={
                       <MenuButton
@@ -1203,6 +1218,7 @@ export function PortalReportingClient() {
 
                   <ServicePerfCard
                     title="Missed-Call Text Back"
+                    tone="pink"
                     href="/portal/app/services/missed-call-textback"
                     menu={
                       <MenuButton
@@ -1226,6 +1242,7 @@ export function PortalReportingClient() {
 
                   <ServicePerfCard
                     title="Lead Scraping"
+                    tone="emerald"
                     href="/portal/app/services/lead-scraping"
                     menu={
                       <MenuButton
@@ -1249,6 +1266,7 @@ export function PortalReportingClient() {
 
                   <ServicePerfCard
                     title="Review Requests"
+                    tone="violet"
                     href="/portal/app/services/reviews"
                     menu={
                       <MenuButton
