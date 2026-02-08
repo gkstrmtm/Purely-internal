@@ -2,6 +2,8 @@
 
 import Link from "next/link";
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { createPortal } from "react-dom";
+import { PortalSettingsSection } from "@/components/PortalSettingsSection";
 
 type Me = {
   user: { email: string; name: string; role: string };
@@ -82,7 +84,7 @@ export function PortalBlogsClient() {
   const [siteSlug, setSiteSlug] = useState("");
   const [siteSaving, setSiteSaving] = useState(false);
   const [tab, setTab] = useState<"posts" | "automation" | "settings">("posts");
-  const [openPostMenuId, setOpenPostMenuId] = useState<string | null>(null);
+  const [openPostMenu, setOpenPostMenu] = useState<null | { postId: string; left: number; top: number }>(null);
   const [confirm, setConfirm] = useState<PostConfirm>(null);
 
   const [autoEnabled, setAutoEnabled] = useState(false);
@@ -95,6 +97,11 @@ export function PortalBlogsClient() {
 
   const siteHandle = useMemo(() => site?.slug ?? site?.id ?? null, [site?.id, site?.slug]);
   const blogPagePath = siteHandle ? `/${siteHandle}/blogs` : null;
+
+  const openPostMenuPost = useMemo(() => {
+    if (!openPostMenu) return null;
+    return posts.find((p) => p.id === openPostMenu.postId) ?? null;
+  }, [openPostMenu, posts]);
 
   const publicBlogUrl = useMemo(() => {
     const handle = site?.slug ?? site?.id;
@@ -211,18 +218,35 @@ export function PortalBlogsClient() {
   }, [site]);
 
   useEffect(() => {
-    if (!openPostMenuId) return;
-    const onClick = () => setOpenPostMenuId(null);
+    if (!openPostMenu) return;
+
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") setOpenPostMenuId(null);
+      if (e.key === "Escape") setOpenPostMenu(null);
     };
-    document.addEventListener("click", onClick);
-    document.addEventListener("keydown", onKey);
+
+    const onScrollOrResize = () => setOpenPostMenu(null);
+
+    window.addEventListener("keydown", onKey);
+    window.addEventListener("scroll", onScrollOrResize, true);
+    window.addEventListener("resize", onScrollOrResize);
     return () => {
-      document.removeEventListener("click", onClick);
-      document.removeEventListener("keydown", onKey);
+      window.removeEventListener("keydown", onKey);
+      window.removeEventListener("scroll", onScrollOrResize, true);
+      window.removeEventListener("resize", onScrollOrResize);
     };
-  }, [openPostMenuId]);
+  }, [openPostMenu]);
+
+  function togglePostMenu(postId: string, el: HTMLElement) {
+    setOpenPostMenu((prev) => {
+      if (prev?.postId === postId) return null;
+      const rect = el.getBoundingClientRect();
+      const menuWidth = 224; // w-56
+      const padding = 8;
+      const left = Math.max(padding, Math.min(window.innerWidth - menuWidth - padding, rect.right - menuWidth));
+      const top = Math.max(padding, rect.bottom + 8);
+      return { postId, left, top };
+    });
+  }
 
   useEffect(() => {
     if (!confirm) return;
@@ -563,69 +587,11 @@ export function PortalBlogsClient() {
                                 className="inline-flex h-9 w-9 items-center justify-center rounded-2xl border border-zinc-200 bg-white text-lg font-semibold text-zinc-700 hover:bg-zinc-50"
                                 onClick={(e) => {
                                   e.stopPropagation();
-                                  setOpenPostMenuId((prev) => (prev === p.id ? null : p.id));
+                                  togglePostMenu(p.id, e.currentTarget);
                                 }}
                               >
                                 ⋯
                               </button>
-
-                              {openPostMenuId === p.id ? (
-                                <div className="absolute right-0 top-10 z-20 w-56 overflow-hidden rounded-2xl border border-zinc-200 bg-white shadow-lg">
-                                  <button
-                                    type="button"
-                                    className="w-full px-4 py-3 text-left text-sm font-semibold text-brand-ink hover:bg-zinc-50"
-                                    onClick={() => {
-                                      setOpenPostMenuId(null);
-                                      window.location.href = `/portal/app/services/blogs/${p.id}`;
-                                    }}
-                                  >
-                                    Edit
-                                  </button>
-
-                                  <button
-                                    type="button"
-                                    disabled={!canViewLive}
-                                    className={
-                                      "w-full px-4 py-3 text-left text-sm font-semibold hover:bg-zinc-50 " +
-                                      (canViewLive ? "text-zinc-900" : "text-zinc-400")
-                                    }
-                                    onClick={() => {
-                                      if (!canViewLive || !livePath) return;
-                                      setOpenPostMenuId(null);
-                                      window.open(livePath, "_blank", "noopener,noreferrer");
-                                    }}
-                                  >
-                                    View live
-                                  </button>
-
-                                  <button
-                                    type="button"
-                                    className="w-full px-4 py-3 text-left text-sm font-semibold text-zinc-900 hover:bg-zinc-50"
-                                    onClick={() => {
-                                      setOpenPostMenuId(null);
-                                      setConfirm({
-                                        kind: "archive",
-                                        postId: p.id,
-                                        title: p.title || "Untitled",
-                                        archived: !Boolean(p.archivedAt),
-                                      });
-                                    }}
-                                  >
-                                    {p.archivedAt ? "Unarchive" : "Archive"}
-                                  </button>
-
-                                  <button
-                                    type="button"
-                                    className="w-full px-4 py-3 text-left text-sm font-semibold text-red-700 hover:bg-red-50"
-                                    onClick={() => {
-                                      setOpenPostMenuId(null);
-                                      setConfirm({ kind: "delete", postId: p.id, title: p.title || "Untitled" });
-                                    }}
-                                  >
-                                    Delete
-                                  </button>
-                                </div>
-                              ) : null}
                             </div>
                           </td>
                         </tr>
@@ -797,100 +763,104 @@ export function PortalBlogsClient() {
       ) : null}
 
       {tab === "settings" ? (
-        <div className="mt-6 rounded-3xl border border-zinc-200 bg-white p-6 shadow-sm">
-          <div className="text-sm font-semibold text-zinc-900">Blog settings</div>
-          <div className="mt-2 text-sm text-zinc-600">Configure your hosted blog link and workspace.</div>
+        <div className="mt-6">
+          <PortalSettingsSection
+            title="Blog settings"
+            description="Configure your hosted blog link and workspace."
+            accent="slate"
+            defaultOpen={false}
+          >
+            <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
+              <div>
+                <label className="text-xs font-semibold text-zinc-600">Blog name</label>
+                <input
+                  value={siteName}
+                  onChange={(e) => setSiteName(e.target.value)}
+                  onBlur={() => {
+                    if (!site) return;
+                    if (siteSaving) return;
+                    void saveSite();
+                  }}
+                  className="mt-1 w-full rounded-2xl border border-zinc-200 bg-white px-4 py-3 text-sm outline-none focus:border-zinc-300"
+                  placeholder="My Company Blog"
+                />
+              </div>
 
-          <div className="mt-5 grid grid-cols-1 gap-4 lg:grid-cols-2">
-            <div>
-              <label className="text-xs font-semibold text-zinc-600">Blog name</label>
-              <input
-                value={siteName}
-                onChange={(e) => setSiteName(e.target.value)}
-                onBlur={() => {
-                  if (!site) return;
-                  if (siteSaving) return;
-                  void saveSite();
-                }}
-                className="mt-1 w-full rounded-2xl border border-zinc-200 bg-white px-4 py-3 text-sm outline-none focus:border-zinc-300"
-                placeholder="My Company Blog"
-              />
+              <div>
+                <label className="text-xs font-semibold text-zinc-600">Blog URL slug</label>
+                <input
+                  value={siteSlug}
+                  onChange={(e) => setSiteSlug(e.target.value)}
+                  onBlur={() => {
+                    if (!site) return;
+                    if (siteSaving) return;
+                    void saveSite();
+                  }}
+                  className="mt-1 w-full rounded-2xl border border-zinc-200 bg-white px-4 py-3 text-sm outline-none focus:border-zinc-300"
+                  placeholder="home2smart"
+                />
+                <div className="mt-1 text-xs text-zinc-500">
+                  Your public blog will be at {publicBlogUrlPreview ?? "…"}. Leave blank to use your business name.
+                </div>
+              </div>
             </div>
 
-            <div>
-              <label className="text-xs font-semibold text-zinc-600">Blog URL slug</label>
-              <input
-                value={siteSlug}
-                onChange={(e) => setSiteSlug(e.target.value)}
-                onBlur={() => {
-                  if (!site) return;
-                  if (siteSaving) return;
-                  void saveSite();
-                }}
-                className="mt-1 w-full rounded-2xl border border-zinc-200 bg-white px-4 py-3 text-sm outline-none focus:border-zinc-300"
-                placeholder="home2smart"
-              />
+            <div className="mt-5">
+              <label className="text-xs font-semibold text-zinc-600">Hosted blog link</label>
+              <div className="mt-1 flex flex-col gap-3 sm:flex-row sm:items-center">
+                <div className="min-w-0 flex-1 rounded-2xl border border-zinc-200 bg-zinc-50 px-4 py-3 text-sm text-zinc-800">
+                  <div className="truncate">{publicBlogUrlPreview ?? "Create your blog workspace to get a link."}</div>
+                </div>
+                <button
+                  type="button"
+                  className="inline-flex items-center justify-center rounded-2xl bg-brand-ink px-4 py-3 text-sm font-semibold text-white hover:opacity-95 disabled:opacity-60"
+                  disabled={!publicBlogUrlPreview}
+                  onClick={async () => {
+                    if (!publicBlogUrlPreview) return;
+                    await navigator.clipboard.writeText(publicBlogUrlPreview);
+                  }}
+                >
+                  Copy
+                </button>
+                <a
+                  href={blogPagePath ?? undefined}
+                  target="_blank"
+                  rel="noreferrer"
+                  className={
+                    "inline-flex items-center justify-center rounded-2xl border border-zinc-200 bg-white px-4 py-3 text-sm font-semibold text-brand-ink hover:bg-zinc-50 " +
+                    (!blogPagePath ? "pointer-events-none opacity-60" : "")
+                  }
+                >
+                  Preview blogs page
+                </a>
+              </div>
               <div className="mt-1 text-xs text-zinc-500">
-                Your public blog will be at {publicBlogUrlPreview ?? "…"}. Leave blank to use your business name.
+                This is your public blog hosted on Purely Automation. If you also want to publish elsewhere, use “Export Markdown”.
               </div>
             </div>
-          </div>
 
-          <div className="mt-5">
-            <label className="text-xs font-semibold text-zinc-600">Hosted blog link</label>
-            <div className="mt-1 flex flex-col gap-3 sm:flex-row sm:items-center">
-              <div className="min-w-0 flex-1 rounded-2xl border border-zinc-200 bg-zinc-50 px-4 py-3 text-sm text-zinc-800">
-                <div className="truncate">{publicBlogUrlPreview ?? "Create your blog workspace to get a link."}</div>
-              </div>
-              <button
-                type="button"
-                className="inline-flex items-center justify-center rounded-2xl bg-brand-ink px-4 py-3 text-sm font-semibold text-white hover:opacity-95 disabled:opacity-60"
-                disabled={!publicBlogUrlPreview}
-                onClick={async () => {
-                  if (!publicBlogUrlPreview) return;
-                  await navigator.clipboard.writeText(publicBlogUrlPreview);
-                }}
-              >
-                Copy
-              </button>
-              <a
-                href={blogPagePath ?? undefined}
-                target="_blank"
-                rel="noreferrer"
-                className={
-                  "inline-flex items-center justify-center rounded-2xl border border-zinc-200 bg-white px-4 py-3 text-sm font-semibold text-brand-ink hover:bg-zinc-50 " +
-                  (!blogPagePath ? "pointer-events-none opacity-60" : "")
-                }
-              >
-                Preview blogs page
-              </a>
+            <div className="mt-6 flex flex-col gap-3 sm:flex-row">
+              {!site ? (
+                <button
+                  type="button"
+                  onClick={createSite}
+                  disabled={siteSaving || !siteName.trim()}
+                  className="inline-flex items-center justify-center rounded-2xl bg-brand-ink px-5 py-3 text-sm font-semibold text-white hover:opacity-95 disabled:opacity-60"
+                >
+                  {siteSaving ? "Creating…" : "Create blog workspace"}
+                </button>
+              ) : (
+                <button
+                  type="button"
+                  onClick={saveSite}
+                  disabled={siteSaving || !siteName.trim()}
+                  className="inline-flex items-center justify-center rounded-2xl bg-brand-ink px-5 py-3 text-sm font-semibold text-white hover:opacity-95 disabled:opacity-60"
+                >
+                  {siteSaving ? "Saving…" : "Save settings"}
+                </button>
+              )}
             </div>
-            <div className="mt-1 text-xs text-zinc-500">
-              This is your public blog hosted on Purely Automation. If you also want to publish elsewhere, use “Export Markdown”.
-            </div>
-          </div>
-
-          <div className="mt-6 flex flex-col gap-3 sm:flex-row">
-            {!site ? (
-              <button
-                type="button"
-                onClick={createSite}
-                disabled={siteSaving || !siteName.trim()}
-                className="inline-flex items-center justify-center rounded-2xl bg-brand-ink px-5 py-3 text-sm font-semibold text-white hover:opacity-95 disabled:opacity-60"
-              >
-                {siteSaving ? "Creating…" : "Create blog workspace"}
-              </button>
-            ) : (
-              <button
-                type="button"
-                onClick={saveSite}
-                disabled={siteSaving || !siteName.trim()}
-                className="inline-flex items-center justify-center rounded-2xl bg-brand-ink px-5 py-3 text-sm font-semibold text-white hover:opacity-95 disabled:opacity-60"
-              >
-                {siteSaving ? "Saving…" : "Save settings"}
-              </button>
-            )}
-          </div>
+          </PortalSettingsSection>
         </div>
       ) : null}
 
@@ -955,6 +925,85 @@ export function PortalBlogsClient() {
           </div>
         </div>
       ) : null}
+
+      {openPostMenu && openPostMenuPost && typeof document !== "undefined"
+        ? createPortal(
+            <div className="fixed inset-0 z-50" aria-hidden>
+              <div className="absolute inset-0" onMouseDown={() => setOpenPostMenu(null)} onTouchStart={() => setOpenPostMenu(null)} />
+              <div
+                className="fixed z-[60] w-56 overflow-hidden rounded-2xl border border-zinc-200 bg-white shadow-lg"
+                style={{ left: openPostMenu.left, top: openPostMenu.top }}
+                onMouseDown={(e) => e.stopPropagation()}
+                onTouchStart={(e) => e.stopPropagation()}
+              >
+                {(() => {
+                  const p = openPostMenuPost;
+                  const livePath = siteHandle ? `/${siteHandle}/blogs/${p.slug}` : null;
+                  const canViewLive = Boolean(livePath) && p.status === "PUBLISHED" && !p.archivedAt;
+
+                  return (
+                    <>
+                      <button
+                        type="button"
+                        className="w-full px-4 py-3 text-left text-sm font-semibold text-brand-ink hover:bg-zinc-50"
+                        onClick={() => {
+                          setOpenPostMenu(null);
+                          window.location.href = `/portal/app/services/blogs/${p.id}`;
+                        }}
+                      >
+                        Edit
+                      </button>
+
+                      <button
+                        type="button"
+                        disabled={!canViewLive}
+                        className={
+                          "w-full px-4 py-3 text-left text-sm font-semibold hover:bg-zinc-50 " +
+                          (canViewLive ? "text-zinc-900" : "text-zinc-400")
+                        }
+                        onClick={() => {
+                          if (!canViewLive || !livePath) return;
+                          setOpenPostMenu(null);
+                          window.open(livePath, "_blank", "noopener,noreferrer");
+                        }}
+                      >
+                        View live
+                      </button>
+
+                      <button
+                        type="button"
+                        className="w-full px-4 py-3 text-left text-sm font-semibold text-zinc-900 hover:bg-zinc-50"
+                        onClick={() => {
+                          setOpenPostMenu(null);
+                          setConfirm({
+                            kind: "archive",
+                            postId: p.id,
+                            title: p.title || "Untitled",
+                            archived: !Boolean(p.archivedAt),
+                          });
+                        }}
+                      >
+                        {p.archivedAt ? "Unarchive" : "Archive"}
+                      </button>
+
+                      <button
+                        type="button"
+                        className="w-full px-4 py-3 text-left text-sm font-semibold text-red-700 hover:bg-red-50"
+                        onClick={() => {
+                          setOpenPostMenu(null);
+                          setConfirm({ kind: "delete", postId: p.id, title: p.title || "Untitled" });
+                        }}
+                      >
+                        Delete
+                      </button>
+                    </>
+                  );
+                })()}
+              </div>
+            </div>,
+            document.body,
+          )
+        : null}
     </div>
   );
 }

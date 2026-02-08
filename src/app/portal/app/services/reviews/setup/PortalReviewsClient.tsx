@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Lightbox, type LightboxImage } from "@/components/Lightbox";
+import { PortalSettingsSection } from "@/components/PortalSettingsSection";
 
 type ReviewDelayUnit = "minutes" | "hours" | "days" | "weeks";
 
@@ -653,9 +654,13 @@ export default function PortalReviewsClient() {
       ) : null}
 
       <div className="mt-6 grid grid-cols-1 gap-6 lg:grid-cols-2">
-        <div className="rounded-2xl border border-zinc-200 bg-white p-5">
-          <div className="flex items-center justify-between gap-3">
-            <div className="text-lg font-semibold">Settings</div>
+        <PortalSettingsSection
+          title="Settings"
+          description="Automation, public reviews page, message template, and destinations."
+          accent="slate"
+          defaultOpen={false}
+        >
+          <div className="flex items-center justify-end gap-3">
             <div className="inline-flex overflow-hidden rounded-2xl border border-zinc-200 bg-white">
               <button
                 type="button"
@@ -1323,11 +1328,14 @@ export default function PortalReviewsClient() {
             </button>
             {saving ? <div className="text-xs text-neutral-500">Please wait…</div> : null}
           </div>
-        </div>
+        </PortalSettingsSection>
 
-        <div className="rounded-2xl border border-zinc-200 bg-white p-5">
-          <div className="text-lg font-semibold">Manual send</div>
-          <div className="mt-1 text-sm text-neutral-600">Send a one-off review request for a specific booking.</div>
+        <PortalSettingsSection
+          title="Manual send"
+          description="Send a one-off review request for a specific booking, and review recent activity."
+          accent="slate"
+          defaultOpen={false}
+        >
 
           {!settings.automation.manualSend ? (
             <div className="mt-3 rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
@@ -1726,7 +1734,7 @@ export default function PortalReviewsClient() {
               ))}
             </div>
           </div>
-        </div>
+        </PortalSettingsSection>
       </div>
     </div>
   );

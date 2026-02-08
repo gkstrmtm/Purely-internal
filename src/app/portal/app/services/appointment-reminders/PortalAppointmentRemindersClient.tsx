@@ -3,6 +3,8 @@
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 
+import { PortalSettingsSection } from "@/components/PortalSettingsSection";
+
 type Me = {
   user: { email: string; name: string; role: string };
   entitlements: { blog: boolean; booking: boolean; crm: boolean };
@@ -325,12 +327,14 @@ export function PortalAppointmentRemindersClient() {
       ) : null}
 
       <div className="mt-6 grid grid-cols-1 gap-4 lg:grid-cols-3">
-        <div className="rounded-3xl border border-zinc-200 bg-white p-6 lg:col-span-2">
+        <div className="lg:col-span-2">
+          <PortalSettingsSection
+            title="Setup"
+            description="Add one or more reminder steps with different lead times."
+            accent="slate"
+            defaultOpen={false}
+          >
           <div className="flex items-start justify-between gap-3">
-            <div>
-              <div className="text-sm font-semibold text-zinc-900">Setup</div>
-              <div className="mt-2 text-sm text-zinc-600">Add one or more reminder steps with different lead times.</div>
-            </div>
 
             <div className="inline-flex overflow-hidden rounded-2xl border border-zinc-200">
               <button
@@ -396,7 +400,15 @@ export function PortalAppointmentRemindersClient() {
             <div className="mt-2 text-xs text-zinc-600">
               {twilio?.configured
                 ? `From: ${twilio.fromNumberE164 ?? ""}`
-                : "Add your Twilio credentials (Services → Missed-Call Text Back) to enable SMS reminders."}
+                : (
+                    <>
+                      Add your Twilio credentials in{" "}
+                      <Link href="/portal/app/profile" className="font-semibold text-brand-ink underline hover:no-underline">
+                        Profile
+                      </Link>
+                      {" "}→ Twilio to enable SMS reminders.
+                    </>
+                  )}
             </div>
           </div>
 
@@ -526,11 +538,15 @@ export function PortalAppointmentRemindersClient() {
           ) : (
             <div className="mt-4 text-sm text-zinc-500">Loading reminders…</div>
           )}
+          </PortalSettingsSection>
         </div>
 
-        <div className="rounded-3xl border border-zinc-200 bg-white p-6">
-          <div className="text-sm font-semibold text-zinc-900">Activity</div>
-          <div className="mt-2 text-sm text-zinc-600">Reminders sent (or skipped) show here.</div>
+        <PortalSettingsSection
+          title="Activity"
+          description="Reminders sent (or skipped) show here."
+          accent="slate"
+          defaultOpen={false}
+        >
 
           <div className="mt-4 space-y-2">
             {filteredEvents.length === 0 ? (
@@ -570,7 +586,7 @@ export function PortalAppointmentRemindersClient() {
               Refresh
             </button>
           </div>
-        </div>
+        </PortalSettingsSection>
       </div>
 
       <div className="mt-4 text-xs text-zinc-500">

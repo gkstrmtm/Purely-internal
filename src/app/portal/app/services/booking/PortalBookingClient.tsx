@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 
 import { PortalFollowUpClient } from "@/app/portal/app/services/follow-up/PortalFollowUpClient";
+import { PortalSettingsSection } from "@/components/PortalSettingsSection";
 
 type BookingFormConfig = {
   version: 1;
@@ -1180,7 +1181,15 @@ export function PortalBookingClient() {
               <div className="mt-2 text-xs text-zinc-600">
                 {reminderTwilio?.configured
                   ? `From: ${reminderTwilio.fromNumberE164 ?? ""}`
-                  : "Add your Twilio credentials (Services → Missed Call Text Back) to enable SMS reminders."}
+                  : (
+                      <>
+                        Add your Twilio credentials in{" "}
+                        <Link href="/portal/app/profile" className="font-semibold text-brand-ink underline hover:no-underline">
+                          Profile
+                        </Link>
+                        {" "}→ Twilio to enable SMS reminders.
+                      </>
+                    )}
               </div>
             </div>
 
@@ -1387,11 +1396,13 @@ export function PortalBookingClient() {
       {topTab === "settings" ? (
         <>
           <div className="mt-6 grid grid-cols-1 gap-4 lg:grid-cols-3">
-        <div className="rounded-3xl border border-zinc-200 bg-white p-6 lg:col-span-2">
-          <div className="text-sm font-semibold text-zinc-900">Booking link</div>
-          <div className="mt-2 text-sm text-zinc-600">
-            Share this link anywhere. Only times you mark as available will show.
-          </div>
+        <div className="lg:col-span-2">
+          <PortalSettingsSection
+            title="Booking link"
+            description="Share this link anywhere. Only times you mark as available will show."
+            accent="slate"
+            defaultOpen={false}
+          >
 
           <div className="mt-4 flex flex-col gap-3 sm:flex-row sm:items-center">
             <div className="min-w-0 flex-1 rounded-2xl border border-zinc-200 bg-zinc-50 px-4 py-3 text-sm text-zinc-800">
@@ -1478,13 +1489,15 @@ export function PortalBookingClient() {
           </div>
 
           {saving ? <div className="mt-4 text-sm text-zinc-500">Saving…</div> : null}
+          </PortalSettingsSection>
         </div>
 
-        <div className="rounded-3xl border border-zinc-200 bg-white p-6">
-          <div className="text-sm font-semibold text-zinc-900">Calendars</div>
-          <div className="mt-2 text-sm text-zinc-600">
-            Create multiple booking links (different appointment types) with their own title and duration.
-          </div>
+        <PortalSettingsSection
+          title="Calendars"
+          description="Create multiple booking links (different appointment types) with their own title and duration."
+          accent="slate"
+          defaultOpen={false}
+        >
 
           <div className="mt-4 rounded-2xl border border-zinc-200 bg-zinc-50 p-4">
             <div className="text-xs font-semibold text-zinc-600">Add a calendar</div>
@@ -1643,13 +1656,15 @@ export function PortalBookingClient() {
               ))
             )}
           </div>
-        </div>
+        </PortalSettingsSection>
 
-        <div className="rounded-3xl border border-zinc-200 bg-white p-6 lg:col-span-2">
-          <div className="text-sm font-semibold text-zinc-900">Customization & notifications</div>
-          <div className="mt-2 text-sm text-zinc-600">
-            Add an optional header photo, meeting info, and who gets notified when someone books.
-          </div>
+        <div className="lg:col-span-2">
+          <PortalSettingsSection
+            title="Customization & notifications"
+            description="Add an optional header photo, meeting info, and who gets notified when someone books."
+            accent="slate"
+            defaultOpen={false}
+          >
 
           <div className="mt-4 rounded-2xl border border-zinc-200 bg-zinc-50 p-4">
             <div className="text-xs font-semibold text-zinc-600">Header photo (optional)</div>
@@ -1817,17 +1832,19 @@ export function PortalBookingClient() {
             </label>
           </div>
 
-          {saving ? <div className="mt-4 text-sm text-zinc-500">Saving…</div> : null}
+            {saving ? <div className="mt-4 text-sm text-zinc-500">Saving…</div> : null}
+          </PortalSettingsSection>
         </div>
       </div>
 
-      <div className="mt-4 rounded-3xl border border-zinc-200 bg-white p-6">
-        <div className="text-sm font-semibold text-zinc-900">Booking form</div>
-        <div className="mt-1 text-sm text-zinc-600">
-          Choose what questions to ask when someone books.
-        </div>
-
-        {!form ? (
+      <div className="mt-4">
+        <PortalSettingsSection
+          title="Booking form"
+          description="Choose what questions to ask when someone books."
+          accent="slate"
+          defaultOpen={false}
+        >
+          {!form ? (
           <div className="mt-4 rounded-2xl border border-zinc-200 bg-zinc-50 p-4 text-sm text-zinc-700">
             Loading form settings…
           </div>
@@ -2063,7 +2080,8 @@ export function PortalBookingClient() {
             </div>
           </div>
         )}
-          </div>
+        </PortalSettingsSection>
+      </div>
         </>
       ) : null}
 

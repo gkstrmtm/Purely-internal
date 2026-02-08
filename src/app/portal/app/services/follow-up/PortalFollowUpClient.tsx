@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 
 import { PORTAL_SERVICES } from "@/app/portal/services/catalog";
+import { PortalSettingsSection } from "@/components/PortalSettingsSection";
 
 type Me = {
   user: { email: string; name: string; role: string };
@@ -618,9 +619,13 @@ export function PortalFollowUpClient({ embedded }: { embedded?: boolean } = {}) 
 
       {tab === "settings" ? (
         <div className="mt-4 grid grid-cols-1 gap-6 lg:grid-cols-3">
-          <div className="min-w-0 rounded-3xl border border-zinc-200 bg-white p-6 lg:col-span-2">
-            <div className="text-sm font-semibold text-zinc-900">Automation</div>
-            <div className="mt-2 text-sm text-zinc-600">Send follow-ups automatically after a booked appointment ends.</div>
+          <div className="min-w-0 lg:col-span-2">
+            <PortalSettingsSection
+              title="Automation"
+              description="Send follow-ups automatically after a booked appointment ends."
+              accent="slate"
+              defaultOpen={false}
+            >
 
             <div className="mt-5 grid grid-cols-1 gap-4 sm:grid-cols-2">
               <label className="inline-flex items-center gap-3 rounded-2xl border border-zinc-200 bg-zinc-50 px-4 py-3 text-sm text-zinc-800">
@@ -1521,13 +1526,16 @@ export function PortalFollowUpClient({ embedded }: { embedded?: boolean } = {}) 
                 Refresh
               </button>
             </div>
+            </PortalSettingsSection>
           </div>
 
-          <div className="min-w-0 rounded-3xl border border-zinc-200 bg-white p-6">
-            <div className="text-sm font-semibold text-zinc-900">Send a test</div>
-            <div className="mt-2 text-sm text-zinc-600">
-              Sends immediately. Emails send from Purely Automation with your business name as the sender name.
-            </div>
+          <div className="min-w-0">
+            <PortalSettingsSection
+              title="Send a test"
+              description="Sends immediately. Emails send from Purely Automation with your business name as the sender name."
+              accent="slate"
+              defaultOpen={false}
+            >
 
             <div className="mt-4 space-y-3">
               <div>
@@ -1577,6 +1585,7 @@ export function PortalFollowUpClient({ embedded }: { embedded?: boolean } = {}) 
                 </button>
               </div>
             </div>
+            </PortalSettingsSection>
           </div>
         </div>
       ) : (
