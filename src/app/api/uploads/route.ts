@@ -5,6 +5,7 @@ import { mkdir, writeFile } from "fs/promises";
 import crypto from "crypto";
 
 import { authOptions } from "@/lib/auth";
+import { mirrorUploadToMediaLibrary } from "@/lib/portalMediaUploads";
 
 function safeFilename(name: string) {
   return name
@@ -28,6 +29,23 @@ export async function POST(req: Request) {
   const arrayBuffer = await file.arrayBuffer();
   const buffer = Buffer.from(arrayBuffer);
 
+  // Best-effort: keep the media library in sync with any uploads.
+  // Cap mirrored bytes to avoid exploding the DB if this endpoint is used for large assets.
+  const MAX_MIRROR_BYTES = 25 * 1024 * 1024; // 25MB
+  let mirrored: any = null;
+  if (buffer.length <= MAX_MIRROR_BYTES) {
+    try {
+      mirrored = await mirrorUploadToMediaLibrary({
+        ownerId: session.user.id,
+        fileName: file.name || "upload.bin",
+        mimeType: file.type || "application/octet-stream",
+        bytes: buffer,
+      });
+    } catch {
+      // ignore
+    }
+  }
+
   const now = new Date();
   const day = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(
     now.getDate(),
@@ -50,5 +68,6 @@ export async function POST(req: Request) {
     mimeType: file.type || "application/octet-stream",
     fileSize: buffer.length,
     storagePath: relPath,
+    mediaItem: mirrored,
   });
 }

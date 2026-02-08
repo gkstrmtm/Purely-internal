@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import { PortalMediaPickerModal } from "@/components/PortalMediaPickerModal";
 
 type BusinessProfile = {
   businessName: string;
@@ -63,6 +64,7 @@ export function BusinessProfileForm({
   const [brandAccentHex, setBrandAccentHex] = useState("");
   const [brandTextHex, setBrandTextHex] = useState("");
   const [logoBusy, setLogoBusy] = useState(false);
+  const [logoPickerOpen, setLogoPickerOpen] = useState(false);
 
   const canSave = useMemo(() => businessName.trim().length >= 2, [businessName]);
 
@@ -207,8 +209,27 @@ export function BusinessProfileForm({
                 }}
               />
             </label>
+
+            <button
+              type="button"
+              className="inline-flex items-center justify-center rounded-2xl border border-zinc-200 bg-white px-4 py-3 text-sm font-semibold text-brand-ink hover:bg-zinc-50"
+              onClick={() => setLogoPickerOpen(true)}
+            >
+              Choose from media library
+            </button>
           </div>
         </div>
+
+        <PortalMediaPickerModal
+          open={logoPickerOpen}
+          title="Choose a logo"
+          confirmLabel="Use"
+          onClose={() => setLogoPickerOpen(false)}
+          onPick={(item) => {
+            setLogoUrl(item.shareUrl);
+            setLogoPickerOpen(false);
+          }}
+        />
 
         <div className="sm:col-span-2">
           <label className="text-xs font-semibold text-zinc-600">Business name</label>

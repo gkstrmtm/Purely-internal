@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 
 import { prisma } from "@/lib/db";
 import { hasPublicColumn } from "@/lib/dbSchema";
+import { mirrorUploadToMediaLibrary } from "@/lib/portalMediaUploads";
 import { findOwnerIdByStoredBlogSiteSlug } from "@/lib/blogSiteSlug";
 import { getReviewRequestsServiceData } from "@/lib/reviewRequests";
 import { findOrCreatePortalContact } from "@/lib/portalContacts";
@@ -253,6 +254,27 @@ export async function POST(req: Request, { params }: { params: Promise<{ siteSlu
       select: { id: true },
     });
     createdPhotoIds.push(created.id);
+
+    // Best-effort: mirror customer-submitted review photos into the owner's Media Library.
+    // This intentionally ignores failures so public submissions can't break the review flow.
+    try {
+      const ext = (() => {
+        const name = String(blob.fileName || "");
+        const idx = name.lastIndexOf(".");
+        if (idx <= 0 || idx >= name.length - 1) return "";
+        const raw = name.slice(idx + 1).toLowerCase();
+        return /^[a-z0-9]{1,8}$/.test(raw) ? raw : "";
+      })();
+      const fileName = `review-photo-${created.id}${ext ? "." + ext : ""}`;
+      await mirrorUploadToMediaLibrary({
+        ownerId,
+        fileName,
+        mimeType: blob.contentType,
+        bytes: blob.bytes,
+      });
+    } catch {
+      // ignore
+    }
   }
 
   const photoUrls = createdPhotoIds.map((id) => `/api/public/reviews/photos/${id}`);

@@ -921,6 +921,13 @@ export function PortalInboxClient() {
                     >
                       Attach
                     </button>
+                    <button
+                      type="button"
+                      onClick={() => setMediaPickerOpen(true)}
+                      className="rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm font-semibold text-zinc-700 hover:bg-zinc-50"
+                    >
+                      Add from media library
+                    </button>
                     <input
                       ref={emailFileRef}
                       type="file"

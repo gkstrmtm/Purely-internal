@@ -58,7 +58,7 @@ function formatBytes(n: number) {
   return `${v.toFixed(v >= 10 || idx === 0 ? 0 : 1)} ${units[idx]}`;
 }
 
-export default async function PublicMediaFolderPage({
+export default function PublicMediaFolderPage({
   params,
 }: {
   params: { folderId: string; token: string };

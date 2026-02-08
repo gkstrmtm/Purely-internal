@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { RichTextMarkdownEditor } from "@/components/RichTextMarkdownEditor";
+import { PortalMediaPickerModal } from "@/components/PortalMediaPickerModal";
 
 type Post = {
   id: string;
@@ -184,6 +185,7 @@ export function PortalBlogPostClient({ postId }: { postId: string }) {
   const [imageBusy, setImageBusy] = useState(false);
   const [imageAlt, setImageAlt] = useState("");
   const [imageUrl, setImageUrl] = useState<string | null>(null);
+  const [imagePickerOpen, setImagePickerOpen] = useState(false);
 
   const [confirmKind, setConfirmKind] = useState<ConfirmKind | null>(null);
 
@@ -969,6 +971,14 @@ export function PortalBlogPostClient({ postId }: { postId: string }) {
 
                 <button
                   type="button"
+                  className="inline-flex items-center justify-center rounded-2xl border border-zinc-200 bg-white px-4 py-3 text-sm font-semibold text-brand-ink hover:bg-zinc-50"
+                  onClick={() => setImagePickerOpen(true)}
+                >
+                  Choose from media library
+                </button>
+
+                <button
+                  type="button"
                   disabled={!imageUrl}
                   onClick={() => {
                     if (!imageUrl) return;
@@ -1015,6 +1025,23 @@ export function PortalBlogPostClient({ postId }: { postId: string }) {
                   Regenerate cover image
                 </button>
               </div>
+
+              <PortalMediaPickerModal
+                open={imagePickerOpen}
+                title="Choose an image"
+                confirmLabel="Use"
+                onClose={() => setImagePickerOpen(false)}
+                onPick={(item) => {
+                  if (!String(item.mimeType || "").startsWith("image/")) {
+                    setError("Please pick an image file");
+                    setImagePickerOpen(false);
+                    return;
+                  }
+                  setError(null);
+                  setImageUrl(item.shareUrl);
+                  setImagePickerOpen(false);
+                }}
+              />
 
               {imageUrl ? <div className="text-xs text-zinc-500 break-all">Inserted as: ![alt]({imageUrl})</div> : null}
 

@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
+import { PortalMediaPickerModal } from "@/components/PortalMediaPickerModal";
 import { Lightbox, type LightboxImage } from "@/components/Lightbox";
 import { PortalSettingsSection } from "@/components/PortalSettingsSection";
 
@@ -157,6 +158,7 @@ export default function PortalReviewsClient() {
   const [publicSiteSlug, setPublicSiteSlug] = useState<string | null>(null);
 
   const uploadsInputRef = useRef<HTMLInputElement | null>(null);
+  const [publicPhotosPickerOpen, setPublicPhotosPickerOpen] = useState(false);
   const [uploadingPhotos, setUploadingPhotos] = useState(false);
   const [uploadPickerCount, setUploadPickerCount] = useState(0);
 
@@ -986,9 +988,39 @@ export default function PortalReviewsClient() {
                 >
                   {uploadingPhotos ? "Uploading…" : "Choose files"}
                 </button>
+                <button
+                  type="button"
+                  disabled={uploadingPhotos}
+                  onClick={() => setPublicPhotosPickerOpen(true)}
+                  className="inline-flex h-10 items-center justify-center rounded-lg border border-zinc-200 bg-white px-4 text-sm font-medium text-zinc-900 hover:bg-zinc-50 disabled:opacity-60"
+                >
+                  Choose from media library
+                </button>
                 <div className="text-xs text-zinc-500">{uploadPickerCount ? `${uploadPickerCount} selected` : "No files chosen"}</div>
               </div>
             </div>
+            <PortalMediaPickerModal
+              open={publicPhotosPickerOpen}
+              title="Choose a gallery photo"
+              confirmLabel="Add"
+              onClose={() => setPublicPhotosPickerOpen(false)}
+              onPick={(item) => {
+                if (!String(item.mimeType || "").startsWith("image/")) {
+                  setError("Please pick an image file");
+                  setPublicPhotosPickerOpen(false);
+                  return;
+                }
+
+                setSettings({
+                  ...settings,
+                  publicPage: {
+                    ...settings.publicPage,
+                    photoUrls: Array.from(new Set([...(settings.publicPage.photoUrls || []), item.shareUrl])).slice(0, 30),
+                  },
+                });
+                setPublicPhotosPickerOpen(false);
+              }}
+            />
             {settings.publicPage.photoUrls?.length ? (
               <div className="mt-3">
                 <div className="text-xs font-medium text-zinc-700">Photos</div>

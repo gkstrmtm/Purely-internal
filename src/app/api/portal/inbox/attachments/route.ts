@@ -4,6 +4,7 @@ import crypto from "crypto";
 import { requireClientSession } from "@/lib/apiAuth";
 import { prisma } from "@/lib/db";
 import { ensurePortalInboxSchema } from "@/lib/portalInboxSchema";
+import { mirrorUploadToMediaLibrary } from "@/lib/portalMediaUploads";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
@@ -78,6 +79,13 @@ export async function POST(req: Request) {
       },
       select: { id: true, fileName: true, mimeType: true, fileSize: true, publicToken: true },
     });
+
+    // Best-effort: mirror into Media Library.
+    try {
+      await mirrorUploadToMediaLibrary({ ownerId, fileName, mimeType, bytes: buffer });
+    } catch {
+      // ignore
+    }
 
     attachments.push({
       id: row.id,

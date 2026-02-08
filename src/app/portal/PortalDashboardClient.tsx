@@ -25,6 +25,7 @@ type DashboardWidgetId =
   | "hoursSaved"
   | "billing"
   | "services"
+  | "mediaLibrary"
   | "creditsRemaining"
   | "creditsUsed"
   | "blogGenerations"
@@ -95,6 +96,10 @@ type ReportingPayload = {
     creditsUsed: number;
   }>;
 };
+
+type MediaStatsPayload =
+  | { ok: true; itemsCount: number; foldersCount: number }
+  | { ok: false; error?: string };
 
 function Card({ title, children, showHandle }: { title: string; children: React.ReactNode; showHandle: boolean }) {
   return (
@@ -204,6 +209,7 @@ function StatLine({ label, value }: { label: string; value: string }) {
 export function PortalDashboardClient() {
   const [data, setData] = useState<MeResponse | null>(null);
   const [reporting, setReporting] = useState<ReportingPayload | null>(null);
+  const [mediaStats, setMediaStats] = useState<MediaStatsPayload | null>(null);
   const [dashboard, setDashboard] = useState<DashboardPayload["data"] | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -255,7 +261,7 @@ export function PortalDashboardClient() {
       const timeout = window.setTimeout(() => controller.abort(), 15000);
 
       try {
-        const [meRes, dashRes, repRes] = await Promise.all([
+        const [meRes, dashRes, repRes, statsRes] = await Promise.all([
           fetch("/api/customer/me", {
             cache: "no-store",
             signal: controller.signal,
@@ -263,6 +269,7 @@ export function PortalDashboardClient() {
           }),
           fetch("/api/portal/dashboard", { cache: "no-store", signal: controller.signal }),
           fetch("/api/portal/reporting?range=30d", { cache: "no-store", signal: controller.signal }).catch(() => null as any),
+          fetch("/api/portal/media/stats", { cache: "no-store", signal: controller.signal }).catch(() => null as any),
         ]);
 
         if (!mounted) return;
@@ -297,6 +304,11 @@ export function PortalDashboardClient() {
         if (repRes?.ok) {
           const rep = (await repRes.json().catch(() => null)) as ReportingPayload | null;
           if (rep?.ok) setReporting(rep);
+        }
+
+        if (statsRes?.ok) {
+          const stats = (await statsRes.json().catch(() => null)) as MediaStatsPayload | null;
+          if (stats) setMediaStats(stats);
         }
       } catch (err) {
         if (!mounted) return;
@@ -391,6 +403,8 @@ export function PortalDashboardClient() {
         return "Billing";
       case "services":
         return "Your services";
+      case "mediaLibrary":
+        return "Media library";
       case "creditsRemaining":
         return "Credits remaining";
       case "creditsUsed":
@@ -668,6 +682,23 @@ export function PortalDashboardClient() {
             </div>
           </AccentCard>
         );
+
+      case "mediaLibrary": {
+        const ok = mediaStats && (mediaStats as any).ok === true;
+        const items = ok ? (mediaStats as any).itemsCount : 0;
+        const folders = ok ? (mediaStats as any).foldersCount : 0;
+        return (
+          <AccentCard title={widgetTitle(id)} widgetId={id} showHandle={editMode}>
+            <div className="text-3xl font-bold text-brand-ink">{compactNum(items)}</div>
+            <div className="mt-1 text-xs text-zinc-500">Items · {compactNum(folders)} folders</div>
+            <div className="mt-3">
+              <Link href="/portal/app/services/media-library" className="text-sm font-semibold text-brand-ink hover:underline">
+                Open media library
+              </Link>
+            </div>
+          </AccentCard>
+        );
+      }
 
       case "creditsRemaining":
         return (

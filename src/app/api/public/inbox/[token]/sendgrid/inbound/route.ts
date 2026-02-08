@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import crypto from "crypto";
 
 import { stripHtml } from "@/lib/leadOutbound";
 import {
@@ -8,9 +9,22 @@ import {
   normalizeSubjectKey,
   upsertPortalInboxMessage,
 } from "@/lib/portalInbox";
+import { prisma } from "@/lib/db";
+import { ensurePortalInboxSchema } from "@/lib/portalInboxSchema";
+import { mirrorUploadToMediaLibrary } from "@/lib/portalMediaUploads";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
+
+function safeFilename(name: string) {
+  return String(name || "attachment")
+    .replace(/[^a-zA-Z0-9._-]/g, "-")
+    .replace(/-+/g, "-")
+    .slice(0, 200);
+}
+
+const MAX_ATTACHMENTS = 10;
+const MAX_BYTES = 10 * 1024 * 1024; // 10MB per attachment
 
 export async function POST(
   req: Request,
@@ -40,7 +54,10 @@ export async function POST(
   const thread = makeEmailThreadKey(fromEmail, subjectKey);
   if (!thread) return NextResponse.json({ ok: true });
 
-  await upsertPortalInboxMessage({
+  // Avoid runtime failures if schema patches haven't been applied yet.
+  await ensurePortalInboxSchema();
+
+  const { messageId } = await upsertPortalInboxMessage({
     ownerId,
     channel: "EMAIL",
     direction: "IN",
@@ -55,6 +72,42 @@ export async function POST(
     provider: "SENDGRID_INBOUND",
     providerMessageId: null,
   });
+
+  // Best-effort: store any inbound attachments.
+  try {
+    const fileValues = Array.from(fd.values()).filter((v): v is File => v instanceof File);
+    const files = fileValues.slice(0, MAX_ATTACHMENTS);
+    for (const file of files) {
+      const arrayBuffer = await file.arrayBuffer();
+      const buffer = Buffer.from(arrayBuffer);
+      if (!buffer.length || buffer.length > MAX_BYTES) continue;
+
+      const fileName = safeFilename(file.name || "attachment.bin");
+      const mimeType = String(file.type || "application/octet-stream").slice(0, 120);
+      const publicToken = crypto.randomUUID().replace(/-/g, "");
+
+      await (prisma as any).portalInboxAttachment.create({
+        data: {
+          ownerId,
+          messageId,
+          fileName,
+          mimeType,
+          fileSize: buffer.length,
+          bytes: buffer,
+          publicToken,
+        },
+        select: { id: true },
+      });
+
+      try {
+        await mirrorUploadToMediaLibrary({ ownerId, fileName, mimeType, bytes: buffer });
+      } catch {
+        // ignore
+      }
+    }
+  } catch {
+    // ignore
+  }
 
   return NextResponse.json({ ok: true });
 }

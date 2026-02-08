@@ -124,7 +124,7 @@ export function PortalMediaPickerModal({
               value={q}
               onChange={(e) => setQ(e.target.value)}
               placeholder="Search by filename or tag…"
-              className="h-10 w-full rounded-2xl border border-zinc-200 bg-white px-4 text-sm"
+              className="h-10 w-full rounded-2xl border border-zinc-200 bg-white px-4 text-sm text-zinc-900 placeholder:text-zinc-500"
             />
 
             {error ? (

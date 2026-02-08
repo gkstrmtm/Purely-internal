@@ -64,10 +64,15 @@ type TwilioMasked = {
   updatedAtIso: string | null;
 };
 
+type MediaStatsPayload =
+  | { ok: true; itemsCount: number; foldersCount: number }
+  | { ok: false; error?: string };
+
 type ServiceKey =
   | "all"
   | "reporting"
   | "billing"
+  | "mediaLibrary"
   | "aiReceptionist"
   | "missedCallTextBack"
   | "booking"
@@ -81,6 +86,7 @@ const SERVICE_INFOS: ServiceInfo[] = [
   { key: "all", name: "All services", href: null },
   { key: "reporting", name: "Reporting", href: "/portal/app/services/reporting" },
   { key: "billing", name: "Billing", href: "/portal/app/billing" },
+  { key: "mediaLibrary", name: "Media Library", href: "/portal/app/services/media-library" },
   { key: "aiReceptionist", name: "AI Receptionist", href: "/portal/app/services/ai-receptionist" },
   { key: "missedCallTextBack", name: "Missed-Call Text Back", href: "/portal/app/services/missed-call-textback" },
   { key: "booking", name: "Booking Automation", href: "/portal/app/services/booking" },
@@ -106,6 +112,8 @@ function isPlainNonEmptyString(value: unknown): value is string {
 
 function serviceForWidget(widgetId: string): ServiceInfo {
   switch (widgetId) {
+    case "mediaLibrary":
+      return SERVICE_INFOS.find((s) => s.key === "mediaLibrary")!;
     case "creditsRemaining":
     case "creditsUsed":
       return SERVICE_INFOS.find((s) => s.key === "billing")!;
@@ -449,6 +457,7 @@ function MenuButton({
 export function PortalReportingClient() {
   const [range, setRange] = useState<RangeKey>("30d");
   const [data, setData] = useState<ReportingPayload | null>(null);
+  const [mediaStats, setMediaStats] = useState<MediaStatsPayload | null>(null);
   const [twilio, setTwilio] = useState<TwilioMasked | null>(null);
   const [me, setMe] = useState<MeResponse | null>(null);
   const [loading, setLoading] = useState(true);
@@ -493,9 +502,10 @@ export function PortalReportingClient() {
     setLoading(true);
     setError(null);
 
-    const [repRes, twilioRes] = await Promise.all([
+    const [repRes, twilioRes, statsRes] = await Promise.all([
       fetch(`/api/portal/reporting?range=${encodeURIComponent(nextRange)}`, { cache: "no-store" }),
       fetch("/api/portal/integrations/twilio", { cache: "no-store" }).catch(() => null as any),
+      fetch("/api/portal/media/stats", { cache: "no-store" }).catch(() => null as any),
     ]);
 
     if (!repRes.ok) {
@@ -515,6 +525,11 @@ export function PortalReportingClient() {
     }
 
     setData(rep);
+
+    if (statsRes?.ok) {
+      const stats = (await statsRes.json().catch(() => null)) as MediaStatsPayload | null;
+      if (stats) setMediaStats(stats);
+    }
 
     if (twilioRes?.ok) {
       const body = (await twilioRes.json().catch(() => ({}))) as { ok?: boolean; twilio?: TwilioMasked };
@@ -695,6 +710,43 @@ export function PortalReportingClient() {
       ) : !data ? null : (
         <>
           <div className="mt-4 grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
+            {visible("mediaLibrary", "mediaLibrary", ["Media library", "Media", "Library", "Files", "Uploads"]) ? (
+              <div className="relative">
+                <div className="absolute right-4 top-4">
+                  {(() => {
+                    const added = dashboardWidgetIds.has("mediaLibrary");
+                    return (
+                      <MenuButton
+                        id="mediaLibrary"
+                        openId={openMenuId}
+                        setOpenId={setOpenMenuId}
+                        onAdd={() => void addWidget("mediaLibrary")}
+                        addDisabled={added}
+                        addLabel={added ? "Already on dashboard" : "Add to dashboard"}
+                        goToHref={serviceForWidget("mediaLibrary").href}
+                        goToLabel={serviceForWidget("mediaLibrary").name}
+                      />
+                    );
+                  })()}
+                </div>
+
+                <StatCard
+                  label="Media library"
+                  value={
+                    mediaStats && (mediaStats as any).ok === true
+                      ? ((mediaStats as any).itemsCount as number).toLocaleString()
+                      : "—"
+                  }
+                  sub={
+                    mediaStats && (mediaStats as any).ok === true
+                      ? `${((mediaStats as any).foldersCount as number).toLocaleString()} folders`
+                      : ""
+                  }
+                  tone="slate"
+                />
+              </div>
+            ) : null}
+
             {visible("creditsRemaining", "billing", ["Credits remaining", "Top up", "Billing", "Credits"]) ? (
               <div className="relative">
                 <div className="absolute right-4 top-4">

@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 
 import { PortalFollowUpClient } from "@/app/portal/app/services/follow-up/PortalFollowUpClient";
+import { PortalMediaPickerModal } from "@/components/PortalMediaPickerModal";
 import { PortalSettingsSection } from "@/components/PortalSettingsSection";
 
 type BookingFormConfig = {
@@ -204,6 +205,7 @@ export function PortalBookingClient() {
   const [status, setStatus] = useState<string | null>(null);
 
   const [photoBusy, setPhotoBusy] = useState(false);
+  const [photoPickerOpen, setPhotoPickerOpen] = useState(false);
   const [notificationEmails, setNotificationEmails] = useState<string[]>([]);
 
   const [form, setForm] = useState<BookingFormConfig | null>(null);
@@ -1713,6 +1715,14 @@ export function PortalBookingClient() {
                     }}
                   />
                 </label>
+
+                <button
+                  type="button"
+                  className="inline-flex items-center justify-center rounded-2xl border border-zinc-200 bg-white px-4 py-3 text-sm font-semibold text-brand-ink hover:bg-zinc-50"
+                  onClick={() => setPhotoPickerOpen(true)}
+                >
+                  Choose from media library
+                </button>
                 {site?.photoUrl ? (
                   <button
                     type="button"
@@ -1726,6 +1736,23 @@ export function PortalBookingClient() {
               </div>
             </div>
           </div>
+
+          <PortalMediaPickerModal
+            open={photoPickerOpen}
+            title="Choose a header photo"
+            confirmLabel="Use"
+            onClose={() => setPhotoPickerOpen(false)}
+            onPick={async (item) => {
+              if (!String(item.mimeType || "").startsWith("image/")) {
+                setError("Please pick an image file");
+                setPhotoPickerOpen(false);
+                return;
+              }
+              setError(null);
+              setPhotoPickerOpen(false);
+              await save({ photoUrl: item.shareUrl });
+            }}
+          />
 
           <div className="mt-4 grid grid-cols-1 gap-4 sm:grid-cols-2">
             <label className="rounded-2xl border border-zinc-200 bg-zinc-50 px-4 py-3 text-sm">

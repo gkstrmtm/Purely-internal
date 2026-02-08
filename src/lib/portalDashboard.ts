@@ -6,6 +6,7 @@ export type DashboardWidgetId =
   | "hoursSaved"
   | "billing"
   | "services"
+  | "mediaLibrary"
   | "creditsRemaining"
   | "creditsUsed"
   | "blogGenerations"
@@ -60,6 +61,7 @@ const ALL_WIDGET_IDS: DashboardWidgetId[] = [
   "hoursSaved",
   "billing",
   "services",
+  "mediaLibrary",
   "creditsRemaining",
   "creditsUsed",
   "blogGenerations",
