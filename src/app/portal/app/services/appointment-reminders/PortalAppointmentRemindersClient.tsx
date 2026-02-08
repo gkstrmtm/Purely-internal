@@ -276,7 +276,7 @@ export function PortalAppointmentRemindersClient() {
             Locked
           </div>
           <h1 className="mt-2 text-2xl font-bold text-brand-ink sm:text-3xl">Appointment Reminders</h1>
-          <p className="mt-3 max-w-2xl text-sm text-zinc-600">Requires Booking Automation to be enabled on your plan.</p>
+          <p className="mt-3 max-w-2xl text-sm text-zinc-600">Requires Booking Automation to be on for your plan.</p>
           <div className="mt-6 flex flex-col gap-3 sm:flex-row">
             <Link
               href="/portal/app/billing"
@@ -332,6 +332,7 @@ export function PortalAppointmentRemindersClient() {
             title="Setup"
             description="Add one or more reminder steps with different lead times."
             accent="slate"
+            status={draft ? (draft.enabled ? "on" : "off") : undefined}
             defaultOpen={false}
           >
           <div className="flex items-start justify-between gap-3">
@@ -375,7 +376,7 @@ export function PortalAppointmentRemindersClient() {
                   .sort((a, b) => a.title.localeCompare(b.title))
                   .map((c) => (
                     <option key={c.id} value={c.id}>
-                      {c.title}{c.enabled ? "" : " (disabled)"}
+                      {c.title}{c.enabled ? "" : " (off)"}
                     </option>
                   ))}
               </select>
@@ -437,7 +438,7 @@ export function PortalAppointmentRemindersClient() {
 
                       <div className="flex items-center gap-2">
                         <label className="flex items-center gap-2 text-sm">
-                          <span className="text-xs text-zinc-600">Enabled</span>
+                          <span className="text-xs text-zinc-600">On</span>
                           <input
                             type="checkbox"
                             checked={Boolean(s.enabled)}
@@ -545,6 +546,7 @@ export function PortalAppointmentRemindersClient() {
           title="Activity"
           description="Reminders sent (or skipped) show here."
           accent="slate"
+          status={draft ? (draft.enabled ? "on" : "off") : undefined}
           defaultOpen={false}
         >
 

@@ -624,6 +624,7 @@ export function PortalFollowUpClient({ embedded }: { embedded?: boolean } = {}) 
               title="Automation"
               description="Send follow-ups automatically after a booked appointment ends."
               accent="slate"
+              status={settings ? (settings.enabled ? "on" : "off") : undefined}
               defaultOpen={false}
             >
 
@@ -634,7 +635,7 @@ export function PortalFollowUpClient({ embedded }: { embedded?: boolean } = {}) 
                   checked={Boolean(settings?.enabled)}
                   onChange={(e) => settings && setSettings({ ...settings, enabled: e.target.checked })}
                 />
-                Enabled
+                On
               </label>
             </div>
 
@@ -770,7 +771,7 @@ export function PortalFollowUpClient({ embedded }: { embedded?: boolean } = {}) 
                           checked={Boolean(selectedTemplate.enabled)}
                           onChange={(e) => updateTemplate(selectedTemplate.id, { enabled: e.target.checked })}
                         />
-                        Enabled
+                        On
                       </label>
                       <button
                         type="button"
@@ -1169,7 +1170,7 @@ export function PortalFollowUpClient({ embedded }: { embedded?: boolean } = {}) 
                                         checked={Boolean(s.enabled)}
                                         onChange={(e) => updateStep(s.id, { enabled: e.target.checked })}
                                       />
-                                      Enabled
+                                      On
                                     </label>
 
                                     <button

@@ -361,7 +361,7 @@ export function PortalAiReceptionistClient() {
                   checked={Boolean(settings?.enabled)}
                   onChange={(e) => settings && setSettings({ ...settings, enabled: e.target.checked })}
                 />
-                Enabled
+                On
               </label>
 
               <label className="rounded-2xl border border-zinc-200 bg-zinc-50 px-4 py-3 text-sm">

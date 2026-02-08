@@ -989,7 +989,7 @@ export function PortalLeadScrapingClient() {
               }
               className="h-4 w-4 rounded border-zinc-300"
             />
-            Enabled
+            On
           </label>
         </div>
 
@@ -1017,7 +1017,7 @@ export function PortalLeadScrapingClient() {
                   disabled={!settings.outbound.enabled}
                   className="h-4 w-4 rounded border-zinc-300"
                 />
-                Enabled
+                On
               </label>
             </div>
 
@@ -1123,7 +1123,7 @@ export function PortalLeadScrapingClient() {
                   disabled={!settings.outbound.enabled}
                   className="h-4 w-4 rounded border-zinc-300"
                 />
-                Enabled
+                On
               </label>
             </div>
 
@@ -1794,7 +1794,7 @@ export function PortalLeadScrapingClient() {
                   >
                     <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
                       <label className="flex items-center justify-between gap-3 rounded-2xl border border-zinc-200 bg-white px-4 py-3 text-sm">
-                        <span className="text-zinc-800">Enabled</span>
+                        <span className="text-zinc-800">On</span>
                         <input
                           type="checkbox"
                           checked={settings.b2b.scheduleEnabled}
@@ -2231,12 +2231,12 @@ export function PortalLeadScrapingClient() {
                 <div className="mt-6 space-y-4">
                   <SettingsSection
                     title="Scheduling"
-                    description="Currently disabled for B2C (coming soon)."
+                    description="Currently off for B2C (coming soon)."
                     accent="amber"
                   >
                     <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
                       <label className="flex items-center justify-between gap-3 rounded-2xl border border-zinc-200 bg-zinc-50 px-4 py-3 text-sm">
-                        <span className="text-zinc-800">Scheduling (disabled)</span>
+                        <span className="text-zinc-800">Scheduling (off)</span>
                         <input type="checkbox" checked={false} disabled />
                       </label>
 

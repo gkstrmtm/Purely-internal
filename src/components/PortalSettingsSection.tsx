@@ -4,12 +4,14 @@ export function PortalSettingsSection({
   title,
   description,
   accent,
+  status,
   defaultOpen,
   children,
 }: {
   title: string;
   description?: string;
   accent: "blue" | "pink" | "amber" | "emerald" | "slate";
+  status?: "on" | "off";
   defaultOpen?: boolean;
   children: React.ReactNode;
 }) {
@@ -24,12 +26,15 @@ export function PortalSettingsSection({
             ? "bg-emerald-500"
             : "bg-slate-500";
 
+  const dotClass =
+    status === "on" ? "bg-emerald-500" : status === "off" ? "bg-red-500" : accentDotClass;
+
   return (
     <details className="group rounded-3xl border border-zinc-200 bg-zinc-50" open={defaultOpen ? true : undefined}>
       <summary className="flex cursor-pointer list-none items-start justify-between gap-4 rounded-3xl px-5 py-4 select-none hover:bg-zinc-100 [&::-webkit-details-marker]:hidden [&::marker]:content-none">
         <div className="min-w-0">
           <div className="flex items-center gap-3">
-            <span className={"h-2.5 w-2.5 shrink-0 rounded-full " + accentDotClass} />
+            <span className={"h-2.5 w-2.5 shrink-0 rounded-full " + dotClass} />
             <div className="text-sm font-semibold text-zinc-900">{title}</div>
           </div>
           {description ? <div className="mt-1 text-sm text-zinc-600">{description}</div> : null}

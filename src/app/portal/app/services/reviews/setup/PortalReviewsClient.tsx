@@ -658,6 +658,7 @@ export default function PortalReviewsClient() {
           title="Settings"
           description="Automation, public reviews page, message template, and destinations."
           accent="slate"
+          status={settings.enabled ? "on" : "off"}
           defaultOpen={false}
         >
           <div className="flex items-center justify-end gap-3">
@@ -728,7 +729,7 @@ export default function PortalReviewsClient() {
               <label className="flex items-center justify-between gap-3 text-sm">
                 <span>
                   <span className="font-medium">Allow manual sends</span>
-                  <span className="mt-0.5 block text-xs text-neutral-600">When off, the “Manual send” section is disabled.</span>
+                  <span className="mt-0.5 block text-xs text-neutral-600">When off, you can’t use the “Manual send” section.</span>
                 </span>
                 <input
                   type="checkbox"
@@ -1334,12 +1335,13 @@ export default function PortalReviewsClient() {
           title="Manual send"
           description="Send a one-off review request for a specific booking, and review recent activity."
           accent="slate"
+          status={settings.enabled && settings.automation.manualSend ? "on" : "off"}
           defaultOpen={false}
         >
 
           {!settings.automation.manualSend ? (
             <div className="mt-3 rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
-              Manual sends are disabled in Settings.
+              Manual sends are off in Settings.
             </div>
           ) : null}
 
@@ -1384,7 +1386,7 @@ export default function PortalReviewsClient() {
                           <span className={b.status === "CANCELED" ? "text-red-700" : ""}>{b.status}</span>
                           <span className="truncate">{calendarLabel(b.calendarId)}</span>
                           {!ended ? <span className="text-amber-700">Not ended yet</span> : null}
-                          {!calendarAllowed ? <span className="text-amber-700">Calendar not enabled</span> : null}
+                          {!calendarAllowed ? <span className="text-amber-700">Calendar is off</span> : null}
                         </div>
                       </div>
                       <div className="flex items-center gap-2">
@@ -1419,7 +1421,7 @@ export default function PortalReviewsClient() {
                         </div>
                       </div>
                       <div className="text-xs text-amber-700">
-                        {!isCalendarAllowedForBooking(b.calendarId) ? "Calendar not enabled" : "Can’t send until it ends"}
+                        {!isCalendarAllowedForBooking(b.calendarId) ? "Calendar is off" : "Can’t send until it ends"}
                       </div>
                     </div>
                   ))}

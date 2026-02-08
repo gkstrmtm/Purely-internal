@@ -1212,7 +1212,7 @@ export function PortalBookingClient() {
                     .sort((a, b) => a.title.localeCompare(b.title))
                     .map((c) => (
                       <option key={c.id} value={c.id}>
-                        {c.title}{c.enabled ? "" : " (disabled)"}
+                        {c.title}{c.enabled ? "" : " (off)"}
                       </option>
                     ))}
                 </select>
@@ -1245,7 +1245,7 @@ export function PortalBookingClient() {
 
                         <div className="flex items-center gap-2">
                           <label className="flex items-center gap-2 text-sm">
-                            <span className="text-xs text-zinc-600">Enabled</span>
+                            <span className="text-xs text-zinc-600">On</span>
                             <input
                               type="checkbox"
                               checked={Boolean(s.enabled)}
@@ -1401,6 +1401,7 @@ export function PortalBookingClient() {
             title="Booking link"
             description="Share this link anywhere. Only times you mark as available will show."
             accent="slate"
+            status={site ? (site.enabled ? "on" : "off") : undefined}
             defaultOpen={false}
           >
 
@@ -1424,7 +1425,7 @@ export function PortalBookingClient() {
 
           <div className="mt-6 grid grid-cols-1 gap-4 sm:grid-cols-2">
             <label className="flex items-center justify-between gap-3 rounded-2xl border border-zinc-200 bg-zinc-50 px-4 py-3 text-sm">
-              <span className="font-medium text-zinc-800">Booking enabled</span>
+              <span className="font-medium text-zinc-800">Booking</span>
               <input
                 type="checkbox"
                 checked={Boolean(site?.enabled)}
@@ -1566,7 +1567,7 @@ export function PortalBookingClient() {
                     </div>
 
                     <label className="flex items-center gap-2 text-sm">
-                      <span className="text-xs text-zinc-600">Enabled</span>
+                      <span className="text-xs text-zinc-600">On</span>
                       <input
                         type="checkbox"
                         checked={Boolean(c.enabled)}
