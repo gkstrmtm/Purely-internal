@@ -439,16 +439,16 @@ export function PortalBlogsClient() {
 
       {error ? <div className="mt-4 rounded-2xl border border-red-200 bg-red-50 p-4 text-sm text-red-700">{error}</div> : null}
 
-      <div className="mt-6 inline-flex w-full overflow-hidden rounded-2xl border border-zinc-200 bg-zinc-50 p-1 shadow-sm">
+      <div className="mt-6 flex w-full flex-wrap gap-2">
         <button
           type="button"
           onClick={() => setTab("posts")}
           aria-current={tab === "posts" ? "page" : undefined}
           className={
-            "flex-1 rounded-xl px-4 py-2.5 text-sm font-semibold transition " +
+            "flex-1 min-w-[140px] rounded-2xl border px-4 py-2.5 text-sm font-semibold transition focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-ink/60 " +
             (tab === "posts"
-              ? "bg-white text-brand-ink shadow-sm ring-1 ring-zinc-200"
-              : "text-zinc-600 hover:bg-white/70")
+              ? "border-zinc-900 bg-zinc-900 text-white shadow-sm"
+              : "border-zinc-200 bg-white text-zinc-700 hover:bg-zinc-50")
           }
         >
           Posts
@@ -458,10 +458,10 @@ export function PortalBlogsClient() {
           onClick={() => setTab("automation")}
           aria-current={tab === "automation" ? "page" : undefined}
           className={
-            "flex-1 rounded-xl px-4 py-2.5 text-sm font-semibold transition " +
+            "flex-1 min-w-[140px] rounded-2xl border px-4 py-2.5 text-sm font-semibold transition focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-ink/60 " +
             (tab === "automation"
-              ? "bg-white text-brand-ink shadow-sm ring-1 ring-zinc-200"
-              : "text-zinc-600 hover:bg-white/70")
+              ? "border-zinc-900 bg-zinc-900 text-white shadow-sm"
+              : "border-zinc-200 bg-white text-zinc-700 hover:bg-zinc-50")
           }
         >
           Automation
@@ -471,10 +471,10 @@ export function PortalBlogsClient() {
           onClick={() => setTab("settings")}
           aria-current={tab === "settings" ? "page" : undefined}
           className={
-            "flex-1 rounded-xl px-4 py-2.5 text-sm font-semibold transition " +
+            "flex-1 min-w-[140px] rounded-2xl border px-4 py-2.5 text-sm font-semibold transition focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-ink/60 " +
             (tab === "settings"
-              ? "bg-white text-brand-ink shadow-sm ring-1 ring-zinc-200"
-              : "text-zinc-600 hover:bg-white/70")
+              ? "border-zinc-900 bg-zinc-900 text-white shadow-sm"
+              : "border-zinc-200 bg-white text-zinc-700 hover:bg-zinc-50")
           }
         >
           Settings
