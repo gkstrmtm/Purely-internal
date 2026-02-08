@@ -36,6 +36,10 @@ type SettingsRes = {
   webhooks: { twilioInboundSmsUrl: string; sendgridInboundEmailUrl: string };
 };
 
+type ApiErrorRes = { ok: false; code?: string; error?: string };
+type ThreadsRes = { ok: true; threads: Thread[] } | ApiErrorRes;
+type MessagesRes = { ok: true; messages: Message[] } | ApiErrorRes;
+
 function classNames(...xs: Array<string | false | null | undefined>) {
   return xs.filter(Boolean).join(" ");
 }
@@ -99,13 +103,18 @@ export function PortalInboxClient() {
       cache: "no-store",
     });
 
-    if (!res.ok) {
+    const json = (await res.json().catch(() => null)) as ThreadsRes | null;
+    if (!res.ok || !json || json.ok !== true) {
       setLoadingThreads(false);
-      setError("Failed to load threads");
+      if (res.status === 401 || (json && json.ok === false && json.code === "SESSION_EXPIRED")) {
+        setError("Your session expired. Please sign in again.");
+        return;
+      }
+      const apiError = json && json.ok === false ? json.error : null;
+      setError(apiError || (nextTab === "sms" ? "We couldn’t load your text message threads." : "We couldn’t load your email threads."));
       return;
     }
 
-    const json = (await res.json()) as { ok: true; threads: Thread[] };
     setThreads(json.threads);
     setLoadingThreads(false);
 
@@ -122,13 +131,18 @@ export function PortalInboxClient() {
       cache: "no-store",
     });
 
-    if (!res.ok) {
+    const json = (await res.json().catch(() => null)) as MessagesRes | null;
+    if (!res.ok || !json || json.ok !== true) {
       setLoadingMessages(false);
-      setError("Failed to load messages");
+      if (res.status === 401 || (json && json.ok === false && json.code === "SESSION_EXPIRED")) {
+        setError("Your session expired. Please sign in again.");
+        return;
+      }
+      const apiError = json && json.ok === false ? json.error : null;
+      setError(apiError || "We couldn’t load this conversation.");
       return;
     }
 
-    const json = (await res.json()) as { ok: true; messages: Message[] };
     setMessages(json.messages);
     setLoadingMessages(false);
   }
@@ -281,6 +295,15 @@ export function PortalInboxClient() {
 
       {error ? (
         <div className="mt-4 rounded-3xl border border-red-200 bg-red-50 p-4 text-sm text-red-700">{error}</div>
+      ) : null}
+
+      {tab === "sms" && settings && !settings.twilio.configured ? (
+        <div className="mt-4 rounded-3xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-800">
+          <div className="font-semibold">SMS isn’t connected yet</div>
+          <div className="mt-1 text-amber-800/90">
+            To send and receive texts here, connect your Twilio number in Integrations.
+          </div>
+        </div>
       ) : null}
 
       <div className="mt-4 grid grid-cols-1 gap-4 lg:grid-cols-12">
