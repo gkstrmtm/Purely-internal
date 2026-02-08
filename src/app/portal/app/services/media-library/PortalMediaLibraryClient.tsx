@@ -10,6 +10,7 @@ type Folder = {
   tag: string;
   createdAt: string;
   shareUrl: string;
+  downloadUrl?: string;
   color?: string | null;
 };
 
@@ -730,7 +731,7 @@ export function PortalMediaLibraryClient() {
                   </button>
                   <button
                     type="button"
-                    onClick={() => triggerDownload(selectedFolder.shareUrl, `${selectedFolder.name}.zip`)}
+                    onClick={() => triggerDownload(selectedFolder.downloadUrl || selectedFolder.shareUrl, `${selectedFolder.name}.zip`)}
                     className="rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm font-semibold text-zinc-700 hover:bg-zinc-50"
                   >
                     Download zip
@@ -920,7 +921,7 @@ export function PortalMediaLibraryClient() {
                       onClick={() => {
                         const f = menuTarget as Folder;
                         setOpenMenu(null);
-                        triggerDownload(f.shareUrl, `${f.name}.zip`);
+                        triggerDownload(f.downloadUrl || f.shareUrl, `${f.name}.zip`);
                       }}
                     >
                       Download zip

@@ -9,13 +9,15 @@ export const revalidate = 0;
 function mediaItemUrls(row: { id: string; publicToken: string; mimeType: string }) {
   const openUrl = `/api/public/media/item/${row.id}/${row.publicToken}`;
   const downloadUrl = `/api/public/media/item/${row.id}/${row.publicToken}?download=1`;
-  const shareUrl = `/media/i/${row.id}/${row.publicToken}`;
+  const shareUrl = openUrl;
   const previewUrl = String(row.mimeType || "").startsWith("image/") ? openUrl : undefined;
   return { openUrl, downloadUrl, shareUrl, previewUrl };
 }
 
-function folderShareUrl(row: { id: string; publicToken: string }) {
-  return `/api/public/media/folder/${row.id}/${row.publicToken}`;
+function folderUrls(row: { id: string; publicToken: string }) {
+  const shareUrl = `/media/f/${row.id}/${row.publicToken}`;
+  const downloadUrl = `/api/public/media/folder/${row.id}/${row.publicToken}`;
+  return { shareUrl, downloadUrl };
 }
 
 function safeZipSegment(name: string) {
@@ -75,7 +77,7 @@ export async function GET(
         parentId: folder.parentId,
         tag: folder.tag,
         createdAt: folder.createdAt.toISOString(),
-        shareUrl: folderShareUrl(folder),
+        ...folderUrls(folder),
       },
       folders: folders.map((f: any) => ({
         id: f.id,
@@ -83,7 +85,7 @@ export async function GET(
         parentId: f.parentId,
         tag: f.tag,
         createdAt: f.createdAt.toISOString(),
-        shareUrl: folderShareUrl(f),
+        ...folderUrls(f),
       })),
       items: items.map((it: any) => ({
         id: it.id,
