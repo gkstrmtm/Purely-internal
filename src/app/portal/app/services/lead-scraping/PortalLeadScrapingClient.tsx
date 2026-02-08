@@ -1309,14 +1309,16 @@ export function PortalLeadScrapingClient() {
         </div>
       </div>
 
-      <div className="mt-6 flex flex-wrap gap-2">
+      <div className="mt-6 flex w-full flex-wrap gap-2">
         <button
           type="button"
           onClick={() => setTab("b2b")}
+          aria-current={tab === "b2b" ? "page" : undefined}
           className={
-            tab === "b2b"
-              ? "rounded-full bg-brand-ink px-4 py-2 text-sm font-semibold text-white"
-              : "rounded-full border border-zinc-200 bg-white px-4 py-2 text-sm font-semibold text-brand-ink hover:bg-zinc-50"
+            "flex-1 min-w-[220px] rounded-2xl border px-4 py-2.5 text-sm font-semibold transition focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-ink/60 " +
+            (tab === "b2b"
+              ? "border-zinc-900 bg-zinc-900 text-white shadow-sm"
+              : "border-zinc-200 bg-white text-zinc-700 hover:bg-zinc-50")
           }
         >
           B2B (Business listings)
@@ -1324,10 +1326,12 @@ export function PortalLeadScrapingClient() {
         <button
           type="button"
           onClick={() => setTab("b2c")}
+          aria-current={tab === "b2c" ? "page" : undefined}
           className={
-            tab === "b2c"
-              ? "rounded-full bg-brand-ink px-4 py-2 text-sm font-semibold text-white"
-              : "rounded-full border border-zinc-200 bg-white px-4 py-2 text-sm font-semibold text-brand-ink hover:bg-zinc-50"
+            "flex-1 min-w-[220px] rounded-2xl border px-4 py-2.5 text-sm font-semibold transition focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-ink/60 " +
+            (tab === "b2c"
+              ? "border-zinc-900 bg-zinc-900 text-white shadow-sm"
+              : "border-zinc-200 bg-white text-zinc-700 hover:bg-zinc-50")
           }
         >
           B2C (Consumer)

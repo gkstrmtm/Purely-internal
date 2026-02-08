@@ -755,48 +755,56 @@ export function PortalBookingClient() {
         </div>
       </div>
 
-      <div className="mt-4 inline-flex rounded-2xl border border-zinc-200 bg-white p-1">
+      <div className="mt-6 flex w-full flex-wrap gap-2">
         <button
           type="button"
-          className={
-            topTab === "settings"
-              ? "rounded-2xl bg-zinc-900 px-4 py-2 text-sm font-semibold text-white"
-              : "rounded-2xl px-4 py-2 text-sm font-semibold text-zinc-700 hover:bg-zinc-50"
-          }
           onClick={() => setTopTabWithUrl("settings")}
+          aria-current={topTab === "settings" ? "page" : undefined}
+          className={
+            "flex-1 min-w-[160px] rounded-2xl border px-4 py-2.5 text-sm font-semibold transition focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-ink/60 " +
+            (topTab === "settings"
+              ? "border-zinc-900 bg-zinc-900 text-white shadow-sm"
+              : "border-zinc-200 bg-white text-zinc-700 hover:bg-zinc-50")
+          }
         >
           Settings
         </button>
         <button
           type="button"
-          className={
-            topTab === "appointments"
-              ? "rounded-2xl bg-zinc-900 px-4 py-2 text-sm font-semibold text-white"
-              : "rounded-2xl px-4 py-2 text-sm font-semibold text-zinc-700 hover:bg-zinc-50"
-          }
           onClick={() => setTopTabWithUrl("appointments")}
+          aria-current={topTab === "appointments" ? "page" : undefined}
+          className={
+            "flex-1 min-w-[160px] rounded-2xl border px-4 py-2.5 text-sm font-semibold transition focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-ink/60 " +
+            (topTab === "appointments"
+              ? "border-zinc-900 bg-zinc-900 text-white shadow-sm"
+              : "border-zinc-200 bg-white text-zinc-700 hover:bg-zinc-50")
+          }
         >
           Appointments
         </button>
         <button
           type="button"
-          className={
-            topTab === "reminders"
-              ? "rounded-2xl bg-zinc-900 px-4 py-2 text-sm font-semibold text-white"
-              : "rounded-2xl px-4 py-2 text-sm font-semibold text-zinc-700 hover:bg-zinc-50"
-          }
           onClick={() => setTopTabWithUrl("reminders")}
+          aria-current={topTab === "reminders" ? "page" : undefined}
+          className={
+            "flex-1 min-w-[160px] rounded-2xl border px-4 py-2.5 text-sm font-semibold transition focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-ink/60 " +
+            (topTab === "reminders"
+              ? "border-zinc-900 bg-zinc-900 text-white shadow-sm"
+              : "border-zinc-200 bg-white text-zinc-700 hover:bg-zinc-50")
+          }
         >
           Reminders
         </button>
         <button
           type="button"
-          className={
-            topTab === "follow-up"
-              ? "rounded-2xl bg-zinc-900 px-4 py-2 text-sm font-semibold text-white"
-              : "rounded-2xl px-4 py-2 text-sm font-semibold text-zinc-700 hover:bg-zinc-50"
-          }
           onClick={() => setTopTabWithUrl("follow-up")}
+          aria-current={topTab === "follow-up" ? "page" : undefined}
+          className={
+            "flex-1 min-w-[160px] rounded-2xl border px-4 py-2.5 text-sm font-semibold transition focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-ink/60 " +
+            (topTab === "follow-up"
+              ? "border-zinc-900 bg-zinc-900 text-white shadow-sm"
+              : "border-zinc-200 bg-white text-zinc-700 hover:bg-zinc-50")
+          }
         >
           Follow-up
         </button>
