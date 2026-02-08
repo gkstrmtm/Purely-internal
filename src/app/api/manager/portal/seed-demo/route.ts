@@ -51,6 +51,7 @@ const bodySchema = z
     fullPassword: z.string().min(6).optional(),
     limitedEmail: z.string().email().optional(),
     limitedPassword: z.string().min(6).optional(),
+    forceInboxSeed: z.boolean().optional(),
   })
   .optional();
 
@@ -80,6 +81,19 @@ export async function POST(req: Request) {
 
     const fullPassword = parsed.data?.fullPassword ?? randomPassword();
     const limitedPassword = parsed.data?.limitedPassword ?? randomPassword();
+    const forceInboxSeed = parsed.data?.forceInboxSeed === true;
+
+    const envDemoFull = (process.env.DEMO_PORTAL_FULL_EMAIL ?? "").trim().toLowerCase();
+    const allowForceInbox = fullEmail === "demo-full@purelyautomation.dev" || (envDemoFull && fullEmail === envDemoFull);
+    if (forceInboxSeed && !allowForceInbox) {
+      return NextResponse.json(
+        {
+          error: "Forbidden",
+          details: "forceInboxSeed is only allowed for the demo-full account.",
+        },
+        { status: 403, headers: { "cache-control": "no-store" } },
+      );
+    }
 
     const fullPasswordHash = await hashPassword(fullPassword);
     const limitedPasswordHash = await hashPassword(limitedPassword);
@@ -139,18 +153,70 @@ export async function POST(req: Request) {
     }
 
     // Seed sample Inbox / Outbox data for the full demo user.
-    // Idempotent: only seeds when the user has no inbox messages.
+    // Idempotent by default: only seeds when the user has no inbox messages.
+    // Use `forceInboxSeed` to wipe demo inbox data and reseed.
+    let inboxSeed:
+      | {
+          ok: true;
+          forced: boolean;
+          existingCountBefore: number;
+          deletedThreads: number;
+          deletedAttachments: number;
+          insertedMessages: number;
+          seededThreads: number;
+          skipped: boolean;
+        }
+      | { ok: false; forced: boolean; error: string } = {
+      ok: true,
+      forced: forceInboxSeed,
+      existingCountBefore: 0,
+      deletedThreads: 0,
+      deletedAttachments: 0,
+      insertedMessages: 0,
+      seededThreads: 0,
+      skipped: true,
+    };
+
     try {
       await ensurePortalInboxSchema();
-      const existingCount = await (prisma as any).portalInboxMessage.count({
+
+      const existingCountBefore = await (prisma as any).portalInboxMessage.count({
         where: { ownerId: fullUser.id },
       });
 
-      if (!existingCount) {
+      let deletedThreads = 0;
+      let deletedAttachments = 0;
+
+      if (forceInboxSeed) {
+        // Remove any demo inbox data for the demo-full account.
+        // Delete threads (cascades to messages) and attachments owned by the user.
+        const attachmentsRes = await (prisma as any).portalInboxAttachment.deleteMany({
+          where: { ownerId: fullUser.id },
+        });
+        deletedAttachments = attachmentsRes?.count ?? 0;
+
+        const threadsRes = await (prisma as any).portalInboxThread.deleteMany({
+          where: { ownerId: fullUser.id },
+        });
+        deletedThreads = threadsRes?.count ?? 0;
+      }
+
+      const existingCountAfter = await (prisma as any).portalInboxMessage.count({
+        where: { ownerId: fullUser.id },
+      });
+
+      let insertedMessages = 0;
+      const seededThreadKeys = new Set<string>();
+
+      if (!existingCountAfter) {
         const now = Date.now();
         const minutesAgo = (m: number) => new Date(now - m * 60 * 1000);
 
-        const seedEmailThread = async (peerEmail: string, subject: string, msgs: Array<{ dir: "IN" | "OUT"; body: string; atMinAgo: number }>) => {
+        const seedEmailThread = async (
+          peerEmail: string,
+          subject: string,
+          msgs: Array<{ dir: "IN" | "OUT"; body: string; atMinAgo: number }>,
+        ) => {
           const key = makeEmailThreadKey(peerEmail, subject);
           if (!key) return;
 
@@ -173,10 +239,15 @@ export async function POST(req: Request) {
               providerMessageId: `demo-email-${key.peerKey}-${Math.abs(msg.atMinAgo)}`,
               createdAt: minutesAgo(msg.atMinAgo),
             });
+            insertedMessages += 1;
+            seededThreadKeys.add(`EMAIL:${key.threadKey}`);
           }
         };
 
-        const seedSmsThread = async (peerE164: string, msgs: Array<{ dir: "IN" | "OUT"; body: string; atMinAgo: number }>) => {
+        const seedSmsThread = async (
+          peerE164: string,
+          msgs: Array<{ dir: "IN" | "OUT"; body: string; atMinAgo: number }>,
+        ) => {
           const key = makeSmsThreadKey(peerE164);
           for (const msg of msgs) {
             const fromAddress = msg.dir === "IN" ? peerE164 : "+15551230000";
@@ -195,23 +266,45 @@ export async function POST(req: Request) {
               providerMessageId: `demo-sms-${peerE164}-${Math.abs(msg.atMinAgo)}`,
               createdAt: minutesAgo(msg.atMinAgo),
             });
+            insertedMessages += 1;
+            seededThreadKeys.add(`SMS:${key.threadKey}`);
           }
         };
 
         await seedEmailThread("sarah@acmehomes.com", "Follow up on your quote", [
-          { dir: "IN", atMinAgo: 720, body: "Hi! Quick question — does your quote include installation and removal of the old unit?" },
-          { dir: "OUT", atMinAgo: 700, body: "Yes — installation is included, and we can remove the old unit as well. Want me to send over a couple available time slots?" },
+          {
+            dir: "IN",
+            atMinAgo: 720,
+            body: "Hi! Quick question — does your quote include installation and removal of the old unit?",
+          },
+          {
+            dir: "OUT",
+            atMinAgo: 700,
+            body: "Yes — installation is included, and we can remove the old unit as well. Want me to send over a couple available time slots?",
+          },
           { dir: "IN", atMinAgo: 680, body: "That works. Do you have anything Thursday afternoon?" },
-          { dir: "OUT", atMinAgo: 670, body: "Thursday 2:30pm or 4:00pm are open. Reply with the best one and we’ll lock it in." },
+          {
+            dir: "OUT",
+            atMinAgo: 670,
+            body: "Thursday 2:30pm or 4:00pm are open. Reply with the best one and we’ll lock it in.",
+          },
         ]);
 
         await seedEmailThread("billing@vendor-example.com", "Invoice #10492", [
-          { dir: "IN", atMinAgo: 2880, body: "Hello — attached is Invoice #10492. Let us know if you need anything." },
+          {
+            dir: "IN",
+            atMinAgo: 2880,
+            body: "Hello — attached is Invoice #10492. Let us know if you need anything.",
+          },
           { dir: "OUT", atMinAgo: 2870, body: "Thanks! We received it and will process payment today." },
         ]);
 
         await seedEmailThread("alex@partnerships.example", "Partnership opportunity", [
-          { dir: "IN", atMinAgo: 10080, body: "Hey there — I’d love to explore a partnership. Are you open to a quick call next week?" },
+          {
+            dir: "IN",
+            atMinAgo: 10080,
+            body: "Hey there — I’d love to explore a partnership. Are you open to a quick call next week?",
+          },
           { dir: "OUT", atMinAgo: 10060, body: "Yes, open to it. What days/times work best for you?" },
           { dir: "IN", atMinAgo: 10020, body: "Tuesday at 11am ET would be great." },
         ]);
@@ -231,14 +324,26 @@ export async function POST(req: Request) {
           { dir: "IN", atMinAgo: 1415, body: "Yes please." },
         ]);
       }
-    } catch {
-      // Never fail demo seeding due to sample inbox data.
+
+      inboxSeed = {
+        ok: true,
+        forced: forceInboxSeed,
+        existingCountBefore,
+        deletedThreads,
+        deletedAttachments,
+        insertedMessages,
+        seededThreads: seededThreadKeys.size,
+        skipped: existingCountAfter > 0,
+      };
+    } catch (e) {
+      inboxSeed = { ok: false, forced: forceInboxSeed, error: toErrorMessage(e) };
     }
 
     return NextResponse.json(
       {
         full: { ...fullUser, password: fullPassword },
         limited: { ...limitedUser, password: limitedPassword },
+        inboxSeed,
       },
       {
         headers: {

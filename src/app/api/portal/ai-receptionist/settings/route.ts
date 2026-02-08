@@ -11,18 +11,10 @@ import {
   toPublicSettings,
 } from "@/lib/aiReceptionist";
 import { getOwnerTwilioSmsConfigMasked } from "@/lib/portalTwilio";
+import { webhookUrlFromRequest } from "@/lib/webhookBase";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
-
-function baseUrlFromRequest(req: Request): string {
-  const env = process.env.NEXTAUTH_URL;
-  if (env && env.startsWith("http")) return env.replace(/\/$/, "");
-
-  const proto = req.headers.get("x-forwarded-proto") || "http";
-  const host = req.headers.get("x-forwarded-host") || req.headers.get("host") || "localhost:3000";
-  return `${proto}://${host}`;
-}
 
 export async function GET(req: Request) {
   const auth = await requireClientSession();
@@ -37,8 +29,11 @@ export async function GET(req: Request) {
   const data = await getAiReceptionistServiceData(ownerId);
   const events = await listAiReceptionistEvents(ownerId, 80);
 
-  const base = baseUrlFromRequest(req);
-  const webhookUrl = `${base}/api/public/twilio/ai-receptionist/${data.settings.webhookToken}/voice`;
+  const webhookUrl = webhookUrlFromRequest(req, "/api/public/twilio/voice");
+  const webhookUrlLegacy = webhookUrlFromRequest(
+    req,
+    `/api/public/twilio/ai-receptionist/${data.settings.webhookToken}/voice`,
+  );
 
   const twilio = await getOwnerTwilioSmsConfigMasked(ownerId).catch(() => null);
 
@@ -47,6 +42,7 @@ export async function GET(req: Request) {
     settings: toPublicSettings(data.settings),
     events,
     webhookUrl,
+    webhookUrlLegacy,
     twilioConfigured: Boolean(twilio?.configured),
     twilio: twilio ?? undefined,
     notes: {
@@ -86,9 +82,9 @@ export async function PUT(req: Request) {
   if (parsed.data.regenerateToken) {
     const next = await regenerateAiReceptionistWebhookToken(ownerId);
     const events = await listAiReceptionistEvents(ownerId, 80);
-    const base = baseUrlFromRequest(req);
-    const webhookUrl = `${base}/api/public/twilio/ai-receptionist/${next.webhookToken}/voice`;
-    return NextResponse.json({ ok: true, settings: toPublicSettings(next), events, webhookUrl });
+    const webhookUrl = webhookUrlFromRequest(req, "/api/public/twilio/voice");
+    const webhookUrlLegacy = webhookUrlFromRequest(req, `/api/public/twilio/ai-receptionist/${next.webhookToken}/voice`);
+    return NextResponse.json({ ok: true, settings: toPublicSettings(next), events, webhookUrl, webhookUrlLegacy });
   }
 
   const current = await getAiReceptionistServiceData(ownerId);
@@ -109,8 +105,7 @@ export async function PUT(req: Request) {
   const next = await setAiReceptionistSettings(ownerId, normalized);
 
   const events = await listAiReceptionistEvents(ownerId, 80);
-  const base = baseUrlFromRequest(req);
-  const webhookUrl = `${base}/api/public/twilio/ai-receptionist/${next.webhookToken}/voice`;
-
-  return NextResponse.json({ ok: true, settings: toPublicSettings(next), events, webhookUrl });
+  const webhookUrl = webhookUrlFromRequest(req, "/api/public/twilio/voice");
+  const webhookUrlLegacy = webhookUrlFromRequest(req, `/api/public/twilio/ai-receptionist/${next.webhookToken}/voice`);
+  return NextResponse.json({ ok: true, settings: toPublicSettings(next), events, webhookUrl, webhookUrlLegacy });
 }

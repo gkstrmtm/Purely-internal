@@ -697,9 +697,10 @@ export function PortalInboxClient() {
                         onSend();
                       }
                     }}
-                    placeholder="iMessage"
+                    placeholder="SMS"
                     className="w-full bg-transparent px-1 text-[15px] text-zinc-900 placeholder:text-zinc-400 focus:outline-none"
                   />
+
 
                   <button
                     type="button"

@@ -8,6 +8,7 @@ import {
   sendOwnerSms,
 } from "@/lib/missedCallTextBack";
 import { normalizePhoneStrict } from "@/lib/phone";
+import { webhookUrlFromRequest } from "@/lib/webhookBase";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
@@ -20,15 +21,6 @@ function xmlResponse(xml: string, status = 200) {
       "cache-control": "no-store",
     },
   });
-}
-
-function baseUrlFromRequest(req: Request): string {
-  const env = process.env.NEXTAUTH_URL;
-  if (env && env.startsWith("http")) return env.replace(/\/$/, "");
-
-  const proto = req.headers.get("x-forwarded-proto") || "http";
-  const host = req.headers.get("x-forwarded-host") || req.headers.get("host") || "localhost:3000";
-  return `${proto}://${host}`;
 }
 
 export async function POST(req: Request, ctx: { params: Promise<{ token: string }> }) {
@@ -79,8 +71,7 @@ export async function POST(req: Request, ctx: { params: Promise<{ token: string 
   const profilePhone = await getOwnerProfilePhoneE164(ownerId);
   const forwardTo = settings.forwardToPhoneE164 || profilePhone;
 
-  const base = baseUrlFromRequest(req);
-  const actionUrl = `${base}/api/public/twilio/missed-call-textback/${token}/dial-action`;
+  const actionUrl = webhookUrlFromRequest(req, `/api/public/twilio/missed-call-textback/${token}/dial-action`);
 
   // If we can’t forward, treat it as a “missed call” and (optionally) text back immediately.
   if (!forwardTo) {

@@ -7,6 +7,7 @@ import {
 } from "@/lib/aiReceptionist";
 import { getCreditsState } from "@/lib/credits";
 import { normalizePhoneStrict } from "@/lib/phone";
+import { webhookUrlFromRequest } from "@/lib/webhookBase";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -29,12 +30,6 @@ function xmlResponse(xml: string, status = 200) {
       "cache-control": "no-store",
     },
   });
-}
-
-function baseUrlFromRequest(req: Request): string {
-  const proto = req.headers.get("x-forwarded-proto") || "http";
-  const host = req.headers.get("x-forwarded-host") || req.headers.get("host") || "localhost:3000";
-  return `${proto}://${host}`.replace(/\/$/, "");
 }
 
 export async function POST(req: Request, ctx: { params: Promise<{ token: string }> }) {
@@ -145,8 +140,10 @@ export async function POST(req: Request, ctx: { params: Promise<{ token: string 
   const greeting = settings.greeting || "Thanks for calling — how can I help?";
 
   // Charge credits per started minute using Twilio's RecordingDuration callback.
-  const base = baseUrlFromRequest(req);
-  const recordingAction = `${base}/api/public/twilio/ai-receptionist/${encodeURIComponent(token)}/recording`;
+  const recordingAction = webhookUrlFromRequest(
+    req,
+    `/api/public/twilio/ai-receptionist/${encodeURIComponent(token)}/recording`,
+  );
   const xml = `<?xml version="1.0" encoding="UTF-8"?>
 <Response>
   <Say voice="Polly.Joanna">${xmlEscape(greeting)}</Say>
@@ -157,3 +154,4 @@ export async function POST(req: Request, ctx: { params: Promise<{ token: string 
 
   return xmlResponse(xml);
 }
+

@@ -4,18 +4,10 @@ import { z } from "zod";
 import { requireClientSession } from "@/lib/apiAuth";
 import { getOwnerTwilioSmsConfigMasked } from "@/lib/portalTwilio";
 import { getPortalInboxSettings, regeneratePortalInboxWebhookToken } from "@/lib/portalInbox";
+import { webhookUrlFromRequest } from "@/lib/webhookBase";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
-
-function baseUrlFromRequest(req: Request): string {
-  const env = process.env.NEXTAUTH_URL;
-  if (env && env.startsWith("http")) return env.replace(/\/$/, "");
-
-  const proto = req.headers.get("x-forwarded-proto") || "http";
-  const host = req.headers.get("x-forwarded-host") || req.headers.get("host") || "localhost:3000";
-  return `${proto}://${host}`.replace(/\/$/, "");
-}
 
 export async function GET(req: Request) {
   const auth = await requireClientSession();
@@ -32,15 +24,23 @@ export async function GET(req: Request) {
     getOwnerTwilioSmsConfigMasked(ownerId),
   ]);
 
-  const base = baseUrlFromRequest(req);
-
   return NextResponse.json({
     ok: true,
     settings,
     twilio,
     webhooks: {
-      twilioInboundSmsUrl: `${base}/api/public/inbox/${settings.webhookToken}/twilio/sms`,
-      sendgridInboundEmailUrl: `${base}/api/public/inbox/${settings.webhookToken}/sendgrid/inbound`,
+      // Universal router URL (recommended): works even when multiple services share the same Twilio number.
+      // Routes by Twilio "To" number → owner.
+      twilioInboundSmsUrl: webhookUrlFromRequest(req, "/api/public/twilio/sms"),
+      // Legacy per-owner token URL (still supported).
+      twilioInboundSmsUrlLegacy: webhookUrlFromRequest(
+        req,
+        `/api/public/inbox/${settings.webhookToken}/twilio/sms`,
+      ),
+      sendgridInboundEmailUrl: webhookUrlFromRequest(
+        req,
+        `/api/public/inbox/${settings.webhookToken}/sendgrid/inbound`,
+      ),
     },
   });
 }
@@ -69,15 +69,20 @@ export async function PUT(req: Request) {
     getOwnerTwilioSmsConfigMasked(ownerId),
   ]);
 
-  const base = baseUrlFromRequest(req);
-
   return NextResponse.json({
     ok: true,
     settings,
     twilio,
     webhooks: {
-      twilioInboundSmsUrl: `${base}/api/public/inbox/${settings.webhookToken}/twilio/sms`,
-      sendgridInboundEmailUrl: `${base}/api/public/inbox/${settings.webhookToken}/sendgrid/inbound`,
+      twilioInboundSmsUrl: webhookUrlFromRequest(req, "/api/public/twilio/sms"),
+      twilioInboundSmsUrlLegacy: webhookUrlFromRequest(
+        req,
+        `/api/public/inbox/${settings.webhookToken}/twilio/sms`,
+      ),
+      sendgridInboundEmailUrl: webhookUrlFromRequest(
+        req,
+        `/api/public/inbox/${settings.webhookToken}/sendgrid/inbound`,
+      ),
     },
   });
 }

@@ -6,6 +6,14 @@ const nextConfig: NextConfig = {
     // lockfiles exist elsewhere on disk.
     root: __dirname,
   },
+  async rewrites() {
+    return [
+      {
+        source: "/hooks/:path*",
+        destination: "/:path*",
+      },
+    ];
+  },
 };
 
 export default nextConfig;

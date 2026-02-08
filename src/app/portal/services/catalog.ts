@@ -16,7 +16,7 @@ export const PORTAL_SERVICES: PortalService[] = [
     description: "Email + SMS threads in one place.",
     highlights: [
       "Email threads (Gmail-style)",
-      "SMS threads (iMessage-style)",
+       "SMS threads",
       "Send messages directly from the portal",
     ],
     included: true,

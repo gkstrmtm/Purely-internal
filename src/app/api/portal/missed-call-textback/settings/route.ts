@@ -11,18 +11,10 @@ import {
   getOwnerProfilePhoneE164,
 } from "@/lib/missedCallTextBack";
 import { getOwnerTwilioSmsConfigMasked } from "@/lib/portalTwilio";
+import { webhookUrlFromRequest } from "@/lib/webhookBase";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
-
-function baseUrlFromRequest(req: Request): string {
-  const env = process.env.NEXTAUTH_URL;
-  if (env && env.startsWith("http")) return env.replace(/\/$/, "");
-
-  const proto = req.headers.get("x-forwarded-proto") || "http";
-  const host = req.headers.get("x-forwarded-host") || req.headers.get("host") || "localhost:3000";
-  return `${proto}://${host}`;
-}
 
 export async function GET(req: Request) {
   const auth = await requireClientSession();
@@ -40,8 +32,11 @@ export async function GET(req: Request) {
   ]);
 
   const twilio = await getOwnerTwilioSmsConfigMasked(ownerId);
-  const base = baseUrlFromRequest(req);
-  const webhookUrl = `${base}/api/public/twilio/missed-call-textback/${data.settings.webhookToken}/voice`;
+  const webhookUrl = webhookUrlFromRequest(req, "/api/public/twilio/voice");
+  const webhookUrlLegacy = webhookUrlFromRequest(
+    req,
+    `/api/public/twilio/missed-call-textback/${data.settings.webhookToken}/voice`,
+  );
 
   const events = await listMissedCallTextBackEvents(ownerId, 120);
 
@@ -53,6 +48,7 @@ export async function GET(req: Request) {
     twilioConfigured: twilio.configured,
     twilioReason: twilio.configured ? undefined : "Twilio not configured in portal",
     webhookUrl,
+    webhookUrlLegacy,
     notes: {
       variables: ["{from}", "{to}"],
     },
@@ -86,8 +82,8 @@ export async function PUT(req: Request) {
     const events = await listMissedCallTextBackEvents(ownerId, 120);
     const profilePhone = await getOwnerProfilePhoneE164(ownerId);
     const twilio = await getOwnerTwilioSmsConfigMasked(ownerId);
-    const base = baseUrlFromRequest(req);
-    const webhookUrl = `${base}/api/public/twilio/missed-call-textback/${next.webhookToken}/voice`;
+    const webhookUrl = webhookUrlFromRequest(req, "/api/public/twilio/voice");
+    const webhookUrlLegacy = webhookUrlFromRequest(req, `/api/public/twilio/missed-call-textback/${next.webhookToken}/voice`);
 
     return NextResponse.json({
       ok: true,
@@ -97,6 +93,7 @@ export async function PUT(req: Request) {
       twilioConfigured: twilio.configured,
       twilioReason: twilio.configured ? undefined : "Twilio not configured in portal",
       webhookUrl,
+      webhookUrlLegacy,
       notes: { variables: ["{from}", "{to}"] },
     });
   }
@@ -106,8 +103,8 @@ export async function PUT(req: Request) {
   const events = await listMissedCallTextBackEvents(ownerId, 120);
   const profilePhone = await getOwnerProfilePhoneE164(ownerId);
   const twilio = await getOwnerTwilioSmsConfigMasked(ownerId);
-  const base = baseUrlFromRequest(req);
-  const webhookUrl = `${base}/api/public/twilio/missed-call-textback/${next.webhookToken}/voice`;
+  const webhookUrl = webhookUrlFromRequest(req, "/api/public/twilio/voice");
+  const webhookUrlLegacy = webhookUrlFromRequest(req, `/api/public/twilio/missed-call-textback/${next.webhookToken}/voice`);
 
   return NextResponse.json({
     ok: true,
@@ -117,6 +114,7 @@ export async function PUT(req: Request) {
     twilioConfigured: twilio.configured,
     twilioReason: twilio.configured ? undefined : "Twilio not configured in portal",
     webhookUrl,
+    webhookUrlLegacy,
     notes: { variables: ["{from}", "{to}"] },
   });
 }
