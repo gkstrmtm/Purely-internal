@@ -527,7 +527,9 @@ export function PortalReportingClient() {
   }
 
   async function loadMe() {
-    const res = await fetch("/api/customer/me", { cache: "no-store" }).catch(() => null as any);
+    const res = await fetch("/api/customer/me", { cache: "no-store", headers: { "x-pa-app": "portal" } }).catch(
+      () => null as any,
+    );
     if (!res?.ok) return;
     const body = (await res.json().catch(() => ({}))) as MeResponse;
     setMe(body ?? null);

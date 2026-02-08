@@ -7,19 +7,27 @@ import type { Entitlements } from "@/lib/entitlements";
 import { resolveEntitlements } from "@/lib/entitlements";
 import { getPortalUser } from "@/lib/portalAuth";
 
-export async function GET() {
+export async function GET(req: Request) {
   // This endpoint is used by both the employee app and the client portal.
-  // Prefer the employee session when present, otherwise fall back to the portal session cookie.
-  const session = await getServerSession(authOptions);
-  const employeeUser = session?.user ?? null;
+  // IMPORTANT: in the same browser, both auth cookies can coexist. Portal requests must
+  // explicitly bind to the portal cookie to avoid being treated as an employee session.
+  const app = (req.headers.get("x-pa-app") ?? "").toLowerCase().trim();
 
-  const portalUser = employeeUser ? null : await getPortalUser();
-
-  const user = employeeUser
-    ? { email: employeeUser.email ?? "", name: employeeUser.name ?? "", role: employeeUser.role }
-    : portalUser
-      ? { email: portalUser.email, name: portalUser.name ?? "", role: portalUser.role }
-      : null;
+  const user =
+    app === "portal"
+      ? await (async () => {
+          const portalUser = await getPortalUser();
+          return portalUser
+            ? { email: portalUser.email, name: portalUser.name ?? "", role: portalUser.role }
+            : null;
+        })()
+      : await (async () => {
+          const session = await getServerSession(authOptions);
+          const employeeUser = session?.user ?? null;
+          return employeeUser
+            ? { email: employeeUser.email ?? "", name: employeeUser.name ?? "", role: employeeUser.role }
+            : null;
+        })();
 
   if (!user) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });

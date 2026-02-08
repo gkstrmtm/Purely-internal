@@ -33,7 +33,10 @@ export function PortalServicePageClient({ slug }: { slug: string }) {
   useEffect(() => {
     let mounted = true;
     (async () => {
-      const res = await fetch("/api/customer/me", { cache: "no-store" });
+      const res = await fetch("/api/customer/me", {
+        cache: "no-store",
+        headers: { "x-pa-app": "portal" },
+      });
       if (!mounted) return;
       if (!res.ok) {
         setLoading(false);

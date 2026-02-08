@@ -51,7 +51,7 @@ export function PortalBillingClient() {
     (async () => {
       const [billingRes, meRes, summaryRes, creditsRes] = await Promise.all([
         fetch("/api/billing/status", { cache: "no-store" }),
-        fetch("/api/customer/me", { cache: "no-store" }),
+        fetch("/api/customer/me", { cache: "no-store", headers: { "x-pa-app": "portal" } }),
         fetch("/api/portal/billing/summary", { cache: "no-store" }),
         fetch("/api/portal/credits", { cache: "no-store" }),
       ]);

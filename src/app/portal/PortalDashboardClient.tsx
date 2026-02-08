@@ -256,7 +256,11 @@ export function PortalDashboardClient() {
 
       try {
         const [meRes, dashRes, repRes] = await Promise.all([
-          fetch("/api/customer/me", { cache: "no-store", signal: controller.signal }),
+          fetch("/api/customer/me", {
+            cache: "no-store",
+            signal: controller.signal,
+            headers: { "x-pa-app": "portal" },
+          }),
           fetch("/api/portal/dashboard", { cache: "no-store", signal: controller.signal }),
           fetch("/api/portal/reporting?range=30d", { cache: "no-store", signal: controller.signal }).catch(() => null as any),
         ]);

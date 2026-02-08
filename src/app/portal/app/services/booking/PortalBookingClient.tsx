@@ -320,7 +320,7 @@ export function PortalBookingClient() {
   async function refreshAll() {
     setError(null);
     const [meRes, settingsRes, bookingsRes, formRes, calendarsRes, blocksRes, remindersRes] = await Promise.all([
-      fetch("/api/customer/me", { cache: "no-store" }),
+      fetch("/api/customer/me", { cache: "no-store", headers: { "x-pa-app": "portal" } }),
       fetch("/api/portal/booking/settings", { cache: "no-store" }),
       fetch("/api/portal/booking/bookings", { cache: "no-store" }),
       fetch("/api/portal/booking/form", { cache: "no-store" }),

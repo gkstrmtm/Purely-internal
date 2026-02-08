@@ -142,7 +142,7 @@ export function PortalAppointmentRemindersClient() {
     setError(null);
 
     const [meRes, calendarsRes] = await Promise.all([
-      fetch("/api/customer/me", { cache: "no-store" }),
+      fetch("/api/customer/me", { cache: "no-store", headers: { "x-pa-app": "portal" } }),
       fetch("/api/portal/booking/calendars", { cache: "no-store" }),
     ]);
 

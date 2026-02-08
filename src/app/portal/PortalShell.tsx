@@ -54,7 +54,10 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     let mounted = true;
     (async () => {
-      const res = await fetch("/api/customer/me", { cache: "no-store" });
+      const res = await fetch("/api/customer/me", {
+        cache: "no-store",
+        headers: { "x-pa-app": "portal" },
+      });
       if (!mounted) return;
       if (!res.ok) return;
       const json = (await res.json()) as Me;
