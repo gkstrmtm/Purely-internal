@@ -73,6 +73,7 @@ function badgeClass(kind: string) {
 export function PortalAiReceptionistClient() {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+  const [savingEnabled, setSavingEnabled] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [note, setNote] = useState<string | null>(null);
 
@@ -85,6 +86,7 @@ export function PortalAiReceptionistClient() {
   const [events, setEvents] = useState<EventRow[]>([]);
   const [webhookUrl, setWebhookUrl] = useState<string>("");
   const [webhookUrlLegacy, setWebhookUrlLegacy] = useState<string>("");
+  const [twilioConfigured, setTwilioConfigured] = useState<boolean>(false);
 
   const [voiceAgentApiKey, setVoiceAgentApiKey] = useState<string>("");
 
@@ -124,6 +126,7 @@ export function PortalAiReceptionistClient() {
     setEvents(Array.isArray(data.events) ? data.events : []);
     setWebhookUrl(data.webhookUrl || "");
     setWebhookUrlLegacy(typeof data.webhookUrlLegacy === "string" ? data.webhookUrlLegacy : "");
+    setTwilioConfigured(Boolean(data.twilioConfigured ?? data.twilio?.configured));
     setLoading(false);
   }
 
@@ -196,6 +199,30 @@ export function PortalAiReceptionistClient() {
     setSaving(false);
     setNote("Saved.");
     window.setTimeout(() => setNote(null), 1800);
+  }
+
+  async function saveEnabled(nextEnabled: boolean) {
+    if (!settings) return;
+    const prev = settings.enabled;
+
+    setSavingEnabled(true);
+    setError(null);
+
+    const res = await fetch("/api/portal/ai-receptionist/settings", {
+      method: "PUT",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ settings: { enabled: nextEnabled } }),
+    }).catch(() => null as any);
+
+    const data = (await res?.json?.().catch(() => null)) as ApiPayload | null;
+    if (!res?.ok || !data?.ok) {
+      setSavingEnabled(false);
+      setSettings((cur) => (cur ? { ...cur, enabled: prev } : cur));
+      setError(data?.error || "Save failed.");
+      return;
+    }
+
+    setSavingEnabled(false);
   }
 
   async function regenerateToken() {
@@ -359,7 +386,13 @@ export function PortalAiReceptionistClient() {
                 <input
                   type="checkbox"
                   checked={Boolean(settings?.enabled)}
-                  onChange={(e) => settings && setSettings({ ...settings, enabled: e.target.checked })}
+                  disabled={saving || savingEnabled || !settings}
+                  onChange={(e) => {
+                    if (!settings) return;
+                    const nextEnabled = e.target.checked;
+                    setSettings({ ...settings, enabled: nextEnabled });
+                    void saveEnabled(nextEnabled);
+                  }}
                 />
                 On
               </label>
@@ -482,7 +515,14 @@ export function PortalAiReceptionistClient() {
             accent="blue"
           >
             <div className="space-y-3">
-              <div className="rounded-2xl border border-zinc-200 bg-zinc-50 p-4">
+              <div
+                className={
+                  "rounded-2xl border p-4 " +
+                  (twilioConfigured
+                    ? "border-[color:rgba(29,78,216,0.18)] bg-[color:rgba(29,78,216,0.06)]"
+                    : "border-red-200 bg-red-50")
+                }
+              >
                 <div className="text-xs font-semibold text-zinc-600">Webhook URL (token-based)</div>
                 <div className="mt-2 break-all font-mono text-xs text-zinc-800">{webhookUrlLegacy || "—"}</div>
                 <div className="mt-3 flex items-center justify-between gap-2">
@@ -526,7 +566,14 @@ export function PortalAiReceptionistClient() {
             Point a Twilio number to the webhook URL, then call that number. You’ll see recent calls in Activity.
           </div>
 
-          <div className="mt-4 rounded-2xl border border-zinc-200 bg-zinc-50 p-4">
+          <div
+            className={
+              "mt-4 rounded-2xl border p-4 " +
+              (twilioConfigured
+                ? "border-[color:rgba(29,78,216,0.18)] bg-[color:rgba(29,78,216,0.06)]"
+                : "border-red-200 bg-red-50")
+            }
+          >
             <div className="text-xs font-semibold text-zinc-600">Webhook URL</div>
             <div className="mt-2 break-all font-mono text-xs text-zinc-800">{webhookUrlLegacy || "—"}</div>
           </div>

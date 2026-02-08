@@ -122,7 +122,7 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
               mobileOpen ? "translate-x-0" : "-translate-x-full",
             )}
           >
-            <div className="flex items-center gap-3 border-b border-zinc-200 p-4">
+            <div className="sticky top-0 z-10 flex items-center gap-3 border-b border-zinc-200 bg-white/90 p-4 backdrop-blur">
               <Link href="/portal/app" className="flex items-center gap-3">
                 <Image
                   src="/brand/purity-5.png"
@@ -225,7 +225,7 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
 
         <aside
           className={classNames(
-            "sticky top-0 hidden h-screen shrink-0 border-r border-zinc-200 bg-white sm:flex sm:flex-col",
+            "sticky top-[72px] hidden h-[calc(100vh-72px)] shrink-0 border-r border-zinc-200 bg-white sm:flex sm:flex-col",
             collapsed ? "w-[76px]" : "w-[280px]",
           )}
         >

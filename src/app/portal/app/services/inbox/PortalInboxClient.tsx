@@ -364,7 +364,14 @@ export function PortalInboxClient() {
             accent="blue"
           >
             <div className="space-y-3">
-              <div className="rounded-2xl border border-zinc-200 bg-zinc-50 p-4">
+              <div
+                className={
+                  "rounded-2xl border p-4 " +
+                  (settings?.twilio?.configured
+                    ? "border-[color:rgba(29,78,216,0.18)] bg-[color:rgba(29,78,216,0.06)]"
+                    : "border-red-200 bg-red-50")
+                }
+              >
                 <div className="text-xs font-semibold text-zinc-600">Twilio SMS webhook (token-based)</div>
                 <div className="mt-2 break-all font-mono text-xs text-zinc-800">
                   {settings?.webhooks.twilioInboundSmsUrlLegacy || "Loading…"}
