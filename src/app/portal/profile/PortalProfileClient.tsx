@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 
 import { BusinessProfileForm } from "./BusinessProfileForm";
 import { formatPhoneForDisplay, normalizePhoneStrict } from "@/lib/phone";
+import { PortalSettingsSection } from "@/components/PortalSettingsSection";
 
 type Me = {
   ok?: boolean;
@@ -11,11 +12,46 @@ type Me = {
   user: { email: string; name: string; role: string; phone?: string | null } | null;
 };
 
+type WebhooksRes = {
+  ok?: boolean;
+  error?: string;
+  baseUrl?: string;
+  twilio?: { smsWebhookUrl?: string; voiceWebhookUrl?: string };
+  sendgrid?: { inboundParseUrl?: string | null };
+  legacy?: {
+    inboxTwilioSmsUrl?: string | null;
+    aiReceptionistVoiceUrl?: string | null;
+    missedCallVoiceUrl?: string | null;
+  };
+};
+
+function CopyRow({ label, value }: { label: string; value: string | null | undefined }) {
+  const v = value && value.trim() ? value : null;
+  return (
+    <div className="rounded-2xl border border-zinc-200 bg-zinc-50 p-4">
+      <div className="text-xs font-semibold text-zinc-600">{label}</div>
+      <div className="mt-2 break-all font-mono text-xs text-zinc-800">{v ?? "—"}</div>
+      <div className="mt-3 flex items-center justify-end">
+        <button
+          type="button"
+          className="rounded-xl border border-zinc-200 bg-white px-3 py-2 text-xs font-semibold hover:bg-zinc-50 disabled:opacity-60"
+          disabled={!v}
+          onClick={async () => v && navigator.clipboard.writeText(v)}
+        >
+          Copy
+        </button>
+      </div>
+    </div>
+  );
+}
+
 export function PortalProfileClient() {
   const [me, setMe] = useState<Me | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
+
+  const [webhooks, setWebhooks] = useState<WebhooksRes | null>(null);
 
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
@@ -86,6 +122,14 @@ export function PortalProfileClient() {
       }
       setLoading(false);
     })();
+
+    (async () => {
+      const res = await fetch("/api/portal/webhooks", { cache: "no-store" }).catch(() => null as any);
+      if (!mounted) return;
+      if (!res?.ok) return;
+      setWebhooks(((await res.json().catch(() => null)) as WebhooksRes | null) ?? null);
+    })();
+
     return () => {
       mounted = false;
     };
@@ -328,6 +372,36 @@ export function PortalProfileClient() {
               </div>
             </div>
           </div>
+
+          <PortalSettingsSection
+            title="Webhooks"
+            description="Copy/paste inbound webhook URLs (Twilio + SendGrid)."
+            accent="blue"
+          >
+            <div className="space-y-3">
+              <CopyRow label="Twilio SMS webhook (recommended)" value={webhooks?.twilio?.smsWebhookUrl} />
+              <CopyRow label="Twilio Voice webhook (recommended)" value={webhooks?.twilio?.voiceWebhookUrl} />
+              <CopyRow label="SendGrid inbound parse (email inbound)" value={webhooks?.sendgrid?.inboundParseUrl ?? null} />
+
+              <PortalSettingsSection
+                title="Legacy / token-based"
+                description="Older per-service URLs that include a token. Regenerating tokens changes these URLs."
+                accent="slate"
+              >
+                <div className="space-y-3">
+                  <CopyRow label="Inbox Twilio SMS (legacy)" value={webhooks?.legacy?.inboxTwilioSmsUrl ?? null} />
+                  <CopyRow label="AI Receptionist voice (legacy)" value={webhooks?.legacy?.aiReceptionistVoiceUrl ?? null} />
+                  <CopyRow label="Missed call text back voice (legacy)" value={webhooks?.legacy?.missedCallVoiceUrl ?? null} />
+                </div>
+              </PortalSettingsSection>
+
+              {webhooks?.baseUrl ? (
+                <div className="text-xs text-zinc-500">
+                  Webhook base: <span className="font-mono">{webhooks.baseUrl}</span>
+                </div>
+              ) : null}
+            </div>
+          </PortalSettingsSection>
 
           <BusinessProfileForm
             title="Business info"

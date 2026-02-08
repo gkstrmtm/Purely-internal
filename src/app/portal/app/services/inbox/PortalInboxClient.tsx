@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 
 import styles from "./PortalInboxClient.module.css";
+import { PortalSettingsSection } from "@/components/PortalSettingsSection";
 
 type Channel = "email" | "sms";
 type EmailBox = "inbox" | "sent" | "all";
@@ -42,7 +43,7 @@ type SettingsRes = {
   ok: true;
   settings: { webhookToken: string };
   twilio: { configured: boolean; fromNumberE164: string | null };
-  webhooks: { twilioInboundSmsUrl: string; sendgridInboundEmailUrl: string };
+  webhooks: { twilioInboundSmsUrl: string; twilioInboundSmsUrlLegacy?: string; sendgridInboundEmailUrl: string };
 };
 
 type ApiErrorRes = { ok: false; code?: string; error?: string };
@@ -356,30 +357,76 @@ export function PortalInboxClient() {
           </p>
         </div>
 
-        <div className="rounded-3xl border border-zinc-200 bg-white p-4 text-xs text-zinc-700">
-          <div className="text-xs font-semibold text-zinc-900">Inbound setup</div>
-          <div className="mt-2 space-y-1">
-            <div>
-              <span className="font-semibold">Twilio SMS webhook:</span>{" "}
-              <span className="break-all text-zinc-600">{settings?.webhooks.twilioInboundSmsUrl ?? "Loading…"}</span>
+        <div className="w-full sm:max-w-[440px]">
+          <PortalSettingsSection
+            title="Inbound setup"
+            description="Webhook URLs for Twilio (SMS) and SendGrid (email)."
+            accent="blue"
+          >
+            <div className="space-y-3">
+              <div className="rounded-2xl border border-zinc-200 bg-zinc-50 p-4">
+                <div className="text-xs font-semibold text-zinc-600">Twilio SMS webhook (recommended)</div>
+                <div className="mt-2 break-all font-mono text-xs text-zinc-800">{settings?.webhooks.twilioInboundSmsUrl ?? "Loading…"}</div>
+                <div className="mt-3 flex items-center justify-between gap-3">
+                  <div className="text-[11px] text-zinc-500">Twilio configured: {settings?.twilio?.configured ? "Yes" : "No"}</div>
+                  <button
+                    type="button"
+                    className="rounded-xl border border-zinc-200 bg-white px-3 py-2 text-xs font-semibold hover:bg-zinc-50"
+                    onClick={async () => {
+                      const v = settings?.webhooks.twilioInboundSmsUrl;
+                      if (v) await navigator.clipboard.writeText(v);
+                    }}
+                  >
+                    Copy
+                  </button>
+                </div>
+              </div>
+
+              <div className="rounded-2xl border border-zinc-200 bg-zinc-50 p-4">
+                <div className="text-xs font-semibold text-zinc-600">SendGrid inbound parse</div>
+                <div className="mt-2 break-all font-mono text-xs text-zinc-800">{settings?.webhooks.sendgridInboundEmailUrl ?? "Loading…"}</div>
+                <div className="mt-3 flex items-center justify-end">
+                  <button
+                    type="button"
+                    className="rounded-xl border border-zinc-200 bg-white px-3 py-2 text-xs font-semibold hover:bg-zinc-50"
+                    onClick={async () => {
+                      const v = settings?.webhooks.sendgridInboundEmailUrl;
+                      if (v) await navigator.clipboard.writeText(v);
+                    }}
+                  >
+                    Copy
+                  </button>
+                </div>
+              </div>
+
+              {settings?.webhooks.twilioInboundSmsUrlLegacy ? (
+                <PortalSettingsSection
+                  title="Legacy / token-based"
+                  description="Older Twilio inbound URL that changes when you regenerate token."
+                  accent="slate"
+                >
+                  <div className="break-all font-mono text-xs text-zinc-800">{settings.webhooks.twilioInboundSmsUrlLegacy}</div>
+                  <div className="mt-3 flex items-center justify-between gap-3">
+                    <button
+                      type="button"
+                      className="rounded-xl border border-zinc-200 bg-white px-3 py-2 text-xs font-semibold hover:bg-zinc-50"
+                      onClick={async () => navigator.clipboard.writeText(settings.webhooks.twilioInboundSmsUrlLegacy!)}
+                    >
+                      Copy
+                    </button>
+                    <button
+                      type="button"
+                      onClick={regenToken}
+                      className="rounded-xl border border-zinc-200 bg-white px-3 py-2 text-xs font-semibold text-brand-ink hover:bg-zinc-50"
+                      title="Regenerates legacy token-based URLs"
+                    >
+                      Regenerate token
+                    </button>
+                  </div>
+                </PortalSettingsSection>
+              ) : null}
             </div>
-            <div>
-              <span className="font-semibold">SendGrid inbound parse:</span>{" "}
-              <span className="break-all text-zinc-600">{settings?.webhooks.sendgridInboundEmailUrl ?? "Loading…"}</span>
-            </div>
-          </div>
-          <div className="mt-2 flex items-center justify-between gap-3">
-            <div className="text-[11px] text-zinc-500">
-              Twilio configured: {settings?.twilio?.configured ? "Yes" : "No"}
-            </div>
-            <button
-              type="button"
-              onClick={regenToken}
-              className="rounded-xl border border-zinc-200 bg-white px-3 py-1.5 text-xs font-semibold text-brand-ink hover:bg-zinc-50"
-            >
-              Regenerate token
-            </button>
-          </div>
+          </PortalSettingsSection>
         </div>
       </div>
 

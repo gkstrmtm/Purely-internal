@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 
 import { PortalMissedCallTextBackClient } from "@/app/portal/app/services/missed-call-textback/PortalMissedCallTextBackClient";
+import { PortalSettingsSection } from "@/components/PortalSettingsSection";
 
 type Settings = {
   version: 1;
@@ -33,6 +34,7 @@ type ApiPayload = {
   settings: Settings;
   events: EventRow[];
   webhookUrl: string;
+  webhookUrlLegacy?: string;
   twilioConfigured?: boolean;
   twilio?: {
     configured: boolean;
@@ -82,6 +84,7 @@ export function PortalAiReceptionistClient() {
   const [settings, setSettings] = useState<Settings | null>(null);
   const [events, setEvents] = useState<EventRow[]>([]);
   const [webhookUrl, setWebhookUrl] = useState<string>("");
+  const [webhookUrlLegacy, setWebhookUrlLegacy] = useState<string>("");
 
   const [voiceAgentApiKey, setVoiceAgentApiKey] = useState<string>("");
 
@@ -120,6 +123,7 @@ export function PortalAiReceptionistClient() {
     setSettings(data.settings);
     setEvents(Array.isArray(data.events) ? data.events : []);
     setWebhookUrl(data.webhookUrl || "");
+    setWebhookUrlLegacy(typeof data.webhookUrlLegacy === "string" ? data.webhookUrlLegacy : "");
     setLoading(false);
   }
 
@@ -186,6 +190,7 @@ export function PortalAiReceptionistClient() {
     setSettings(data.settings);
     setEvents(Array.isArray(data.events) ? data.events : []);
     setWebhookUrl(data.webhookUrl || webhookUrl);
+    setWebhookUrlLegacy(typeof data.webhookUrlLegacy === "string" ? data.webhookUrlLegacy : webhookUrlLegacy);
     setVoiceAgentApiKey("");
 
     setSaving(false);
@@ -214,6 +219,7 @@ export function PortalAiReceptionistClient() {
     setSettings(data.settings);
     setEvents(Array.isArray(data.events) ? data.events : []);
     setWebhookUrl(data.webhookUrl || webhookUrl);
+    setWebhookUrlLegacy(typeof data.webhookUrlLegacy === "string" ? data.webhookUrlLegacy : webhookUrlLegacy);
     setSaving(false);
     setNote("Regenerated webhook token.");
     window.setTimeout(() => setNote(null), 2000);
@@ -240,6 +246,7 @@ export function PortalAiReceptionistClient() {
     setSettings(data.settings);
     setEvents(Array.isArray(data.events) ? data.events : []);
     setWebhookUrl(data.webhookUrl || webhookUrl);
+    setWebhookUrlLegacy(typeof data.webhookUrlLegacy === "string" ? data.webhookUrlLegacy : webhookUrlLegacy);
     setVoiceAgentApiKey("");
 
     setSaving(false);
@@ -469,42 +476,65 @@ export function PortalAiReceptionistClient() {
             </div>
           </div>
 
-          <div className="rounded-3xl border border-zinc-200 bg-white p-6">
-            <div className="text-sm font-semibold text-zinc-900">Twilio webhook</div>
-            <div className="mt-2 text-sm text-zinc-600">Set your Twilio phone number’s Voice webhook to this URL (POST).</div>
+          <PortalSettingsSection
+            title="Twilio"
+            description="Webhook URLs and setup steps for inbound calls."
+            accent="blue"
+          >
+            <div className="space-y-3">
+              <div className="rounded-2xl border border-zinc-200 bg-zinc-50 p-4">
+                <div className="text-xs font-semibold text-zinc-600">Webhook URL (recommended)</div>
+                <div className="mt-2 break-all font-mono text-xs text-zinc-800">{webhookUrl || "—"}</div>
+                <div className="mt-3 flex items-center justify-between gap-2">
+                  <button
+                    type="button"
+                    className="rounded-xl border border-zinc-200 bg-white px-3 py-2 text-xs font-semibold hover:bg-zinc-50 disabled:opacity-60"
+                    disabled={!webhookUrl}
+                    onClick={async () => webhookUrl && navigator.clipboard.writeText(webhookUrl)}
+                  >
+                    Copy
+                  </button>
+                  <button
+                    type="button"
+                    className="rounded-xl border border-zinc-200 bg-white px-3 py-2 text-xs font-semibold hover:bg-zinc-50 disabled:opacity-60"
+                    disabled={saving}
+                    onClick={() => void regenerateToken()}
+                    title="Regenerates the legacy token-based webhook"
+                  >
+                    Regenerate token
+                  </button>
+                </div>
+              </div>
 
-            <div className="mt-4 rounded-2xl border border-zinc-200 bg-zinc-50 p-4">
-              <div className="text-xs font-semibold text-zinc-600">Webhook URL</div>
-              <div className="mt-2 break-all font-mono text-xs text-zinc-800">{webhookUrl || "—"}</div>
-              <div className="mt-3 flex items-center justify-between gap-2">
-                <button
-                  type="button"
-                  className="rounded-xl border border-zinc-200 bg-white px-3 py-2 text-xs font-semibold hover:bg-zinc-50 disabled:opacity-60"
-                  disabled={!webhookUrl}
-                  onClick={async () => webhookUrl && navigator.clipboard.writeText(webhookUrl)}
+              {webhookUrlLegacy ? (
+                <PortalSettingsSection
+                  title="Legacy webhook"
+                  description="Token-based URL (changes when you regenerate token)."
+                  accent="slate"
                 >
-                  Copy
-                </button>
-                <button
-                  type="button"
-                  className="rounded-xl border border-zinc-200 bg-white px-3 py-2 text-xs font-semibold hover:bg-zinc-50 disabled:opacity-60"
-                  disabled={saving}
-                  onClick={() => void regenerateToken()}
-                >
-                  Regenerate token
-                </button>
+                  <div className="break-all font-mono text-xs text-zinc-800">{webhookUrlLegacy}</div>
+                  <div className="mt-3 flex items-center justify-end">
+                    <button
+                      type="button"
+                      className="rounded-xl border border-zinc-200 bg-white px-3 py-2 text-xs font-semibold hover:bg-zinc-50"
+                      onClick={async () => navigator.clipboard.writeText(webhookUrlLegacy)}
+                    >
+                      Copy
+                    </button>
+                  </div>
+                </PortalSettingsSection>
+              ) : null}
+
+              <div className="rounded-2xl border border-zinc-200 bg-white p-4">
+                <div className="text-xs font-semibold text-zinc-600">Startup checklist</div>
+                <ol className="mt-2 list-decimal space-y-1 pl-4 text-xs text-zinc-600">
+                  <li>In Twilio Console, open your phone number.</li>
+                  <li>Under “Voice &amp; Fax”, set “A CALL COMES IN” → Webhook (POST).</li>
+                  <li>Paste the webhook URL above and save.</li>
+                </ol>
               </div>
             </div>
-
-            <div className="mt-4 rounded-2xl border border-zinc-200 bg-white p-4">
-              <div className="text-xs font-semibold text-zinc-600">Startup checklist</div>
-              <ol className="mt-2 list-decimal space-y-1 pl-4 text-xs text-zinc-600">
-                <li>In Twilio Console, open your phone number.</li>
-                <li>Under “Voice &amp; Fax”, set “A CALL COMES IN” → Webhook (POST).</li>
-                <li>Paste the webhook URL above and save.</li>
-              </ol>
-            </div>
-          </div>
+          </PortalSettingsSection>
         </div>
       ) : null}
 

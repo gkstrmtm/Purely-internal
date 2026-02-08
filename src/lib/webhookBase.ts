@@ -1,6 +1,21 @@
 export function webhookBaseUrlFromRequest(req?: Request): string {
-  const env = process.env.PUBLIC_WEBHOOK_BASE_URL || process.env.NEXTAUTH_URL;
-  if (env && env.startsWith("http")) return env.replace(/\/$/, "");
+  const explicit = process.env.PUBLIC_WEBHOOK_BASE_URL;
+  if (explicit && explicit.startsWith("http")) return explicit.replace(/\/$/, "");
+
+  const nextAuth = process.env.NEXTAUTH_URL;
+  if (nextAuth && nextAuth.startsWith("http")) {
+    const cleaned = nextAuth.replace(/\/$/, "");
+    // Avoid showing placeholder / Vercel domains unless explicitly requested.
+    // If someone truly wants a Vercel domain, set PUBLIC_WEBHOOK_BASE_URL.
+    if (!cleaned.includes("YOUR-VERCEL-DOMAIN")) {
+      try {
+        const u = new URL(cleaned);
+        if (u.hostname && !u.hostname.endsWith(".vercel.app")) return cleaned;
+      } catch {
+        // ignore
+      }
+    }
+  }
 
   // Default for production docs: avoid showing Vercel placeholder domains.
   // Local dev still uses the request host.
@@ -17,7 +32,7 @@ export function webhookBaseUrlFromRequest(req?: Request): string {
 
   // Prefer the request host if it's already a custom domain.
   // Otherwise fall back to the default purelyautomation.com.
-  if (host && !host.endsWith(".vercel.app")) {
+  if (host && !host.endsWith(".vercel.app") && !host.includes("YOUR-VERCEL-DOMAIN")) {
     return `${proto}://${host}`.replace(/\/$/, "");
   }
 
