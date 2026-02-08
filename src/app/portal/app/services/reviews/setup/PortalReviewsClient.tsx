@@ -970,7 +970,7 @@ export default function PortalReviewsClient() {
                   onChange={(e) => setSettings({ ...settings, publicPage: { ...settings.publicPage, title: e.target.value } })}
                 />
               </div>
-              <div className="flex items-center gap-2">
+              <div className="min-w-0 space-y-1">
                 <input
                   ref={uploadsInputRef}
                   type="file"
@@ -980,22 +980,24 @@ export default function PortalReviewsClient() {
                   disabled={uploadingPhotos}
                   onChange={(e) => void uploadPublicPhotos(e.target.files)}
                 />
-                <button
-                  type="button"
-                  disabled={uploadingPhotos}
-                  onClick={() => uploadsInputRef.current?.click()}
-                  className="inline-flex h-10 items-center justify-center rounded-lg border border-zinc-200 bg-white px-4 text-sm font-medium text-zinc-900 hover:bg-zinc-50 disabled:opacity-60"
-                >
-                  {uploadingPhotos ? "Uploading…" : "Choose files"}
-                </button>
-                <button
-                  type="button"
-                  disabled={uploadingPhotos}
-                  onClick={() => setPublicPhotosPickerOpen(true)}
-                  className="inline-flex h-10 items-center justify-center rounded-lg border border-zinc-200 bg-white px-4 text-sm font-medium text-zinc-900 hover:bg-zinc-50 disabled:opacity-60"
-                >
-                  Choose from media library
-                </button>
+                <div className="flex flex-wrap items-center gap-2">
+                  <button
+                    type="button"
+                    disabled={uploadingPhotos}
+                    onClick={() => uploadsInputRef.current?.click()}
+                    className="inline-flex h-10 items-center justify-center rounded-lg border border-zinc-200 bg-white px-4 text-sm font-medium text-zinc-900 hover:bg-zinc-50 disabled:opacity-60"
+                  >
+                    {uploadingPhotos ? "Uploading…" : "Choose files"}
+                  </button>
+                  <button
+                    type="button"
+                    disabled={uploadingPhotos}
+                    onClick={() => setPublicPhotosPickerOpen(true)}
+                    className="inline-flex h-10 items-center justify-center rounded-lg border border-zinc-200 bg-white px-4 text-sm font-medium text-zinc-900 hover:bg-zinc-50 disabled:opacity-60"
+                  >
+                    Choose from media library
+                  </button>
+                </div>
                 <div className="text-xs text-zinc-500">{uploadPickerCount ? `${uploadPickerCount} selected` : "No files chosen"}</div>
               </div>
             </div>

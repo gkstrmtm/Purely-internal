@@ -15,6 +15,7 @@ export type MissedCallTextBackSettings = {
   enabled: boolean;
   replyDelaySeconds: number;
   replyBody: string;
+  mediaUrls: string[];
   forwardToPhoneE164: string | null;
   webhookToken: string;
 };
@@ -58,6 +59,7 @@ export function parseMissedCallTextBackSettings(raw: unknown): MissedCallTextBac
     enabled: false,
     replyDelaySeconds: 5,
     replyBody: "Hey! Sorry we missed your call — what can we help with?",
+    mediaUrls: [],
     forwardToPhoneE164: null,
     webhookToken: newToken(),
   };
@@ -70,6 +72,13 @@ export function parseMissedCallTextBackSettings(raw: unknown): MissedCallTextBac
   const replyDelaySeconds = Math.max(0, Math.min(600, Math.round(replyDelaySecondsRaw)));
 
   const replyBody = typeof rec.replyBody === "string" ? rec.replyBody.slice(0, MAX_BODY_LEN).trim() : base.replyBody;
+
+  const mediaUrls = Array.isArray((rec as any).mediaUrls)
+    ? ((rec as any).mediaUrls as unknown[])
+        .flatMap((x) => (typeof x === "string" ? [x.trim().slice(0, 500)] : []))
+        .filter((u) => Boolean(u) && (u.startsWith("http://") || u.startsWith("https://") || u.startsWith("/")))
+        .slice(0, 10)
+    : [];
 
   let forwardToPhoneE164: string | null = null;
   if (typeof rec.forwardToPhoneE164 === "string" && rec.forwardToPhoneE164.trim()) {
@@ -84,6 +93,7 @@ export function parseMissedCallTextBackSettings(raw: unknown): MissedCallTextBac
     enabled,
     replyDelaySeconds,
     replyBody: replyBody || base.replyBody,
+    mediaUrls,
     forwardToPhoneE164,
     webhookToken,
   };
@@ -247,4 +257,14 @@ export function renderMissedCallReplyBody(template: string, vars: { from: string
 
 export async function sendOwnerSms(ownerId: string, opts: { to: string; body: string }) {
   return await sendOwnerTwilioSms({ ownerId, to: opts.to, body: opts.body.slice(0, MAX_BODY_LEN) });
+}
+
+export async function sendOwnerMms(ownerId: string, opts: { to: string; body: string; mediaUrls?: string[] }) {
+  const mediaUrls = Array.isArray(opts.mediaUrls) ? opts.mediaUrls.filter(Boolean).slice(0, 10) : [];
+  return await sendOwnerTwilioSms({
+    ownerId,
+    to: opts.to,
+    body: opts.body.slice(0, MAX_BODY_LEN),
+    mediaUrls,
+  });
 }

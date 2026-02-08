@@ -22,6 +22,7 @@ type TwilioMasked = {
 type AppointmentReminderSettings = {
   version: 3;
   enabled: boolean;
+  channel: "SMS" | "EMAIL";
   steps: {
     id: string;
     enabled: boolean;
@@ -44,6 +45,10 @@ type AppointmentReminderEvent = {
   contactPhoneRaw: string | null;
   smsTo: string | null;
   smsBody: string | null;
+
+  channel?: "SMS" | "EMAIL";
+  to?: string | null;
+  body?: string | null;
 
   status: "SENT" | "SKIPPED" | "FAILED";
   reason?: string;
@@ -98,6 +103,7 @@ export function PortalAppointmentRemindersClient() {
   const [status, setStatus] = useState<string | null>(null);
 
   const [mediaPickerStepId, setMediaPickerStepId] = useState<string | null>(null);
+  const [uploadBusyStepId, setUploadBusyStepId] = useState<string | null>(null);
 
   const unlocked = useMemo(() => Boolean(me?.entitlements?.booking), [me?.entitlements?.booking]);
 
@@ -269,6 +275,46 @@ export function PortalAppointmentRemindersClient() {
     setMediaPickerStepId(null);
   }
 
+  async function uploadFileForStep(stepId: string, file: File) {
+    setUploadBusyStepId(stepId);
+    setError(null);
+    setStatus(null);
+
+    try {
+      const fd = new FormData();
+      fd.set("file", file);
+      const res = await fetch("/api/uploads", { method: "POST", body: fd });
+      const body = (await res.json().catch(() => ({}))) as any;
+      if (!res.ok) {
+        setError((typeof body?.error === "string" ? body.error : null) ?? "Upload failed");
+        return;
+      }
+
+      const rawUrl = typeof body?.url === "string" ? body.url : "";
+      if (!rawUrl) {
+        setError("Upload did not return a URL");
+        return;
+      }
+
+      const link = rawUrl.startsWith("/") ? window.location.origin + rawUrl : rawUrl;
+      const step = draft?.steps.find((s) => s.id === stepId);
+      const base = String(step?.messageBody || "");
+      const sep = base.trim().length ? "\n\n" : "";
+      updateStep(stepId, { messageBody: base + sep + link });
+      setStatus("Attached");
+      window.setTimeout(() => setStatus(null), 1200);
+    } finally {
+      setUploadBusyStepId((prev) => (prev === stepId ? null : prev));
+    }
+  }
+
+  async function setChannel(channel: "SMS" | "EMAIL") {
+    if (!draft) return;
+    const next: AppointmentReminderSettings = { ...draft, channel, version: 3 };
+    setDraft(next);
+    await save(next);
+  }
+
   async function setEnabled(enabled: boolean) {
     if (!draft) return;
     const next: AppointmentReminderSettings = { ...draft, enabled, version: 3 };
@@ -429,6 +475,31 @@ export function PortalAppointmentRemindersClient() {
             </div>
           </div>
 
+          <div className="mt-4">
+            <label className="block text-xs font-semibold text-zinc-600">Delivery</label>
+            <div className="mt-2 inline-flex overflow-hidden rounded-2xl border border-zinc-200">
+              <button
+                type="button"
+                className={`px-4 py-2 text-sm font-semibold ${draft?.channel === "SMS" ? "bg-zinc-900 text-white" : "bg-white text-zinc-700 hover:bg-zinc-50"}`}
+                disabled={saving || !draft}
+                onClick={() => void setChannel("SMS")}
+              >
+                Text (SMS)
+              </button>
+              <button
+                type="button"
+                className={`px-4 py-2 text-sm font-semibold ${draft?.channel === "EMAIL" ? "bg-zinc-900 text-white" : "bg-white text-zinc-700 hover:bg-zinc-50"}`}
+                disabled={saving || !draft}
+                onClick={() => void setChannel("EMAIL")}
+              >
+                Email
+              </button>
+            </div>
+            <div className="mt-2 text-xs text-zinc-500">
+              {draft?.channel === "EMAIL" ? "Email reminders send to the booking’s email address." : "SMS reminders send to the booking’s phone number."}
+            </div>
+          </div>
+
           {draft ? (
             <>
               <div className="mt-5 flex items-center justify-between gap-3">
@@ -522,14 +593,29 @@ export function PortalAppointmentRemindersClient() {
                       <label className="rounded-2xl border border-zinc-200 bg-zinc-50 px-4 py-3 text-sm sm:col-span-2">
                         <div className="flex items-center justify-between gap-3">
                           <div className="font-medium text-zinc-800">Message</div>
-                          <button
-                            type="button"
-                            disabled={saving}
-                            className="rounded-xl border border-zinc-200 bg-white px-3 py-1.5 text-xs font-semibold text-zinc-700 hover:bg-zinc-50 disabled:opacity-60"
-                            onClick={() => setMediaPickerStepId(s.id)}
-                          >
-                            Add
-                          </button>
+                          <div className="flex items-center gap-2">
+                            <label className="rounded-xl border border-zinc-200 bg-white px-3 py-1.5 text-xs font-semibold text-zinc-700 hover:bg-zinc-50 disabled:opacity-60">
+                              {uploadBusyStepId === s.id ? "Uploading…" : "Upload file"}
+                              <input
+                                type="file"
+                                className="hidden"
+                                disabled={saving || uploadBusyStepId === s.id}
+                                onChange={(e) => {
+                                  const f = e.target.files?.[0];
+                                  if (f) void uploadFileForStep(s.id, f);
+                                  e.currentTarget.value = "";
+                                }}
+                              />
+                            </label>
+                            <button
+                              type="button"
+                              disabled={saving}
+                              className="rounded-xl border border-zinc-200 bg-white px-3 py-1.5 text-xs font-semibold text-zinc-700 hover:bg-zinc-50 disabled:opacity-60"
+                              onClick={() => setMediaPickerStepId(s.id)}
+                            >
+                              Attach files
+                            </button>
+                          </div>
                         </div>
                         <textarea
                           className="mt-2 min-h-[90px] w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm"
@@ -625,8 +711,8 @@ export function PortalAppointmentRemindersClient() {
         open={Boolean(mediaPickerStepId)}
         onClose={() => setMediaPickerStepId(null)}
         onPick={addMediaLinkToStep}
-        confirmLabel="Add"
-        title="Add from media library"
+        confirmLabel="Attach"
+        title="Attach from media library"
       />
     </div>
   );

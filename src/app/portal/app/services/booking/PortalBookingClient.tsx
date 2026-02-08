@@ -4,7 +4,7 @@ import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 
 import { PortalFollowUpClient } from "@/app/portal/app/services/follow-up/PortalFollowUpClient";
-import { PortalMediaPickerModal } from "@/components/PortalMediaPickerModal";
+import { PortalMediaPickerModal, type PortalMediaPickItem } from "@/components/PortalMediaPickerModal";
 import { PortalSettingsSection } from "@/components/PortalSettingsSection";
 
 type BookingFormConfig = {
@@ -68,6 +68,7 @@ type TwilioMasked = {
 type AppointmentReminderSettings = {
   version: 3;
   enabled: boolean;
+  channel: "SMS" | "EMAIL";
   steps: {
     id: string;
     enabled: boolean;
@@ -90,6 +91,10 @@ type AppointmentReminderEvent = {
   contactPhoneRaw: string | null;
   smsTo: string | null;
   smsBody: string | null;
+
+  channel?: "SMS" | "EMAIL";
+  to?: string | null;
+  body?: string | null;
 
   status: "SENT" | "SKIPPED" | "FAILED";
   reason?: string;
@@ -248,6 +253,9 @@ export function PortalBookingClient() {
   const [reminderSaving, setReminderSaving] = useState(false);
 
   const [reminderCalendarId, setReminderCalendarId] = useState<string | null>(null);
+
+  const [reminderMediaPickerStepId, setReminderMediaPickerStepId] = useState<string | null>(null);
+  const [reminderUploadBusyStepId, setReminderUploadBusyStepId] = useState<string | null>(null);
 
   const filteredReminderEvents = useMemo(() => {
     const cal = reminderCalendarId;
@@ -482,6 +490,59 @@ export function PortalBookingClient() {
     const next: AppointmentReminderSettings = { ...reminderDraft, enabled, version: 3 };
     setReminderDraft(next);
     await saveReminders(next);
+  }
+
+  async function setReminderChannel(channel: "SMS" | "EMAIL") {
+    if (!reminderDraft) return;
+    const next: AppointmentReminderSettings = { ...reminderDraft, channel, version: 3 };
+    setReminderDraft(next);
+    await saveReminders(next);
+  }
+
+  async function addMediaLinkToReminderStep(item: PortalMediaPickItem) {
+    const stepId = reminderMediaPickerStepId;
+    if (!stepId) return;
+    const step = reminderDraft?.steps.find((s) => s.id === stepId);
+    if (!step) return;
+
+    const link = window.location.origin + item.shareUrl;
+    const base = String(step.messageBody || "");
+    const sep = base.trim().length ? "\n\n" : "";
+    updateReminderStep(stepId, { messageBody: base + sep + link });
+    setReminderMediaPickerStepId(null);
+  }
+
+  async function uploadFileForReminderStep(stepId: string, file: File) {
+    setReminderUploadBusyStepId(stepId);
+    setError(null);
+    setStatus(null);
+
+    try {
+      const fd = new FormData();
+      fd.set("file", file);
+      const res = await fetch("/api/uploads", { method: "POST", body: fd });
+      const body = (await res.json().catch(() => ({}))) as any;
+      if (!res.ok) {
+        setError((typeof body?.error === "string" ? body.error : null) ?? "Upload failed");
+        return;
+      }
+
+      const rawUrl = typeof body?.url === "string" ? body.url : "";
+      if (!rawUrl) {
+        setError("Upload did not return a URL");
+        return;
+      }
+
+      const link = rawUrl.startsWith("/") ? window.location.origin + rawUrl : rawUrl;
+      const step = reminderDraft?.steps.find((s) => s.id === stepId);
+      const base = String(step?.messageBody || "");
+      const sep = base.trim().length ? "\n\n" : "";
+      updateReminderStep(stepId, { messageBody: base + sep + link });
+      setStatus("Attached");
+      window.setTimeout(() => setStatus(null), 1200);
+    } finally {
+      setReminderUploadBusyStepId((prev) => (prev === stepId ? null : prev));
+    }
   }
 
   function updateReminderStep(stepId: string, partial: Partial<AppointmentReminderSettings["steps"][number]>) {
@@ -1196,6 +1257,31 @@ export function PortalBookingClient() {
             </div>
 
             <div className="mt-4">
+              <label className="block text-xs font-semibold text-zinc-600">Delivery</label>
+              <div className="mt-2 inline-flex overflow-hidden rounded-2xl border border-zinc-200">
+                <button
+                  type="button"
+                  className={`px-4 py-2 text-sm font-semibold ${reminderDraft?.channel === "SMS" ? "bg-zinc-900 text-white" : "bg-white text-zinc-700 hover:bg-zinc-50"}`}
+                  disabled={reminderSaving || !reminderDraft}
+                  onClick={() => void setReminderChannel("SMS")}
+                >
+                  Text (SMS)
+                </button>
+                <button
+                  type="button"
+                  className={`px-4 py-2 text-sm font-semibold ${reminderDraft?.channel === "EMAIL" ? "bg-zinc-900 text-white" : "bg-white text-zinc-700 hover:bg-zinc-50"}`}
+                  disabled={reminderSaving || !reminderDraft}
+                  onClick={() => void setReminderChannel("EMAIL")}
+                >
+                  Email
+                </button>
+              </div>
+              <div className="mt-2 text-xs text-zinc-500">
+                {reminderDraft?.channel === "EMAIL" ? "Email reminders send to the booking’s email address." : "SMS reminders send to the booking’s phone number."}
+              </div>
+            </div>
+
+            <div className="mt-4">
               <label className="block text-xs font-semibold text-zinc-600">Calendar</label>
               <div className="mt-2 flex flex-col gap-2 sm:flex-row sm:items-center">
                 <select
@@ -1309,7 +1395,32 @@ export function PortalBookingClient() {
                         </label>
 
                         <label className="rounded-2xl border border-zinc-200 bg-zinc-50 px-4 py-3 text-sm sm:col-span-2">
-                          <div className="font-medium text-zinc-800">Message</div>
+                          <div className="flex items-center justify-between gap-3">
+                            <div className="font-medium text-zinc-800">Message</div>
+                            <div className="flex items-center gap-2">
+                              <label className="rounded-xl border border-zinc-200 bg-white px-3 py-1.5 text-xs font-semibold text-zinc-700 hover:bg-zinc-50 disabled:opacity-60">
+                                {reminderUploadBusyStepId === s.id ? "Uploading…" : "Upload file"}
+                                <input
+                                  type="file"
+                                  className="hidden"
+                                  disabled={reminderSaving || reminderUploadBusyStepId === s.id}
+                                  onChange={(e) => {
+                                    const f = e.target.files?.[0];
+                                    if (f) void uploadFileForReminderStep(s.id, f);
+                                    e.currentTarget.value = "";
+                                  }}
+                                />
+                              </label>
+                              <button
+                                type="button"
+                                disabled={reminderSaving}
+                                className="rounded-xl border border-zinc-200 bg-white px-3 py-1.5 text-xs font-semibold text-zinc-700 hover:bg-zinc-50 disabled:opacity-60"
+                                onClick={() => setReminderMediaPickerStepId(s.id)}
+                              >
+                                Attach files
+                              </button>
+                            </div>
+                          </div>
                           <textarea
                             className="mt-2 min-h-[90px] w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm"
                             value={s.messageBody}
@@ -1388,6 +1499,14 @@ export function PortalBookingClient() {
           </div>
         </div>
       ) : null}
+
+      <PortalMediaPickerModal
+        open={Boolean(reminderMediaPickerStepId)}
+        onClose={() => setReminderMediaPickerStepId(null)}
+        onPick={addMediaLinkToReminderStep}
+        confirmLabel="Attach"
+        title="Attach from media library"
+      />
 
       {topTab === "follow-up" ? (
         <div className="mt-6">

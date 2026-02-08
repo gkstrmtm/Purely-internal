@@ -4,7 +4,7 @@ import {
   findOwnerByMissedCallWebhookToken,
   upsertMissedCallEvent,
   renderMissedCallReplyBody,
-  sendOwnerSms,
+  sendOwnerMms,
 } from "@/lib/missedCallTextBack";
 import { normalizePhoneStrict } from "@/lib/phone";
 
@@ -83,7 +83,7 @@ export async function POST(req: Request, ctx: { params: Promise<{ token: string 
   if (delayMs) await sleep(delayMs);
 
   const replyBody = renderMissedCallReplyBody(settings.replyBody, { from: fromE164, to: toE164 });
-  const res = await sendOwnerSms(ownerId, { to: fromE164, body: replyBody });
+  const res = await sendOwnerMms(ownerId, { to: fromE164, body: replyBody, mediaUrls: settings.mediaUrls });
   await upsertMissedCallEvent(ownerId, {
     id: existing?.id ?? `evt_${callSid}`,
     callSid,

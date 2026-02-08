@@ -1,10 +1,17 @@
 import { NextResponse } from "next/server";
 
 import { prisma } from "@/lib/db";
+import { newPublicToken } from "@/lib/portalMedia";
 import { createZip } from "@/lib/zip";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
+export const runtime = "nodejs";
+
+function looksLikeNullToken(token: string) {
+  const t = String(token || "").trim().toLowerCase();
+  return !t || t === "null" || t === "undefined";
+}
 
 function mediaItemUrls(row: { id: string; publicToken: string; mimeType: string }) {
   const openUrl = `/api/public/media/item/${row.id}/${row.publicToken}`;
@@ -46,8 +53,89 @@ export async function GET(
   const { searchParams } = new URL(req.url);
   const wantsJson = searchParams.get("json") === "1";
 
+  let tokenToUse = String(token);
+
+  // Backward-compat: older links may have used a literal 'null' token when the DB row had no token yet.
+  // If that happens, mint and persist a token so future links are stable.
+  if (looksLikeNullToken(tokenToUse)) {
+    const byId = await (prisma as any).portalMediaFolder.findFirst({
+      where: { id: String(id) },
+      select: { id: true, ownerId: true, name: true, parentId: true, tag: true, publicToken: true, createdAt: true },
+    });
+
+    if (!byId) return NextResponse.json({ ok: false, error: "Not found" }, { status: 404 });
+
+    const existing = typeof byId.publicToken === "string" ? byId.publicToken.trim() : "";
+    if (!existing) {
+      const nextToken = newPublicToken();
+      try {
+        await (prisma as any).portalMediaFolder.update({
+          where: { id: byId.id },
+          data: { publicToken: nextToken },
+          select: { id: true },
+        });
+      } catch {
+        // ignore
+      }
+      (byId as any).publicToken = nextToken;
+    }
+
+    // Serve as if the correct token was used.
+    const effectiveToken = (byId.publicToken as string).trim();
+    tokenToUse = effectiveToken;
+    const folder = { ...byId, publicToken: effectiveToken };
+
+    if (wantsJson) {
+      const [folders, items] = await Promise.all([
+        (prisma as any).portalMediaFolder.findMany({
+          where: { ownerId: folder.ownerId, parentId: folder.id },
+          orderBy: [{ nameKey: "asc" }],
+          select: { id: true, name: true, parentId: true, tag: true, publicToken: true, createdAt: true },
+        }),
+        (prisma as any).portalMediaItem.findMany({
+          where: { ownerId: folder.ownerId, folderId: folder.id },
+          orderBy: [{ createdAt: "desc" }],
+          select: { id: true, folderId: true, fileName: true, mimeType: true, fileSize: true, tag: true, publicToken: true, createdAt: true },
+          take: 500,
+        }),
+      ]);
+
+      return NextResponse.json({
+        ok: true,
+        folder: {
+          id: folder.id,
+          name: folder.name,
+          parentId: folder.parentId,
+          tag: folder.tag,
+          createdAt: folder.createdAt.toISOString(),
+          ...folderUrls(folder),
+        },
+        folders: folders.map((f: any) => ({
+          id: f.id,
+          name: f.name,
+          parentId: f.parentId,
+          tag: f.tag,
+          createdAt: f.createdAt.toISOString(),
+          ...folderUrls(f),
+        })),
+        items: items.map((it: any) => ({
+          id: it.id,
+          folderId: it.folderId,
+          fileName: it.fileName,
+          mimeType: it.mimeType,
+          fileSize: it.fileSize,
+          tag: it.tag,
+          createdAt: it.createdAt.toISOString(),
+          ...mediaItemUrls(it),
+        })),
+      });
+    }
+
+    // For zip downloads, fall through and use tokenToUse for the normal handler logic.
+  }
+
   const folder = await (prisma as any).portalMediaFolder.findFirst({
-    where: { id: String(id), publicToken: String(token) },
+    where: { id: String(id), publicToken: String(tokenToUse) },
     select: { id: true, ownerId: true, name: true, parentId: true, tag: true, publicToken: true, createdAt: true },
   });
 

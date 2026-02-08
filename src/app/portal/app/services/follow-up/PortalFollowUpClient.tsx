@@ -142,6 +142,7 @@ export function PortalFollowUpClient({ embedded }: { embedded?: boolean } = {}) 
   const [notice, setNotice] = useState<string | null>(null);
 
   const [mediaPicker, setMediaPicker] = useState<null | { templateId: string; field: "email" | "sms" }>(null);
+  const [attachUploadBusy, setAttachUploadBusy] = useState<null | { templateId: string; field: "email" | "sms" }>(null);
 
   const [expandedStepId, setExpandedStepId] = useState<string | null>(null);
   const [stepEmailDrafts, setStepEmailDrafts] = useState<Record<string, string>>({});
@@ -295,6 +296,52 @@ export function PortalFollowUpClient({ embedded }: { embedded?: boolean } = {}) 
     }
 
     setMediaPicker(null);
+  }
+
+  async function uploadFileToTemplate(opts: { templateId: string; field: "email" | "sms"; file: File }) {
+    if (!settings) return;
+    const t = settings.templates.find((x) => x.id === opts.templateId);
+    if (!t) return;
+
+    setAttachUploadBusy({ templateId: opts.templateId, field: opts.field });
+    setError(null);
+    setNotice(null);
+
+    try {
+      const fd = new FormData();
+      fd.set("file", opts.file);
+      const res = await fetch("/api/uploads", { method: "POST", body: fd });
+      const body = (await res.json().catch(() => ({}))) as any;
+      if (!res.ok) {
+        setError((typeof body?.error === "string" ? body.error : null) ?? "Upload failed");
+        return;
+      }
+      const rawUrl = typeof body?.url === "string" ? body.url : "";
+      if (!rawUrl) {
+        setError("Upload did not return a URL");
+        return;
+      }
+
+      const link = rawUrl.startsWith("/") ? window.location.origin + rawUrl : rawUrl;
+      const nextText = (prev: string) => {
+        const base = String(prev || "");
+        const sep = base.trim().length ? "\n\n" : "";
+        return base + sep + link;
+      };
+
+      if (opts.field === "email") {
+        updateTemplate(t.id, { email: { ...t.email, bodyTemplate: nextText(t.email.bodyTemplate) } });
+      } else {
+        updateTemplate(t.id, { sms: { ...t.sms, bodyTemplate: nextText(t.sms.bodyTemplate) } });
+      }
+
+      setNotice("Attached");
+      window.setTimeout(() => setNotice(null), 1200);
+    } finally {
+      setAttachUploadBusy((prev) =>
+        prev && prev.templateId === opts.templateId && prev.field === opts.field ? null : prev,
+      );
+    }
   }
 
   function addTemplate() {
@@ -997,13 +1044,28 @@ export function PortalFollowUpClient({ embedded }: { embedded?: boolean } = {}) 
                   <div>
                     <div className="flex items-center justify-between gap-3">
                       <label className="text-xs font-semibold text-zinc-600">Email body</label>
-                      <button
-                        type="button"
-                        className="rounded-xl border border-zinc-200 bg-white px-3 py-1.5 text-xs font-semibold text-zinc-700 hover:bg-zinc-50"
-                        onClick={() => setMediaPicker({ templateId: selectedTemplate.id, field: "email" })}
-                      >
-                        Add
-                      </button>
+                      <div className="flex items-center gap-2">
+                        <label className="rounded-xl border border-zinc-200 bg-white px-3 py-1.5 text-xs font-semibold text-zinc-700 hover:bg-zinc-50">
+                          {attachUploadBusy?.templateId === selectedTemplate.id && attachUploadBusy.field === "email" ? "Uploading…" : "Upload file"}
+                          <input
+                            type="file"
+                            className="hidden"
+                            disabled={Boolean(attachUploadBusy)}
+                            onChange={(e) => {
+                              const f = e.target.files?.[0];
+                              if (f) void uploadFileToTemplate({ templateId: selectedTemplate.id, field: "email", file: f });
+                              e.currentTarget.value = "";
+                            }}
+                          />
+                        </label>
+                        <button
+                          type="button"
+                          className="rounded-xl border border-zinc-200 bg-white px-3 py-1.5 text-xs font-semibold text-zinc-700 hover:bg-zinc-50"
+                          onClick={() => setMediaPicker({ templateId: selectedTemplate.id, field: "email" })}
+                        >
+                          Attach files
+                        </button>
+                      </div>
                     </div>
                     <textarea
                       value={selectedTemplate.email.bodyTemplate}
@@ -1019,13 +1081,28 @@ export function PortalFollowUpClient({ embedded }: { embedded?: boolean } = {}) 
                   <div>
                     <div className="flex items-center justify-between gap-3">
                       <label className="text-xs font-semibold text-zinc-600">SMS body</label>
-                      <button
-                        type="button"
-                        className="rounded-xl border border-zinc-200 bg-white px-3 py-1.5 text-xs font-semibold text-zinc-700 hover:bg-zinc-50"
-                        onClick={() => setMediaPicker({ templateId: selectedTemplate.id, field: "sms" })}
-                      >
-                        Add
-                      </button>
+                      <div className="flex items-center gap-2">
+                        <label className="rounded-xl border border-zinc-200 bg-white px-3 py-1.5 text-xs font-semibold text-zinc-700 hover:bg-zinc-50">
+                          {attachUploadBusy?.templateId === selectedTemplate.id && attachUploadBusy.field === "sms" ? "Uploading…" : "Upload file"}
+                          <input
+                            type="file"
+                            className="hidden"
+                            disabled={Boolean(attachUploadBusy)}
+                            onChange={(e) => {
+                              const f = e.target.files?.[0];
+                              if (f) void uploadFileToTemplate({ templateId: selectedTemplate.id, field: "sms", file: f });
+                              e.currentTarget.value = "";
+                            }}
+                          />
+                        </label>
+                        <button
+                          type="button"
+                          className="rounded-xl border border-zinc-200 bg-white px-3 py-1.5 text-xs font-semibold text-zinc-700 hover:bg-zinc-50"
+                          onClick={() => setMediaPicker({ templateId: selectedTemplate.id, field: "sms" })}
+                        >
+                          Attach files
+                        </button>
+                      </div>
                     </div>
                     <textarea
                       value={selectedTemplate.sms.bodyTemplate}
@@ -1697,8 +1774,8 @@ export function PortalFollowUpClient({ embedded }: { embedded?: boolean } = {}) 
         open={Boolean(mediaPicker)}
         onClose={() => setMediaPicker(null)}
         onPick={addMediaLinkToTemplate}
-        confirmLabel="Add"
-        title="Add from media library"
+        confirmLabel="Attach"
+        title="Attach from media library"
       />
     </div>
   );

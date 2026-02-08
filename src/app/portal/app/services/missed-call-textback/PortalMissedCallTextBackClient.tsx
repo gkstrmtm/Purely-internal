@@ -4,12 +4,14 @@ import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 
 import { PortalSettingsSection } from "@/components/PortalSettingsSection";
+import { PortalMediaPickerModal, type PortalMediaPickItem } from "@/components/PortalMediaPickerModal";
 
 type Settings = {
   version: 1;
   enabled: boolean;
   replyDelaySeconds: number;
   replyBody: string;
+  mediaUrls?: string[];
   forwardToPhoneE164: string | null;
   webhookToken: string;
 };
@@ -73,6 +75,9 @@ export function PortalMissedCallTextBackClient({ embedded }: { embedded?: boolea
   const [error, setError] = useState<string | null>(null);
   const [note, setNote] = useState<string | null>(null);
 
+  const [uploading, setUploading] = useState(false);
+  const [pickerOpen, setPickerOpen] = useState(false);
+
   const [settings, setSettings] = useState<Settings | null>(null);
   const [events, setEvents] = useState<EventRow[]>([]);
   const [profilePhone, setProfilePhone] = useState<string | null>(null);
@@ -116,6 +121,47 @@ export function PortalMissedCallTextBackClient({ embedded }: { embedded?: boolea
   );
 
   const forwardPreview = settings?.forwardToPhoneE164 || profilePhone || "(not set)";
+
+  const mediaUrls = useMemo(() => (Array.isArray(settings?.mediaUrls) ? settings.mediaUrls : []), [settings?.mediaUrls]);
+
+  function toAbsoluteUrl(pathOrUrl: string) {
+    if (pathOrUrl.startsWith("http://") || pathOrUrl.startsWith("https://")) return pathOrUrl;
+    if (typeof window === "undefined") return pathOrUrl;
+    return new URL(pathOrUrl, window.location.origin).toString();
+  }
+
+  function addMediaUrl(url: string) {
+    if (!settings) return;
+    const next = Array.from(new Set([...mediaUrls, url])).slice(0, 10);
+    setSettings({ ...settings, mediaUrls: next });
+  }
+
+  function removeMediaUrl(url: string) {
+    if (!settings) return;
+    setSettings({ ...settings, mediaUrls: mediaUrls.filter((u) => u !== url) });
+  }
+
+  async function uploadAttachment(file: File) {
+    setUploading(true);
+    setError(null);
+    setNote(null);
+    try {
+      const formData = new FormData();
+      formData.append("file", file);
+      const res = await fetch("/api/uploads", { method: "POST", body: formData });
+      if (!res.ok) throw new Error("Upload failed.");
+      const json = await res.json().catch(() => ({}));
+      const url = typeof json?.url === "string" ? json.url : null;
+      if (!url) throw new Error("Upload did not return a URL.");
+      addMediaUrl(toAbsoluteUrl(url));
+      setNote("Attached.");
+      window.setTimeout(() => setNote(null), 1500);
+    } catch (e: any) {
+      setError(e?.message || "Failed to upload.");
+    } finally {
+      setUploading(false);
+    }
+  }
 
   async function save(next: Settings) {
     setSaving(true);
@@ -331,6 +377,61 @@ export function PortalMissedCallTextBackClient({ embedded }: { embedded?: boolea
             />
           </div>
 
+          <div className="mt-5">
+            <div className="flex items-start justify-between gap-3">
+              <div>
+                <div className="text-xs font-semibold text-zinc-700">Attachments (MMS)</div>
+                <div className="mt-1 text-xs text-zinc-500">Optional images, up to 10.</div>
+              </div>
+              <div className="flex flex-wrap items-center justify-end gap-2">
+                <button
+                  type="button"
+                  className="rounded-xl border border-zinc-200 bg-white px-3 py-2 text-xs font-semibold hover:bg-zinc-50 disabled:opacity-60"
+                  disabled={saving || uploading}
+                  onClick={() => setPickerOpen(true)}
+                >
+                  Attach from media library
+                </button>
+                <label className="cursor-pointer rounded-xl border border-zinc-200 bg-white px-3 py-2 text-xs font-semibold hover:bg-zinc-50 disabled:opacity-60">
+                  Upload photo
+                  <input
+                    type="file"
+                    accept="image/*"
+                    className="sr-only"
+                    disabled={saving || uploading}
+                    onChange={(e) => {
+                      const f = e.target.files?.[0];
+                      e.currentTarget.value = "";
+                      if (f) void uploadAttachment(f);
+                    }}
+                  />
+                </label>
+              </div>
+            </div>
+
+            {mediaUrls.length ? (
+              <div className="mt-3 space-y-2">
+                {mediaUrls.map((u) => (
+                  <div key={u} className="flex items-center justify-between gap-3 rounded-2xl border border-zinc-200 bg-white px-3 py-2">
+                    <a className="truncate text-xs font-mono text-zinc-800 underline" href={u} target="_blank" rel="noreferrer">
+                      {u}
+                    </a>
+                    <button
+                      type="button"
+                      className="rounded-xl border border-zinc-200 bg-white px-3 py-1.5 text-xs font-semibold hover:bg-zinc-50 disabled:opacity-60"
+                      onClick={() => removeMediaUrl(u)}
+                      disabled={saving}
+                    >
+                      Remove
+                    </button>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <div className="mt-2 text-xs text-zinc-500">No attachments.</div>
+            )}
+          </div>
+
           <div className="mt-5 flex flex-col gap-3 sm:flex-row">
             <button
               type="button"
@@ -406,6 +507,23 @@ export function PortalMissedCallTextBackClient({ embedded }: { embedded?: boolea
           </PortalSettingsSection>
         </div>
       </div>
+
+      <PortalMediaPickerModal
+        open={pickerOpen}
+        onClose={() => setPickerOpen(false)}
+        title="Attach from media library"
+        confirmLabel="Attach"
+        onPick={(item: PortalMediaPickItem) => {
+          if (!(item.mimeType || "").startsWith("image/")) {
+            setError("Only images can be attached for MMS.");
+            return;
+          }
+          addMediaUrl(toAbsoluteUrl(item.shareUrl));
+          setPickerOpen(false);
+          setNote("Attached.");
+          window.setTimeout(() => setNote(null), 1500);
+        }}
+      />
 
       <div className="mt-6 grid grid-cols-1 gap-4 lg:grid-cols-2">
         <div className="rounded-3xl border border-zinc-200 bg-white p-6">

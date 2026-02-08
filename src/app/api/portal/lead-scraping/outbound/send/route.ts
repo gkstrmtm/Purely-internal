@@ -315,10 +315,28 @@ export async function POST(req: Request) {
       if (!lead.phone) {
         skipped.push("Text skipped: lead has no phone.");
       } else {
-        const smsBody = renderTemplate(settings.outbound.sms.text, lead).slice(0, 900);
-        if (!smsBody.trim()) {
+        const smsBodyBase = renderTemplate(settings.outbound.sms.text, lead).slice(0, 900);
+        if (!smsBodyBase.trim()) {
           skipped.push("Text skipped: SMS template is empty.");
         } else {
+          let smsBody = smsBodyBase;
+
+          if (resources.length) {
+            const prefix = "\n\nResources:\n";
+            const remaining = 900 - smsBody.length;
+            if (remaining > prefix.length + 10) {
+              let suffix = prefix;
+              for (const r of resources) {
+                const line = `- ${r.label}: ${r.url}`;
+                if (suffix.length + line.length + 1 > remaining) break;
+                suffix += line + "\n";
+              }
+              if (suffix !== prefix) {
+                smsBody = (smsBody + suffix.trimEnd()).slice(0, 900);
+              }
+            }
+          }
+
           await sendSms({ ownerId, to: lead.phone, body: smsBody });
           sent.sms = true;
         }

@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import { PortalMediaPickerModal } from "@/components/PortalMediaPickerModal";
 
 const TAG_COLORS = [
   "#0EA5E9", // sky
@@ -407,6 +408,7 @@ export function PortalLeadScrapingClient() {
   const [outboundUploadBusy, setOutboundUploadBusy] = useState(false);
   const [outboundNewResourceLabel, setOutboundNewResourceLabel] = useState("");
   const [outboundNewResourceUrl, setOutboundNewResourceUrl] = useState("");
+  const [outboundResourcesPickerOpen, setOutboundResourcesPickerOpen] = useState(false);
 
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -1220,7 +1222,37 @@ export function PortalLeadScrapingClient() {
               className="text-sm"
             />
             {outboundUploadBusy ? <span className="text-xs text-zinc-500">Uploading…</span> : null}
+
+            <button
+              type="button"
+              disabled={outboundUploadBusy}
+              onClick={() => setOutboundResourcesPickerOpen(true)}
+              className="rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm font-semibold text-brand-ink hover:bg-zinc-50 disabled:opacity-60"
+            >
+              Attach from media library
+            </button>
           </div>
+
+          <PortalMediaPickerModal
+            open={outboundResourcesPickerOpen}
+            title="Attach a resource"
+            confirmLabel="Attach"
+            onClose={() => setOutboundResourcesPickerOpen(false)}
+            onPick={(item) => {
+              setSettings((prev) =>
+                prev
+                  ? {
+                      ...prev,
+                      outbound: {
+                        ...prev.outbound,
+                        resources: [{ label: item.fileName.slice(0, 120), url: item.shareUrl }, ...prev.outbound.resources].slice(0, 30),
+                      },
+                    }
+                  : prev,
+              );
+              setOutboundResourcesPickerOpen(false);
+            }}
+          />
 
           {settings.outbound.resources.length ? (
             <div className="mt-4 space-y-2">
