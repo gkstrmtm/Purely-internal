@@ -4,6 +4,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 
 import styles from "./PortalInboxClient.module.css";
 import { PortalSettingsSection } from "@/components/PortalSettingsSection";
+import { PortalMediaPickerModal, type PortalMediaPickItem } from "@/components/PortalMediaPickerModal";
 
 type Channel = "email" | "sms";
 type EmailBox = "inbox" | "sent" | "all";
@@ -139,6 +140,9 @@ export function PortalInboxClient() {
   const [composeAttachments, setComposeAttachments] = useState<UploadedAttachment[]>([]);
   const [uploading, setUploading] = useState(false);
   const [sending, setSending] = useState(false);
+
+  const [smsMoreOpen, setSmsMoreOpen] = useState(false);
+  const [mediaPickerOpen, setMediaPickerOpen] = useState(false);
 
   const smsScrollRef = useRef<HTMLDivElement | null>(null);
   const smsFileRef = useRef<HTMLInputElement | null>(null);
@@ -287,6 +291,30 @@ export function PortalInboxClient() {
     }
   }
 
+  async function attachFromMediaLibrary(item: PortalMediaPickItem) {
+    setError(null);
+    const res = await fetch("/api/portal/inbox/attachments/from-media", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ mediaItemId: item.id }),
+    });
+
+    const json = (await res.json().catch(() => null)) as any;
+    if (!res.ok || !json?.ok || !json?.attachment) {
+      setError(typeof json?.error === "string" ? json.error : "Could not attach file");
+      return;
+    }
+
+    const a = json.attachment as UploadedAttachment;
+    setComposeAttachments((prev) => {
+      const next = [...prev];
+      if (!next.some((x) => x.id === a.id)) next.push(a);
+      return next.slice(0, 10);
+    });
+
+    setMediaPickerOpen(false);
+  }
+
   async function removeAttachment(id: string) {
     setComposeAttachments((prev) => prev.filter((a) => a.id !== id));
     await fetch(`/api/portal/inbox/attachments/${id}`, { method: "DELETE" }).catch(() => null);
@@ -362,15 +390,15 @@ export function PortalInboxClient() {
             title="Inbound setup"
             description="Webhook URL for inbound SMS (token-based)."
             accent="blue"
+            dotClassName={
+              settings?.twilio?.configured
+                ? "bg-[color:var(--color-brand-blue)]"
+                : "bg-zinc-400"
+            }
           >
             <div className="space-y-3">
               <div
-                className={
-                  "rounded-2xl border p-4 " +
-                  (settings?.twilio?.configured
-                    ? "border-[color:rgba(29,78,216,0.18)] bg-[color:rgba(29,78,216,0.06)]"
-                    : "border-red-200 bg-red-50")
-                }
+                className="rounded-2xl border border-zinc-200 bg-white p-4"
               >
                 <div className="text-xs font-semibold text-zinc-600">Twilio SMS webhook (token-based)</div>
                 <div className="mt-2 break-all font-mono text-xs text-zinc-800">
@@ -690,14 +718,50 @@ export function PortalInboxClient() {
                   </div>
                 ) : null}
                 <div className={classNames("flex items-center gap-2 px-2 py-2", styles.inputPill)}>
-                  <button
-                    type="button"
-                    className={classNames(styles.iconButton, styles.iconButtonMuted)}
-                    onClick={() => smsFileRef.current?.click()}
-                    aria-label="More"
-                  >
-                    <span className="text-lg leading-none">+</span>
-                  </button>
+                  <div className="relative">
+                    {smsMoreOpen ? (
+                      <>
+                        <div
+                          className="fixed inset-0 z-[70]"
+                          onMouseDown={() => setSmsMoreOpen(false)}
+                          onTouchStart={() => setSmsMoreOpen(false)}
+                          aria-hidden
+                        />
+                        <div className="absolute bottom-full left-0 z-[75] mb-2 w-64 overflow-hidden rounded-2xl border border-zinc-200 bg-white shadow-lg">
+                          <button
+                            type="button"
+                            className="w-full px-4 py-3 text-left text-sm font-semibold text-zinc-900 hover:bg-zinc-50"
+                            onClick={() => {
+                              setSmsMoreOpen(false);
+                              smsFileRef.current?.click();
+                            }}
+                          >
+                            Upload from device
+                          </button>
+                          <button
+                            type="button"
+                            className="w-full px-4 py-3 text-left text-sm font-semibold text-zinc-900 hover:bg-zinc-50"
+                            onClick={() => {
+                              setSmsMoreOpen(false);
+                              setMediaPickerOpen(true);
+                            }}
+                          >
+                            Add from media library
+                          </button>
+                        </div>
+                      </>
+                    ) : null}
+
+                    <button
+                      type="button"
+                      className={classNames(styles.iconButton, styles.iconButtonMuted)}
+                      onClick={() => setSmsMoreOpen((v) => !v)}
+                      aria-label="More"
+                      aria-expanded={smsMoreOpen ? true : undefined}
+                    >
+                      <span className="text-lg leading-none">+</span>
+                    </button>
+                  </div>
 
                   <input
                     ref={smsFileRef}
@@ -886,6 +950,14 @@ export function PortalInboxClient() {
           )}
         </div>
       </div>
+
+      <PortalMediaPickerModal
+        open={mediaPickerOpen}
+        onClose={() => setMediaPickerOpen(false)}
+        onPick={attachFromMediaLibrary}
+        confirmLabel="Add"
+        title="Add from media library"
+      />
     </div>
   );
 }

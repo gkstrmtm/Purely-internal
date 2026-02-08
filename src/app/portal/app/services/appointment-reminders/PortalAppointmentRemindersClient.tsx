@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 
 import { PortalSettingsSection } from "@/components/PortalSettingsSection";
+import { PortalMediaPickerModal, type PortalMediaPickItem } from "@/components/PortalMediaPickerModal";
 
 type Me = {
   user: { email: string; name: string; role: string };
@@ -95,6 +96,8 @@ export function PortalAppointmentRemindersClient() {
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [status, setStatus] = useState<string | null>(null);
+
+  const [mediaPickerStepId, setMediaPickerStepId] = useState<string | null>(null);
 
   const unlocked = useMemo(() => Boolean(me?.entitlements?.booking), [me?.entitlements?.booking]);
 
@@ -251,6 +254,19 @@ export function PortalAppointmentRemindersClient() {
       if (steps.length === 0) return prev;
       return { ...prev, version: 3, steps };
     });
+  }
+
+  async function addMediaLinkToStep(item: PortalMediaPickItem) {
+    const stepId = mediaPickerStepId;
+    if (!stepId) return;
+    const step = draft?.steps.find((s) => s.id === stepId);
+    if (!step) return;
+
+    const link = window.location.origin + item.shareUrl;
+    const base = String(step.messageBody || "");
+    const sep = base.trim().length ? "\n\n" : "";
+    updateStep(stepId, { messageBody: base + sep + link });
+    setMediaPickerStepId(null);
   }
 
   async function setEnabled(enabled: boolean) {
@@ -504,7 +520,17 @@ export function PortalAppointmentRemindersClient() {
                       </label>
 
                       <label className="rounded-2xl border border-zinc-200 bg-zinc-50 px-4 py-3 text-sm sm:col-span-2">
-                        <div className="font-medium text-zinc-800">Message</div>
+                        <div className="flex items-center justify-between gap-3">
+                          <div className="font-medium text-zinc-800">Message</div>
+                          <button
+                            type="button"
+                            disabled={saving}
+                            className="rounded-xl border border-zinc-200 bg-white px-3 py-1.5 text-xs font-semibold text-zinc-700 hover:bg-zinc-50 disabled:opacity-60"
+                            onClick={() => setMediaPickerStepId(s.id)}
+                          >
+                            Add
+                          </button>
+                        </div>
                         <textarea
                           className="mt-2 min-h-[90px] w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm"
                           value={s.messageBody}
@@ -594,6 +620,14 @@ export function PortalAppointmentRemindersClient() {
       <div className="mt-4 text-xs text-zinc-500">
         Tip: reminders are processed every 5 minutes.
       </div>
+
+      <PortalMediaPickerModal
+        open={Boolean(mediaPickerStepId)}
+        onClose={() => setMediaPickerStepId(null)}
+        onPick={addMediaLinkToStep}
+        confirmLabel="Add"
+        title="Add from media library"
+      />
     </div>
   );
 }

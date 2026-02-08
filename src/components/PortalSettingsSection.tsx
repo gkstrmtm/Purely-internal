@@ -5,6 +5,7 @@ export function PortalSettingsSection({
   description,
   accent,
   status,
+  dotClassName,
   defaultOpen,
   children,
 }: {
@@ -12,6 +13,7 @@ export function PortalSettingsSection({
   description?: string;
   accent: "blue" | "pink" | "amber" | "emerald" | "slate";
   status?: "on" | "off";
+  dotClassName?: string;
   defaultOpen?: boolean;
   children: React.ReactNode;
 }) {
@@ -26,8 +28,13 @@ export function PortalSettingsSection({
             ? "bg-emerald-500"
             : "bg-slate-500";
 
-  const dotClass =
-    status === "on" ? "bg-emerald-500" : status === "off" ? "bg-red-500" : accentDotClass;
+  const dotClass = dotClassName
+    ? dotClassName
+    : status === "on"
+      ? "bg-emerald-500"
+      : status === "off"
+        ? "bg-red-500"
+        : accentDotClass;
 
   return (
     <details className="group rounded-3xl border border-zinc-200 bg-zinc-50" open={defaultOpen ? true : undefined}>

@@ -356,6 +356,11 @@ export function PortalMissedCallTextBackClient({ embedded }: { embedded?: boolea
             title="Twilio"
             description="Webhook URLs and setup steps for inbound calls."
             accent="blue"
+            dotClassName={
+              twilioConfigured
+                ? "bg-[color:var(--color-brand-blue)]"
+                : "bg-zinc-400"
+            }
           >
             <div className="space-y-3">
               <div

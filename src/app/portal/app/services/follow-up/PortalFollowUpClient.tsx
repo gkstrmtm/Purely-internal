@@ -5,6 +5,7 @@ import { useEffect, useMemo, useState } from "react";
 
 import { PORTAL_SERVICES } from "@/app/portal/services/catalog";
 import { PortalSettingsSection } from "@/components/PortalSettingsSection";
+import { PortalMediaPickerModal, type PortalMediaPickItem } from "@/components/PortalMediaPickerModal";
 
 type Me = {
   user: { email: string; name: string; role: string };
@@ -140,6 +141,8 @@ export function PortalFollowUpClient({ embedded }: { embedded?: boolean } = {}) 
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
 
+  const [mediaPicker, setMediaPicker] = useState<null | { templateId: string; field: "email" | "sms" }>(null);
+
   const [expandedStepId, setExpandedStepId] = useState<string | null>(null);
   const [stepEmailDrafts, setStepEmailDrafts] = useState<Record<string, string>>({});
   const [stepPhoneDrafts, setStepPhoneDrafts] = useState<Record<string, string>>({});
@@ -271,6 +274,27 @@ export function PortalFollowUpClient({ embedded }: { embedded?: boolean } = {}) 
     if (!settings) return;
     const next = settings.templates.map((t) => (t.id === templateId ? { ...t, ...patch } : t));
     setSettings({ ...settings, templates: next });
+  }
+
+  async function addMediaLinkToTemplate(item: PortalMediaPickItem) {
+    if (!settings || !mediaPicker) return;
+    const t = settings.templates.find((x) => x.id === mediaPicker.templateId);
+    if (!t) return;
+
+    const link = window.location.origin + item.shareUrl;
+    const nextText = (prev: string) => {
+      const base = String(prev || "");
+      const sep = base.trim().length ? "\n\n" : "";
+      return base + sep + link;
+    };
+
+    if (mediaPicker.field === "email") {
+      updateTemplate(t.id, { email: { ...t.email, bodyTemplate: nextText(t.email.bodyTemplate) } });
+    } else {
+      updateTemplate(t.id, { sms: { ...t.sms, bodyTemplate: nextText(t.sms.bodyTemplate) } });
+    }
+
+    setMediaPicker(null);
   }
 
   function addTemplate() {
@@ -971,7 +995,16 @@ export function PortalFollowUpClient({ embedded }: { embedded?: boolean } = {}) 
                     />
                   </div>
                   <div>
-                    <label className="text-xs font-semibold text-zinc-600">Email body</label>
+                    <div className="flex items-center justify-between gap-3">
+                      <label className="text-xs font-semibold text-zinc-600">Email body</label>
+                      <button
+                        type="button"
+                        className="rounded-xl border border-zinc-200 bg-white px-3 py-1.5 text-xs font-semibold text-zinc-700 hover:bg-zinc-50"
+                        onClick={() => setMediaPicker({ templateId: selectedTemplate.id, field: "email" })}
+                      >
+                        Add
+                      </button>
+                    </div>
                     <textarea
                       value={selectedTemplate.email.bodyTemplate}
                       onChange={(e) =>
@@ -984,7 +1017,16 @@ export function PortalFollowUpClient({ embedded }: { embedded?: boolean } = {}) 
                     />
                   </div>
                   <div>
-                    <label className="text-xs font-semibold text-zinc-600">SMS body</label>
+                    <div className="flex items-center justify-between gap-3">
+                      <label className="text-xs font-semibold text-zinc-600">SMS body</label>
+                      <button
+                        type="button"
+                        className="rounded-xl border border-zinc-200 bg-white px-3 py-1.5 text-xs font-semibold text-zinc-700 hover:bg-zinc-50"
+                        onClick={() => setMediaPicker({ templateId: selectedTemplate.id, field: "sms" })}
+                      >
+                        Add
+                      </button>
+                    </div>
                     <textarea
                       value={selectedTemplate.sms.bodyTemplate}
                       onChange={(e) =>
@@ -1650,6 +1692,14 @@ export function PortalFollowUpClient({ embedded }: { embedded?: boolean } = {}) 
           </div>
         </div>
       )}
+
+      <PortalMediaPickerModal
+        open={Boolean(mediaPicker)}
+        onClose={() => setMediaPicker(null)}
+        onPick={addMediaLinkToTemplate}
+        confirmLabel="Add"
+        title="Add from media library"
+      />
     </div>
   );
 }

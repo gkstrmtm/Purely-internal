@@ -88,6 +88,11 @@ For public/portal APIs, prefer narrow `select` clauses and avoid assuming option
 Portal Inbox note: the portal Inbox/Outbox APIs will attempt an idempotent runtime schema install for the inbox tables/types (see `ensurePortalInboxSchema()`), to avoid hard failures if migrations were skipped.
 This requires the database role to allow `CREATE TYPE`, `CREATE TABLE`, `CREATE INDEX`, and `ALTER TABLE ... ADD CONSTRAINT` in the `public` schema.
 
+Manual patches (when Prisma Migrate is unreliable):
+
+- Media Library tables: `node scripts/apply-portal-media-library-db-patch.mjs`
+- Lead scraping tables: `node scripts/apply-lead-scraping-db-patch.mjs`
+
 3) In Vercel → Project → Settings → Build & Development Settings:
 
 - Build Command: `npm run vercel-build`

@@ -23,6 +23,18 @@ export const PORTAL_SERVICES: PortalService[] = [
     accent: "blue",
   },
   {
+    slug: "media-library",
+    title: "Media Library",
+    description: "Store and reuse photos, videos, and files.",
+    highlights: [
+      "Folders + simple sharing links",
+      "Preview, download, and copy link",
+      "Attach media into SMS and email",
+    ],
+    included: true,
+    accent: "blue",
+  },
+  {
     slug: "blogs",
     title: "Automated Blogs",
     description: "Consistent posting without the weekly scramble.",

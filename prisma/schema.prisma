@@ -105,6 +105,63 @@ model User {
   portalInboxThreads  PortalInboxThread[]
   portalInboxMessages PortalInboxMessage[]
   portalInboxAttachments PortalInboxAttachment[]
+
+  portalMediaFolders PortalMediaFolder[]
+  portalMediaItems   PortalMediaItem[]
+}
+
+model PortalMediaFolder {
+  id String @id @default(cuid())
+
+  ownerId String
+  parentId String?
+
+  name    String
+  nameKey String
+
+  // Short per-owner tag you can reference elsewhere.
+  tag String
+
+  // Public share token for folder links.
+  publicToken String
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  owner  User @relation(fields: [ownerId], references: [id])
+  parent PortalMediaFolder? @relation("PortalMediaFolderTree", fields: [parentId], references: [id], onDelete: Cascade)
+  children PortalMediaFolder[] @relation("PortalMediaFolderTree")
+
+  items PortalMediaItem[]
+
+  @@unique([ownerId, tag])
+  @@index([ownerId, parentId, nameKey])
+}
+
+model PortalMediaItem {
+  id String @id @default(cuid())
+
+  ownerId String
+  folderId String?
+
+  fileName String
+  mimeType String
+  fileSize Int
+  bytes    Bytes
+
+  // Short per-owner tag you can reference elsewhere.
+  tag String
+
+  // Public share token for file links.
+  publicToken String
+
+  createdAt DateTime @default(now())
+
+  owner  User @relation(fields: [ownerId], references: [id])
+  folder PortalMediaFolder? @relation(fields: [folderId], references: [id], onDelete: SetNull)
+
+  @@unique([ownerId, tag])
+  @@index([ownerId, folderId, createdAt])
 }
 
 enum PortalLeadScrapeKind {
