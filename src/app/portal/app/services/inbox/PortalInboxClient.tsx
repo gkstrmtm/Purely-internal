@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 
 type Channel = "email" | "sms";
+type EmailBox = "inbox" | "sent" | "all";
 
 type Thread = {
   id: string;
@@ -47,6 +48,7 @@ function formatWhen(iso: string) {
 
 export function PortalInboxClient() {
   const [tab, setTab] = useState<Channel>("email");
+  const [emailBox, setEmailBox] = useState<EmailBox>("inbox");
   const [threads, setThreads] = useState<Thread[]>([]);
   const [activeThreadId, setActiveThreadId] = useState<string | null>(null);
   const [messages, setMessages] = useState<Message[]>([]);
@@ -60,6 +62,13 @@ export function PortalInboxClient() {
     () => threads.find((t) => t.id === activeThreadId) ?? null,
     [threads, activeThreadId],
   );
+
+  const visibleThreads = useMemo(() => {
+    if (tab !== "email") return threads;
+    if (emailBox === "all") return threads;
+    const dir = emailBox === "inbox" ? "IN" : "OUT";
+    return threads.filter((t) => t.lastMessageDirection === dir);
+  }, [threads, tab, emailBox]);
 
   const [composeTo, setComposeTo] = useState<string>("");
   const [composeSubject, setComposeSubject] = useState<string>("");
@@ -128,6 +137,15 @@ export function PortalInboxClient() {
     loadThreads(tab);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [tab]);
+
+  useEffect(() => {
+    // If the active thread is filtered out by the email box, pick the first visible thread.
+    if (tab !== "email") return;
+    if (!activeThreadId) return;
+    if (visibleThreads.some((t) => t.id === activeThreadId)) return;
+    setActiveThreadId(visibleThreads[0]?.id ?? null);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [tab, emailBox, threads]);
 
   useEffect(() => {
     if (!activeThreadId) return;
@@ -232,24 +250,30 @@ export function PortalInboxClient() {
         </div>
       </div>
 
-      <div className="mt-5 inline-flex rounded-2xl border border-zinc-200 bg-white p-1">
+      <div className="mt-6 flex w-full flex-wrap gap-2">
         <button
           type="button"
           onClick={() => setTab("email")}
-          className={classNames(
-            "rounded-2xl px-4 py-2 text-sm font-semibold",
-            tab === "email" ? "bg-zinc-100 text-zinc-900" : "text-zinc-600 hover:bg-zinc-50",
-          )}
+          aria-current={tab === "email" ? "page" : undefined}
+          className={
+            "flex-1 min-w-[140px] rounded-2xl border px-4 py-2.5 text-sm font-semibold transition focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-ink/60 " +
+            (tab === "email"
+              ? "border-zinc-900 bg-zinc-900 text-white shadow-sm"
+              : "border-zinc-200 bg-white text-zinc-700 hover:bg-zinc-50")
+          }
         >
           Email
         </button>
         <button
           type="button"
           onClick={() => setTab("sms")}
-          className={classNames(
-            "rounded-2xl px-4 py-2 text-sm font-semibold",
-            tab === "sms" ? "bg-zinc-100 text-zinc-900" : "text-zinc-600 hover:bg-zinc-50",
-          )}
+          aria-current={tab === "sms" ? "page" : undefined}
+          className={
+            "flex-1 min-w-[140px] rounded-2xl border px-4 py-2.5 text-sm font-semibold transition focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-ink/60 " +
+            (tab === "sms"
+              ? "border-zinc-900 bg-zinc-900 text-white shadow-sm"
+              : "border-zinc-200 bg-white text-zinc-700 hover:bg-zinc-50")
+          }
         >
           SMS
         </button>
@@ -261,15 +285,57 @@ export function PortalInboxClient() {
 
       <div className="mt-4 grid grid-cols-1 gap-4 lg:grid-cols-12">
         <div className="rounded-3xl border border-zinc-200 bg-white p-3 lg:col-span-4">
-          <div className="px-2 py-2 text-sm font-semibold text-zinc-900">Threads</div>
+          <div className="flex items-center justify-between gap-3 px-2 py-2">
+            <div className="text-sm font-semibold text-zinc-900">Threads</div>
+            {tab === "email" ? (
+              <div className="flex items-center gap-1 rounded-2xl border border-zinc-200 bg-white p-1">
+                <button
+                  type="button"
+                  onClick={() => setEmailBox("inbox")}
+                  className={classNames(
+                    "rounded-2xl px-3 py-1.5 text-xs font-semibold",
+                    emailBox === "inbox" ? "bg-zinc-100 text-zinc-900" : "text-zinc-600 hover:bg-zinc-50",
+                  )}
+                >
+                  Inbox
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setEmailBox("sent")}
+                  className={classNames(
+                    "rounded-2xl px-3 py-1.5 text-xs font-semibold",
+                    emailBox === "sent" ? "bg-zinc-100 text-zinc-900" : "text-zinc-600 hover:bg-zinc-50",
+                  )}
+                >
+                  Sent
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setEmailBox("all")}
+                  className={classNames(
+                    "rounded-2xl px-3 py-1.5 text-xs font-semibold",
+                    emailBox === "all" ? "bg-zinc-100 text-zinc-900" : "text-zinc-600 hover:bg-zinc-50",
+                  )}
+                >
+                  All
+                </button>
+              </div>
+            ) : null}
+          </div>
           {loadingThreads ? (
             <div className="px-2 py-3 text-sm text-zinc-600">Loading…</div>
-          ) : threads.length ? (
+          ) : visibleThreads.length ? (
             <div className="max-h-[70vh] overflow-y-auto">
-              {threads.map((t) => {
+              {visibleThreads.map((t) => {
                 const active = t.id === activeThreadId;
-                const title = tab === "sms" ? t.peerAddress : t.subject || "(no subject)";
-                const subtitle = tab === "sms" ? t.lastMessagePreview : t.peerAddress;
+                const title =
+                  tab === "sms"
+                    ? t.peerAddress
+                    : (t.peerAddress || "Unknown sender");
+                const subtitle =
+                  tab === "sms"
+                    ? t.lastMessagePreview
+                    : (t.subject || "(no subject)");
                 return (
                   <button
                     key={t.id}
@@ -282,7 +348,14 @@ export function PortalInboxClient() {
                   >
                     <div className="flex items-start justify-between gap-3">
                       <div className="min-w-0">
-                        <div className="truncate text-sm font-semibold text-zinc-900">{title}</div>
+                        <div className="flex items-center gap-2">
+                          <div className={classNames("truncate text-sm", active ? "font-semibold text-zinc-900" : "font-semibold text-zinc-900")}>
+                            {title}
+                          </div>
+                          {tab === "email" && t.lastMessageDirection === "IN" ? (
+                            <span className="shrink-0 rounded-full bg-zinc-900 px-2 py-0.5 text-[10px] font-semibold text-white">New</span>
+                          ) : null}
+                        </div>
                         <div className="mt-0.5 truncate text-xs text-zinc-600">{subtitle}</div>
                       </div>
                       <div className="shrink-0 text-[11px] text-zinc-500">{formatWhen(t.lastMessageAt)}</div>
@@ -311,7 +384,12 @@ export function PortalInboxClient() {
             </div>
           </div>
 
-          <div className="h-[46vh] overflow-y-auto rounded-2xl border border-zinc-100 bg-zinc-50 p-3">
+          <div
+            className={classNames(
+              "h-[46vh] overflow-y-auto rounded-2xl border border-zinc-100 p-3",
+              tab === "sms" ? "bg-[#F5F5F7]" : "bg-zinc-50",
+            )}
+          >
             {loadingMessages ? (
               <div className="text-sm text-zinc-600">Loading…</div>
             ) : messages.length ? (
@@ -323,12 +401,14 @@ export function PortalInboxClient() {
                       <div key={m.id} className={classNames("flex", mine ? "justify-end" : "justify-start")}>
                         <div
                           className={classNames(
-                            "max-w-[80%] rounded-2xl px-3 py-2 text-sm",
-                            mine ? "bg-[color:var(--color-brand-blue)] text-white" : "bg-white text-zinc-900",
+                            "max-w-[78%] rounded-3xl px-4 py-2.5 text-[15px] leading-snug shadow-sm",
+                            mine ? "bg-[#007AFF] text-white" : "bg-white text-zinc-900",
                           )}
                         >
                           <div className="whitespace-pre-wrap break-words">{m.bodyText}</div>
-                          <div className={classNames("mt-1 text-[11px]", mine ? "text-white/80" : "text-zinc-500")}> {formatWhen(m.createdAt)} </div>
+                          <div className={classNames("mt-1 text-[11px]", mine ? "text-white/80" : "text-zinc-500")}>
+                            {formatWhen(m.createdAt)}
+                          </div>
                         </div>
                       </div>
                     );
