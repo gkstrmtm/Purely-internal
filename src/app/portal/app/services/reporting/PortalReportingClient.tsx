@@ -184,7 +184,7 @@ function classNames(...xs: Array<string | false | null | undefined>) {
   return xs.filter(Boolean).join(" ");
 }
 
-type StatTone = "blue" | "pink" | "ink" | "emerald" | "slate";
+type StatTone = "blue" | "pink" | "ink" | "emerald" | "slate" | "violet" | "amber";
 
 function toneClasses(tone: StatTone) {
   switch (tone) {
@@ -193,24 +193,42 @@ function toneClasses(tone: StatTone) {
         bar: "bg-[linear-gradient(90deg,rgba(29,78,216,0.92),rgba(29,78,216,0.22))]",
         ring: "ring-1 ring-[color:rgba(29,78,216,0.16)]",
         pill: "bg-[color:rgba(29,78,216,0.10)] text-[color:var(--color-brand-blue)]",
+        icon: "border-[color:rgba(29,78,216,0.20)] bg-[color:rgba(29,78,216,0.10)] text-[color:rgba(29,78,216,0.95)]",
       };
     case "pink":
       return {
         bar: "bg-[linear-gradient(90deg,rgba(251,113,133,0.92),rgba(251,113,133,0.18))]",
         ring: "ring-1 ring-[color:rgba(251,113,133,0.16)]",
         pill: "bg-[color:rgba(251,113,133,0.14)] text-[color:var(--color-brand-pink)]",
+        icon: "border-[color:rgba(251,113,133,0.22)] bg-[color:rgba(251,113,133,0.14)] text-[color:rgba(251,113,133,0.95)]",
       };
     case "emerald":
       return {
         bar: "bg-[linear-gradient(90deg,rgba(16,185,129,0.88),rgba(16,185,129,0.18))]",
         ring: "ring-1 ring-[color:rgba(16,185,129,0.14)]",
         pill: "bg-emerald-50 text-emerald-700",
+        icon: "border-emerald-200 bg-emerald-50 text-emerald-700",
+      };
+    case "violet":
+      return {
+        bar: "bg-[linear-gradient(90deg,rgba(124,58,237,0.92),rgba(124,58,237,0.18))]",
+        ring: "ring-1 ring-[color:rgba(124,58,237,0.16)]",
+        pill: "bg-[color:rgba(124,58,237,0.10)] text-[color:rgba(124,58,237,0.95)]",
+        icon: "border-[color:rgba(124,58,237,0.20)] bg-[color:rgba(124,58,237,0.10)] text-[color:rgba(124,58,237,0.95)]",
+      };
+    case "amber":
+      return {
+        bar: "bg-[linear-gradient(90deg,rgba(245,158,11,0.92),rgba(245,158,11,0.18))]",
+        ring: "ring-1 ring-[color:rgba(245,158,11,0.18)]",
+        pill: "bg-[color:rgba(245,158,11,0.12)] text-[color:rgba(180,83,9,0.95)]",
+        icon: "border-[color:rgba(245,158,11,0.22)] bg-[color:rgba(245,158,11,0.12)] text-[color:rgba(180,83,9,0.95)]",
       };
     case "slate":
       return {
         bar: "bg-[linear-gradient(90deg,rgba(100,116,139,0.92),rgba(100,116,139,0.22))]",
         ring: "ring-1 ring-[color:rgba(100,116,139,0.14)]",
         pill: "bg-slate-50 text-slate-700",
+        icon: "border-slate-200 bg-slate-50 text-slate-700",
       };
     case "ink":
     default:
@@ -218,18 +236,67 @@ function toneClasses(tone: StatTone) {
         bar: "bg-[linear-gradient(90deg,rgba(51,65,85,0.92),rgba(51,65,85,0.22))]",
         ring: "ring-1 ring-[color:rgba(51,65,85,0.14)]",
         pill: "bg-[color:rgba(51,65,85,0.10)] text-brand-ink",
+        icon: "border-[color:rgba(51,65,85,0.16)] bg-[color:rgba(51,65,85,0.10)] text-brand-ink",
       };
   }
 }
 
-function StatCard({ label, value, sub, tone }: { label: string; value: string; sub?: string; tone: StatTone }) {
+function StatIconDoc() {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" className="h-4 w-4" aria-hidden="true">
+      <path
+        d="M8 3.75h6.25L19.25 8.75V18.5A2.75 2.75 0 0 1 16.5 21.25h-8A2.75 2.75 0 0 1 5.75 18.5v-12A2.75 2.75 0 0 1 8.5 3.75H8Z"
+        stroke="currentColor"
+        strokeWidth="1.8"
+        strokeLinejoin="round"
+      />
+      <path d="M14 3.75V9h5.25" stroke="currentColor" strokeWidth="1.8" strokeLinejoin="round" />
+      <path d="M8.5 12.25h8" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
+      <path d="M8.5 15.75h6" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
+    </svg>
+  );
+}
+
+function StatIconSpark() {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" className="h-4 w-4" aria-hidden="true">
+      <path
+        d="M12 2.75l1.3 4.8a2 2 0 0 0 1.42 1.4l4.78 1.3-4.78 1.3a2 2 0 0 0-1.42 1.4L12 17.75l-1.3-4.8a2 2 0 0 0-1.42-1.4L4.5 10.25l4.78-1.3a2 2 0 0 0 1.42-1.4L12 2.75Z"
+        stroke="currentColor"
+        strokeWidth="1.8"
+        strokeLinejoin="round"
+      />
+      <path d="M19.25 14.25l.55 2.05a1.2 1.2 0 0 0 .85.85l2.05.55-2.05.55a1.2 1.2 0 0 0-.85.85l-.55 2.05-.55-2.05a1.2 1.2 0 0 0-.85-.85l-2.05-.55 2.05-.55a1.2 1.2 0 0 0 .85-.85l.55-2.05Z" fill="currentColor" opacity="0.35" />
+    </svg>
+  );
+}
+
+function StatCard({
+  label,
+  value,
+  sub,
+  tone,
+  icon,
+}: {
+  label: string;
+  value: string;
+  sub?: string;
+  tone: StatTone;
+  icon?: React.ReactNode;
+}) {
   const t = toneClasses(tone);
   return (
     <div className={classNames("rounded-3xl border border-zinc-200 bg-white p-6", t.ring)}>
       <div className={classNames("mb-4 h-1.5 w-14 rounded-full", t.bar)} />
       <div className="flex items-center justify-between gap-3">
         <div className="text-xs font-semibold text-zinc-500">{label}</div>
-        <div className={classNames("h-2.5 w-2.5 rounded-full", t.pill)} aria-hidden="true" />
+        {icon ? (
+          <div className={classNames("inline-flex items-center justify-center rounded-xl border p-2", t.icon)} aria-hidden="true">
+            {icon}
+          </div>
+        ) : (
+          <div className={classNames("h-2.5 w-2.5 rounded-full", t.pill)} aria-hidden="true" />
+        )}
       </div>
       <div className="mt-2 text-3xl font-bold text-brand-ink">{value}</div>
       {sub ? <div className="mt-1 text-xs text-zinc-500">{sub}</div> : null}
@@ -679,7 +746,13 @@ export function PortalReportingClient() {
                     );
                   })()}
                 </div>
-                <StatCard label="Blogs generated" value={data.kpis.blogGenerations.toLocaleString()} sub="Generated posts" tone="slate" />
+                <StatCard
+                  label="Blogs generated"
+                  value={data.kpis.blogGenerations.toLocaleString()}
+                  sub="Generated posts"
+                  tone="violet"
+                  icon={<StatIconDoc />}
+                />
               </div>
             ) : null}
 
@@ -702,7 +775,13 @@ export function PortalReportingClient() {
                     );
                   })()}
                 </div>
-                <StatCard label="Blog credits used" value={data.kpis.blogCreditsUsed.toLocaleString()} sub="AI generation" tone="slate" />
+                <StatCard
+                  label="Blog credits used"
+                  value={data.kpis.blogCreditsUsed.toLocaleString()}
+                  sub="AI generation"
+                  tone="amber"
+                  icon={<StatIconSpark />}
+                />
               </div>
             ) : null}
 
