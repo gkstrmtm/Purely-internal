@@ -88,6 +88,13 @@ model User {
   approvals      Approval[]
 
   portalServiceSetups PortalServiceSetup[]
+
+  portalAccountMembersOwned PortalAccountMember[] @relation("PortalAccountMemberOwner")
+  portalAccountMemberships  PortalAccountMember[] @relation("PortalAccountMemberUser")
+  portalAccountInvites      PortalAccountInvite[] @relation("PortalAccountInviteOwner")
+
+  portalTasks        PortalTask[] @relation("PortalTaskOwner")
+  portalTasksAssigned PortalTask[] @relation("PortalTaskAssignee")
   businessProfile     BusinessProfile?
   clientBlogSite      ClientBlogSite?
 
@@ -950,6 +957,18 @@ enum PortalBookingStatus {
   CANCELED
 }
 
+enum PortalAccountRole {
+  OWNER
+  ADMIN
+  MEMBER
+}
+
+enum PortalTaskStatus {
+  OPEN
+  DONE
+  CANCELED
+}
+
 model PortalBookingSite {
   id String @id @default(cuid())
 
@@ -1005,4 +1024,69 @@ model PortalBooking {
   @@index([siteId, startAt])
   @@index([siteId, status, startAt])
   @@index([siteId, calendarId, endAt])
+}
+
+model PortalAccountMember {
+  id String @id @default(cuid())
+
+  ownerId String
+  userId  String
+
+  role PortalAccountRole @default(MEMBER)
+
+  // Optional per-section access control. When null, defaults to full access.
+  permissionsJson Json?
+
+  createdAt DateTime @default(now())
+
+  owner User @relation("PortalAccountMemberOwner", fields: [ownerId], references: [id])
+  user  User @relation("PortalAccountMemberUser", fields: [userId], references: [id])
+
+  @@unique([ownerId, userId])
+  @@index([ownerId])
+  @@index([userId])
+}
+
+model PortalAccountInvite {
+  id String @id @default(cuid())
+
+  ownerId String
+  email   String
+
+  role PortalAccountRole @default(MEMBER)
+  permissionsJson Json?
+
+  token     String   @unique
+  expiresAt DateTime
+  acceptedAt DateTime?
+
+  createdAt DateTime @default(now())
+
+  owner User @relation("PortalAccountInviteOwner", fields: [ownerId], references: [id])
+
+  @@index([ownerId, createdAt])
+  @@index([email])
+}
+
+model PortalTask {
+  id String @id @default(cuid())
+
+  ownerId String
+
+  title       String
+  description String?
+  status      PortalTaskStatus @default(OPEN)
+
+  assignedToUserId String?
+  assignedToUser   User? @relation("PortalTaskAssignee", fields: [assignedToUserId], references: [id])
+
+  dueAt DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  owner User @relation("PortalTaskOwner", fields: [ownerId], references: [id])
+
+  @@index([ownerId, status, updatedAt])
+  @@index([ownerId, assignedToUserId, status])
 }

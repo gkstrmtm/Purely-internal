@@ -1,8 +1,11 @@
+import crypto from "crypto";
+
 import { prisma } from "@/lib/db";
 import { sendOwnerTwilioSms } from "@/lib/portalTwilio";
 import { findOrCreatePortalContact } from "@/lib/portalContacts";
 import { addContactTagAssignment } from "@/lib/portalContactTags";
 import { sendEmail as sendSendgridEmail } from "@/lib/leadOutbound";
+import { ensurePortalTasksSchema } from "@/lib/portalTasksSchema";
 
 type EdgePort = "out" | "true" | "false";
 
@@ -214,7 +217,7 @@ async function runAutomationOnce(opts: {
   triggerKind: TriggerKind;
   message?: { from?: string; to?: string; body?: string };
   contact?: { id?: string | null; name?: string | null; email?: string | null; phone?: string | null };
-  event?: { tagId?: string; webhookKey?: string };
+  event?: { tagId?: string; webhookKey?: string; triggerNodeId?: string };
 }) {
   const message = {
     from: coerceString(opts.message?.from),
@@ -243,6 +246,7 @@ async function runAutomationOnce(opts: {
 
   const triggerNodes = (opts.automation.nodes || []).filter((n: any) => {
     if (!n || n.type !== "trigger") return false;
+    if (opts.event?.triggerNodeId && String((n as any).id || "") !== String(opts.event.triggerNodeId)) return false;
     const cfg = (n as any).config;
     if (!isTriggerConfig(cfg) || cfg.triggerKind !== opts.triggerKind) return false;
     // Optional trigger-level filters for certain trigger kinds.
@@ -266,22 +270,26 @@ async function runAutomationOnce(opts: {
   const looksLikeEmail = (s: string) => Boolean(s && s.includes("@"));
   const looksLikePhone = (s: string) => Boolean(s && /^[+0-9\s\-().]{7,}$/.test(s));
 
-  const eventEmail =
-    (opts.contact?.email && String(opts.contact.email).trim()) || (looksLikeEmail(message.from) ? message.from.trim() : "");
-  const eventPhone =
-    (opts.contact?.phone && String(opts.contact.phone).trim()) || (looksLikePhone(message.from) ? message.from.trim() : "");
+  const eventEmail = (opts.contact?.email && String(opts.contact.email).trim()) || (looksLikeEmail(message.from) ? message.from.trim() : "");
+  const eventPhone = (opts.contact?.phone && String(opts.contact.phone).trim()) || (looksLikePhone(message.from) ? message.from.trim() : "");
+  const eventName = (opts.contact?.name && String(opts.contact.name).trim()) || eventPhone || eventEmail || message.from.trim();
 
-  const eventName =
-    (opts.contact?.name && String(opts.contact.name).trim()) || eventPhone || eventEmail || message.from.trim() || "Contact";
+  const hasContactInfo = Boolean(
+    (opts.contact?.id && String(opts.contact.id).trim()) ||
+      (opts.contact?.name && String(opts.contact.name).trim()) ||
+      eventEmail ||
+      eventPhone,
+  );
 
-  const contactId =
-    (opts.contact?.id ? String(opts.contact.id) : "") ||
-    (await findOrCreatePortalContact({
-      ownerId: opts.ownerId,
-      name: eventName,
-      email: eventEmail || null,
-      phone: eventPhone || null,
-    }));
+  const contactId = hasContactInfo
+    ? (opts.contact?.id ? String(opts.contact.id) : "") ||
+      (await findOrCreatePortalContact({
+        ownerId: opts.ownerId,
+        name: eventName || "Contact",
+        email: eventEmail || null,
+        phone: eventPhone || null,
+      }))
+    : null;
 
   const contactRow = contactId ? await getPortalContactById(opts.ownerId, contactId).catch(() => null) : null;
 
@@ -289,9 +297,9 @@ async function runAutomationOnce(opts: {
     message,
     contact: {
       id: contactId,
-      phone: contactRow?.phone || (eventPhone || null) || (looksLikePhone(message.from) ? message.from : null) || null,
-      email: contactRow?.email || (eventEmail || null) || (looksLikeEmail(message.from) ? message.from : null) || null,
-      name: contactRow?.name || eventName || null,
+      phone: contactRow?.phone || (eventPhone || null) || null,
+      email: contactRow?.email || (eventEmail || null) || null,
+      name: contactRow?.name || (eventName || null) || null,
     },
   };
 
@@ -378,6 +386,57 @@ async function runAutomationOnce(opts: {
               }
             }
           }
+
+          if (cfg.actionKind === "create_task") {
+            const titleRaw = String((cfg as any).subject || "").trim();
+            const descriptionRaw = String((cfg as any).body || "").trim();
+            const assignedToUserIdRaw = String((cfg as any).assignedToUserId || "").trim();
+
+            const title = (titleRaw || "Task").slice(0, 160);
+            let description = descriptionRaw.slice(0, 5000);
+            if (!description && (ctx.contact.name || ctx.contact.email || ctx.contact.phone)) {
+              const bits = [ctx.contact.name, ctx.contact.email, ctx.contact.phone].filter(Boolean).join(" • ");
+              description = bits ? `Related contact: ${bits}`.slice(0, 5000) : "";
+            }
+
+            await ensurePortalTasksSchema().catch(() => null);
+
+            let assignedToUserId: string | null = null;
+            if (assignedToUserIdRaw) {
+              // Only allow assigning to the account owner or an existing member.
+              if (assignedToUserIdRaw === opts.ownerId) {
+                assignedToUserId = assignedToUserIdRaw;
+              } else {
+                const member = await (prisma as any).portalAccountMember
+                  .findUnique({
+                    where: { ownerId_userId: { ownerId: opts.ownerId, userId: assignedToUserIdRaw } },
+                    select: { id: true },
+                  })
+                  .catch(() => null);
+                if (member?.id) assignedToUserId = assignedToUserIdRaw;
+              }
+            }
+
+            // Default assignment: account owner.
+            if (!assignedToUserId) assignedToUserId = opts.ownerId;
+
+            try {
+              const id = crypto.randomUUID().replace(/-/g, "");
+              const now = new Date();
+              await prisma.$executeRawUnsafe(
+                `INSERT INTO "PortalTask" ("id","ownerId","title","description","status","assignedToUserId","dueAt","createdAt","updatedAt")
+                 VALUES ($1,$2,$3,$4,'OPEN',$5,NULL,DEFAULT,$6)`,
+                id,
+                opts.ownerId,
+                title,
+                description || null,
+                assignedToUserId,
+                now,
+              );
+            } catch {
+              // best-effort
+            }
+          }
         }
       }
 
@@ -423,7 +482,7 @@ export async function runOwnerAutomationsForEvent(opts: {
   triggerKind: TriggerKind;
   message?: { from?: string; to?: string; body?: string };
   contact?: { id?: string | null; name?: string | null; email?: string | null; phone?: string | null };
-  event?: { tagId?: string; webhookKey?: string };
+  event?: { tagId?: string; webhookKey?: string; triggerNodeId?: string };
 }) {
   const automations = await loadOwnerAutomations(opts.ownerId);
 
@@ -447,7 +506,7 @@ export async function runOwnerAutomationByIdForEvent(opts: {
   triggerKind: TriggerKind;
   message?: { from?: string; to?: string; body?: string };
   contact?: { id?: string | null; name?: string | null; email?: string | null; phone?: string | null };
-  event?: { tagId?: string; webhookKey?: string };
+  event?: { tagId?: string; webhookKey?: string; triggerNodeId?: string };
 }) {
   const automations = await loadOwnerAutomations(opts.ownerId);
   const automation = automations.find((a) => a.id === opts.automationId);

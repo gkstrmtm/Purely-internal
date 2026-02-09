@@ -12,9 +12,11 @@ import {
   IconDashboard,
   IconHamburger,
   IconLock,
+  IconPeople,
   IconProfile,
   IconService,
   IconServiceGlyph,
+  IconTasks,
 } from "@/app/portal/PortalIcons";
 import { PORTAL_SERVICES } from "@/app/portal/services/catalog";
 import { PortalFloatingTools } from "@/app/portal/PortalFloatingTools";
@@ -74,6 +76,8 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
     const base = [
       { href: "/portal/app", label: "Dashboard", icon: <IconDashboard /> },
       { href: "/portal/app/services", label: "Services", icon: <IconService /> },
+      { href: "/portal/app/people", label: "People", icon: <IconPeople /> },
+      { href: "/portal/app/tasks", label: "Tasks", icon: <IconTasks /> },
       { href: "/portal/app/billing", label: "Billing", icon: <IconBilling /> },
       { href: "/portal/app/profile", label: "Profile", icon: <IconProfile /> },
     ];

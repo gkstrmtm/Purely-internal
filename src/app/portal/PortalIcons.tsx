@@ -109,6 +109,54 @@ export function IconProfile() {
   );
 }
 
+export function IconPeople() {
+  return (
+    <IconWrap>
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+        <path
+          d="M16 21v-1a4 4 0 00-4-4H6a4 4 0 00-4 4v1"
+          stroke="currentColor"
+          strokeWidth="2"
+          strokeLinecap="round"
+        />
+        <path
+          d="M9 12a4 4 0 100-8 4 4 0 000 8z"
+          fill="currentColor"
+        />
+        <path
+          d="M20 21v-1a3 3 0 00-2-2.83"
+          stroke="currentColor"
+          strokeWidth="2"
+          strokeLinecap="round"
+        />
+        <path
+          d="M16 3.13a4 4 0 010 7.75"
+          stroke="currentColor"
+          strokeWidth="2"
+          strokeLinecap="round"
+        />
+      </svg>
+    </IconWrap>
+  );
+}
+
+export function IconTasks() {
+  return (
+    <IconWrap>
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+        <path d="M9 11l2 2 4-4" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+        <path d="M9 17h7" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
+        <path d="M7 7h11" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
+        <path
+          d="M5 4h14a2 2 0 012 2v14a2 2 0 01-2 2H5a2 2 0 01-2-2V6a2 2 0 012-2z"
+          stroke="currentColor"
+          strokeWidth="2"
+        />
+      </svg>
+    </IconWrap>
+  );
+}
+
 export function IconDot({ tone }: { tone: "blue" | "coral" | "ink" }) {
   const c =
     tone === "blue"

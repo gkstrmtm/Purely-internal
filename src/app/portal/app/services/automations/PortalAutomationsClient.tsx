@@ -37,6 +37,7 @@ type BuilderNodeConfig =
       body?: string;
       subject?: string;
       tagId?: string;
+      assignedToUserId?: string;
       smsTo?: MessageTarget;
       smsToNumber?: string;
       emailTo?: MessageTarget;
@@ -47,6 +48,13 @@ type BuilderNodeConfig =
   | { kind: "note"; text: string };
 
 type ContactTag = { id: string; name: string; color: string | null };
+
+type AccountMember = {
+  userId: string;
+  role: "OWNER" | "ADMIN" | "MEMBER";
+  user: { id: string; email: string; name: string; role: string; active: boolean };
+  implicit?: boolean;
+};
 
 type BuilderNode = {
   id: string;
@@ -85,6 +93,11 @@ function uid(prefix: string) {
 
 function clamp(n: number, min: number, max: number) {
   return Math.max(min, Math.min(max, n));
+}
+
+function clampInt(n: number, min: number, max: number) {
+  const v = Number.isFinite(n) ? Math.round(n) : min;
+  return Math.max(min, Math.min(max, v));
 }
 
 function safeString(v: unknown, fallback: string) {
@@ -236,6 +249,7 @@ export function PortalAutomationsClient() {
   const [testBody, setTestBody] = useState("Hello");
 
   const [ownerTags, setOwnerTags] = useState<ContactTag[]>([]);
+  const [accountMembers, setAccountMembers] = useState<AccountMember[]>([]);
 
   const [createTagOpen, setCreateTagOpen] = useState(false);
   const [createTagName, setCreateTagName] = useState("");
@@ -426,6 +440,36 @@ export function PortalAutomationsClient() {
 
   useEffect(() => {
     void load();
+  }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      const res = await fetch("/api/portal/people/users", { cache: "no-store" }).catch(() => null as any);
+      const data = (await res?.json?.().catch(() => null)) as any;
+      if (cancelled) return;
+      if (res?.ok && data?.ok && Array.isArray(data?.members)) {
+        setAccountMembers(
+          (data.members as any[])
+            .map((m) => ({
+              userId: String(m?.userId || m?.user?.id || ""),
+              role: (String(m?.role || "MEMBER") as any) || "MEMBER",
+              implicit: Boolean(m?.implicit),
+              user: {
+                id: String(m?.user?.id || m?.userId || ""),
+                email: String(m?.user?.email || ""),
+                name: String(m?.user?.name || ""),
+                role: String(m?.user?.role || "CLIENT"),
+                active: Boolean(m?.user?.active ?? true),
+              },
+            }))
+            .filter((m) => m.userId && m.user.id),
+        );
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
   }, []);
 
   async function createOwnerTag(name: string) {
@@ -1644,6 +1688,42 @@ export function PortalAutomationsClient() {
                                 );
                               }
 
+                              if (cfg.triggerKind === "scheduled_time") {
+                                const intervalMinutes = clampInt(Number((cfg as any).intervalMinutes || 60), 5, 43200);
+                                return (
+                                  <div className="mt-2">
+                                    <div className="text-xs font-semibold text-zinc-600">Run every</div>
+                                    <div className="mt-1 flex items-center gap-2">
+                                      <input
+                                        type="number"
+                                        min={5}
+                                        max={43200}
+                                        className="w-full rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-sm"
+                                        value={intervalMinutes}
+                                        onChange={(e) => {
+                                          const next = clampInt(Number(e.target.value || 60), 5, 43200);
+                                          updateSelectedAutomation((a) => {
+                                            const nodes = a.nodes.map((n) => {
+                                              if (n.id !== selectedNode.id) return n;
+                                              const prev = n.config?.kind === "trigger" ? n.config : (defaultConfigForType("trigger") as any);
+                                              const nextCfg: BuilderNodeConfig = { ...(prev as any), kind: "trigger", intervalMinutes: next } as any;
+                                              const nextLabel =
+                                                autolabelSelectedNode && shouldAutolabel(n.label)
+                                                  ? labelForConfig("trigger", nextCfg)
+                                                  : n.label;
+                                              return { ...n, config: nextCfg, label: nextLabel };
+                                            });
+                                            return { ...a, nodes, updatedAtIso: new Date().toISOString() };
+                                          });
+                                        }}
+                                      />
+                                      <div className="shrink-0 text-xs text-zinc-600">minutes</div>
+                                    </div>
+                                    <div className="mt-1 text-[11px] text-zinc-600">Requires the automations cron to run.</div>
+                                  </div>
+                                );
+                              }
+
                               return null;
                             })()}
                           </>
@@ -1931,6 +2011,106 @@ export function PortalAutomationsClient() {
                                       Idempotent: won’t double-tag.
                                     </div>
                                   </div>
+                                );
+                              }
+
+                              if (cfg.actionKind === "create_task") {
+                                const title = String((cfg as any).subject || "").slice(0, 160);
+                                const description = String((cfg as any).body || "").slice(0, 5000);
+                                const assignedToUserId = String((cfg as any).assignedToUserId || "");
+                                const memberOptions = accountMembers
+                                  .filter((m) => m.user?.active)
+                                  .sort((a, b) => (a.user?.email || "").localeCompare(b.user?.email || ""));
+
+                                return (
+                                  <>
+                                    <div className="mt-2">
+                                      <div className="text-xs font-semibold text-zinc-600">Title</div>
+                                      <input
+                                        className="mt-1 w-full rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-sm"
+                                        placeholder="Task title"
+                                        value={title}
+                                        onChange={(e) => {
+                                          const next = e.target.value.slice(0, 160);
+                                          updateSelectedAutomation((a) => {
+                                            const nodes = a.nodes.map((n) => {
+                                              if (n.id !== selectedNode.id) return n;
+                                              const prev =
+                                                n.config?.kind === "action" ? n.config : (defaultConfigForType("action") as any);
+                                              const nextCfg: BuilderNodeConfig = { ...(prev as any), kind: "action", subject: next };
+                                              const nextLabel =
+                                                autolabelSelectedNode && shouldAutolabel(n.label)
+                                                  ? labelForConfig("action", nextCfg)
+                                                  : n.label;
+                                              return { ...n, config: nextCfg, label: nextLabel };
+                                            });
+                                            return { ...a, nodes, updatedAtIso: new Date().toISOString() };
+                                          });
+                                        }}
+                                      />
+                                    </div>
+
+                                    <div className="mt-2">
+                                      <div className="text-xs font-semibold text-zinc-600">Description</div>
+                                      <textarea
+                                        className="mt-1 w-full resize-none rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-sm"
+                                        rows={4}
+                                        placeholder="Details (optional)"
+                                        value={description}
+                                        onChange={(e) => {
+                                          const next = e.target.value.slice(0, 5000);
+                                          updateSelectedAutomation((a) => {
+                                            const nodes = a.nodes.map((n) => {
+                                              if (n.id !== selectedNode.id) return n;
+                                              const prev =
+                                                n.config?.kind === "action" ? n.config : (defaultConfigForType("action") as any);
+                                              const nextCfg: BuilderNodeConfig = { ...(prev as any), kind: "action", body: next };
+                                              const nextLabel =
+                                                autolabelSelectedNode && shouldAutolabel(n.label)
+                                                  ? labelForConfig("action", nextCfg)
+                                                  : n.label;
+                                              return { ...n, config: nextCfg, label: nextLabel };
+                                            });
+                                            return { ...a, nodes, updatedAtIso: new Date().toISOString() };
+                                          });
+                                        }}
+                                      />
+                                    </div>
+
+                                    <div className="mt-2">
+                                      <div className="text-xs font-semibold text-zinc-600">Assign to</div>
+                                      <select
+                                        className="mt-1 w-full rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-sm"
+                                        value={assignedToUserId}
+                                        onChange={(e) => {
+                                          const next = String(e.target.value || "");
+                                          updateSelectedAutomation((a) => {
+                                            const nodes = a.nodes.map((n) => {
+                                              if (n.id !== selectedNode.id) return n;
+                                              const prev =
+                                                n.config?.kind === "action" ? n.config : (defaultConfigForType("action") as any);
+                                              const nextCfg: BuilderNodeConfig = { ...(prev as any), kind: "action", assignedToUserId: next || undefined };
+                                              const nextLabel =
+                                                autolabelSelectedNode && shouldAutolabel(n.label)
+                                                  ? labelForConfig("action", nextCfg)
+                                                  : n.label;
+                                              return { ...n, config: nextCfg, label: nextLabel };
+                                            });
+                                            return { ...a, nodes, updatedAtIso: new Date().toISOString() };
+                                          });
+                                        }}
+                                      >
+                                        <option value="">Account owner</option>
+                                        {memberOptions.map((m) => (
+                                          <option key={m.userId} value={m.userId}>
+                                            {m.user?.email || m.userId}
+                                            {m.role === "ADMIN" ? " (admin)" : m.role === "OWNER" ? " (owner)" : ""}
+                                          </option>
+                                        ))}
+                                      </select>
+                                      <div className="mt-1 text-[11px] text-zinc-600">Create Task runs server-side (default: owner).</div>
+                                    </div>
+                                  </>
                                 );
                               }
 

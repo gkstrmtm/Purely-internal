@@ -10,6 +10,7 @@ export type PortalSessionUser = {
   email: string;
   role: Role;
   name?: string | null;
+  memberId?: string | null;
 };
 
 export async function getPortalUser(): Promise<PortalSessionUser | null> {
@@ -24,12 +25,13 @@ export async function getPortalUser(): Promise<PortalSessionUser | null> {
   if (!token) return null;
 
   const uid = typeof (token as any).uid === "string" ? (token as any).uid : null;
+  const memberUid = typeof (token as any).memberUid === "string" ? (token as any).memberUid : null;
   const email = typeof (token as any).email === "string" ? (token as any).email : null;
   const role = typeof (token as any).role === "string" ? ((token as any).role as Role) : null;
   const name = typeof (token as any).name === "string" ? ((token as any).name as string) : null;
 
   if (!uid || !email || !role) return null;
-  return { id: uid, email, role, name };
+  return { id: uid, email, role, name, memberId: memberUid && memberUid.trim() ? memberUid : uid };
 }
 
 export async function requirePortalUser() {

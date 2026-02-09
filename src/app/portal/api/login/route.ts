@@ -5,6 +5,7 @@ import { encode } from "next-auth/jwt";
 import { prisma } from "@/lib/db";
 import { verifyPassword } from "@/lib/password";
 import { PORTAL_SESSION_COOKIE_NAME } from "@/lib/portalAuth";
+import { resolvePortalOwnerIdForLogin } from "@/lib/portalAccounts";
 
 const bodySchema = z.object({
   email: z.string().email(),
@@ -39,10 +40,14 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: "Invalid email or password" }, { status: 401 });
   }
 
+  // Multi-user portal accounts: session uid is the account ownerId.
+  const ownerId = await resolvePortalOwnerIdForLogin(user.id).catch(() => user.id);
+
   const token = await encode({
     secret,
     token: {
-      uid: user.id,
+      uid: ownerId,
+      memberUid: user.id,
       email: user.email,
       name: user.name,
       role: user.role,
