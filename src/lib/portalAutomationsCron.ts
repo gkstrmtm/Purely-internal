@@ -249,6 +249,7 @@ export async function processDueMissedAppointments(opts: {
     select: {
       id: true,
       endAt: true,
+      calendarId: true,
       contactId: true,
       contactName: true,
       contactEmail: true,
@@ -283,7 +284,7 @@ export async function processDueMissedAppointments(opts: {
           to: "",
           body: `Missed appointment: ${b.contactName || "(unknown)"} (${b.contactEmail || b.contactPhone || ""})`,
         },
-        event: { webhookKey: undefined },
+        event: { bookingId: b.id, calendarId: b.calendarId ?? undefined },
       },
     });
     byOwner.set(ownerId, list);
@@ -313,6 +314,7 @@ export async function processDueMissedAppointments(opts: {
         triggerKind: "missed_appointment",
         contact: it.payload.contact,
         message: it.payload.message,
+        event: it.payload.event,
       }).catch(() => null);
 
       firedSet.add(it.bookingId);

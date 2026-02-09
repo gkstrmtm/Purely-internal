@@ -307,6 +307,7 @@ export async function POST(
     await runOwnerAutomationsForEvent({
       ownerId: String(site.ownerId),
       triggerKind: "appointment_booked",
+      event: { bookingId: String(booking.id) },
       message: { from: phoneE164 || parsed.data.contactEmail || "", to: "", body: "" },
       contact: {
         id: contactId,

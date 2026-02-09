@@ -3116,6 +3116,7 @@ export function PortalAutomationsClient() {
                                         }}
                                       >
                                         <option value="__all_users__">All users</option>
+                                        <option value="__assigned_lead__">Assigned lead</option>
                                         <option value="">Account owner</option>
                                         {memberOptions.map((m) => (
                                           <option key={m.userId} value={m.userId}>
@@ -3124,6 +3125,11 @@ export function PortalAutomationsClient() {
                                           </option>
                                         ))}
                                       </select>
+                                      {assignedToUserId === "__assigned_lead__" ? (
+                                        <div className="mt-1 text-[11px] text-zinc-600">
+                                          Uses the booking calendar’s notification email to pick a matching portal user when available; otherwise falls back to the account owner.
+                                        </div>
+                                      ) : null}
                                       <div className="mt-1 text-[11px] text-zinc-600">Create Task runs server-side (default: owner).</div>
                                     </div>
                                   </>

@@ -10,6 +10,7 @@ import { buildPortalTemplateVars } from "@/lib/portalTemplateVars";
 import { renderTextTemplate } from "@/lib/textTemplate";
 import { ensurePortalContactsSchema } from "@/lib/portalContactsSchema";
 import { getOwnerPrimaryReviewLink } from "@/lib/reviewRequests";
+import { getBookingCalendarsConfig } from "@/lib/bookingCalendars";
 
 type EdgePort = "out" | "true" | "false";
 
@@ -250,7 +251,7 @@ async function runAutomationOnce(opts: {
   triggerKind: TriggerKind;
   message?: { from?: string; to?: string; body?: string };
   contact?: { id?: string | null; name?: string | null; email?: string | null; phone?: string | null };
-  event?: { tagId?: string; webhookKey?: string; triggerNodeId?: string };
+  event?: { tagId?: string; webhookKey?: string; triggerNodeId?: string; bookingId?: string; calendarId?: string };
 }) {
   const message = {
     from: coerceString(opts.message?.from),
@@ -455,8 +456,49 @@ async function runAutomationOnce(opts: {
 
             await ensurePortalTasksSchema().catch(() => null);
 
+            const resolveSpecialAssignee = async (): Promise<string | null> => {
+              if (assignedToUserIdRaw !== "__assigned_lead__") return null;
+
+              const calendarId = String(opts.event?.calendarId || "").trim();
+              if (!calendarId) return null;
+
+              const calendars = await getBookingCalendarsConfig(opts.ownerId).catch(() => null);
+              const cal = calendars?.calendars?.find((c) => String(c.id) === calendarId) || null;
+              const emails = Array.isArray((cal as any)?.notificationEmails)
+                ? (((cal as any).notificationEmails as unknown) as unknown[])
+                    .filter((x) => typeof x === "string")
+                    .map((x) => String(x).trim().toLowerCase())
+                    .filter((x) => x.includes("@"))
+                    .slice(0, 10)
+                : [];
+              if (!emails.length) return null;
+
+              const emailSet = new Set(emails);
+
+              const members = await (prisma as any).portalAccountMember
+                .findMany({
+                  where: { ownerId: opts.ownerId },
+                  select: { userId: true, user: { select: { email: true, active: true } } },
+                  take: 200,
+                })
+                .catch(() => [] as any[]);
+
+              for (const m of Array.isArray(members) ? members : []) {
+                const id = m?.userId ? String(m.userId) : "";
+                const email = m?.user?.email ? String(m.user.email).trim().toLowerCase() : "";
+                const active = Boolean(m?.user?.active ?? true);
+                if (!active) continue;
+                if (id && email && emailSet.has(email)) return id;
+              }
+
+              return null;
+            };
+
             let assignedToUserId: string | null = null;
-            if (assignedToUserIdRaw) {
+            const specialAssignedTo = await resolveSpecialAssignee();
+            if (specialAssignedTo) {
+              assignedToUserId = specialAssignedTo;
+            } else if (assignedToUserIdRaw && assignedToUserIdRaw !== "__assigned_lead__") {
               // Only allow assigning to the account owner or an existing member.
               if (assignedToUserIdRaw === opts.ownerId) {
                 assignedToUserId = assignedToUserIdRaw;
@@ -700,7 +742,7 @@ export async function runOwnerAutomationsForEvent(opts: {
   triggerKind: TriggerKind;
   message?: { from?: string; to?: string; body?: string };
   contact?: { id?: string | null; name?: string | null; email?: string | null; phone?: string | null };
-  event?: { tagId?: string; webhookKey?: string; triggerNodeId?: string };
+  event?: { tagId?: string; webhookKey?: string; triggerNodeId?: string; bookingId?: string; calendarId?: string };
 }) {
   const automations = await loadOwnerAutomations(opts.ownerId);
 
@@ -724,7 +766,7 @@ export async function runOwnerAutomationByIdForEvent(opts: {
   triggerKind: TriggerKind;
   message?: { from?: string; to?: string; body?: string };
   contact?: { id?: string | null; name?: string | null; email?: string | null; phone?: string | null };
-  event?: { tagId?: string; webhookKey?: string; triggerNodeId?: string };
+  event?: { tagId?: string; webhookKey?: string; triggerNodeId?: string; bookingId?: string; calendarId?: string };
 }) {
   const automations = await loadOwnerAutomations(opts.ownerId);
   const automation = automations.find((a) => a.id === opts.automationId);
