@@ -27,6 +27,13 @@ type EventRow = {
   createdAtIso: string;
   status: "IN_PROGRESS" | "COMPLETED" | "FAILED" | "UNKNOWN";
   notes?: string;
+  recordingSid?: string;
+  recordingDurationSec?: number;
+  contactName?: string;
+  contactEmail?: string;
+  contactPhone?: string;
+  transcript?: string;
+  audioUrl?: string;
 };
 
 type ApiPayload = {
@@ -89,6 +96,20 @@ export function PortalAiReceptionistClient() {
   const [twilioConfigured, setTwilioConfigured] = useState<boolean>(false);
 
   const [voiceAgentApiKey, setVoiceAgentApiKey] = useState<string>("");
+
+  const [selectedCallId, setSelectedCallId] = useState<string | null>(null);
+
+  function setSelectedCallWithUrl(nextId: string | null) {
+    setSelectedCallId(nextId);
+    try {
+      const url = new URL(window.location.href);
+      if (!nextId) url.searchParams.delete("call");
+      else url.searchParams.set("call", nextId);
+      window.history.replaceState(null, "", url.toString());
+    } catch {
+      // ignore
+    }
+  }
 
   async function loadCredits() {
     const res = await fetch("/api/portal/credits", { cache: "no-store" }).catch(() => null as any);
@@ -154,10 +175,29 @@ export function PortalAiReceptionistClient() {
       if (t === "testing" || t === "activity" || t === "missed-call-textback" || t === "settings") {
         setTab(t);
       }
+
+      const call = url.searchParams.get("call");
+      if (call && call.trim()) setSelectedCallId(call.trim());
     } catch {
       // ignore
     }
   }, []);
+
+  useEffect(() => {
+    // Default selection: first call in list.
+    if (!events.length) {
+      if (selectedCallId) setSelectedCallId(null);
+      return;
+    }
+
+    if (selectedCallId && events.some((e) => e.id === selectedCallId)) return;
+    setSelectedCallId(events[0]?.id ?? null);
+  }, [events, selectedCallId]);
+
+  const selectedCall = useMemo(() => {
+    if (!selectedCallId) return null;
+    return events.find((e) => e.id === selectedCallId) ?? null;
+  }, [events, selectedCallId]);
 
   const canSave = useMemo(() => {
     if (!settings) return false;
@@ -610,24 +650,138 @@ export function PortalAiReceptionistClient() {
             </button>
           </div>
 
-          <div className="mt-4 space-y-2">
-            {events.length === 0 ? (
-              <div className="rounded-2xl border border-dashed border-zinc-200 bg-zinc-50 p-4 text-sm text-zinc-600">
-                No calls yet.
-              </div>
-            ) : (
-              events.slice(0, 40).map((e) => (
-                <div key={e.id} className="rounded-2xl border border-zinc-200 bg-zinc-50 px-4 py-3 text-sm">
-                  <div className="flex items-center justify-between gap-3">
-                    <div className="font-medium text-zinc-800">{e.from}</div>
-                    <div className={`rounded-full border px-2 py-0.5 text-xs font-semibold ${badgeClass(e.status)}`}>{e.status.toLowerCase()}</div>
-                  </div>
-                  <div className="mt-1 text-xs text-zinc-600">To: {e.to ?? "—"} · {formatWhen(e.createdAtIso)}</div>
-                  {e.notes ? <div className="mt-1 text-xs text-zinc-600">{e.notes}</div> : null}
+          {events.length === 0 ? (
+            <div className="mt-4 rounded-2xl border border-dashed border-zinc-200 bg-zinc-50 p-4 text-sm text-zinc-600">
+              No calls yet.
+            </div>
+          ) : (
+            <div className="mt-4 grid grid-cols-1 gap-4 lg:grid-cols-5">
+              <div className="lg:col-span-2">
+                <div className="space-y-2">
+                  {events.slice(0, 80).map((e) => {
+                    const isSelected = e.id === selectedCallId;
+                    const nameLine = (e.contactName || "").trim() || e.from;
+                    const hasAudio = Boolean((e.audioUrl && e.audioUrl.trim()) || (e.recordingSid && e.recordingSid.trim()));
+                    const hasTranscript = Boolean(e.transcript && e.transcript.trim());
+                    return (
+                      <button
+                        key={e.id}
+                        type="button"
+                        onClick={() => setSelectedCallWithUrl(e.id)}
+                        className={
+                          "w-full rounded-2xl border px-4 py-3 text-left text-sm transition focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-ink/60 " +
+                          (isSelected ? "border-zinc-900 bg-zinc-900 text-white" : "border-zinc-200 bg-zinc-50 hover:bg-zinc-100")
+                        }
+                      >
+                        <div className="flex items-center justify-between gap-3">
+                          <div className={"min-w-0 font-medium " + (isSelected ? "text-white" : "text-zinc-800")}>
+                            <div className="truncate">{nameLine}</div>
+                            {e.contactEmail ? (
+                              <div className={"mt-0.5 truncate text-xs " + (isSelected ? "text-zinc-200" : "text-zinc-600")}>
+                                {e.contactEmail}
+                              </div>
+                            ) : null}
+                          </div>
+                          <div className={`shrink-0 rounded-full border px-2 py-0.5 text-xs font-semibold ${badgeClass(e.status)}`}>
+                            {e.status.toLowerCase()}
+                          </div>
+                        </div>
+                        <div className={"mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs " + (isSelected ? "text-zinc-200" : "text-zinc-600")}>
+                          <span>{formatWhen(e.createdAtIso)}</span>
+                          <span>•</span>
+                          <span className="truncate">To: {e.to ?? "—"}</span>
+                          {hasAudio ? (
+                            <>
+                              <span>•</span>
+                              <span className={isSelected ? "text-emerald-200" : "text-emerald-700"}>Audio</span>
+                            </>
+                          ) : null}
+                          {hasTranscript ? (
+                            <>
+                              <span>•</span>
+                              <span className={isSelected ? "text-sky-200" : "text-sky-700"}>Transcript</span>
+                            </>
+                          ) : null}
+                        </div>
+                        {e.notes ? (
+                          <div className={"mt-1 line-clamp-2 text-xs " + (isSelected ? "text-zinc-200" : "text-zinc-600")}>
+                            {e.notes}
+                          </div>
+                        ) : null}
+                      </button>
+                    );
+                  })}
                 </div>
-              ))
-            )}
-          </div>
+              </div>
+
+              <div className="lg:col-span-3">
+                <div className="rounded-2xl border border-zinc-200 bg-white p-5">
+                  {!selectedCall ? (
+                    <div className="text-sm text-zinc-600">Select a call to view details.</div>
+                  ) : (
+                    <>
+                      <div className="flex flex-wrap items-start justify-between gap-3">
+                        <div className="min-w-0">
+                          <div className="text-sm font-semibold text-zinc-900">Call details</div>
+                          <div className="mt-1 text-sm text-zinc-700">
+                            {(selectedCall.contactName || "").trim() || "Unknown caller"}
+                          </div>
+                          <div className="mt-1 text-xs text-zinc-600">
+                            Phone: {(selectedCall.contactPhone || "").trim() || selectedCall.from}
+                            {selectedCall.contactEmail ? ` · Email: ${selectedCall.contactEmail}` : ""}
+                          </div>
+                          <div className="mt-1 text-xs text-zinc-500">{formatWhen(selectedCall.createdAtIso)} · Status: {selectedCall.status.toLowerCase()}</div>
+                        </div>
+
+                        <div className="text-right text-xs text-zinc-500">
+                          <div className="font-mono">CallSid: {selectedCall.callSid}</div>
+                          {selectedCall.recordingDurationSec ? (
+                            <div>{Math.max(0, Math.floor(selectedCall.recordingDurationSec))}s</div>
+                          ) : null}
+                        </div>
+                      </div>
+
+                      <div className="mt-4">
+                        <div className="text-xs font-semibold text-zinc-600">Recording</div>
+                        {(() => {
+                          const src =
+                            (selectedCall.audioUrl && selectedCall.audioUrl.trim())
+                              ? selectedCall.audioUrl.trim()
+                              : (selectedCall.recordingSid && selectedCall.recordingSid.trim())
+                                  ? `/api/portal/ai-receptionist/recordings/${encodeURIComponent(selectedCall.recordingSid)}`
+                                  : "";
+                          if (!src) {
+                            return <div className="mt-2 text-sm text-zinc-600">No recording available for this call.</div>;
+                          }
+                          return (
+                            <audio className="mt-2 w-full" controls preload="none" src={src} />
+                          );
+                        })()}
+                      </div>
+
+                      <div className="mt-5">
+                        <div className="text-xs font-semibold text-zinc-600">Transcript</div>
+                        {selectedCall.transcript && selectedCall.transcript.trim() ? (
+                          <div className="mt-2 max-h-[520px] overflow-auto rounded-xl border border-zinc-200 bg-zinc-50 p-4">
+                            <div className="whitespace-pre-wrap text-sm text-zinc-800">{selectedCall.transcript}</div>
+                          </div>
+                        ) : (
+                          <div className="mt-2 text-sm text-zinc-600">No transcript yet.</div>
+                        )}
+                      </div>
+
+                      {selectedCall.notes ? (
+                        <div className="mt-5">
+                          <div className="text-xs font-semibold text-zinc-600">Notes</div>
+                          <div className="mt-2 whitespace-pre-wrap text-sm text-zinc-700">{selectedCall.notes}</div>
+                        </div>
+                      ) : null}
+                    </>
+                  )}
+                </div>
+              </div>
+            </div>
+          )}
         </div>
       ) : null}
     </div>

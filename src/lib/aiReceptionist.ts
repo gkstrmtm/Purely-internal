@@ -48,6 +48,16 @@ export type AiReceptionistCallEvent = {
   notes?: string;
   recordingSid?: string;
   recordingDurationSec?: number;
+  // Best-effort contact info captured by your voice agent (e.g. ElevenLabs).
+  contactName?: string;
+  contactEmail?: string;
+  contactPhone?: string;
+
+  // Optional transcript content for the call.
+  transcript?: string;
+
+  // Optional audio URL override (e.g. demo audio). If omitted, recordingSid may be used.
+  audioUrl?: string;
   chargedCredits?: number;
   creditsChargedPartial?: boolean;
 };
@@ -170,6 +180,19 @@ function parseServiceData(raw: unknown): AiReceptionistServiceData {
           const recordingDurationSec = typeof r.recordingDurationSec === "number" && Number.isFinite(r.recordingDurationSec)
             ? Math.max(0, Math.floor(r.recordingDurationSec))
             : undefined;
+
+          const contactName = typeof r.contactName === "string" ? r.contactName.trim().slice(0, 120) : "";
+          const contactEmail = typeof r.contactEmail === "string" ? r.contactEmail.trim().slice(0, 160) : "";
+          const contactPhone = typeof r.contactPhone === "string" ? r.contactPhone.trim().slice(0, 60) : "";
+
+          const transcriptRaw = typeof r.transcript === "string" ? r.transcript : "";
+          const transcript = transcriptRaw.trim() ? transcriptRaw.trim().slice(0, 20000) : "";
+
+          const audioUrlRaw = typeof r.audioUrl === "string" ? r.audioUrl.trim() : "";
+          const audioUrl =
+            audioUrlRaw && audioUrlRaw.length <= 500 && (audioUrlRaw.startsWith("/") || audioUrlRaw.startsWith("https://"))
+              ? audioUrlRaw
+              : "";
           const chargedCredits = typeof r.chargedCredits === "number" && Number.isFinite(r.chargedCredits)
             ? Math.max(0, Math.floor(r.chargedCredits))
             : undefined;
@@ -186,6 +209,11 @@ function parseServiceData(raw: unknown): AiReceptionistServiceData {
               ...(typeof r.notes === "string" && r.notes.trim() ? { notes: r.notes.trim().slice(0, 800) } : {}),
               ...(recordingSid ? { recordingSid } : {}),
               ...(typeof recordingDurationSec === "number" ? { recordingDurationSec } : {}),
+              ...(contactName ? { contactName } : {}),
+              ...(contactEmail ? { contactEmail } : {}),
+              ...(contactPhone ? { contactPhone } : {}),
+              ...(transcript ? { transcript } : {}),
+              ...(audioUrl ? { audioUrl } : {}),
               ...(typeof chargedCredits === "number" ? { chargedCredits } : {}),
               ...(typeof creditsChargedPartial === "boolean" ? { creditsChargedPartial } : {}),
             },
