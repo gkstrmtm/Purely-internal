@@ -6,6 +6,7 @@ import { mirrorUploadToMediaLibrary } from "@/lib/portalMediaUploads";
 import { findOwnerIdByStoredBlogSiteSlug } from "@/lib/blogSiteSlug";
 import { getReviewRequestsServiceData } from "@/lib/reviewRequests";
 import { findOrCreatePortalContact } from "@/lib/portalContacts";
+import { runOwnerAutomationsForEvent } from "@/lib/portalAutomationsRunner";
 import { normalizePhoneStrict } from "@/lib/phone";
 
 export const dynamic = "force-dynamic";
@@ -238,6 +239,18 @@ export async function POST(req: Request, { params }: { params: Promise<{ siteSlu
     },
     select: { id: true },
   });
+
+  // Best-effort: trigger portal automations for received reviews.
+  try {
+    await runOwnerAutomationsForEvent({
+      ownerId,
+      triggerKind: "review_received",
+      message: { from: phone || email || "", to: "", body: body || "" },
+      contact: { id: contactId, name, email: email || null, phone: phone || null },
+    });
+  } catch {
+    // ignore
+  }
 
   const createdPhotoIds: string[] = [];
   for (const file of selected) {

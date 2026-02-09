@@ -2,6 +2,7 @@ import { prisma } from "@/lib/db";
 import { getBookingCalendarsConfig } from "@/lib/bookingCalendars";
 import { normalizePhoneForStorage } from "@/lib/phone";
 import { getOwnerTwilioSmsConfig } from "@/lib/portalTwilio";
+import { runOwnerAutomationsForEvent } from "@/lib/portalAutomationsRunner";
 
 export type FollowUpChannel = "EMAIL" | "SMS";
 
@@ -1180,6 +1181,18 @@ export async function processDueFollowUps(opts: { limit: number }): Promise<{ pr
           sent++;
           nextQueue[idx] = { ...nextQueue[idx]!, status: "SENT", sentAtIso: nowIso(), lastError: undefined };
           changed = true;
+
+          // Best-effort: trigger portal automations.
+          try {
+            await runOwnerAutomationsForEvent({
+              ownerId: row.ownerId,
+              triggerKind: "follow_up_sent",
+              message: { from: fromEmail || "", to: msg.to, body: msg.body },
+              contact: { name: msg.to, email: msg.to },
+            });
+          } catch {
+            // ignore
+          }
         } else {
           if (!twilio) {
             skipped++;
@@ -1220,6 +1233,18 @@ export async function processDueFollowUps(opts: { limit: number }): Promise<{ pr
           sent++;
           nextQueue[idx] = { ...nextQueue[idx]!, status: "SENT", sentAtIso: nowIso(), lastError: undefined };
           changed = true;
+
+          // Best-effort: trigger portal automations.
+          try {
+            await runOwnerAutomationsForEvent({
+              ownerId: row.ownerId,
+              triggerKind: "follow_up_sent",
+              message: { from: twilio?.fromNumberE164 || "", to: msg.to, body: msg.body },
+              contact: { name: msg.to, phone: msg.to },
+            });
+          } catch {
+            // ignore
+          }
         }
       } catch (e) {
         failed++;

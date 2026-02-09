@@ -5,6 +5,7 @@ import { requireClientSession } from "@/lib/apiAuth";
 import { prisma } from "@/lib/db";
 import { getOwnerTwilioSmsConfig, sendOwnerTwilioSms } from "@/lib/portalTwilio";
 import { baseUrlFromRequest, sendEmail } from "@/lib/leadOutbound";
+import { runOwnerAutomationsForEvent } from "@/lib/portalAutomationsRunner";
 import { ensurePortalInboxSchema } from "@/lib/portalInboxSchema";
 import {
   makeEmailThreadKey,
@@ -141,6 +142,18 @@ export async function POST(req: Request) {
       });
     }
 
+    // Best-effort: trigger portal automations for outbound sends.
+    try {
+      await runOwnerAutomationsForEvent({
+        ownerId,
+        triggerKind: "outbound_sent",
+        message: { from: twilioCfg?.fromNumberE164 || "", to: peer.peer, body: body || "" },
+        contact: { name: peer.peer, phone: peer.peer },
+      });
+    } catch {
+      // ignore
+    }
+
     return NextResponse.json({ ok: true, threadId: logged.threadId });
   }
 
@@ -196,6 +209,18 @@ export async function POST(req: Request) {
       where: { ownerId, id: { in: attachments.map((a: any) => a.id) }, messageId: null },
       data: { messageId: logged.messageId },
     });
+  }
+
+  // Best-effort: trigger portal automations for outbound sends.
+  try {
+    await runOwnerAutomationsForEvent({
+      ownerId,
+      triggerKind: "outbound_sent",
+      message: { from: process.env.SENDGRID_FROM_EMAIL || "", to: thread.peerKey, body: body || "" },
+      contact: { name: thread.peerKey, email: thread.peerKey },
+    });
+  } catch {
+    // ignore
   }
 
   return NextResponse.json({ ok: true, threadId: logged.threadId });

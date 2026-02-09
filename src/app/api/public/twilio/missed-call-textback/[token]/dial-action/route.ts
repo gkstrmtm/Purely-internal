@@ -6,6 +6,7 @@ import {
   renderMissedCallReplyBody,
   sendOwnerMms,
 } from "@/lib/missedCallTextBack";
+import { runOwnerAutomationsForEvent } from "@/lib/portalAutomationsRunner";
 import { normalizePhoneStrict } from "@/lib/phone";
 
 export const dynamic = "force-dynamic";
@@ -77,6 +78,18 @@ export async function POST(req: Request, ctx: { params: Promise<{ token: string 
   // If the call was answered or automation is off, do nothing else.
   if (answered || !settings.enabled || !callSid || !fromE164) {
     return xmlResponse("<?xml version=\"1.0\" encoding=\"UTF-8\"?><Response></Response>");
+  }
+
+  // Best-effort: trigger portal automations for missed calls.
+  try {
+    await runOwnerAutomationsForEvent({
+      ownerId,
+      triggerKind: "missed_call",
+      message: { from: fromE164, to: toE164 || "", body: "" },
+      contact: { name: fromE164, phone: fromE164 },
+    });
+  } catch {
+    // ignore
   }
 
   const delayMs = Math.max(0, Math.min(600, Math.round(settings.replyDelaySeconds))) * 1000;

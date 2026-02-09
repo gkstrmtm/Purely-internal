@@ -15,6 +15,7 @@ type Thread = {
   channel: "EMAIL" | "SMS";
   peerAddress: string;
   contactId: string | null;
+  contact?: { id: string; name: string; email: string | null; phone: string | null } | null;
   contactTags?: ContactTag[];
   subject: string | null;
   lastMessageAt: string;
@@ -113,6 +114,13 @@ function displayNameFromAddress(addrRaw: string) {
   return addr;
 }
 
+function safeEmailFromPeer(raw: string) {
+  const s = String(raw ?? "").trim();
+  if (!s) return "";
+  const m = s.match(/[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/i);
+  return m ? m[0] : "";
+}
+
 export function PortalInboxClient() {
   const [tab, setTab] = useState<Channel>("email");
   const [emailBox, setEmailBox] = useState<EmailBox>("inbox");
@@ -151,9 +159,91 @@ export function PortalInboxClient() {
   const [smsMoreOpen, setSmsMoreOpen] = useState(false);
   const [mediaPickerOpen, setMediaPickerOpen] = useState(false);
 
+  const [contactModalOpen, setContactModalOpen] = useState(false);
+  const [contactName, setContactName] = useState("");
+  const [contactEmail, setContactEmail] = useState("");
+  const [contactPhone, setContactPhone] = useState("");
+  const [savingContact, setSavingContact] = useState(false);
+
   const smsScrollRef = useRef<HTMLDivElement | null>(null);
   const smsFileRef = useRef<HTMLInputElement | null>(null);
   const emailFileRef = useRef<HTMLInputElement | null>(null);
+
+  function updateThreadContact(
+    threadId: string,
+    next: { contactId: string | null; contact: Thread["contact"]; contactTags?: ContactTag[] },
+  ) {
+    setThreads((prev) =>
+      prev.map((t) =>
+        t.id === threadId
+          ? {
+              ...t,
+              contactId: next.contactId,
+              contact: next.contact,
+              ...(next.contactTags ? { contactTags: next.contactTags } : {}),
+            }
+          : t,
+      ),
+    );
+  }
+
+  function openContactModalForActiveThread() {
+    if (!activeThread) return;
+
+    const existing = activeThread.contact || null;
+    const defaultName = existing?.name || displayNameFromAddress(activeThread.peerAddress);
+    const defaultEmail =
+      existing?.email || (activeThread.channel === "EMAIL" ? safeEmailFromPeer(activeThread.peerAddress) : "");
+    const defaultPhone = existing?.phone || (activeThread.channel === "SMS" ? String(activeThread.peerAddress || "") : "");
+
+    setContactName(defaultName);
+    setContactEmail(defaultEmail);
+    setContactPhone(defaultPhone);
+    setContactModalOpen(true);
+  }
+
+  async function saveActiveThreadContact() {
+    if (!activeThread) return;
+    const name = String(contactName || "")
+      .replace(/\s+/g, " ")
+      .trim()
+      .slice(0, 80);
+    if (!name) return;
+
+    setSavingContact(true);
+    setError(null);
+
+    try {
+      const res = await fetch(`/api/portal/inbox/threads/${activeThread.id}/contact`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          name,
+          email: String(contactEmail || "").trim(),
+          phone: String(contactPhone || "").trim(),
+        }),
+      }).catch(() => null as any);
+
+      const data = (await res?.json?.().catch(() => null)) as any;
+      if (!res?.ok || !data?.ok) {
+        setSavingContact(false);
+        setError(data?.error || "Failed to save contact.");
+        return;
+      }
+
+      updateThreadContact(activeThread.id, {
+        contactId: data.contactId ? String(data.contactId) : null,
+        contact: data.contact && data.contact.id ? data.contact : null,
+        contactTags: Array.isArray(data.contactTags) ? data.contactTags : undefined,
+      });
+
+      setSavingContact(false);
+      setContactModalOpen(false);
+    } catch {
+      setSavingContact(false);
+      setError("Failed to save contact.");
+    }
+  }
 
   useEffect(() => {
     let mounted = true;
@@ -474,6 +564,82 @@ export function PortalInboxClient() {
         <div className="mt-4 rounded-3xl border border-red-200 bg-red-50 p-4 text-sm text-red-700">{error}</div>
       ) : null}
 
+      {contactModalOpen && activeThread ? (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/30 p-4" onMouseDown={() => setContactModalOpen(false)}>
+          <div
+            className="w-full max-w-lg rounded-3xl border border-zinc-200 bg-white p-4 shadow-xl"
+            onMouseDown={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-start justify-between gap-3">
+              <div>
+                <div className="text-sm font-semibold text-zinc-900">Contact details</div>
+                <div className="mt-1 text-sm text-zinc-600">Used for tagging and automations.</div>
+              </div>
+              <button
+                type="button"
+                className="rounded-xl border border-zinc-200 bg-white px-3 py-2 text-xs font-semibold text-zinc-700 hover:bg-zinc-50"
+                onClick={() => setContactModalOpen(false)}
+              >
+                Close
+              </button>
+            </div>
+
+            <div className="mt-4 grid grid-cols-1 gap-3">
+              <div>
+                <label className="text-xs font-semibold text-zinc-600">Name</label>
+                <input
+                  value={contactName}
+                  autoFocus
+                  onChange={(e) => setContactName(e.target.value)}
+                  className="mt-1 w-full rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-sm text-zinc-900 outline-none focus:border-zinc-300"
+                  placeholder="Jane Doe"
+                  maxLength={80}
+                />
+              </div>
+              <div>
+                <label className="text-xs font-semibold text-zinc-600">Email (optional)</label>
+                <input
+                  value={contactEmail}
+                  onChange={(e) => setContactEmail(e.target.value)}
+                  className="mt-1 w-full rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-sm text-zinc-900 outline-none focus:border-zinc-300"
+                  placeholder="name@company.com"
+                  maxLength={120}
+                />
+              </div>
+              <div>
+                <label className="text-xs font-semibold text-zinc-600">Phone (optional)</label>
+                <input
+                  value={contactPhone}
+                  onChange={(e) => setContactPhone(e.target.value)}
+                  className="mt-1 w-full rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-sm text-zinc-900 outline-none focus:border-zinc-300"
+                  placeholder="+15551234567"
+                  maxLength={40}
+                />
+              </div>
+            </div>
+
+            <div className="mt-4 flex items-center justify-end gap-2">
+              <button
+                type="button"
+                className="rounded-xl border border-zinc-200 bg-white px-3 py-2 text-xs font-semibold text-zinc-700 hover:bg-zinc-50"
+                onClick={() => setContactModalOpen(false)}
+                disabled={savingContact}
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                className="rounded-xl bg-brand-ink px-3 py-2 text-xs font-semibold text-white hover:opacity-95 disabled:opacity-60"
+                onClick={() => void saveActiveThreadContact()}
+                disabled={!String(contactName || "").trim() || savingContact}
+              >
+                {savingContact ? "Saving…" : "Save"}
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
+
       {tab === "sms" && settings && !settings.twilio.configured ? (
         <div className="mt-4 rounded-3xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-800">
           <div className="font-semibold">SMS isn’t connected yet</div>
@@ -644,12 +810,26 @@ export function PortalInboxClient() {
           {tab === "sms" ? (
             <div className="flex h-full min-h-[68vh] flex-col">
               <div className="border-b border-zinc-100 px-4 py-3">
-                <div className="truncate text-base font-semibold text-zinc-900">
-                  {activeThread ? displayNameFromAddress(activeThread.peerAddress) : "New Message"}
+                <div className="flex items-start justify-between gap-3">
+                  <div className="min-w-0">
+                    <div className="truncate text-base font-semibold text-zinc-900">
+                      {activeThread ? activeThread.contact?.name || displayNameFromAddress(activeThread.peerAddress) : "New Message"}
+                    </div>
+                    <div className="truncate text-xs text-zinc-500">
+                      {activeThread ? activeThread.peerAddress : "Enter a phone number to start a text"}
+                    </div>
+                  </div>
+                  {activeThread ? (
+                    <button
+                      type="button"
+                      className="shrink-0 rounded-xl border border-zinc-200 bg-white px-3 py-2 text-xs font-semibold hover:bg-zinc-50"
+                      onClick={openContactModalForActiveThread}
+                    >
+                      {activeThread.contactId ? "Edit contact" : "Add contact"}
+                    </button>
+                  ) : null}
                 </div>
-                <div className="truncate text-xs text-zinc-500">
-                  {activeThread ? activeThread.peerAddress : "Enter a phone number to start a text"}
-                </div>
+
                 {activeThread?.contactId ? (
                   <div className="mt-2">
                     <ContactTagsEditor
@@ -864,12 +1044,36 @@ export function PortalInboxClient() {
           ) : (
             <div className="flex h-full min-h-[68vh] flex-col">
               <div className="border-b border-zinc-100 px-4 py-3">
-                <div className="truncate text-base font-semibold text-zinc-900">
-                  {activeThread ? mailSubjectOrNo(activeThread.subject) : "New Email"}
+                <div className="flex items-start justify-between gap-3">
+                  <div className="min-w-0">
+                    <div className="truncate text-base font-semibold text-zinc-900">
+                      {activeThread ? activeThread.contact?.name || mailSubjectOrNo(activeThread.subject) : "New Email"}
+                    </div>
+                    <div className="truncate text-xs text-zinc-500">
+                      {activeThread ? activeThread.peerAddress : "Compose a new message"}
+                    </div>
+                  </div>
+                  {activeThread ? (
+                    <button
+                      type="button"
+                      className="shrink-0 rounded-xl border border-zinc-200 bg-white px-3 py-2 text-xs font-semibold hover:bg-zinc-50"
+                      onClick={openContactModalForActiveThread}
+                    >
+                      {activeThread.contactId ? "Edit contact" : "Add contact"}
+                    </button>
+                  ) : null}
                 </div>
-                <div className="truncate text-xs text-zinc-500">
-                  {activeThread ? activeThread.peerAddress : "Compose a new message"}
-                </div>
+
+                {activeThread?.contactId ? (
+                  <div className="mt-2">
+                    <ContactTagsEditor
+                      compact
+                      contactId={activeThread.contactId}
+                      tags={Array.isArray(activeThread.contactTags) ? activeThread.contactTags : []}
+                      onChange={(next) => updateThreadTags(activeThread.id, next)}
+                    />
+                  </div>
+                ) : null}
               </div>
 
               {!activeThread ? (

@@ -22,6 +22,56 @@ function normalizeHexColorOrNull(v: unknown): string | null {
   return /^#[0-9a-fA-F]{6}$/.test(s) ? s : null;
 }
 
+function normalizeTagPresetList(value: unknown): Array<{ label: string; color: string | null }> {
+  const raw = Array.isArray(value) ? value : [];
+  return raw
+    .map((p) => (p && typeof p === "object" ? (p as Record<string, unknown>) : {}))
+    .map((p) => {
+      const label = (typeof p.label === "string" ? p.label.trim() : "").slice(0, 40);
+      const color = normalizeHexColorOrNull(p.color);
+      return { label, color };
+    })
+    .filter((p) => Boolean(p.label))
+    .slice(0, 10);
+}
+
+async function loadLeadScrapingTagPresets(ownerId: string): Promise<Array<{ label: string; color: string | null }>> {
+  const row = await prisma.portalServiceSetup
+    .findUnique({ where: { ownerId_serviceSlug: { ownerId, serviceSlug: "lead-scraping" } }, select: { dataJson: true } })
+    .catch(() => null);
+
+  const rec =
+    row?.dataJson && typeof row.dataJson === "object" && !Array.isArray(row.dataJson)
+      ? (row.dataJson as Record<string, unknown>)
+      : {};
+
+  const presets = [
+    ...normalizeTagPresetList(rec.tagPresets),
+    ...normalizeTagPresetList((rec.b2b as any)?.tagPresets),
+    ...normalizeTagPresetList((rec.b2c as any)?.tagPresets),
+  ];
+
+  const unique: Array<{ label: string; color: string | null }> = [];
+  const seen = new Set<string>();
+  for (const p of presets) {
+    const key = normalizeNameKey(p.label);
+    if (seen.has(key)) continue;
+    seen.add(key);
+    unique.push(p);
+    if (unique.length >= 20) break;
+  }
+
+  if (unique.length) return unique;
+
+  return [
+    { label: "New", color: "#2563EB" },
+    { label: "Follow-up", color: "#F59E0B" },
+    { label: "Outbound sent", color: "#10B981" },
+    { label: "Interested", color: "#7C3AED" },
+    { label: "Not interested", color: "#64748B" },
+  ];
+}
+
 export async function ensurePortalContactTagsReady(): Promise<void> {
   await ensurePortalContactsSchema();
   await ensurePortalContactTagsSchema();
@@ -45,6 +95,28 @@ export async function listOwnerContactTags(ownerId: string): Promise<ContactTag[
     }));
   } catch {
     return [];
+  }
+}
+
+/**
+ * Best-effort seeding of global contact tags using Lead Scraping tag presets.
+ * Idempotent: only creates missing tags by nameKey.
+ */
+export async function ensureOwnerContactTagsSeededFromLeadScrapingPresets(ownerIdRaw: string): Promise<void> {
+  const ownerId = String(ownerIdRaw);
+  if (!ownerId) return;
+
+  const presets = await loadLeadScrapingTagPresets(ownerId).catch(() => []);
+  if (!presets.length) return;
+
+  const existing = await listOwnerContactTags(ownerId).catch(() => []);
+  const existingKeys = new Set(existing.map((t) => normalizeNameKey(t.name)));
+
+  for (const p of presets) {
+    const key = normalizeNameKey(p.label);
+    if (existingKeys.has(key)) continue;
+    const created = await createOwnerContactTag({ ownerId, name: p.label, color: p.color }).catch(() => null);
+    if (created) existingKeys.add(key);
   }
 }
 

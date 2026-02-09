@@ -8,7 +8,16 @@ type EdgePort = "out" | "true" | "false";
 
 type BuilderNodeType = "trigger" | "action" | "delay" | "condition" | "note";
 
-type TriggerKind = "inbound_sms" | "inbound_mms" | "inbound_call" | "new_lead";
+type TriggerKind =
+  | "inbound_sms"
+  | "inbound_mms"
+  | "inbound_call"
+  | "new_lead"
+  | "appointment_booked"
+  | "missed_call"
+  | "review_received"
+  | "follow_up_sent"
+  | "outbound_sent";
 
 type ActionKind = "send_sms" | "send_email" | "add_tag" | "create_task";
 
@@ -196,8 +205,15 @@ async function runAutomationOnce(opts: {
   ownerId: string;
   automation: Automation;
   triggerKind: TriggerKind;
-  message: { from: string; to: string; body: string };
+  message?: { from?: string; to?: string; body?: string };
+  contact?: { id?: string | null; name?: string | null; email?: string | null; phone?: string | null };
 }) {
+  const message = {
+    from: coerceString(opts.message?.from),
+    to: coerceString(opts.message?.to),
+    body: coerceString(opts.message?.body),
+  };
+
   const nodesById = new Map<string, BuilderNode>();
   for (const n of opts.automation.nodes || []) {
     if (!n || typeof n !== "object") continue;
@@ -225,22 +241,35 @@ async function runAutomationOnce(opts: {
 
   if (!triggerNodes.length) return;
 
-  const contactId = await findOrCreatePortalContact({
-    ownerId: opts.ownerId,
-    name: opts.message.from || "Contact",
-    email: null,
-    phone: opts.message.from || null,
-  });
+  const looksLikeEmail = (s: string) => Boolean(s && s.includes("@"));
+  const looksLikePhone = (s: string) => Boolean(s && /^[+0-9\s\-().]{7,}$/.test(s));
+
+  const eventEmail =
+    (opts.contact?.email && String(opts.contact.email).trim()) || (looksLikeEmail(message.from) ? message.from.trim() : "");
+  const eventPhone =
+    (opts.contact?.phone && String(opts.contact.phone).trim()) || (looksLikePhone(message.from) ? message.from.trim() : "");
+
+  const eventName =
+    (opts.contact?.name && String(opts.contact.name).trim()) || eventPhone || eventEmail || message.from.trim() || "Contact";
+
+  const contactId =
+    (opts.contact?.id ? String(opts.contact.id) : "") ||
+    (await findOrCreatePortalContact({
+      ownerId: opts.ownerId,
+      name: eventName,
+      email: eventEmail || null,
+      phone: eventPhone || null,
+    }));
 
   const contactRow = contactId ? await getPortalContactById(opts.ownerId, contactId).catch(() => null) : null;
 
   const ctx = {
-    message: opts.message,
+    message,
     contact: {
       id: contactId,
-      phone: contactRow?.phone || opts.message.from || null,
-      email: contactRow?.email || null,
-      name: contactRow?.name || opts.message.from || null,
+      phone: contactRow?.phone || (eventPhone || null) || (looksLikePhone(message.from) ? message.from : null) || null,
+      email: contactRow?.email || (eventEmail || null) || (looksLikeEmail(message.from) ? message.from : null) || null,
+      name: contactRow?.name || eventName || null,
     },
   };
 
@@ -276,8 +305,8 @@ async function runAutomationOnce(opts: {
             const target = (String((cfg as any).smsTo || "inbound_sender") as MessageTarget) || "inbound_sender";
             let to: string | null = null;
 
-            if (target === "inbound_sender") to = opts.message.from || null;
-            if (target === "event_contact") to = ctx.contact.phone || opts.message.from || null;
+            if (target === "inbound_sender") to = message.from || null;
+            if (target === "event_contact") to = ctx.contact.phone || message.from || null;
             if (target === "internal_notification") to = await getOwnerInternalPhone(opts.ownerId).catch(() => null);
             if (target === "custom") to = String((cfg as any).smsToNumber || "").trim() || null;
 
@@ -343,18 +372,12 @@ export async function runOwnerAutomationsForInboundSms(opts: {
   to: string;
   body: string;
 }) {
-  const automations = await loadOwnerAutomations(opts.ownerId);
-
-  await Promise.all(
-    automations.map((automation) =>
-      runAutomationOnce({
-        ownerId: opts.ownerId,
-        automation,
-        triggerKind: "inbound_sms",
-        message: { from: opts.from, to: opts.to, body: opts.body },
-      }).catch(() => null),
-    ),
-  );
+  await runOwnerAutomationsForEvent({
+    ownerId: opts.ownerId,
+    triggerKind: "inbound_sms",
+    message: { from: opts.from, to: opts.to, body: opts.body },
+    contact: { phone: opts.from, name: opts.from },
+  });
 }
 
 export async function runOwnerAutomationByIdForInboundSms(opts: {
@@ -364,6 +387,43 @@ export async function runOwnerAutomationByIdForInboundSms(opts: {
   to: string;
   body: string;
 }) {
+  await runOwnerAutomationByIdForEvent({
+    ownerId: opts.ownerId,
+    automationId: opts.automationId,
+    triggerKind: "inbound_sms",
+    message: { from: opts.from, to: opts.to, body: opts.body },
+    contact: { phone: opts.from, name: opts.from },
+  });
+}
+
+export async function runOwnerAutomationsForEvent(opts: {
+  ownerId: string;
+  triggerKind: TriggerKind;
+  message?: { from?: string; to?: string; body?: string };
+  contact?: { id?: string | null; name?: string | null; email?: string | null; phone?: string | null };
+}) {
+  const automations = await loadOwnerAutomations(opts.ownerId);
+
+  await Promise.all(
+    automations.map((automation) =>
+      runAutomationOnce({
+        ownerId: opts.ownerId,
+        automation,
+        triggerKind: opts.triggerKind,
+        message: opts.message,
+        contact: opts.contact,
+      }).catch(() => null),
+    ),
+  );
+}
+
+export async function runOwnerAutomationByIdForEvent(opts: {
+  ownerId: string;
+  automationId: string;
+  triggerKind: TriggerKind;
+  message?: { from?: string; to?: string; body?: string };
+  contact?: { id?: string | null; name?: string | null; email?: string | null; phone?: string | null };
+}) {
   const automations = await loadOwnerAutomations(opts.ownerId);
   const automation = automations.find((a) => a.id === opts.automationId);
   if (!automation) return;
@@ -371,7 +431,8 @@ export async function runOwnerAutomationByIdForInboundSms(opts: {
   await runAutomationOnce({
     ownerId: opts.ownerId,
     automation,
-    triggerKind: "inbound_sms",
-    message: { from: opts.from, to: opts.to, body: opts.body },
+    triggerKind: opts.triggerKind,
+    message: opts.message,
+    contact: opts.contact,
   });
 }

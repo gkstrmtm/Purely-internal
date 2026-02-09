@@ -7,6 +7,7 @@ import {
   renderMissedCallReplyBody,
   sendOwnerMms,
 } from "@/lib/missedCallTextBack";
+import { runOwnerAutomationsForEvent } from "@/lib/portalAutomationsRunner";
 import { normalizePhoneStrict } from "@/lib/phone";
 import { webhookUrlFromRequest } from "@/lib/webhookBase";
 
@@ -117,6 +118,18 @@ export async function POST(req: Request, ctx: { params: Promise<{ token: string 
         smsStatus: "SKIPPED",
         smsError: "Automation disabled",
       });
+    }
+
+    // Best-effort: trigger portal automations for missed calls.
+    try {
+      await runOwnerAutomationsForEvent({
+        ownerId,
+        triggerKind: "missed_call",
+        message: { from: fromE164, to: toE164 || "", body: "" },
+        contact: { name: fromE164, phone: fromE164 },
+      });
+    } catch {
+      // ignore
     }
 
     return xmlResponse("<?xml version=\"1.0\" encoding=\"UTF-8\"?><Response><Reject/></Response>");

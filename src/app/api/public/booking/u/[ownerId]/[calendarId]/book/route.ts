@@ -10,6 +10,7 @@ import { recordAppointmentReminderBookingMeta } from "@/lib/appointmentReminders
 import { scheduleFollowUpsForBooking } from "@/lib/followUpAutomation";
 import { findOrCreatePortalContact } from "@/lib/portalContacts";
 import { ensurePortalContactTagsReady } from "@/lib/portalContactTags";
+import { runOwnerAutomationsForEvent } from "@/lib/portalAutomationsRunner";
 import { normalizePhoneStrict } from "@/lib/phone";
 
 export const dynamic = "force-dynamic";
@@ -257,6 +258,23 @@ export async function POST(
   // Best-effort: remember which calendar this booking came from for reminders.
   try {
     await recordAppointmentReminderBookingMeta(String(ownerId), String(booking.id), { calendarId: String(calendarId) });
+  } catch {
+    // ignore
+  }
+
+  // Best-effort automations trigger (never block a successful booking).
+  try {
+    await runOwnerAutomationsForEvent({
+      ownerId: String(ownerId),
+      triggerKind: "appointment_booked",
+      message: { from: phoneE164 || parsed.data.contactEmail || "", to: "", body: "" },
+      contact: {
+        id: contactId,
+        name: parsed.data.contactName,
+        email: parsed.data.contactEmail,
+        phone: phoneE164 || null,
+      },
+    });
   } catch {
     // ignore
   }

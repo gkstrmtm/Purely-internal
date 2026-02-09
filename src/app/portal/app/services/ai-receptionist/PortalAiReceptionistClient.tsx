@@ -5,6 +5,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 
 import { PortalMissedCallTextBackClient } from "@/app/portal/app/services/missed-call-textback/PortalMissedCallTextBackClient";
 import { PortalSettingsSection } from "@/components/PortalSettingsSection";
+import { ContactTagsEditor, type ContactTag } from "@/components/ContactTagsEditor";
 
 type Settings = {
   version: 1;
@@ -33,6 +34,8 @@ type EventRow = {
   contactName?: string;
   contactEmail?: string;
   contactPhone?: string;
+  contactId?: string | null;
+  contactTags?: ContactTag[];
   transcript?: string;
 };
 
@@ -219,6 +222,10 @@ export function PortalAiReceptionistClient() {
   const [voiceAgentApiKey, setVoiceAgentApiKey] = useState<string>("");
 
   const [selectedCallId, setSelectedCallId] = useState<string | null>(null);
+
+  function updateEventTags(eventId: string, next: ContactTag[]) {
+    setEvents((prev) => prev.map((e) => (e.id === eventId ? { ...e, contactTags: next } : e)));
+  }
 
   function setSelectedCallWithUrl(nextId: string | null) {
     setSelectedCallId(nextId);
@@ -861,6 +868,20 @@ export function PortalAiReceptionistClient() {
                           ) : null}
                         </div>
                       </div>
+
+                      {selectedCall.contactId ? (
+                        <div className="mt-3">
+                          <div className="text-xs font-semibold text-zinc-600">Tags</div>
+                          <div className="mt-2">
+                            <ContactTagsEditor
+                              compact
+                              contactId={selectedCall.contactId}
+                              tags={Array.isArray(selectedCall.contactTags) ? selectedCall.contactTags : []}
+                              onChange={(next) => updateEventTags(selectedCall.id, next)}
+                            />
+                          </div>
+                        </div>
+                      ) : null}
 
                       <div className="mt-4">
                         <div className="text-xs font-semibold text-zinc-600">Recording</div>

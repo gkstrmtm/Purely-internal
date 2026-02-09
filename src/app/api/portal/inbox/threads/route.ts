@@ -87,6 +87,28 @@ export async function GET(req: Request) {
       new Set((threads || []).map((t: any) => String(t.contactId || "")).filter(Boolean)),
     );
 
+    const contactsById = new Map<string, { id: string; name: string; email: string | null; phone: string | null }>();
+    if (contactIds.length) {
+      try {
+        const rows = await (prisma as any).portalContact.findMany({
+          where: { ownerId, id: { in: contactIds } },
+          take: 500,
+          select: { id: true, name: true, email: true, phone: true },
+        });
+
+        for (const r of rows || []) {
+          contactsById.set(String(r.id), {
+            id: String(r.id),
+            name: String(r.name ?? "").slice(0, 80) || "Contact",
+            email: r.email ? String(r.email).slice(0, 120) : null,
+            phone: r.phone ? String(r.phone).slice(0, 40) : null,
+          });
+        }
+      } catch {
+        // ignore
+      }
+    }
+
     const tagsByContactId = new Map<string, Array<{ id: string; name: string; color: string | null }>>();
     if (contactIds.length) {
       try {
@@ -115,6 +137,7 @@ export async function GET(req: Request) {
     const withTags = (threads || []).map((t: any) => ({
       ...t,
       contactId: t.contactId ? String(t.contactId) : null,
+      contact: t.contactId ? contactsById.get(String(t.contactId)) || null : null,
       contactTags: t.contactId ? tagsByContactId.get(String(t.contactId)) || [] : [],
     }));
 

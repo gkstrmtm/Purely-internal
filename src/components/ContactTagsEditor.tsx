@@ -79,7 +79,7 @@ export function ContactTagsEditor(props: Props) {
     const res = await fetch("/api/portal/contact-tags", {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ name, color: newColor }),
+      body: JSON.stringify({ name, color: compact ? null : newColor }),
     }).catch(() => null as any);
 
     const json = (await res?.json().catch(() => null)) as any;
@@ -184,13 +184,15 @@ export function ContactTagsEditor(props: Props) {
                   value={newName}
                   onChange={(e) => setNewName(e.target.value)}
                 />
-                <input
-                  className="h-10 w-12 rounded-xl border border-zinc-200 bg-white"
-                  type="color"
-                  value={newColor}
-                  onChange={(e) => setNewColor(e.target.value)}
-                  title="Pick color"
-                />
+                {!compact ? (
+                  <input
+                    className="h-10 w-12 rounded-xl border border-zinc-200 bg-white"
+                    type="color"
+                    value={newColor}
+                    onChange={(e) => setNewColor(e.target.value)}
+                    title="Pick color"
+                  />
+                ) : null}
                 <button
                   type="button"
                   className={classNames(

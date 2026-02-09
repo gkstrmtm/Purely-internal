@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 
 import { requireClientSession } from "@/lib/apiAuth";
-import { createOwnerContactTag, listOwnerContactTags } from "@/lib/portalContactTags";
+import { createOwnerContactTag, ensureOwnerContactTagsSeededFromLeadScrapingPresets, listOwnerContactTags } from "@/lib/portalContactTags";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
@@ -28,6 +28,7 @@ export async function GET() {
   }
 
   const ownerId = auth.session.user.id;
+  await ensureOwnerContactTagsSeededFromLeadScrapingPresets(ownerId).catch(() => null);
   const tags = await listOwnerContactTags(ownerId);
   return NextResponse.json({ ok: true, tags });
 }

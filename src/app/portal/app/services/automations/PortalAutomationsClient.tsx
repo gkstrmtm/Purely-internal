@@ -7,7 +7,16 @@ type BuilderNodeType = "trigger" | "action" | "delay" | "condition" | "note";
 
 type EdgePort = "out" | "true" | "false";
 
-type TriggerKind = "inbound_sms" | "inbound_mms" | "inbound_call" | "new_lead";
+type TriggerKind =
+  | "inbound_sms"
+  | "inbound_mms"
+  | "inbound_call"
+  | "new_lead"
+  | "appointment_booked"
+  | "missed_call"
+  | "review_received"
+  | "follow_up_sent"
+  | "outbound_sent";
 type ActionKind = "send_sms" | "send_email" | "add_tag" | "create_task";
 type ConditionOp = "equals" | "contains" | "starts_with" | "ends_with" | "is_empty" | "is_not_empty";
 
@@ -153,6 +162,11 @@ function labelForConfig(t: BuilderNodeType, cfg: BuilderNodeConfig | undefined) 
       inbound_mms: "Inbound MMS",
       inbound_call: "Inbound Call",
       new_lead: "New Lead",
+      appointment_booked: "Appointment booked",
+      missed_call: "Missed call",
+      review_received: "Review received",
+      follow_up_sent: "Follow-up sent",
+      outbound_sent: "Outbound sent",
     };
     return `Trigger: ${map[cfg.triggerKind]}`;
   }
@@ -200,6 +214,12 @@ export function PortalAutomationsClient() {
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [note, setNote] = useState<string | null>(null);
+
+  const [renameOpen, setRenameOpen] = useState(false);
+  const [renameValue, setRenameValue] = useState("");
+  const [testOpen, setTestOpen] = useState(false);
+  const [testFrom, setTestFrom] = useState("+15555550123");
+  const [testBody, setTestBody] = useState("Hello");
 
   const [ownerTags, setOwnerTags] = useState<ContactTag[]>([]);
 
@@ -634,12 +654,18 @@ export function PortalAutomationsClient() {
     void saveAll(list);
   }
 
-  function renameAutomation() {
-    if (!selectedAutomation) return;
-    const nextName = window.prompt("Automation name", selectedAutomation.name);
-    if (!nextName) return;
+  function openRenameModal() {
+    if (!selectedAutomation || saving) return;
+    setRenameValue(selectedAutomation.name);
+    setRenameOpen(true);
+  }
 
-    const trimmed = nextName.trim().slice(0, 80);
+  function applyRename(nextNameRaw: string) {
+    if (!selectedAutomation) return;
+    const trimmed = String(nextNameRaw || "")
+      .replace(/\s+/g, " ")
+      .trim()
+      .slice(0, 80);
     if (!trimmed) return;
 
     const nextList = automations.map((a) =>
@@ -694,12 +720,19 @@ export function PortalAutomationsClient() {
     void saveAll(nextList);
   }
 
-  async function testAutomation() {
+  function openTestModal() {
+    if (!selectedAutomation || saving) return;
+    setTestFrom("+15555550123");
+    setTestBody("Hello");
+    setTestOpen(true);
+  }
+
+  async function runTestAutomation() {
     if (!selectedAutomation) return;
 
-    const from = window.prompt("Test inbound SMS: From number (E.164)", "+15555550123")?.trim() || "";
+    const from = String(testFrom || "").trim().slice(0, 64);
+    const body = String(testBody ?? "").slice(0, 2000);
     if (!from) return;
-    const body = window.prompt("Test inbound SMS: Message body", "Hello") ?? "";
 
     setSaving(true);
     setError(null);
@@ -722,6 +755,7 @@ export function PortalAutomationsClient() {
       setSaving(false);
       setNote("Test started.");
       window.setTimeout(() => setNote(null), 1400);
+      setTestOpen(false);
     } catch {
       setSaving(false);
       setError("Test failed.");
@@ -759,6 +793,139 @@ export function PortalAutomationsClient() {
       {error ? <div className="mt-4 rounded-2xl bg-red-50 px-4 py-3 text-sm text-red-700">{error}</div> : null}
       {note ? <div className="mt-4 rounded-2xl bg-emerald-50 px-4 py-3 text-sm text-emerald-800">{note}</div> : null}
 
+      {renameOpen && selectedAutomation ? (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/30 p-4" onMouseDown={() => setRenameOpen(false)}>
+          <div
+            className="w-full max-w-lg rounded-3xl border border-zinc-200 bg-white p-4 shadow-xl"
+            onMouseDown={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-start justify-between gap-3">
+              <div>
+                <div className="text-sm font-semibold text-zinc-900">Rename automation</div>
+                <div className="mt-1 text-sm text-zinc-600">Update the name shown in the left panel.</div>
+              </div>
+              <button
+                type="button"
+                className="rounded-xl border border-zinc-200 bg-white px-3 py-2 text-xs font-semibold hover:bg-zinc-50"
+                onClick={() => setRenameOpen(false)}
+              >
+                Close
+              </button>
+            </div>
+
+            <div className="mt-4">
+              <label className="text-xs font-semibold text-zinc-600">Name</label>
+              <input
+                value={renameValue}
+                autoFocus
+                onChange={(e) => setRenameValue(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") {
+                    applyRename(renameValue);
+                    setRenameOpen(false);
+                  }
+                  if (e.key === "Escape") setRenameOpen(false);
+                }}
+                className="mt-1 w-full rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-sm font-semibold text-zinc-900 outline-none focus:border-zinc-300"
+                placeholder="Automation name"
+                maxLength={80}
+              />
+            </div>
+
+            <div className="mt-4 flex items-center justify-end gap-2">
+              <button
+                type="button"
+                className="rounded-xl border border-zinc-200 bg-white px-3 py-2 text-xs font-semibold hover:bg-zinc-50"
+                onClick={() => setRenameOpen(false)}
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                className="rounded-xl bg-blue-600 px-3 py-2 text-xs font-semibold text-white hover:bg-blue-700 disabled:opacity-60"
+                onClick={() => {
+                  applyRename(renameValue);
+                  setRenameOpen(false);
+                }}
+                disabled={!String(renameValue || "").trim() || saving}
+              >
+                Save
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
+
+      {testOpen && selectedAutomation ? (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/30 p-4" onMouseDown={() => setTestOpen(false)}>
+          <div
+            className="w-full max-w-lg rounded-3xl border border-zinc-200 bg-white p-4 shadow-xl"
+            onMouseDown={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-start justify-between gap-3">
+              <div>
+                <div className="text-sm font-semibold text-zinc-900">Test inbound SMS</div>
+                <div className="mt-1 text-sm text-zinc-600">Runs this automation as if a text was received.</div>
+              </div>
+              <button
+                type="button"
+                className="rounded-xl border border-zinc-200 bg-white px-3 py-2 text-xs font-semibold hover:bg-zinc-50"
+                onClick={() => setTestOpen(false)}
+              >
+                Close
+              </button>
+            </div>
+
+            <div className="mt-4 grid grid-cols-1 gap-3">
+              <div>
+                <label className="text-xs font-semibold text-zinc-600">From (E.164)</label>
+                <input
+                  value={testFrom}
+                  autoFocus
+                  onChange={(e) => setTestFrom(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === "Escape") setTestOpen(false);
+                  }}
+                  className="mt-1 w-full rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-sm font-semibold text-zinc-900 outline-none focus:border-zinc-300"
+                  placeholder="+15555550123"
+                />
+              </div>
+              <div>
+                <label className="text-xs font-semibold text-zinc-600">Message</label>
+                <textarea
+                  value={testBody}
+                  onChange={(e) => setTestBody(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === "Escape") setTestOpen(false);
+                  }}
+                  className="mt-1 min-h-[110px] w-full resize-y rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-sm text-zinc-900 outline-none focus:border-zinc-300"
+                  placeholder="Hello"
+                />
+              </div>
+            </div>
+
+            <div className="mt-4 flex items-center justify-end gap-2">
+              <button
+                type="button"
+                className="rounded-xl border border-zinc-200 bg-white px-3 py-2 text-xs font-semibold hover:bg-zinc-50"
+                onClick={() => setTestOpen(false)}
+                disabled={saving}
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                className="rounded-xl bg-blue-600 px-3 py-2 text-xs font-semibold text-white hover:bg-blue-700 disabled:opacity-60"
+                onClick={() => void runTestAutomation()}
+                disabled={!String(testFrom || "").trim() || saving}
+              >
+                {saving ? "Running…" : "Run test"}
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
+
       <div className="mt-5 grid grid-cols-1 gap-4 lg:grid-cols-12">
         <div className="lg:col-span-3">
           <div className="rounded-3xl border border-zinc-200 bg-white p-4">
@@ -775,25 +942,21 @@ export function PortalAutomationsClient() {
             </div>
 
             <div className="mt-3 space-y-2">
-              {automations.map((a) => {
-                const isSel = a.id === selectedAutomationId;
-                return (
+              {automations
+                .filter((a) => a.id !== selectedAutomationId)
+                .map((a) => (
                   <button
                     key={a.id}
                     type="button"
-                    className={
-                      "w-full rounded-2xl border px-4 py-3 text-left text-sm transition " +
-                      (isSel ? "border-zinc-900 bg-zinc-900 text-white" : "border-zinc-200 bg-zinc-50 hover:bg-zinc-100")
-                    }
+                    className="w-full rounded-2xl border border-zinc-200 bg-zinc-50 px-4 py-3 text-left text-sm transition hover:bg-zinc-100"
                     onClick={() => setSelectedAutomation(a.id)}
                   >
-                    <div className={"truncate font-semibold " + (isSel ? "text-white" : "text-zinc-900")}>{a.name}</div>
-                    <div className={"mt-1 text-xs " + (isSel ? "text-zinc-200" : "text-zinc-600")}>
+                    <div className="truncate font-semibold text-zinc-900">{a.name}</div>
+                    <div className="mt-1 text-xs text-zinc-600">
                       {(a.nodes?.length ?? 0)} nodes · {(a.edges?.length ?? 0)} connections
                     </div>
                   </button>
-                );
-              })}
+                ))}
             </div>
 
             {selectedAutomation ? (
@@ -804,7 +967,7 @@ export function PortalAutomationsClient() {
                     <button
                       type="button"
                       className="shrink-0 rounded-xl border border-zinc-700 bg-zinc-800 px-2 py-1 text-xs font-semibold hover:bg-zinc-700 disabled:opacity-60"
-                      onClick={renameAutomation}
+                      onClick={openRenameModal}
                       disabled={saving}
                     >
                       Rename
@@ -819,7 +982,7 @@ export function PortalAutomationsClient() {
                   <button
                     type="button"
                     className="w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-xs font-semibold hover:bg-zinc-50 disabled:opacity-60"
-                    onClick={testAutomation}
+                    onClick={openTestModal}
                     disabled={saving}
                   >
                     Test automation
@@ -834,7 +997,7 @@ export function PortalAutomationsClient() {
                   </button>
                   <button
                     type="button"
-                    className="w-full rounded-xl bg-zinc-900 px-3 py-2 text-xs font-semibold text-white hover:opacity-95 disabled:opacity-60"
+                    className="w-full rounded-xl bg-blue-600 px-3 py-2 text-xs font-semibold text-white hover:bg-blue-700 disabled:opacity-60"
                     onClick={() => void saveAll()}
                     disabled={saving}
                   >
@@ -1213,6 +1376,11 @@ export function PortalAutomationsClient() {
                             <option value="inbound_mms">Inbound MMS</option>
                             <option value="inbound_call">Inbound Call</option>
                             <option value="new_lead">New Lead</option>
+                            <option value="appointment_booked">Appointment booked</option>
+                            <option value="missed_call">Missed call</option>
+                            <option value="review_received">Review received</option>
+                            <option value="follow_up_sent">Follow-up sent</option>
+                            <option value="outbound_sent">Outbound sent</option>
                           </select>
                         ) : null}
 

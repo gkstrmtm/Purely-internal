@@ -8,6 +8,7 @@ import { getRequestOrigin, signBookingRescheduleToken } from "@/lib/bookingResch
 import { scheduleFollowUpsForBooking } from "@/lib/followUpAutomation";
 import { findOrCreatePortalContact } from "@/lib/portalContacts";
 import { ensurePortalContactTagsReady } from "@/lib/portalContactTags";
+import { runOwnerAutomationsForEvent } from "@/lib/portalAutomationsRunner";
 import { normalizePhoneStrict } from "@/lib/phone";
 
 export const dynamic = "force-dynamic";
@@ -297,6 +298,23 @@ export async function POST(
   // Best-effort follow-up scheduling (never block a successful booking).
   try {
     await scheduleFollowUpsForBooking(String(site.ownerId), String(booking.id));
+  } catch {
+    // ignore
+  }
+
+  // Best-effort automations trigger (never block a successful booking).
+  try {
+    await runOwnerAutomationsForEvent({
+      ownerId: String(site.ownerId),
+      triggerKind: "appointment_booked",
+      message: { from: phoneE164 || parsed.data.contactEmail || "", to: "", body: "" },
+      contact: {
+        id: contactId,
+        name: parsed.data.contactName,
+        email: parsed.data.contactEmail,
+        phone: phoneE164 || null,
+      },
+    });
   } catch {
     // ignore
   }

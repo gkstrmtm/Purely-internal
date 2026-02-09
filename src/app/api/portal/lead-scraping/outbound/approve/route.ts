@@ -5,6 +5,7 @@ import { requireClientSession } from "@/lib/apiAuth";
 import { prisma } from "@/lib/db";
 import { resolveEntitlements } from "@/lib/entitlements";
 import { baseUrlFromRequest, renderTemplate, sendEmail, sendSms } from "@/lib/leadOutbound";
+import { runOwnerAutomationsForEvent } from "@/lib/portalAutomationsRunner";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -319,6 +320,18 @@ export async function POST(req: Request) {
             ownerId,
           });
           sentNow.email = true;
+
+          // Best-effort: trigger automations for outbound sends.
+          try {
+            await runOwnerAutomationsForEvent({
+              ownerId,
+              triggerKind: "outbound_sent",
+              message: { from: "", to, body: text },
+              contact: { name: String((lead as any).contactName || lead.businessName || to), email: to, phone: lead.phone || null },
+            });
+          } catch {
+            // ignore
+          }
         }
       }
 
@@ -332,6 +345,18 @@ export async function POST(req: Request) {
           } else {
             await sendSms({ ownerId, to: lead.phone, body: smsBody });
             sentNow.sms = true;
+
+            // Best-effort: trigger automations for outbound sends.
+            try {
+              await runOwnerAutomationsForEvent({
+                ownerId,
+                triggerKind: "outbound_sent",
+                message: { from: "", to: lead.phone, body: smsBody },
+                contact: { name: String((lead as any).contactName || lead.businessName || lead.phone), email: lead.email || null, phone: lead.phone },
+              });
+            } catch {
+              // ignore
+            }
           }
         }
       }
