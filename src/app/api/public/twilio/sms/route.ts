@@ -7,6 +7,7 @@ import { prisma } from "@/lib/db";
 import { ensurePortalInboxSchema } from "@/lib/portalInboxSchema";
 import { mirrorUploadToMediaLibrary } from "@/lib/portalMediaUploads";
 import { getOwnerTwilioSmsConfig } from "@/lib/portalTwilio";
+import { runOwnerAutomationsForInboundSms } from "@/lib/portalAutomationsRunner";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
@@ -39,6 +40,18 @@ function twimlEmpty() {
     status: 200,
     headers: { "content-type": "application/xml" },
   });
+}
+
+async function withTimeout<T>(p: Promise<T>, ms: number): Promise<T> {
+  let timeoutId: NodeJS.Timeout | null = null;
+  const timeout = new Promise<T>((_resolve, reject) => {
+    timeoutId = setTimeout(() => reject(new Error("timeout")), ms);
+  });
+  try {
+    return await Promise.race([p, timeout]);
+  } finally {
+    if (timeoutId) clearTimeout(timeoutId);
+  }
 }
 
 export async function POST(req: Request) {
@@ -77,6 +90,14 @@ export async function POST(req: Request) {
     provider: "TWILIO",
     providerMessageId: messageSid || null,
   });
+
+  // Best-effort: trigger automations for inbound SMS.
+  // Keep this fast to avoid Twilio webhook timeouts.
+  try {
+    await withTimeout(runOwnerAutomationsForInboundSms({ ownerId, from, to, body }), 2500);
+  } catch {
+    // ignore
+  }
 
   // Best-effort: fetch MMS media and store as attachments + mirror to Media Library.
   if (numMedia > 0) {

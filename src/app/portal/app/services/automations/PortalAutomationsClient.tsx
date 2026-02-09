@@ -5,6 +5,8 @@ import { useEffect, useMemo, useRef, useState } from "react";
 
 type BuilderNodeType = "trigger" | "action" | "delay" | "condition" | "note";
 
+type EdgePort = "out" | "true" | "false";
+
 type TriggerKind = "inbound_sms" | "inbound_mms" | "inbound_call" | "new_lead";
 type ActionKind = "send_sms" | "send_email" | "add_tag" | "create_task";
 type ConditionOp = "equals" | "contains" | "starts_with" | "ends_with" | "is_empty" | "is_not_empty";
@@ -28,6 +30,7 @@ type BuilderNode = {
 type BuilderEdge = {
   id: string;
   from: string;
+  fromPort?: EdgePort;
   to: string;
 };
 
@@ -189,6 +192,18 @@ export function PortalAutomationsClient() {
 
   const canvasRef = useRef<HTMLDivElement | null>(null);
 
+  const [view, setView] = useState<{ panX: number; panY: number; zoom: number }>({ panX: 80, panY: 80, zoom: 1 });
+
+  const [panning, setPanning] = useState<
+    | null
+    | {
+        startClientX: number;
+        startClientY: number;
+        startPanX: number;
+        startPanY: number;
+      }
+  >(null);
+
   const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null);
 
   const [autolabelSelectedNode, setAutolabelSelectedNode] = useState(true);
@@ -208,6 +223,7 @@ export function PortalAutomationsClient() {
     | null
     | {
         fromNodeId: string;
+        fromPort: EdgePort;
         fromX: number;
         fromY: number;
         curX: number;
@@ -244,6 +260,10 @@ export function PortalAutomationsClient() {
     if (!selectedAutomation || !selectedNodeId) return null;
     return selectedAutomation.nodes.find((n) => n.id === selectedNodeId) ?? null;
   }, [selectedAutomation, selectedNodeId]);
+
+  function clampZoom(z: number) {
+    return clamp(z, 0.3, 2.5);
+  }
 
   async function load() {
     setLoading(true);
@@ -306,6 +326,15 @@ export function PortalAutomationsClient() {
     });
   }
 
+  function disconnectOutgoingPort(nodeId: string, fromPort: EdgePort) {
+    if (!selectedAutomation) return;
+    updateSelectedAutomation((a) => {
+      const nextEdges = a.edges.filter((e) => !(e.from === nodeId && (e.fromPort ?? "out") === fromPort));
+      if (nextEdges.length === a.edges.length) return a;
+      return { ...a, edges: nextEdges, updatedAtIso: new Date().toISOString() };
+    });
+  }
+
   async function saveAll(next?: Automation[]) {
     setSaving(true);
     setError(null);
@@ -342,15 +371,25 @@ export function PortalAutomationsClient() {
       if (!canvas) return;
       const rect = canvas.getBoundingClientRect();
 
+      if (panning) {
+        const dx = ev.clientX - panning.startClientX;
+        const dy = ev.clientY - panning.startClientY;
+        setView((prev) => ({
+          ...prev,
+          panX: clamp(panning.startPanX + dx, -6000, 6000),
+          panY: clamp(panning.startPanY + dy, -6000, 6000),
+        }));
+      }
+
       if (dragging && selectedAutomationId) {
-        const dx = ev.clientX - dragging.startClientX;
-        const dy = ev.clientY - dragging.startClientY;
+        const dx = (ev.clientX - dragging.startClientX) / view.zoom;
+        const dy = (ev.clientY - dragging.startClientY) / view.zoom;
         const nextX = dragging.startX + dx;
         const nextY = dragging.startY + dy;
 
         updateSelectedAutomation((a) => {
           const nodes = a.nodes.map((n) =>
-            n.id === dragging.nodeId ? { ...n, x: clamp(nextX, -2000, 4000), y: clamp(nextY, -2000, 4000) } : n,
+            n.id === dragging.nodeId ? { ...n, x: clamp(nextX, -6000, 8000), y: clamp(nextY, -6000, 8000) } : n,
           );
           return { ...a, nodes, updatedAtIso: new Date().toISOString() };
         });
@@ -361,8 +400,8 @@ export function PortalAutomationsClient() {
           if (!prev) return prev;
           return {
             ...prev,
-            curX: clamp(ev.clientX - rect.left, -2000, 6000),
-            curY: clamp(ev.clientY - rect.top, -2000, 6000),
+            curX: clamp((ev.clientX - rect.left - view.panX) / view.zoom, -6000, 8000),
+            curY: clamp((ev.clientY - rect.top - view.panY) / view.zoom, -6000, 8000),
           };
         });
       }
@@ -371,6 +410,7 @@ export function PortalAutomationsClient() {
     const onUp = () => {
       if (dragging) setDragging(null);
       if (connecting) setConnecting(null);
+      if (panning) setPanning(null);
     };
 
     window.addEventListener("pointermove", onMove);
@@ -380,7 +420,7 @@ export function PortalAutomationsClient() {
       window.removeEventListener("pointermove", onMove);
       window.removeEventListener("pointerup", onUp);
     };
-  }, [dragging, connecting, selectedAutomationId]);
+  }, [dragging, connecting, selectedAutomationId, view.zoom, view.panX, view.panY, panning]);
 
   function onCanvasDrop(ev: React.DragEvent) {
     ev.preventDefault();
@@ -391,8 +431,8 @@ export function PortalAutomationsClient() {
     if (!canvas || !selectedAutomationId) return;
 
     const rect = canvas.getBoundingClientRect();
-    const x = clamp(ev.clientX - rect.left - NODE_W / 2, -2000, 6000);
-    const y = clamp(ev.clientY - rect.top - NODE_H / 2, -2000, 6000);
+    const x = clamp((ev.clientX - rect.left - view.panX) / view.zoom - NODE_W / 2, -6000, 8000);
+    const y = clamp((ev.clientY - rect.top - view.panY) / view.zoom - NODE_H / 2, -6000, 8000);
 
     const config = defaultConfigForType(t);
     const node: BuilderNode = { id: uid("n"), type: t, label: labelForConfig(t, config), x, y, config };
@@ -422,18 +462,24 @@ export function PortalAutomationsClient() {
     });
   }
 
-  function startConnect(fromNodeId: string) {
+  function startConnect(fromNodeId: string, fromPort: EdgePort = "out") {
     const canvas = canvasRef.current;
     if (!canvas || !selectedAutomation) return;
 
     const from = selectedAutomation.nodes.find((n) => n.id === fromNodeId);
     if (!from) return;
 
-    const rect = canvas.getBoundingClientRect();
     const fromX = from.x + NODE_W;
-    const fromY = from.y + NODE_H / 2;
+    const fromY =
+      from.type === "condition"
+        ? fromPort === "true"
+          ? from.y + NODE_H * 0.35
+          : fromPort === "false"
+            ? from.y + NODE_H * 0.65
+            : from.y + NODE_H / 2
+        : from.y + NODE_H / 2;
 
-    setConnecting({ fromNodeId, fromX, fromY, curX: fromX, curY: fromY });
+    setConnecting({ fromNodeId, fromPort, fromX, fromY, curX: fromX, curY: fromY });
 
     // Ensure focus selection
     setSelectedNodeId(fromNodeId);
@@ -454,10 +500,12 @@ export function PortalAutomationsClient() {
     }
 
     updateSelectedAutomation((a) => {
-      const exists = a.edges.some((e) => e.from === connecting.fromNodeId && e.to === toNodeId);
+      const exists = a.edges.some(
+        (e) => e.from === connecting.fromNodeId && (e.fromPort ?? "out") === connecting.fromPort && e.to === toNodeId,
+      );
       if (exists) return a;
 
-      const nextEdges = [...a.edges, { id: uid("e"), from: connecting.fromNodeId, to: toNodeId }].slice(0, 500);
+      const nextEdges = [...a.edges, { id: uid("e"), from: connecting.fromNodeId, fromPort: connecting.fromPort, to: toNodeId }].slice(0, 500);
       return { ...a, edges: nextEdges, updatedAtIso: new Date().toISOString() };
     });
 
@@ -703,275 +751,7 @@ export function PortalAutomationsClient() {
 
           <div className="mt-4 rounded-3xl border border-zinc-200 bg-white p-4">
             <div className="text-sm font-semibold text-zinc-900">Inspector</div>
-            {!selectedNode ? (
-              <div className="mt-2 text-sm text-zinc-600">Select a node to edit.</div>
-            ) : (
-              <div className="mt-3">
-                <div className="flex items-center justify-between gap-3">
-                  <div className="text-xs font-semibold text-zinc-600">Type</div>
-                  <div className="text-xs font-semibold text-zinc-900">{selectedNode.type}</div>
-                </div>
-
-                <div className="mt-3">
-                  <div className="text-xs font-semibold text-zinc-600">Label</div>
-                  <input
-                    className="mt-1 w-full rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm"
-                    value={selectedNode.label}
-                    onChange={(e) => {
-                      const nextLabel = e.target.value.slice(0, 80);
-                      setAutolabelSelectedNode(false);
-                      updateSelectedAutomation((a) => ({
-                        ...a,
-                        nodes: a.nodes.map((n) => (n.id === selectedNode.id ? { ...n, label: nextLabel } : n)),
-                        updatedAtIso: new Date().toISOString(),
-                      }));
-                    }}
-                  />
-                </div>
-
-                <div className="mt-3 flex items-center gap-2">
-                  <input
-                    id="autolabel"
-                    type="checkbox"
-                    className="h-4 w-4"
-                    checked={autolabelSelectedNode}
-                    onChange={(e) => setAutolabelSelectedNode(e.target.checked)}
-                  />
-                  <label htmlFor="autolabel" className="text-xs text-zinc-700">
-                    Auto-update label from config
-                  </label>
-                </div>
-
-                <div className="mt-4">
-                  <div className="text-xs font-semibold text-zinc-600">Config</div>
-
-                  {selectedNode.type === "trigger" ? (
-                    <select
-                      className="mt-1 w-full rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm"
-                      value={
-                        selectedNode.config?.kind === "trigger"
-                          ? selectedNode.config.triggerKind
-                          : (defaultConfigForType("trigger") as any).triggerKind
-                      }
-                      onChange={(e) => {
-                        const nextKind = e.target.value as TriggerKind;
-                        updateSelectedAutomation((a) => {
-                          const nodes = a.nodes.map((n) => {
-                            if (n.id !== selectedNode.id) return n;
-                            const prevCfg = n.config?.kind === "trigger" ? n.config : defaultConfigForType("trigger");
-                            const nextCfg: BuilderNodeConfig = { ...(prevCfg as any), kind: "trigger", triggerKind: nextKind };
-                            const nextLabel =
-                              autolabelSelectedNode && shouldAutolabel(n.label)
-                                ? labelForConfig("trigger", nextCfg)
-                                : n.label;
-                            return { ...n, config: nextCfg, label: nextLabel };
-                          });
-                          return { ...a, nodes, updatedAtIso: new Date().toISOString() };
-                        });
-                      }}
-                    >
-                      <option value="inbound_sms">Inbound SMS</option>
-                      <option value="inbound_mms">Inbound MMS</option>
-                      <option value="inbound_call">Inbound Call</option>
-                      <option value="new_lead">New Lead</option>
-                    </select>
-                  ) : null}
-
-                  {selectedNode.type === "action" ? (
-                    <select
-                      className="mt-1 w-full rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm"
-                      value={
-                        selectedNode.config?.kind === "action"
-                          ? selectedNode.config.actionKind
-                          : (defaultConfigForType("action") as any).actionKind
-                      }
-                      onChange={(e) => {
-                        const nextKind = e.target.value as ActionKind;
-                        updateSelectedAutomation((a) => {
-                          const nodes = a.nodes.map((n) => {
-                            if (n.id !== selectedNode.id) return n;
-                            const prevCfg = n.config?.kind === "action" ? n.config : defaultConfigForType("action");
-                            const nextCfg: BuilderNodeConfig = { ...(prevCfg as any), kind: "action", actionKind: nextKind };
-                            const nextLabel =
-                              autolabelSelectedNode && shouldAutolabel(n.label)
-                                ? labelForConfig("action", nextCfg)
-                                : n.label;
-                            return { ...n, config: nextCfg, label: nextLabel };
-                          });
-                          return { ...a, nodes, updatedAtIso: new Date().toISOString() };
-                        });
-                      }}
-                    >
-                      <option value="send_sms">Send SMS</option>
-                      <option value="send_email">Send Email</option>
-                      <option value="add_tag">Add Tag</option>
-                      <option value="create_task">Create Task</option>
-                    </select>
-                  ) : null}
-
-                  {selectedNode.type === "delay" ? (
-                    <div className="mt-1 flex items-center gap-2">
-                      <input
-                        type="number"
-                        min={0}
-                        max={43200}
-                        className="w-full rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm"
-                        value={
-                          selectedNode.config?.kind === "delay"
-                            ? selectedNode.config.minutes
-                            : (defaultConfigForType("delay") as any).minutes
-                        }
-                        onChange={(e) => {
-                          const minutes = clamp(Number(e.target.value || 0), 0, 43200);
-                          updateSelectedAutomation((a) => {
-                            const nodes = a.nodes.map((n) => {
-                              if (n.id !== selectedNode.id) return n;
-                              const nextCfg: BuilderNodeConfig = { kind: "delay", minutes };
-                              const nextLabel =
-                                autolabelSelectedNode && shouldAutolabel(n.label)
-                                  ? labelForConfig("delay", nextCfg)
-                                  : n.label;
-                              return { ...n, config: nextCfg, label: nextLabel };
-                            });
-                            return { ...a, nodes, updatedAtIso: new Date().toISOString() };
-                          });
-                        }}
-                      />
-                      <div className="shrink-0 text-xs text-zinc-600">minutes</div>
-                    </div>
-                  ) : null}
-
-                  {selectedNode.type === "condition" ? (
-                    <div className="mt-1 space-y-2">
-                      <input
-                        className="w-full rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm"
-                        placeholder="Field (e.g. contact.email)"
-                        value={
-                          selectedNode.config?.kind === "condition"
-                            ? selectedNode.config.left
-                            : (defaultConfigForType("condition") as any).left
-                        }
-                        onChange={(e) => {
-                          const left = e.target.value.slice(0, 60);
-                          updateSelectedAutomation((a) => {
-                            const nodes = a.nodes.map((n) => {
-                              if (n.id !== selectedNode.id) return n;
-                              const prev =
-                                n.config?.kind === "condition" ? n.config : (defaultConfigForType("condition") as any);
-                              const nextCfg: BuilderNodeConfig = { ...(prev as any), kind: "condition", left };
-                              const nextLabel =
-                                autolabelSelectedNode && shouldAutolabel(n.label)
-                                  ? labelForConfig("condition", nextCfg)
-                                  : n.label;
-                              return { ...n, config: nextCfg, label: nextLabel };
-                            });
-                            return { ...a, nodes, updatedAtIso: new Date().toISOString() };
-                          });
-                        }}
-                      />
-
-                      <select
-                        className="w-full rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm"
-                        value={
-                          selectedNode.config?.kind === "condition"
-                            ? selectedNode.config.op
-                            : (defaultConfigForType("condition") as any).op
-                        }
-                        onChange={(e) => {
-                          const op = e.target.value as ConditionOp;
-                          updateSelectedAutomation((a) => {
-                            const nodes = a.nodes.map((n) => {
-                              if (n.id !== selectedNode.id) return n;
-                              const prev =
-                                n.config?.kind === "condition" ? n.config : (defaultConfigForType("condition") as any);
-                              const nextCfg: BuilderNodeConfig = { ...(prev as any), kind: "condition", op };
-                              const nextLabel =
-                                autolabelSelectedNode && shouldAutolabel(n.label)
-                                  ? labelForConfig("condition", nextCfg)
-                                  : n.label;
-                              return { ...n, config: nextCfg, label: nextLabel };
-                            });
-                            return { ...a, nodes, updatedAtIso: new Date().toISOString() };
-                          });
-                        }}
-                      >
-                        <option value="equals">Equals</option>
-                        <option value="contains">Contains</option>
-                        <option value="starts_with">Starts with</option>
-                        <option value="ends_with">Ends with</option>
-                        <option value="is_empty">Is empty</option>
-                        <option value="is_not_empty">Is not empty</option>
-                      </select>
-
-                      <input
-                        className="w-full rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm"
-                        placeholder="Value"
-                        value={
-                          selectedNode.config?.kind === "condition"
-                            ? selectedNode.config.right
-                            : (defaultConfigForType("condition") as any).right
-                        }
-                        onChange={(e) => {
-                          const right = e.target.value.slice(0, 120);
-                          updateSelectedAutomation((a) => {
-                            const nodes = a.nodes.map((n) => {
-                              if (n.id !== selectedNode.id) return n;
-                              const prev =
-                                n.config?.kind === "condition" ? n.config : (defaultConfigForType("condition") as any);
-                              const nextCfg: BuilderNodeConfig = { ...(prev as any), kind: "condition", right };
-                              const nextLabel =
-                                autolabelSelectedNode && shouldAutolabel(n.label)
-                                  ? labelForConfig("condition", nextCfg)
-                                  : n.label;
-                              return { ...n, config: nextCfg, label: nextLabel };
-                            });
-                            return { ...a, nodes, updatedAtIso: new Date().toISOString() };
-                          });
-                        }}
-                      />
-                    </div>
-                  ) : null}
-
-                  {selectedNode.type === "note" ? (
-                    <textarea
-                      className="mt-1 w-full resize-none rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm"
-                      rows={4}
-                      placeholder="Write a note shown on this node"
-                      value={
-                        selectedNode.config?.kind === "note"
-                          ? selectedNode.config.text
-                          : (defaultConfigForType("note") as any).text
-                      }
-                      onChange={(e) => {
-                        const text = e.target.value.slice(0, 500);
-                        updateSelectedAutomation((a) => {
-                          const nodes = a.nodes.map((n) => {
-                            if (n.id !== selectedNode.id) return n;
-                            const nextCfg: BuilderNodeConfig = { kind: "note", text };
-                            const nextLabel =
-                              autolabelSelectedNode && shouldAutolabel(n.label)
-                                ? labelForConfig("note", nextCfg)
-                                : n.label;
-                            return { ...n, config: nextCfg, label: nextLabel };
-                          });
-                          return { ...a, nodes, updatedAtIso: new Date().toISOString() };
-                        });
-                      }}
-                    />
-                  ) : null}
-                </div>
-
-                <div className="mt-4 flex gap-2">
-                  <button
-                    type="button"
-                    className="rounded-xl border border-red-200 bg-red-50 px-3 py-2 text-xs font-semibold text-red-700 hover:bg-red-100"
-                    onClick={deleteSelectedNode}
-                  >
-                    Delete node
-                  </button>
-                </div>
-              </div>
-            )}
+            <div className="mt-2 text-sm text-zinc-600">Select a node on the canvas to edit (inspector opens inside the canvas).</div>
           </div>
         </div>
 
@@ -999,117 +779,535 @@ export function PortalAutomationsClient() {
             ) : (
               <div
                 ref={canvasRef}
-                className="relative mt-4 h-[660px] w-full overflow-hidden rounded-2xl border border-zinc-200 bg-gradient-to-br from-zinc-50 to-white"
+                className="relative mt-4 h-[660px] w-full overflow-hidden rounded-2xl border border-zinc-200 bg-white"
+                style={{
+                  backgroundImage: "radial-gradient(#0f172a12 1px, transparent 1px)",
+                  backgroundSize: `${24 * view.zoom}px ${24 * view.zoom}px`,
+                  backgroundPosition: `${view.panX}px ${view.panY}px`,
+                }}
                 onDragOver={(ev) => ev.preventDefault()}
                 onDrop={onCanvasDrop}
+                onWheel={(ev) => {
+                  const canvas = canvasRef.current;
+                  if (!canvas) return;
+                  const rect = canvas.getBoundingClientRect();
+
+                  // Trackpad pinch triggers ctrl/meta wheel in browsers.
+                  if (ev.ctrlKey || ev.metaKey) {
+                    ev.preventDefault();
+                    const dir = ev.deltaY < 0 ? 1 : -1;
+                    const factor = dir > 0 ? 1.1 : 0.9;
+                    const nextZoom = clampZoom(view.zoom * factor);
+
+                    const wx = (ev.clientX - rect.left - view.panX) / view.zoom;
+                    const wy = (ev.clientY - rect.top - view.panY) / view.zoom;
+                    const nextPanX = (ev.clientX - rect.left) - wx * nextZoom;
+                    const nextPanY = (ev.clientY - rect.top) - wy * nextZoom;
+
+                    setView({
+                      zoom: nextZoom,
+                      panX: clamp(nextPanX, -6000, 6000),
+                      panY: clamp(nextPanY, -6000, 6000),
+                    });
+                    return;
+                  }
+
+                  // Two-finger scroll pans around the world.
+                  ev.preventDefault();
+                  setView((prev) => ({
+                    ...prev,
+                    panX: clamp(prev.panX - ev.deltaX, -6000, 6000),
+                    panY: clamp(prev.panY - ev.deltaY, -6000, 6000),
+                  }));
+                }}
                 onPointerDown={(ev) => {
-                  // click empty area clears selection
+                  // click empty area starts panning + clears selection
                   const target = ev.target as HTMLElement | null;
                   if (!target) return;
                   if (target.dataset?.kind === "node" || target.closest?.("[data-kind='node']")) return;
                   setSelectedNodeId(null);
+
+                  (ev.currentTarget as HTMLElement).setPointerCapture?.(ev.pointerId);
+                  setPanning({
+                    startClientX: ev.clientX,
+                    startClientY: ev.clientY,
+                    startPanX: view.panX,
+                    startPanY: view.panY,
+                  });
                 }}
               >
-                <svg className="pointer-events-none absolute inset-0 h-full w-full">
-                  {(selectedAutomation.edges || []).map((e) => {
-                    const from = nodesById.get(e.from);
-                    const to = nodesById.get(e.to);
-                    if (!from || !to) return null;
-                    const x1 = from.x + NODE_W;
-                    const y1 = from.y + NODE_H / 2;
-                    const x2 = to.x;
-                    const y2 = to.y + NODE_H / 2;
-                    const isSelected = false;
+                <div
+                  className="absolute inset-0"
+                  style={{
+                    transform: `translate(${view.panX}px, ${view.panY}px) scale(${view.zoom})`,
+                    transformOrigin: "0 0",
+                  }}
+                >
+                  <svg className="pointer-events-none absolute left-0 top-0" width={1} height={1} style={{ overflow: "visible" }}>
+                    {(selectedAutomation.edges || []).map((e) => {
+                      const from = nodesById.get(e.from);
+                      const to = nodesById.get(e.to);
+                      if (!from || !to) return null;
+                      const fromPort = (e.fromPort ?? "out") as EdgePort;
+                      const x1 = from.x + NODE_W;
+                      const y1 =
+                        from.type === "condition"
+                          ? fromPort === "true"
+                            ? from.y + NODE_H * 0.35
+                            : fromPort === "false"
+                              ? from.y + NODE_H * 0.65
+                              : from.y + NODE_H / 2
+                          : from.y + NODE_H / 2;
+                      const x2 = to.x;
+                      const y2 = to.y + NODE_H / 2;
+                      return (
+                        <g key={e.id}>
+                          <path d={edgePath(x1, y1, x2, y2)} stroke="#0f172a" strokeOpacity={0.45} strokeWidth={3} fill="none" />
+                          <path d={edgePath(x1, y1, x2, y2)} stroke="#ffffff" strokeOpacity={0.6} strokeWidth={1} fill="none" />
+                          <circle cx={x2} cy={y2} r={4} fill="#0f172a" fillOpacity={0.35} />
+                        </g>
+                      );
+                    })}
+
+                    {connecting ? (
+                      <path
+                        d={edgePath(connecting.fromX, connecting.fromY, connecting.curX, connecting.curY)}
+                        stroke="#0f172a"
+                        strokeOpacity={0.35}
+                        strokeWidth={3}
+                        fill="none"
+                        strokeDasharray="6 6"
+                      />
+                    ) : null}
+                  </svg>
+
+                  {(selectedAutomation.nodes || []).map((n) => {
+                    const b = badgeForType(n.type);
+                    const isSel = n.id === selectedNodeId;
+                    const canHaveInput = n.type !== "trigger";
+                    const canHaveOutput = n.type !== "note";
+
                     return (
-                      <g key={e.id}>
-                        <path d={edgePath(x1, y1, x2, y2)} stroke="#0f172a" strokeOpacity={0.45} strokeWidth={3} fill="none" />
-                        <path d={edgePath(x1, y1, x2, y2)} stroke="#ffffff" strokeOpacity={0.6} strokeWidth={1} fill="none" />
-                        <circle cx={x2} cy={y2} r={4} fill="#0f172a" fillOpacity={0.35} />
-                      </g>
+                      <div
+                        key={n.id}
+                        data-kind="node"
+                        className={
+                          "absolute rounded-2xl border bg-white shadow-sm transition " +
+                          (isSel ? "border-zinc-900 shadow" : "border-zinc-200")
+                        }
+                        style={{ left: n.x, top: n.y, width: NODE_W, height: NODE_H }}
+                        onPointerDown={(ev) => {
+                          const t = ev.target as HTMLElement;
+                          if (t.dataset?.kind === "handle") return;
+                          setSelectedNodeId(n.id);
+                          setAutolabelSelectedNode(true);
+                          handleStartDragNode(ev, n.id);
+                        }}
+                        onDoubleClick={() => setSelectedNodeId(n.id)}
+                      >
+                        <div className="flex h-full flex-col justify-between p-3">
+                          <div className="flex items-center justify-between gap-2">
+                            <div className="min-w-0 text-xs font-semibold text-zinc-600">{b.label}</div>
+                            <div className={`rounded-full border px-2 py-0.5 text-xs font-semibold ${b.cls}`}>{n.type}</div>
+                          </div>
+                          <div className="mt-1 line-clamp-2 text-sm font-semibold text-zinc-900">{safeString(n.label, "(untitled)")}</div>
+                        </div>
+
+                        {canHaveInput ? (
+                          <button
+                            type="button"
+                            data-kind="handle"
+                            title="Connect here"
+                            className="absolute left-[-9px] top-1/2 h-[18px] w-[18px] -translate-y-1/2 rounded-full border border-zinc-200 bg-white shadow"
+                            onPointerUp={() => completeConnect(n.id)}
+                            onDoubleClick={(ev) => {
+                              ev.stopPropagation();
+                              disconnectIncoming(n.id);
+                            }}
+                          />
+                        ) : null}
+
+                        {canHaveOutput ? (
+                          n.type === "condition" ? (
+                            <>
+                              <button
+                                type="button"
+                                data-kind="handle"
+                                title="Start TRUE connection"
+                                className="absolute right-[-9px] top-[35%] h-[18px] w-[18px] -translate-y-1/2 rounded-full border border-violet-200 bg-white shadow"
+                                onPointerDown={(ev) => {
+                                  ev.stopPropagation();
+                                  startConnect(n.id, "true");
+                                }}
+                                onDoubleClick={(ev) => {
+                                  ev.stopPropagation();
+                                  disconnectOutgoingPort(n.id, "true");
+                                }}
+                              />
+                              <button
+                                type="button"
+                                data-kind="handle"
+                                title="Start FALSE connection"
+                                className="absolute right-[-9px] top-[65%] h-[18px] w-[18px] -translate-y-1/2 rounded-full border border-violet-200 bg-white shadow"
+                                onPointerDown={(ev) => {
+                                  ev.stopPropagation();
+                                  startConnect(n.id, "false");
+                                }}
+                                onDoubleClick={(ev) => {
+                                  ev.stopPropagation();
+                                  disconnectOutgoingPort(n.id, "false");
+                                }}
+                              />
+                              <div className="pointer-events-none absolute right-[-28px] top-[35%] -translate-y-1/2 text-[10px] font-semibold text-violet-700">
+                                T
+                              </div>
+                              <div className="pointer-events-none absolute right-[-28px] top-[65%] -translate-y-1/2 text-[10px] font-semibold text-violet-700">
+                                F
+                              </div>
+                            </>
+                          ) : (
+                            <button
+                              type="button"
+                              data-kind="handle"
+                              title="Start connection"
+                              className="absolute right-[-9px] top-1/2 h-[18px] w-[18px] -translate-y-1/2 rounded-full border border-zinc-200 bg-white shadow"
+                              onPointerDown={(ev) => {
+                                ev.stopPropagation();
+                                startConnect(n.id, "out");
+                              }}
+                              onDoubleClick={(ev) => {
+                                ev.stopPropagation();
+                                disconnectOutgoing(n.id);
+                              }}
+                            />
+                          )
+                        ) : null}
+                      </div>
                     );
                   })}
+                </div>
 
-                  {connecting ? (
-                    <path
-                      d={edgePath(connecting.fromX, connecting.fromY, connecting.curX, connecting.curY)}
-                      stroke="#0f172a"
-                      strokeOpacity={0.35}
-                      strokeWidth={3}
-                      fill="none"
-                      strokeDasharray="6 6"
-                    />
-                  ) : null}
-                </svg>
+                <div className="absolute top-3 right-3 flex items-center gap-2 rounded-2xl border border-zinc-200 bg-white px-2 py-1 text-xs text-zinc-700 shadow-sm">
+                  <button
+                    type="button"
+                    className="rounded-xl border border-zinc-200 bg-white px-2 py-1 font-semibold hover:bg-zinc-50"
+                    onClick={() => setView((prev) => ({ ...prev, zoom: clampZoom(prev.zoom / 1.1) }))}
+                    title="Zoom out"
+                  >
+                    −
+                  </button>
+                  <div className="min-w-[52px] text-center font-semibold">{Math.round(view.zoom * 100)}%</div>
+                  <button
+                    type="button"
+                    className="rounded-xl border border-zinc-200 bg-white px-2 py-1 font-semibold hover:bg-zinc-50"
+                    onClick={() => setView((prev) => ({ ...prev, zoom: clampZoom(prev.zoom * 1.1) }))}
+                    title="Zoom in"
+                  >
+                    +
+                  </button>
+                  <button
+                    type="button"
+                    className="ml-1 rounded-xl border border-zinc-200 bg-white px-2 py-1 font-semibold hover:bg-zinc-50"
+                    onClick={() => setView({ panX: 80, panY: 80, zoom: 1 })}
+                    title="Reset view"
+                  >
+                    Reset
+                  </button>
+                </div>
 
-                {(selectedAutomation.nodes || []).map((n) => {
-                  const b = badgeForType(n.type);
-                  const isSel = n.id === selectedNodeId;
-                  const canHaveInput = n.type !== "trigger";
-                  const canHaveOutput = n.type !== "note";
-
-                  return (
-                    <div
-                      key={n.id}
-                      data-kind="node"
-                      className={
-                        "absolute rounded-2xl border bg-white shadow-sm transition " +
-                        (isSel ? "border-zinc-900 shadow" : "border-zinc-200")
-                      }
-                      style={{ left: n.x, top: n.y, width: NODE_W, height: NODE_H }}
-                      onPointerDown={(ev) => {
-                        // only start drag on main card area
-                        const t = ev.target as HTMLElement;
-                        if (t.dataset?.kind === "handle") return;
-                        setSelectedNodeId(n.id);
-                        setAutolabelSelectedNode(true);
-                        handleStartDragNode(ev, n.id);
-                      }}
-                      onDoubleClick={() => setSelectedNodeId(n.id)}
+                <div className="absolute left-3 top-3 w-[360px] max-w-[calc(100%-1.5rem)] rounded-2xl border border-zinc-200 bg-white/95 p-3 shadow-sm backdrop-blur">
+                  <div className="flex items-start justify-between gap-3">
+                    <div>
+                      <div className="text-xs font-semibold text-zinc-900">Inspector</div>
+                      <div className="mt-1 text-[11px] text-zinc-600">Edits the selected node (stays inside the canvas).</div>
+                    </div>
+                    <button
+                      type="button"
+                      className="rounded-xl border border-zinc-200 bg-white px-2 py-1 text-xs font-semibold hover:bg-zinc-50"
+                      onClick={() => setSelectedNodeId(null)}
+                      title="Close inspector"
                     >
-                      <div className="flex h-full flex-col justify-between p-3">
-                        <div className="flex items-center justify-between gap-2">
-                          <div className="min-w-0 text-xs font-semibold text-zinc-600">{b.label}</div>
-                          <div className={`rounded-full border px-2 py-0.5 text-xs font-semibold ${b.cls}`}>{n.type}</div>
-                        </div>
-                        <div className="mt-1 line-clamp-2 text-sm font-semibold text-zinc-900">{safeString(n.label, "(untitled)")}</div>
+                      ✕
+                    </button>
+                  </div>
+
+                  {!selectedNode ? (
+                    <div className="mt-3 text-sm text-zinc-600">Select a node to edit.</div>
+                  ) : (
+                    <div className="mt-3 max-h-[420px] overflow-auto pr-1">
+                      <div className="flex items-center justify-between gap-3">
+                        <div className="text-xs font-semibold text-zinc-600">Type</div>
+                        <div className="text-xs font-semibold text-zinc-900">{selectedNode.type}</div>
                       </div>
 
-                      {canHaveInput ? (
-                        <button
-                          type="button"
-                          data-kind="handle"
-                          title="Connect here"
-                          className="absolute left-[-9px] top-1/2 h-[18px] w-[18px] -translate-y-1/2 rounded-full border border-zinc-200 bg-white shadow"
-                          onPointerUp={() => completeConnect(n.id)}
-                          onDoubleClick={(ev) => {
-                            ev.stopPropagation();
-                            disconnectIncoming(n.id);
+                      <div className="mt-3">
+                        <div className="text-xs font-semibold text-zinc-600">Label</div>
+                        <input
+                          className="mt-1 w-full rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-sm"
+                          value={selectedNode.label}
+                          onChange={(e) => {
+                            const nextLabel = e.target.value.slice(0, 80);
+                            setAutolabelSelectedNode(false);
+                            updateSelectedAutomation((a) => ({
+                              ...a,
+                              nodes: a.nodes.map((n) => (n.id === selectedNode.id ? { ...n, label: nextLabel } : n)),
+                              updatedAtIso: new Date().toISOString(),
+                            }));
                           }}
                         />
-                      ) : null}
+                      </div>
 
-                      {canHaveOutput ? (
+                      <div className="mt-3 flex items-center gap-2">
+                        <input
+                          id="autolabel_canvas"
+                          type="checkbox"
+                          className="h-4 w-4"
+                          checked={autolabelSelectedNode}
+                          onChange={(e) => setAutolabelSelectedNode(e.target.checked)}
+                        />
+                        <label htmlFor="autolabel_canvas" className="text-xs text-zinc-700">
+                          Auto-update label from config
+                        </label>
+                      </div>
+
+                      <div className="mt-4">
+                        <div className="text-xs font-semibold text-zinc-600">Config</div>
+
+                        {selectedNode.type === "trigger" ? (
+                          <select
+                            className="mt-1 w-full rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-sm"
+                            value={
+                              selectedNode.config?.kind === "trigger"
+                                ? selectedNode.config.triggerKind
+                                : (defaultConfigForType("trigger") as any).triggerKind
+                            }
+                            onChange={(e) => {
+                              const nextKind = e.target.value as TriggerKind;
+                              updateSelectedAutomation((a) => {
+                                const nodes = a.nodes.map((n) => {
+                                  if (n.id !== selectedNode.id) return n;
+                                  const prevCfg = n.config?.kind === "trigger" ? n.config : defaultConfigForType("trigger");
+                                  const nextCfg: BuilderNodeConfig = { ...(prevCfg as any), kind: "trigger", triggerKind: nextKind };
+                                  const nextLabel =
+                                    autolabelSelectedNode && shouldAutolabel(n.label)
+                                      ? labelForConfig("trigger", nextCfg)
+                                      : n.label;
+                                  return { ...n, config: nextCfg, label: nextLabel };
+                                });
+                                return { ...a, nodes, updatedAtIso: new Date().toISOString() };
+                              });
+                            }}
+                          >
+                            <option value="inbound_sms">Inbound SMS</option>
+                            <option value="inbound_mms">Inbound MMS</option>
+                            <option value="inbound_call">Inbound Call</option>
+                            <option value="new_lead">New Lead</option>
+                          </select>
+                        ) : null}
+
+                        {selectedNode.type === "action" ? (
+                          <select
+                            className="mt-1 w-full rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-sm"
+                            value={
+                              selectedNode.config?.kind === "action"
+                                ? selectedNode.config.actionKind
+                                : (defaultConfigForType("action") as any).actionKind
+                            }
+                            onChange={(e) => {
+                              const nextKind = e.target.value as ActionKind;
+                              updateSelectedAutomation((a) => {
+                                const nodes = a.nodes.map((n) => {
+                                  if (n.id !== selectedNode.id) return n;
+                                  const prevCfg = n.config?.kind === "action" ? n.config : defaultConfigForType("action");
+                                  const nextCfg: BuilderNodeConfig = { ...(prevCfg as any), kind: "action", actionKind: nextKind };
+                                  const nextLabel =
+                                    autolabelSelectedNode && shouldAutolabel(n.label)
+                                      ? labelForConfig("action", nextCfg)
+                                      : n.label;
+                                  return { ...n, config: nextCfg, label: nextLabel };
+                                });
+                                return { ...a, nodes, updatedAtIso: new Date().toISOString() };
+                              });
+                            }}
+                          >
+                            <option value="send_sms">Send SMS</option>
+                            <option value="send_email">Send Email</option>
+                            <option value="add_tag">Add Tag</option>
+                            <option value="create_task">Create Task</option>
+                          </select>
+                        ) : null}
+
+                        {selectedNode.type === "delay" ? (
+                          <div className="mt-1 flex items-center gap-2">
+                            <input
+                              type="number"
+                              min={0}
+                              max={43200}
+                              className="w-full rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-sm"
+                              value={
+                                selectedNode.config?.kind === "delay"
+                                  ? selectedNode.config.minutes
+                                  : (defaultConfigForType("delay") as any).minutes
+                              }
+                              onChange={(e) => {
+                                const minutes = clamp(Number(e.target.value || 0), 0, 43200);
+                                updateSelectedAutomation((a) => {
+                                  const nodes = a.nodes.map((n) => {
+                                    if (n.id !== selectedNode.id) return n;
+                                    const nextCfg: BuilderNodeConfig = { kind: "delay", minutes };
+                                    const nextLabel =
+                                      autolabelSelectedNode && shouldAutolabel(n.label)
+                                        ? labelForConfig("delay", nextCfg)
+                                        : n.label;
+                                    return { ...n, config: nextCfg, label: nextLabel };
+                                  });
+                                  return { ...a, nodes, updatedAtIso: new Date().toISOString() };
+                                });
+                              }}
+                            />
+                            <div className="shrink-0 text-xs text-zinc-600">minutes</div>
+                          </div>
+                        ) : null}
+
+                        {selectedNode.type === "condition" ? (
+                          <div className="mt-1 space-y-2">
+                            <input
+                              className="w-full rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-sm"
+                              placeholder="Field (e.g. contact.email)"
+                              value={
+                                selectedNode.config?.kind === "condition"
+                                  ? selectedNode.config.left
+                                  : (defaultConfigForType("condition") as any).left
+                              }
+                              onChange={(e) => {
+                                const left = e.target.value.slice(0, 60);
+                                updateSelectedAutomation((a) => {
+                                  const nodes = a.nodes.map((n) => {
+                                    if (n.id !== selectedNode.id) return n;
+                                    const prev =
+                                      n.config?.kind === "condition" ? n.config : (defaultConfigForType("condition") as any);
+                                    const nextCfg: BuilderNodeConfig = { ...(prev as any), kind: "condition", left };
+                                    const nextLabel =
+                                      autolabelSelectedNode && shouldAutolabel(n.label)
+                                        ? labelForConfig("condition", nextCfg)
+                                        : n.label;
+                                    return { ...n, config: nextCfg, label: nextLabel };
+                                  });
+                                  return { ...a, nodes, updatedAtIso: new Date().toISOString() };
+                                });
+                              }}
+                            />
+
+                            <select
+                              className="w-full rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-sm"
+                              value={
+                                selectedNode.config?.kind === "condition"
+                                  ? selectedNode.config.op
+                                  : (defaultConfigForType("condition") as any).op
+                              }
+                              onChange={(e) => {
+                                const op = e.target.value as ConditionOp;
+                                updateSelectedAutomation((a) => {
+                                  const nodes = a.nodes.map((n) => {
+                                    if (n.id !== selectedNode.id) return n;
+                                    const prev =
+                                      n.config?.kind === "condition" ? n.config : (defaultConfigForType("condition") as any);
+                                    const nextCfg: BuilderNodeConfig = { ...(prev as any), kind: "condition", op };
+                                    const nextLabel =
+                                      autolabelSelectedNode && shouldAutolabel(n.label)
+                                        ? labelForConfig("condition", nextCfg)
+                                        : n.label;
+                                    return { ...n, config: nextCfg, label: nextLabel };
+                                  });
+                                  return { ...a, nodes, updatedAtIso: new Date().toISOString() };
+                                });
+                              }}
+                            >
+                              <option value="equals">Equals</option>
+                              <option value="contains">Contains</option>
+                              <option value="starts_with">Starts with</option>
+                              <option value="ends_with">Ends with</option>
+                              <option value="is_empty">Is empty</option>
+                              <option value="is_not_empty">Is not empty</option>
+                            </select>
+
+                            <input
+                              className="w-full rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-sm"
+                              placeholder="Value"
+                              value={
+                                selectedNode.config?.kind === "condition"
+                                  ? selectedNode.config.right
+                                  : (defaultConfigForType("condition") as any).right
+                              }
+                              onChange={(e) => {
+                                const right = e.target.value.slice(0, 120);
+                                updateSelectedAutomation((a) => {
+                                  const nodes = a.nodes.map((n) => {
+                                    if (n.id !== selectedNode.id) return n;
+                                    const prev =
+                                      n.config?.kind === "condition" ? n.config : (defaultConfigForType("condition") as any);
+                                    const nextCfg: BuilderNodeConfig = { ...(prev as any), kind: "condition", right };
+                                    const nextLabel =
+                                      autolabelSelectedNode && shouldAutolabel(n.label)
+                                        ? labelForConfig("condition", nextCfg)
+                                        : n.label;
+                                    return { ...n, config: nextCfg, label: nextLabel };
+                                  });
+                                  return { ...a, nodes, updatedAtIso: new Date().toISOString() };
+                                });
+                              }}
+                            />
+
+                            <div className="text-[11px] text-zinc-600">
+                              Use the node’s <span className="font-semibold text-violet-700">T</span> / <span className="font-semibold text-violet-700">F</span> outputs for if/else branching.
+                            </div>
+                          </div>
+                        ) : null}
+
+                        {selectedNode.type === "note" ? (
+                          <textarea
+                            className="mt-1 w-full resize-none rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-sm"
+                            rows={4}
+                            placeholder="Write a note shown on this node"
+                            value={
+                              selectedNode.config?.kind === "note"
+                                ? selectedNode.config.text
+                                : (defaultConfigForType("note") as any).text
+                            }
+                            onChange={(e) => {
+                              const text = e.target.value.slice(0, 500);
+                              updateSelectedAutomation((a) => {
+                                const nodes = a.nodes.map((n) => {
+                                  if (n.id !== selectedNode.id) return n;
+                                  const nextCfg: BuilderNodeConfig = { kind: "note", text };
+                                  const nextLabel =
+                                    autolabelSelectedNode && shouldAutolabel(n.label)
+                                      ? labelForConfig("note", nextCfg)
+                                      : n.label;
+                                  return { ...n, config: nextCfg, label: nextLabel };
+                                });
+                                return { ...a, nodes, updatedAtIso: new Date().toISOString() };
+                              });
+                            }}
+                          />
+                        ) : null}
+                      </div>
+
+                      <div className="mt-4 flex gap-2">
                         <button
                           type="button"
-                          data-kind="handle"
-                          title="Start connection"
-                          className="absolute right-[-9px] top-1/2 h-[18px] w-[18px] -translate-y-1/2 rounded-full border border-zinc-200 bg-white shadow"
-                          onPointerDown={(ev) => {
-                            ev.stopPropagation();
-                            startConnect(n.id);
-                          }}
-                          onDoubleClick={(ev) => {
-                            ev.stopPropagation();
-                            disconnectOutgoing(n.id);
-                          }}
-                        />
-                      ) : null}
+                          className="rounded-xl border border-red-200 bg-red-50 px-3 py-2 text-xs font-semibold text-red-700 hover:bg-red-100"
+                          onClick={deleteSelectedNode}
+                        >
+                          Delete node
+                        </button>
+                      </div>
                     </div>
-                  );
-                })}
+                  )}
+                </div>
 
                 <div className="absolute bottom-3 right-3 rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-xs text-zinc-600">
-                  Tip: drag from a node’s right dot → another node’s left dot.
+                  Tip: drag from an output dot → another node’s left dot. Condition nodes have T/F outputs.
                 </div>
               </div>
             )}

@@ -66,6 +66,7 @@ const nodeSchema = z.object({
 const edgeSchema = z.object({
   id: z.string().min(1).max(80),
   from: z.string().min(1).max(60),
+  fromPort: z.enum(["out", "true", "false"]).optional(),
   to: z.string().min(1).max(60),
 });
 
