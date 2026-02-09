@@ -5,12 +5,24 @@ import { useEffect, useMemo, useRef, useState } from "react";
 
 type BuilderNodeType = "trigger" | "action" | "delay" | "condition" | "note";
 
+type TriggerKind = "inbound_sms" | "inbound_mms" | "inbound_call" | "new_lead";
+type ActionKind = "send_sms" | "send_email" | "add_tag" | "create_task";
+type ConditionOp = "equals" | "contains" | "starts_with" | "ends_with" | "is_empty" | "is_not_empty";
+
+type BuilderNodeConfig =
+  | { kind: "trigger"; triggerKind: TriggerKind }
+  | { kind: "action"; actionKind: ActionKind }
+  | { kind: "delay"; minutes: number }
+  | { kind: "condition"; left: string; op: ConditionOp; right: string }
+  | { kind: "note"; text: string };
+
 type BuilderNode = {
   id: string;
   type: BuilderNodeType;
   label: string;
   x: number;
   y: number;
+  config?: BuilderNodeConfig;
 };
 
 type BuilderEdge = {
@@ -77,11 +89,93 @@ function buildStarterAutomation(): Automation {
     name: "New automation",
     updatedAtIso: new Date().toISOString(),
     nodes: [
-      { id: triggerId, type: "trigger", label: "Trigger: New inbound SMS", x: 80, y: 120 },
-      { id: actionId, type: "action", label: "Action: Send reply", x: 420, y: 120 },
+      {
+        id: triggerId,
+        type: "trigger",
+        label: "Trigger: Inbound SMS",
+        x: 80,
+        y: 120,
+        config: { kind: "trigger", triggerKind: "inbound_sms" },
+      },
+      {
+        id: actionId,
+        type: "action",
+        label: "Action: Send SMS",
+        x: 420,
+        y: 120,
+        config: { kind: "action", actionKind: "send_sms" },
+      },
     ],
     edges: [{ id: uid("e"), from: triggerId, to: actionId }],
   };
+}
+
+function defaultConfigForType(t: BuilderNodeType): BuilderNodeConfig {
+  switch (t) {
+    case "trigger":
+      return { kind: "trigger", triggerKind: "inbound_sms" };
+    case "action":
+      return { kind: "action", actionKind: "send_sms" };
+    case "delay":
+      return { kind: "delay", minutes: 5 };
+    case "condition":
+      return { kind: "condition", left: "contact.phone", op: "is_not_empty", right: "" };
+    default:
+      return { kind: "note", text: "" };
+  }
+}
+
+function labelForConfig(t: BuilderNodeType, cfg: BuilderNodeConfig | undefined) {
+  if (!cfg) {
+    return t === "note" ? "Note" : `${t[0].toUpperCase()}${t.slice(1)}: (configure)`;
+  }
+
+  if (cfg.kind === "trigger") {
+    const map: Record<TriggerKind, string> = {
+      inbound_sms: "Inbound SMS",
+      inbound_mms: "Inbound MMS",
+      inbound_call: "Inbound Call",
+      new_lead: "New Lead",
+    };
+    return `Trigger: ${map[cfg.triggerKind]}`;
+  }
+  if (cfg.kind === "action") {
+    const map: Record<ActionKind, string> = {
+      send_sms: "Send SMS",
+      send_email: "Send Email",
+      add_tag: "Add Tag",
+      create_task: "Create Task",
+    };
+    return `Action: ${map[cfg.actionKind]}`;
+  }
+  if (cfg.kind === "delay") {
+    const m = Math.max(0, Math.floor(cfg.minutes || 0));
+    return `Delay: ${m} minute${m === 1 ? "" : "s"}`;
+  }
+  if (cfg.kind === "condition") {
+    const left = cfg.left?.trim() || "(field)";
+    const right = cfg.right?.trim() || "";
+    const opLabel: Record<ConditionOp, string> = {
+      equals: "=",
+      contains: "contains",
+      starts_with: "starts with",
+      ends_with: "ends with",
+      is_empty: "is empty",
+      is_not_empty: "is not empty",
+    };
+    const op = opLabel[cfg.op] ?? cfg.op;
+    return `Condition: ${left} ${op}${cfg.op === "is_empty" || cfg.op === "is_not_empty" ? "" : ` ${right || "(value)"}`}`;
+  }
+  return "Note";
+}
+
+function shouldAutolabel(currentLabel: string) {
+  const s = (currentLabel || "").trim();
+  if (!s) return true;
+  if (s.includes("(choose one)")) return true;
+  if (s.includes("(configure)")) return true;
+  if (/^(Trigger|Action|Delay|Condition):/i.test(s)) return true;
+  return false;
 }
 
 export function PortalAutomationsClient() {
@@ -96,6 +190,8 @@ export function PortalAutomationsClient() {
   const canvasRef = useRef<HTMLDivElement | null>(null);
 
   const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null);
+
+  const [autolabelSelectedNode, setAutolabelSelectedNode] = useState(true);
 
   const [dragging, setDragging] = useState<
     | null
@@ -122,6 +218,7 @@ export function PortalAutomationsClient() {
   function setSelectedAutomation(nextId: string | null) {
     setSelectedAutomationId(nextId);
     setSelectedNodeId(null);
+    setAutolabelSelectedNode(true);
     try {
       const url = new URL(window.location.href);
       if (!nextId) url.searchParams.delete("automation");
@@ -189,6 +286,24 @@ export function PortalAutomationsClient() {
 
     setSelectedAutomationId(selected);
     setLoading(false);
+  }
+
+  function disconnectIncoming(nodeId: string) {
+    if (!selectedAutomation) return;
+    updateSelectedAutomation((a) => {
+      const nextEdges = a.edges.filter((e) => e.to !== nodeId);
+      if (nextEdges.length === a.edges.length) return a;
+      return { ...a, edges: nextEdges, updatedAtIso: new Date().toISOString() };
+    });
+  }
+
+  function disconnectOutgoing(nodeId: string) {
+    if (!selectedAutomation) return;
+    updateSelectedAutomation((a) => {
+      const nextEdges = a.edges.filter((e) => e.from !== nodeId);
+      if (nextEdges.length === a.edges.length) return a;
+      return { ...a, edges: nextEdges, updatedAtIso: new Date().toISOString() };
+    });
   }
 
   async function saveAll(next?: Automation[]) {
@@ -279,18 +394,8 @@ export function PortalAutomationsClient() {
     const x = clamp(ev.clientX - rect.left - NODE_W / 2, -2000, 6000);
     const y = clamp(ev.clientY - rect.top - NODE_H / 2, -2000, 6000);
 
-    const label =
-      t === "trigger"
-        ? "Trigger: (choose one)"
-        : t === "action"
-          ? "Action: (choose one)"
-          : t === "delay"
-            ? "Delay: 5 minutes"
-            : t === "condition"
-              ? "Condition: (set rule)"
-              : "Note";
-
-    const node: BuilderNode = { id: uid("n"), type: t, label, x, y };
+    const config = defaultConfigForType(t);
+    const node: BuilderNode = { id: uid("n"), type: t, label: labelForConfig(t, config), x, y, config };
 
     updateSelectedAutomation((a) => ({
       ...a,
@@ -299,6 +404,7 @@ export function PortalAutomationsClient() {
     }));
 
     setSelectedNodeId(node.id);
+    setAutolabelSelectedNode(true);
   }
 
   function handleStartDragNode(ev: React.PointerEvent, nodeId: string) {
@@ -331,6 +437,7 @@ export function PortalAutomationsClient() {
 
     // Ensure focus selection
     setSelectedNodeId(fromNodeId);
+    setAutolabelSelectedNode(true);
   }
 
   function completeConnect(toNodeId: string) {
@@ -367,6 +474,7 @@ export function PortalAutomationsClient() {
     });
 
     setSelectedNodeId(null);
+    setAutolabelSelectedNode(true);
   }
 
   function deleteSelectedEdge(edgeId: string) {
@@ -383,9 +491,11 @@ export function PortalAutomationsClient() {
       id: uid("auto"),
       name: `Automation ${automations.length + 1}`,
       updatedAtIso: new Date().toISOString(),
-      nodes: [{ id: uid("n"), type: "trigger", label: "Trigger: (choose one)", x: 100, y: 120 }],
+      nodes: [{ id: uid("n"), type: "trigger", label: "Trigger: Inbound SMS", x: 100, y: 120 }],
       edges: [],
     };
+
+    next.nodes[0].config = defaultConfigForType("trigger");
 
     const list = [next, ...automations].slice(0, 50);
     setAutomations(list);
@@ -597,21 +707,261 @@ export function PortalAutomationsClient() {
               <div className="mt-2 text-sm text-zinc-600">Select a node to edit.</div>
             ) : (
               <div className="mt-3">
-                <div className="text-xs font-semibold text-zinc-600">Label</div>
-                <input
-                  className="mt-1 w-full rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm"
-                  value={selectedNode.label}
-                  onChange={(e) => {
-                    const nextLabel = e.target.value.slice(0, 80);
-                    updateSelectedAutomation((a) => ({
-                      ...a,
-                      nodes: a.nodes.map((n) => (n.id === selectedNode.id ? { ...n, label: nextLabel } : n)),
-                      updatedAtIso: new Date().toISOString(),
-                    }));
-                  }}
-                />
+                <div className="flex items-center justify-between gap-3">
+                  <div className="text-xs font-semibold text-zinc-600">Type</div>
+                  <div className="text-xs font-semibold text-zinc-900">{selectedNode.type}</div>
+                </div>
 
-                <div className="mt-3 flex gap-2">
+                <div className="mt-3">
+                  <div className="text-xs font-semibold text-zinc-600">Label</div>
+                  <input
+                    className="mt-1 w-full rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm"
+                    value={selectedNode.label}
+                    onChange={(e) => {
+                      const nextLabel = e.target.value.slice(0, 80);
+                      setAutolabelSelectedNode(false);
+                      updateSelectedAutomation((a) => ({
+                        ...a,
+                        nodes: a.nodes.map((n) => (n.id === selectedNode.id ? { ...n, label: nextLabel } : n)),
+                        updatedAtIso: new Date().toISOString(),
+                      }));
+                    }}
+                  />
+                </div>
+
+                <div className="mt-3 flex items-center gap-2">
+                  <input
+                    id="autolabel"
+                    type="checkbox"
+                    className="h-4 w-4"
+                    checked={autolabelSelectedNode}
+                    onChange={(e) => setAutolabelSelectedNode(e.target.checked)}
+                  />
+                  <label htmlFor="autolabel" className="text-xs text-zinc-700">
+                    Auto-update label from config
+                  </label>
+                </div>
+
+                <div className="mt-4">
+                  <div className="text-xs font-semibold text-zinc-600">Config</div>
+
+                  {selectedNode.type === "trigger" ? (
+                    <select
+                      className="mt-1 w-full rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm"
+                      value={
+                        selectedNode.config?.kind === "trigger"
+                          ? selectedNode.config.triggerKind
+                          : (defaultConfigForType("trigger") as any).triggerKind
+                      }
+                      onChange={(e) => {
+                        const nextKind = e.target.value as TriggerKind;
+                        updateSelectedAutomation((a) => {
+                          const nodes = a.nodes.map((n) => {
+                            if (n.id !== selectedNode.id) return n;
+                            const prevCfg = n.config?.kind === "trigger" ? n.config : defaultConfigForType("trigger");
+                            const nextCfg: BuilderNodeConfig = { ...(prevCfg as any), kind: "trigger", triggerKind: nextKind };
+                            const nextLabel =
+                              autolabelSelectedNode && shouldAutolabel(n.label)
+                                ? labelForConfig("trigger", nextCfg)
+                                : n.label;
+                            return { ...n, config: nextCfg, label: nextLabel };
+                          });
+                          return { ...a, nodes, updatedAtIso: new Date().toISOString() };
+                        });
+                      }}
+                    >
+                      <option value="inbound_sms">Inbound SMS</option>
+                      <option value="inbound_mms">Inbound MMS</option>
+                      <option value="inbound_call">Inbound Call</option>
+                      <option value="new_lead">New Lead</option>
+                    </select>
+                  ) : null}
+
+                  {selectedNode.type === "action" ? (
+                    <select
+                      className="mt-1 w-full rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm"
+                      value={
+                        selectedNode.config?.kind === "action"
+                          ? selectedNode.config.actionKind
+                          : (defaultConfigForType("action") as any).actionKind
+                      }
+                      onChange={(e) => {
+                        const nextKind = e.target.value as ActionKind;
+                        updateSelectedAutomation((a) => {
+                          const nodes = a.nodes.map((n) => {
+                            if (n.id !== selectedNode.id) return n;
+                            const prevCfg = n.config?.kind === "action" ? n.config : defaultConfigForType("action");
+                            const nextCfg: BuilderNodeConfig = { ...(prevCfg as any), kind: "action", actionKind: nextKind };
+                            const nextLabel =
+                              autolabelSelectedNode && shouldAutolabel(n.label)
+                                ? labelForConfig("action", nextCfg)
+                                : n.label;
+                            return { ...n, config: nextCfg, label: nextLabel };
+                          });
+                          return { ...a, nodes, updatedAtIso: new Date().toISOString() };
+                        });
+                      }}
+                    >
+                      <option value="send_sms">Send SMS</option>
+                      <option value="send_email">Send Email</option>
+                      <option value="add_tag">Add Tag</option>
+                      <option value="create_task">Create Task</option>
+                    </select>
+                  ) : null}
+
+                  {selectedNode.type === "delay" ? (
+                    <div className="mt-1 flex items-center gap-2">
+                      <input
+                        type="number"
+                        min={0}
+                        max={43200}
+                        className="w-full rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm"
+                        value={
+                          selectedNode.config?.kind === "delay"
+                            ? selectedNode.config.minutes
+                            : (defaultConfigForType("delay") as any).minutes
+                        }
+                        onChange={(e) => {
+                          const minutes = clamp(Number(e.target.value || 0), 0, 43200);
+                          updateSelectedAutomation((a) => {
+                            const nodes = a.nodes.map((n) => {
+                              if (n.id !== selectedNode.id) return n;
+                              const nextCfg: BuilderNodeConfig = { kind: "delay", minutes };
+                              const nextLabel =
+                                autolabelSelectedNode && shouldAutolabel(n.label)
+                                  ? labelForConfig("delay", nextCfg)
+                                  : n.label;
+                              return { ...n, config: nextCfg, label: nextLabel };
+                            });
+                            return { ...a, nodes, updatedAtIso: new Date().toISOString() };
+                          });
+                        }}
+                      />
+                      <div className="shrink-0 text-xs text-zinc-600">minutes</div>
+                    </div>
+                  ) : null}
+
+                  {selectedNode.type === "condition" ? (
+                    <div className="mt-1 space-y-2">
+                      <input
+                        className="w-full rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm"
+                        placeholder="Field (e.g. contact.email)"
+                        value={
+                          selectedNode.config?.kind === "condition"
+                            ? selectedNode.config.left
+                            : (defaultConfigForType("condition") as any).left
+                        }
+                        onChange={(e) => {
+                          const left = e.target.value.slice(0, 60);
+                          updateSelectedAutomation((a) => {
+                            const nodes = a.nodes.map((n) => {
+                              if (n.id !== selectedNode.id) return n;
+                              const prev =
+                                n.config?.kind === "condition" ? n.config : (defaultConfigForType("condition") as any);
+                              const nextCfg: BuilderNodeConfig = { ...(prev as any), kind: "condition", left };
+                              const nextLabel =
+                                autolabelSelectedNode && shouldAutolabel(n.label)
+                                  ? labelForConfig("condition", nextCfg)
+                                  : n.label;
+                              return { ...n, config: nextCfg, label: nextLabel };
+                            });
+                            return { ...a, nodes, updatedAtIso: new Date().toISOString() };
+                          });
+                        }}
+                      />
+
+                      <select
+                        className="w-full rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm"
+                        value={
+                          selectedNode.config?.kind === "condition"
+                            ? selectedNode.config.op
+                            : (defaultConfigForType("condition") as any).op
+                        }
+                        onChange={(e) => {
+                          const op = e.target.value as ConditionOp;
+                          updateSelectedAutomation((a) => {
+                            const nodes = a.nodes.map((n) => {
+                              if (n.id !== selectedNode.id) return n;
+                              const prev =
+                                n.config?.kind === "condition" ? n.config : (defaultConfigForType("condition") as any);
+                              const nextCfg: BuilderNodeConfig = { ...(prev as any), kind: "condition", op };
+                              const nextLabel =
+                                autolabelSelectedNode && shouldAutolabel(n.label)
+                                  ? labelForConfig("condition", nextCfg)
+                                  : n.label;
+                              return { ...n, config: nextCfg, label: nextLabel };
+                            });
+                            return { ...a, nodes, updatedAtIso: new Date().toISOString() };
+                          });
+                        }}
+                      >
+                        <option value="equals">Equals</option>
+                        <option value="contains">Contains</option>
+                        <option value="starts_with">Starts with</option>
+                        <option value="ends_with">Ends with</option>
+                        <option value="is_empty">Is empty</option>
+                        <option value="is_not_empty">Is not empty</option>
+                      </select>
+
+                      <input
+                        className="w-full rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm"
+                        placeholder="Value"
+                        value={
+                          selectedNode.config?.kind === "condition"
+                            ? selectedNode.config.right
+                            : (defaultConfigForType("condition") as any).right
+                        }
+                        onChange={(e) => {
+                          const right = e.target.value.slice(0, 120);
+                          updateSelectedAutomation((a) => {
+                            const nodes = a.nodes.map((n) => {
+                              if (n.id !== selectedNode.id) return n;
+                              const prev =
+                                n.config?.kind === "condition" ? n.config : (defaultConfigForType("condition") as any);
+                              const nextCfg: BuilderNodeConfig = { ...(prev as any), kind: "condition", right };
+                              const nextLabel =
+                                autolabelSelectedNode && shouldAutolabel(n.label)
+                                  ? labelForConfig("condition", nextCfg)
+                                  : n.label;
+                              return { ...n, config: nextCfg, label: nextLabel };
+                            });
+                            return { ...a, nodes, updatedAtIso: new Date().toISOString() };
+                          });
+                        }}
+                      />
+                    </div>
+                  ) : null}
+
+                  {selectedNode.type === "note" ? (
+                    <textarea
+                      className="mt-1 w-full resize-none rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm"
+                      rows={4}
+                      placeholder="Write a note shown on this node"
+                      value={
+                        selectedNode.config?.kind === "note"
+                          ? selectedNode.config.text
+                          : (defaultConfigForType("note") as any).text
+                      }
+                      onChange={(e) => {
+                        const text = e.target.value.slice(0, 500);
+                        updateSelectedAutomation((a) => {
+                          const nodes = a.nodes.map((n) => {
+                            if (n.id !== selectedNode.id) return n;
+                            const nextCfg: BuilderNodeConfig = { kind: "note", text };
+                            const nextLabel =
+                              autolabelSelectedNode && shouldAutolabel(n.label)
+                                ? labelForConfig("note", nextCfg)
+                                : n.label;
+                            return { ...n, config: nextCfg, label: nextLabel };
+                          });
+                          return { ...a, nodes, updatedAtIso: new Date().toISOString() };
+                        });
+                      }}
+                    />
+                  ) : null}
+                </div>
+
+                <div className="mt-4 flex gap-2">
                   <button
                     type="button"
                     className="rounded-xl border border-red-200 bg-red-50 px-3 py-2 text-xs font-semibold text-red-700 hover:bg-red-100"
@@ -711,6 +1061,7 @@ export function PortalAutomationsClient() {
                         const t = ev.target as HTMLElement;
                         if (t.dataset?.kind === "handle") return;
                         setSelectedNodeId(n.id);
+                        setAutolabelSelectedNode(true);
                         handleStartDragNode(ev, n.id);
                       }}
                       onDoubleClick={() => setSelectedNodeId(n.id)}
@@ -730,6 +1081,10 @@ export function PortalAutomationsClient() {
                           title="Connect here"
                           className="absolute left-[-9px] top-1/2 h-[18px] w-[18px] -translate-y-1/2 rounded-full border border-zinc-200 bg-white shadow"
                           onPointerUp={() => completeConnect(n.id)}
+                          onDoubleClick={(ev) => {
+                            ev.stopPropagation();
+                            disconnectIncoming(n.id);
+                          }}
                         />
                       ) : null}
 
@@ -742,6 +1097,10 @@ export function PortalAutomationsClient() {
                           onPointerDown={(ev) => {
                             ev.stopPropagation();
                             startConnect(n.id);
+                          }}
+                          onDoubleClick={(ev) => {
+                            ev.stopPropagation();
+                            disconnectOutgoing(n.id);
                           }}
                         />
                       ) : null}

@@ -9,12 +9,58 @@ export const revalidate = 0;
 
 const SERVICE_SLUG = "automations";
 
+const triggerConfigSchema = z
+  .object({
+    kind: z.literal("trigger"),
+    triggerKind: z.enum(["inbound_sms", "inbound_mms", "inbound_call", "new_lead"]),
+  })
+  .passthrough();
+
+const actionConfigSchema = z
+  .object({
+    kind: z.literal("action"),
+    actionKind: z.enum(["send_sms", "send_email", "add_tag", "create_task"]),
+  })
+  .passthrough();
+
+const delayConfigSchema = z
+  .object({
+    kind: z.literal("delay"),
+    minutes: z.number().int().min(0).max(43200),
+  })
+  .passthrough();
+
+const conditionConfigSchema = z
+  .object({
+    kind: z.literal("condition"),
+    left: z.string().max(60),
+    op: z.enum(["equals", "contains", "starts_with", "ends_with", "is_empty", "is_not_empty"]),
+    right: z.string().max(120),
+  })
+  .passthrough();
+
+const noteConfigSchema = z
+  .object({
+    kind: z.literal("note"),
+    text: z.string().max(500),
+  })
+  .passthrough();
+
+const nodeConfigSchema = z.union([
+  triggerConfigSchema,
+  actionConfigSchema,
+  delayConfigSchema,
+  conditionConfigSchema,
+  noteConfigSchema,
+]);
+
 const nodeSchema = z.object({
   id: z.string().min(1).max(60),
   type: z.enum(["trigger", "action", "delay", "condition", "note"]),
   label: z.string().max(80),
   x: z.number().finite(),
   y: z.number().finite(),
+  config: nodeConfigSchema.optional(),
 });
 
 const edgeSchema = z.object({
