@@ -56,6 +56,51 @@ type AccountMember = {
   implicit?: boolean;
 };
 
+const TAG_COLORS = [
+  "#0EA5E9", // sky
+  "#2563EB", // blue
+  "#7C3AED", // violet
+  "#EC4899", // pink
+  "#F97316", // orange
+  "#F59E0B", // amber
+  "#10B981", // emerald
+  "#22C55E", // green
+  "#64748B", // slate
+  "#111827", // gray-900
+] as const;
+
+function ColorSwatches({ value, onChange }: { value: string; onChange: (hex: string) => void }) {
+  const colors = (TAG_COLORS as readonly string[]).includes(value)
+    ? (TAG_COLORS as readonly string[])
+    : ([value, ...TAG_COLORS] as const);
+
+  return (
+    <div className="mt-2 flex flex-wrap gap-2">
+      {colors.map((c) => {
+        const selected = c.toLowerCase() === value.toLowerCase();
+        return (
+          <button
+            key={c}
+            type="button"
+            onClick={(e) => {
+              e.stopPropagation();
+              onChange(c);
+            }}
+            className={
+              selected
+                ? "h-7 w-7 rounded-full ring-2 ring-zinc-900 ring-offset-2"
+                : "h-7 w-7 rounded-full ring-1 ring-zinc-300 hover:ring-zinc-400"
+            }
+            style={{ backgroundColor: c }}
+            aria-label={`Pick ${c}`}
+            title={c}
+          />
+        );
+      })}
+    </div>
+  );
+}
+
 type BuilderNode = {
   id: string;
   type: BuilderNodeType;
@@ -253,6 +298,7 @@ export function PortalAutomationsClient() {
 
   const [createTagOpen, setCreateTagOpen] = useState(false);
   const [createTagName, setCreateTagName] = useState("");
+  const [createTagColor, setCreateTagColor] = useState<string>("#2563EB");
   const [createTagBusy, setCreateTagBusy] = useState(false);
   const [createTagError, setCreateTagError] = useState<string | null>(null);
   const [createTagApplyTo, setCreateTagApplyTo] = useState<null | { nodeId: string; kind: "action" | "trigger" }>(null);
@@ -472,16 +518,18 @@ export function PortalAutomationsClient() {
     };
   }, []);
 
-  async function createOwnerTag(name: string) {
+  async function createOwnerTag(name: string, color?: string | null) {
     const clean = String(name || "").trim().slice(0, 60);
     if (!clean) return null;
+
+    const safeColor = typeof color === "string" && /^#[0-9a-fA-F]{6}$/.test(color.trim()) ? color.trim() : null;
 
     setCreateTagBusy(true);
     setCreateTagError(null);
     const res = await fetch("/api/portal/contact-tags", {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ name: clean, color: null }),
+      body: JSON.stringify(safeColor ? { name: clean, color: safeColor } : { name: clean }),
     }).catch(() => null as any);
 
     const data = (await res?.json?.().catch(() => null)) as any;
@@ -1059,7 +1107,7 @@ export function PortalAutomationsClient() {
                 onKeyDown={async (e) => {
                   if (e.key === "Escape") setCreateTagOpen(false);
                   if (e.key === "Enter") {
-                    const created = await createOwnerTag(createTagName);
+                    const created = await createOwnerTag(createTagName, createTagColor);
                     if (!created) return;
                     if (createTagApplyTo && selectedAutomationId) {
                       updateSelectedAutomation((a) => {
@@ -1094,6 +1142,12 @@ export function PortalAutomationsClient() {
               />
             </div>
 
+            <div className="mt-4">
+              <div className="text-xs font-semibold text-zinc-600">Color</div>
+              <ColorSwatches value={createTagColor} onChange={(hex) => setCreateTagColor(hex)} />
+              <div className="mt-1 text-[11px] text-zinc-500">Pick one of the standard tag colors.</div>
+            </div>
+
             <div className="mt-4 flex items-center justify-end gap-2">
               <button
                 type="button"
@@ -1107,7 +1161,7 @@ export function PortalAutomationsClient() {
                 type="button"
                 className="rounded-xl bg-blue-600 px-3 py-2 text-xs font-semibold text-white hover:bg-blue-700 disabled:opacity-60"
                 onClick={async () => {
-                  const created = await createOwnerTag(createTagName);
+                  const created = await createOwnerTag(createTagName, createTagColor);
                   if (!created) return;
                   if (createTagApplyTo && selectedAutomationId) {
                     updateSelectedAutomation((a) => {
@@ -1626,6 +1680,7 @@ export function PortalAutomationsClient() {
                                         if (next === CREATE_TAG_VALUE) {
                                           setCreateTagApplyTo({ nodeId: selectedNode.id, kind: "trigger" });
                                           setCreateTagName("");
+                                          setCreateTagColor("#2563EB");
                                           setCreateTagError(null);
                                           setCreateTagOpen(true);
                                           return;
@@ -1975,6 +2030,7 @@ export function PortalAutomationsClient() {
                                         if (nextTagId === CREATE_TAG_VALUE) {
                                           setCreateTagApplyTo({ nodeId: selectedNode.id, kind: "action" });
                                           setCreateTagName("");
+                                          setCreateTagColor("#2563EB");
                                           setCreateTagError(null);
                                           setCreateTagOpen(true);
                                           return;

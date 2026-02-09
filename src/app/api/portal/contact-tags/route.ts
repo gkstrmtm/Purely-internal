@@ -15,7 +15,12 @@ const postSchema = z.object({
     .trim()
     .max(16)
     .optional()
-    .transform((v) => (v === "" ? null : v ?? null)),
+    .nullable()
+    .transform((v) => {
+      if (v === null) return null;
+      if (v === undefined) return null;
+      return v === "" ? null : v;
+    }),
 });
 
 export async function GET() {
