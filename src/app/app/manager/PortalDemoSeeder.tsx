@@ -17,13 +17,25 @@ type SeedResult = {
         skipped: boolean;
       }
     | { ok: false; forced: boolean; error: string };
+  aiReceptionistSeed?:
+    | { ok: true; forced: boolean; inserted: number; skipped: boolean }
+    | { ok: false; forced: boolean; error: string };
 };
+
+type SeedAiReceptionistResult =
+  | { ok: true; forced: boolean; inserted: number; skipped: boolean; fullEmail: string }
+  | { error: string; details?: string };
 
 export default function PortalDemoSeeder() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [result, setResult] = useState<SeedResult | null>(null);
   const [forceInboxSeed, setForceInboxSeed] = useState(false);
+
+  const [aiLoading, setAiLoading] = useState(false);
+  const [aiError, setAiError] = useState<string | null>(null);
+  const [aiResult, setAiResult] = useState<SeedAiReceptionistResult | null>(null);
+  const [forceAiSeed, setForceAiSeed] = useState(false);
 
   async function readErrorMessage(res: Response) {
     const text = await res.text().catch(() => "");
@@ -78,6 +90,35 @@ export default function PortalDemoSeeder() {
     const json = (await res.json()) as SeedResult;
     setResult(json);
     setLoading(false);
+  }
+
+  async function seedAiReceptionistOnly() {
+    setAiLoading(true);
+    setAiError(null);
+    setAiResult(null);
+
+    let res: Response;
+    try {
+      res = await fetch("/api/manager/portal/seed-ai-receptionist", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ force: forceAiSeed }),
+      });
+    } catch (e) {
+      setAiLoading(false);
+      setAiError(e instanceof Error ? e.message : "Network error while seeding AI receptionist calls");
+      return;
+    }
+
+    if (!res.ok) {
+      setAiLoading(false);
+      setAiError(await readErrorMessage(res));
+      return;
+    }
+
+    const json = (await res.json().catch(() => ({}))) as SeedAiReceptionistResult;
+    setAiResult(json);
+    setAiLoading(false);
   }
 
   return (
@@ -157,6 +198,45 @@ export default function PortalDemoSeeder() {
           ) : null}
         </div>
       ) : null}
+
+      <div className="mt-6 rounded-3xl border border-zinc-200 bg-white p-5">
+        <div className="flex flex-col items-start justify-between gap-4 sm:flex-row sm:items-center">
+          <div>
+            <div className="text-sm font-semibold text-brand-ink">AI Receptionist demo calls</div>
+            <div className="mt-1 text-sm text-zinc-600">Seeds 3 demo calls into the existing demo-full account. Does not change passwords.</div>
+          </div>
+          <div className="flex flex-col items-start gap-3 sm:flex-row sm:items-center">
+            <label className="inline-flex items-center gap-2 text-sm text-zinc-700">
+              <input
+                type="checkbox"
+                className="h-4 w-4 rounded border-zinc-300"
+                checked={forceAiSeed}
+                onChange={(e) => setForceAiSeed(e.target.checked)}
+                disabled={aiLoading}
+              />
+              Force reseed calls
+            </label>
+            <button
+              className="inline-flex items-center justify-center rounded-2xl bg-zinc-900 px-5 py-3 text-sm font-semibold text-white hover:opacity-95 disabled:opacity-60"
+              onClick={seedAiReceptionistOnly}
+              disabled={aiLoading}
+            >
+              {aiLoading ? "Seeding…" : "Seed AI receptionist calls"}
+            </button>
+          </div>
+        </div>
+
+        {aiError ? (
+          <div className="mt-4 rounded-2xl bg-red-50 px-4 py-3 text-sm text-red-700">{aiError}</div>
+        ) : null}
+
+        {aiResult && (aiResult as any).ok ? (
+          <div className="mt-4 rounded-2xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-800">
+            Seeded AI Receptionist calls for <span className="font-semibold">{(aiResult as any).fullEmail}</span>.{" "}
+            {(aiResult as any).skipped ? "Skipped (already present)." : `Inserted ${(aiResult as any).inserted}.`}
+          </div>
+        ) : null}
+      </div>
     </div>
   );
 }
