@@ -59,6 +59,17 @@ export const PORTAL_SERVICES: PortalService[] = [
     accent: "coral",
   },
   {
+    slug: "automations",
+    title: "Automation Builder",
+    description: "Build your own automations with triggers and steps.",
+    highlights: [
+      "Drag-and-drop triggers + actions",
+      "Connect steps into a flow",
+      "Save multiple automations",
+    ],
+    accent: "ink",
+  },
+  {
     slug: "follow-up",
     title: "Follow-up Automation",
     description: "Keep leads warm with simple, reliable touch points.",
