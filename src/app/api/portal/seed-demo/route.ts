@@ -302,7 +302,7 @@ export async function POST(req: Request) {
 
   // Seed sample AI Receptionist calls for the full demo user.
   // Idempotent by default: only seeds if no demo calls are present.
-  // Uses internal demo-audio URLs so the UI can show playback without Twilio.
+  // Uses a demoRecordingId so the UI can play audio without storing URLs.
   let aiReceptionistSeed:
     | { ok: true; forced: boolean; inserted: number; skipped: boolean }
     | { ok: false; forced: boolean; error: string } = { ok: true, forced: forceInboxSeed, inserted: 0, skipped: true };
@@ -336,7 +336,7 @@ export async function POST(req: Request) {
         contactName: "Sarah M.",
         contactEmail: "sarah@example.com",
         contactPhone: "+15555550111",
-        audioUrl: "/api/portal/ai-receptionist/demo-audio/1",
+        demoRecordingId: "1",
         transcript:
           "Sarah: Hi, I’m calling to ask about pricing and whether you guys do same-day installs.\n\nAI Receptionist: Absolutely. What city are you in and what kind of system are you looking for?\n\nSarah: Tampa. It’s a replacement — my AC is struggling.\n\nAI Receptionist: Got it. What’s the best email to send options and next steps?\n\nSarah: sarah@example.com",
         notes: "Captured lead details. Requested pricing + availability.",
@@ -350,7 +350,7 @@ export async function POST(req: Request) {
         status: "COMPLETED",
         contactName: "Mike R.",
         contactPhone: "+15555550222",
-        audioUrl: "/api/portal/ai-receptionist/demo-audio/2",
+        demoRecordingId: "2",
         transcript:
           "Mike: Hey — do you have anything open this Thursday afternoon?\n\nAI Receptionist: Yes. Can I grab your name and a good callback number?\n\nMike: Mike. This number is fine.\n\nAI Receptionist: Perfect — I’ll send available times via text shortly.",
         notes: "Scheduling question. No email provided.",
@@ -364,7 +364,7 @@ export async function POST(req: Request) {
         status: "COMPLETED",
         contactName: "Unknown caller",
         contactPhone: "+15555550333",
-        audioUrl: "/api/portal/ai-receptionist/demo-audio/3",
+        demoRecordingId: "3",
         transcript:
           "Caller: Hi — I’m returning a missed call.\n\nAI Receptionist: Sorry about that. What’s the best way to reach you and what are you calling about?\n\nCaller: Just wanted to check on my appointment.",
         notes: "General inquiry.",

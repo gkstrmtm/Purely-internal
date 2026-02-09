@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 
 import { PortalMissedCallTextBackClient } from "@/app/portal/app/services/missed-call-textback/PortalMissedCallTextBackClient";
 import { PortalSettingsSection } from "@/components/PortalSettingsSection";
@@ -29,11 +29,11 @@ type EventRow = {
   notes?: string;
   recordingSid?: string;
   recordingDurationSec?: number;
+  demoRecordingId?: string;
   contactName?: string;
   contactEmail?: string;
   contactPhone?: string;
   transcript?: string;
-  audioUrl?: string;
 };
 
 type ApiPayload = {
@@ -75,6 +75,127 @@ function badgeClass(kind: string) {
     default:
       return "bg-zinc-50 text-zinc-700 border-zinc-200";
   }
+}
+
+function formatTime(sec: number) {
+  if (!Number.isFinite(sec) || sec < 0) return "0:00";
+  const s = Math.floor(sec);
+  const m = Math.floor(s / 60);
+  const r = s % 60;
+  return `${m}:${String(r).padStart(2, "0")}`;
+}
+
+function MiniAudioPlayer(props: { src: string; durationHintSec?: number | null }) {
+  const audioRef = useRef<HTMLAudioElement | null>(null);
+  const [ready, setReady] = useState(false);
+  const [playing, setPlaying] = useState(false);
+  const [duration, setDuration] = useState<number>(props.durationHintSec && props.durationHintSec > 0 ? props.durationHintSec : 0);
+  const [currentTime, setCurrentTime] = useState(0);
+  const [rate, setRate] = useState(1);
+
+  useEffect(() => {
+    const el = audioRef.current;
+    if (!el) return;
+
+    const onLoaded = () => {
+      setReady(true);
+      if (Number.isFinite(el.duration) && el.duration > 0) setDuration(el.duration);
+    };
+    const onTime = () => setCurrentTime(el.currentTime || 0);
+    const onPlay = () => setPlaying(true);
+    const onPause = () => setPlaying(false);
+    const onEnded = () => setPlaying(false);
+
+    el.addEventListener("loadedmetadata", onLoaded);
+    el.addEventListener("timeupdate", onTime);
+    el.addEventListener("play", onPlay);
+    el.addEventListener("pause", onPause);
+    el.addEventListener("ended", onEnded);
+
+    return () => {
+      el.removeEventListener("loadedmetadata", onLoaded);
+      el.removeEventListener("timeupdate", onTime);
+      el.removeEventListener("play", onPlay);
+      el.removeEventListener("pause", onPause);
+      el.removeEventListener("ended", onEnded);
+    };
+  }, [props.src]);
+
+  useEffect(() => {
+    const el = audioRef.current;
+    if (!el) return;
+    el.playbackRate = rate;
+  }, [rate]);
+
+  const remaining = Math.max(0, (duration || 0) - (currentTime || 0));
+  const canScrub = ready && duration > 0;
+
+  return (
+    <div className="mt-2 rounded-2xl border border-zinc-200 bg-zinc-50 p-3">
+      <audio ref={audioRef} preload="metadata" src={props.src} />
+      <div className="flex flex-wrap items-center gap-3">
+        <button
+          type="button"
+          className="rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm font-semibold text-zinc-900 hover:bg-zinc-100 disabled:opacity-60"
+          disabled={!props.src}
+          onClick={async () => {
+            const el = audioRef.current;
+            if (!el) return;
+            if (el.paused) {
+              try {
+                await el.play();
+              } catch {
+                // ignore
+              }
+            } else {
+              el.pause();
+            }
+          }}
+        >
+          {playing ? "Pause" : "Play"}
+        </button>
+
+        <div className="min-w-[220px] flex-1">
+          <input
+            type="range"
+            min={0}
+            max={canScrub ? duration : 1}
+            step={0.01}
+            value={canScrub ? Math.min(duration, currentTime) : 0}
+            disabled={!canScrub}
+            onChange={(ev) => {
+              const el = audioRef.current;
+              if (!el) return;
+              const next = Number(ev.target.value);
+              if (!Number.isFinite(next)) return;
+              el.currentTime = Math.max(0, Math.min(duration, next));
+              setCurrentTime(el.currentTime);
+            }}
+            className="w-full"
+          />
+          <div className="mt-1 flex items-center justify-between text-xs text-zinc-600">
+            <span>{formatTime(currentTime)}</span>
+            <span>-{formatTime(remaining)}</span>
+          </div>
+        </div>
+
+        <div className="flex items-center gap-2">
+          <div className="text-xs font-semibold text-zinc-600">Speed</div>
+          <select
+            className="rounded-xl border border-zinc-200 bg-white px-2 py-2 text-sm font-semibold text-zinc-900"
+            value={String(rate)}
+            onChange={(e) => setRate(Number(e.target.value))}
+          >
+            {[0.75, 1, 1.25, 1.5, 2].map((v) => (
+              <option key={v} value={String(v)}>
+                {v}x
+              </option>
+            ))}
+          </select>
+        </div>
+      </div>
+    </div>
+  );
 }
 
 export function PortalAiReceptionistClient() {
@@ -661,7 +782,7 @@ export function PortalAiReceptionistClient() {
                   {events.slice(0, 80).map((e) => {
                     const isSelected = e.id === selectedCallId;
                     const nameLine = (e.contactName || "").trim() || e.from;
-                    const hasAudio = Boolean((e.audioUrl && e.audioUrl.trim()) || (e.recordingSid && e.recordingSid.trim()));
+                    const hasAudio = Boolean((e.recordingSid && e.recordingSid.trim()) || (e.demoRecordingId && e.demoRecordingId.trim()));
                     const hasTranscript = Boolean(e.transcript && e.transcript.trim());
                     return (
                       <button
@@ -745,16 +866,16 @@ export function PortalAiReceptionistClient() {
                         <div className="text-xs font-semibold text-zinc-600">Recording</div>
                         {(() => {
                           const src =
-                            (selectedCall.audioUrl && selectedCall.audioUrl.trim())
-                              ? selectedCall.audioUrl.trim()
-                              : (selectedCall.recordingSid && selectedCall.recordingSid.trim())
-                                  ? `/api/portal/ai-receptionist/recordings/${encodeURIComponent(selectedCall.recordingSid)}`
+                            (selectedCall.recordingSid && selectedCall.recordingSid.trim())
+                              ? `/api/portal/ai-receptionist/recordings/${encodeURIComponent(selectedCall.recordingSid)}`
+                              : (selectedCall.demoRecordingId && selectedCall.demoRecordingId.trim())
+                                  ? `/api/portal/ai-receptionist/recordings/demo/${encodeURIComponent(selectedCall.demoRecordingId)}`
                                   : "";
                           if (!src) {
                             return <div className="mt-2 text-sm text-zinc-600">No recording available for this call.</div>;
                           }
                           return (
-                            <audio className="mt-2 w-full" controls preload="none" src={src} />
+                            <MiniAudioPlayer src={src} durationHintSec={selectedCall.recordingDurationSec ?? null} />
                           );
                         })()}
                       </div>

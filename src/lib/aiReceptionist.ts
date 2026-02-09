@@ -48,6 +48,8 @@ export type AiReceptionistCallEvent = {
   notes?: string;
   recordingSid?: string;
   recordingDurationSec?: number;
+  // Demo-only recording id (served via an authenticated endpoint). Avoid storing URLs in event data.
+  demoRecordingId?: string;
   // Best-effort contact info captured by your voice agent (e.g. ElevenLabs).
   contactName?: string;
   contactEmail?: string;
@@ -55,9 +57,6 @@ export type AiReceptionistCallEvent = {
 
   // Optional transcript content for the call.
   transcript?: string;
-
-  // Optional audio URL override (e.g. demo audio). If omitted, recordingSid may be used.
-  audioUrl?: string;
   chargedCredits?: number;
   creditsChargedPartial?: boolean;
 };
@@ -181,18 +180,22 @@ function parseServiceData(raw: unknown): AiReceptionistServiceData {
             ? Math.max(0, Math.floor(r.recordingDurationSec))
             : undefined;
 
+          const demoRecordingIdRaw = typeof r.demoRecordingId === "string" ? r.demoRecordingId.trim() : "";
+          let demoRecordingId = demoRecordingIdRaw ? demoRecordingIdRaw.slice(0, 40) : "";
+          // Back-compat: if older demo events stored an audioUrl pointing at the demo endpoint,
+          // extract the id so we can continue to play without persisting URLs.
+          if (!demoRecordingId) {
+            const audioUrlRaw = typeof (r as any).audioUrl === "string" ? String((r as any).audioUrl).trim() : "";
+            const m = audioUrlRaw.match(/\/api\/portal\/ai-receptionist\/(?:demo-audio|recordings\/demo)\/([^/?#]+)/i);
+            if (m?.[1]) demoRecordingId = m[1].trim().slice(0, 40);
+          }
+
           const contactName = typeof r.contactName === "string" ? r.contactName.trim().slice(0, 120) : "";
           const contactEmail = typeof r.contactEmail === "string" ? r.contactEmail.trim().slice(0, 160) : "";
           const contactPhone = typeof r.contactPhone === "string" ? r.contactPhone.trim().slice(0, 60) : "";
 
           const transcriptRaw = typeof r.transcript === "string" ? r.transcript : "";
           const transcript = transcriptRaw.trim() ? transcriptRaw.trim().slice(0, 20000) : "";
-
-          const audioUrlRaw = typeof r.audioUrl === "string" ? r.audioUrl.trim() : "";
-          const audioUrl =
-            audioUrlRaw && audioUrlRaw.length <= 500 && (audioUrlRaw.startsWith("/") || audioUrlRaw.startsWith("https://"))
-              ? audioUrlRaw
-              : "";
           const chargedCredits = typeof r.chargedCredits === "number" && Number.isFinite(r.chargedCredits)
             ? Math.max(0, Math.floor(r.chargedCredits))
             : undefined;
@@ -209,11 +212,11 @@ function parseServiceData(raw: unknown): AiReceptionistServiceData {
               ...(typeof r.notes === "string" && r.notes.trim() ? { notes: r.notes.trim().slice(0, 800) } : {}),
               ...(recordingSid ? { recordingSid } : {}),
               ...(typeof recordingDurationSec === "number" ? { recordingDurationSec } : {}),
+              ...(demoRecordingId ? { demoRecordingId } : {}),
               ...(contactName ? { contactName } : {}),
               ...(contactEmail ? { contactEmail } : {}),
               ...(contactPhone ? { contactPhone } : {}),
               ...(transcript ? { transcript } : {}),
-              ...(audioUrl ? { audioUrl } : {}),
               ...(typeof chargedCredits === "number" ? { chargedCredits } : {}),
               ...(typeof creditsChargedPartial === "boolean" ? { creditsChargedPartial } : {}),
             },
