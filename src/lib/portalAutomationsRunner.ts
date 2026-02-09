@@ -12,7 +12,14 @@ type TriggerKind =
   | "inbound_sms"
   | "inbound_mms"
   | "inbound_call"
+  | "inbound_email"
   | "new_lead"
+  | "tag_added"
+  | "contact_created"
+  | "task_added"
+  | "inbound_webhook"
+  | "scheduled_time"
+  | "missed_appointment"
   | "appointment_booked"
   | "missed_call"
   | "review_received"
@@ -78,7 +85,7 @@ function getConfigKind(cfg: unknown): string {
   return cfg && typeof cfg === "object" && !Array.isArray(cfg) ? String((cfg as any).kind || "") : "";
 }
 
-function isTriggerConfig(cfg: unknown): cfg is { kind: "trigger"; triggerKind: TriggerKind } {
+function isTriggerConfig(cfg: unknown): cfg is { kind: "trigger"; triggerKind: TriggerKind; tagId?: string; webhookKey?: string } {
   return getConfigKind(cfg) === "trigger";
 }
 
@@ -207,6 +214,7 @@ async function runAutomationOnce(opts: {
   triggerKind: TriggerKind;
   message?: { from?: string; to?: string; body?: string };
   contact?: { id?: string | null; name?: string | null; email?: string | null; phone?: string | null };
+  event?: { tagId?: string; webhookKey?: string };
 }) {
   const message = {
     from: coerceString(opts.message?.from),
@@ -236,7 +244,21 @@ async function runAutomationOnce(opts: {
   const triggerNodes = (opts.automation.nodes || []).filter((n: any) => {
     if (!n || n.type !== "trigger") return false;
     const cfg = (n as any).config;
-    return isTriggerConfig(cfg) && cfg.triggerKind === opts.triggerKind;
+    if (!isTriggerConfig(cfg) || cfg.triggerKind !== opts.triggerKind) return false;
+    // Optional trigger-level filters for certain trigger kinds.
+    if (opts.triggerKind === "tag_added") {
+      const expected = String((cfg as any).tagId || "").trim();
+      const actual = String(opts.event?.tagId || "").trim();
+      if (expected && actual && expected !== actual) return false;
+      if (expected && !actual) return false;
+    }
+    if (opts.triggerKind === "inbound_webhook") {
+      const expected = String((cfg as any).webhookKey || "").trim();
+      const actual = String(opts.event?.webhookKey || "").trim();
+      if (expected && actual && expected !== actual) return false;
+      if (expected && !actual) return false;
+    }
+    return true;
   });
 
   if (!triggerNodes.length) return;
@@ -401,6 +423,7 @@ export async function runOwnerAutomationsForEvent(opts: {
   triggerKind: TriggerKind;
   message?: { from?: string; to?: string; body?: string };
   contact?: { id?: string | null; name?: string | null; email?: string | null; phone?: string | null };
+  event?: { tagId?: string; webhookKey?: string };
 }) {
   const automations = await loadOwnerAutomations(opts.ownerId);
 
@@ -412,6 +435,7 @@ export async function runOwnerAutomationsForEvent(opts: {
         triggerKind: opts.triggerKind,
         message: opts.message,
         contact: opts.contact,
+        event: opts.event,
       }).catch(() => null),
     ),
   );
@@ -423,6 +447,7 @@ export async function runOwnerAutomationByIdForEvent(opts: {
   triggerKind: TriggerKind;
   message?: { from?: string; to?: string; body?: string };
   contact?: { id?: string | null; name?: string | null; email?: string | null; phone?: string | null };
+  event?: { tagId?: string; webhookKey?: string };
 }) {
   const automations = await loadOwnerAutomations(opts.ownerId);
   const automation = automations.find((a) => a.id === opts.automationId);
@@ -434,5 +459,6 @@ export async function runOwnerAutomationByIdForEvent(opts: {
     triggerKind: opts.triggerKind,
     message: opts.message,
     contact: opts.contact,
+    event: opts.event,
   });
 }

@@ -9,10 +9,31 @@ export const revalidate = 0;
 
 const SERVICE_SLUG = "automations";
 
+function newToken() {
+  return `${Math.random().toString(36).slice(2)}${Math.random().toString(36).slice(2)}`.replace(/[^a-z0-9]/gi, "").slice(0, 32);
+}
+
 const triggerConfigSchema = z
   .object({
     kind: z.literal("trigger"),
-    triggerKind: z.enum(["inbound_sms", "inbound_mms", "inbound_call", "new_lead"]),
+    triggerKind: z.enum([
+      "inbound_sms",
+      "inbound_mms",
+      "inbound_call",
+      "inbound_email",
+      "new_lead",
+      "tag_added",
+      "contact_created",
+      "task_added",
+      "inbound_webhook",
+      "scheduled_time",
+      "missed_appointment",
+      "appointment_booked",
+      "missed_call",
+      "review_received",
+      "follow_up_sent",
+      "outbound_sent",
+    ]),
   })
   .passthrough();
 
@@ -110,8 +131,28 @@ export async function GET() {
     select: { dataJson: true },
   });
 
-  const automations = parseAutomations(row?.dataJson ?? null);
-  return NextResponse.json({ ok: true, automations });
+  const dataJson = (row?.dataJson ?? null) as any;
+  const webhookTokenRaw = typeof dataJson?.webhookToken === "string" ? dataJson.webhookToken.trim() : "";
+  const webhookToken = webhookTokenRaw.length >= 12 ? webhookTokenRaw : newToken();
+
+  // Ensure the token exists for this owner (best-effort).
+  if (webhookTokenRaw !== webhookToken) {
+    const nextData = {
+      ...(dataJson && typeof dataJson === "object" && !Array.isArray(dataJson) ? dataJson : {}),
+      version: 1,
+      webhookToken,
+      automations: parseAutomations(dataJson ?? null),
+    };
+    await prisma.portalServiceSetup.upsert({
+      where: { ownerId_serviceSlug: { ownerId, serviceSlug: SERVICE_SLUG } },
+      create: { ownerId, serviceSlug: SERVICE_SLUG, status: "COMPLETE", dataJson: nextData as any },
+      update: { status: "COMPLETE", dataJson: nextData as any },
+      select: { id: true },
+    });
+  }
+
+  const automations = parseAutomations(dataJson ?? null);
+  return NextResponse.json({ ok: true, webhookToken, automations });
 }
 
 const putSchema = z.object({
@@ -139,20 +180,27 @@ export async function PUT(req: Request) {
     updatedAtIso: typeof a.updatedAtIso === "string" && a.updatedAtIso.trim() ? a.updatedAtIso : new Date().toISOString(),
   }));
 
+  const existing = await prisma.portalServiceSetup.findUnique({
+    where: { ownerId_serviceSlug: { ownerId, serviceSlug: SERVICE_SLUG } },
+    select: { dataJson: true },
+  });
+  const existingTokenRaw = typeof (existing as any)?.dataJson?.webhookToken === "string" ? String((existing as any).dataJson.webhookToken).trim() : "";
+  const webhookToken = existingTokenRaw.length >= 12 ? existingTokenRaw : newToken();
+
   await prisma.portalServiceSetup.upsert({
     where: { ownerId_serviceSlug: { ownerId, serviceSlug: SERVICE_SLUG } },
     create: {
       ownerId,
       serviceSlug: SERVICE_SLUG,
       status: "COMPLETE",
-      dataJson: { version: 1, automations: next } as any,
+      dataJson: { version: 1, webhookToken, automations: next } as any,
     },
     update: {
       status: "COMPLETE",
-      dataJson: { version: 1, automations: next } as any,
+      dataJson: { version: 1, webhookToken, automations: next } as any,
     },
     select: { id: true },
   });
 
-  return NextResponse.json({ ok: true, automations: next });
+  return NextResponse.json({ ok: true, webhookToken, automations: next });
 }

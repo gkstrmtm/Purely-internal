@@ -7,6 +7,7 @@ import {
   listContactTagsForContact,
   removeContactTagAssignment,
 } from "@/lib/portalContactTags";
+import { runOwnerAutomationsForEvent } from "@/lib/portalAutomationsRunner";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
@@ -56,6 +57,18 @@ export async function POST(req: Request, ctx: { params: Promise<{ contactId: str
 
   const ok = await addContactTagAssignment({ ownerId, contactId: contactId.data, tagId: parsed.data.tagId });
   if (!ok) return NextResponse.json({ ok: false, error: "Failed to add tag" }, { status: 500 });
+
+  // Best-effort: fire tag-added automations.
+  try {
+    await runOwnerAutomationsForEvent({
+      ownerId,
+      triggerKind: "tag_added",
+      contact: { id: contactId.data },
+      event: { tagId: parsed.data.tagId },
+    });
+  } catch {
+    // ignore
+  }
 
   const tags = await listContactTagsForContact(ownerId, contactId.data);
   return NextResponse.json({ ok: true, tags });

@@ -12,6 +12,7 @@ import {
 import { prisma } from "@/lib/db";
 import { ensurePortalInboxSchema } from "@/lib/portalInboxSchema";
 import { mirrorUploadToMediaLibrary } from "@/lib/portalMediaUploads";
+import { runOwnerAutomationsForEvent } from "@/lib/portalAutomationsRunner";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
@@ -72,6 +73,18 @@ export async function POST(
     provider: "SENDGRID_INBOUND",
     providerMessageId: null,
   });
+
+  // Best-effort: fire inbound email automations.
+  try {
+    await runOwnerAutomationsForEvent({
+      ownerId,
+      triggerKind: "inbound_email",
+      message: { from: fromEmail || fromRaw, to: toEmail || toRaw, body: bodyText || "" },
+      contact: { email: fromEmail || null, name: fromRaw || null },
+    });
+  } catch {
+    // ignore
+  }
 
   // Best-effort: store any inbound attachments.
   try {

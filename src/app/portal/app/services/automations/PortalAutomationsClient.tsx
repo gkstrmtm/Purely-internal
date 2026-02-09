@@ -11,7 +11,14 @@ type TriggerKind =
   | "inbound_sms"
   | "inbound_mms"
   | "inbound_call"
+  | "inbound_email"
   | "new_lead"
+  | "tag_added"
+  | "contact_created"
+  | "task_added"
+  | "inbound_webhook"
+  | "scheduled_time"
+  | "missed_appointment"
   | "appointment_booked"
   | "missed_call"
   | "review_received"
@@ -23,7 +30,7 @@ type ConditionOp = "equals" | "contains" | "starts_with" | "ends_with" | "is_emp
 type MessageTarget = "inbound_sender" | "event_contact" | "internal_notification" | "custom";
 
 type BuilderNodeConfig =
-  | { kind: "trigger"; triggerKind: TriggerKind }
+  | { kind: "trigger"; triggerKind: TriggerKind; tagId?: string; webhookKey?: string }
   | {
       kind: "action";
       actionKind: ActionKind;
@@ -161,7 +168,14 @@ function labelForConfig(t: BuilderNodeType, cfg: BuilderNodeConfig | undefined) 
       inbound_sms: "Inbound SMS",
       inbound_mms: "Inbound MMS",
       inbound_call: "Inbound Call",
+      inbound_email: "Inbound Email",
       new_lead: "New Lead",
+      tag_added: "Tag added",
+      contact_created: "Contact created",
+      task_added: "Task added",
+      inbound_webhook: "Inbound webhook",
+      scheduled_time: "Scheduled time",
+      missed_appointment: "Missed appointment",
       appointment_booked: "Appointment booked",
       missed_call: "Missed call",
       review_received: "Review received",
@@ -222,6 +236,14 @@ export function PortalAutomationsClient() {
   const [testBody, setTestBody] = useState("Hello");
 
   const [ownerTags, setOwnerTags] = useState<ContactTag[]>([]);
+
+  const [createTagOpen, setCreateTagOpen] = useState(false);
+  const [createTagName, setCreateTagName] = useState("");
+  const [createTagBusy, setCreateTagBusy] = useState(false);
+  const [createTagError, setCreateTagError] = useState<string | null>(null);
+  const [createTagApplyTo, setCreateTagApplyTo] = useState<null | { nodeId: string; kind: "action" | "trigger" }>(null);
+
+  const CREATE_TAG_VALUE = "__create_tag__";
 
   const [automations, setAutomations] = useState<Automation[]>([]);
   const [selectedAutomationId, setSelectedAutomationId] = useState<string | null>(null);
@@ -405,6 +427,41 @@ export function PortalAutomationsClient() {
   useEffect(() => {
     void load();
   }, []);
+
+  async function createOwnerTag(name: string) {
+    const clean = String(name || "").trim().slice(0, 60);
+    if (!clean) return null;
+
+    setCreateTagBusy(true);
+    setCreateTagError(null);
+    const res = await fetch("/api/portal/contact-tags", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ name: clean, color: null }),
+    }).catch(() => null as any);
+
+    const data = (await res?.json?.().catch(() => null)) as any;
+    if (!res?.ok || !data?.ok || !data?.tag?.id) {
+      setCreateTagBusy(false);
+      setCreateTagError(String(data?.error || "Failed to create tag."));
+      return null;
+    }
+
+    const created: ContactTag = {
+      id: String(data.tag.id),
+      name: String(data.tag.name || clean).slice(0, 60),
+      color: typeof data.tag.color === "string" ? String(data.tag.color) : null,
+    };
+
+    setOwnerTags((prev) => {
+      const next = [...prev.filter((t) => t.id !== created.id), created];
+      next.sort((a, b) => a.name.localeCompare(b.name));
+      return next;
+    });
+
+    setCreateTagBusy(false);
+    return created;
+  }
 
   useEffect(() => {
     let cancelled = false;
@@ -926,6 +983,122 @@ export function PortalAutomationsClient() {
         </div>
       ) : null}
 
+      {createTagOpen ? (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/30 p-4" onMouseDown={() => setCreateTagOpen(false)}>
+          <div
+            className="w-full max-w-lg rounded-3xl border border-zinc-200 bg-white p-4 shadow-xl"
+            onMouseDown={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-start justify-between gap-3">
+              <div>
+                <div className="text-sm font-semibold text-zinc-900">Create tag</div>
+                <div className="mt-1 text-sm text-zinc-600">Add a reusable tag you can use anywhere.</div>
+              </div>
+              <button
+                type="button"
+                className="rounded-xl border border-zinc-200 bg-white px-3 py-2 text-xs font-semibold hover:bg-zinc-50"
+                onClick={() => setCreateTagOpen(false)}
+                disabled={createTagBusy}
+              >
+                Close
+              </button>
+            </div>
+
+            {createTagError ? <div className="mt-3 rounded-2xl bg-red-50 px-3 py-2 text-sm text-red-700">{createTagError}</div> : null}
+
+            <div className="mt-4">
+              <label className="text-xs font-semibold text-zinc-600">Name</label>
+              <input
+                value={createTagName}
+                autoFocus
+                onChange={(e) => setCreateTagName(e.target.value)}
+                onKeyDown={async (e) => {
+                  if (e.key === "Escape") setCreateTagOpen(false);
+                  if (e.key === "Enter") {
+                    const created = await createOwnerTag(createTagName);
+                    if (!created) return;
+                    if (createTagApplyTo && selectedAutomationId) {
+                      updateSelectedAutomation((a) => {
+                        const nodes = a.nodes.map((n) => {
+                          if (n.id !== createTagApplyTo.nodeId) return n;
+                          if (createTagApplyTo.kind === "action") {
+                            const prev = n.config?.kind === "action" ? n.config : (defaultConfigForType("action") as any);
+                            const nextCfg: BuilderNodeConfig = { ...(prev as any), kind: "action", tagId: created.id };
+                            const nextLabel =
+                              autolabelSelectedNode && shouldAutolabel(n.label) ? labelForConfig("action", nextCfg) : n.label;
+                            return { ...n, config: nextCfg, label: nextLabel };
+                          }
+                          const prev = n.config?.kind === "trigger" ? n.config : (defaultConfigForType("trigger") as any);
+                          const nextCfg: BuilderNodeConfig = { ...(prev as any), kind: "trigger", tagId: created.id };
+                          const nextLabel =
+                            autolabelSelectedNode && shouldAutolabel(n.label) ? labelForConfig("trigger", nextCfg) : n.label;
+                          return { ...n, config: nextCfg, label: nextLabel };
+                        });
+                        return { ...a, nodes, updatedAtIso: new Date().toISOString() };
+                      });
+                    }
+                    setCreateTagOpen(false);
+                    setCreateTagName("");
+                    setCreateTagApplyTo(null);
+                    setCreateTagError(null);
+                  }
+                }}
+                className="mt-1 w-full rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-sm font-semibold text-zinc-900 outline-none focus:border-zinc-300"
+                placeholder="e.g. Hot lead"
+                maxLength={60}
+                disabled={createTagBusy}
+              />
+            </div>
+
+            <div className="mt-4 flex items-center justify-end gap-2">
+              <button
+                type="button"
+                className="rounded-xl border border-zinc-200 bg-white px-3 py-2 text-xs font-semibold hover:bg-zinc-50"
+                onClick={() => setCreateTagOpen(false)}
+                disabled={createTagBusy}
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                className="rounded-xl bg-blue-600 px-3 py-2 text-xs font-semibold text-white hover:bg-blue-700 disabled:opacity-60"
+                onClick={async () => {
+                  const created = await createOwnerTag(createTagName);
+                  if (!created) return;
+                  if (createTagApplyTo && selectedAutomationId) {
+                    updateSelectedAutomation((a) => {
+                      const nodes = a.nodes.map((n) => {
+                        if (n.id !== createTagApplyTo.nodeId) return n;
+                        if (createTagApplyTo.kind === "action") {
+                          const prev = n.config?.kind === "action" ? n.config : (defaultConfigForType("action") as any);
+                          const nextCfg: BuilderNodeConfig = { ...(prev as any), kind: "action", tagId: created.id };
+                          const nextLabel =
+                            autolabelSelectedNode && shouldAutolabel(n.label) ? labelForConfig("action", nextCfg) : n.label;
+                          return { ...n, config: nextCfg, label: nextLabel };
+                        }
+                        const prev = n.config?.kind === "trigger" ? n.config : (defaultConfigForType("trigger") as any);
+                        const nextCfg: BuilderNodeConfig = { ...(prev as any), kind: "trigger", tagId: created.id };
+                        const nextLabel =
+                          autolabelSelectedNode && shouldAutolabel(n.label) ? labelForConfig("trigger", nextCfg) : n.label;
+                        return { ...n, config: nextCfg, label: nextLabel };
+                      });
+                      return { ...a, nodes, updatedAtIso: new Date().toISOString() };
+                    });
+                  }
+                  setCreateTagOpen(false);
+                  setCreateTagName("");
+                  setCreateTagApplyTo(null);
+                  setCreateTagError(null);
+                }}
+                disabled={!String(createTagName || "").trim() || createTagBusy}
+              >
+                {createTagBusy ? "Creating…" : "Create"}
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
+
       <div className="mt-5 grid grid-cols-1 gap-4 lg:grid-cols-12">
         <div className="lg:col-span-3">
           <div className="rounded-3xl border border-zinc-200 bg-white p-4">
@@ -1348,40 +1521,132 @@ export function PortalAutomationsClient() {
                         <div className="text-xs font-semibold text-zinc-600">Config</div>
 
                         {selectedNode.type === "trigger" ? (
-                          <select
-                            className="mt-1 w-full rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-sm"
-                            value={
-                              selectedNode.config?.kind === "trigger"
-                                ? selectedNode.config.triggerKind
-                                : (defaultConfigForType("trigger") as any).triggerKind
-                            }
-                            onChange={(e) => {
-                              const nextKind = e.target.value as TriggerKind;
-                              updateSelectedAutomation((a) => {
-                                const nodes = a.nodes.map((n) => {
-                                  if (n.id !== selectedNode.id) return n;
-                                  const prevCfg = n.config?.kind === "trigger" ? n.config : defaultConfigForType("trigger");
-                                  const nextCfg: BuilderNodeConfig = { ...(prevCfg as any), kind: "trigger", triggerKind: nextKind };
-                                  const nextLabel =
-                                    autolabelSelectedNode && shouldAutolabel(n.label)
-                                      ? labelForConfig("trigger", nextCfg)
-                                      : n.label;
-                                  return { ...n, config: nextCfg, label: nextLabel };
+                          <>
+                            <select
+                              className="mt-1 w-full rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-sm"
+                              value={
+                                selectedNode.config?.kind === "trigger"
+                                  ? selectedNode.config.triggerKind
+                                  : (defaultConfigForType("trigger") as any).triggerKind
+                              }
+                              onChange={(e) => {
+                                const nextKind = e.target.value as TriggerKind;
+                                updateSelectedAutomation((a) => {
+                                  const nodes = a.nodes.map((n) => {
+                                    if (n.id !== selectedNode.id) return n;
+                                    const prevCfg = n.config?.kind === "trigger" ? n.config : defaultConfigForType("trigger");
+                                    const nextCfg: BuilderNodeConfig = { ...(prevCfg as any), kind: "trigger", triggerKind: nextKind };
+                                    const nextLabel =
+                                      autolabelSelectedNode && shouldAutolabel(n.label)
+                                        ? labelForConfig("trigger", nextCfg)
+                                        : n.label;
+                                    return { ...n, config: nextCfg, label: nextLabel };
+                                  });
+                                  return { ...a, nodes, updatedAtIso: new Date().toISOString() };
                                 });
-                                return { ...a, nodes, updatedAtIso: new Date().toISOString() };
-                              });
-                            }}
-                          >
-                            <option value="inbound_sms">Inbound SMS</option>
-                            <option value="inbound_mms">Inbound MMS</option>
-                            <option value="inbound_call">Inbound Call</option>
-                            <option value="new_lead">New Lead</option>
-                            <option value="appointment_booked">Appointment booked</option>
-                            <option value="missed_call">Missed call</option>
-                            <option value="review_received">Review received</option>
-                            <option value="follow_up_sent">Follow-up sent</option>
-                            <option value="outbound_sent">Outbound sent</option>
-                          </select>
+                              }}
+                            >
+                              <option value="inbound_sms">Inbound SMS</option>
+                              <option value="inbound_mms">Inbound MMS</option>
+                              <option value="inbound_call">Inbound Call</option>
+                              <option value="inbound_email">Inbound Email</option>
+                              <option value="new_lead">New Lead</option>
+                              <option value="tag_added">Tag added</option>
+                              <option value="contact_created">Contact created</option>
+                              <option value="task_added">Task added</option>
+                              <option value="inbound_webhook">Inbound webhook</option>
+                              <option value="scheduled_time">Scheduler / time</option>
+                              <option value="missed_appointment">Missed appointment</option>
+                              <option value="appointment_booked">Appointment booked</option>
+                              <option value="missed_call">Missed call</option>
+                              <option value="review_received">Review received</option>
+                              <option value="follow_up_sent">Follow-up sent</option>
+                              <option value="outbound_sent">Outbound sent</option>
+                            </select>
+
+                            {(() => {
+                              const cfg =
+                                selectedNode.config?.kind === "trigger"
+                                  ? selectedNode.config
+                                  : (defaultConfigForType("trigger") as any);
+                              if (cfg.triggerKind === "tag_added") {
+                                const tagId = String((cfg as any).tagId || "");
+                                return (
+                                  <div className="mt-2">
+                                    <div className="text-xs font-semibold text-zinc-600">Only when tag is</div>
+                                    <select
+                                      className="mt-1 w-full rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-sm"
+                                      value={tagId}
+                                      onChange={(e) => {
+                                        const next = String(e.target.value || "");
+                                        if (next === CREATE_TAG_VALUE) {
+                                          setCreateTagApplyTo({ nodeId: selectedNode.id, kind: "trigger" });
+                                          setCreateTagName("");
+                                          setCreateTagError(null);
+                                          setCreateTagOpen(true);
+                                          return;
+                                        }
+                                        updateSelectedAutomation((a) => {
+                                          const nodes = a.nodes.map((n) => {
+                                            if (n.id !== selectedNode.id) return n;
+                                            const prev = n.config?.kind === "trigger" ? n.config : (defaultConfigForType("trigger") as any);
+                                            const nextCfg: BuilderNodeConfig = { ...(prev as any), kind: "trigger", tagId: next || undefined };
+                                            const nextLabel =
+                                              autolabelSelectedNode && shouldAutolabel(n.label)
+                                                ? labelForConfig("trigger", nextCfg)
+                                                : n.label;
+                                            return { ...n, config: nextCfg, label: nextLabel };
+                                          });
+                                          return { ...a, nodes, updatedAtIso: new Date().toISOString() };
+                                        });
+                                      }}
+                                    >
+                                      <option value="">Any tag…</option>
+                                      <option value={CREATE_TAG_VALUE}>+ Create new tag…</option>
+                                      {ownerTags.map((t) => (
+                                        <option key={t.id} value={t.id}>
+                                          {t.name}
+                                        </option>
+                                      ))}
+                                    </select>
+                                  </div>
+                                );
+                              }
+
+                              if (cfg.triggerKind === "inbound_webhook") {
+                                const webhookKey = String((cfg as any).webhookKey || "").slice(0, 80);
+                                return (
+                                  <div className="mt-2">
+                                    <div className="text-xs font-semibold text-zinc-600">Webhook key</div>
+                                    <input
+                                      className="mt-1 w-full rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-sm"
+                                      placeholder="e.g. calendly-lead"
+                                      value={webhookKey}
+                                      onChange={(e) => {
+                                        const next = e.target.value.slice(0, 80);
+                                        updateSelectedAutomation((a) => {
+                                          const nodes = a.nodes.map((n) => {
+                                            if (n.id !== selectedNode.id) return n;
+                                            const prev = n.config?.kind === "trigger" ? n.config : (defaultConfigForType("trigger") as any);
+                                            const nextCfg: BuilderNodeConfig = { ...(prev as any), kind: "trigger", webhookKey: next || undefined };
+                                            const nextLabel =
+                                              autolabelSelectedNode && shouldAutolabel(n.label)
+                                                ? labelForConfig("trigger", nextCfg)
+                                                : n.label;
+                                            return { ...n, config: nextCfg, label: nextLabel };
+                                          });
+                                          return { ...a, nodes, updatedAtIso: new Date().toISOString() };
+                                        });
+                                      }}
+                                    />
+                                    <div className="mt-1 text-[11px] text-zinc-600">Used to match inbound webhook events.</div>
+                                  </div>
+                                );
+                              }
+
+                              return null;
+                            })()}
+                          </>
                         ) : null}
 
                         {selectedNode.type === "action" ? (
@@ -1627,6 +1892,13 @@ export function PortalAutomationsClient() {
                                       value={tagId}
                                       onChange={(e) => {
                                         const nextTagId = String(e.target.value || "");
+                                        if (nextTagId === CREATE_TAG_VALUE) {
+                                          setCreateTagApplyTo({ nodeId: selectedNode.id, kind: "action" });
+                                          setCreateTagName("");
+                                          setCreateTagError(null);
+                                          setCreateTagOpen(true);
+                                          return;
+                                        }
                                         updateSelectedAutomation((a) => {
                                           const nodes = a.nodes.map((n) => {
                                             if (n.id !== selectedNode.id) return n;
@@ -1644,6 +1916,7 @@ export function PortalAutomationsClient() {
                                       }}
                                     >
                                       <option value="">Choose a tag…</option>
+                                      <option value={CREATE_TAG_VALUE}>+ Create new tag…</option>
                                       {ownerTags.map((t) => (
                                         <option key={t.id} value={t.id}>
                                           {t.name}
