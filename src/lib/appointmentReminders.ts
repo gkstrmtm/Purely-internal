@@ -1,6 +1,8 @@
 import { prisma } from "@/lib/db";
 import { normalizePhoneStrict } from "@/lib/phone";
 import { sendOwnerTwilioSms, getOwnerTwilioSmsConfig } from "@/lib/portalTwilio";
+import { buildPortalTemplateVars } from "@/lib/portalTemplateVars";
+import { renderTextTemplate } from "@/lib/textTemplate";
 
 const SERVICE_SLUG = "appointment-reminders";
 
@@ -484,9 +486,9 @@ function formatWhen(startAt: Date, timeZone: string) {
   }
 }
 
-export function renderAppointmentReminderBody(template: string, vars: { name: string; when: string }) {
-  const safe = (template || "").slice(0, MAX_BODY_LEN);
-  return safe.replaceAll("{name}", vars.name).replaceAll("{when}", vars.when).trim();
+export function renderAppointmentReminderBody(template: string, vars: Record<string, string>) {
+  const safe = String(template || "").slice(0, MAX_BODY_LEN);
+  return renderTextTemplate(safe, vars).trim();
 }
 
 export async function processDueAppointmentReminders(opts?: { ownersLimit?: number; perOwnerLimit?: number; windowMinutes?: number }) {
@@ -588,7 +590,7 @@ export async function processDueAppointmentReminders(opts?: { ownersLimit?: numb
           },
           orderBy: { startAt: "asc" },
           take: perOwnerLimit,
-          select: { id: true, startAt: true, contactName: true, contactPhone: true, contactEmail: true },
+          select: { id: true, startAt: true, endAt: true, contactName: true, contactPhone: true, contactEmail: true },
         });
 
         if (bookings.length === 0) continue;
@@ -614,7 +616,24 @@ export async function processDueAppointmentReminders(opts?: { ownersLimit?: numb
             const channel: AppointmentReminderChannel = effective.channel === "EMAIL" ? "EMAIL" : "SMS";
 
             const when = formatWhen(booking.startAt, site.timeZone);
-            const body = renderAppointmentReminderBody(step.messageBody, { name: booking.contactName, when });
+            const vars = {
+              ...buildPortalTemplateVars({
+                contact: {
+                  name: booking.contactName,
+                  email: booking.contactEmail ?? null,
+                  phone: booking.contactPhone ?? null,
+                },
+                business: { name: site.title ?? null },
+              }),
+              when,
+              timeZone: site.timeZone,
+              bookingTitle: site.title ?? "",
+              calendarTitle: site.title ?? "",
+              startAt: booking.startAt.toISOString(),
+              endAt: booking.endAt.toISOString(),
+            };
+
+            const body = renderAppointmentReminderBody(step.messageBody, vars);
 
             if (channel === "EMAIL") {
               const to = String(booking.contactEmail || "").trim();

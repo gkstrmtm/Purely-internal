@@ -88,14 +88,20 @@ export function buildPortalTemplateVars(ctx: PortalTemplateContext): Record<stri
     "message.body": messageBody,
 
     // Legacy aliases used in other portal modules
+    name: contactName,
+    business: businessName,
     contactName,
+    contactFirstName: firstNameFromName(contactName),
     contactEmail,
     contactPhone,
+    contactBusinessName,
     businessName,
     businessEmail,
     businessPhone,
+    ownerName,
     ownerEmail,
     ownerPhone,
+    userName,
     messageBody,
     messageFrom,
     messageTo,
@@ -104,7 +110,7 @@ export function buildPortalTemplateVars(ctx: PortalTemplateContext): Record<stri
   return vars;
 }
 
-export type VariableGroup = "Contact" | "Business" | "Owner" | "User" | "Message" | "Lead";
+export type VariableGroup = "Contact" | "Business" | "Owner" | "User" | "Message" | "Lead" | "Booking" | "Custom";
 
 export type TemplateVariable = {
   key: string;
@@ -133,6 +139,24 @@ export const PORTAL_MESSAGE_VARIABLES: TemplateVariable[] = [
 
   { key: "user.name", label: "Assigned user name", group: "User", appliesTo: "Employee/user" },
   { key: "user.email", label: "Assigned user email", group: "User", appliesTo: "Employee/user" },
+];
+
+export const PORTAL_BOOKING_VARIABLES: TemplateVariable[] = [
+  { key: "when", label: "Appointment time", group: "Booking", appliesTo: "Booking" },
+  { key: "timeZone", label: "Time zone", group: "Booking", appliesTo: "Booking" },
+  { key: "startAt", label: "Start time (ISO)", group: "Booking", appliesTo: "Booking" },
+  { key: "endAt", label: "End time (ISO)", group: "Booking", appliesTo: "Booking" },
+  { key: "bookingTitle", label: "Booking title", group: "Booking", appliesTo: "Booking" },
+  { key: "calendarTitle", label: "Calendar title", group: "Booking", appliesTo: "Booking" },
+];
+
+export const PORTAL_MISSED_CALL_VARIABLES: TemplateVariable[] = [
+  { key: "from", label: "Caller number", group: "Message", appliesTo: "Missed call" },
+  { key: "to", label: "Dialed number", group: "Message", appliesTo: "Missed call" },
+];
+
+export const PORTAL_LINK_VARIABLES: TemplateVariable[] = [
+  { key: "link", label: "Link", group: "Custom", appliesTo: "This message" },
 ];
 
 export const LEAD_OUTBOUND_VARIABLES: TemplateVariable[] = [

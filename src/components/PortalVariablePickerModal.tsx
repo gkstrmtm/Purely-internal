@@ -14,6 +14,8 @@ function groupOrder(group: TemplateVariable["group"]) {
       return 10;
     case "Lead":
       return 20;
+    case "Booking":
+      return 25;
     case "Business":
       return 30;
     case "Owner":
@@ -22,6 +24,8 @@ function groupOrder(group: TemplateVariable["group"]) {
       return 50;
     case "Message":
       return 60;
+    case "Custom":
+      return 70;
     default:
       return 999;
   }

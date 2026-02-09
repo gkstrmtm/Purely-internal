@@ -1,10 +1,12 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 
 import { PortalSettingsSection } from "@/components/PortalSettingsSection";
 import { PortalMediaPickerModal, type PortalMediaPickItem } from "@/components/PortalMediaPickerModal";
+import { PortalVariablePickerModal } from "@/components/PortalVariablePickerModal";
+import type { TemplateVariable } from "@/lib/portalTemplateVars";
 
 type Me = {
   user: { email: string; name: string; role: string };
@@ -86,6 +88,11 @@ function makeClientId(prefix: string) {
 
 const DEFAULT_BODY = "Reminder: your appointment is scheduled for {when}.";
 
+const APPOINTMENT_REMINDER_VARIABLES: TemplateVariable[] = [
+  { key: "when", label: "Appointment time", group: "Booking", appliesTo: "Booking" },
+  { key: "name", label: "Contact name", group: "Contact", appliesTo: "Booking contact" },
+];
+
 export function PortalAppointmentRemindersClient() {
   const [me, setMe] = useState<Me | null>(null);
   const [loading, setLoading] = useState(true);
@@ -104,6 +111,17 @@ export function PortalAppointmentRemindersClient() {
 
   const [mediaPickerStepId, setMediaPickerStepId] = useState<string | null>(null);
   const [uploadBusyStepId, setUploadBusyStepId] = useState<string | null>(null);
+
+  const [varPickerOpen, setVarPickerOpen] = useState(false);
+  const [varPickerStepId, setVarPickerStepId] = useState<string | null>(null);
+  const activeMessageElRef = useRef<HTMLTextAreaElement | null>(null);
+
+  function insertAtCursor(current: string, insert: string, el: HTMLTextAreaElement | null) {
+    const start = el?.selectionStart ?? current.length;
+    const end = el?.selectionEnd ?? current.length;
+    const next = `${current.slice(0, start)}${insert}${current.slice(end)}`;
+    return { next, cursor: start + insert.length };
+  }
 
   const unlocked = useMemo(() => Boolean(me?.entitlements?.booking), [me?.entitlements?.booking]);
 
@@ -594,6 +612,17 @@ export function PortalAppointmentRemindersClient() {
                         <div className="flex items-center justify-between gap-3">
                           <div className="font-medium text-zinc-800">Message</div>
                           <div className="flex items-center gap-2">
+                            <button
+                              type="button"
+                              disabled={saving}
+                              className="rounded-xl border border-zinc-200 bg-white px-3 py-1.5 text-xs font-semibold text-brand-ink hover:bg-zinc-50 disabled:opacity-60"
+                              onClick={() => {
+                                setVarPickerStepId(s.id);
+                                setVarPickerOpen(true);
+                              }}
+                            >
+                              Insert variable
+                            </button>
                             <label className="rounded-xl border border-zinc-200 bg-white px-3 py-1.5 text-xs font-semibold text-zinc-700 hover:bg-zinc-50 disabled:opacity-60">
                               {uploadBusyStepId === s.id ? "Uploading…" : "Upload file"}
                               <input
@@ -622,6 +651,9 @@ export function PortalAppointmentRemindersClient() {
                           value={s.messageBody}
                           onChange={(e) => updateStep(s.id, { messageBody: e.target.value })}
                           disabled={saving}
+                          onFocus={(e) => {
+                            activeMessageElRef.current = e.currentTarget;
+                          }}
                         />
                       </label>
                     </div>
@@ -713,6 +745,33 @@ export function PortalAppointmentRemindersClient() {
         onPick={addMediaLinkToStep}
         confirmLabel="Attach"
         title="Attach from media library"
+      />
+
+      <PortalVariablePickerModal
+        open={varPickerOpen}
+        onClose={() => {
+          setVarPickerOpen(false);
+          setVarPickerStepId(null);
+        }}
+        variables={APPOINTMENT_REMINDER_VARIABLES}
+        title="Insert variable"
+        onPick={(key) => {
+          if (!draft) return;
+          const stepId = varPickerStepId;
+          if (!stepId) return;
+          const step = draft.steps.find((x) => x.id === stepId);
+          if (!step) return;
+
+          const token = `{${key}}`;
+          const { next, cursor } = insertAtCursor(step.messageBody || "", token, activeMessageElRef.current);
+          updateStep(stepId, { messageBody: next });
+          queueMicrotask(() => {
+            const el = activeMessageElRef.current;
+            if (!el) return;
+            el.focus();
+            el.setSelectionRange(cursor, cursor);
+          });
+        }}
       />
     </div>
   );

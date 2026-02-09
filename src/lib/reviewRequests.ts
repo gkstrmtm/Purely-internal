@@ -3,6 +3,8 @@ import { normalizePhoneStrict } from "@/lib/phone";
 import { sendOwnerTwilioSms, getOwnerTwilioSmsConfig } from "@/lib/portalTwilio";
 import { hasPublicColumn } from "@/lib/dbSchema";
 import { ensureStoredBlogSiteSlug, getStoredBlogSiteSlug } from "@/lib/blogSiteSlug";
+import { buildPortalTemplateVars } from "@/lib/portalTemplateVars";
+import { renderTextTemplate } from "@/lib/textTemplate";
 import type { Prisma } from "@prisma/client";
 
 const SERVICE_SLUG = "reviews";
@@ -496,13 +498,9 @@ export async function listReviewRequestEvents(ownerId: string, limit = 50): Prom
     .slice(0, n);
 }
 
-export function renderReviewRequestBody(template: string, vars: { name: string; link: string; business: string }) {
-  const safe = (template || "").slice(0, MAX_BODY_LEN);
-  return safe
-    .replaceAll("{name}", vars.name)
-    .replaceAll("{link}", vars.link)
-    .replaceAll("{business}", vars.business)
-    .trim();
+export function renderReviewRequestBody(template: string, vars: Record<string, string>) {
+  const safe = String(template || "").slice(0, MAX_BODY_LEN);
+  return renderTextTemplate(safe, vars).trim();
 }
 
 function appendExternalDestinations(body: string, destinations: ReviewDestination[]) {
@@ -585,11 +583,15 @@ export async function sendReviewRequestForBooking(opts: { ownerId: string; booki
   if (!parsed.ok || !parsed.e164) return { ok: false, error: "Missing/invalid phone" };
 
   const business = profile?.businessName?.trim() || site.title || "Purely Automation";
-  const body = renderReviewRequestBody(pickMessageTemplate(settings, bookingCalendarId), {
-    name: booking.contactName,
+  const vars = {
+    ...buildPortalTemplateVars({
+      contact: { name: booking.contactName },
+      business: { name: business },
+    }),
     link: resolved.destinationUrl,
-    business,
-  });
+  };
+
+  const body = renderReviewRequestBody(pickMessageTemplate(settings, bookingCalendarId), vars);
   const smsBody = appendExternalDestinations(body, settings.destinations);
 
   const key = `${booking.id}:manual`;
@@ -796,11 +798,15 @@ export async function processDueReviewRequests(opts?: { ownersLimit?: number; pe
 
         const profile = await prisma.businessProfile.findUnique({ where: { ownerId }, select: { businessName: true } });
         const business = profile?.businessName?.trim() || site.title || "Purely Automation";
-        const body = renderReviewRequestBody(pickMessageTemplate(settings, bookingCalendarId), {
-          name: booking.contactName,
+        const vars = {
+          ...buildPortalTemplateVars({
+            contact: { name: booking.contactName },
+            business: { name: business },
+          }),
           link: resolved.destinationUrl,
-          business,
-        });
+        };
+
+        const body = renderReviewRequestBody(pickMessageTemplate(settings, bookingCalendarId), vars);
         const smsBody = appendExternalDestinations(body, settings.destinations);
 
         try {

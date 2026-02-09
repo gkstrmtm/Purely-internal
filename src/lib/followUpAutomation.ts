@@ -3,6 +3,8 @@ import { getBookingCalendarsConfig } from "@/lib/bookingCalendars";
 import { normalizePhoneForStorage } from "@/lib/phone";
 import { getOwnerTwilioSmsConfig } from "@/lib/portalTwilio";
 import { runOwnerAutomationsForEvent } from "@/lib/portalAutomationsRunner";
+import { buildPortalTemplateVars } from "@/lib/portalTemplateVars";
+import { renderTextTemplate } from "@/lib/textTemplate";
 
 export type FollowUpChannel = "EMAIL" | "SMS";
 
@@ -855,11 +857,7 @@ export async function setFollowUpSettings(ownerId: string, next: Partial<FollowU
 }
 
 export function renderTemplate(template: string, vars: Record<string, string>) {
-  let out = template;
-  for (const [k, v] of Object.entries(vars)) {
-    out = out.split(`{${k}}`).join(v);
-  }
-  return out;
+  return renderTextTemplate(template, vars);
 }
 
 function formatInTimeZone(date: Date, timeZone: string) {
@@ -926,10 +924,15 @@ export async function scheduleFollowUpsForBooking(
     : [];
 
   const vars: Record<string, string> = {
-    contactName: String(bookingRow.contactName || "").trim(),
-    contactEmail: String(bookingRow.contactEmail || "").trim(),
-    contactPhone: String(bookingRow.contactPhone || "").trim(),
-    businessName,
+    ...buildPortalTemplateVars({
+      contact: {
+        id: bookingRow.contactId ?? null,
+        name: bookingRow.contactName ?? null,
+        email: bookingRow.contactEmail ?? null,
+        phone: bookingRow.contactPhone ?? null,
+      },
+      business: { name: businessName },
+    }),
     bookingTitle,
     calendarTitle: calendarTitle?.trim() || bookingTitle,
     timeZone: site.timeZone,

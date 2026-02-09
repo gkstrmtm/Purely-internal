@@ -1,11 +1,17 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 
 import { PORTAL_SERVICES } from "@/app/portal/services/catalog";
 import { PortalSettingsSection } from "@/components/PortalSettingsSection";
 import { PortalMediaPickerModal, type PortalMediaPickItem } from "@/components/PortalMediaPickerModal";
+import { PortalVariablePickerModal } from "@/components/PortalVariablePickerModal";
+import {
+  PORTAL_BOOKING_VARIABLES,
+  PORTAL_MESSAGE_VARIABLES,
+  type TemplateVariable,
+} from "@/lib/portalTemplateVars";
 
 type Me = {
   user: { email: string; name: string; role: string };
@@ -160,6 +166,43 @@ export function PortalFollowUpClient({ embedded }: { embedded?: boolean } = {}) 
   const [internalEmailDraft, setInternalEmailDraft] = useState("");
   const [internalPhoneDraft, setInternalPhoneDraft] = useState("");
 
+  const [varPickerOpen, setVarPickerOpen] = useState(false);
+  const [varPickerTarget, setVarPickerTarget] = useState<
+    | null
+    | { kind: "preset"; templateId: string; field: "emailSubject" | "emailBody" | "smsBody" }
+    | { kind: "step"; stepId: string; field: "emailSubject" | "emailBody" | "smsBody" }
+  >(null);
+  const activeFieldElRef = useRef<HTMLInputElement | HTMLTextAreaElement | null>(null);
+
+  function insertAtCursor(current: string, insert: string, el: HTMLInputElement | HTMLTextAreaElement | null) {
+    const start = el?.selectionStart ?? current.length;
+    const end = el?.selectionEnd ?? current.length;
+    const next = `${current.slice(0, start)}${insert}${current.slice(end)}`;
+    return { next, cursor: start + insert.length };
+  }
+
+  const followUpTemplateVariables = useMemo(() => {
+    const custom = settings?.customVariables && typeof settings.customVariables === "object" ? settings.customVariables : {};
+    const customVars: TemplateVariable[] = Object.keys(custom)
+      .filter((k) => typeof k === "string" && k.trim())
+      .slice(0, 100)
+      .map((k) => ({ key: k, label: `Custom: ${k}`, group: "Custom" as const, appliesTo: "Custom variable" }));
+
+    const builtinVars: TemplateVariable[] = (Array.isArray(builtinVariables) ? builtinVariables : [])
+      .filter((k) => typeof k === "string" && k.trim())
+      .slice(0, 100)
+      .map((k) => ({ key: k, label: k, group: "Custom" as const, appliesTo: "Built-in" }));
+
+    const merged = [...PORTAL_MESSAGE_VARIABLES, ...PORTAL_BOOKING_VARIABLES, ...builtinVars, ...customVars];
+    const seen = new Set<string>();
+    return merged.filter((v) => {
+      const key = `${v.group}:${v.key}`;
+      if (seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    });
+  }, [settings?.customVariables, builtinVariables]);
+
   useEffect(() => {
     setInternalEmailDraft("");
     setInternalPhoneDraft("");
@@ -275,6 +318,27 @@ export function PortalFollowUpClient({ embedded }: { embedded?: boolean } = {}) 
     if (!settings) return;
     const next = settings.templates.map((t) => (t.id === templateId ? { ...t, ...patch } : t));
     setSettings({ ...settings, templates: next });
+  }
+
+  function patchStepById(stepId: string, patch: Partial<FollowUpStep>) {
+    if (!settings) return;
+
+    const patchSteps = (steps: FollowUpStep[]) => steps.map((s) => (s.id === stepId ? { ...s, ...patch } : s));
+
+    const nextDefault = patchSteps(settings.assignments.defaultSteps ?? []);
+    const nextCalendarSteps: Record<string, FollowUpStep[]> = {};
+    for (const [calendarId, steps] of Object.entries(settings.assignments.calendarSteps ?? {})) {
+      nextCalendarSteps[calendarId] = patchSteps(steps ?? []);
+    }
+
+    setSettings({
+      ...settings,
+      assignments: {
+        ...settings.assignments,
+        defaultSteps: nextDefault,
+        calendarSteps: nextCalendarSteps,
+      },
+    });
   }
 
   async function addMediaLinkToTemplate(item: PortalMediaPickItem) {
@@ -1030,7 +1094,19 @@ export function PortalFollowUpClient({ embedded }: { embedded?: boolean } = {}) 
                   </div>
 
                   <div>
-                    <label className="text-xs font-semibold text-zinc-600">Email subject</label>
+                    <div className="flex items-center justify-between gap-3">
+                      <label className="text-xs font-semibold text-zinc-600">Email subject</label>
+                      <button
+                        type="button"
+                        className="rounded-xl border border-zinc-200 bg-white px-3 py-1.5 text-xs font-semibold text-brand-ink hover:bg-zinc-50"
+                        onClick={() => {
+                          setVarPickerTarget({ kind: "preset", templateId: selectedTemplate.id, field: "emailSubject" });
+                          setVarPickerOpen(true);
+                        }}
+                      >
+                        Insert variable
+                      </button>
+                    </div>
                     <input
                       value={selectedTemplate.email.subjectTemplate}
                       onChange={(e) =>
@@ -1038,6 +1114,9 @@ export function PortalFollowUpClient({ embedded }: { embedded?: boolean } = {}) 
                           email: { ...selectedTemplate.email, subjectTemplate: e.target.value },
                         })
                       }
+                      onFocus={(e) => {
+                        activeFieldElRef.current = e.currentTarget;
+                      }}
                       className="mt-1 w-full rounded-2xl border border-zinc-200 bg-white px-4 py-3 text-sm outline-none focus:border-zinc-300"
                     />
                   </div>
@@ -1045,6 +1124,16 @@ export function PortalFollowUpClient({ embedded }: { embedded?: boolean } = {}) 
                     <div className="flex items-center justify-between gap-3">
                       <label className="text-xs font-semibold text-zinc-600">Email body</label>
                       <div className="flex items-center gap-2">
+                        <button
+                          type="button"
+                          className="rounded-xl border border-zinc-200 bg-white px-3 py-1.5 text-xs font-semibold text-brand-ink hover:bg-zinc-50"
+                          onClick={() => {
+                            setVarPickerTarget({ kind: "preset", templateId: selectedTemplate.id, field: "emailBody" });
+                            setVarPickerOpen(true);
+                          }}
+                        >
+                          Insert variable
+                        </button>
                         <label className="rounded-xl border border-zinc-200 bg-white px-3 py-1.5 text-xs font-semibold text-zinc-700 hover:bg-zinc-50">
                           {attachUploadBusy?.templateId === selectedTemplate.id && attachUploadBusy.field === "email" ? "Uploading…" : "Upload file"}
                           <input
@@ -1074,6 +1163,9 @@ export function PortalFollowUpClient({ embedded }: { embedded?: boolean } = {}) 
                           email: { ...selectedTemplate.email, bodyTemplate: e.target.value },
                         })
                       }
+                      onFocus={(e) => {
+                        activeFieldElRef.current = e.currentTarget;
+                      }}
                       rows={8}
                       className="mt-1 w-full rounded-2xl border border-zinc-200 bg-white px-4 py-3 text-sm outline-none focus:border-zinc-300"
                     />
@@ -1082,6 +1174,16 @@ export function PortalFollowUpClient({ embedded }: { embedded?: boolean } = {}) 
                     <div className="flex items-center justify-between gap-3">
                       <label className="text-xs font-semibold text-zinc-600">SMS body</label>
                       <div className="flex items-center gap-2">
+                        <button
+                          type="button"
+                          className="rounded-xl border border-zinc-200 bg-white px-3 py-1.5 text-xs font-semibold text-brand-ink hover:bg-zinc-50"
+                          onClick={() => {
+                            setVarPickerTarget({ kind: "preset", templateId: selectedTemplate.id, field: "smsBody" });
+                            setVarPickerOpen(true);
+                          }}
+                        >
+                          Insert variable
+                        </button>
                         <label className="rounded-xl border border-zinc-200 bg-white px-3 py-1.5 text-xs font-semibold text-zinc-700 hover:bg-zinc-50">
                           {attachUploadBusy?.templateId === selectedTemplate.id && attachUploadBusy.field === "sms" ? "Uploading…" : "Upload file"}
                           <input
@@ -1111,6 +1213,9 @@ export function PortalFollowUpClient({ embedded }: { embedded?: boolean } = {}) 
                           sms: { ...selectedTemplate.sms, bodyTemplate: e.target.value },
                         })
                       }
+                      onFocus={(e) => {
+                        activeFieldElRef.current = e.currentTarget;
+                      }}
                       rows={3}
                       className="mt-1 w-full rounded-2xl border border-zinc-200 bg-white px-4 py-3 text-sm outline-none focus:border-zinc-300"
                     />
@@ -1518,18 +1623,48 @@ export function PortalFollowUpClient({ embedded }: { embedded?: boolean } = {}) 
                                     {s.channels.email ? (
                                       <div className="space-y-3">
                                         <div>
-                                          <label className="text-xs font-semibold text-zinc-600">Email subject</label>
+                                          <div className="flex items-center justify-between gap-3">
+                                            <label className="text-xs font-semibold text-zinc-600">Email subject</label>
+                                            <button
+                                              type="button"
+                                              className="rounded-xl border border-zinc-200 bg-white px-3 py-1.5 text-xs font-semibold text-brand-ink hover:bg-zinc-50"
+                                              onClick={() => {
+                                                setVarPickerTarget({ kind: "step", stepId: s.id, field: "emailSubject" });
+                                                setVarPickerOpen(true);
+                                              }}
+                                            >
+                                              Insert variable
+                                            </button>
+                                          </div>
                                           <input
                                             value={s.email.subjectTemplate}
                                             onChange={(e) => updateStep(s.id, { email: { ...s.email, subjectTemplate: e.target.value } })}
+                                            onFocus={(e) => {
+                                              activeFieldElRef.current = e.currentTarget;
+                                            }}
                                             className="mt-1 w-full rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm outline-none focus:border-zinc-300"
                                           />
                                         </div>
                                         <div>
-                                          <label className="text-xs font-semibold text-zinc-600">Email body</label>
+                                          <div className="flex items-center justify-between gap-3">
+                                            <label className="text-xs font-semibold text-zinc-600">Email body</label>
+                                            <button
+                                              type="button"
+                                              className="rounded-xl border border-zinc-200 bg-white px-3 py-1.5 text-xs font-semibold text-brand-ink hover:bg-zinc-50"
+                                              onClick={() => {
+                                                setVarPickerTarget({ kind: "step", stepId: s.id, field: "emailBody" });
+                                                setVarPickerOpen(true);
+                                              }}
+                                            >
+                                              Insert variable
+                                            </button>
+                                          </div>
                                           <textarea
                                             value={s.email.bodyTemplate}
                                             onChange={(e) => updateStep(s.id, { email: { ...s.email, bodyTemplate: e.target.value } })}
+                                            onFocus={(e) => {
+                                              activeFieldElRef.current = e.currentTarget;
+                                            }}
                                             rows={6}
                                             className="mt-1 w-full rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm outline-none focus:border-zinc-300"
                                           />
@@ -1539,10 +1674,25 @@ export function PortalFollowUpClient({ embedded }: { embedded?: boolean } = {}) 
 
                                     {s.channels.sms ? (
                                       <div>
-                                        <label className="text-xs font-semibold text-zinc-600">SMS body</label>
+                                        <div className="flex items-center justify-between gap-3">
+                                          <label className="text-xs font-semibold text-zinc-600">SMS body</label>
+                                          <button
+                                            type="button"
+                                            className="rounded-xl border border-zinc-200 bg-white px-3 py-1.5 text-xs font-semibold text-brand-ink hover:bg-zinc-50"
+                                            onClick={() => {
+                                              setVarPickerTarget({ kind: "step", stepId: s.id, field: "smsBody" });
+                                              setVarPickerOpen(true);
+                                            }}
+                                          >
+                                            Insert variable
+                                          </button>
+                                        </div>
                                         <textarea
                                           value={s.sms.bodyTemplate}
                                           onChange={(e) => updateStep(s.id, { sms: { ...s.sms, bodyTemplate: e.target.value } })}
+                                          onFocus={(e) => {
+                                            activeFieldElRef.current = e.currentTarget;
+                                          }}
                                           rows={3}
                                           className="mt-1 w-full rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm outline-none focus:border-zinc-300"
                                         />
@@ -1776,6 +1926,105 @@ export function PortalFollowUpClient({ embedded }: { embedded?: boolean } = {}) 
         onPick={addMediaLinkToTemplate}
         confirmLabel="Attach"
         title="Attach from media library"
+      />
+
+      <PortalVariablePickerModal
+        open={varPickerOpen}
+        onClose={() => {
+          setVarPickerOpen(false);
+          setVarPickerTarget(null);
+        }}
+        variables={followUpTemplateVariables}
+        onPick={(variableKey) => {
+          if (!settings || !varPickerTarget) return;
+
+          const insert = `{${variableKey}}`;
+
+          if (varPickerTarget.kind === "preset") {
+            const t = settings.templates.find((x) => x.id === varPickerTarget.templateId);
+            if (!t) return;
+
+            if (varPickerTarget.field === "emailSubject") {
+              const { next, cursor } = insertAtCursor(t.email.subjectTemplate, insert, activeFieldElRef.current);
+              updateTemplate(t.id, { email: { ...t.email, subjectTemplate: next } });
+              requestAnimationFrame(() => {
+                const el = activeFieldElRef.current;
+                if (!el) return;
+                el.focus();
+                el.setSelectionRange(cursor, cursor);
+              });
+              return;
+            }
+
+            if (varPickerTarget.field === "emailBody") {
+              const { next, cursor } = insertAtCursor(t.email.bodyTemplate, insert, activeFieldElRef.current);
+              updateTemplate(t.id, { email: { ...t.email, bodyTemplate: next } });
+              requestAnimationFrame(() => {
+                const el = activeFieldElRef.current;
+                if (!el) return;
+                el.focus();
+                el.setSelectionRange(cursor, cursor);
+              });
+              return;
+            }
+
+            const { next, cursor } = insertAtCursor(t.sms.bodyTemplate, insert, activeFieldElRef.current);
+            updateTemplate(t.id, { sms: { ...t.sms, bodyTemplate: next } });
+            requestAnimationFrame(() => {
+              const el = activeFieldElRef.current;
+              if (!el) return;
+              el.focus();
+              el.setSelectionRange(cursor, cursor);
+            });
+            return;
+          }
+
+          const findStep = (): FollowUpStep | null => {
+            const inDefault = (settings.assignments.defaultSteps ?? []).find((s) => s.id === varPickerTarget.stepId);
+            if (inDefault) return inDefault;
+            for (const steps of Object.values(settings.assignments.calendarSteps ?? {})) {
+              const hit = (steps ?? []).find((s) => s.id === varPickerTarget.stepId);
+              if (hit) return hit;
+            }
+            return null;
+          };
+
+          const step = findStep();
+          if (!step) return;
+
+          if (varPickerTarget.field === "emailSubject") {
+            const { next, cursor } = insertAtCursor(step.email.subjectTemplate, insert, activeFieldElRef.current);
+            patchStepById(step.id, { email: { ...step.email, subjectTemplate: next } });
+            requestAnimationFrame(() => {
+              const el = activeFieldElRef.current;
+              if (!el) return;
+              el.focus();
+              el.setSelectionRange(cursor, cursor);
+            });
+            return;
+          }
+
+          if (varPickerTarget.field === "emailBody") {
+            const { next, cursor } = insertAtCursor(step.email.bodyTemplate, insert, activeFieldElRef.current);
+            patchStepById(step.id, { email: { ...step.email, bodyTemplate: next } });
+            requestAnimationFrame(() => {
+              const el = activeFieldElRef.current;
+              if (!el) return;
+              el.focus();
+              el.setSelectionRange(cursor, cursor);
+            });
+            return;
+          }
+
+          const { next, cursor } = insertAtCursor(step.sms.bodyTemplate, insert, activeFieldElRef.current);
+          patchStepById(step.id, { sms: { ...step.sms, bodyTemplate: next } });
+          requestAnimationFrame(() => {
+            const el = activeFieldElRef.current;
+            if (!el) return;
+            el.focus();
+            el.setSelectionRange(cursor, cursor);
+          });
+        }}
       />
     </div>
   );

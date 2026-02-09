@@ -3,7 +3,9 @@ import { z } from "zod";
 
 import { requireClientSession } from "@/lib/apiAuth";
 import { prisma } from "@/lib/db";
+import { buildPortalTemplateVars } from "@/lib/portalTemplateVars";
 import { getOwnerTwilioSmsConfig } from "@/lib/portalTwilio";
+import { renderTextTemplate } from "@/lib/textTemplate";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
@@ -14,6 +16,21 @@ const bodySchema = z.object({
   sendEmail: z.boolean().optional(),
   sendSms: z.boolean().optional(),
 });
+
+function formatWhen(startAt: Date, timeZone: string) {
+  try {
+    return startAt.toLocaleString(undefined, {
+      timeZone,
+      weekday: "short",
+      month: "short",
+      day: "numeric",
+      hour: "numeric",
+      minute: "2-digit",
+    });
+  } catch {
+    return startAt.toLocaleString();
+  }
+}
 
 async function sendEmail({
   to,
@@ -108,7 +125,7 @@ export async function POST(
 
   const site = await prisma.portalBookingSite.findUnique({
     where: { ownerId },
-    select: { id: true, title: true },
+    select: { id: true, title: true, timeZone: true },
   });
   if (!site) return NextResponse.json({ error: "Not found" }, { status: 404 });
 
@@ -121,9 +138,32 @@ export async function POST(
     where: { ownerId },
     select: { businessName: true },
   });
-  const fromName = profile?.businessName?.trim() || "Purely Automation";
+  const fromName = profile?.businessName?.trim() || site.title || "Purely Automation";
 
-  const subject = parsed.data.subject?.trim() || `Follow-up: ${site.title}`;
+  const subjectTemplate = parsed.data.subject?.trim() || `Follow-up: ${site.title}`;
+  const messageTemplate = parsed.data.message;
+
+  const when = formatWhen(new Date(booking.startAt), site.timeZone);
+  const vars = {
+    ...buildPortalTemplateVars({
+      contact: {
+        id: booking.contactId ?? null,
+        name: booking.contactName ?? null,
+        email: booking.contactEmail ?? null,
+        phone: booking.contactPhone ?? null,
+      },
+      business: { name: fromName },
+    }),
+    when,
+    timeZone: site.timeZone,
+    startAt: new Date(booking.startAt).toISOString(),
+    endAt: new Date(booking.endAt).toISOString(),
+    bookingTitle: site.title,
+    calendarTitle: site.title,
+  };
+
+  const subject = renderTextTemplate(subjectTemplate, vars).trim().slice(0, 120) || subjectTemplate;
+  const message = renderTextTemplate(messageTemplate, vars);
 
   const sent = { email: false, sms: false };
 
@@ -134,7 +174,7 @@ export async function POST(
     await sendEmail({
       to: booking.contactEmail,
       subject,
-      body: parsed.data.message,
+      body: message,
       fromName,
     });
     sent.email = true;
@@ -144,7 +184,7 @@ export async function POST(
     if (!booking.contactPhone) {
       return NextResponse.json({ error: "This booking has no phone number." }, { status: 400 });
     }
-    await sendSms({ ownerId, to: booking.contactPhone, body: parsed.data.message.slice(0, 900) });
+    await sendSms({ ownerId, to: booking.contactPhone, body: message.slice(0, 900) });
     sent.sms = true;
   }
 

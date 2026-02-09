@@ -4,8 +4,16 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { PortalMediaPickerModal } from "@/components/PortalMediaPickerModal";
 import { Lightbox, type LightboxImage } from "@/components/Lightbox";
 import { PortalSettingsSection } from "@/components/PortalSettingsSection";
+import { PortalVariablePickerModal } from "@/components/PortalVariablePickerModal";
+import type { TemplateVariable } from "@/lib/portalTemplateVars";
 
 type ReviewDelayUnit = "minutes" | "hours" | "days" | "weeks";
+
+const REVIEW_TEMPLATE_VARIABLES: TemplateVariable[] = [
+  { key: "name", label: "Contact name", group: "Contact", appliesTo: "Booking contact" },
+  { key: "business", label: "Your business name", group: "Business", appliesTo: "Your business" },
+  { key: "link", label: "Review link", group: "Custom", appliesTo: "This message" },
+];
 
 type ReviewDelay = {
   value: number;
@@ -191,6 +199,17 @@ export default function PortalReviewsClient() {
   const [qaSavingId, setQaSavingId] = useState<string | null>(null);
   const [qaEditingId, setQaEditingId] = useState<string | null>(null);
   const [qaAnswerDrafts, setQaAnswerDrafts] = useState<Record<string, string>>({});
+
+  const [varPickerOpen, setVarPickerOpen] = useState(false);
+  const [varPickerTarget, setVarPickerTarget] = useState<null | { kind: "default" } | { kind: "calendar"; calendarId: string }>(null);
+  const activeTemplateElRef = useRef<HTMLTextAreaElement | null>(null);
+
+  function insertAtCursor(current: string, insert: string, el: HTMLTextAreaElement | null) {
+    const start = el?.selectionStart ?? current.length;
+    const end = el?.selectionEnd ?? current.length;
+    const next = `${current.slice(0, start)}${insert}${current.slice(end)}`;
+    return { next, cursor: start + insert.length };
+  }
 
   const [lightboxOpen, setLightboxOpen] = useState(false);
   const [lightboxImages, setLightboxImages] = useState<LightboxImage[]>([]);
@@ -872,11 +891,27 @@ export default function PortalReviewsClient() {
                               {calendarTitleById.get(calendarId) || "Calendar"}
                             </div>
                             <div className="mt-1 text-xs text-zinc-500">Calendar ID: {calendarId}</div>
+                            <div className="mt-2 flex items-center justify-between gap-3">
+                              <div className="text-xs font-semibold text-zinc-700">Message template</div>
+                              <button
+                                type="button"
+                                className="rounded-lg border border-zinc-200 bg-white px-3 py-1.5 text-xs font-semibold text-brand-ink hover:bg-zinc-50"
+                                onClick={() => {
+                                  setVarPickerTarget({ kind: "calendar", calendarId });
+                                  setVarPickerOpen(true);
+                                }}
+                              >
+                                Insert variable
+                              </button>
+                            </div>
                             <textarea
                               className="mt-2 min-h-[96px] w-full rounded-lg border border-zinc-200 bg-white px-3 py-2 text-sm"
                               placeholder="Leave blank to use the default template"
                               value={getCalendarTemplate(calendarId)}
                               onChange={(e) => setCalendarTemplate(calendarId, e.target.value)}
+                              onFocus={(e) => {
+                                activeTemplateElRef.current = e.currentTarget;
+                              }}
                             />
                           </div>
                         ))}
@@ -982,10 +1017,25 @@ export default function PortalReviewsClient() {
 
               <PortalSettingsSection title="SMS template" description="Controls the message body for review request texts." accent="slate" defaultOpen={false}>
                 <div className="mt-2 text-xs text-neutral-500">Use placeholders: {"{name}"}, {"{link}"}, {"{business}"}</div>
+                <div className="mt-2 flex items-center justify-end">
+                  <button
+                    type="button"
+                    className="rounded-lg border border-zinc-200 bg-white px-3 py-1.5 text-xs font-semibold text-brand-ink hover:bg-zinc-50"
+                    onClick={() => {
+                      setVarPickerTarget({ kind: "default" });
+                      setVarPickerOpen(true);
+                    }}
+                  >
+                    Insert variable
+                  </button>
+                </div>
                 <textarea
                   className="mt-2 min-h-[120px] w-full rounded-lg border border-zinc-200 bg-white px-3 py-2 text-sm"
                   value={settings.messageTemplate}
                   onChange={(e) => setSettings({ ...settings, messageTemplate: e.target.value })}
+                  onFocus={(e) => {
+                    activeTemplateElRef.current = e.currentTarget;
+                  }}
                 />
                 <div className="mt-2 rounded-lg border border-zinc-200 bg-neutral-50 p-3 text-xs text-neutral-700">
                   <div className="font-medium">Preview</div>
@@ -1856,6 +1906,44 @@ export default function PortalReviewsClient() {
           </div>
         </div>
       </div>
+
+      <PortalVariablePickerModal
+        open={varPickerOpen}
+        onClose={() => setVarPickerOpen(false)}
+        variables={REVIEW_TEMPLATE_VARIABLES}
+        title="Insert variable"
+        onPick={(key) => {
+          const target = varPickerTarget;
+          if (!target) return;
+
+          const token = `{${key}}`;
+
+          if (target.kind === "default") {
+            const { next, cursor } = insertAtCursor(settings.messageTemplate || "", token, activeTemplateElRef.current);
+            setSettings({ ...settings, messageTemplate: next });
+            queueMicrotask(() => {
+              const el = activeTemplateElRef.current;
+              if (!el) return;
+              el.focus();
+              el.setSelectionRange(cursor, cursor);
+            });
+            return;
+          }
+
+          const currentMap =
+            settings.calendarMessageTemplates && typeof settings.calendarMessageTemplates === "object" ? settings.calendarMessageTemplates : {};
+          const base = String(currentMap[target.calendarId] ?? "");
+          const { next, cursor } = insertAtCursor(base, token, activeTemplateElRef.current);
+          const nextMap = { ...currentMap, [target.calendarId]: next };
+          setSettings({ ...settings, calendarMessageTemplates: nextMap });
+          queueMicrotask(() => {
+            const el = activeTemplateElRef.current;
+            if (!el) return;
+            el.focus();
+            el.setSelectionRange(cursor, cursor);
+          });
+        }}
+      />
     </div>
   );
 }

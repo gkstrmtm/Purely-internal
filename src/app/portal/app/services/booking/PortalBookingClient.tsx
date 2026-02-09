@@ -1,12 +1,14 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 
 import { PortalFollowUpClient } from "@/app/portal/app/services/follow-up/PortalFollowUpClient";
 import { PortalMediaPickerModal, type PortalMediaPickItem } from "@/components/PortalMediaPickerModal";
 import { PortalSettingsSection } from "@/components/PortalSettingsSection";
 import { ContactTagsEditor, type ContactTag } from "@/components/ContactTagsEditor";
+import { PortalVariablePickerModal } from "@/components/PortalVariablePickerModal";
+import { PORTAL_BOOKING_VARIABLES, PORTAL_MESSAGE_VARIABLES } from "@/lib/portalTemplateVars";
 
 type BookingFormConfig = {
   version: 1;
@@ -259,6 +261,32 @@ export function PortalBookingClient() {
 
   const [reminderMediaPickerStepId, setReminderMediaPickerStepId] = useState<string | null>(null);
   const [reminderUploadBusyStepId, setReminderUploadBusyStepId] = useState<string | null>(null);
+
+  const [varPickerOpen, setVarPickerOpen] = useState(false);
+  const [varPickerTarget, setVarPickerTarget] = useState<
+    | null
+    | { kind: "contact"; field: "subject" | "message" }
+    | { kind: "reminder"; stepId: string }
+  >(null);
+  const activeFieldElRef = useRef<HTMLInputElement | HTMLTextAreaElement | null>(null);
+
+  function insertAtCursor(current: string, insert: string, el: HTMLInputElement | HTMLTextAreaElement | null) {
+    const start = el?.selectionStart ?? current.length;
+    const end = el?.selectionEnd ?? current.length;
+    const next = `${current.slice(0, start)}${insert}${current.slice(end)}`;
+    return { next, cursor: start + insert.length };
+  }
+
+  const bookingTemplateVariables = useMemo(() => {
+    const base = [...PORTAL_MESSAGE_VARIABLES, ...PORTAL_BOOKING_VARIABLES];
+    const seen = new Set<string>();
+    return base.filter((v) => {
+      const k = `${v.group}:${v.key}`;
+      if (seen.has(k)) return false;
+      seen.add(k);
+      return true;
+    });
+  }, []);
 
   function updateBookingTags(bookingId: string, next: ContactTag[]) {
     setUpcoming((prev) => prev.map((b) => (b.id === bookingId ? { ...b, contactTags: next } : b)));
@@ -1416,6 +1444,17 @@ export function PortalBookingClient() {
                           <div className="flex items-center justify-between gap-3">
                             <div className="font-medium text-zinc-800">Message</div>
                             <div className="flex items-center gap-2">
+                              <button
+                                type="button"
+                                disabled={reminderSaving}
+                                className="rounded-xl border border-zinc-200 bg-white px-3 py-1.5 text-xs font-semibold text-brand-ink hover:bg-zinc-50 disabled:opacity-60"
+                                onClick={() => {
+                                  setVarPickerTarget({ kind: "reminder", stepId: s.id });
+                                  setVarPickerOpen(true);
+                                }}
+                              >
+                                Insert variable
+                              </button>
                               <label className="rounded-xl border border-zinc-200 bg-white px-3 py-1.5 text-xs font-semibold text-zinc-700 hover:bg-zinc-50 disabled:opacity-60">
                                 {reminderUploadBusyStepId === s.id ? "Uploading…" : "Upload file"}
                                 <input
@@ -1443,6 +1482,9 @@ export function PortalBookingClient() {
                             className="mt-2 min-h-[90px] w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm"
                             value={s.messageBody}
                             onChange={(e) => updateReminderStep(s.id, { messageBody: e.target.value })}
+                            onFocus={(e) => {
+                              activeFieldElRef.current = e.currentTarget;
+                            }}
                             disabled={reminderSaving}
                           />
                         </label>
@@ -2292,26 +2334,61 @@ export function PortalBookingClient() {
 
             {contactSendEmail ? (
               <div className="mt-4">
-                <div className="text-xs font-semibold text-zinc-600">Email subject</div>
+                <div className="flex items-center justify-between gap-3">
+                  <div className="text-xs font-semibold text-zinc-600">Email subject</div>
+                  <button
+                    type="button"
+                    className="rounded-xl border border-zinc-200 bg-white px-3 py-1.5 text-xs font-semibold text-brand-ink hover:bg-zinc-50 disabled:opacity-60"
+                    disabled={contactBusy}
+                    onClick={() => {
+                      setVarPickerTarget({ kind: "contact", field: "subject" });
+                      setVarPickerOpen(true);
+                    }}
+                  >
+                    Insert variable
+                  </button>
+                </div>
                 <input
                   className="mt-1 w-full rounded-2xl border border-zinc-200 bg-white px-4 py-3 text-sm"
                   placeholder={`Follow-up: ${site?.title ?? "Booking"}`}
                   value={contactSubject}
                   disabled={contactBusy}
                   onChange={(e) => setContactSubject(e.target.value)}
+                  onFocus={(e) => {
+                    activeFieldElRef.current = e.currentTarget;
+                  }}
                   autoComplete="off"
                 />
                 <div className="mt-1 text-xs text-zinc-500">Only used for email (not SMS).</div>
               </div>
             ) : null}
 
-            <textarea
-              className="mt-4 min-h-[140px] w-full rounded-2xl border border-zinc-200 bg-white px-4 py-3 text-sm"
-              placeholder="Write a quick follow-up…"
-              value={contactMessage}
-              disabled={contactBusy}
-              onChange={(e) => setContactMessage(e.target.value)}
-            />
+            <div className="mt-4">
+              <div className="flex items-center justify-between gap-3">
+                <div className="text-xs font-semibold text-zinc-600">Message</div>
+                <button
+                  type="button"
+                  className="rounded-xl border border-zinc-200 bg-white px-3 py-1.5 text-xs font-semibold text-brand-ink hover:bg-zinc-50 disabled:opacity-60"
+                  disabled={contactBusy}
+                  onClick={() => {
+                    setVarPickerTarget({ kind: "contact", field: "message" });
+                    setVarPickerOpen(true);
+                  }}
+                >
+                  Insert variable
+                </button>
+              </div>
+              <textarea
+                className="mt-2 min-h-[140px] w-full rounded-2xl border border-zinc-200 bg-white px-4 py-3 text-sm"
+                placeholder="Write a quick follow-up…"
+                value={contactMessage}
+                disabled={contactBusy}
+                onChange={(e) => setContactMessage(e.target.value)}
+                onFocus={(e) => {
+                  activeFieldElRef.current = e.currentTarget;
+                }}
+              />
+            </div>
 
             <div className="mt-4 flex flex-col gap-3 sm:flex-row sm:justify-end">
               <button
@@ -2418,6 +2495,56 @@ export function PortalBookingClient() {
           </div>
         </div>
       ) : null}
+
+      <PortalVariablePickerModal
+        open={varPickerOpen}
+        variables={bookingTemplateVariables}
+        onClose={() => {
+          setVarPickerOpen(false);
+          setVarPickerTarget(null);
+        }}
+        onPick={(variableKey) => {
+          if (!varPickerTarget) return;
+
+          const insert = `{${variableKey}}`;
+          const el = activeFieldElRef.current;
+
+          if (varPickerTarget.kind === "contact") {
+            if (varPickerTarget.field === "subject") {
+              const { next, cursor } = insertAtCursor(contactSubject, insert, el);
+              setContactSubject(next);
+              requestAnimationFrame(() => {
+                const node = activeFieldElRef.current;
+                if (!node) return;
+                node.focus();
+                node.setSelectionRange(cursor, cursor);
+              });
+              return;
+            }
+
+            const { next, cursor } = insertAtCursor(contactMessage, insert, el);
+            setContactMessage(next);
+            requestAnimationFrame(() => {
+              const node = activeFieldElRef.current;
+              if (!node) return;
+              node.focus();
+              node.setSelectionRange(cursor, cursor);
+            });
+            return;
+          }
+
+          const step = reminderDraft?.steps?.find((s) => s.id === varPickerTarget.stepId);
+          const current = String(step?.messageBody ?? "");
+          const { next, cursor } = insertAtCursor(current, insert, el);
+          updateReminderStep(varPickerTarget.stepId, { messageBody: next });
+          requestAnimationFrame(() => {
+            const node = activeFieldElRef.current;
+            if (!node) return;
+            node.focus();
+            node.setSelectionRange(cursor, cursor);
+          });
+        }}
+      />
     </div>
   );
 }

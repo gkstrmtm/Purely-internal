@@ -1,10 +1,12 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 
 import { PortalSettingsSection } from "@/components/PortalSettingsSection";
 import { PortalMediaPickerModal, type PortalMediaPickItem } from "@/components/PortalMediaPickerModal";
+import { PortalVariablePickerModal } from "@/components/PortalVariablePickerModal";
+import { PORTAL_MISSED_CALL_VARIABLES } from "@/lib/portalTemplateVars";
 
 type Settings = {
   version: 1;
@@ -85,6 +87,16 @@ export function PortalMissedCallTextBackClient({ embedded }: { embedded?: boolea
   const [twilioReason, setTwilioReason] = useState<string | undefined>(undefined);
   const [webhookUrl, setWebhookUrl] = useState<string>("");
   const [webhookUrlLegacy, setWebhookUrlLegacy] = useState<string>("");
+
+  const [varPickerOpen, setVarPickerOpen] = useState(false);
+  const replyBodyRef = useRef<HTMLTextAreaElement | null>(null);
+
+  function insertAtCursor(current: string, insert: string, el: HTMLTextAreaElement | null) {
+    const start = el?.selectionStart ?? current.length;
+    const end = el?.selectionEnd ?? current.length;
+    const next = `${current.slice(0, start)}${insert}${current.slice(end)}`;
+    return { next, cursor: start + insert.length };
+  }
 
   async function load() {
     setLoading(true);
@@ -368,8 +380,19 @@ export function PortalMissedCallTextBackClient({ embedded }: { embedded?: boolea
           </div>
 
           <div className="mt-5">
-            <label className="text-xs font-semibold text-zinc-700">Text message</label>
+            <div className="flex items-center justify-between gap-3">
+              <label className="text-xs font-semibold text-zinc-700">Text message</label>
+              <button
+                type="button"
+                disabled={saving}
+                className="rounded-xl border border-zinc-200 bg-white px-3 py-1.5 text-xs font-semibold text-zinc-700 hover:bg-zinc-50 disabled:opacity-60"
+                onClick={() => setVarPickerOpen(true)}
+              >
+                Insert variable
+              </button>
+            </div>
             <textarea
+              ref={replyBodyRef}
               value={settings.replyBody}
               onChange={(e) => setSettings({ ...settings, replyBody: e.target.value })}
               rows={5}
@@ -451,6 +474,25 @@ export function PortalMissedCallTextBackClient({ embedded }: { embedded?: boolea
             </button>
           </div>
         </div>
+
+        <PortalVariablePickerModal
+          open={varPickerOpen}
+          onClose={() => setVarPickerOpen(false)}
+          variables={PORTAL_MISSED_CALL_VARIABLES}
+          title="Insert variable"
+          onPick={(key) => {
+            if (!settings) return;
+            const token = `{${key}}`;
+            const { next, cursor } = insertAtCursor(settings.replyBody || "", token, replyBodyRef.current);
+            setSettings({ ...settings, replyBody: next });
+            queueMicrotask(() => {
+              const el = replyBodyRef.current;
+              if (!el) return;
+              el.focus();
+              el.setSelectionRange(cursor, cursor);
+            });
+          }}
+        />
 
         <div className="space-y-4">
           <PortalSettingsSection

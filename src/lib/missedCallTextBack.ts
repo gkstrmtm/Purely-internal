@@ -3,6 +3,7 @@ import crypto from "crypto";
 import { prisma } from "@/lib/db";
 import { normalizePhoneStrict } from "@/lib/phone";
 import { sendOwnerTwilioSms } from "@/lib/portalTwilio";
+import { renderTextTemplate } from "@/lib/textTemplate";
 
 const SERVICE_SLUG = "missed-call-textback";
 const PROFILE_EXTRAS_SERVICE_SLUG = "profile";
@@ -248,11 +249,8 @@ export async function getOwnerProfilePhoneE164(ownerId: string): Promise<string 
 }
 
 export function renderMissedCallReplyBody(template: string, vars: { from: string; to?: string | null }): string {
-  const safe = (template || "").slice(0, MAX_BODY_LEN);
-  return safe
-    .replaceAll("{from}", vars.from)
-    .replaceAll("{to}", vars.to ?? "")
-    .trim();
+  const safe = String(template || "").slice(0, MAX_BODY_LEN);
+  return renderTextTemplate(safe, { from: vars.from, to: vars.to ?? "" }).trim();
 }
 
 export async function sendOwnerSms(ownerId: string, opts: { to: string; body: string }) {
