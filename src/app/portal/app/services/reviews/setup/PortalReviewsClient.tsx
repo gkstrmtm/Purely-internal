@@ -855,6 +855,39 @@ export default function PortalReviewsClient() {
                     ) : null}
                   </div>
                 </div>
+
+                <div className="mt-5">
+                  <div className="text-sm font-medium">Per-calendar messages</div>
+                  <div className="mt-1 text-xs text-neutral-600">Optional overrides by calendar.</div>
+
+                  {settings.automation.calendarIds.length ? (
+                    <>
+                      <div className="mt-2 text-xs text-neutral-600">
+                        If set, the message below overrides the default SMS template for bookings under that calendar.
+                      </div>
+                      <div className="mt-3 grid gap-3">
+                        {settings.automation.calendarIds.map((calendarId) => (
+                          <div key={calendarId} className="rounded-lg border border-zinc-200 bg-white p-3">
+                            <div className="text-sm font-semibold text-zinc-900">
+                              {calendarTitleById.get(calendarId) || "Calendar"}
+                            </div>
+                            <div className="mt-1 text-xs text-zinc-500">Calendar ID: {calendarId}</div>
+                            <textarea
+                              className="mt-2 min-h-[96px] w-full rounded-lg border border-zinc-200 bg-white px-3 py-2 text-sm"
+                              placeholder="Leave blank to use the default template"
+                              value={getCalendarTemplate(calendarId)}
+                              onChange={(e) => setCalendarTemplate(calendarId, e.target.value)}
+                            />
+                          </div>
+                        ))}
+                      </div>
+                    </>
+                  ) : (
+                    <div className="mt-2 text-sm text-zinc-600">
+                      To set different messages per calendar, turn off “All calendars” and select specific calendars.
+                    </div>
+                  )}
+                </div>
               </PortalSettingsSection>
 
               <PortalSettingsSection title="Timing" description="Send after appointment ends." accent="slate" defaultOpen={false}>
@@ -958,34 +991,6 @@ export default function PortalReviewsClient() {
                   <div className="font-medium">Preview</div>
                   <div className="mt-1 whitespace-pre-wrap">{previewBody}</div>
                 </div>
-              </PortalSettingsSection>
-
-              <PortalSettingsSection title="Per-calendar messages" description="Optional overrides by calendar." accent="slate" defaultOpen={false}>
-                {settings.automation.calendarIds.length ? (
-                  <>
-                    <div className="mt-1 text-xs text-neutral-600">
-                      Optional. If set, the message below overrides the default SMS template for bookings under that calendar.
-                    </div>
-                    <div className="mt-3 grid gap-3">
-                      {settings.automation.calendarIds.map((calendarId) => (
-                        <div key={calendarId} className="rounded-lg border border-zinc-200 bg-white p-3">
-                          <div className="text-sm font-semibold text-zinc-900">{calendarTitleById.get(calendarId) || "Calendar"}</div>
-                          <div className="mt-1 text-xs text-zinc-500">Calendar ID: {calendarId}</div>
-                          <textarea
-                            className="mt-2 min-h-[96px] w-full rounded-lg border border-zinc-200 bg-white px-3 py-2 text-sm"
-                            placeholder="Leave blank to use the default template"
-                            value={getCalendarTemplate(calendarId)}
-                            onChange={(e) => setCalendarTemplate(calendarId, e.target.value)}
-                          />
-                        </div>
-                      ))}
-                    </div>
-                  </>
-                ) : (
-                  <div className="text-sm text-zinc-600">
-                    To set different messages per calendar, turn off “All calendars” and select specific calendars.
-                  </div>
-                )}
               </PortalSettingsSection>
 
               <PortalSettingsSection title="Hosted reviews page" description="Configure the public reviews page and its form." accent="slate" defaultOpen={false}>
