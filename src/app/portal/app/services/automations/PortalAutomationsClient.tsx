@@ -13,10 +13,12 @@ type ConditionOp = "equals" | "contains" | "starts_with" | "ends_with" | "is_emp
 
 type BuilderNodeConfig =
   | { kind: "trigger"; triggerKind: TriggerKind }
-  | { kind: "action"; actionKind: ActionKind }
+  | { kind: "action"; actionKind: ActionKind; body?: string; tagId?: string }
   | { kind: "delay"; minutes: number }
   | { kind: "condition"; left: string; op: ConditionOp; right: string }
   | { kind: "note"; text: string };
+
+type ContactTag = { id: string; name: string; color: string | null };
 
 type BuilderNode = {
   id: string;
@@ -106,7 +108,7 @@ function buildStarterAutomation(): Automation {
         label: "Action: Send SMS",
         x: 420,
         y: 120,
-        config: { kind: "action", actionKind: "send_sms" },
+        config: { kind: "action", actionKind: "send_sms", body: "" },
       },
     ],
     edges: [{ id: uid("e"), from: triggerId, to: actionId }],
@@ -118,7 +120,7 @@ function defaultConfigForType(t: BuilderNodeType): BuilderNodeConfig {
     case "trigger":
       return { kind: "trigger", triggerKind: "inbound_sms" };
     case "action":
-      return { kind: "action", actionKind: "send_sms" };
+      return { kind: "action", actionKind: "send_sms", body: "" };
     case "delay":
       return { kind: "delay", minutes: 5 };
     case "condition":
@@ -186,6 +188,8 @@ export function PortalAutomationsClient() {
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [note, setNote] = useState<string | null>(null);
+
+  const [ownerTags, setOwnerTags] = useState<ContactTag[]>([]);
 
   const [automations, setAutomations] = useState<Automation[]>([]);
   const [selectedAutomationId, setSelectedAutomationId] = useState<string | null>(null);
@@ -363,6 +367,27 @@ export function PortalAutomationsClient() {
 
   useEffect(() => {
     void load();
+  }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      const res = await fetch("/api/portal/contact-tags", { cache: "no-store" }).catch(() => null as any);
+      const data = (await res?.json?.().catch(() => null)) as any;
+      if (cancelled) return;
+      if (res?.ok && data?.ok && Array.isArray(data?.tags)) {
+        setOwnerTags(
+          (data.tags as any[]).map((t) => ({
+            id: String(t?.id || ""),
+            name: String(t?.name || "").slice(0, 60),
+            color: typeof t?.color === "string" ? String(t.color) : null,
+          })),
+        );
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
   }, []);
 
   useEffect(() => {
@@ -1106,35 +1131,115 @@ export function PortalAutomationsClient() {
                         ) : null}
 
                         {selectedNode.type === "action" ? (
-                          <select
-                            className="mt-1 w-full rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-sm"
-                            value={
-                              selectedNode.config?.kind === "action"
-                                ? selectedNode.config.actionKind
-                                : (defaultConfigForType("action") as any).actionKind
-                            }
-                            onChange={(e) => {
-                              const nextKind = e.target.value as ActionKind;
-                              updateSelectedAutomation((a) => {
-                                const nodes = a.nodes.map((n) => {
-                                  if (n.id !== selectedNode.id) return n;
-                                  const prevCfg = n.config?.kind === "action" ? n.config : defaultConfigForType("action");
-                                  const nextCfg: BuilderNodeConfig = { ...(prevCfg as any), kind: "action", actionKind: nextKind };
-                                  const nextLabel =
-                                    autolabelSelectedNode && shouldAutolabel(n.label)
-                                      ? labelForConfig("action", nextCfg)
-                                      : n.label;
-                                  return { ...n, config: nextCfg, label: nextLabel };
+                          <>
+                            <select
+                              className="mt-1 w-full rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-sm"
+                              value={
+                                selectedNode.config?.kind === "action"
+                                  ? selectedNode.config.actionKind
+                                  : (defaultConfigForType("action") as any).actionKind
+                              }
+                              onChange={(e) => {
+                                const nextKind = e.target.value as ActionKind;
+                                updateSelectedAutomation((a) => {
+                                  const nodes = a.nodes.map((n) => {
+                                    if (n.id !== selectedNode.id) return n;
+                                    const prevCfg = n.config?.kind === "action" ? n.config : defaultConfigForType("action");
+                                    const nextCfg: BuilderNodeConfig = { ...(prevCfg as any), kind: "action", actionKind: nextKind };
+                                    const nextLabel =
+                                      autolabelSelectedNode && shouldAutolabel(n.label)
+                                        ? labelForConfig("action", nextCfg)
+                                        : n.label;
+                                    return { ...n, config: nextCfg, label: nextLabel };
+                                  });
+                                  return { ...a, nodes, updatedAtIso: new Date().toISOString() };
                                 });
-                                return { ...a, nodes, updatedAtIso: new Date().toISOString() };
-                              });
-                            }}
-                          >
-                            <option value="send_sms">Send SMS</option>
-                            <option value="send_email">Send Email</option>
-                            <option value="add_tag">Add Tag</option>
-                            <option value="create_task">Create Task</option>
-                          </select>
+                              }}
+                            >
+                              <option value="send_sms">Send SMS</option>
+                              <option value="send_email">Send Email</option>
+                              <option value="add_tag">Add Tag</option>
+                              <option value="create_task">Create Task</option>
+                            </select>
+
+                            {(() => {
+                              const cfg =
+                                selectedNode.config?.kind === "action"
+                                  ? selectedNode.config
+                                  : (defaultConfigForType("action") as any);
+                              if (cfg.actionKind === "send_sms") {
+                                return (
+                                  <textarea
+                                    className="mt-2 w-full resize-none rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-sm"
+                                    rows={3}
+                                    placeholder="SMS body (sent to the inbound sender)"
+                                    value={String(cfg.body || "").slice(0, 1200)}
+                                    onChange={(e) => {
+                                      const body = e.target.value.slice(0, 1200);
+                                      updateSelectedAutomation((a) => {
+                                        const nodes = a.nodes.map((n) => {
+                                          if (n.id !== selectedNode.id) return n;
+                                          const prev = n.config?.kind === "action" ? n.config : (defaultConfigForType("action") as any);
+                                          const nextCfg: BuilderNodeConfig = { ...(prev as any), kind: "action", body };
+                                          const nextLabel =
+                                            autolabelSelectedNode && shouldAutolabel(n.label)
+                                              ? labelForConfig("action", nextCfg)
+                                              : n.label;
+                                          return { ...n, config: nextCfg, label: nextLabel };
+                                        });
+                                        return { ...a, nodes, updatedAtIso: new Date().toISOString() };
+                                      });
+                                    }}
+                                  />
+                                );
+                              }
+
+                              if (cfg.actionKind === "add_tag") {
+                                const tagId = String(cfg.tagId || "");
+                                return (
+                                  <div className="mt-2">
+                                    <select
+                                      className="w-full rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-sm"
+                                      value={tagId}
+                                      onChange={(e) => {
+                                        const nextTagId = String(e.target.value || "");
+                                        updateSelectedAutomation((a) => {
+                                          const nodes = a.nodes.map((n) => {
+                                            if (n.id !== selectedNode.id) return n;
+                                            const prev =
+                                              n.config?.kind === "action" ? n.config : (defaultConfigForType("action") as any);
+                                            const nextCfg: BuilderNodeConfig = { ...(prev as any), kind: "action", tagId: nextTagId || undefined };
+                                            const nextLabel =
+                                              autolabelSelectedNode && shouldAutolabel(n.label)
+                                                ? labelForConfig("action", nextCfg)
+                                                : n.label;
+                                            return { ...n, config: nextCfg, label: nextLabel };
+                                          });
+                                          return { ...a, nodes, updatedAtIso: new Date().toISOString() };
+                                        });
+                                      }}
+                                    >
+                                      <option value="">Choose a tag…</option>
+                                      {ownerTags.map((t) => (
+                                        <option key={t.id} value={t.id}>
+                                          {t.name}
+                                        </option>
+                                      ))}
+                                    </select>
+                                    <div className="mt-1 flex items-center gap-2 text-[11px] text-zinc-600">
+                                      <span
+                                        className="h-2.5 w-2.5 rounded-full border border-zinc-200"
+                                        style={{ background: ownerTags.find((t) => t.id === tagId)?.color || "#e4e4e7" }}
+                                      />
+                                      Idempotent: won’t double-tag.
+                                    </div>
+                                  </div>
+                                );
+                              }
+
+                              return null;
+                            })()}
+                          </>
                         ) : null}
 
                         {selectedNode.type === "delay" ? (
