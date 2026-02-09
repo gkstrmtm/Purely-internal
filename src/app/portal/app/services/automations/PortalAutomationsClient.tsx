@@ -11,9 +11,21 @@ type TriggerKind = "inbound_sms" | "inbound_mms" | "inbound_call" | "new_lead";
 type ActionKind = "send_sms" | "send_email" | "add_tag" | "create_task";
 type ConditionOp = "equals" | "contains" | "starts_with" | "ends_with" | "is_empty" | "is_not_empty";
 
+type MessageTarget = "inbound_sender" | "event_contact" | "internal_notification" | "custom";
+
 type BuilderNodeConfig =
   | { kind: "trigger"; triggerKind: TriggerKind }
-  | { kind: "action"; actionKind: ActionKind; body?: string; tagId?: string }
+  | {
+      kind: "action";
+      actionKind: ActionKind;
+      body?: string;
+      subject?: string;
+      tagId?: string;
+      smsTo?: MessageTarget;
+      smsToNumber?: string;
+      emailTo?: MessageTarget;
+      emailToAddress?: string;
+    }
   | { kind: "delay"; minutes: number }
   | { kind: "condition"; left: string; op: ConditionOp; right: string }
   | { kind: "note"; text: string };
@@ -108,7 +120,7 @@ function buildStarterAutomation(): Automation {
         label: "Action: Send SMS",
         x: 420,
         y: 120,
-        config: { kind: "action", actionKind: "send_sms", body: "" },
+        config: { kind: "action", actionKind: "send_sms", smsTo: "inbound_sender", body: "" },
       },
     ],
     edges: [{ id: uid("e"), from: triggerId, to: actionId }],
@@ -120,7 +132,7 @@ function defaultConfigForType(t: BuilderNodeType): BuilderNodeConfig {
     case "trigger":
       return { kind: "trigger", triggerKind: "inbound_sms" };
     case "action":
-      return { kind: "action", actionKind: "send_sms", body: "" };
+      return { kind: "action", actionKind: "send_sms", smsTo: "inbound_sender", body: "" };
     case "delay":
       return { kind: "delay", minutes: 5 };
     case "condition":
@@ -197,6 +209,11 @@ export function PortalAutomationsClient() {
   const canvasRef = useRef<HTMLDivElement | null>(null);
 
   const [view, setView] = useState<{ panX: number; panY: number; zoom: number }>({ panX: 80, panY: 80, zoom: 1 });
+
+  const viewRef = useRef(view);
+  useEffect(() => {
+    viewRef.current = view;
+  }, [view]);
 
   const [panning, setPanning] = useState<
     | null
@@ -391,6 +408,51 @@ export function PortalAutomationsClient() {
   }, []);
 
   useEffect(() => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+
+    const onWheel = (ev: WheelEvent) => {
+      const rect = canvas.getBoundingClientRect();
+      const v = viewRef.current;
+
+      // Contain scroll/zoom within the canvas.
+      ev.preventDefault();
+      ev.stopPropagation();
+
+      // Trackpad pinch triggers ctrl/meta wheel in browsers.
+      if (ev.ctrlKey || ev.metaKey) {
+        const dir = ev.deltaY < 0 ? 1 : -1;
+        const factor = dir > 0 ? 1.1 : 0.9;
+        const nextZoom = clampZoom(v.zoom * factor);
+
+        const wx = (ev.clientX - rect.left - v.panX) / v.zoom;
+        const wy = (ev.clientY - rect.top - v.panY) / v.zoom;
+        const nextPanX = ev.clientX - rect.left - wx * nextZoom;
+        const nextPanY = ev.clientY - rect.top - wy * nextZoom;
+
+        setView({
+          zoom: nextZoom,
+          panX: clamp(nextPanX, -6000, 6000),
+          panY: clamp(nextPanY, -6000, 6000),
+        });
+        return;
+      }
+
+      // Two-finger scroll pans around the world.
+      setView((prev) => ({
+        ...prev,
+        panX: clamp(prev.panX - ev.deltaX, -6000, 6000),
+        panY: clamp(prev.panY - ev.deltaY, -6000, 6000),
+      }));
+    };
+
+    canvas.addEventListener("wheel", onWheel, { passive: false });
+    return () => {
+      canvas.removeEventListener("wheel", onWheel as any);
+    };
+  }, []);
+
+  useEffect(() => {
     const onMove = (ev: PointerEvent) => {
       const canvas = canvasRef.current;
       if (!canvas) return;
@@ -505,10 +567,6 @@ export function PortalAutomationsClient() {
         : from.y + NODE_H / 2;
 
     setConnecting({ fromNodeId, fromPort, fromX, fromY, curX: fromX, curY: fromY });
-
-    // Ensure focus selection
-    setSelectedNodeId(fromNodeId);
-    setAutolabelSelectedNode(true);
   }
 
   function completeConnect(toNodeId: string) {
@@ -636,6 +694,40 @@ export function PortalAutomationsClient() {
     void saveAll(nextList);
   }
 
+  async function testAutomation() {
+    if (!selectedAutomation) return;
+
+    const from = window.prompt("Test inbound SMS: From number (E.164)", "+15555550123")?.trim() || "";
+    if (!from) return;
+    const body = window.prompt("Test inbound SMS: Message body", "Hello") ?? "";
+
+    setSaving(true);
+    setError(null);
+    setNote(null);
+
+    try {
+      const res = await fetch("/api/portal/automations/test-sms", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ automationId: selectedAutomation.id, from, body }),
+      }).catch(() => null as any);
+
+      const data = (await res?.json?.().catch(() => null)) as any;
+      if (!res?.ok || !data?.ok) {
+        setSaving(false);
+        setError(data?.error || "Test failed.");
+        return;
+      }
+
+      setSaving(false);
+      setNote("Test started.");
+      window.setTimeout(() => setNote(null), 1400);
+    } catch {
+      setSaving(false);
+      setError("Test failed.");
+    }
+  }
+
   const nodesById = useMemo(() => {
     const m = new Map<string, BuilderNode>();
     for (const n of selectedAutomation?.nodes ?? []) m.set(n.id, n);
@@ -661,14 +753,6 @@ export function PortalAutomationsClient() {
           <Link href="/portal/app/services" className="rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm font-semibold hover:bg-zinc-50">
             All services
           </Link>
-          <button
-            type="button"
-            className="rounded-2xl bg-zinc-900 px-4 py-2 text-sm font-semibold text-white hover:opacity-95 disabled:opacity-60"
-            disabled={saving}
-            onClick={() => void saveAll()}
-          >
-            {saving ? "Saving…" : "Save"}
-          </button>
         </div>
       </div>
 
@@ -712,32 +796,61 @@ export function PortalAutomationsClient() {
               })}
             </div>
 
-            <div className="mt-4 flex flex-wrap gap-2">
-              <button
-                type="button"
-                className="rounded-xl border border-zinc-200 bg-white px-3 py-2 text-xs font-semibold hover:bg-zinc-50"
-                onClick={renameAutomation}
-                disabled={!selectedAutomation}
-              >
-                Rename
-              </button>
-              <button
-                type="button"
-                className="rounded-xl border border-zinc-200 bg-white px-3 py-2 text-xs font-semibold hover:bg-zinc-50"
-                onClick={duplicateAutomation}
-                disabled={!selectedAutomation}
-              >
-                Duplicate
-              </button>
-              <button
-                type="button"
-                className="rounded-xl border border-red-200 bg-red-50 px-3 py-2 text-xs font-semibold text-red-700 hover:bg-red-100"
-                onClick={deleteAutomation}
-                disabled={!selectedAutomation}
-              >
-                Delete
-              </button>
-            </div>
+            {selectedAutomation ? (
+              <div className="mt-4">
+                <div className="rounded-2xl border border-zinc-900 bg-zinc-900 px-4 py-3 text-white">
+                  <div className="flex items-center justify-between gap-2">
+                    <div className="min-w-0 truncate text-sm font-semibold">{selectedAutomation.name}</div>
+                    <button
+                      type="button"
+                      className="shrink-0 rounded-xl border border-zinc-700 bg-zinc-800 px-2 py-1 text-xs font-semibold hover:bg-zinc-700 disabled:opacity-60"
+                      onClick={renameAutomation}
+                      disabled={saving}
+                    >
+                      Rename
+                    </button>
+                  </div>
+                  <div className="mt-1 text-xs text-zinc-200">
+                    {(selectedAutomation.nodes?.length ?? 0)} nodes · {(selectedAutomation.edges?.length ?? 0)} connections
+                  </div>
+                </div>
+
+                <div className="mt-3 grid gap-2">
+                  <button
+                    type="button"
+                    className="w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-xs font-semibold hover:bg-zinc-50 disabled:opacity-60"
+                    onClick={testAutomation}
+                    disabled={saving}
+                  >
+                    Test automation
+                  </button>
+                  <button
+                    type="button"
+                    className="w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-xs font-semibold hover:bg-zinc-50 disabled:opacity-60"
+                    onClick={duplicateAutomation}
+                    disabled={saving}
+                  >
+                    Duplicate
+                  </button>
+                  <button
+                    type="button"
+                    className="w-full rounded-xl bg-zinc-900 px-3 py-2 text-xs font-semibold text-white hover:opacity-95 disabled:opacity-60"
+                    onClick={() => void saveAll()}
+                    disabled={saving}
+                  >
+                    {saving ? "Saving…" : "Save"}
+                  </button>
+                  <button
+                    type="button"
+                    className="w-full rounded-xl border border-red-200 bg-red-50 px-3 py-2 text-xs font-semibold text-red-700 hover:bg-red-100 disabled:opacity-60"
+                    onClick={deleteAutomation}
+                    disabled={saving}
+                  >
+                    Delete
+                  </button>
+                </div>
+              </div>
+            ) : null}
           </div>
 
           <div className="mt-4 rounded-3xl border border-zinc-200 bg-white p-4">
@@ -773,11 +886,6 @@ export function PortalAutomationsClient() {
               })}
             </div>
           </div>
-
-          <div className="mt-4 rounded-3xl border border-zinc-200 bg-white p-4">
-            <div className="text-sm font-semibold text-zinc-900">Inspector</div>
-            <div className="mt-2 text-sm text-zinc-600">Select a node on the canvas to edit (inspector opens inside the canvas).</div>
-          </div>
         </div>
 
         <div className="lg:col-span-9">
@@ -809,46 +917,16 @@ export function PortalAutomationsClient() {
                   backgroundImage: "radial-gradient(#0f172a12 1px, transparent 1px)",
                   backgroundSize: `${24 * view.zoom}px ${24 * view.zoom}px`,
                   backgroundPosition: `${view.panX}px ${view.panY}px`,
+                  overscrollBehavior: "contain",
+                  touchAction: "none",
                 }}
                 onDragOver={(ev) => ev.preventDefault()}
                 onDrop={onCanvasDrop}
-                onWheel={(ev) => {
-                  const canvas = canvasRef.current;
-                  if (!canvas) return;
-                  const rect = canvas.getBoundingClientRect();
-
-                  // Trackpad pinch triggers ctrl/meta wheel in browsers.
-                  if (ev.ctrlKey || ev.metaKey) {
-                    ev.preventDefault();
-                    const dir = ev.deltaY < 0 ? 1 : -1;
-                    const factor = dir > 0 ? 1.1 : 0.9;
-                    const nextZoom = clampZoom(view.zoom * factor);
-
-                    const wx = (ev.clientX - rect.left - view.panX) / view.zoom;
-                    const wy = (ev.clientY - rect.top - view.panY) / view.zoom;
-                    const nextPanX = (ev.clientX - rect.left) - wx * nextZoom;
-                    const nextPanY = (ev.clientY - rect.top) - wy * nextZoom;
-
-                    setView({
-                      zoom: nextZoom,
-                      panX: clamp(nextPanX, -6000, 6000),
-                      panY: clamp(nextPanY, -6000, 6000),
-                    });
-                    return;
-                  }
-
-                  // Two-finger scroll pans around the world.
-                  ev.preventDefault();
-                  setView((prev) => ({
-                    ...prev,
-                    panX: clamp(prev.panX - ev.deltaX, -6000, 6000),
-                    panY: clamp(prev.panY - ev.deltaY, -6000, 6000),
-                  }));
-                }}
                 onPointerDown={(ev) => {
                   // click empty area starts panning + clears selection
                   const target = ev.target as HTMLElement | null;
                   if (!target) return;
+                  if (target.closest?.("[data-kind='ui']")) return;
                   if (target.dataset?.kind === "node" || target.closest?.("[data-kind='node']")) return;
                   setSelectedNodeId(null);
 
@@ -1012,7 +1090,11 @@ export function PortalAutomationsClient() {
                   })}
                 </div>
 
-                <div className="absolute top-3 right-3 flex items-center gap-2 rounded-2xl border border-zinc-200 bg-white px-2 py-1 text-xs text-zinc-700 shadow-sm">
+                <div
+                  data-kind="ui"
+                  className="absolute top-3 right-3 flex items-center gap-2 rounded-2xl border border-zinc-200 bg-white px-2 py-1 text-xs text-zinc-700 shadow-sm"
+                  onPointerDown={(ev) => ev.stopPropagation()}
+                >
                   <button
                     type="button"
                     className="rounded-xl border border-zinc-200 bg-white px-2 py-1 font-semibold hover:bg-zinc-50"
@@ -1040,11 +1122,15 @@ export function PortalAutomationsClient() {
                   </button>
                 </div>
 
-                <div className="absolute left-3 top-3 w-[360px] max-w-[calc(100%-1.5rem)] rounded-2xl border border-zinc-200 bg-white/95 p-3 shadow-sm backdrop-blur">
+                <div
+                  data-kind="ui"
+                  className="absolute left-3 top-3 w-[360px] max-w-[calc(100%-1.5rem)] rounded-2xl border border-zinc-200 bg-white/95 p-3 shadow-sm backdrop-blur"
+                  onPointerDown={(ev) => ev.stopPropagation()}
+                  onWheel={(ev) => ev.stopPropagation()}
+                >
                   <div className="flex items-start justify-between gap-3">
                     <div>
                       <div className="text-xs font-semibold text-zinc-900">Inspector</div>
-                      <div className="mt-1 text-[11px] text-zinc-600">Edits the selected node (stays inside the canvas).</div>
                     </div>
                     <button
                       type="button"
@@ -1168,29 +1254,199 @@ export function PortalAutomationsClient() {
                                   ? selectedNode.config
                                   : (defaultConfigForType("action") as any);
                               if (cfg.actionKind === "send_sms") {
+                                const smsTo = ((cfg as any).smsTo as MessageTarget) || "inbound_sender";
+                                const smsToNumber = String((cfg as any).smsToNumber || "").slice(0, 32);
                                 return (
-                                  <textarea
-                                    className="mt-2 w-full resize-none rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-sm"
-                                    rows={3}
-                                    placeholder="SMS body (sent to the inbound sender)"
-                                    value={String(cfg.body || "").slice(0, 1200)}
-                                    onChange={(e) => {
-                                      const body = e.target.value.slice(0, 1200);
-                                      updateSelectedAutomation((a) => {
-                                        const nodes = a.nodes.map((n) => {
-                                          if (n.id !== selectedNode.id) return n;
-                                          const prev = n.config?.kind === "action" ? n.config : (defaultConfigForType("action") as any);
-                                          const nextCfg: BuilderNodeConfig = { ...(prev as any), kind: "action", body };
-                                          const nextLabel =
-                                            autolabelSelectedNode && shouldAutolabel(n.label)
-                                              ? labelForConfig("action", nextCfg)
-                                              : n.label;
-                                          return { ...n, config: nextCfg, label: nextLabel };
+                                  <>
+                                    <div className="mt-2">
+                                      <div className="text-xs font-semibold text-zinc-600">Send to</div>
+                                      <select
+                                        className="mt-1 w-full rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-sm"
+                                        value={smsTo}
+                                        onChange={(e) => {
+                                          const next = e.target.value as MessageTarget;
+                                          updateSelectedAutomation((a) => {
+                                            const nodes = a.nodes.map((n) => {
+                                              if (n.id !== selectedNode.id) return n;
+                                              const prev =
+                                                n.config?.kind === "action" ? n.config : (defaultConfigForType("action") as any);
+                                              const nextCfg: BuilderNodeConfig = { ...(prev as any), kind: "action", smsTo: next };
+                                              const nextLabel =
+                                                autolabelSelectedNode && shouldAutolabel(n.label)
+                                                  ? labelForConfig("action", nextCfg)
+                                                  : n.label;
+                                              return { ...n, config: nextCfg, label: nextLabel };
+                                            });
+                                            return { ...a, nodes, updatedAtIso: new Date().toISOString() };
+                                          });
+                                        }}
+                                      >
+                                        <option value="inbound_sender">Inbound sender</option>
+                                        <option value="event_contact">Step contact</option>
+                                        <option value="internal_notification">Internal notification (my number)</option>
+                                        <option value="custom">Custom number</option>
+                                      </select>
+                                    </div>
+
+                                    {smsTo === "custom" ? (
+                                      <input
+                                        className="mt-2 w-full rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-sm"
+                                        placeholder="Custom number (E.164, e.g. +15551234567)"
+                                        value={smsToNumber}
+                                        onChange={(e) => {
+                                          const next = e.target.value.slice(0, 32);
+                                          updateSelectedAutomation((a) => {
+                                            const nodes = a.nodes.map((n) => {
+                                              if (n.id !== selectedNode.id) return n;
+                                              const prev =
+                                                n.config?.kind === "action" ? n.config : (defaultConfigForType("action") as any);
+                                              const nextCfg: BuilderNodeConfig = { ...(prev as any), kind: "action", smsToNumber: next };
+                                              const nextLabel =
+                                                autolabelSelectedNode && shouldAutolabel(n.label)
+                                                  ? labelForConfig("action", nextCfg)
+                                                  : n.label;
+                                              return { ...n, config: nextCfg, label: nextLabel };
+                                            });
+                                            return { ...a, nodes, updatedAtIso: new Date().toISOString() };
+                                          });
+                                        }}
+                                      />
+                                    ) : null}
+
+                                    <textarea
+                                      className="mt-2 w-full resize-none rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-sm"
+                                      rows={3}
+                                      placeholder="SMS body"
+                                      value={String(cfg.body || "").slice(0, 1200)}
+                                      onChange={(e) => {
+                                        const body = e.target.value.slice(0, 1200);
+                                        updateSelectedAutomation((a) => {
+                                          const nodes = a.nodes.map((n) => {
+                                            if (n.id !== selectedNode.id) return n;
+                                            const prev =
+                                              n.config?.kind === "action" ? n.config : (defaultConfigForType("action") as any);
+                                            const nextCfg: BuilderNodeConfig = { ...(prev as any), kind: "action", body };
+                                            const nextLabel =
+                                              autolabelSelectedNode && shouldAutolabel(n.label)
+                                                ? labelForConfig("action", nextCfg)
+                                                : n.label;
+                                            return { ...n, config: nextCfg, label: nextLabel };
+                                          });
+                                          return { ...a, nodes, updatedAtIso: new Date().toISOString() };
                                         });
-                                        return { ...a, nodes, updatedAtIso: new Date().toISOString() };
-                                      });
-                                    }}
-                                  />
+                                      }}
+                                    />
+                                  </>
+                                );
+                              }
+
+                              if (cfg.actionKind === "send_email") {
+                                const emailTo = ((cfg as any).emailTo as MessageTarget) || "internal_notification";
+                                const emailToAddress = String((cfg as any).emailToAddress || "").slice(0, 160);
+                                const subject = String((cfg as any).subject || "").slice(0, 140);
+                                return (
+                                  <>
+                                    <div className="mt-2">
+                                      <div className="text-xs font-semibold text-zinc-600">Send to</div>
+                                      <select
+                                        className="mt-1 w-full rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-sm"
+                                        value={emailTo}
+                                        onChange={(e) => {
+                                          const next = e.target.value as MessageTarget;
+                                          updateSelectedAutomation((a) => {
+                                            const nodes = a.nodes.map((n) => {
+                                              if (n.id !== selectedNode.id) return n;
+                                              const prev =
+                                                n.config?.kind === "action" ? n.config : (defaultConfigForType("action") as any);
+                                              const nextCfg: BuilderNodeConfig = { ...(prev as any), kind: "action", emailTo: next };
+                                              const nextLabel =
+                                                autolabelSelectedNode && shouldAutolabel(n.label)
+                                                  ? labelForConfig("action", nextCfg)
+                                                  : n.label;
+                                              return { ...n, config: nextCfg, label: nextLabel };
+                                            });
+                                            return { ...a, nodes, updatedAtIso: new Date().toISOString() };
+                                          });
+                                        }}
+                                      >
+                                        <option value="internal_notification">Internal notification (my email)</option>
+                                        <option value="event_contact">Step contact</option>
+                                        <option value="custom">Custom email</option>
+                                      </select>
+                                    </div>
+
+                                    {emailTo === "custom" ? (
+                                      <input
+                                        className="mt-2 w-full rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-sm"
+                                        placeholder="Custom email address"
+                                        value={emailToAddress}
+                                        onChange={(e) => {
+                                          const next = e.target.value.slice(0, 160);
+                                          updateSelectedAutomation((a) => {
+                                            const nodes = a.nodes.map((n) => {
+                                              if (n.id !== selectedNode.id) return n;
+                                              const prev =
+                                                n.config?.kind === "action" ? n.config : (defaultConfigForType("action") as any);
+                                              const nextCfg: BuilderNodeConfig = { ...(prev as any), kind: "action", emailToAddress: next };
+                                              const nextLabel =
+                                                autolabelSelectedNode && shouldAutolabel(n.label)
+                                                  ? labelForConfig("action", nextCfg)
+                                                  : n.label;
+                                              return { ...n, config: nextCfg, label: nextLabel };
+                                            });
+                                            return { ...a, nodes, updatedAtIso: new Date().toISOString() };
+                                          });
+                                        }}
+                                      />
+                                    ) : null}
+
+                                    <input
+                                      className="mt-2 w-full rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-sm"
+                                      placeholder="Subject"
+                                      value={subject}
+                                      onChange={(e) => {
+                                        const next = e.target.value.slice(0, 140);
+                                        updateSelectedAutomation((a) => {
+                                          const nodes = a.nodes.map((n) => {
+                                            if (n.id !== selectedNode.id) return n;
+                                            const prev =
+                                              n.config?.kind === "action" ? n.config : (defaultConfigForType("action") as any);
+                                            const nextCfg: BuilderNodeConfig = { ...(prev as any), kind: "action", subject: next };
+                                            const nextLabel =
+                                              autolabelSelectedNode && shouldAutolabel(n.label)
+                                                ? labelForConfig("action", nextCfg)
+                                                : n.label;
+                                            return { ...n, config: nextCfg, label: nextLabel };
+                                          });
+                                          return { ...a, nodes, updatedAtIso: new Date().toISOString() };
+                                        });
+                                      }}
+                                    />
+
+                                    <textarea
+                                      className="mt-2 w-full resize-none rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-sm"
+                                      rows={4}
+                                      placeholder="Email body"
+                                      value={String(cfg.body || "").slice(0, 4000)}
+                                      onChange={(e) => {
+                                        const body = e.target.value.slice(0, 4000);
+                                        updateSelectedAutomation((a) => {
+                                          const nodes = a.nodes.map((n) => {
+                                            if (n.id !== selectedNode.id) return n;
+                                            const prev =
+                                              n.config?.kind === "action" ? n.config : (defaultConfigForType("action") as any);
+                                            const nextCfg: BuilderNodeConfig = { ...(prev as any), kind: "action", body };
+                                            const nextLabel =
+                                              autolabelSelectedNode && shouldAutolabel(n.label)
+                                                ? labelForConfig("action", nextCfg)
+                                                : n.label;
+                                            return { ...n, config: nextCfg, label: nextLabel };
+                                          });
+                                          return { ...a, nodes, updatedAtIso: new Date().toISOString() };
+                                        });
+                                      }}
+                                    />
+                                  </>
                                 );
                               }
 
@@ -1363,9 +1619,6 @@ export function PortalAutomationsClient() {
                               }}
                             />
 
-                            <div className="text-[11px] text-zinc-600">
-                              Use the node’s <span className="font-semibold text-violet-700">T</span> / <span className="font-semibold text-violet-700">F</span> outputs for if/else branching.
-                            </div>
                           </div>
                         ) : null}
 
@@ -1412,7 +1665,7 @@ export function PortalAutomationsClient() {
                 </div>
 
                 <div className="absolute bottom-3 right-3 rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-xs text-zinc-600">
-                  Tip: drag from an output dot → another node’s left dot. Condition nodes have T/F outputs.
+                  Tip: double-click a dot to remove a connection.
                 </div>
               </div>
             )}

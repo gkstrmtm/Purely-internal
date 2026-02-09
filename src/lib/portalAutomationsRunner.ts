@@ -2,6 +2,7 @@ import { prisma } from "@/lib/db";
 import { sendOwnerTwilioSms } from "@/lib/portalTwilio";
 import { findOrCreatePortalContact } from "@/lib/portalContacts";
 import { addContactTagAssignment } from "@/lib/portalContactTags";
+import { sendEmail as sendSendgridEmail } from "@/lib/leadOutbound";
 
 type EdgePort = "out" | "true" | "false";
 
@@ -11,11 +12,23 @@ type TriggerKind = "inbound_sms" | "inbound_mms" | "inbound_call" | "new_lead";
 
 type ActionKind = "send_sms" | "send_email" | "add_tag" | "create_task";
 
+type MessageTarget = "inbound_sender" | "event_contact" | "internal_notification" | "custom";
+
 type ConditionOp = "equals" | "contains" | "starts_with" | "ends_with" | "is_empty" | "is_not_empty";
 
 type BuilderNodeConfig =
   | { kind: "trigger"; triggerKind: TriggerKind }
-  | { kind: "action"; actionKind: ActionKind; body?: string; tagId?: string }
+  | {
+      kind: "action";
+      actionKind: ActionKind;
+      body?: string;
+      subject?: string;
+      tagId?: string;
+      smsTo?: MessageTarget;
+      smsToNumber?: string;
+      emailTo?: Exclude<MessageTarget, "inbound_sender">;
+      emailToAddress?: string;
+    }
   | { kind: "delay"; minutes: number }
   | { kind: "condition"; left: string; op: ConditionOp; right: string }
   | { kind: "note"; text: string };
@@ -62,6 +75,41 @@ function isTriggerConfig(cfg: unknown): cfg is { kind: "trigger"; triggerKind: T
 
 function isActionConfig(cfg: unknown): cfg is { kind: "action"; actionKind: ActionKind; body?: string; tagId?: string } {
   return getConfigKind(cfg) === "action";
+}
+
+async function getOwnerInternalPhone(ownerId: string): Promise<string | null> {
+  const row = await prisma.portalServiceSetup.findUnique({
+    where: { ownerId_serviceSlug: { ownerId, serviceSlug: "profile" } },
+    select: { dataJson: true },
+  });
+
+  const rec =
+    row?.dataJson && typeof row.dataJson === "object" && !Array.isArray(row.dataJson)
+      ? (row.dataJson as Record<string, unknown>)
+      : null;
+  const raw = rec?.phone;
+  return typeof raw === "string" && raw.trim() ? raw.trim().slice(0, 32) : null;
+}
+
+async function getOwnerInternalEmail(ownerId: string): Promise<string | null> {
+  const user = await prisma.user.findUnique({ where: { id: ownerId }, select: { email: true } });
+  const email = user?.email?.trim() || "";
+  return email ? email : null;
+}
+
+async function getOwnerFromName(ownerId: string): Promise<string> {
+  const profile = await prisma.businessProfile.findUnique({ where: { ownerId }, select: { businessName: true } });
+  const fromName = profile?.businessName?.trim();
+  return fromName || "Purely Automation";
+}
+
+async function getPortalContactById(ownerId: string, contactId: string) {
+  if (!contactId) return null;
+  const contact = await prisma.portalContact.findFirst({
+    where: { id: contactId, ownerId },
+    select: { id: true, phone: true, email: true, name: true },
+  });
+  return contact;
 }
 
 function isConditionConfig(cfg: unknown): cfg is { kind: "condition"; left: string; op: ConditionOp; right: string } {
@@ -184,9 +232,16 @@ async function runAutomationOnce(opts: {
     phone: opts.message.from || null,
   });
 
+  const contactRow = contactId ? await getPortalContactById(opts.ownerId, contactId).catch(() => null) : null;
+
   const ctx = {
     message: opts.message,
-    contact: { id: contactId, phone: opts.message.from || null, email: null, name: opts.message.from || null },
+    contact: {
+      id: contactId,
+      phone: contactRow?.phone || opts.message.from || null,
+      email: contactRow?.email || null,
+      name: contactRow?.name || opts.message.from || null,
+    },
   };
 
   const maxSteps = 120;
@@ -218,9 +273,44 @@ async function runAutomationOnce(opts: {
         if (isActionConfig(cfg)) {
           if (cfg.actionKind === "send_sms") {
             const body = String(cfg.body || "").trim() || "Got it — thanks!";
-            if (opts.message.from) {
+            const target = (String((cfg as any).smsTo || "inbound_sender") as MessageTarget) || "inbound_sender";
+            let to: string | null = null;
+
+            if (target === "inbound_sender") to = opts.message.from || null;
+            if (target === "event_contact") to = ctx.contact.phone || opts.message.from || null;
+            if (target === "internal_notification") to = await getOwnerInternalPhone(opts.ownerId).catch(() => null);
+            if (target === "custom") to = String((cfg as any).smsToNumber || "").trim() || null;
+
+            if (to) {
               try {
-                await sendOwnerTwilioSms({ ownerId: opts.ownerId, to: opts.message.from, body: body.slice(0, 1200) });
+                await sendOwnerTwilioSms({ ownerId: opts.ownerId, to, body: body.slice(0, 1200) });
+              } catch {
+                // best-effort
+              }
+            }
+          }
+
+          if (cfg.actionKind === "send_email") {
+            const text = String((cfg as any).body || "").trim();
+            const subject = String((cfg as any).subject || "").trim() || "Automated message";
+            const target = (String((cfg as any).emailTo || "internal_notification") as Exclude<MessageTarget, "inbound_sender">) ||
+              "internal_notification";
+
+            let toEmail: string | null = null;
+            if (target === "event_contact") toEmail = ctx.contact.email || null;
+            if (target === "internal_notification") toEmail = await getOwnerInternalEmail(opts.ownerId).catch(() => null);
+            if (target === "custom") toEmail = String((cfg as any).emailToAddress || "").trim() || null;
+
+            if (toEmail && (text || subject)) {
+              try {
+                const fromName = await getOwnerFromName(opts.ownerId).catch(() => "Purely Automation");
+                await sendSendgridEmail({
+                  to: toEmail,
+                  subject: subject.slice(0, 180),
+                  text: text.slice(0, 8000) || " ",
+                  fromName,
+                  ownerId: opts.ownerId,
+                });
               } catch {
                 // best-effort
               }
@@ -265,4 +355,23 @@ export async function runOwnerAutomationsForInboundSms(opts: {
       }).catch(() => null),
     ),
   );
+}
+
+export async function runOwnerAutomationByIdForInboundSms(opts: {
+  ownerId: string;
+  automationId: string;
+  from: string;
+  to: string;
+  body: string;
+}) {
+  const automations = await loadOwnerAutomations(opts.ownerId);
+  const automation = automations.find((a) => a.id === opts.automationId);
+  if (!automation) return;
+
+  await runAutomationOnce({
+    ownerId: opts.ownerId,
+    automation,
+    triggerKind: "inbound_sms",
+    message: { from: opts.from, to: opts.to, body: opts.body },
+  });
 }
