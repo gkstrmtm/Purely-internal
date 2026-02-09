@@ -1,8 +1,10 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { PortalMediaPickerModal } from "@/components/PortalMediaPickerModal";
 import { ContactTagsEditor, type ContactTag } from "@/components/ContactTagsEditor";
+import { PortalVariablePickerModal } from "@/components/PortalVariablePickerModal";
+import { LEAD_OUTBOUND_VARIABLES } from "@/lib/portalTemplateVars";
 
 const TAG_COLORS = [
   "#0EA5E9", // sky
@@ -398,6 +400,62 @@ export function PortalLeadScrapingClient() {
   const [composeSendEmail, setComposeSendEmail] = useState(true);
   const [composeSendSms, setComposeSendSms] = useState(false);
   const [composeBusy, setComposeBusy] = useState(false);
+
+  const [composeVarPickerOpen, setComposeVarPickerOpen] = useState(false);
+  const [composeVarTarget, setComposeVarTarget] = useState<null | "subject" | "message">(null);
+  const composeSubjectRef = useRef<HTMLInputElement | null>(null);
+  const composeMessageRef = useRef<HTMLTextAreaElement | null>(null);
+
+  function insertAtCursor(
+    current: string,
+    insert: string,
+    el: HTMLInputElement | HTMLTextAreaElement | null,
+  ): { next: string; caret: number } {
+    const base = String(current ?? "");
+    if (!el) {
+      const next = base + insert;
+      return { next, caret: next.length };
+    }
+    const start = typeof el.selectionStart === "number" ? el.selectionStart : base.length;
+    const end = typeof el.selectionEnd === "number" ? el.selectionEnd : start;
+    const next = base.slice(0, start) + insert + base.slice(end);
+    return { next, caret: start + insert.length };
+  }
+
+  function openComposeVarPicker(target: NonNullable<typeof composeVarTarget>) {
+    setComposeVarTarget(target);
+    setComposeVarPickerOpen(true);
+  }
+
+  function applyComposeVariable(variableKey: string) {
+    const token = `{${variableKey}}`;
+    const setCaretSoon = (el: HTMLInputElement | HTMLTextAreaElement | null, caret: number) => {
+      if (!el) return;
+      requestAnimationFrame(() => {
+        try {
+          el.focus();
+          el.setSelectionRange(caret, caret);
+        } catch {
+          // ignore
+        }
+      });
+    };
+
+    if (composeVarTarget === "subject") {
+      const el = composeSubjectRef.current;
+      const { next, caret } = insertAtCursor(composeSubject, token, el);
+      setComposeSubject(next);
+      setCaretSoon(el, caret);
+      return;
+    }
+
+    if (composeVarTarget === "message") {
+      const el = composeMessageRef.current;
+      const { next, caret } = insertAtCursor(composeMessage, token, el);
+      setComposeMessage(next);
+      setCaretSoon(el, caret);
+    }
+  }
 
   const [leadMutating, setLeadMutating] = useState(false);
   const [leadEmailDraft, setLeadEmailDraft] = useState("");
@@ -2719,6 +2777,16 @@ export function PortalLeadScrapingClient() {
 
               {composeOpen ? (
                 <div className="mt-5 rounded-3xl border border-zinc-200 bg-white p-5">
+                  <PortalVariablePickerModal
+                    open={composeVarPickerOpen}
+                    variables={LEAD_OUTBOUND_VARIABLES}
+                    onPick={applyComposeVariable}
+                    onClose={() => {
+                      setComposeVarPickerOpen(false);
+                      setComposeVarTarget(null);
+                    }}
+                  />
+
                   <div className="text-sm font-semibold text-zinc-900">Compose</div>
                   <div className="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-2">
                     <label className="block">
@@ -2769,8 +2837,18 @@ export function PortalLeadScrapingClient() {
                     </div>
 
                     <label className="block sm:col-span-2">
-                      <div className="text-xs font-semibold text-zinc-600">Subject (email)</div>
+                      <div className="flex items-center justify-between gap-3">
+                        <div className="text-xs font-semibold text-zinc-600">Subject (email)</div>
+                        <button
+                          type="button"
+                          className="rounded-xl border border-zinc-200 bg-white px-2 py-1 text-[11px] font-semibold text-zinc-700 hover:bg-zinc-50"
+                          onClick={() => openComposeVarPicker("subject")}
+                        >
+                          Insert variable
+                        </button>
+                      </div>
                       <input
+                        ref={composeSubjectRef}
                         value={composeSubject}
                         onChange={(e) => setComposeSubject(e.target.value)}
                         disabled={!composeSendEmail}
@@ -2779,8 +2857,18 @@ export function PortalLeadScrapingClient() {
                       />
                     </label>
                     <label className="block sm:col-span-2">
-                      <div className="text-xs font-semibold text-zinc-600">Message</div>
+                      <div className="flex items-center justify-between gap-3">
+                        <div className="text-xs font-semibold text-zinc-600">Message</div>
+                        <button
+                          type="button"
+                          className="rounded-xl border border-zinc-200 bg-white px-2 py-1 text-[11px] font-semibold text-zinc-700 hover:bg-zinc-50"
+                          onClick={() => openComposeVarPicker("message")}
+                        >
+                          Insert variable
+                        </button>
+                      </div>
                       <textarea
+                        ref={composeMessageRef}
                         value={composeMessage}
                         onChange={(e) => setComposeMessage(e.target.value)}
                         rows={5}

@@ -7,6 +7,8 @@ import { getOwnerTwilioSmsConfig, sendOwnerTwilioSms } from "@/lib/portalTwilio"
 import { baseUrlFromRequest, sendEmail } from "@/lib/leadOutbound";
 import { runOwnerAutomationsForEvent } from "@/lib/portalAutomationsRunner";
 import { ensurePortalInboxSchema } from "@/lib/portalInboxSchema";
+import { buildPortalTemplateVars } from "@/lib/portalTemplateVars";
+import { renderTextTemplate } from "@/lib/textTemplate";
 import {
   makeEmailThreadKey,
   makeSmsThreadKey,
@@ -45,11 +47,11 @@ export async function POST(req: Request) {
   await ensurePortalInboxSchema();
 
   const channel = parsed.data.channel;
-  const body = String(parsed.data.body ?? "").trim();
+  const bodyInput = String(parsed.data.body ?? "");
   const toRaw = parsed.data.to.trim();
   const attachmentIds = Array.isArray(parsed.data.attachmentIds) ? parsed.data.attachmentIds : [];
 
-  if (!body && attachmentIds.length === 0) {
+  if (!String(bodyInput || "").trim() && attachmentIds.length === 0) {
     return NextResponse.json({ ok: false, error: "Message or attachment is required" }, { status: 400 });
   }
 
@@ -64,6 +66,73 @@ export async function POST(req: Request) {
     return NextResponse.json({ ok: false, error: "One or more attachments are missing." }, { status: 400 });
   }
 
+  const profile = await prisma.businessProfile.findUnique({
+    where: { ownerId },
+    select: { businessName: true },
+  });
+
+  const ownerUser = await prisma.user.findUnique({ where: { id: ownerId }, select: { email: true, name: true } }).catch(() => null);
+  const ownerEmail = ownerUser?.email?.trim() || null;
+  const ownerName = ownerUser?.name?.trim() || null;
+
+  const ownerPhone = await (async () => {
+    try {
+      const row = await prisma.portalServiceSetup.findUnique({
+        where: { ownerId_serviceSlug: { ownerId, serviceSlug: "profile" } },
+        select: { dataJson: true },
+      });
+
+      const rec =
+        row?.dataJson && typeof row.dataJson === "object" && !Array.isArray(row.dataJson)
+          ? (row.dataJson as Record<string, unknown>)
+          : null;
+      const raw = rec?.phone;
+      return typeof raw === "string" && raw.trim() ? raw.trim().slice(0, 32) : null;
+    } catch {
+      return null;
+    }
+  })();
+
+  // If replying, keep threading stable by reusing the existing thread.
+  const existingThread = parsed.data.threadId
+    ? await (prisma as any).portalInboxThread.findFirst({
+        where: { id: parsed.data.threadId, ownerId },
+        select: {
+          id: true,
+          channel: true,
+          threadKey: true,
+          peerAddress: true,
+          peerKey: true,
+          subject: true,
+          subjectKey: true,
+          contactId: true,
+        },
+      })
+    : null;
+
+  const contactRow = existingThread?.contactId
+    ? await (prisma as any).portalContact
+        .findFirst({
+          where: { ownerId, id: String(existingThread.contactId) },
+          select: { id: true, name: true, email: true, phone: true },
+        })
+        .catch(() => null)
+    : null;
+
+  const templateVars = buildPortalTemplateVars({
+    contact: {
+      id: contactRow?.id ? String(contactRow.id) : null,
+      name: contactRow?.name ? String(contactRow.name) : null,
+      email: contactRow?.email ? String(contactRow.email) : null,
+      phone: contactRow?.phone ? String(contactRow.phone) : null,
+    },
+    business: { name: profile?.businessName?.trim() || "Purely Automation" },
+    owner: { name: ownerName, email: ownerEmail, phone: ownerPhone },
+    message: { body: bodyInput },
+  });
+
+  const body = renderTextTemplate(bodyInput, templateVars).trim();
+
   const fallbackBodyText =
     body ||
     (attachments.length === 1
@@ -71,19 +140,6 @@ export async function POST(req: Request) {
       : attachments.length > 1
         ? `[${attachments.length} attachments]`
         : "");
-
-  const profile = await prisma.businessProfile.findUnique({
-    where: { ownerId },
-    select: { businessName: true },
-  });
-
-  // If replying, keep threading stable by reusing the existing thread.
-  const existingThread = parsed.data.threadId
-    ? await (prisma as any).portalInboxThread.findFirst({
-        where: { id: parsed.data.threadId, ownerId },
-        select: { id: true, channel: true, threadKey: true, peerAddress: true, peerKey: true, subject: true, subjectKey: true },
-      })
-    : null;
 
   if (channel === "sms") {
     const peer = normalizeSmsPeerKey(toRaw);
@@ -148,7 +204,12 @@ export async function POST(req: Request) {
         ownerId,
         triggerKind: "outbound_sent",
         message: { from: twilioCfg?.fromNumberE164 || "", to: peer.peer, body: body || "" },
-        contact: { name: peer.peer, phone: peer.peer },
+        contact: {
+          id: contactRow?.id ? String(contactRow.id) : null,
+          name: contactRow?.name ? String(contactRow.name) : peer.peer,
+          email: contactRow?.email ? String(contactRow.email) : null,
+          phone: contactRow?.phone ? String(contactRow.phone) : peer.peer,
+        },
       });
     } catch {
       // ignore
@@ -158,7 +219,7 @@ export async function POST(req: Request) {
   }
 
   // EMAIL
-  const subjectRaw = (parsed.data.subject ?? "").trim();
+  const subjectRaw = renderTextTemplate(String(parsed.data.subject ?? ""), templateVars).trim();
   const subjectKey = normalizeSubjectKey(subjectRaw);
   const subject = subjectRaw || "(no subject)";
 
@@ -217,7 +278,12 @@ export async function POST(req: Request) {
       ownerId,
       triggerKind: "outbound_sent",
       message: { from: process.env.SENDGRID_FROM_EMAIL || "", to: thread.peerKey, body: body || "" },
-      contact: { name: thread.peerKey, email: thread.peerKey },
+      contact: {
+        id: contactRow?.id ? String(contactRow.id) : null,
+        name: contactRow?.name ? String(contactRow.name) : thread.peerKey,
+        email: contactRow?.email ? String(contactRow.email) : thread.peerKey,
+        phone: contactRow?.phone ? String(contactRow.phone) : null,
+      },
     });
   } catch {
     // ignore

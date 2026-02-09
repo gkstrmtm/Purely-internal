@@ -6,6 +6,8 @@ import styles from "./PortalInboxClient.module.css";
 import { PortalSettingsSection } from "@/components/PortalSettingsSection";
 import { PortalMediaPickerModal, type PortalMediaPickItem } from "@/components/PortalMediaPickerModal";
 import { ContactTagsEditor, type ContactTag } from "@/components/ContactTagsEditor";
+import { PortalVariablePickerModal } from "@/components/PortalVariablePickerModal";
+import { PORTAL_MESSAGE_VARIABLES } from "@/lib/portalTemplateVars";
 
 type Channel = "email" | "sms";
 type EmailBox = "inbox" | "sent" | "all";
@@ -158,6 +160,13 @@ export function PortalInboxClient() {
 
   const [smsMoreOpen, setSmsMoreOpen] = useState(false);
   const [mediaPickerOpen, setMediaPickerOpen] = useState(false);
+
+  const [variablePickerOpen, setVariablePickerOpen] = useState(false);
+  const [variablePickerTarget, setVariablePickerTarget] = useState<null | "sms_body" | "email_subject" | "email_body">(null);
+
+  const smsComposeRef = useRef<HTMLInputElement | null>(null);
+  const emailSubjectRef = useRef<HTMLInputElement | null>(null);
+  const emailBodyRef = useRef<HTMLTextAreaElement | null>(null);
 
   const [contactModalOpen, setContactModalOpen] = useState(false);
   const [contactName, setContactName] = useState("");
@@ -462,6 +471,65 @@ export function PortalInboxClient() {
     if (threadId) setActiveThreadId(threadId);
   }
 
+  function insertAtCursor(
+    current: string,
+    insert: string,
+    el: HTMLInputElement | HTMLTextAreaElement | null,
+  ): { next: string; caret: number } {
+    const base = String(current ?? "");
+    if (!el) {
+      const next = base + insert;
+      return { next, caret: next.length };
+    }
+    const start = typeof el.selectionStart === "number" ? el.selectionStart : base.length;
+    const end = typeof el.selectionEnd === "number" ? el.selectionEnd : start;
+    const next = base.slice(0, start) + insert + base.slice(end);
+    return { next, caret: start + insert.length };
+  }
+
+  function openVariablePicker(target: NonNullable<typeof variablePickerTarget>) {
+    setVariablePickerTarget(target);
+    setVariablePickerOpen(true);
+  }
+
+  function applyPickedVariable(variableKey: string) {
+    const token = `{${variableKey}}`;
+    const setCaretSoon = (el: HTMLInputElement | HTMLTextAreaElement | null, caret: number) => {
+      if (!el) return;
+      requestAnimationFrame(() => {
+        try {
+          el.focus();
+          el.setSelectionRange(caret, caret);
+        } catch {
+          // ignore
+        }
+      });
+    };
+
+    if (variablePickerTarget === "sms_body") {
+      const el = smsComposeRef.current;
+      const { next, caret } = insertAtCursor(composeBody, token, el);
+      setComposeBody(next);
+      setCaretSoon(el, caret);
+      return;
+    }
+
+    if (variablePickerTarget === "email_subject") {
+      const el = emailSubjectRef.current;
+      const { next, caret } = insertAtCursor(composeSubject, token, el);
+      setComposeSubject(next);
+      setCaretSoon(el, caret);
+      return;
+    }
+
+    if (variablePickerTarget === "email_body") {
+      const el = emailBodyRef.current;
+      const { next, caret } = insertAtCursor(composeBody, token, el);
+      setComposeBody(next);
+      setCaretSoon(el, caret);
+    }
+  }
+
   async function regenToken() {
     const res = await fetch("/api/portal/inbox/settings", {
       method: "PUT",
@@ -474,6 +542,16 @@ export function PortalInboxClient() {
 
   return (
     <div className="mx-auto w-full max-w-7xl">
+      <PortalVariablePickerModal
+        open={variablePickerOpen}
+        variables={PORTAL_MESSAGE_VARIABLES}
+        onPick={applyPickedVariable}
+        onClose={() => {
+          setVariablePickerOpen(false);
+          setVariablePickerTarget(null);
+        }}
+      />
+
       <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
         <div>
           <h1 className="text-2xl font-bold text-brand-ink sm:text-3xl">Inbox / Outbox</h1>
@@ -970,6 +1048,16 @@ export function PortalInboxClient() {
                             className="w-full px-4 py-3 text-left text-sm font-semibold text-zinc-900 hover:bg-zinc-50"
                             onClick={() => {
                               setSmsMoreOpen(false);
+                              openVariablePicker("sms_body");
+                            }}
+                          >
+                            Insert variable
+                          </button>
+                          <button
+                            type="button"
+                            className="w-full px-4 py-3 text-left text-sm font-semibold text-zinc-900 hover:bg-zinc-50"
+                            onClick={() => {
+                              setSmsMoreOpen(false);
                               smsFileRef.current?.click();
                             }}
                           >
@@ -1013,6 +1101,7 @@ export function PortalInboxClient() {
                   />
 
                   <input
+                    ref={smsComposeRef}
                     value={composeBody}
                     onChange={(e) => setComposeBody(e.target.value)}
                     onKeyDown={(e) => {
@@ -1089,8 +1178,18 @@ export function PortalInboxClient() {
                       />
                     </div>
                     <div>
-                      <div className="text-xs font-semibold text-zinc-700">Subject</div>
+                      <div className="flex items-center justify-between gap-2">
+                        <div className="text-xs font-semibold text-zinc-700">Subject</div>
+                        <button
+                          type="button"
+                          className="rounded-xl border border-zinc-200 bg-white px-2 py-1 text-[11px] font-semibold text-zinc-700 hover:bg-zinc-50"
+                          onClick={() => openVariablePicker("email_subject")}
+                        >
+                          Insert variable
+                        </button>
+                      </div>
                       <input
+                        ref={emailSubjectRef}
                         value={composeSubject}
                         onChange={(e) => setComposeSubject(e.target.value)}
                         placeholder="Subject"
@@ -1140,12 +1239,18 @@ export function PortalInboxClient() {
               </div>
 
               <div className="border-t border-zinc-100 bg-white p-4">
-                {activeThread ? (
-                  <div className="mb-2 text-xs font-semibold text-zinc-700">Reply</div>
-                ) : (
-                  <div className="mb-2 text-xs font-semibold text-zinc-700">Message</div>
-                )}
+                <div className="mb-2 flex items-center justify-between gap-3">
+                  <div className="text-xs font-semibold text-zinc-700">{activeThread ? "Reply" : "Message"}</div>
+                  <button
+                    type="button"
+                    className="rounded-xl border border-zinc-200 bg-white px-2 py-1 text-[11px] font-semibold text-zinc-700 hover:bg-zinc-50"
+                    onClick={() => openVariablePicker("email_body")}
+                  >
+                    Insert variable
+                  </button>
+                </div>
                 <textarea
+                  ref={emailBodyRef}
                   value={composeBody}
                   onChange={(e) => setComposeBody(e.target.value)}
                   rows={4}
@@ -1175,6 +1280,13 @@ export function PortalInboxClient() {
                     {activeThread ? `Replying to ${activeThread.peerAddress}` : ""}
                   </div>
                   <div className="flex items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={() => openVariablePicker("email_body")}
+                      className="rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm font-semibold text-zinc-700 hover:bg-zinc-50"
+                    >
+                      Insert variable
+                    </button>
                     <button
                       type="button"
                       onClick={() => emailFileRef.current?.click()}

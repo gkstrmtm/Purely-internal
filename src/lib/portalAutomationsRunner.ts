@@ -6,6 +6,8 @@ import { findOrCreatePortalContact } from "@/lib/portalContacts";
 import { addContactTagAssignment } from "@/lib/portalContactTags";
 import { sendEmail as sendSendgridEmail } from "@/lib/leadOutbound";
 import { ensurePortalTasksSchema } from "@/lib/portalTasksSchema";
+import { buildPortalTemplateVars } from "@/lib/portalTemplateVars";
+import { renderTextTemplate } from "@/lib/textTemplate";
 
 type EdgePort = "out" | "true" | "false";
 
@@ -303,6 +305,24 @@ async function runAutomationOnce(opts: {
     },
   };
 
+  const [ownerFromName, ownerInternalEmail, ownerInternalPhone] = await Promise.all([
+    getOwnerFromName(opts.ownerId).catch(() => "Purely Automation"),
+    getOwnerInternalEmail(opts.ownerId).catch(() => null),
+    getOwnerInternalPhone(opts.ownerId).catch(() => null),
+  ]);
+
+  const templateVars = buildPortalTemplateVars({
+    contact: {
+      id: ctx.contact.id,
+      name: ctx.contact.name,
+      email: ctx.contact.email,
+      phone: ctx.contact.phone,
+    },
+    business: { name: ownerFromName },
+    owner: { email: ownerInternalEmail, phone: ownerInternalPhone },
+    message: { from: message.from, to: message.to, body: message.body },
+  });
+
   const maxSteps = 120;
 
   for (const trigger of triggerNodes) {
@@ -331,7 +351,8 @@ async function runAutomationOnce(opts: {
         const cfg = (node as any).config;
         if (isActionConfig(cfg)) {
           if (cfg.actionKind === "send_sms") {
-            const body = String(cfg.body || "").trim() || "Got it — thanks!";
+            const bodyTemplate = String(cfg.body || "").trim() || "Got it — thanks!";
+            const body = renderTextTemplate(bodyTemplate, templateVars);
             const target = (String((cfg as any).smsTo || "inbound_sender") as MessageTarget) || "inbound_sender";
             let to: string | null = null;
 
@@ -350,8 +371,10 @@ async function runAutomationOnce(opts: {
           }
 
           if (cfg.actionKind === "send_email") {
-            const text = String((cfg as any).body || "").trim();
-            const subject = String((cfg as any).subject || "").trim() || "Automated message";
+            const textTemplate = String((cfg as any).body || "").trim();
+            const subjectTemplate = String((cfg as any).subject || "").trim() || "Automated message";
+            const text = renderTextTemplate(textTemplate, templateVars);
+            const subject = renderTextTemplate(subjectTemplate, templateVars);
             const target = (String((cfg as any).emailTo || "internal_notification") as Exclude<MessageTarget, "inbound_sender">) ||
               "internal_notification";
 
@@ -392,8 +415,8 @@ async function runAutomationOnce(opts: {
             const descriptionRaw = String((cfg as any).body || "").trim();
             const assignedToUserIdRaw = String((cfg as any).assignedToUserId || "").trim();
 
-            const title = (titleRaw || "Task").slice(0, 160);
-            let description = descriptionRaw.slice(0, 5000);
+            const title = renderTextTemplate(titleRaw || "Task", templateVars).slice(0, 160);
+            let description = renderTextTemplate(descriptionRaw, templateVars).slice(0, 5000);
             if (!description && (ctx.contact.name || ctx.contact.email || ctx.contact.phone)) {
               const bits = [ctx.contact.name, ctx.contact.email, ctx.contact.phone].filter(Boolean).join(" • ");
               description = bits ? `Related contact: ${bits}`.slice(0, 5000) : "";

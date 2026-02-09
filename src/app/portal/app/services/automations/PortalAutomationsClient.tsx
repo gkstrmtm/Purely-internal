@@ -3,6 +3,9 @@
 import Link from "next/link";
 import { useEffect, useMemo, useRef, useState } from "react";
 
+import { PortalVariablePickerModal } from "@/components/PortalVariablePickerModal";
+import { PORTAL_MESSAGE_VARIABLES } from "@/lib/portalTemplateVars";
+
 type BuilderNodeType = "trigger" | "action" | "delay" | "condition" | "note";
 
 type EdgePort = "out" | "true" | "false";
@@ -303,6 +306,18 @@ export function PortalAutomationsClient() {
   const [createTagError, setCreateTagError] = useState<string | null>(null);
   const [createTagApplyTo, setCreateTagApplyTo] = useState<null | { nodeId: string; kind: "action" | "trigger" }>(null);
 
+  const [variablePickerOpen, setVariablePickerOpen] = useState(false);
+  const [variablePickerTarget, setVariablePickerTarget] = useState<
+    null | "sms_body" | "email_subject" | "email_body" | "task_title" | "task_description" | "test_sms_body"
+  >(null);
+
+  const smsBodyRef = useRef<HTMLTextAreaElement | null>(null);
+  const emailSubjectRef = useRef<HTMLInputElement | null>(null);
+  const emailBodyRef = useRef<HTMLTextAreaElement | null>(null);
+  const taskTitleRef = useRef<HTMLInputElement | null>(null);
+  const taskDescriptionRef = useRef<HTMLTextAreaElement | null>(null);
+  const testSmsBodyRef = useRef<HTMLTextAreaElement | null>(null);
+
   const CREATE_TAG_VALUE = "__create_tag__";
 
   const [automations, setAutomations] = useState<Automation[]>([]);
@@ -372,6 +387,113 @@ export function PortalAutomationsClient() {
     setAutomations((prev) =>
       prev.map((a) => (a.id === selectedAutomationId ? mutator(a) : a)),
     );
+  }
+
+  function insertAtCursor(
+    current: string,
+    insert: string,
+    el: HTMLInputElement | HTMLTextAreaElement | null,
+  ): { next: string; caret: number } {
+    const base = String(current ?? "");
+    if (!el) {
+      const next = base + insert;
+      return { next, caret: next.length };
+    }
+    const start = typeof el.selectionStart === "number" ? el.selectionStart : base.length;
+    const end = typeof el.selectionEnd === "number" ? el.selectionEnd : start;
+    const next = base.slice(0, start) + insert + base.slice(end);
+    return { next, caret: start + insert.length };
+  }
+
+  function openVariablePicker(target: NonNullable<typeof variablePickerTarget>) {
+    setVariablePickerTarget(target);
+    setVariablePickerOpen(true);
+  }
+
+  function applyPickedVariable(variableKey: string) {
+    const token = `{${variableKey}}`;
+
+    if (!selectedNodeId) return;
+
+    const setCaretSoon = (el: HTMLInputElement | HTMLTextAreaElement | null, caret: number) => {
+      if (!el) return;
+      requestAnimationFrame(() => {
+        try {
+          el.focus();
+          el.setSelectionRange(caret, caret);
+        } catch {
+          // ignore
+        }
+      });
+    };
+
+    if (variablePickerTarget === "sms_body") {
+      const el = smsBodyRef.current;
+      const current = String((selectedNode?.config as any)?.body ?? "");
+      const { next, caret } = insertAtCursor(current, token, el);
+      updateSelectedAutomation((a) => {
+        const nodes = a.nodes.map((n) => (n.id === selectedNodeId ? { ...n, config: { ...(n.config as any), kind: "action", body: next } } : n));
+        return { ...a, nodes, updatedAtIso: new Date().toISOString() } as any;
+      });
+      setCaretSoon(el, caret);
+      return;
+    }
+
+    if (variablePickerTarget === "email_subject") {
+      const el = emailSubjectRef.current;
+      const current = String((selectedNode?.config as any)?.subject ?? "");
+      const { next, caret } = insertAtCursor(current, token, el);
+      updateSelectedAutomation((a) => {
+        const nodes = a.nodes.map((n) => (n.id === selectedNodeId ? { ...n, config: { ...(n.config as any), kind: "action", subject: next } } : n));
+        return { ...a, nodes, updatedAtIso: new Date().toISOString() } as any;
+      });
+      setCaretSoon(el, caret);
+      return;
+    }
+
+    if (variablePickerTarget === "email_body") {
+      const el = emailBodyRef.current;
+      const current = String((selectedNode?.config as any)?.body ?? "");
+      const { next, caret } = insertAtCursor(current, token, el);
+      updateSelectedAutomation((a) => {
+        const nodes = a.nodes.map((n) => (n.id === selectedNodeId ? { ...n, config: { ...(n.config as any), kind: "action", body: next } } : n));
+        return { ...a, nodes, updatedAtIso: new Date().toISOString() } as any;
+      });
+      setCaretSoon(el, caret);
+      return;
+    }
+
+    if (variablePickerTarget === "task_title") {
+      const el = taskTitleRef.current;
+      const current = String((selectedNode?.config as any)?.subject ?? "");
+      const { next, caret } = insertAtCursor(current, token, el);
+      updateSelectedAutomation((a) => {
+        const nodes = a.nodes.map((n) => (n.id === selectedNodeId ? { ...n, config: { ...(n.config as any), kind: "action", subject: next } } : n));
+        return { ...a, nodes, updatedAtIso: new Date().toISOString() } as any;
+      });
+      setCaretSoon(el, caret);
+      return;
+    }
+
+    if (variablePickerTarget === "task_description") {
+      const el = taskDescriptionRef.current;
+      const current = String((selectedNode?.config as any)?.body ?? "");
+      const { next, caret } = insertAtCursor(current, token, el);
+      updateSelectedAutomation((a) => {
+        const nodes = a.nodes.map((n) => (n.id === selectedNodeId ? { ...n, config: { ...(n.config as any), kind: "action", body: next } } : n));
+        return { ...a, nodes, updatedAtIso: new Date().toISOString() } as any;
+      });
+      setCaretSoon(el, caret);
+      return;
+    }
+
+    if (variablePickerTarget === "test_sms_body") {
+      const el = testSmsBodyRef.current;
+      const current = String(testBody ?? "");
+      const { next, caret } = insertAtCursor(current, token, el);
+      setTestBody(next);
+      setCaretSoon(el, caret);
+    }
   }
 
   const selectedAutomation = useMemo(() => {
@@ -942,6 +1064,16 @@ export function PortalAutomationsClient() {
       {error ? <div className="mt-4 rounded-2xl bg-red-50 px-4 py-3 text-sm text-red-700">{error}</div> : null}
       {note ? <div className="mt-4 rounded-2xl bg-emerald-50 px-4 py-3 text-sm text-emerald-800">{note}</div> : null}
 
+      <PortalVariablePickerModal
+        open={variablePickerOpen}
+        variables={PORTAL_MESSAGE_VARIABLES}
+        onPick={applyPickedVariable}
+        onClose={() => {
+          setVariablePickerOpen(false);
+          setVariablePickerTarget(null);
+        }}
+      />
+
       {renameOpen && selectedAutomation ? (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/30 p-4" onMouseDown={() => setRenameOpen(false)}>
           <div
@@ -1040,8 +1172,18 @@ export function PortalAutomationsClient() {
                 />
               </div>
               <div>
-                <label className="text-xs font-semibold text-zinc-600">Message</label>
+                  <div className="flex items-center justify-between gap-3">
+                    <label className="text-xs font-semibold text-zinc-600">Message</label>
+                    <button
+                      type="button"
+                      className="rounded-xl border border-zinc-200 bg-white px-2 py-1 text-xs font-semibold text-zinc-700 hover:bg-zinc-50"
+                      onClick={() => openVariablePicker("test_sms_body")}
+                    >
+                      Add variable
+                    </button>
+                  </div>
                 <textarea
+                    ref={testSmsBodyRef}
                   value={testBody}
                   onChange={(e) => setTestBody(e.target.value)}
                   onKeyDown={(e) => {
@@ -1881,8 +2023,19 @@ export function PortalAutomationsClient() {
                                       />
                                     ) : null}
 
+                                    <div className="mt-2 flex items-center justify-between gap-3">
+                                      <div className="text-xs font-semibold text-zinc-600">SMS body</div>
+                                      <button
+                                        type="button"
+                                        className="rounded-xl border border-zinc-200 bg-white px-2 py-1 text-xs font-semibold text-zinc-700 hover:bg-zinc-50"
+                                        onClick={() => openVariablePicker("sms_body")}
+                                      >
+                                        Add variable
+                                      </button>
+                                    </div>
                                     <textarea
-                                      className="mt-2 w-full resize-none rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-sm"
+                                      ref={smsBodyRef}
+                                      className="mt-1 w-full resize-none rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-sm"
                                       rows={3}
                                       placeholder="SMS body"
                                       value={String(cfg.body || "").slice(0, 1200)}
@@ -1968,8 +2121,20 @@ export function PortalAutomationsClient() {
                                       />
                                     ) : null}
 
+                                    <div className="mt-2 flex items-center justify-between gap-3">
+                                      <div className="text-xs font-semibold text-zinc-600">Subject</div>
+                                      <button
+                                        type="button"
+                                        className="rounded-xl border border-zinc-200 bg-white px-2 py-1 text-xs font-semibold text-zinc-700 hover:bg-zinc-50"
+                                        onClick={() => openVariablePicker("email_subject")}
+                                      >
+                                        Add variable
+                                      </button>
+                                    </div>
+
                                     <input
-                                      className="mt-2 w-full rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-sm"
+                                      ref={emailSubjectRef}
+                                      className="mt-1 w-full rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-sm"
                                       placeholder="Subject"
                                       value={subject}
                                       onChange={(e) => {
@@ -1991,8 +2156,19 @@ export function PortalAutomationsClient() {
                                       }}
                                     />
 
+                                    <div className="mt-2 flex items-center justify-between gap-3">
+                                      <div className="text-xs font-semibold text-zinc-600">Email body</div>
+                                      <button
+                                        type="button"
+                                        className="rounded-xl border border-zinc-200 bg-white px-2 py-1 text-xs font-semibold text-zinc-700 hover:bg-zinc-50"
+                                        onClick={() => openVariablePicker("email_body")}
+                                      >
+                                        Add variable
+                                      </button>
+                                    </div>
                                     <textarea
-                                      className="mt-2 w-full resize-none rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-sm"
+                                      ref={emailBodyRef}
+                                      className="mt-1 w-full resize-none rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-sm"
                                       rows={4}
                                       placeholder="Email body"
                                       value={String(cfg.body || "").slice(0, 4000)}
@@ -2081,8 +2257,18 @@ export function PortalAutomationsClient() {
                                 return (
                                   <>
                                     <div className="mt-2">
-                                      <div className="text-xs font-semibold text-zinc-600">Title</div>
+                                      <div className="flex items-center justify-between gap-3">
+                                        <div className="text-xs font-semibold text-zinc-600">Title</div>
+                                        <button
+                                          type="button"
+                                          className="rounded-xl border border-zinc-200 bg-white px-2 py-1 text-xs font-semibold text-zinc-700 hover:bg-zinc-50"
+                                          onClick={() => openVariablePicker("task_title")}
+                                        >
+                                          Add variable
+                                        </button>
+                                      </div>
                                       <input
+                                        ref={taskTitleRef}
                                         className="mt-1 w-full rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-sm"
                                         placeholder="Task title"
                                         value={title}
@@ -2107,8 +2293,18 @@ export function PortalAutomationsClient() {
                                     </div>
 
                                     <div className="mt-2">
-                                      <div className="text-xs font-semibold text-zinc-600">Description</div>
+                                      <div className="flex items-center justify-between gap-3">
+                                        <div className="text-xs font-semibold text-zinc-600">Description</div>
+                                        <button
+                                          type="button"
+                                          className="rounded-xl border border-zinc-200 bg-white px-2 py-1 text-xs font-semibold text-zinc-700 hover:bg-zinc-50"
+                                          onClick={() => openVariablePicker("task_description")}
+                                        >
+                                          Add variable
+                                        </button>
+                                      </div>
                                       <textarea
+                                        ref={taskDescriptionRef}
                                         className="mt-1 w-full resize-none rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-sm"
                                         rows={4}
                                         placeholder="Details (optional)"
