@@ -87,6 +87,23 @@ async function resolvePrimarySendLink(
   };
 }
 
+export async function getOwnerPrimaryReviewLink(ownerId: string): Promise<{ label: string; url: string } | null> {
+  const cleanOwnerId = String(ownerId || "").trim();
+  if (!cleanOwnerId) return null;
+
+  try {
+    const data = await getReviewRequestsServiceData(cleanOwnerId);
+    const settings = data.settings;
+    if (!settings.enabled) return null;
+
+    const resolved = await resolvePrimarySendLink(cleanOwnerId, settings);
+    if (!resolved?.destinationUrl) return null;
+    return { label: resolved.destinationLabel, url: resolved.destinationUrl };
+  } catch {
+    return null;
+  }
+}
+
 export type ReviewDelayUnit = "minutes" | "hours" | "days" | "weeks";
 
 export type ReviewDelay = {

@@ -2,12 +2,14 @@ import crypto from "crypto";
 
 import { prisma } from "@/lib/db";
 import { sendOwnerTwilioSms } from "@/lib/portalTwilio";
-import { findOrCreatePortalContact } from "@/lib/portalContacts";
+import { findOrCreatePortalContact, normalizeEmailKey, normalizeNameKey, normalizePhoneKey } from "@/lib/portalContacts";
 import { addContactTagAssignment } from "@/lib/portalContactTags";
 import { sendEmail as sendSendgridEmail } from "@/lib/leadOutbound";
 import { ensurePortalTasksSchema } from "@/lib/portalTasksSchema";
 import { buildPortalTemplateVars } from "@/lib/portalTemplateVars";
 import { renderTextTemplate } from "@/lib/textTemplate";
+import { ensurePortalContactsSchema } from "@/lib/portalContactsSchema";
+import { getOwnerPrimaryReviewLink } from "@/lib/reviewRequests";
 
 type EdgePort = "out" | "true" | "false";
 
@@ -31,7 +33,27 @@ type TriggerKind =
   | "follow_up_sent"
   | "outbound_sent";
 
-type ActionKind = "send_sms" | "send_email" | "add_tag" | "create_task";
+type ActionKind =
+  | "send_sms"
+  | "send_email"
+  | "add_tag"
+  | "create_task"
+  | "send_webhook"
+  | "send_review_request"
+  | "send_booking_link"
+  | "update_contact";
+
+function getBasePublicUrl() {
+  const raw = process.env.NEXTAUTH_URL ?? process.env.NEXT_PUBLIC_APP_URL ?? "http://localhost:3000";
+  return raw.replace(/\/+$/, "");
+}
+
+async function getOwnerBookingLink(ownerId: string): Promise<string | null> {
+  const site = await prisma.portalBookingSite.findUnique({ where: { ownerId }, select: { slug: true } });
+  const slug = site?.slug ? String(site.slug).trim() : "";
+  if (!slug) return null;
+  return `${getBasePublicUrl()}/book/${encodeURIComponent(slug)}`;
+}
 
 type MessageTarget = "inbound_sender" | "event_contact" | "internal_notification" | "custom";
 
@@ -49,6 +71,15 @@ type BuilderNodeConfig =
       smsToNumber?: string;
       emailTo?: Exclude<MessageTarget, "inbound_sender">;
       emailToAddress?: string;
+
+      // Send webhook
+      webhookUrl?: string;
+      webhookBodyJson?: string;
+
+      // Update contact
+      contactName?: string;
+      contactEmail?: string;
+      contactPhone?: string;
     }
   | { kind: "delay"; minutes: number }
   | { kind: "condition"; left: string; op: ConditionOp; right: string }
@@ -441,23 +472,187 @@ async function runAutomationOnce(opts: {
             }
 
             // Default assignment: account owner.
-            if (!assignedToUserId) assignedToUserId = opts.ownerId;
+            if (!assignedToUserId && assignedToUserIdRaw !== "__all_users__") assignedToUserId = opts.ownerId;
 
-            try {
-              const id = crypto.randomUUID().replace(/-/g, "");
-              const now = new Date();
-              await prisma.$executeRawUnsafe(
-                `INSERT INTO "PortalTask" ("id","ownerId","title","description","status","assignedToUserId","dueAt","createdAt","updatedAt")
-                 VALUES ($1,$2,$3,$4,'OPEN',$5,NULL,DEFAULT,$6)`,
-                id,
-                opts.ownerId,
-                title,
-                description || null,
-                assignedToUserId,
-                now,
-              );
-            } catch {
-              // best-effort
+            const createOneTask = async (userId: string | null) => {
+              try {
+                const id = crypto.randomUUID().replace(/-/g, "");
+                const now = new Date();
+                await prisma.$executeRawUnsafe(
+                  `INSERT INTO "PortalTask" ("id","ownerId","title","description","status","assignedToUserId","dueAt","createdAt","updatedAt")
+                   VALUES ($1,$2,$3,$4,'OPEN',$5,NULL,DEFAULT,$6)`,
+                  id,
+                  opts.ownerId,
+                  title,
+                  description || null,
+                  userId,
+                  now,
+                );
+              } catch {
+                // best-effort
+              }
+            };
+
+            if (assignedToUserIdRaw === "__all_users__") {
+              try {
+                const members = await (prisma as any).portalAccountMember
+                  .findMany({
+                    where: { ownerId: opts.ownerId },
+                    select: { userId: true, user: { select: { active: true } } },
+                    take: 200,
+                  })
+                  .catch(() => [] as any[]);
+                const ids = new Set<string>();
+                ids.add(opts.ownerId);
+                for (const m of Array.isArray(members) ? members : []) {
+                  const id = m?.userId ? String(m.userId) : "";
+                  const active = Boolean(m?.user?.active ?? true);
+                  if (id && active) ids.add(id);
+                }
+                for (const id of Array.from(ids)) {
+                  await createOneTask(id);
+                }
+              } catch {
+                // ignore
+              }
+            } else {
+              await createOneTask(assignedToUserId);
+            }
+          }
+
+          if (cfg.actionKind === "send_review_request") {
+            const link = await getOwnerPrimaryReviewLink(opts.ownerId).catch(() => null);
+            const url = link?.url ? String(link.url) : "";
+            if (url) {
+              const bodyTemplate = String((cfg as any).body || "").trim() || "Thanks for choosing {business.name}! Leave a review: {link}";
+              const body = renderTextTemplate(bodyTemplate, { ...templateVars, link: url });
+
+              const target = (String((cfg as any).smsTo || "event_contact") as MessageTarget) || "event_contact";
+              let to: string | null = null;
+
+              if (target === "inbound_sender") to = message.from || null;
+              if (target === "event_contact") to = ctx.contact.phone || message.from || null;
+              if (target === "internal_notification") to = await getOwnerInternalPhone(opts.ownerId).catch(() => null);
+              if (target === "custom") to = String((cfg as any).smsToNumber || "").trim() || null;
+
+              if (to) {
+                try {
+                  await sendOwnerTwilioSms({ ownerId: opts.ownerId, to, body: body.slice(0, 1200) });
+                } catch {
+                  // best-effort
+                }
+              }
+            }
+          }
+
+          if (cfg.actionKind === "send_booking_link") {
+            const url = (await getOwnerBookingLink(opts.ownerId).catch(() => null)) || "";
+            if (url) {
+              const bodyTemplate = String((cfg as any).body || "").trim() || "Book an appointment here: {link}";
+              const body = renderTextTemplate(bodyTemplate, { ...templateVars, link: url });
+
+              const target = (String((cfg as any).smsTo || "event_contact") as MessageTarget) || "event_contact";
+              let to: string | null = null;
+
+              if (target === "inbound_sender") to = message.from || null;
+              if (target === "event_contact") to = ctx.contact.phone || message.from || null;
+              if (target === "internal_notification") to = await getOwnerInternalPhone(opts.ownerId).catch(() => null);
+              if (target === "custom") to = String((cfg as any).smsToNumber || "").trim() || null;
+
+              if (to) {
+                try {
+                  await sendOwnerTwilioSms({ ownerId: opts.ownerId, to, body: body.slice(0, 1200) });
+                } catch {
+                  // best-effort
+                }
+              }
+            }
+          }
+
+          if (cfg.actionKind === "send_webhook") {
+            const webhookUrl = String((cfg as any).webhookUrl || "").trim();
+            if (webhookUrl) {
+              let urlOk = false;
+              try {
+                const u = new URL(webhookUrl);
+                urlOk = u.protocol === "https:" || u.protocol === "http:";
+              } catch {
+                urlOk = false;
+              }
+
+              if (urlOk) {
+                const defaultPayload = {
+                  ownerId: opts.ownerId,
+                  triggerKind: opts.triggerKind,
+                  contact: ctx.contact,
+                  message,
+                  event: opts.event ?? {},
+                };
+
+                const bodyJsonTemplate = String((cfg as any).webhookBodyJson || "").trim();
+                let payload: any = defaultPayload;
+                if (bodyJsonTemplate) {
+                  const rendered = renderTextTemplate(bodyJsonTemplate, templateVars);
+                  try {
+                    payload = JSON.parse(rendered);
+                  } catch {
+                    payload = { ...defaultPayload, body: rendered };
+                  }
+                }
+
+                try {
+                  await fetch(webhookUrl, {
+                    method: "POST",
+                    headers: { "content-type": "application/json" },
+                    body: JSON.stringify(payload).slice(0, 200_000),
+                  });
+                } catch {
+                  // best-effort
+                }
+              }
+            }
+          }
+
+          if (cfg.actionKind === "update_contact") {
+            if (contactId) {
+              const nameTemplate = String((cfg as any).contactName || "").trim();
+              const emailTemplate = String((cfg as any).contactEmail || "").trim();
+              const phoneTemplate = String((cfg as any).contactPhone || "").trim();
+
+              const nextName = nameTemplate ? renderTextTemplate(nameTemplate, templateVars).trim().slice(0, 80) : "";
+              const nextEmailRaw = emailTemplate ? renderTextTemplate(emailTemplate, templateVars).trim().slice(0, 120) : "";
+              const nextPhoneRaw = phoneTemplate ? renderTextTemplate(phoneTemplate, templateVars).trim().slice(0, 64) : "";
+
+              const nameKey = nextName ? normalizeNameKey(nextName) : null;
+              const emailKey = nextEmailRaw ? normalizeEmailKey(nextEmailRaw) : null;
+              const phoneNorm = nextPhoneRaw ? normalizePhoneKey(nextPhoneRaw) : { phone: null, phoneKey: null };
+
+              const data: any = {};
+              if (nextName && nameKey) {
+                data.name = nextName;
+                data.nameKey = nameKey;
+              }
+              if (nextEmailRaw) {
+                data.email = emailKey ? nextEmailRaw : null;
+                data.emailKey = emailKey;
+              }
+              if (nextPhoneRaw) {
+                data.phone = phoneNorm.phone;
+                data.phoneKey = phoneNorm.phoneKey;
+              }
+
+              if (Object.keys(data).length) {
+                try {
+                  await ensurePortalContactsSchema().catch(() => null);
+                  await (prisma as any).portalContact.update({
+                    where: { id: contactId },
+                    data,
+                    select: { id: true },
+                  });
+                } catch {
+                  // best-effort
+                }
+              }
             }
           }
         }

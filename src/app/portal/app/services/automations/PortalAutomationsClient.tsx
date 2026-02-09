@@ -4,7 +4,7 @@ import Link from "next/link";
 import { useEffect, useMemo, useRef, useState } from "react";
 
 import { PortalVariablePickerModal } from "@/components/PortalVariablePickerModal";
-import { PORTAL_MESSAGE_VARIABLES } from "@/lib/portalTemplateVars";
+import { PORTAL_LINK_VARIABLES, PORTAL_MESSAGE_VARIABLES } from "@/lib/portalTemplateVars";
 
 type BuilderNodeType = "trigger" | "action" | "delay" | "condition" | "note";
 
@@ -27,13 +27,39 @@ type TriggerKind =
   | "review_received"
   | "follow_up_sent"
   | "outbound_sent";
-type ActionKind = "send_sms" | "send_email" | "add_tag" | "create_task";
+type ActionKind =
+  | "send_sms"
+  | "send_email"
+  | "add_tag"
+  | "create_task"
+  | "send_webhook"
+  | "send_review_request"
+  | "send_booking_link"
+  | "update_contact";
 type ConditionOp = "equals" | "contains" | "starts_with" | "ends_with" | "is_empty" | "is_not_empty";
 
 type MessageTarget = "inbound_sender" | "event_contact" | "internal_notification" | "custom";
 
 type BuilderNodeConfig =
-  | { kind: "trigger"; triggerKind: TriggerKind; tagId?: string; webhookKey?: string }
+  | {
+      kind: "trigger";
+      triggerKind: TriggerKind;
+      tagId?: string;
+      webhookKey?: string;
+
+      // scheduled_time scheduler
+      scheduleMode?: "every" | "specific";
+      everyValue?: number;
+      everyUnit?: "minutes" | "days" | "weeks" | "months";
+
+      specificKind?: "daily" | "weekly" | "monthly";
+      specificTime?: string; // HH:MM (24h)
+      specificWeekday?: number; // 0..6 (Sun..Sat)
+      specificDayOfMonth?: number; // 1..31
+
+      // back-compat
+      intervalMinutes?: number;
+    }
   | {
       kind: "action";
       actionKind: ActionKind;
@@ -45,6 +71,13 @@ type BuilderNodeConfig =
       smsToNumber?: string;
       emailTo?: MessageTarget;
       emailToAddress?: string;
+
+      webhookUrl?: string;
+      webhookBodyJson?: string;
+
+      contactName?: string;
+      contactEmail?: string;
+      contactPhone?: string;
     }
   | { kind: "delay"; minutes: number }
   | { kind: "condition"; left: string; op: ConditionOp; right: string }
@@ -124,12 +157,13 @@ type Automation = {
   id: string;
   name: string;
   updatedAtIso?: string;
+  createdBy?: { userId: string; email?: string; name?: string };
   nodes: BuilderNode[];
   edges: BuilderEdge[];
 };
 
 type ApiPayload =
-  | { ok: true; automations: Automation[] }
+  | { ok: true; webhookToken?: string; viewer?: { userId: string; email?: string; name?: string }; automations: Automation[] }
   | { error: string };
 
 const NODE_W = 240;
@@ -167,6 +201,82 @@ function badgeForType(t: BuilderNodeType) {
   }
 }
 
+type ActionKindOption = { value: ActionKind; label: string; disabled?: boolean; hint?: string };
+
+function ActionKindDropdown(props: {
+  value: ActionKind;
+  options: ActionKindOption[];
+  onChange: (v: ActionKind) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const rootRef = useRef<HTMLDivElement | null>(null);
+
+  const current = props.options.find((o) => o.value === props.value) ?? { value: props.value, label: props.value };
+
+  useEffect(() => {
+    if (!open) return;
+    const onDown = (ev: MouseEvent) => {
+      const el = rootRef.current;
+      if (!el) return;
+      if (ev.target && el.contains(ev.target as Node)) return;
+      setOpen(false);
+    };
+    window.addEventListener("mousedown", onDown);
+    return () => window.removeEventListener("mousedown", onDown);
+  }, [open]);
+
+  return (
+    <div ref={rootRef} className="relative mt-1">
+      <button
+        type="button"
+        className="flex w-full items-center justify-between gap-2 rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-sm hover:bg-zinc-50"
+        onClick={() => setOpen((v) => !v)}
+        aria-haspopup="listbox"
+        aria-expanded={open}
+      >
+        <span className="truncate">{current.label}</span>
+        <span className="shrink-0 text-xs text-zinc-500">▾</span>
+      </button>
+
+      {open ? (
+        <div className="absolute z-50 mt-2 w-full overflow-hidden rounded-2xl border border-zinc-200 bg-white shadow-lg">
+          <div className="max-h-[260px] overflow-auto p-1">
+            {props.options.map((o) => {
+              const isSel = o.value === props.value;
+              const disabled = Boolean(o.disabled);
+              return (
+                <button
+                  key={o.value}
+                  type="button"
+                  className={
+                    "w-full rounded-xl px-3 py-2 text-left text-sm transition " +
+                    (disabled
+                      ? "cursor-not-allowed text-zinc-400"
+                      : isSel
+                        ? "bg-zinc-900 text-white"
+                        : "hover:bg-zinc-50 text-zinc-900")
+                  }
+                  onClick={() => {
+                    if (disabled) return;
+                    props.onChange(o.value);
+                    setOpen(false);
+                  }}
+                >
+                  <div className="flex items-center justify-between gap-2">
+                    <div className="truncate font-semibold">{o.label}</div>
+                    {isSel ? <div className="text-xs">✓</div> : null}
+                  </div>
+                  {o.hint ? <div className={"mt-0.5 text-xs " + (disabled ? "text-zinc-400" : "text-zinc-500")}>{o.hint}</div> : null}
+                </button>
+              );
+            })}
+          </div>
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
 function edgePath(x1: number, y1: number, x2: number, y2: number) {
   const dx = Math.max(80, Math.abs(x2 - x1) * 0.5);
   const c1x = x1 + dx;
@@ -182,6 +292,7 @@ function buildStarterAutomation(): Automation {
     id: uid("auto"),
     name: "New automation",
     updatedAtIso: new Date().toISOString(),
+    createdBy: undefined,
     nodes: [
       {
         id: triggerId,
@@ -251,6 +362,10 @@ function labelForConfig(t: BuilderNodeType, cfg: BuilderNodeConfig | undefined) 
       send_email: "Send Email",
       add_tag: "Add Tag",
       create_task: "Create Task",
+      send_webhook: "Send Webhook",
+      send_review_request: "Review Request",
+      send_booking_link: "Book Appointment",
+      update_contact: "Update Contact",
     };
     return `Action: ${map[cfg.actionKind]}`;
   }
@@ -296,6 +411,8 @@ export function PortalAutomationsClient() {
   const [testFrom, setTestFrom] = useState("+15555550123");
   const [testBody, setTestBody] = useState("Hello");
 
+  const [viewer, setViewer] = useState<null | { userId: string; email?: string; name?: string }>(null);
+
   const [ownerTags, setOwnerTags] = useState<ContactTag[]>([]);
   const [accountMembers, setAccountMembers] = useState<AccountMember[]>([]);
 
@@ -308,7 +425,17 @@ export function PortalAutomationsClient() {
 
   const [variablePickerOpen, setVariablePickerOpen] = useState(false);
   const [variablePickerTarget, setVariablePickerTarget] = useState<
-    null | "sms_body" | "email_subject" | "email_body" | "task_title" | "task_description" | "test_sms_body"
+    | null
+    | "sms_body"
+    | "email_subject"
+    | "email_body"
+    | "task_title"
+    | "task_description"
+    | "test_sms_body"
+    | "webhook_body"
+    | "update_contact_name"
+    | "update_contact_email"
+    | "update_contact_phone"
   >(null);
 
   const smsBodyRef = useRef<HTMLTextAreaElement | null>(null);
@@ -317,6 +444,10 @@ export function PortalAutomationsClient() {
   const taskTitleRef = useRef<HTMLInputElement | null>(null);
   const taskDescriptionRef = useRef<HTMLTextAreaElement | null>(null);
   const testSmsBodyRef = useRef<HTMLTextAreaElement | null>(null);
+  const webhookBodyRef = useRef<HTMLTextAreaElement | null>(null);
+  const updateContactNameRef = useRef<HTMLInputElement | null>(null);
+  const updateContactEmailRef = useRef<HTMLInputElement | null>(null);
+  const updateContactPhoneRef = useRef<HTMLInputElement | null>(null);
 
   const CREATE_TAG_VALUE = "__create_tag__";
 
@@ -494,12 +625,76 @@ export function PortalAutomationsClient() {
       setTestBody(next);
       setCaretSoon(el, caret);
     }
+
+    if (variablePickerTarget === "webhook_body") {
+      const el = webhookBodyRef.current;
+      const current = String((selectedNode?.config as any)?.webhookBodyJson ?? "");
+      const { next, caret } = insertAtCursor(current, token, el);
+      updateSelectedAutomation((a) => {
+        const nodes = a.nodes.map((n) =>
+          n.id === selectedNodeId ? { ...n, config: { ...(n.config as any), kind: "action", webhookBodyJson: next } } : n,
+        );
+        return { ...a, nodes, updatedAtIso: new Date().toISOString() } as any;
+      });
+      setCaretSoon(el, caret);
+      return;
+    }
+
+    if (variablePickerTarget === "update_contact_name") {
+      const el = updateContactNameRef.current;
+      const current = String((selectedNode?.config as any)?.contactName ?? "");
+      const { next, caret } = insertAtCursor(current, token, el);
+      updateSelectedAutomation((a) => {
+        const nodes = a.nodes.map((n) =>
+          n.id === selectedNodeId ? { ...n, config: { ...(n.config as any), kind: "action", contactName: next } } : n,
+        );
+        return { ...a, nodes, updatedAtIso: new Date().toISOString() } as any;
+      });
+      setCaretSoon(el, caret);
+      return;
+    }
+
+    if (variablePickerTarget === "update_contact_email") {
+      const el = updateContactEmailRef.current;
+      const current = String((selectedNode?.config as any)?.contactEmail ?? "");
+      const { next, caret } = insertAtCursor(current, token, el);
+      updateSelectedAutomation((a) => {
+        const nodes = a.nodes.map((n) =>
+          n.id === selectedNodeId ? { ...n, config: { ...(n.config as any), kind: "action", contactEmail: next } } : n,
+        );
+        return { ...a, nodes, updatedAtIso: new Date().toISOString() } as any;
+      });
+      setCaretSoon(el, caret);
+      return;
+    }
+
+    if (variablePickerTarget === "update_contact_phone") {
+      const el = updateContactPhoneRef.current;
+      const current = String((selectedNode?.config as any)?.contactPhone ?? "");
+      const { next, caret } = insertAtCursor(current, token, el);
+      updateSelectedAutomation((a) => {
+        const nodes = a.nodes.map((n) =>
+          n.id === selectedNodeId ? { ...n, config: { ...(n.config as any), kind: "action", contactPhone: next } } : n,
+        );
+        return { ...a, nodes, updatedAtIso: new Date().toISOString() } as any;
+      });
+      setCaretSoon(el, caret);
+      return;
+    }
   }
 
   const selectedAutomation = useMemo(() => {
     if (!selectedAutomationId) return null;
     return automations.find((a) => a.id === selectedAutomationId) ?? null;
   }, [automations, selectedAutomationId]);
+
+  const selectedAutomationTriggerKind = useMemo((): TriggerKind | null => {
+    const auto = selectedAutomation;
+    if (!auto) return null;
+    const t = (auto.nodes || []).find((n) => n.type === "trigger" && (n.config as any)?.kind === "trigger") as any;
+    const k = t?.config?.triggerKind as TriggerKind | undefined;
+    return k || null;
+  }, [selectedAutomation]);
 
   const selectedNode = useMemo(() => {
     if (!selectedAutomation || !selectedNodeId) return null;
@@ -531,6 +726,16 @@ export function PortalAutomationsClient() {
 
     const list = Array.isArray((data as any).automations) ? ((data as any).automations as Automation[]) : [];
     setAutomations(list);
+
+    const v = (data as any).viewer;
+    if (v && typeof v === "object") {
+      const nextViewer = {
+        userId: String((v as any).userId || ""),
+        email: typeof (v as any).email === "string" ? String((v as any).email) : undefined,
+        name: typeof (v as any).name === "string" ? String((v as any).name) : undefined,
+      };
+      if (nextViewer.userId) setViewer(nextViewer);
+    }
 
     let selected: string | null = null;
     try {
@@ -812,6 +1017,15 @@ export function PortalAutomationsClient() {
     const x = clamp((ev.clientX - rect.left - view.panX) / view.zoom - NODE_W / 2, -6000, 8000);
     const y = clamp((ev.clientY - rect.top - view.panY) / view.zoom - NODE_H / 2, -6000, 8000);
 
+    if (t === "trigger") {
+      const alreadyHasTrigger = (selectedAutomation?.nodes || []).some((n) => n.type === "trigger");
+      if (alreadyHasTrigger) {
+        setNote("Only one trigger is allowed per automation.");
+        window.setTimeout(() => setNote(null), 1800);
+        return;
+      }
+    }
+
     const config = defaultConfigForType(t);
     const node: BuilderNode = { id: uid("n"), type: t, label: labelForConfig(t, config), x, y, config };
 
@@ -913,6 +1127,7 @@ export function PortalAutomationsClient() {
       id: uid("auto"),
       name: `Automation ${automations.length + 1}`,
       updatedAtIso: new Date().toISOString(),
+      createdBy: viewer?.userId ? { userId: viewer.userId, email: viewer.email, name: viewer.name } : undefined,
       nodes: [{ id: uid("n"), type: "trigger", label: "Trigger: Inbound SMS", x: 100, y: 120 }],
       edges: [],
     };
@@ -1066,7 +1281,7 @@ export function PortalAutomationsClient() {
 
       <PortalVariablePickerModal
         open={variablePickerOpen}
-        variables={PORTAL_MESSAGE_VARIABLES}
+        variables={[...PORTAL_MESSAGE_VARIABLES, ...PORTAL_LINK_VARIABLES]}
         onPick={applyPickedVariable}
         onClose={() => {
           setVariablePickerOpen(false);
@@ -1389,6 +1604,13 @@ export function PortalAutomationsClient() {
                   <div className="mt-1 text-xs text-zinc-200">
                     {(selectedAutomation.nodes?.length ?? 0)} nodes · {(selectedAutomation.edges?.length ?? 0)} connections
                   </div>
+                  {selectedAutomation.createdBy?.userId ? (
+                    <div className="mt-1 text-xs text-zinc-300">
+                      Created by {selectedAutomation.createdBy.name || selectedAutomation.createdBy.email || selectedAutomation.createdBy.userId}
+                    </div>
+                  ) : viewer?.userId ? (
+                    <div className="mt-1 text-xs text-zinc-300">Created by {viewer.name || viewer.email || viewer.userId}</div>
+                  ) : null}
                 </div>
 
                 <div className="mt-3 grid gap-2">
@@ -1442,21 +1664,32 @@ export function PortalAutomationsClient() {
                 { type: "note" as const, title: "Note" },
               ] as const).map((x) => {
                 const b = badgeForType(x.type);
+                const disabled =
+                  x.type === "trigger" && Boolean(selectedAutomation && (selectedAutomation.nodes || []).some((n) => n.type === "trigger"));
                 return (
                   <div
                     key={x.type}
-                    draggable
+                    draggable={!disabled}
                     onDragStart={(ev) => {
+                      if (disabled) {
+                        ev.preventDefault();
+                        return;
+                      }
                       ev.dataTransfer.setData("text/plain", x.type);
                       ev.dataTransfer.effectAllowed = "copy";
                     }}
-                    className="cursor-grab rounded-2xl border border-zinc-200 bg-zinc-50 px-4 py-3 active:cursor-grabbing"
+                    className={
+                      "rounded-2xl border border-zinc-200 px-4 py-3 " +
+                      (disabled ? "cursor-not-allowed bg-zinc-50 opacity-60" : "cursor-grab bg-zinc-50 active:cursor-grabbing")
+                    }
                   >
                     <div className="flex items-center justify-between gap-3">
                       <div className="text-sm font-semibold text-zinc-900">{x.title}</div>
                       <div className={`rounded-full border px-2 py-0.5 text-xs font-semibold ${b.cls}`}>{b.label}</div>
                     </div>
-                    <div className="mt-1 text-xs text-zinc-600">Drop to add a {x.title.toLowerCase()} node.</div>
+                    <div className="mt-1 text-xs text-zinc-600">
+                      {disabled ? "Trigger already set (only one allowed)." : `Drop to add a ${x.title.toLowerCase()} node.`}
+                    </div>
                   </div>
                 );
               })}
@@ -1886,37 +2119,234 @@ export function PortalAutomationsClient() {
                               }
 
                               if (cfg.triggerKind === "scheduled_time") {
-                                const intervalMinutes = clampInt(Number((cfg as any).intervalMinutes || 60), 5, 43200);
+                                const scheduleMode = ((cfg as any).scheduleMode as any) === "specific" ? "specific" : "every";
+                                const everyUnit = (((cfg as any).everyUnit as any) || "minutes") as "minutes" | "days" | "weeks" | "months";
+                                const everyValueRaw = (cfg as any).everyValue ?? (cfg as any).intervalMinutes ?? 60;
+                                const everyValue = clampInt(Number(everyValueRaw || 60), everyUnit === "minutes" ? 5 : 1, 10_000);
+
+                                const specificKind = (((cfg as any).specificKind as any) || "daily") as "daily" | "weekly" | "monthly";
+                                const specificTime = String((cfg as any).specificTime || "09:00").slice(0, 5);
+                                const specificWeekday = clampInt(Number((cfg as any).specificWeekday ?? 1), 0, 6);
+                                const specificDayOfMonth = clampInt(Number((cfg as any).specificDayOfMonth ?? 1), 1, 31);
+
                                 return (
                                   <div className="mt-2">
-                                    <div className="text-xs font-semibold text-zinc-600">Run every</div>
-                                    <div className="mt-1 flex items-center gap-2">
-                                      <input
-                                        type="number"
-                                        min={5}
-                                        max={43200}
-                                        className="w-full rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-sm"
-                                        value={intervalMinutes}
-                                        onChange={(e) => {
-                                          const next = clampInt(Number(e.target.value || 60), 5, 43200);
-                                          updateSelectedAutomation((a) => {
-                                            const nodes = a.nodes.map((n) => {
-                                              if (n.id !== selectedNode.id) return n;
-                                              const prev = n.config?.kind === "trigger" ? n.config : (defaultConfigForType("trigger") as any);
-                                              const nextCfg: BuilderNodeConfig = { ...(prev as any), kind: "trigger", intervalMinutes: next } as any;
-                                              const nextLabel =
-                                                autolabelSelectedNode && shouldAutolabel(n.label)
-                                                  ? labelForConfig("trigger", nextCfg)
-                                                  : n.label;
-                                              return { ...n, config: nextCfg, label: nextLabel };
-                                            });
-                                            return { ...a, nodes, updatedAtIso: new Date().toISOString() };
+                                    <div className="text-xs font-semibold text-zinc-600">Schedule</div>
+                                    <select
+                                      className="mt-1 w-full rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-sm"
+                                      value={scheduleMode}
+                                      onChange={(e) => {
+                                        const nextMode = e.target.value === "specific" ? "specific" : "every";
+                                        updateSelectedAutomation((a) => {
+                                          const nodes = a.nodes.map((n) => {
+                                            if (n.id !== selectedNode.id) return n;
+                                            const prev = n.config?.kind === "trigger" ? n.config : (defaultConfigForType("trigger") as any);
+                                            const nextCfg: BuilderNodeConfig = { ...(prev as any), kind: "trigger", scheduleMode: nextMode } as any;
+                                            const nextLabel =
+                                              autolabelSelectedNode && shouldAutolabel(n.label)
+                                                ? labelForConfig("trigger", nextCfg)
+                                                : n.label;
+                                            return { ...n, config: nextCfg, label: nextLabel };
                                           });
-                                        }}
-                                      />
-                                      <div className="shrink-0 text-xs text-zinc-600">minutes</div>
-                                    </div>
-                                    <div className="mt-1 text-[11px] text-zinc-600">Requires the automations cron to run.</div>
+                                          return { ...a, nodes, updatedAtIso: new Date().toISOString() };
+                                        });
+                                      }}
+                                    >
+                                      <option value="every">Run every X</option>
+                                      <option value="specific">Specific day/time</option>
+                                    </select>
+
+                                    {scheduleMode === "every" ? (
+                                      <div className="mt-2">
+                                        <div className="text-xs font-semibold text-zinc-600">Run every</div>
+                                        <div className="mt-1 flex items-center gap-2">
+                                          <input
+                                            type="number"
+                                            min={everyUnit === "minutes" ? 5 : 1}
+                                            max={10_000}
+                                            className="w-full rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-sm"
+                                            value={everyValue}
+                                            onChange={(e) => {
+                                              const nextVal = clampInt(Number(e.target.value || 1), everyUnit === "minutes" ? 5 : 1, 10_000);
+                                              updateSelectedAutomation((a) => {
+                                                const nodes = a.nodes.map((n) => {
+                                                  if (n.id !== selectedNode.id) return n;
+                                                  const prev = n.config?.kind === "trigger" ? n.config : (defaultConfigForType("trigger") as any);
+                                                  const nextCfg: BuilderNodeConfig = {
+                                                    ...(prev as any),
+                                                    kind: "trigger",
+                                                    scheduleMode: "every",
+                                                    everyValue: nextVal,
+                                                    everyUnit,
+                                                    intervalMinutes: everyUnit === "minutes" ? nextVal : undefined,
+                                                  } as any;
+                                                  const nextLabel =
+                                                    autolabelSelectedNode && shouldAutolabel(n.label)
+                                                      ? labelForConfig("trigger", nextCfg)
+                                                      : n.label;
+                                                  return { ...n, config: nextCfg, label: nextLabel };
+                                                });
+                                                return { ...a, nodes, updatedAtIso: new Date().toISOString() };
+                                              });
+                                            }}
+                                          />
+                                          <select
+                                            className="shrink-0 rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-sm"
+                                            value={everyUnit}
+                                            onChange={(e) => {
+                                              const nextUnit = (e.target.value as any) as "minutes" | "days" | "weeks" | "months";
+                                              updateSelectedAutomation((a) => {
+                                                const nodes = a.nodes.map((n) => {
+                                                  if (n.id !== selectedNode.id) return n;
+                                                  const prev = n.config?.kind === "trigger" ? n.config : (defaultConfigForType("trigger") as any);
+                                                  const nextCfg: BuilderNodeConfig = {
+                                                    ...(prev as any),
+                                                    kind: "trigger",
+                                                    scheduleMode: "every",
+                                                    everyUnit: nextUnit,
+                                                    everyValue: clampInt(Number((prev as any).everyValue ?? (prev as any).intervalMinutes ?? 60),
+                                                      nextUnit === "minutes" ? 5 : 1,
+                                                      10_000),
+                                                    intervalMinutes: nextUnit === "minutes" ? clampInt(Number((prev as any).everyValue ?? (prev as any).intervalMinutes ?? 60), 5, 43200) : undefined,
+                                                  } as any;
+                                                  const nextLabel =
+                                                    autolabelSelectedNode && shouldAutolabel(n.label)
+                                                      ? labelForConfig("trigger", nextCfg)
+                                                      : n.label;
+                                                  return { ...n, config: nextCfg, label: nextLabel };
+                                                });
+                                                return { ...a, nodes, updatedAtIso: new Date().toISOString() };
+                                              });
+                                            }}
+                                          >
+                                            <option value="minutes">minutes</option>
+                                            <option value="days">days</option>
+                                            <option value="weeks">weeks</option>
+                                            <option value="months">months</option>
+                                          </select>
+                                        </div>
+                                        <div className="mt-1 text-[11px] text-zinc-600">Runs on the server when schedules are processed.</div>
+                                      </div>
+                                    ) : (
+                                      <div className="mt-2 space-y-2">
+                                        <div>
+                                          <div className="text-xs font-semibold text-zinc-600">Frequency</div>
+                                          <select
+                                            className="mt-1 w-full rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-sm"
+                                            value={specificKind}
+                                            onChange={(e) => {
+                                              const nextKind = (e.target.value as any) as "daily" | "weekly" | "monthly";
+                                              updateSelectedAutomation((a) => {
+                                                const nodes = a.nodes.map((n) => {
+                                                  if (n.id !== selectedNode.id) return n;
+                                                  const prev = n.config?.kind === "trigger" ? n.config : (defaultConfigForType("trigger") as any);
+                                                  const nextCfg: BuilderNodeConfig = { ...(prev as any), kind: "trigger", scheduleMode: "specific", specificKind: nextKind } as any;
+                                                  const nextLabel =
+                                                    autolabelSelectedNode && shouldAutolabel(n.label)
+                                                      ? labelForConfig("trigger", nextCfg)
+                                                      : n.label;
+                                                  return { ...n, config: nextCfg, label: nextLabel };
+                                                });
+                                                return { ...a, nodes, updatedAtIso: new Date().toISOString() };
+                                              });
+                                            }}
+                                          >
+                                            <option value="daily">Daily</option>
+                                            <option value="weekly">Weekly</option>
+                                            <option value="monthly">Monthly</option>
+                                          </select>
+                                        </div>
+
+                                        {specificKind === "weekly" ? (
+                                          <div>
+                                            <div className="text-xs font-semibold text-zinc-600">Day of week</div>
+                                            <select
+                                              className="mt-1 w-full rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-sm"
+                                              value={specificWeekday}
+                                              onChange={(e) => {
+                                                const nextWd = clampInt(Number(e.target.value ?? 1), 0, 6);
+                                                updateSelectedAutomation((a) => {
+                                                  const nodes = a.nodes.map((n) => {
+                                                    if (n.id !== selectedNode.id) return n;
+                                                    const prev = n.config?.kind === "trigger" ? n.config : (defaultConfigForType("trigger") as any);
+                                                    const nextCfg: BuilderNodeConfig = { ...(prev as any), kind: "trigger", scheduleMode: "specific", specificWeekday: nextWd } as any;
+                                                    const nextLabel =
+                                                      autolabelSelectedNode && shouldAutolabel(n.label)
+                                                        ? labelForConfig("trigger", nextCfg)
+                                                        : n.label;
+                                                    return { ...n, config: nextCfg, label: nextLabel };
+                                                  });
+                                                  return { ...a, nodes, updatedAtIso: new Date().toISOString() };
+                                                });
+                                              }}
+                                            >
+                                              <option value={1}>Monday</option>
+                                              <option value={2}>Tuesday</option>
+                                              <option value={3}>Wednesday</option>
+                                              <option value={4}>Thursday</option>
+                                              <option value={5}>Friday</option>
+                                              <option value={6}>Saturday</option>
+                                              <option value={0}>Sunday</option>
+                                            </select>
+                                          </div>
+                                        ) : null}
+
+                                        {specificKind === "monthly" ? (
+                                          <div>
+                                            <div className="text-xs font-semibold text-zinc-600">Day of month</div>
+                                            <input
+                                              type="number"
+                                              min={1}
+                                              max={31}
+                                              className="mt-1 w-full rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-sm"
+                                              value={specificDayOfMonth}
+                                              onChange={(e) => {
+                                                const nextDom = clampInt(Number(e.target.value ?? 1), 1, 31);
+                                                updateSelectedAutomation((a) => {
+                                                  const nodes = a.nodes.map((n) => {
+                                                    if (n.id !== selectedNode.id) return n;
+                                                    const prev = n.config?.kind === "trigger" ? n.config : (defaultConfigForType("trigger") as any);
+                                                    const nextCfg: BuilderNodeConfig = { ...(prev as any), kind: "trigger", scheduleMode: "specific", specificDayOfMonth: nextDom } as any;
+                                                    const nextLabel =
+                                                      autolabelSelectedNode && shouldAutolabel(n.label)
+                                                        ? labelForConfig("trigger", nextCfg)
+                                                        : n.label;
+                                                    return { ...n, config: nextCfg, label: nextLabel };
+                                                  });
+                                                  return { ...a, nodes, updatedAtIso: new Date().toISOString() };
+                                                });
+                                              }}
+                                            />
+                                          </div>
+                                        ) : null}
+
+                                        <div>
+                                          <div className="text-xs font-semibold text-zinc-600">Time (UTC)</div>
+                                          <input
+                                            type="time"
+                                            className="mt-1 w-full rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-sm"
+                                            value={specificTime}
+                                            onChange={(e) => {
+                                              const nextTime = String(e.target.value || "09:00").slice(0, 5);
+                                              updateSelectedAutomation((a) => {
+                                                const nodes = a.nodes.map((n) => {
+                                                  if (n.id !== selectedNode.id) return n;
+                                                  const prev = n.config?.kind === "trigger" ? n.config : (defaultConfigForType("trigger") as any);
+                                                  const nextCfg: BuilderNodeConfig = { ...(prev as any), kind: "trigger", scheduleMode: "specific", specificTime: nextTime } as any;
+                                                  const nextLabel =
+                                                    autolabelSelectedNode && shouldAutolabel(n.label)
+                                                      ? labelForConfig("trigger", nextCfg)
+                                                      : n.label;
+                                                  return { ...n, config: nextCfg, label: nextLabel };
+                                                });
+                                                return { ...a, nodes, updatedAtIso: new Date().toISOString() };
+                                              });
+                                            }}
+                                          />
+                                          <div className="mt-1 text-[11px] text-zinc-600">Specific schedules are evaluated in UTC.</div>
+                                        </div>
+                                      </div>
+                                    )}
                                   </div>
                                 );
                               }
@@ -1928,35 +2358,73 @@ export function PortalAutomationsClient() {
 
                         {selectedNode.type === "action" ? (
                           <>
-                            <select
-                              className="mt-1 w-full rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-sm"
-                              value={
+                            {(() => {
+                              const value: ActionKind =
                                 selectedNode.config?.kind === "action"
                                   ? selectedNode.config.actionKind
-                                  : (defaultConfigForType("action") as any).actionKind
-                              }
-                              onChange={(e) => {
-                                const nextKind = e.target.value as ActionKind;
-                                updateSelectedAutomation((a) => {
-                                  const nodes = a.nodes.map((n) => {
-                                    if (n.id !== selectedNode.id) return n;
-                                    const prevCfg = n.config?.kind === "action" ? n.config : defaultConfigForType("action");
-                                    const nextCfg: BuilderNodeConfig = { ...(prevCfg as any), kind: "action", actionKind: nextKind };
-                                    const nextLabel =
-                                      autolabelSelectedNode && shouldAutolabel(n.label)
-                                        ? labelForConfig("action", nextCfg)
-                                        : n.label;
-                                    return { ...n, config: nextCfg, label: nextLabel };
-                                  });
-                                  return { ...a, nodes, updatedAtIso: new Date().toISOString() };
-                                });
-                              }}
-                            >
-                              <option value="send_sms">Send SMS</option>
-                              <option value="send_email">Send Email</option>
-                              <option value="add_tag">Add Tag</option>
-                              <option value="create_task">Create Task</option>
-                            </select>
+                                  : (defaultConfigForType("action") as any).actionKind;
+                              const triggerKind = selectedAutomationTriggerKind;
+                              const triggerHasContact = Boolean(triggerKind && triggerKind !== "scheduled_time");
+                              const needsContact = (k: ActionKind) =>
+                                k === "add_tag" || k === "update_contact" || k === "send_review_request" || k === "send_booking_link";
+
+                              const opts: ActionKindOption[] = [
+                                { value: "send_sms", label: "Send SMS" },
+                                { value: "send_email", label: "Send Email" },
+                                { value: "add_tag", label: "Add Tag", disabled: !triggerHasContact, hint: !triggerHasContact ? "Needs a contact event" : undefined },
+                                { value: "create_task", label: "Create Task" },
+                                { value: "send_webhook", label: "Send Webhook" },
+                                {
+                                  value: "send_review_request",
+                                  label: "Review Request",
+                                  disabled: !triggerHasContact,
+                                  hint: !triggerHasContact ? "Not available for Scheduler/time" : undefined,
+                                },
+                                {
+                                  value: "send_booking_link",
+                                  label: "Book Appointment",
+                                  disabled: !triggerHasContact,
+                                  hint: !triggerHasContact ? "Not available for Scheduler/time" : undefined,
+                                },
+                                {
+                                  value: "update_contact",
+                                  label: "Update Contact",
+                                  disabled: !triggerHasContact,
+                                  hint: !triggerHasContact ? "Not available for Scheduler/time" : undefined,
+                                },
+                              ];
+
+                              const isValueCompatible = triggerHasContact || !needsContact(value);
+
+                              return (
+                                <>
+                                  <ActionKindDropdown
+                                    value={value}
+                                    options={opts}
+                                    onChange={(nextKind) => {
+                                      updateSelectedAutomation((a) => {
+                                        const nodes = a.nodes.map((n) => {
+                                          if (n.id !== selectedNode.id) return n;
+                                          const prevCfg = n.config?.kind === "action" ? n.config : defaultConfigForType("action");
+                                          const nextCfg: BuilderNodeConfig = { ...(prevCfg as any), kind: "action", actionKind: nextKind };
+                                          const nextLabel =
+                                            autolabelSelectedNode && shouldAutolabel(n.label)
+                                              ? labelForConfig("action", nextCfg)
+                                              : n.label;
+                                          return { ...n, config: nextCfg, label: nextLabel };
+                                        });
+                                        return { ...a, nodes, updatedAtIso: new Date().toISOString() };
+                                      });
+                                    }}
+                                  />
+                                  {!isValueCompatible ? (
+                                    <div className="mt-2 rounded-2xl border border-amber-200 bg-amber-50 px-3 py-2 text-[11px] text-amber-800">
+                                      This action is not compatible with the current trigger.
+                                    </div>
+                                  ) : null}
+                                </>
+                              );
+                            })()}
 
                             {(() => {
                               const cfg =
@@ -2057,6 +2525,301 @@ export function PortalAutomationsClient() {
                                         });
                                       }}
                                     />
+                                  </>
+                                );
+                              }
+
+                              if (cfg.actionKind === "send_review_request" || cfg.actionKind === "send_booking_link") {
+                                const smsTo = ((cfg as any).smsTo as MessageTarget) || "event_contact";
+                                const smsToNumber = String((cfg as any).smsToNumber || "").slice(0, 32);
+                                const defaultBody =
+                                  cfg.actionKind === "send_review_request"
+                                    ? "Thanks for choosing {business.name}! Leave a review: {link}"
+                                    : "Book an appointment here: {link}";
+
+                                return (
+                                  <>
+                                    <div className="mt-2">
+                                      <div className="text-xs font-semibold text-zinc-600">Send to</div>
+                                      <select
+                                        className="mt-1 w-full rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-sm"
+                                        value={smsTo}
+                                        onChange={(e) => {
+                                          const next = e.target.value as MessageTarget;
+                                          updateSelectedAutomation((a) => {
+                                            const nodes = a.nodes.map((n) => {
+                                              if (n.id !== selectedNode.id) return n;
+                                              const prev =
+                                                n.config?.kind === "action" ? n.config : (defaultConfigForType("action") as any);
+                                              const nextCfg: BuilderNodeConfig = { ...(prev as any), kind: "action", smsTo: next };
+                                              const nextLabel =
+                                                autolabelSelectedNode && shouldAutolabel(n.label)
+                                                  ? labelForConfig("action", nextCfg)
+                                                  : n.label;
+                                              return { ...n, config: nextCfg, label: nextLabel };
+                                            });
+                                            return { ...a, nodes, updatedAtIso: new Date().toISOString() };
+                                          });
+                                        }}
+                                      >
+                                        <option value="event_contact">Step contact</option>
+                                        <option value="inbound_sender">Inbound sender</option>
+                                        <option value="internal_notification">Internal notification (my number)</option>
+                                        <option value="custom">Custom number</option>
+                                      </select>
+                                    </div>
+
+                                    {smsTo === "custom" ? (
+                                      <input
+                                        className="mt-2 w-full rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-sm"
+                                        placeholder="Custom number (E.164, e.g. +15551234567)"
+                                        value={smsToNumber}
+                                        onChange={(e) => {
+                                          const next = e.target.value.slice(0, 32);
+                                          updateSelectedAutomation((a) => {
+                                            const nodes = a.nodes.map((n) => {
+                                              if (n.id !== selectedNode.id) return n;
+                                              const prev =
+                                                n.config?.kind === "action" ? n.config : (defaultConfigForType("action") as any);
+                                              const nextCfg: BuilderNodeConfig = { ...(prev as any), kind: "action", smsToNumber: next };
+                                              const nextLabel =
+                                                autolabelSelectedNode && shouldAutolabel(n.label)
+                                                  ? labelForConfig("action", nextCfg)
+                                                  : n.label;
+                                              return { ...n, config: nextCfg, label: nextLabel };
+                                            });
+                                            return { ...a, nodes, updatedAtIso: new Date().toISOString() };
+                                          });
+                                        }}
+                                      />
+                                    ) : null}
+
+                                    <div className="mt-2 flex items-center justify-between gap-3">
+                                      <div className="text-xs font-semibold text-zinc-600">Message</div>
+                                      <button
+                                        type="button"
+                                        className="rounded-xl border border-zinc-200 bg-white px-2 py-1 text-xs font-semibold text-zinc-700 hover:bg-zinc-50"
+                                        onClick={() => openVariablePicker("sms_body")}
+                                      >
+                                        Add variable
+                                      </button>
+                                    </div>
+                                    <textarea
+                                      ref={smsBodyRef}
+                                      className="mt-1 w-full resize-none rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-sm"
+                                      rows={3}
+                                      placeholder="SMS body"
+                                      value={String((cfg as any).body || "").slice(0, 1200)}
+                                      onChange={(e) => {
+                                        const body = e.target.value.slice(0, 1200);
+                                        updateSelectedAutomation((a) => {
+                                          const nodes = a.nodes.map((n) => {
+                                            if (n.id !== selectedNode.id) return n;
+                                            const prev =
+                                              n.config?.kind === "action" ? n.config : (defaultConfigForType("action") as any);
+                                            const nextCfg: BuilderNodeConfig = { ...(prev as any), kind: "action", body };
+                                            const nextLabel =
+                                              autolabelSelectedNode && shouldAutolabel(n.label)
+                                                ? labelForConfig("action", nextCfg)
+                                                : n.label;
+                                            return { ...n, config: nextCfg, label: nextLabel };
+                                          });
+                                          return { ...a, nodes, updatedAtIso: new Date().toISOString() };
+                                        });
+                                      }}
+                                    />
+                                    <div className="mt-1 text-[11px] text-zinc-600">
+                                      Tip: include <span className="font-semibold">{'{link}'}</span> in your template. Default: {defaultBody}
+                                    </div>
+                                  </>
+                                );
+                              }
+
+                              if (cfg.actionKind === "send_webhook") {
+                                const webhookUrl = String((cfg as any).webhookUrl || "").slice(0, 600);
+                                const webhookBodyJson = String((cfg as any).webhookBodyJson || "").slice(0, 50_000);
+                                return (
+                                  <>
+                                    <div className="mt-2">
+                                      <div className="text-xs font-semibold text-zinc-600">Webhook URL</div>
+                                      <input
+                                        className="mt-1 w-full rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-sm"
+                                        placeholder="https://example.com/webhook"
+                                        value={webhookUrl}
+                                        onChange={(e) => {
+                                          const next = e.target.value.slice(0, 600);
+                                          updateSelectedAutomation((a) => {
+                                            const nodes = a.nodes.map((n) => {
+                                              if (n.id !== selectedNode.id) return n;
+                                              const prev =
+                                                n.config?.kind === "action" ? n.config : (defaultConfigForType("action") as any);
+                                              const nextCfg: BuilderNodeConfig = { ...(prev as any), kind: "action", webhookUrl: next };
+                                              const nextLabel =
+                                                autolabelSelectedNode && shouldAutolabel(n.label)
+                                                  ? labelForConfig("action", nextCfg)
+                                                  : n.label;
+                                              return { ...n, config: nextCfg, label: nextLabel };
+                                            });
+                                            return { ...a, nodes, updatedAtIso: new Date().toISOString() };
+                                          });
+                                        }}
+                                      />
+                                    </div>
+
+                                    <div className="mt-2 flex items-center justify-between gap-3">
+                                      <div className="text-xs font-semibold text-zinc-600">Body (JSON)</div>
+                                      <button
+                                        type="button"
+                                        className="rounded-xl border border-zinc-200 bg-white px-2 py-1 text-xs font-semibold text-zinc-700 hover:bg-zinc-50"
+                                        onClick={() => openVariablePicker("webhook_body")}
+                                      >
+                                        Add variable
+                                      </button>
+                                    </div>
+
+                                    <textarea
+                                      ref={webhookBodyRef}
+                                      className="mt-1 w-full resize-none rounded-2xl border border-zinc-200 bg-white px-3 py-2 font-mono text-[12px]"
+                                      rows={6}
+                                      placeholder='{"contact": {"name": "{contact.name}"}, "message": "{message.body}"}'
+                                      value={webhookBodyJson}
+                                      onChange={(e) => {
+                                        const next = e.target.value.slice(0, 50_000);
+                                        updateSelectedAutomation((a) => {
+                                          const nodes = a.nodes.map((n) => {
+                                            if (n.id !== selectedNode.id) return n;
+                                            const prev =
+                                              n.config?.kind === "action" ? n.config : (defaultConfigForType("action") as any);
+                                            const nextCfg: BuilderNodeConfig = { ...(prev as any), kind: "action", webhookBodyJson: next };
+                                            const nextLabel =
+                                              autolabelSelectedNode && shouldAutolabel(n.label)
+                                                ? labelForConfig("action", nextCfg)
+                                                : n.label;
+                                            return { ...n, config: nextCfg, label: nextLabel };
+                                          });
+                                          return { ...a, nodes, updatedAtIso: new Date().toISOString() };
+                                        });
+                                      }}
+                                    />
+                                    <div className="mt-1 text-[11px] text-zinc-600">If empty, the server sends a default payload.</div>
+                                  </>
+                                );
+                              }
+
+                              if (cfg.actionKind === "update_contact") {
+                                const contactName = String((cfg as any).contactName || "").slice(0, 200);
+                                const contactEmail = String((cfg as any).contactEmail || "").slice(0, 200);
+                                const contactPhone = String((cfg as any).contactPhone || "").slice(0, 64);
+                                return (
+                                  <>
+                                    <div className="mt-2">
+                                      <div className="flex items-center justify-between gap-3">
+                                        <div className="text-xs font-semibold text-zinc-600">Contact name</div>
+                                        <button
+                                          type="button"
+                                          className="rounded-xl border border-zinc-200 bg-white px-2 py-1 text-xs font-semibold text-zinc-700 hover:bg-zinc-50"
+                                          onClick={() => openVariablePicker("update_contact_name")}
+                                        >
+                                          Add variable
+                                        </button>
+                                      </div>
+                                      <input
+                                        ref={updateContactNameRef}
+                                        className="mt-1 w-full rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-sm"
+                                        placeholder="e.g. {contact.name}"
+                                        value={contactName}
+                                        onChange={(e) => {
+                                          const next = e.target.value.slice(0, 200);
+                                          updateSelectedAutomation((a) => {
+                                            const nodes = a.nodes.map((n) => {
+                                              if (n.id !== selectedNode.id) return n;
+                                              const prev =
+                                                n.config?.kind === "action" ? n.config : (defaultConfigForType("action") as any);
+                                              const nextCfg: BuilderNodeConfig = { ...(prev as any), kind: "action", contactName: next };
+                                              const nextLabel =
+                                                autolabelSelectedNode && shouldAutolabel(n.label)
+                                                  ? labelForConfig("action", nextCfg)
+                                                  : n.label;
+                                              return { ...n, config: nextCfg, label: nextLabel };
+                                            });
+                                            return { ...a, nodes, updatedAtIso: new Date().toISOString() };
+                                          });
+                                        }}
+                                      />
+                                    </div>
+
+                                    <div className="mt-2">
+                                      <div className="flex items-center justify-between gap-3">
+                                        <div className="text-xs font-semibold text-zinc-600">Contact email</div>
+                                        <button
+                                          type="button"
+                                          className="rounded-xl border border-zinc-200 bg-white px-2 py-1 text-xs font-semibold text-zinc-700 hover:bg-zinc-50"
+                                          onClick={() => openVariablePicker("update_contact_email")}
+                                        >
+                                          Add variable
+                                        </button>
+                                      </div>
+                                      <input
+                                        ref={updateContactEmailRef}
+                                        className="mt-1 w-full rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-sm"
+                                        placeholder="e.g. {contact.email}"
+                                        value={contactEmail}
+                                        onChange={(e) => {
+                                          const next = e.target.value.slice(0, 200);
+                                          updateSelectedAutomation((a) => {
+                                            const nodes = a.nodes.map((n) => {
+                                              if (n.id !== selectedNode.id) return n;
+                                              const prev =
+                                                n.config?.kind === "action" ? n.config : (defaultConfigForType("action") as any);
+                                              const nextCfg: BuilderNodeConfig = { ...(prev as any), kind: "action", contactEmail: next };
+                                              const nextLabel =
+                                                autolabelSelectedNode && shouldAutolabel(n.label)
+                                                  ? labelForConfig("action", nextCfg)
+                                                  : n.label;
+                                              return { ...n, config: nextCfg, label: nextLabel };
+                                            });
+                                            return { ...a, nodes, updatedAtIso: new Date().toISOString() };
+                                          });
+                                        }}
+                                      />
+                                    </div>
+
+                                    <div className="mt-2">
+                                      <div className="flex items-center justify-between gap-3">
+                                        <div className="text-xs font-semibold text-zinc-600">Contact phone</div>
+                                        <button
+                                          type="button"
+                                          className="rounded-xl border border-zinc-200 bg-white px-2 py-1 text-xs font-semibold text-zinc-700 hover:bg-zinc-50"
+                                          onClick={() => openVariablePicker("update_contact_phone")}
+                                        >
+                                          Add variable
+                                        </button>
+                                      </div>
+                                      <input
+                                        ref={updateContactPhoneRef}
+                                        className="mt-1 w-full rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-sm"
+                                        placeholder="e.g. {contact.phone}"
+                                        value={contactPhone}
+                                        onChange={(e) => {
+                                          const next = e.target.value.slice(0, 64);
+                                          updateSelectedAutomation((a) => {
+                                            const nodes = a.nodes.map((n) => {
+                                              if (n.id !== selectedNode.id) return n;
+                                              const prev =
+                                                n.config?.kind === "action" ? n.config : (defaultConfigForType("action") as any);
+                                              const nextCfg: BuilderNodeConfig = { ...(prev as any), kind: "action", contactPhone: next };
+                                              const nextLabel =
+                                                autolabelSelectedNode && shouldAutolabel(n.label)
+                                                  ? labelForConfig("action", nextCfg)
+                                                  : n.label;
+                                              return { ...n, config: nextCfg, label: nextLabel };
+                                            });
+                                            return { ...a, nodes, updatedAtIso: new Date().toISOString() };
+                                          });
+                                        }}
+                                      />
+                                    </div>
+                                    <div className="mt-1 text-[11px] text-zinc-600">Leave a field blank to skip updating it.</div>
                                   </>
                                 );
                               }
@@ -2352,6 +3115,7 @@ export function PortalAutomationsClient() {
                                           });
                                         }}
                                       >
+                                        <option value="__all_users__">All users</option>
                                         <option value="">Account owner</option>
                                         {memberOptions.map((m) => (
                                           <option key={m.userId} value={m.userId}>

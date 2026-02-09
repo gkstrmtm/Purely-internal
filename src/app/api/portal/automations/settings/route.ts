@@ -40,7 +40,16 @@ const triggerConfigSchema = z
 const actionConfigSchema = z
   .object({
     kind: z.literal("action"),
-    actionKind: z.enum(["send_sms", "send_email", "add_tag", "create_task"]),
+    actionKind: z.enum([
+      "send_sms",
+      "send_email",
+      "add_tag",
+      "create_task",
+      "send_webhook",
+      "send_review_request",
+      "send_booking_link",
+      "update_contact",
+    ]),
   })
   .passthrough();
 
@@ -95,6 +104,13 @@ const automationSchema = z.object({
   id: z.string().min(1).max(60),
   name: z.string().min(1).max(80),
   updatedAtIso: z.string().optional(),
+  createdBy: z
+    .object({
+      userId: z.string().min(1).max(80),
+      email: z.string().max(200).optional(),
+      name: z.string().max(200).optional(),
+    })
+    .optional(),
   nodes: z.array(nodeSchema).max(250),
   edges: z.array(edgeSchema).max(500),
 });
@@ -125,6 +141,11 @@ export async function GET() {
   }
 
   const ownerId = auth.session.user.id;
+  const viewer = {
+    userId: String(auth.session.user.id),
+    email: String(auth.session.user.email || ""),
+    name: String(auth.session.user.name || ""),
+  };
 
   const row = await prisma.portalServiceSetup.findUnique({
     where: { ownerId_serviceSlug: { ownerId, serviceSlug: SERVICE_SLUG } },
@@ -152,7 +173,7 @@ export async function GET() {
   }
 
   const automations = parseAutomations(dataJson ?? null);
-  return NextResponse.json({ ok: true, webhookToken, automations });
+  return NextResponse.json({ ok: true, webhookToken, viewer, automations });
 }
 
 const putSchema = z.object({
@@ -169,22 +190,37 @@ export async function PUT(req: Request) {
   }
 
   const ownerId = auth.session.user.id;
+  const viewer = {
+    userId: String(auth.session.user.id),
+    email: String(auth.session.user.email || ""),
+    name: String(auth.session.user.name || ""),
+  };
   const body = (await req.json().catch(() => null)) as unknown;
   const parsed = putSchema.safeParse(body ?? {});
   if (!parsed.success) {
     return NextResponse.json({ error: "Invalid input" }, { status: 400 });
   }
 
-  const next = parsed.data.automations.map((a) => ({
-    ...a,
-    updatedAtIso: typeof a.updatedAtIso === "string" && a.updatedAtIso.trim() ? a.updatedAtIso : new Date().toISOString(),
-  }));
-
   const existing = await prisma.portalServiceSetup.findUnique({
     where: { ownerId_serviceSlug: { ownerId, serviceSlug: SERVICE_SLUG } },
     select: { dataJson: true },
   });
-  const existingTokenRaw = typeof (existing as any)?.dataJson?.webhookToken === "string" ? String((existing as any).dataJson.webhookToken).trim() : "";
+  const existingDataJson = (existing?.dataJson ?? null) as any;
+
+  const existingAutomations = parseAutomations(existingDataJson ?? null);
+  const existingById = new Map(existingAutomations.map((a) => [a.id, a] as const));
+
+  const next = parsed.data.automations.map((a) => {
+    const prev = existingById.get(a.id) as any | undefined;
+    const createdBy = a.createdBy || prev?.createdBy || viewer;
+    return {
+      ...a,
+      createdBy,
+      updatedAtIso: typeof a.updatedAtIso === "string" && a.updatedAtIso.trim() ? a.updatedAtIso : new Date().toISOString(),
+    };
+  });
+
+  const existingTokenRaw = typeof existingDataJson?.webhookToken === "string" ? String(existingDataJson.webhookToken).trim() : "";
   const webhookToken = existingTokenRaw.length >= 12 ? existingTokenRaw : newToken();
 
   await prisma.portalServiceSetup.upsert({

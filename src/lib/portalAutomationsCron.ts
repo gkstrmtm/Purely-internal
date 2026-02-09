@@ -13,6 +13,104 @@ function parseIntervalMinutes(raw: unknown) {
   return Math.max(5, Math.min(43200, n));
 }
 
+type EveryUnit = "minutes" | "days" | "weeks" | "months";
+type ScheduleMode = "every" | "specific";
+type SpecificKind = "daily" | "weekly" | "monthly";
+
+function parseEveryUnit(raw: unknown): EveryUnit {
+  return raw === "minutes" || raw === "days" || raw === "weeks" || raw === "months" ? raw : "minutes";
+}
+
+function clampEveryValue(n: number) {
+  const v = Number.isFinite(n) ? Math.round(n) : 1;
+  return Math.max(1, Math.min(10_000, v));
+}
+
+function parseScheduleMode(raw: unknown): ScheduleMode {
+  return raw === "specific" || raw === "every" ? raw : "every";
+}
+
+function parseSpecificKind(raw: unknown): SpecificKind {
+  return raw === "daily" || raw === "weekly" || raw === "monthly" ? raw : "daily";
+}
+
+function parseTimeHHMM(raw: unknown): { hh: number; mm: number } {
+  const s = typeof raw === "string" ? raw.trim() : "";
+  const m = /^([01]?\d|2[0-3]):([0-5]\d)$/.exec(s);
+  if (!m) return { hh: 9, mm: 0 };
+  return { hh: Math.max(0, Math.min(23, Number(m[1]))), mm: Math.max(0, Math.min(59, Number(m[2]))) };
+}
+
+function addMonthsUTC(d: Date, months: number) {
+  const dt = new Date(d.getTime());
+  const day = dt.getUTCDate();
+  dt.setUTCDate(1);
+  dt.setUTCMonth(dt.getUTCMonth() + months);
+  const daysInMonth = new Date(Date.UTC(dt.getUTCFullYear(), dt.getUTCMonth() + 1, 0)).getUTCDate();
+  dt.setUTCDate(Math.min(day, daysInMonth));
+  return dt;
+}
+
+function nextDueAtForEvery(opts: { lastAt: Date | null; now: Date; value: number; unit: EveryUnit }) {
+  const { lastAt, now, value, unit } = opts;
+  if (!lastAt) return now;
+
+  if (unit === "months") {
+    return addMonthsUTC(lastAt, value);
+  }
+
+  const mulMs = unit === "weeks" ? 7 * 24 * 60 * 60_000 : unit === "days" ? 24 * 60 * 60_000 : 60_000;
+  return new Date(lastAt.getTime() + value * mulMs);
+}
+
+function clampDayOfMonth(n: number) {
+  const v = Number.isFinite(n) ? Math.round(n) : 1;
+  return Math.max(1, Math.min(31, v));
+}
+
+function clampWeekday(n: number) {
+  const v = Number.isFinite(n) ? Math.round(n) : 1;
+  return Math.max(0, Math.min(6, v));
+}
+
+function mostRecentSpecificOccurrenceUTC(opts: {
+  now: Date;
+  kind: SpecificKind;
+  timeHHMM: string;
+  weekday?: number;
+  dayOfMonth?: number;
+}) {
+  const now = opts.now;
+  const { hh, mm } = parseTimeHHMM(opts.timeHHMM);
+  const kind = opts.kind;
+
+  if (kind === "daily") {
+    const occ = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate(), hh, mm, 0, 0));
+    if (now.getTime() >= occ.getTime()) return occ;
+    return new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate() - 1, hh, mm, 0, 0));
+  }
+
+  if (kind === "weekly") {
+    const weekday = clampWeekday(Number(opts.weekday ?? 1));
+    const todayW = now.getUTCDay();
+    let diff = todayW - weekday;
+    if (diff < 0) diff += 7;
+    const occ = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate() - diff, hh, mm, 0, 0));
+    if (now.getTime() >= occ.getTime()) return occ;
+    return new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate() - diff - 7, hh, mm, 0, 0));
+  }
+
+  // monthly
+  const dom = clampDayOfMonth(Number(opts.dayOfMonth ?? 1));
+  const daysInThisMonth = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() + 1, 0)).getUTCDate();
+  const occThisMonth = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), Math.min(dom, daysInThisMonth), hh, mm, 0, 0));
+  if (now.getTime() >= occThisMonth.getTime()) return occThisMonth;
+
+  const prevMonth = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() - 1, 1, 0, 0, 0, 0));
+  const daysInPrevMonth = new Date(Date.UTC(prevMonth.getUTCFullYear(), prevMonth.getUTCMonth() + 1, 0)).getUTCDate();
+  return new Date(Date.UTC(prevMonth.getUTCFullYear(), prevMonth.getUTCMonth(), Math.min(dom, daysInPrevMonth), hh, mm, 0, 0));
+}
+
 function safeObj(raw: unknown): Record<string, any> {
   return raw && typeof raw === "object" && !Array.isArray(raw) ? (raw as any) : {};
 }
@@ -58,14 +156,42 @@ export async function processDueScheduledAutomations(opts: {
         if (cfg.kind !== "trigger") continue;
         if (cfg.triggerKind !== "scheduled_time") continue;
 
+        const mode = parseScheduleMode(cfg.scheduleMode);
+
+        // Back-compat: intervalMinutes-only configs.
+        const everyValue = clampEveryValue(Number(cfg.everyValue ?? NaN));
+        const everyUnit = parseEveryUnit(cfg.everyUnit);
         const intervalMinutes = parseIntervalMinutes(cfg.intervalMinutes);
+
         const key = `${automationId}:${nodeId}`;
         const lastIso = typeof scheduleState[key] === "string" ? String(scheduleState[key]) : "";
         const lastAt = lastIso ? new Date(lastIso).getTime() : 0;
-        const now = Date.now();
 
-        const dueMs = intervalMinutes * 60_000;
-        const isDue = !lastAt || !Number.isFinite(lastAt) ? true : now - lastAt >= dueMs;
+        const nowDate = new Date();
+        const lastDate = lastAt && Number.isFinite(lastAt) ? new Date(lastAt) : null;
+
+        let isDue = false;
+        if (mode === "specific") {
+          const kind = parseSpecificKind(cfg.specificKind);
+          const occurrence = mostRecentSpecificOccurrenceUTC({
+            now: nowDate,
+            kind,
+            timeHHMM: String(cfg.specificTime || "09:00"),
+            weekday: cfg.specificWeekday,
+            dayOfMonth: cfg.specificDayOfMonth,
+          });
+
+          const lastMs = lastDate ? lastDate.getTime() : 0;
+          isDue = nowDate.getTime() >= occurrence.getTime() && lastMs < occurrence.getTime();
+        } else {
+          // Prefer the new everyValue/everyUnit when present, otherwise fall back to intervalMinutes.
+          const hasNewEvery = cfg.everyValue !== undefined || cfg.everyUnit !== undefined;
+          const value = hasNewEvery ? everyValue : clampEveryValue(Math.round(intervalMinutes));
+          const unit = hasNewEvery ? everyUnit : "minutes";
+          const dueAt = nextDueAtForEvery({ lastAt: lastDate, now: nowDate, value, unit });
+          isDue = nowDate.getTime() >= dueAt.getTime();
+        }
+
         if (!isDue) continue;
 
         // Fire the automation only from this trigger node.
