@@ -1,5 +1,6 @@
 import { prisma } from "@/lib/db";
 import { normalizePhoneStrict } from "@/lib/phone";
+import { ensurePortalContactsSchema } from "@/lib/portalContactsSchema";
 
 export function normalizeNameKey(nameRaw: string): string {
   const name = String(nameRaw ?? "").trim().toLowerCase();
@@ -76,6 +77,8 @@ export async function findOrCreatePortalContact(input: {
   if (phoneKey) ors.push({ phoneKey });
 
   try {
+    await ensurePortalContactsSchema();
+
     const candidates = (await (prisma as any).portalContact.findMany({
       where: { ownerId, OR: ors },
       orderBy: { updatedAt: "desc" },

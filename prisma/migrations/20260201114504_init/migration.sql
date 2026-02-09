@@ -7,8 +7,8 @@ CREATE TABLE "User" (
     "role" TEXT NOT NULL DEFAULT 'DIALER',
     "active" BOOLEAN NOT NULL DEFAULT true,
     "timeZone" TEXT NOT NULL DEFAULT 'America/New_York',
-    "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    "updatedAt" DATETIME NOT NULL
+    "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "updatedAt" TIMESTAMP(3) NOT NULL
 );
 
 -- CreateTable
@@ -21,8 +21,8 @@ CREATE TABLE "Lead" (
     "niche" TEXT,
     "notes" TEXT,
     "status" TEXT NOT NULL DEFAULT 'NEW',
-    "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    "updatedAt" DATETIME NOT NULL
+    "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "updatedAt" TIMESTAMP(3) NOT NULL
 );
 
 -- CreateTable
@@ -30,8 +30,8 @@ CREATE TABLE "LeadAssignment" (
     "id" TEXT NOT NULL PRIMARY KEY,
     "leadId" TEXT NOT NULL,
     "userId" TEXT NOT NULL,
-    "claimedAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    "releasedAt" DATETIME,
+    "claimedAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "releasedAt" TIMESTAMP(3),
     CONSTRAINT "LeadAssignment_leadId_fkey" FOREIGN KEY ("leadId") REFERENCES "Lead" ("id") ON DELETE RESTRICT ON UPDATE CASCADE,
     CONSTRAINT "LeadAssignment_userId_fkey" FOREIGN KEY ("userId") REFERENCES "User" ("id") ON DELETE RESTRICT ON UPDATE CASCADE
 );
@@ -43,8 +43,8 @@ CREATE TABLE "Script" (
     "title" TEXT NOT NULL,
     "content" TEXT NOT NULL,
     "isTemplate" BOOLEAN NOT NULL DEFAULT false,
-    "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    "updatedAt" DATETIME NOT NULL,
+    "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "updatedAt" TIMESTAMP(3) NOT NULL,
     CONSTRAINT "Script_ownerId_fkey" FOREIGN KEY ("ownerId") REFERENCES "User" ("id") ON DELETE RESTRICT ON UPDATE CASCADE
 );
 
@@ -55,8 +55,8 @@ CREATE TABLE "Doc" (
     "title" TEXT NOT NULL,
     "content" TEXT NOT NULL,
     "kind" TEXT NOT NULL,
-    "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    "updatedAt" DATETIME NOT NULL,
+    "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "updatedAt" TIMESTAMP(3) NOT NULL,
     CONSTRAINT "Doc_ownerId_fkey" FOREIGN KEY ("ownerId") REFERENCES "User" ("id") ON DELETE RESTRICT ON UPDATE CASCADE
 );
 
@@ -67,8 +67,8 @@ CREATE TABLE "CallLog" (
     "leadId" TEXT NOT NULL,
     "disposition" TEXT NOT NULL,
     "notes" TEXT,
-    "followUpAt" DATETIME,
-    "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "followUpAt" TIMESTAMP(3),
+    "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
     "transcriptDocId" TEXT,
     CONSTRAINT "CallLog_dialerId_fkey" FOREIGN KEY ("dialerId") REFERENCES "User" ("id") ON DELETE RESTRICT ON UPDATE CASCADE,
     CONSTRAINT "CallLog_leadId_fkey" FOREIGN KEY ("leadId") REFERENCES "Lead" ("id") ON DELETE RESTRICT ON UPDATE CASCADE,
@@ -82,7 +82,7 @@ CREATE TABLE "CallRecording" (
     "filePath" TEXT NOT NULL,
     "mimeType" TEXT NOT NULL,
     "fileSize" INTEGER NOT NULL,
-    "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
     CONSTRAINT "CallRecording_callLogId_fkey" FOREIGN KEY ("callLogId") REFERENCES "CallLog" ("id") ON DELETE RESTRICT ON UPDATE CASCADE
 );
 
@@ -90,9 +90,9 @@ CREATE TABLE "CallRecording" (
 CREATE TABLE "AvailabilityBlock" (
     "id" TEXT NOT NULL PRIMARY KEY,
     "userId" TEXT NOT NULL,
-    "startAt" DATETIME NOT NULL,
-    "endAt" DATETIME NOT NULL,
-    "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "startAt" TIMESTAMP(3) NOT NULL,
+    "endAt" TIMESTAMP(3) NOT NULL,
+    "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
     CONSTRAINT "AvailabilityBlock_userId_fkey" FOREIGN KEY ("userId") REFERENCES "User" ("id") ON DELETE RESTRICT ON UPDATE CASCADE
 );
 
@@ -102,11 +102,11 @@ CREATE TABLE "Appointment" (
     "leadId" TEXT NOT NULL,
     "setterId" TEXT NOT NULL,
     "closerId" TEXT NOT NULL,
-    "startAt" DATETIME NOT NULL,
-    "endAt" DATETIME NOT NULL,
+    "startAt" TIMESTAMP(3) NOT NULL,
+    "endAt" TIMESTAMP(3) NOT NULL,
     "status" TEXT NOT NULL DEFAULT 'SCHEDULED',
-    "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    "updatedAt" DATETIME NOT NULL,
+    "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "updatedAt" TIMESTAMP(3) NOT NULL,
     "callLogId" TEXT,
     "prepDocId" TEXT,
     "loomUrl" TEXT,
@@ -124,8 +124,8 @@ CREATE TABLE "AppointmentOutcome" (
     "outcome" TEXT NOT NULL,
     "notes" TEXT,
     "revenueCents" INTEGER,
-    "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    "updatedAt" DATETIME NOT NULL,
+    "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "updatedAt" TIMESTAMP(3) NOT NULL,
     CONSTRAINT "AppointmentOutcome_appointmentId_fkey" FOREIGN KEY ("appointmentId") REFERENCES "Appointment" ("id") ON DELETE RESTRICT ON UPDATE CASCADE
 );
 
@@ -140,8 +140,8 @@ CREATE TABLE "ContractDraft" (
     "clientEmail" TEXT,
     "aiDocId" TEXT,
     "submittedByUserId" TEXT NOT NULL,
-    "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    "updatedAt" DATETIME NOT NULL,
+    "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "updatedAt" TIMESTAMP(3) NOT NULL,
     CONSTRAINT "ContractDraft_aiDocId_fkey" FOREIGN KEY ("aiDocId") REFERENCES "Doc" ("id") ON DELETE SET NULL ON UPDATE CASCADE,
     CONSTRAINT "ContractDraft_submittedByUserId_fkey" FOREIGN KEY ("submittedByUserId") REFERENCES "User" ("id") ON DELETE RESTRICT ON UPDATE CASCADE,
     CONSTRAINT "ContractDraft_appointmentOutcomeId_fkey" FOREIGN KEY ("appointmentOutcomeId") REFERENCES "AppointmentOutcome" ("id") ON DELETE RESTRICT ON UPDATE CASCADE
@@ -154,7 +154,7 @@ CREATE TABLE "Approval" (
     "reviewerId" TEXT NOT NULL,
     "decision" TEXT NOT NULL,
     "notes" TEXT,
-    "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
     CONSTRAINT "Approval_contractDraftId_fkey" FOREIGN KEY ("contractDraftId") REFERENCES "ContractDraft" ("id") ON DELETE RESTRICT ON UPDATE CASCADE,
     CONSTRAINT "Approval_reviewerId_fkey" FOREIGN KEY ("reviewerId") REFERENCES "User" ("id") ON DELETE RESTRICT ON UPDATE CASCADE
 );

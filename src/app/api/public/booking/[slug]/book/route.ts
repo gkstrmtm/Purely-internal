@@ -7,6 +7,7 @@ import { hasPublicColumn } from "@/lib/dbSchema";
 import { getRequestOrigin, signBookingRescheduleToken } from "@/lib/bookingReschedule";
 import { scheduleFollowUpsForBooking } from "@/lib/followUpAutomation";
 import { findOrCreatePortalContact } from "@/lib/portalContacts";
+import { ensurePortalContactTagsReady } from "@/lib/portalContactTags";
 import { normalizePhoneStrict } from "@/lib/phone";
 
 export const dynamic = "force-dynamic";
@@ -248,6 +249,9 @@ export async function POST(
       );
     }
   }
+
+  // Best-effort schema ensures (keeps booking→contact linking working even if migrations drift).
+  await ensurePortalContactTagsReady().catch(() => null);
 
   const [canUseContactsTable, canUseBookingContactId] = await Promise.all([
     hasPublicColumn("PortalContact", "id"),

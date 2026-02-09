@@ -5,7 +5,7 @@ CREATE TABLE "AppointmentVideo" (
     "filePath" TEXT NOT NULL,
     "mimeType" TEXT NOT NULL,
     "fileSize" INTEGER NOT NULL,
-    "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
     CONSTRAINT "AppointmentVideo_appointmentId_fkey" FOREIGN KEY ("appointmentId") REFERENCES "Appointment" ("id") ON DELETE RESTRICT ON UPDATE CASCADE
 );
 

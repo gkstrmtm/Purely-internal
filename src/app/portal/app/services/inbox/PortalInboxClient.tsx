@@ -5,6 +5,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import styles from "./PortalInboxClient.module.css";
 import { PortalSettingsSection } from "@/components/PortalSettingsSection";
 import { PortalMediaPickerModal, type PortalMediaPickItem } from "@/components/PortalMediaPickerModal";
+import { ContactTagsEditor, type ContactTag } from "@/components/ContactTagsEditor";
 
 type Channel = "email" | "sms";
 type EmailBox = "inbox" | "sent" | "all";
@@ -13,6 +14,8 @@ type Thread = {
   id: string;
   channel: "EMAIL" | "SMS";
   peerAddress: string;
+  contactId: string | null;
+  contactTags?: ContactTag[];
   subject: string | null;
   lastMessageAt: string;
   lastMessagePreview: string;
@@ -126,6 +129,10 @@ export function PortalInboxClient() {
     () => threads.find((t) => t.id === activeThreadId) ?? null,
     [threads, activeThreadId],
   );
+
+  function updateThreadTags(threadId: string, next: ContactTag[]) {
+    setThreads((prev) => prev.map((t) => (t.id === threadId ? { ...t, contactTags: next } : t)));
+  }
 
   const visibleThreads = useMemo(() => {
     if (tab !== "email") return threads;
@@ -538,6 +545,26 @@ export function PortalInboxClient() {
                         <div className="min-w-0">
                           <div className="truncate text-[15px] font-semibold text-zinc-900">{title}</div>
                           <div className="mt-0.5 truncate text-xs text-zinc-600">{subtitle || " "}</div>
+                          {Array.isArray(t.contactTags) && t.contactTags.length ? (
+                            <div className="mt-1 flex flex-wrap gap-1">
+                              {t.contactTags.slice(0, 3).map((tag) => (
+                                <span
+                                  key={tag.id}
+                                  className="rounded-full border px-2 py-0.5 text-[10px] font-semibold"
+                                  style={{
+                                    backgroundColor: (tag.color || "#0f172a") + "20",
+                                    borderColor: (tag.color || "#0f172a") + "40",
+                                    color: tag.color || "#0f172a",
+                                  }}
+                                >
+                                  {tag.name}
+                                </span>
+                              ))}
+                              {t.contactTags.length > 3 ? (
+                                <span className="text-[10px] font-semibold text-zinc-500">+{t.contactTags.length - 3}</span>
+                              ) : null}
+                            </div>
+                          ) : null}
                         </div>
                         <div className="shrink-0 text-[11px] text-zinc-500">{formatDayOrTime(t.lastMessageAt)}</div>
                       </div>
@@ -574,6 +601,26 @@ export function PortalInboxClient() {
                           {subject}
                         </div>
                         <div className="mt-0.5 truncate text-xs text-zinc-600">{snippet || " "}</div>
+                        {Array.isArray(t.contactTags) && t.contactTags.length ? (
+                          <div className="mt-1 flex flex-wrap gap-1">
+                            {t.contactTags.slice(0, 2).map((tag) => (
+                              <span
+                                key={tag.id}
+                                className="rounded-full border px-2 py-0.5 text-[10px] font-semibold"
+                                style={{
+                                  backgroundColor: (tag.color || "#0f172a") + "20",
+                                  borderColor: (tag.color || "#0f172a") + "40",
+                                  color: tag.color || "#0f172a",
+                                }}
+                              >
+                                {tag.name}
+                              </span>
+                            ))}
+                            {t.contactTags.length > 2 ? (
+                              <span className="text-[10px] font-semibold text-zinc-500">+{t.contactTags.length - 2}</span>
+                            ) : null}
+                          </div>
+                        ) : null}
                       </div>
                       <div className="shrink-0 text-[11px] text-zinc-500">{formatDayOrTime(t.lastMessageAt)}</div>
                     </div>
@@ -603,6 +650,16 @@ export function PortalInboxClient() {
                 <div className="truncate text-xs text-zinc-500">
                   {activeThread ? activeThread.peerAddress : "Enter a phone number to start a text"}
                 </div>
+                {activeThread?.contactId ? (
+                  <div className="mt-2">
+                    <ContactTagsEditor
+                      compact
+                      contactId={activeThread.contactId}
+                      tags={Array.isArray(activeThread.contactTags) ? activeThread.contactTags : []}
+                      onChange={(next) => updateThreadTags(activeThread.id, next)}
+                    />
+                  </div>
+                ) : null}
               </div>
 
               {!activeThread ? (

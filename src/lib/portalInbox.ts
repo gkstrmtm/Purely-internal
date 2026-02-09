@@ -1,5 +1,6 @@
 import { prisma } from "@/lib/db";
-import { normalizeEmailKey } from "@/lib/portalContacts";
+import { findOrCreatePortalContact, normalizeEmailKey } from "@/lib/portalContacts";
+import { ensurePortalContactsSchema } from "@/lib/portalContactsSchema";
 import { normalizePhoneStrict } from "@/lib/phone";
 import { randomBytes } from "crypto";
 
@@ -175,6 +176,29 @@ export async function upsertPortalInboxMessage(opts: {
   const channel = opts.channel;
   const direction = opts.direction;
 
+  let contactId: string | null = null;
+  try {
+    await ensurePortalContactsSchema();
+    if (channel === "SMS") {
+      contactId = await findOrCreatePortalContact({
+        ownerId,
+        name: String(opts.peerAddress ?? opts.peerKey ?? "").slice(0, 80) || "SMS Contact",
+        email: null,
+        phone: String(opts.peerKey ?? ""),
+      });
+    } else {
+      const email = extractEmailAddress(String(opts.peerAddress ?? "")) || String(opts.peerKey ?? "");
+      contactId = await findOrCreatePortalContact({
+        ownerId,
+        name: email || "Email Contact",
+        email: email || null,
+        phone: null,
+      });
+    }
+  } catch {
+    // ignore
+  }
+
   const subject = typeof opts.subject === "string" ? opts.subject.trim().slice(0, 200) : null;
   const subjectKey = typeof opts.subjectKey === "string" ? opts.subjectKey.trim().slice(0, 160) : null;
 
@@ -186,6 +210,7 @@ export async function upsertPortalInboxMessage(opts: {
       threadKey: opts.threadKey,
       peerAddress: opts.peerAddress,
       peerKey: opts.peerKey,
+      contactId,
       subject,
       subjectKey,
       lastMessageAt: opts.createdAt ?? new Date(),
@@ -198,6 +223,7 @@ export async function upsertPortalInboxMessage(opts: {
     update: {
       peerAddress: opts.peerAddress,
       peerKey: opts.peerKey,
+      contactId,
       subject,
       subjectKey,
       lastMessageAt: opts.createdAt ?? new Date(),

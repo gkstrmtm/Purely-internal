@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 
 import { requireClientSession } from "@/lib/apiAuth";
 import { prisma } from "@/lib/db";
+import { ensurePortalContactTagsReady } from "@/lib/portalContactTags";
 import { ensurePortalInboxSchema } from "@/lib/portalInboxSchema";
 
 export const dynamic = "force-dynamic";
@@ -60,6 +61,7 @@ export async function GET(req: Request) {
 
   // Avoid runtime failures if migrations haven't been applied yet.
   await ensurePortalInboxSchema();
+  await ensurePortalContactTagsReady().catch(() => null);
 
   try {
     const threads = await (prisma as any).portalInboxThread.findMany({
@@ -70,6 +72,7 @@ export async function GET(req: Request) {
         id: true,
         channel: true,
         peerAddress: true,
+        contactId: true,
         subject: true,
         lastMessageAt: true,
         lastMessagePreview: true,
@@ -80,7 +83,42 @@ export async function GET(req: Request) {
       },
     });
 
-    return NextResponse.json({ ok: true, threads });
+    const contactIds = Array.from(
+      new Set((threads || []).map((t: any) => String(t.contactId || "")).filter(Boolean)),
+    );
+
+    const tagsByContactId = new Map<string, Array<{ id: string; name: string; color: string | null }>>();
+    if (contactIds.length) {
+      try {
+        const rows = await (prisma as any).portalContactTagAssignment.findMany({
+          where: { ownerId, contactId: { in: contactIds } },
+          take: 2000,
+          select: {
+            contactId: true,
+            tag: { select: { id: true, name: true, color: true } },
+          },
+        });
+
+        for (const r of rows || []) {
+          const cid = String(r.contactId);
+          const t = r.tag;
+          if (!t) continue;
+          const list = tagsByContactId.get(cid) || [];
+          list.push({ id: String(t.id), name: String(t.name), color: t.color ? String(t.color) : null });
+          tagsByContactId.set(cid, list);
+        }
+      } catch {
+        // ignore
+      }
+    }
+
+    const withTags = (threads || []).map((t: any) => ({
+      ...t,
+      contactId: t.contactId ? String(t.contactId) : null,
+      contactTags: t.contactId ? tagsByContactId.get(String(t.contactId)) || [] : [],
+    }));
+
+    return NextResponse.json({ ok: true, threads: withTags });
   } catch (e) {
     const friendly = customerFriendlyError(e, channel);
     return NextResponse.json({ ok: false, code: friendly.code, error: friendly.error }, { status: friendly.status });

@@ -6,6 +6,7 @@ import { useEffect, useMemo, useState } from "react";
 import { PortalFollowUpClient } from "@/app/portal/app/services/follow-up/PortalFollowUpClient";
 import { PortalMediaPickerModal, type PortalMediaPickItem } from "@/components/PortalMediaPickerModal";
 import { PortalSettingsSection } from "@/components/PortalSettingsSection";
+import { ContactTagsEditor, type ContactTag } from "@/components/ContactTagsEditor";
 
 type BookingFormConfig = {
   version: 1;
@@ -52,6 +53,8 @@ type Booking = {
   contactName: string;
   contactEmail: string;
   contactPhone?: string | null;
+  contactId?: string | null;
+  contactTags?: ContactTag[];
   notes?: string | null;
   createdAt: string;
   canceledAt?: string | null;
@@ -256,6 +259,11 @@ export function PortalBookingClient() {
 
   const [reminderMediaPickerStepId, setReminderMediaPickerStepId] = useState<string | null>(null);
   const [reminderUploadBusyStepId, setReminderUploadBusyStepId] = useState<string | null>(null);
+
+  function updateBookingTags(bookingId: string, next: ContactTag[]) {
+    setUpcoming((prev) => prev.map((b) => (b.id === bookingId ? { ...b, contactTags: next } : b)));
+    setRecent((prev) => prev.map((b) => (b.id === bookingId ? { ...b, contactTags: next } : b)));
+  }
 
   const filteredReminderEvents = useMemo(() => {
     const cal = reminderCalendarId;
@@ -1134,6 +1142,16 @@ export function PortalBookingClient() {
                       {b.contactName} · {b.contactEmail}
                       {b.contactPhone ? ` · ${b.contactPhone}` : ""}
                     </div>
+                    {b.contactId ? (
+                      <div className="mt-2">
+                        <ContactTagsEditor
+                          compact
+                          contactId={b.contactId}
+                          tags={Array.isArray(b.contactTags) ? b.contactTags : []}
+                          onChange={(next) => updateBookingTags(b.id, next)}
+                        />
+                      </div>
+                    ) : null}
                     {b.notes ? <div className="mt-2 text-sm text-zinc-600">{b.notes}</div> : null}
                     <div className="mt-3 flex flex-wrap justify-end gap-2">
                       <button

@@ -1,0 +1,63 @@
+import { NextResponse } from "next/server";
+import { z } from "zod";
+
+import { requireClientSession } from "@/lib/apiAuth";
+import { createOwnerContactTag, listOwnerContactTags } from "@/lib/portalContactTags";
+
+export const dynamic = "force-dynamic";
+export const revalidate = 0;
+export const runtime = "nodejs";
+
+const postSchema = z.object({
+  name: z.string().trim().min(1).max(60),
+  color: z
+    .string()
+    .trim()
+    .max(16)
+    .optional()
+    .transform((v) => (v === "" ? null : v ?? null)),
+});
+
+export async function GET() {
+  const auth = await requireClientSession();
+  if (!auth.ok) {
+    return NextResponse.json(
+      { ok: false, error: auth.status === 401 ? "Unauthorized" : "Forbidden" },
+      { status: auth.status },
+    );
+  }
+
+  const ownerId = auth.session.user.id;
+  const tags = await listOwnerContactTags(ownerId);
+  return NextResponse.json({ ok: true, tags });
+}
+
+export async function POST(req: Request) {
+  const auth = await requireClientSession();
+  if (!auth.ok) {
+    return NextResponse.json(
+      { ok: false, error: auth.status === 401 ? "Unauthorized" : "Forbidden" },
+      { status: auth.status },
+    );
+  }
+
+  const ownerId = auth.session.user.id;
+
+  const body = (await req.json().catch(() => null)) as unknown;
+  const parsed = postSchema.safeParse(body ?? {});
+  if (!parsed.success) {
+    return NextResponse.json({ ok: false, error: "Invalid input" }, { status: 400 });
+  }
+
+  const created = await createOwnerContactTag({
+    ownerId,
+    name: parsed.data.name,
+    color: parsed.data.color,
+  });
+
+  if (!created) {
+    return NextResponse.json({ ok: false, error: "Failed to create tag" }, { status: 500 });
+  }
+
+  return NextResponse.json({ ok: true, tag: created });
+}

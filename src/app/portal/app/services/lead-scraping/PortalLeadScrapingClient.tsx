@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { PortalMediaPickerModal } from "@/components/PortalMediaPickerModal";
+import { ContactTagsEditor, type ContactTag } from "@/components/ContactTagsEditor";
 
 const TAG_COLORS = [
   "#0EA5E9", // sky
@@ -27,6 +28,8 @@ type LeadRow = {
   starred: boolean;
   tag?: string | null;
   tagColor?: string | null;
+  contactId?: string | null;
+  contactTags?: ContactTag[];
   createdAtIso: string;
 };
 
@@ -355,6 +358,10 @@ export function PortalLeadScrapingClient() {
     activeLead && settings ? settings.outboundState.approvedAtByLeadId[activeLead.id] ?? null : null;
   const activeLeadSentAt =
     activeLead && settings ? settings.outboundState.sentAtByLeadId[activeLead.id] ?? null : null;
+
+  function updateLeadContactTags(leadId: string, next: ContactTag[]) {
+    setLeads((prev) => prev.map((l) => (l.id === leadId ? { ...l, contactTags: next } : l)));
+  }
 
   const tagPresets = useMemo(() => {
     if (tab === "b2b") return normalizeTagPresetsClient(settings?.b2b?.tagPresets ?? settings?.tagPresets);
@@ -1704,6 +1711,26 @@ export function PortalLeadScrapingClient() {
                             </span>
                           ) : null}
                         </div>
+                        {Array.isArray(l.contactTags) && l.contactTags.length ? (
+                          <div className="mt-2 flex flex-wrap gap-1">
+                            {l.contactTags.slice(0, 2).map((tag) => (
+                              <span
+                                key={tag.id}
+                                className="rounded-full border px-2 py-0.5 text-[10px] font-semibold"
+                                style={{
+                                  backgroundColor: (tag.color || "#0f172a") + "20",
+                                  borderColor: (tag.color || "#0f172a") + "40",
+                                  color: tag.color || "#0f172a",
+                                }}
+                              >
+                                {tag.name}
+                              </span>
+                            ))}
+                            {l.contactTags.length > 2 ? (
+                              <span className="text-[10px] font-semibold text-zinc-500">+{l.contactTags.length - 2}</span>
+                            ) : null}
+                          </div>
+                        ) : null}
                         <div className="mt-1 flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1 text-xs text-zinc-600">
                           {l.phone ? <span className="whitespace-nowrap">{l.phone}</span> : null}
                           {l.phone && l.website ? <span>•</span> : null}
@@ -2450,6 +2477,20 @@ export function PortalLeadScrapingClient() {
                 <div className="text-lg font-semibold text-brand-ink">{activeLead.businessName}</div>
                 <div className="mt-1 text-xs text-zinc-500">Pulled: {safeFormatDateTime(activeLead.createdAtIso)}</div>
               </div>
+
+              {activeLead.contactId ? (
+                <div className="mt-3 rounded-2xl border border-zinc-200 bg-white p-4">
+                  <div className="text-xs font-semibold text-zinc-600">Contact tags</div>
+                  <div className="mt-2">
+                    <ContactTagsEditor
+                      compact
+                      contactId={activeLead.contactId}
+                      tags={activeLead.contactTags ?? []}
+                      onChange={(next) => updateLeadContactTags(activeLead.id, next)}
+                    />
+                  </div>
+                </div>
+              ) : null}
 
               <div className="mt-4 grid grid-cols-1 gap-3 sm:grid-cols-3">
                 <div className="rounded-2xl border border-zinc-200 bg-zinc-50 p-4">

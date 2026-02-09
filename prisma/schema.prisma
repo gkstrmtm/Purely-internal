@@ -107,6 +107,9 @@ model User {
   portalInboxMessages PortalInboxMessage[]
   portalInboxAttachments PortalInboxAttachment[]
 
+  portalContactTags PortalContactTag[]
+  portalContactTagAssignments PortalContactTagAssignment[]
+
   portalMediaFolders PortalMediaFolder[]
   portalMediaItems   PortalMediaItem[]
 }
@@ -205,6 +208,9 @@ model PortalLead {
 
   ownerId String
 
+  // Optional link to the normalized contact record.
+  contactId String?
+
   source PortalLeadSource @default(GOOGLE_PLACES)
   kind   PortalLeadScrapeKind @default(B2B)
 
@@ -229,11 +235,14 @@ model PortalLead {
 
   owner User @relation(fields: [ownerId], references: [id])
 
+  contact PortalContact? @relation(fields: [contactId], references: [id], onDelete: SetNull)
+
   @@unique([ownerId, placeId])
   @@unique([ownerId, phone])
   @@index([ownerId, createdAt])
   @@index([ownerId, kind, createdAt])
   @@index([ownerId, starred, createdAt])
+  @@index([ownerId, contactId])
 }
 
 model PortalContact {
@@ -258,10 +267,55 @@ model PortalContact {
   bookings PortalBooking[]
   reviews  PortalReview[]
 
+  tagAssignments PortalContactTagAssignment[]
+
+  inboxThreads PortalInboxThread[]
+  portalLeads  PortalLead[]
+
   @@index([ownerId])
   @@index([ownerId, emailKey])
   @@index([ownerId, phoneKey])
   @@index([ownerId, nameKey])
+}
+
+model PortalContactTag {
+  id String @id @default(cuid())
+
+  ownerId String
+
+  name    String
+  nameKey String
+
+  // Hex color like "#3b82f6" (optional).
+  color String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  owner User @relation(fields: [ownerId], references: [id])
+
+  assignments PortalContactTagAssignment[]
+
+  @@unique([ownerId, nameKey])
+  @@index([ownerId])
+}
+
+model PortalContactTagAssignment {
+  id String @id @default(cuid())
+
+  ownerId   String
+  contactId String
+  tagId     String
+
+  createdAt DateTime @default(now())
+
+  owner   User           @relation(fields: [ownerId], references: [id])
+  contact PortalContact  @relation(fields: [contactId], references: [id], onDelete: Cascade)
+  tag     PortalContactTag @relation(fields: [tagId], references: [id], onDelete: Cascade)
+
+  @@unique([contactId, tagId])
+  @@index([ownerId, createdAt])
+  @@index([tagId])
 }
 
 model Lead {
@@ -325,6 +379,9 @@ model PortalInboxThread {
   peerAddress String
   peerKey     String
 
+  // Optional link to normalized contact (for tags/CRM).
+  contactId String?
+
   subject    String?
   subjectKey String?
 
@@ -339,11 +396,13 @@ model PortalInboxThread {
   updatedAt DateTime @updatedAt
 
   owner    User               @relation(fields: [ownerId], references: [id])
+  contact  PortalContact?      @relation(fields: [contactId], references: [id], onDelete: SetNull)
   messages PortalInboxMessage[]
 
   @@unique([ownerId, channel, threadKey])
   @@index([ownerId, channel, lastMessageAt])
   @@index([ownerId, channel, peerKey])
+  @@index([ownerId, contactId])
 }
 
 model PortalInboxMessage {

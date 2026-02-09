@@ -42,6 +42,7 @@ CREATE TABLE IF NOT EXISTS "PortalInboxThread" (
   "threadKey" TEXT NOT NULL,
   "peerAddress" TEXT NOT NULL,
   "peerKey" TEXT NOT NULL,
+  "contactId" TEXT,
   "subject" TEXT,
   "subjectKey" TEXT,
   "lastMessageAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
@@ -95,6 +96,7 @@ CREATE TABLE IF NOT EXISTS "PortalInboxAttachment" (
     `CREATE UNIQUE INDEX IF NOT EXISTS "PortalInboxThread_ownerId_channel_threadKey_key" ON "PortalInboxThread"("ownerId", "channel", "threadKey");`,
     `CREATE INDEX IF NOT EXISTS "PortalInboxThread_ownerId_channel_lastMessageAt_idx" ON "PortalInboxThread"("ownerId", "channel", "lastMessageAt");`,
     `CREATE INDEX IF NOT EXISTS "PortalInboxThread_ownerId_channel_peerKey_idx" ON "PortalInboxThread"("ownerId", "channel", "peerKey");`,
+    `CREATE INDEX IF NOT EXISTS "PortalInboxThread_ownerId_contactId_idx" ON "PortalInboxThread"("ownerId", "contactId");`,
 
     `CREATE INDEX IF NOT EXISTS "PortalInboxMessage_threadId_createdAt_idx" ON "PortalInboxMessage"("threadId", "createdAt");`,
     `CREATE INDEX IF NOT EXISTS "PortalInboxMessage_ownerId_channel_createdAt_idx" ON "PortalInboxMessage"("ownerId", "channel", "createdAt");`,
@@ -112,6 +114,18 @@ BEGIN
     ALTER TABLE "PortalInboxThread"
       ADD CONSTRAINT "PortalInboxThread_ownerId_fkey"
       FOREIGN KEY ("ownerId") REFERENCES "User"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
+  END IF;
+
+  IF EXISTS (
+    SELECT 1 FROM information_schema.tables WHERE table_schema = 'public' AND table_name = 'PortalContact'
+  ) THEN
+    IF NOT EXISTS (
+      SELECT 1 FROM pg_constraint WHERE conname = 'PortalInboxThread_contactId_fkey'
+    ) THEN
+      ALTER TABLE "PortalInboxThread"
+        ADD CONSTRAINT "PortalInboxThread_contactId_fkey"
+        FOREIGN KEY ("contactId") REFERENCES "PortalContact"("id") ON DELETE SET NULL ON UPDATE CASCADE;
+    END IF;
   END IF;
 
   IF NOT EXISTS (

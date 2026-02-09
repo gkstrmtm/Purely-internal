@@ -3,6 +3,8 @@ import { z } from "zod";
 
 import { requireClientSession } from "@/lib/apiAuth";
 import { prisma } from "@/lib/db";
+import { hasPublicColumn } from "@/lib/dbSchema";
+import { ensurePortalContactTagsReady } from "@/lib/portalContactTags";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -34,6 +36,9 @@ export async function GET(req: Request) {
   }
 
   const ownerId = auth.session.user.id;
+
+  await ensurePortalContactTagsReady().catch(() => null);
+  const hasContactId = await hasPublicColumn("PortalLead", "contactId").catch(() => false);
 
   const url = new URL(req.url);
   const takeRaw = url.searchParams.get("take");
@@ -90,6 +95,7 @@ export async function GET(req: Request) {
             tag: true,
             tagColor: true,
             createdAt: true,
+            ...(hasContactId ? ({ contactId: true } as any) : {}),
           } as any,
         }),
       ]);
@@ -163,8 +169,38 @@ export async function GET(req: Request) {
     starred: Boolean(l.starred),
     tag: (l as any).tag ?? null,
     tagColor: (l as any).tagColor ?? null,
+    contactId: hasContactId ? ((l as any).contactId ?? null) : null,
     createdAtIso: l.createdAt instanceof Date ? l.createdAt.toISOString() : String(l.createdAt),
   }));
 
-  return NextResponse.json({ ok: true, totalCount: result.totalCount, matchedCount: result.matchedCount, leads: normalized });
+  const contactIds = Array.from(new Set(normalized.map((l) => String(l.contactId || "")).filter(Boolean)));
+  const tagsByContactId = new Map<string, Array<{ id: string; name: string; color: string | null }>>();
+  if (contactIds.length) {
+    try {
+      const rows = await (prisma as any).portalContactTagAssignment.findMany({
+        where: { ownerId, contactId: { in: contactIds } },
+        take: 6000,
+        select: { contactId: true, tag: { select: { id: true, name: true, color: true } } },
+      });
+
+      for (const r of rows || []) {
+        const cid = String(r.contactId);
+        const t = r.tag;
+        if (!t) continue;
+        const list = tagsByContactId.get(cid) || [];
+        list.push({ id: String(t.id), name: String(t.name), color: t.color ? String(t.color) : null });
+        tagsByContactId.set(cid, list);
+      }
+    } catch {
+      // ignore
+    }
+  }
+
+  const withTags = normalized.map((l) => ({
+    ...l,
+    contactId: l.contactId ? String(l.contactId) : null,
+    contactTags: l.contactId ? tagsByContactId.get(String(l.contactId)) || [] : [],
+  }));
+
+  return NextResponse.json({ ok: true, totalCount: result.totalCount, matchedCount: result.matchedCount, leads: withTags });
 }
