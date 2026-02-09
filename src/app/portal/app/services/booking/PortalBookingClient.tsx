@@ -227,7 +227,7 @@ export function PortalBookingClient() {
   const [calMonth, setCalMonth] = useState(() => startOfMonth(new Date()));
   const [calSelectedYmd, setCalSelectedYmd] = useState<string | null>(null);
 
-  const [topTab, setTopTab] = useState<"settings" | "appointments" | "reminders" | "follow-up">("settings");
+  const [topTab, setTopTab] = useState<"settings" | "appointments" | "reminders" | "follow-up">("appointments");
   const [appointmentsView, setAppointmentsView] = useState<"week" | "month">("week");
 
   const [contactOpen, setContactOpen] = useState(false);
@@ -267,7 +267,7 @@ export function PortalBookingClient() {
     setTopTab(next);
     try {
       const url = new URL(window.location.href);
-      if (next === "settings") url.searchParams.delete("tab");
+      if (next === "appointments") url.searchParams.delete("tab");
       else url.searchParams.set("tab", next);
       window.history.replaceState({}, "", url.toString());
     } catch {
@@ -278,7 +278,7 @@ export function PortalBookingClient() {
   useEffect(() => {
     try {
       const tab = new URLSearchParams(window.location.search).get("tab");
-      if (tab === "appointments" || tab === "reminders" || tab === "follow-up") {
+      if (tab === "appointments" || tab === "reminders" || tab === "follow-up" || tab === "settings") {
         setTopTab(tab);
       }
     } catch {
@@ -822,19 +822,6 @@ export function PortalBookingClient() {
       <div className="mt-6 flex w-full flex-wrap gap-2">
         <button
           type="button"
-          onClick={() => setTopTabWithUrl("settings")}
-          aria-current={topTab === "settings" ? "page" : undefined}
-          className={
-            "flex-1 min-w-[160px] rounded-2xl border px-4 py-2.5 text-sm font-semibold transition focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-ink/60 " +
-            (topTab === "settings"
-              ? "border-zinc-900 bg-zinc-900 text-white shadow-sm"
-              : "border-zinc-200 bg-white text-zinc-700 hover:bg-zinc-50")
-          }
-        >
-          Settings
-        </button>
-        <button
-          type="button"
           onClick={() => setTopTabWithUrl("appointments")}
           aria-current={topTab === "appointments" ? "page" : undefined}
           className={
@@ -871,6 +858,19 @@ export function PortalBookingClient() {
           }
         >
           Follow-up
+        </button>
+        <button
+          type="button"
+          onClick={() => setTopTabWithUrl("settings")}
+          aria-current={topTab === "settings" ? "page" : undefined}
+          className={
+            "flex-1 min-w-[160px] rounded-2xl border px-4 py-2.5 text-sm font-semibold transition focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-ink/60 " +
+            (topTab === "settings"
+              ? "border-zinc-900 bg-zinc-900 text-white shadow-sm"
+              : "border-zinc-200 bg-white text-zinc-700 hover:bg-zinc-50")
+          }
+        >
+          Settings
         </button>
       </div>
 

@@ -222,37 +222,33 @@ export async function GET(
     }
   }
 
-  const metas = await (prisma as any).portalMediaItem.findMany({
+  const items = await (prisma as any).portalMediaItem.findMany({
     where: { ownerId: folder.ownerId, folderId: { in: subtreeIds } },
     orderBy: [{ createdAt: "desc" }],
-    select: { id: true, folderId: true, fileName: true, fileSize: true },
+    select: { id: true, folderId: true, fileName: true, fileSize: true, bytes: true },
     take: 2000,
   });
 
   const MAX_FILES = 1000;
   const MAX_TOTAL_BYTES = 200 * 1024 * 1024; // 200MB
-  if (metas.length > MAX_FILES) {
+  if (items.length > MAX_FILES) {
     return NextResponse.json({ ok: false, error: `Too many files to zip (max ${MAX_FILES}).` }, { status: 400 });
   }
 
-  const totalBytes = metas.reduce((sum: number, m: any) => sum + (Number(m.fileSize) || 0), 0);
+  const totalBytes = items.reduce((sum: number, m: any) => sum + (Number(m.fileSize) || 0), 0);
   if (totalBytes > MAX_TOTAL_BYTES) {
     return NextResponse.json({ ok: false, error: "Folder is too large to zip." }, { status: 400 });
   }
 
   const zipFiles: Array<{ path: string; data: Uint8Array }> = [];
-  for (const m of metas) {
-    // eslint-disable-next-line no-await-in-loop
-    const row = await (prisma as any).portalMediaItem.findFirst({
-      where: { id: m.id, publicToken: { not: null } },
-      select: { bytes: true },
-    });
-    if (!row?.bytes) continue;
+  for (const it of items) {
+    if (!it?.bytes) continue;
 
-    const folderPath = folderPathById.get(m.folderId || "") || "";
-    const fileName = safeZipFilename(m.fileName);
+    const data = it.bytes as unknown as Uint8Array;
+    const folderPath = folderPathById.get(it.folderId || "") || "";
+    const fileName = safeZipFilename(it.fileName);
     const filePath = folderPath ? `${folderPath}/${fileName}` : fileName;
-    zipFiles.push({ path: filePath, data: row.bytes as unknown as Uint8Array });
+    zipFiles.push({ path: filePath, data });
   }
 
   const zipBytes = createZip(zipFiles, { mtime: new Date() });

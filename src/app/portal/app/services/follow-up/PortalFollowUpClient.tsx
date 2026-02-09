@@ -129,7 +129,7 @@ export function PortalFollowUpClient({ embedded }: { embedded?: boolean } = {}) 
 
   const [me, setMe] = useState<Me | null>(null);
   const [loading, setLoading] = useState(true);
-  const [tab, setTab] = useState<"settings" | "activity">("settings");
+  const [tab, setTab] = useState<"settings" | "activity">("activity");
 
   const [settings, setSettings] = useState<Settings | null>(null);
   const [queue, setQueue] = useState<QueueItem[]>([]);
@@ -659,19 +659,6 @@ export function PortalFollowUpClient({ embedded }: { embedded?: boolean } = {}) 
       <div className="mt-6 flex w-full flex-wrap gap-2">
         <button
           type="button"
-          onClick={() => setTab("settings")}
-          aria-current={tab === "settings" ? "page" : undefined}
-          className={
-            "flex-1 min-w-[160px] rounded-2xl border px-4 py-2.5 text-sm font-semibold transition focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-ink/60 " +
-            (tab === "settings"
-              ? "border-zinc-900 bg-zinc-900 text-white shadow-sm"
-              : "border-zinc-200 bg-white text-zinc-700 hover:bg-zinc-50")
-          }
-        >
-          Settings
-        </button>
-        <button
-          type="button"
           onClick={() => setTab("activity")}
           aria-current={tab === "activity" ? "page" : undefined}
           className={
@@ -682,6 +669,19 @@ export function PortalFollowUpClient({ embedded }: { embedded?: boolean } = {}) 
           }
         >
           Activity
+        </button>
+        <button
+          type="button"
+          onClick={() => setTab("settings")}
+          aria-current={tab === "settings" ? "page" : undefined}
+          className={
+            "flex-1 min-w-[160px] rounded-2xl border px-4 py-2.5 text-sm font-semibold transition focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-ink/60 " +
+            (tab === "settings"
+              ? "border-zinc-900 bg-zinc-900 text-white shadow-sm"
+              : "border-zinc-200 bg-white text-zinc-700 hover:bg-zinc-50")
+          }
+        >
+          Settings
         </button>
       </div>
 

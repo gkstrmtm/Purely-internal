@@ -153,6 +153,20 @@ export default function PortalReviewsClient() {
   const [error, setError] = useState<string | null>(null);
   const [settings, setSettings] = useState<ReviewRequestsSettings>(DEFAULT_SETTINGS);
 
+  const [tab, setTab] = useState<"reviews" | "settings">("reviews");
+
+  function setTabWithUrl(nextTab: "reviews" | "settings") {
+    setTab(nextTab);
+    try {
+      const url = new URL(window.location.href);
+      if (nextTab === "reviews") url.searchParams.delete("tab");
+      else url.searchParams.set("tab", nextTab);
+      window.history.replaceState(null, "", url.toString());
+    } catch {
+      // ignore
+    }
+  }
+
   const lastSavedSettingsJsonRef = useRef<string>(JSON.stringify(DEFAULT_SETTINGS));
 
   const [publicSiteSlug, setPublicSiteSlug] = useState<string | null>(null);
@@ -446,6 +460,16 @@ export default function PortalReviewsClient() {
     load();
   }, []);
 
+  useEffect(() => {
+    try {
+      const url = new URL(window.location.href);
+      const t = url.searchParams.get("tab");
+      if (t === "settings" || t === "reviews") setTab(t);
+    } catch {
+      // ignore
+    }
+  }, []);
+
   async function save(next: ReviewRequestsSettings) {
     setSaving(true);
     setError(null);
@@ -655,14 +679,44 @@ export default function PortalReviewsClient() {
         <div className="mt-4 rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-800">{error}</div>
       ) : null}
 
-      <div className="mt-6 grid grid-cols-1 gap-6 lg:grid-cols-2">
-        <PortalSettingsSection
-          title="Settings"
-          description="Automation, public reviews page, message template, and destinations."
-          accent="slate"
-          status={settings.enabled ? "on" : "off"}
-          defaultOpen={false}
+      <div className="mt-6 flex w-full flex-wrap gap-2">
+        <button
+          type="button"
+          onClick={() => setTabWithUrl("reviews")}
+          aria-current={tab === "reviews" ? "page" : undefined}
+          className={
+            "flex-1 min-w-[160px] rounded-2xl border px-4 py-2.5 text-sm font-semibold transition focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-ink/60 " +
+            (tab === "reviews"
+              ? "border-zinc-900 bg-zinc-900 text-white shadow-sm"
+              : "border-zinc-200 bg-white text-zinc-700 hover:bg-zinc-50")
+          }
         >
+          Reviews
+        </button>
+        <button
+          type="button"
+          onClick={() => setTabWithUrl("settings")}
+          aria-current={tab === "settings" ? "page" : undefined}
+          className={
+            "flex-1 min-w-[200px] rounded-2xl border px-4 py-2.5 text-sm font-semibold transition focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-ink/60 " +
+            (tab === "settings"
+              ? "border-zinc-900 bg-zinc-900 text-white shadow-sm"
+              : "border-zinc-200 bg-white text-zinc-700 hover:bg-zinc-50")
+          }
+        >
+          Requests / Settings
+        </button>
+      </div>
+
+      <div className="mt-4">
+        <div className={tab === "settings" ? "" : "hidden"}>
+          <PortalSettingsSection
+            title="Requests / Settings"
+            description="Automation, public reviews page, message template, and destinations."
+            accent="slate"
+            status={settings.enabled ? "on" : "off"}
+            defaultOpen
+          >
           <div className="flex items-center justify-end gap-3">
             <div className="inline-flex overflow-hidden rounded-2xl border border-zinc-200 bg-white">
               <button
@@ -1363,15 +1417,17 @@ export default function PortalReviewsClient() {
             </button>
             {saving ? <div className="text-xs text-neutral-500">Please wait…</div> : null}
           </div>
-        </PortalSettingsSection>
+          </PortalSettingsSection>
+        </div>
 
-        <PortalSettingsSection
-          title="Manual send"
-          description="Send a one-off review request for a specific booking, and review recent activity."
-          accent="slate"
-          status={settings.enabled && settings.automation.manualSend ? "on" : "off"}
-          defaultOpen={false}
-        >
+        <div className={tab === "reviews" ? "" : "hidden"}>
+          <PortalSettingsSection
+            title="Reviews"
+            description="Manual sends, recent activity, and received reviews."
+            accent="slate"
+            status={settings.enabled && settings.automation.manualSend ? "on" : "off"}
+            defaultOpen
+          >
 
           {!settings.automation.manualSend ? (
             <div className="mt-3 rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
@@ -1770,7 +1826,8 @@ export default function PortalReviewsClient() {
               ))}
             </div>
           </div>
-        </PortalSettingsSection>
+          </PortalSettingsSection>
+        </div>
       </div>
     </div>
   );

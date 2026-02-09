@@ -80,7 +80,7 @@ export function PortalAiReceptionistClient() {
   const [credits, setCredits] = useState<number | null>(null);
   const [billingPath, setBillingPath] = useState<string>("/portal/app/billing");
 
-  const [tab, setTab] = useState<"settings" | "testing" | "activity" | "missed-call-textback">("settings");
+  const [tab, setTab] = useState<"settings" | "testing" | "activity" | "missed-call-textback">("activity");
 
   const [settings, setSettings] = useState<Settings | null>(null);
   const [events, setEvents] = useState<EventRow[]>([]);
@@ -139,7 +139,8 @@ export function PortalAiReceptionistClient() {
     setTab(nextTab);
     try {
       const url = new URL(window.location.href);
-      url.searchParams.set("tab", nextTab);
+      if (nextTab === "activity") url.searchParams.delete("tab");
+      else url.searchParams.set("tab", nextTab);
       window.history.replaceState(null, "", url.toString());
     } catch {
       // ignore
@@ -322,16 +323,16 @@ export function PortalAiReceptionistClient() {
       <div className="mt-6 flex w-full flex-wrap gap-2">
         <button
           type="button"
-          onClick={() => setTabWithUrl("settings")}
-          aria-current={tab === "settings" ? "page" : undefined}
+          onClick={() => setTabWithUrl("activity")}
+          aria-current={tab === "activity" ? "page" : undefined}
           className={
             "flex-1 min-w-[160px] rounded-2xl border px-4 py-2.5 text-sm font-semibold transition focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-ink/60 " +
-            (tab === "settings"
+            (tab === "activity"
               ? "border-zinc-900 bg-zinc-900 text-white shadow-sm"
               : "border-zinc-200 bg-white text-zinc-700 hover:bg-zinc-50")
           }
         >
-          Settings
+          Activity
         </button>
         <button
           type="button"
@@ -348,19 +349,6 @@ export function PortalAiReceptionistClient() {
         </button>
         <button
           type="button"
-          onClick={() => setTabWithUrl("activity")}
-          aria-current={tab === "activity" ? "page" : undefined}
-          className={
-            "flex-1 min-w-[160px] rounded-2xl border px-4 py-2.5 text-sm font-semibold transition focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-ink/60 " +
-            (tab === "activity"
-              ? "border-zinc-900 bg-zinc-900 text-white shadow-sm"
-              : "border-zinc-200 bg-white text-zinc-700 hover:bg-zinc-50")
-          }
-        >
-          Activity
-        </button>
-        <button
-          type="button"
           onClick={() => setTabWithUrl("missed-call-textback")}
           aria-current={tab === "missed-call-textback" ? "page" : undefined}
           className={
@@ -371,6 +359,19 @@ export function PortalAiReceptionistClient() {
           }
         >
           Missed Call Text Back
+        </button>
+        <button
+          type="button"
+          onClick={() => setTabWithUrl("settings")}
+          aria-current={tab === "settings" ? "page" : undefined}
+          className={
+            "flex-1 min-w-[160px] rounded-2xl border px-4 py-2.5 text-sm font-semibold transition focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-ink/60 " +
+            (tab === "settings"
+              ? "border-zinc-900 bg-zinc-900 text-white shadow-sm"
+              : "border-zinc-200 bg-white text-zinc-700 hover:bg-zinc-50")
+          }
+        >
+          Settings
         </button>
       </div>
 
