@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 
 import { prisma } from "@/lib/db";
-import { requireClientSession } from "@/lib/apiAuth";
+import { requireClientSessionForService } from "@/lib/portalAccess";
 import { generateClientBlogDraft } from "@/lib/clientBlogAutomation";
 import { consumeCredits, getCreditsState } from "@/lib/credits";
 
@@ -22,7 +22,7 @@ const bodySchema = z
   .optional();
 
 export async function POST(req: Request, ctx: { params: Promise<{ postId: string }> }) {
-  const auth = await requireClientSession();
+  const auth = await requireClientSessionForService("blogs");
   if (!auth.ok) {
     return NextResponse.json(
       { error: auth.status === 401 ? "Unauthorized" : "Forbidden" },

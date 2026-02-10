@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 
-import { requireClientSession } from "@/lib/apiAuth";
+import { requireClientSessionForService } from "@/lib/portalAccess";
 import { getOrCreateStripeCustomerId, isStripeConfigured, stripeGet } from "@/lib/stripeFetch";
 
 export const dynamic = "force-dynamic";
@@ -24,7 +24,7 @@ type StripeSubscription = {
 };
 
 export async function GET() {
-  const auth = await requireClientSession();
+  const auth = await requireClientSessionForService("billing");
   if (!auth.ok) {
     return NextResponse.json(
       { error: auth.status === 401 ? "Unauthorized" : "Forbidden" },

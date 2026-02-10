@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 
 import { prisma } from "@/lib/db";
-import { requireClientSession } from "@/lib/apiAuth";
+import { requireClientSessionForService } from "@/lib/portalAccess";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
@@ -45,6 +45,8 @@ const actionConfigSchema = z
       "send_email",
       "add_tag",
       "create_task",
+      "assign_lead",
+      "find_contact",
       "send_webhook",
       "send_review_request",
       "send_booking_link",
@@ -132,7 +134,7 @@ function parseAutomations(raw: unknown) {
 }
 
 export async function GET() {
-  const auth = await requireClientSession();
+  const auth = await requireClientSessionForService("automations");
   if (!auth.ok) {
     return NextResponse.json(
       { error: auth.status === 401 ? "Unauthorized" : "Forbidden" },
@@ -181,7 +183,7 @@ const putSchema = z.object({
 });
 
 export async function PUT(req: Request) {
-  const auth = await requireClientSession();
+  const auth = await requireClientSessionForService("automations");
   if (!auth.ok) {
     return NextResponse.json(
       { error: auth.status === 401 ? "Unauthorized" : "Forbidden" },

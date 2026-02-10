@@ -39,6 +39,8 @@ type ActionKind =
   | "send_email"
   | "add_tag"
   | "create_task"
+  | "assign_lead"
+  | "find_contact"
   | "send_webhook"
   | "send_review_request"
   | "send_booking_link"
@@ -56,7 +58,7 @@ async function getOwnerBookingLink(ownerId: string): Promise<string | null> {
   return `${getBasePublicUrl()}/book/${encodeURIComponent(slug)}`;
 }
 
-type MessageTarget = "inbound_sender" | "event_contact" | "internal_notification" | "custom";
+type MessageTarget = "inbound_sender" | "event_contact" | "internal_notification" | "assigned_lead" | "custom";
 
 type ConditionOp = "equals" | "contains" | "starts_with" | "ends_with" | "is_empty" | "is_not_empty";
 
@@ -68,6 +70,7 @@ type BuilderNodeConfig =
       body?: string;
       subject?: string;
       tagId?: string;
+  assignedToUserId?: string;
       smsTo?: MessageTarget;
       smsToNumber?: string;
       emailTo?: Exclude<MessageTarget, "inbound_sender">;
@@ -85,6 +88,211 @@ type BuilderNodeConfig =
   | { kind: "delay"; minutes: number }
   | { kind: "condition"; left: string; op: ConditionOp; right: string }
   | { kind: "note"; text: string };
+
+async function resolveAssignedLeadUserIdFromCalendar(ownerId: string, calendarId: string): Promise<string | null> {
+  const calendarIdSafe = String(calendarId || "").trim();
+  if (!calendarIdSafe) return null;
+
+  const calendars = await getBookingCalendarsConfig(ownerId).catch(() => null);
+  const cal = calendars?.calendars?.find((c) => String(c.id) === calendarIdSafe) || null;
+  const emails = Array.isArray((cal as any)?.notificationEmails)
+    ? (((cal as any).notificationEmails as unknown) as unknown[])
+        .filter((x) => typeof x === "string")
+        .map((x) => String(x).trim().toLowerCase())
+        .filter((x) => x.includes("@"))
+        .slice(0, 10)
+    : [];
+  if (!emails.length) return null;
+
+  const emailSet = new Set(emails);
+
+  const members = await (prisma as any).portalAccountMember
+    .findMany({
+      where: { ownerId },
+      select: { userId: true, user: { select: { email: true, active: true } } },
+      take: 200,
+    })
+    .catch(() => [] as any[]);
+
+  for (const m of Array.isArray(members) ? members : []) {
+    const id = m?.userId ? String(m.userId) : "";
+    const email = m?.user?.email ? String(m.user.email).trim().toLowerCase() : "";
+    const active = Boolean(m?.user?.active ?? true);
+    if (!active) continue;
+    if (id && email && emailSet.has(email)) return id;
+  }
+
+  return null;
+}
+
+async function validateAssigneeIsOwnerOrMember(ownerId: string, userId: string): Promise<string | null> {
+  const id = String(userId || "").trim();
+  if (!id) return null;
+  if (id === ownerId) return id;
+  const member = await (prisma as any).portalAccountMember
+    .findUnique({
+      where: { ownerId_userId: { ownerId, userId: id } },
+      select: { id: true },
+    })
+    .catch(() => null);
+  return member?.id ? id : null;
+}
+
+async function getLeadAssigneeUserIdFromDataJson(ownerId: string, leadId: string): Promise<string | null> {
+  const id = String(leadId || "").trim();
+  if (!id) return null;
+
+  let row: any = null;
+  try {
+    row = await (prisma as any).portalLead.findFirst({
+      where: { id, ownerId },
+      select: { assignedToUserId: true, dataJson: true },
+    });
+  } catch {
+    row = await (prisma as any).portalLead
+      .findFirst({
+        where: { id, ownerId },
+        select: { dataJson: true },
+      })
+      .catch(() => null);
+  }
+
+  const fromColumn = row?.assignedToUserId ? String(row.assignedToUserId).trim() : "";
+  if (fromColumn) return await validateAssigneeIsOwnerOrMember(ownerId, fromColumn).catch(() => null);
+
+  const rec =
+    row?.dataJson && typeof row.dataJson === "object" && !Array.isArray(row.dataJson)
+      ? (row.dataJson as Record<string, unknown>)
+      : null;
+  const raw = rec?.assignedToUserId ?? rec?.assigneeUserId;
+  const candidate = typeof raw === "string" ? raw.trim() : "";
+  if (!candidate) return null;
+  return await validateAssigneeIsOwnerOrMember(ownerId, candidate).catch(() => null);
+}
+
+async function persistLeadAssigneeUserIdToDataJson(ownerId: string, leadId: string, assigneeUserId: string): Promise<void> {
+  const id = String(leadId || "").trim();
+  const assignedToUserId = String(assigneeUserId || "").trim();
+  if (!id || !assignedToUserId) return;
+
+  const safeAssignee = await validateAssigneeIsOwnerOrMember(ownerId, assignedToUserId).catch(() => null);
+  if (!safeAssignee) return;
+
+  const existingRow = await (prisma as any).portalLead
+    .findFirst({
+      where: { id, ownerId },
+      select: { dataJson: true },
+    })
+    .catch(() => null);
+
+  const existing =
+    existingRow?.dataJson && typeof existingRow.dataJson === "object" && !Array.isArray(existingRow.dataJson)
+      ? (existingRow.dataJson as Record<string, unknown>)
+      : {};
+
+  const next = {
+    ...existing,
+    assignedToUserId: safeAssignee,
+    assignedAtIso: new Date().toISOString(),
+  };
+
+  try {
+    await (prisma as any).portalLead.update({
+      where: { id },
+      data: { assignedToUserId: safeAssignee, dataJson: next },
+      select: { id: true },
+    });
+  } catch {
+    await (prisma as any).portalLead
+      .update({
+        where: { id },
+        data: { dataJson: next },
+        select: { id: true },
+      })
+      .catch(() => null);
+  }
+}
+
+async function getLeadContactIdFromDataJson(ownerId: string, leadId: string): Promise<string | null> {
+  const id = String(leadId || "").trim();
+  if (!id) return null;
+
+  let row: any = null;
+  try {
+    row = await (prisma as any).portalLead.findFirst({
+      where: { id, ownerId },
+      select: { contactId: true, dataJson: true },
+    });
+  } catch {
+    row = await (prisma as any).portalLead
+      .findFirst({
+        where: { id, ownerId },
+        select: { dataJson: true },
+      })
+      .catch(() => null);
+  }
+
+  const fromColumn = row?.contactId ? String(row.contactId).trim() : "";
+  if (fromColumn) {
+    const contact = await getPortalContactById(ownerId, fromColumn).catch(() => null);
+    if (contact?.id) return fromColumn;
+  }
+
+  const rec =
+    row?.dataJson && typeof row.dataJson === "object" && !Array.isArray(row.dataJson)
+      ? (row.dataJson as Record<string, unknown>)
+      : null;
+
+  const raw = rec?.contactId;
+  const candidate = typeof raw === "string" ? raw.trim() : "";
+  if (!candidate) return null;
+
+  const contact = await getPortalContactById(ownerId, candidate).catch(() => null);
+  return contact?.id ? candidate : null;
+}
+
+async function persistLeadContactIdToDataJson(ownerId: string, leadId: string, contactId: string): Promise<void> {
+  const id = String(leadId || "").trim();
+  const cid = String(contactId || "").trim();
+  if (!id || !cid) return;
+
+  const contact = await getPortalContactById(ownerId, cid).catch(() => null);
+  if (!contact?.id) return;
+
+  const existingRow = await (prisma as any).portalLead
+    .findFirst({
+      where: { id, ownerId },
+      select: { dataJson: true },
+    })
+    .catch(() => null);
+
+  const existing =
+    existingRow?.dataJson && typeof existingRow.dataJson === "object" && !Array.isArray(existingRow.dataJson)
+      ? (existingRow.dataJson as Record<string, unknown>)
+      : {};
+
+  const next = {
+    ...existing,
+    contactId: cid,
+    contactAssignedAtIso: new Date().toISOString(),
+  };
+
+  try {
+    await (prisma as any).portalLead.update({
+      where: { id },
+      data: { contactId: cid, dataJson: next },
+      select: { id: true },
+    });
+  } catch {
+    await (prisma as any).portalLead
+      .update({
+        where: { id },
+        data: { dataJson: next },
+        select: { id: true },
+      })
+      .catch(() => null);
+  }
+}
 
 type BuilderNode = {
   id: string;
@@ -144,9 +352,39 @@ async function getOwnerInternalPhone(ownerId: string): Promise<string | null> {
   return typeof raw === "string" && raw.trim() ? raw.trim().slice(0, 32) : null;
 }
 
+async function getUserInternalPhone(userId: string): Promise<string | null> {
+  const id = String(userId || "").trim();
+  if (!id) return null;
+
+  const row = await prisma.portalServiceSetup
+    .findUnique({
+      where: { ownerId_serviceSlug: { ownerId: id, serviceSlug: "profile" } },
+      select: { dataJson: true },
+    })
+    .catch(() => null);
+
+  const rec =
+    row?.dataJson && typeof row.dataJson === "object" && !Array.isArray(row.dataJson)
+      ? (row.dataJson as Record<string, unknown>)
+      : null;
+  const raw = rec?.phone;
+  return typeof raw === "string" && raw.trim() ? raw.trim().slice(0, 32) : null;
+}
+
 async function getOwnerInternalEmail(ownerId: string): Promise<string | null> {
   const user = await prisma.user.findUnique({ where: { id: ownerId }, select: { email: true } });
   const email = user?.email?.trim() || "";
+  return email ? email : null;
+}
+
+async function getActiveUserEmail(userId: string): Promise<string | null> {
+  const id = String(userId || "").trim();
+  if (!id) return null;
+  const row = await prisma.user
+    .findUnique({ where: { id }, select: { email: true, active: true } })
+    .catch(() => null);
+  if (!row || row.active === false) return null;
+  const email = row.email?.trim() || "";
   return email ? email : null;
 }
 
@@ -251,7 +489,7 @@ async function runAutomationOnce(opts: {
   triggerKind: TriggerKind;
   message?: { from?: string; to?: string; body?: string };
   contact?: { id?: string | null; name?: string | null; email?: string | null; phone?: string | null };
-  event?: { tagId?: string; webhookKey?: string; triggerNodeId?: string; bookingId?: string; calendarId?: string };
+  event?: { tagId?: string; webhookKey?: string; triggerNodeId?: string; bookingId?: string; calendarId?: string; leadId?: string };
 }) {
   const message = {
     from: coerceString(opts.message?.from),
@@ -315,7 +553,7 @@ async function runAutomationOnce(opts: {
       eventPhone,
   );
 
-  const contactId = hasContactInfo
+  let contactId = hasContactInfo
     ? (opts.contact?.id ? String(opts.contact.id) : "") ||
       (await findOrCreatePortalContact({
         ownerId: opts.ownerId,
@@ -325,9 +563,26 @@ async function runAutomationOnce(opts: {
       }))
     : null;
 
-  const contactRow = contactId ? await getPortalContactById(opts.ownerId, contactId).catch(() => null) : null;
+  if (!contactId && opts.event?.leadId) {
+    contactId = await getLeadContactIdFromDataJson(opts.ownerId, opts.event.leadId).catch(() => null);
+  }
 
-  const ctx = {
+  if (contactId && opts.event?.leadId) {
+    await persistLeadContactIdToDataJson(opts.ownerId, opts.event.leadId, contactId).catch(() => null);
+  }
+
+  const loadContactRow = async (id: string | null) => {
+    if (!id) return null;
+    return await getPortalContactById(opts.ownerId, id).catch(() => null);
+  };
+
+  let contactRow = await loadContactRow(contactId);
+
+  const ctx: {
+    message: { from: string; to: string; body: string };
+    contact: { id: string | null; phone: string | null; email: string | null; name: string | null };
+    assigneeUserId: string | null;
+  } = {
     message,
     contact: {
       id: contactId,
@@ -335,7 +590,12 @@ async function runAutomationOnce(opts: {
       email: contactRow?.email || (eventEmail || null) || null,
       name: contactRow?.name || (eventName || null) || null,
     },
+    assigneeUserId: null,
   };
+
+  if (opts.event?.leadId) {
+    ctx.assigneeUserId = await getLeadAssigneeUserIdFromDataJson(opts.ownerId, opts.event.leadId).catch(() => null);
+  }
 
   const [ownerFromName, ownerInternalEmail, ownerInternalPhone] = await Promise.all([
     getOwnerFromName(opts.ownerId).catch(() => "Purely Automation"),
@@ -343,17 +603,18 @@ async function runAutomationOnce(opts: {
     getOwnerInternalPhone(opts.ownerId).catch(() => null),
   ]);
 
-  const templateVars = buildPortalTemplateVars({
-    contact: {
-      id: ctx.contact.id,
-      name: ctx.contact.name,
-      email: ctx.contact.email,
-      phone: ctx.contact.phone,
-    },
-    business: { name: ownerFromName },
-    owner: { email: ownerInternalEmail, phone: ownerInternalPhone },
-    message: { from: message.from, to: message.to, body: message.body },
-  });
+  const getTemplateVars = () =>
+    buildPortalTemplateVars({
+      contact: {
+        id: ctx.contact.id,
+        name: ctx.contact.name,
+        email: ctx.contact.email,
+        phone: ctx.contact.phone,
+      },
+      business: { name: ownerFromName },
+      owner: { email: ownerInternalEmail, phone: ownerInternalPhone },
+      message: { from: ctx.message.from, to: ctx.message.to, body: ctx.message.body },
+    });
 
   const maxSteps = 120;
 
@@ -382,15 +643,86 @@ async function runAutomationOnce(opts: {
       if (node.type === "action") {
         const cfg = (node as any).config;
         if (isActionConfig(cfg)) {
+          if (cfg.actionKind === "assign_lead") {
+            const assignedToUserIdRaw = String((cfg as any).assignedToUserId || "").trim();
+            let resolved: string | null = null;
+
+            if (assignedToUserIdRaw === "__assigned_lead__") {
+              const calendarId = String(opts.event?.calendarId || "").trim();
+              resolved =
+                ctx.assigneeUserId ||
+                (calendarId ? await resolveAssignedLeadUserIdFromCalendar(opts.ownerId, calendarId).catch(() => null) : null);
+              if (!resolved) resolved = opts.ownerId;
+            } else if (assignedToUserIdRaw && assignedToUserIdRaw !== "__all_users__") {
+              resolved = await validateAssigneeIsOwnerOrMember(opts.ownerId, assignedToUserIdRaw).catch(() => null);
+              if (!resolved) resolved = opts.ownerId;
+            } else {
+              resolved = opts.ownerId;
+            }
+
+            ctx.assigneeUserId = resolved;
+
+            if (opts.event?.leadId && resolved) {
+              await persistLeadAssigneeUserIdToDataJson(opts.ownerId, opts.event.leadId, resolved).catch(() => null);
+            }
+          }
+
+          if (cfg.actionKind === "find_contact") {
+            const vars = getTemplateVars();
+            const nameTemplate = String((cfg as any).contactName || "").trim();
+            const emailTemplate = String((cfg as any).contactEmail || "").trim();
+            const phoneTemplate = String((cfg as any).contactPhone || "").trim();
+
+            const renderedName = nameTemplate ? renderTextTemplate(nameTemplate, vars).trim().slice(0, 80) : "";
+            const renderedEmail = emailTemplate ? renderTextTemplate(emailTemplate, vars).trim().slice(0, 120) : "";
+            const renderedPhone = phoneTemplate ? renderTextTemplate(phoneTemplate, vars).trim().slice(0, 64) : "";
+
+            const fallbackEmail = looksLikeEmail(ctx.message.from) ? ctx.message.from.trim() : "";
+            const fallbackPhone = looksLikePhone(ctx.message.from) ? ctx.message.from.trim() : "";
+
+            const email = renderedEmail || fallbackEmail;
+            const phone = renderedPhone || fallbackPhone;
+            const name = renderedName || phone || email;
+
+            if (email || phone || name) {
+              try {
+                await ensurePortalContactsSchema().catch(() => null);
+                const nextId = await findOrCreatePortalContact({
+                  ownerId: opts.ownerId,
+                  name: name || "Contact",
+                  email: email || null,
+                  phone: phone || null,
+                });
+                contactId = nextId || contactId;
+              } catch {
+                // best-effort
+              }
+
+              if (contactId) {
+                contactRow = await loadContactRow(contactId);
+                ctx.contact.id = contactId;
+                ctx.contact.phone = contactRow?.phone || phone || null;
+                ctx.contact.email = contactRow?.email || email || null;
+                ctx.contact.name = contactRow?.name || renderedName || name || null;
+              }
+            }
+          }
+
           if (cfg.actionKind === "send_sms") {
             const bodyTemplate = String(cfg.body || "").trim() || "Got it — thanks!";
-            const body = renderTextTemplate(bodyTemplate, templateVars);
+            const body = renderTextTemplate(bodyTemplate, getTemplateVars());
             const target = (String((cfg as any).smsTo || "inbound_sender") as MessageTarget) || "inbound_sender";
             let to: string | null = null;
 
             if (target === "inbound_sender") to = message.from || null;
             if (target === "event_contact") to = ctx.contact.phone || message.from || null;
             if (target === "internal_notification") to = await getOwnerInternalPhone(opts.ownerId).catch(() => null);
+            if (target === "assigned_lead") {
+              const id = ctx.assigneeUserId || opts.ownerId;
+              const safeId = await validateAssigneeIsOwnerOrMember(opts.ownerId, id).catch(() => null);
+              to = safeId ? await getUserInternalPhone(safeId).catch(() => null) : null;
+              if (!to) to = await getOwnerInternalPhone(opts.ownerId).catch(() => null);
+            }
             if (target === "custom") to = String((cfg as any).smsToNumber || "").trim() || null;
 
             if (to) {
@@ -405,14 +737,20 @@ async function runAutomationOnce(opts: {
           if (cfg.actionKind === "send_email") {
             const textTemplate = String((cfg as any).body || "").trim();
             const subjectTemplate = String((cfg as any).subject || "").trim() || "Automated message";
-            const text = renderTextTemplate(textTemplate, templateVars);
-            const subject = renderTextTemplate(subjectTemplate, templateVars);
+            const text = renderTextTemplate(textTemplate, getTemplateVars());
+            const subject = renderTextTemplate(subjectTemplate, getTemplateVars());
             const target = (String((cfg as any).emailTo || "internal_notification") as Exclude<MessageTarget, "inbound_sender">) ||
               "internal_notification";
 
             let toEmail: string | null = null;
             if (target === "event_contact") toEmail = ctx.contact.email || null;
             if (target === "internal_notification") toEmail = await getOwnerInternalEmail(opts.ownerId).catch(() => null);
+            if (target === "assigned_lead") {
+              const id = ctx.assigneeUserId || opts.ownerId;
+              const safeId = await validateAssigneeIsOwnerOrMember(opts.ownerId, id).catch(() => null);
+              toEmail = safeId ? await getActiveUserEmail(safeId).catch(() => null) : null;
+              if (!toEmail) toEmail = await getOwnerInternalEmail(opts.ownerId).catch(() => null);
+            }
             if (target === "custom") toEmail = String((cfg as any).emailToAddress || "").trim() || null;
 
             if (toEmail && (text || subject)) {
@@ -447,8 +785,9 @@ async function runAutomationOnce(opts: {
             const descriptionRaw = String((cfg as any).body || "").trim();
             const assignedToUserIdRaw = String((cfg as any).assignedToUserId || "").trim();
 
-            const title = renderTextTemplate(titleRaw || "Task", templateVars).slice(0, 160);
-            let description = renderTextTemplate(descriptionRaw, templateVars).slice(0, 5000);
+            const vars = getTemplateVars();
+            const title = renderTextTemplate(titleRaw || "Task", vars).slice(0, 160);
+            let description = renderTextTemplate(descriptionRaw, vars).slice(0, 5000);
             if (!description && (ctx.contact.name || ctx.contact.email || ctx.contact.phone)) {
               const bits = [ctx.contact.name, ctx.contact.email, ctx.contact.phone].filter(Boolean).join(" • ");
               description = bits ? `Related contact: ${bits}`.slice(0, 5000) : "";
@@ -459,39 +798,12 @@ async function runAutomationOnce(opts: {
             const resolveSpecialAssignee = async (): Promise<string | null> => {
               if (assignedToUserIdRaw !== "__assigned_lead__") return null;
 
+              if (ctx.assigneeUserId) return ctx.assigneeUserId;
+
               const calendarId = String(opts.event?.calendarId || "").trim();
               if (!calendarId) return null;
 
-              const calendars = await getBookingCalendarsConfig(opts.ownerId).catch(() => null);
-              const cal = calendars?.calendars?.find((c) => String(c.id) === calendarId) || null;
-              const emails = Array.isArray((cal as any)?.notificationEmails)
-                ? (((cal as any).notificationEmails as unknown) as unknown[])
-                    .filter((x) => typeof x === "string")
-                    .map((x) => String(x).trim().toLowerCase())
-                    .filter((x) => x.includes("@"))
-                    .slice(0, 10)
-                : [];
-              if (!emails.length) return null;
-
-              const emailSet = new Set(emails);
-
-              const members = await (prisma as any).portalAccountMember
-                .findMany({
-                  where: { ownerId: opts.ownerId },
-                  select: { userId: true, user: { select: { email: true, active: true } } },
-                  take: 200,
-                })
-                .catch(() => [] as any[]);
-
-              for (const m of Array.isArray(members) ? members : []) {
-                const id = m?.userId ? String(m.userId) : "";
-                const email = m?.user?.email ? String(m.user.email).trim().toLowerCase() : "";
-                const active = Boolean(m?.user?.active ?? true);
-                if (!active) continue;
-                if (id && email && emailSet.has(email)) return id;
-              }
-
-              return null;
+              return await resolveAssignedLeadUserIdFromCalendar(opts.ownerId, calendarId);
             };
 
             let assignedToUserId: string | null = null;
@@ -500,17 +812,7 @@ async function runAutomationOnce(opts: {
               assignedToUserId = specialAssignedTo;
             } else if (assignedToUserIdRaw && assignedToUserIdRaw !== "__assigned_lead__") {
               // Only allow assigning to the account owner or an existing member.
-              if (assignedToUserIdRaw === opts.ownerId) {
-                assignedToUserId = assignedToUserIdRaw;
-              } else {
-                const member = await (prisma as any).portalAccountMember
-                  .findUnique({
-                    where: { ownerId_userId: { ownerId: opts.ownerId, userId: assignedToUserIdRaw } },
-                    select: { id: true },
-                  })
-                  .catch(() => null);
-                if (member?.id) assignedToUserId = assignedToUserIdRaw;
-              }
+              assignedToUserId = await validateAssigneeIsOwnerOrMember(opts.ownerId, assignedToUserIdRaw).catch(() => null);
             }
 
             // Default assignment: account owner.
@@ -567,7 +869,7 @@ async function runAutomationOnce(opts: {
             const url = link?.url ? String(link.url) : "";
             if (url) {
               const bodyTemplate = String((cfg as any).body || "").trim() || "Thanks for choosing {business.name}! Leave a review: {link}";
-              const body = renderTextTemplate(bodyTemplate, { ...templateVars, link: url });
+              const body = renderTextTemplate(bodyTemplate, { ...getTemplateVars(), link: url });
 
               const target = (String((cfg as any).smsTo || "event_contact") as MessageTarget) || "event_contact";
               let to: string | null = null;
@@ -591,7 +893,7 @@ async function runAutomationOnce(opts: {
             const url = (await getOwnerBookingLink(opts.ownerId).catch(() => null)) || "";
             if (url) {
               const bodyTemplate = String((cfg as any).body || "").trim() || "Book an appointment here: {link}";
-              const body = renderTextTemplate(bodyTemplate, { ...templateVars, link: url });
+              const body = renderTextTemplate(bodyTemplate, { ...getTemplateVars(), link: url });
 
               const target = (String((cfg as any).smsTo || "event_contact") as MessageTarget) || "event_contact";
               let to: string | null = null;
@@ -634,7 +936,7 @@ async function runAutomationOnce(opts: {
                 const bodyJsonTemplate = String((cfg as any).webhookBodyJson || "").trim();
                 let payload: any = defaultPayload;
                 if (bodyJsonTemplate) {
-                  const rendered = renderTextTemplate(bodyJsonTemplate, templateVars);
+                  const rendered = renderTextTemplate(bodyJsonTemplate, getTemplateVars());
                   try {
                     payload = JSON.parse(rendered);
                   } catch {
@@ -661,9 +963,10 @@ async function runAutomationOnce(opts: {
               const emailTemplate = String((cfg as any).contactEmail || "").trim();
               const phoneTemplate = String((cfg as any).contactPhone || "").trim();
 
-              const nextName = nameTemplate ? renderTextTemplate(nameTemplate, templateVars).trim().slice(0, 80) : "";
-              const nextEmailRaw = emailTemplate ? renderTextTemplate(emailTemplate, templateVars).trim().slice(0, 120) : "";
-              const nextPhoneRaw = phoneTemplate ? renderTextTemplate(phoneTemplate, templateVars).trim().slice(0, 64) : "";
+              const vars = getTemplateVars();
+              const nextName = nameTemplate ? renderTextTemplate(nameTemplate, vars).trim().slice(0, 80) : "";
+              const nextEmailRaw = emailTemplate ? renderTextTemplate(emailTemplate, vars).trim().slice(0, 120) : "";
+              const nextPhoneRaw = phoneTemplate ? renderTextTemplate(phoneTemplate, vars).trim().slice(0, 64) : "";
 
               const nameKey = nextName ? normalizeNameKey(nextName) : null;
               const emailKey = nextEmailRaw ? normalizeEmailKey(nextEmailRaw) : null;
@@ -742,7 +1045,7 @@ export async function runOwnerAutomationsForEvent(opts: {
   triggerKind: TriggerKind;
   message?: { from?: string; to?: string; body?: string };
   contact?: { id?: string | null; name?: string | null; email?: string | null; phone?: string | null };
-  event?: { tagId?: string; webhookKey?: string; triggerNodeId?: string; bookingId?: string; calendarId?: string };
+  event?: { tagId?: string; webhookKey?: string; triggerNodeId?: string; bookingId?: string; calendarId?: string; leadId?: string };
 }) {
   const automations = await loadOwnerAutomations(opts.ownerId);
 
@@ -766,7 +1069,7 @@ export async function runOwnerAutomationByIdForEvent(opts: {
   triggerKind: TriggerKind;
   message?: { from?: string; to?: string; body?: string };
   contact?: { id?: string | null; name?: string | null; email?: string | null; phone?: string | null };
-  event?: { tagId?: string; webhookKey?: string; triggerNodeId?: string; bookingId?: string; calendarId?: string };
+  event?: { tagId?: string; webhookKey?: string; triggerNodeId?: string; bookingId?: string; calendarId?: string; leadId?: string };
 }) {
   const automations = await loadOwnerAutomations(opts.ownerId);
   const automation = automations.find((a) => a.id === opts.automationId);

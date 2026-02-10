@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 
-import { requireClientSession } from "@/lib/apiAuth";
+import { requireClientSessionForService } from "@/lib/portalAccess";
 import { listAiReceptionistEvents } from "@/lib/aiReceptionist";
 import { getOwnerTwilioSmsConfig } from "@/lib/portalTwilio";
 
@@ -13,7 +13,7 @@ function jsonError(message: string, status: number) {
 }
 
 export async function GET(_req: Request, ctx: { params: Promise<{ recordingSid: string }> }) {
-  const auth = await requireClientSession();
+  const auth = await requireClientSessionForService("aiReceptionist");
   if (!auth.ok) {
     return jsonError(auth.status === 401 ? "Unauthorized" : "Forbidden", auth.status);
   }

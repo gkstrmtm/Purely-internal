@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 
 import { prisma } from "@/lib/db";
-import { requireClientSession } from "@/lib/apiAuth";
+import { requireClientSessionForService } from "@/lib/portalAccess";
 import { slugify } from "@/lib/slugify";
 
 export const dynamic = "force-dynamic";
@@ -40,7 +40,7 @@ async function uniqueSlug(siteId: string, title: string) {
 }
 
 export async function GET(req: Request) {
-  const auth = await requireClientSession();
+  const auth = await requireClientSessionForService("blogs");
   if (!auth.ok) {
     return NextResponse.json(
       { error: auth.status === 401 ? "Unauthorized" : "Forbidden" },
@@ -86,7 +86,7 @@ export async function GET(req: Request) {
 }
 
 export async function POST(req: Request) {
-  const auth = await requireClientSession();
+  const auth = await requireClientSessionForService("blogs");
   if (!auth.ok) {
     return NextResponse.json(
       { error: auth.status === 401 ? "Unauthorized" : "Forbidden" },

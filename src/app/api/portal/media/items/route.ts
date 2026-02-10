@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 
-import { requireClientSession } from "@/lib/apiAuth";
+import { requireClientSessionForService } from "@/lib/portalAccess";
 import { prisma } from "@/lib/db";
 import { newPublicToken, newTag, safeFilename } from "@/lib/portalMedia";
 
@@ -19,7 +19,7 @@ function mediaItemUrls(row: { id: string; publicToken: string; mimeType: string 
 }
 
 export async function GET(req: Request) {
-  const auth = await requireClientSession();
+  const auth = await requireClientSessionForService("media");
   if (!auth.ok) return NextResponse.json({ ok: false, error: "Unauthorized" }, { status: auth.status });
 
   const ownerId = auth.session.user.id;
@@ -62,7 +62,7 @@ export async function GET(req: Request) {
 }
 
 export async function POST(req: Request) {
-  const auth = await requireClientSession();
+  const auth = await requireClientSessionForService("media");
   if (!auth.ok) return NextResponse.json({ ok: false, error: "Unauthorized" }, { status: auth.status });
 
   const ownerId = auth.session.user.id;

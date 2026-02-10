@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 import https from "https";
 
-import { requireClientSession } from "@/lib/apiAuth";
+import { requireClientSessionForService } from "@/lib/portalAccess";
 import { prisma } from "@/lib/db";
 import { addCredits, consumeCredits } from "@/lib/credits";
 import { hasPlacesKey, placeDetails, placesTextSearch } from "@/lib/googlePlaces";
@@ -612,7 +612,7 @@ function matchesNameExclusion(businessName: string, excludeNameContains: string[
 }
 
 export async function POST(req: Request) {
-  const auth = await requireClientSession();
+  const auth = await requireClientSessionForService("leadScraping");
   if (!auth.ok) {
     return NextResponse.json(
       { ok: false, error: auth.status === 401 ? "Unauthorized" : "Forbidden" },

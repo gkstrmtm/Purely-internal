@@ -32,13 +32,15 @@ type ActionKind =
   | "send_email"
   | "add_tag"
   | "create_task"
+  | "assign_lead"
+  | "find_contact"
   | "send_webhook"
   | "send_review_request"
   | "send_booking_link"
   | "update_contact";
 type ConditionOp = "equals" | "contains" | "starts_with" | "ends_with" | "is_empty" | "is_not_empty";
 
-type MessageTarget = "inbound_sender" | "event_contact" | "internal_notification" | "custom";
+type MessageTarget = "inbound_sender" | "event_contact" | "internal_notification" | "assigned_lead" | "custom";
 
 type BuilderNodeConfig =
   | {
@@ -362,6 +364,8 @@ function labelForConfig(t: BuilderNodeType, cfg: BuilderNodeConfig | undefined) 
       send_email: "Send Email",
       add_tag: "Add Tag",
       create_task: "Create Task",
+      assign_lead: "Assign Lead",
+      find_contact: "Find Contact",
       send_webhook: "Send Webhook",
       send_review_request: "Review Request",
       send_booking_link: "Book Appointment",
@@ -433,6 +437,9 @@ export function PortalAutomationsClient() {
     | "task_description"
     | "test_sms_body"
     | "webhook_body"
+    | "find_contact_name"
+    | "find_contact_email"
+    | "find_contact_phone"
     | "update_contact_name"
     | "update_contact_email"
     | "update_contact_phone"
@@ -445,6 +452,9 @@ export function PortalAutomationsClient() {
   const taskDescriptionRef = useRef<HTMLTextAreaElement | null>(null);
   const testSmsBodyRef = useRef<HTMLTextAreaElement | null>(null);
   const webhookBodyRef = useRef<HTMLTextAreaElement | null>(null);
+  const findContactNameRef = useRef<HTMLInputElement | null>(null);
+  const findContactEmailRef = useRef<HTMLInputElement | null>(null);
+  const findContactPhoneRef = useRef<HTMLInputElement | null>(null);
   const updateContactNameRef = useRef<HTMLInputElement | null>(null);
   const updateContactEmailRef = useRef<HTMLInputElement | null>(null);
   const updateContactPhoneRef = useRef<HTMLInputElement | null>(null);
@@ -633,6 +643,48 @@ export function PortalAutomationsClient() {
       updateSelectedAutomation((a) => {
         const nodes = a.nodes.map((n) =>
           n.id === selectedNodeId ? { ...n, config: { ...(n.config as any), kind: "action", webhookBodyJson: next } } : n,
+        );
+        return { ...a, nodes, updatedAtIso: new Date().toISOString() } as any;
+      });
+      setCaretSoon(el, caret);
+      return;
+    }
+
+    if (variablePickerTarget === "find_contact_name") {
+      const el = findContactNameRef.current;
+      const current = String((selectedNode?.config as any)?.contactName ?? "");
+      const { next, caret } = insertAtCursor(current, token, el);
+      updateSelectedAutomation((a) => {
+        const nodes = a.nodes.map((n) =>
+          n.id === selectedNodeId ? { ...n, config: { ...(n.config as any), kind: "action", contactName: next } } : n,
+        );
+        return { ...a, nodes, updatedAtIso: new Date().toISOString() } as any;
+      });
+      setCaretSoon(el, caret);
+      return;
+    }
+
+    if (variablePickerTarget === "find_contact_email") {
+      const el = findContactEmailRef.current;
+      const current = String((selectedNode?.config as any)?.contactEmail ?? "");
+      const { next, caret } = insertAtCursor(current, token, el);
+      updateSelectedAutomation((a) => {
+        const nodes = a.nodes.map((n) =>
+          n.id === selectedNodeId ? { ...n, config: { ...(n.config as any), kind: "action", contactEmail: next } } : n,
+        );
+        return { ...a, nodes, updatedAtIso: new Date().toISOString() } as any;
+      });
+      setCaretSoon(el, caret);
+      return;
+    }
+
+    if (variablePickerTarget === "find_contact_phone") {
+      const el = findContactPhoneRef.current;
+      const current = String((selectedNode?.config as any)?.contactPhone ?? "");
+      const { next, caret } = insertAtCursor(current, token, el);
+      updateSelectedAutomation((a) => {
+        const nodes = a.nodes.map((n) =>
+          n.id === selectedNodeId ? { ...n, config: { ...(n.config as any), kind: "action", contactPhone: next } } : n,
         );
         return { ...a, nodes, updatedAtIso: new Date().toISOString() } as any;
       });
@@ -2373,6 +2425,8 @@ export function PortalAutomationsClient() {
                                 { value: "send_email", label: "Send Email" },
                                 { value: "add_tag", label: "Add Tag", disabled: !triggerHasContact, hint: !triggerHasContact ? "Needs a contact event" : undefined },
                                 { value: "create_task", label: "Create Task" },
+                                { value: "assign_lead", label: "Assign Lead" },
+                                { value: "find_contact", label: "Find Contact" },
                                 { value: "send_webhook", label: "Send Webhook" },
                                 {
                                   value: "send_review_request",
@@ -2462,6 +2516,7 @@ export function PortalAutomationsClient() {
                                         <option value="inbound_sender">Inbound sender</option>
                                         <option value="event_contact">Step contact</option>
                                         <option value="internal_notification">Internal notification (my number)</option>
+                                        <option value="assigned_lead">Assigned lead</option>
                                         <option value="custom">Custom number</option>
                                       </select>
                                     </div>
@@ -2565,6 +2620,7 @@ export function PortalAutomationsClient() {
                                         <option value="event_contact">Step contact</option>
                                         <option value="inbound_sender">Inbound sender</option>
                                         <option value="internal_notification">Internal notification (my number)</option>
+                                        <option value="assigned_lead">Assigned lead</option>
                                         <option value="custom">Custom number</option>
                                       </select>
                                     </div>
@@ -2702,6 +2758,127 @@ export function PortalAutomationsClient() {
                                       }}
                                     />
                                     <div className="mt-1 text-[11px] text-zinc-600">If empty, the server sends a default payload.</div>
+                                  </>
+                                );
+                              }
+
+                              if (cfg.actionKind === "find_contact") {
+                                const contactName = String((cfg as any).contactName || "").slice(0, 200);
+                                const contactEmail = String((cfg as any).contactEmail || "").slice(0, 200);
+                                const contactPhone = String((cfg as any).contactPhone || "").slice(0, 64);
+                                return (
+                                  <>
+                                    <div className="mt-2">
+                                      <div className="flex items-center justify-between gap-3">
+                                        <div className="text-xs font-semibold text-zinc-600">Lookup name</div>
+                                        <button
+                                          type="button"
+                                          className="rounded-xl border border-zinc-200 bg-white px-2 py-1 text-xs font-semibold text-zinc-700 hover:bg-zinc-50"
+                                          onClick={() => openVariablePicker("find_contact_name")}
+                                        >
+                                          Add variable
+                                        </button>
+                                      </div>
+                                      <input
+                                        ref={findContactNameRef}
+                                        className="mt-1 w-full rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-sm"
+                                        placeholder="e.g. {contact.name}"
+                                        value={contactName}
+                                        onChange={(e) => {
+                                          const next = e.target.value.slice(0, 200);
+                                          updateSelectedAutomation((a) => {
+                                            const nodes = a.nodes.map((n) => {
+                                              if (n.id !== selectedNode.id) return n;
+                                              const prev =
+                                                n.config?.kind === "action" ? n.config : (defaultConfigForType("action") as any);
+                                              const nextCfg: BuilderNodeConfig = { ...(prev as any), kind: "action", contactName: next };
+                                              const nextLabel =
+                                                autolabelSelectedNode && shouldAutolabel(n.label)
+                                                  ? labelForConfig("action", nextCfg)
+                                                  : n.label;
+                                              return { ...n, config: nextCfg, label: nextLabel };
+                                            });
+                                            return { ...a, nodes, updatedAtIso: new Date().toISOString() };
+                                          });
+                                        }}
+                                      />
+                                    </div>
+
+                                    <div className="mt-2">
+                                      <div className="flex items-center justify-between gap-3">
+                                        <div className="text-xs font-semibold text-zinc-600">Lookup email</div>
+                                        <button
+                                          type="button"
+                                          className="rounded-xl border border-zinc-200 bg-white px-2 py-1 text-xs font-semibold text-zinc-700 hover:bg-zinc-50"
+                                          onClick={() => openVariablePicker("find_contact_email")}
+                                        >
+                                          Add variable
+                                        </button>
+                                      </div>
+                                      <input
+                                        ref={findContactEmailRef}
+                                        className="mt-1 w-full rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-sm"
+                                        placeholder="e.g. {contact.email}"
+                                        value={contactEmail}
+                                        onChange={(e) => {
+                                          const next = e.target.value.slice(0, 200);
+                                          updateSelectedAutomation((a) => {
+                                            const nodes = a.nodes.map((n) => {
+                                              if (n.id !== selectedNode.id) return n;
+                                              const prev =
+                                                n.config?.kind === "action" ? n.config : (defaultConfigForType("action") as any);
+                                              const nextCfg: BuilderNodeConfig = { ...(prev as any), kind: "action", contactEmail: next };
+                                              const nextLabel =
+                                                autolabelSelectedNode && shouldAutolabel(n.label)
+                                                  ? labelForConfig("action", nextCfg)
+                                                  : n.label;
+                                              return { ...n, config: nextCfg, label: nextLabel };
+                                            });
+                                            return { ...a, nodes, updatedAtIso: new Date().toISOString() };
+                                          });
+                                        }}
+                                      />
+                                    </div>
+
+                                    <div className="mt-2">
+                                      <div className="flex items-center justify-between gap-3">
+                                        <div className="text-xs font-semibold text-zinc-600">Lookup phone</div>
+                                        <button
+                                          type="button"
+                                          className="rounded-xl border border-zinc-200 bg-white px-2 py-1 text-xs font-semibold text-zinc-700 hover:bg-zinc-50"
+                                          onClick={() => openVariablePicker("find_contact_phone")}
+                                        >
+                                          Add variable
+                                        </button>
+                                      </div>
+                                      <input
+                                        ref={findContactPhoneRef}
+                                        className="mt-1 w-full rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-sm"
+                                        placeholder="e.g. {contact.phone}"
+                                        value={contactPhone}
+                                        onChange={(e) => {
+                                          const next = e.target.value.slice(0, 64);
+                                          updateSelectedAutomation((a) => {
+                                            const nodes = a.nodes.map((n) => {
+                                              if (n.id !== selectedNode.id) return n;
+                                              const prev =
+                                                n.config?.kind === "action" ? n.config : (defaultConfigForType("action") as any);
+                                              const nextCfg: BuilderNodeConfig = { ...(prev as any), kind: "action", contactPhone: next };
+                                              const nextLabel =
+                                                autolabelSelectedNode && shouldAutolabel(n.label)
+                                                  ? labelForConfig("action", nextCfg)
+                                                  : n.label;
+                                              return { ...n, config: nextCfg, label: nextLabel };
+                                            });
+                                            return { ...a, nodes, updatedAtIso: new Date().toISOString() };
+                                          });
+                                        }}
+                                      />
+                                    </div>
+
+                                    <div className="mt-1 text-[11px] text-zinc-600">
+                                      Finds (or creates) a contact and uses it for later steps.
+                                    </div>
                                   </>
                                 );
                               }
@@ -2854,6 +3031,7 @@ export function PortalAutomationsClient() {
                                         }}
                                       >
                                         <option value="internal_notification">Internal notification (my email)</option>
+                                        <option value="assigned_lead">Assigned lead</option>
                                         <option value="event_contact">Step contact</option>
                                         <option value="custom">Custom email</option>
                                       </select>
@@ -3006,6 +3184,54 @@ export function PortalAutomationsClient() {
                                       Idempotent: won’t double-tag.
                                     </div>
                                   </div>
+                                );
+                              }
+
+                              if (cfg.actionKind === "assign_lead") {
+                                const assignedToUserId = String((cfg as any).assignedToUserId || "");
+                                const memberOptions = accountMembers
+                                  .filter((m) => m.user?.active)
+                                  .sort((a, b) => (a.user?.email || "").localeCompare(b.user?.email || ""));
+
+                                return (
+                                  <>
+                                    <div className="mt-2">
+                                      <div className="text-xs font-semibold text-zinc-600">Assign to</div>
+                                      <select
+                                        className="mt-1 w-full rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-sm"
+                                        value={assignedToUserId}
+                                        onChange={(e) => {
+                                          const next = String(e.target.value || "");
+                                          updateSelectedAutomation((a) => {
+                                            const nodes = a.nodes.map((n) => {
+                                              if (n.id !== selectedNode.id) return n;
+                                              const prev =
+                                                n.config?.kind === "action" ? n.config : (defaultConfigForType("action") as any);
+                                              const nextCfg: BuilderNodeConfig = { ...(prev as any), kind: "action", assignedToUserId: next || undefined };
+                                              const nextLabel =
+                                                autolabelSelectedNode && shouldAutolabel(n.label)
+                                                  ? labelForConfig("action", nextCfg)
+                                                  : n.label;
+                                              return { ...n, config: nextCfg, label: nextLabel };
+                                            });
+                                            return { ...a, nodes, updatedAtIso: new Date().toISOString() };
+                                          });
+                                        }}
+                                      >
+                                        <option value="">Account owner</option>
+                                        <option value="__assigned_lead__">Auto (booking calendar)</option>
+                                        {memberOptions.map((m) => (
+                                          <option key={m.userId} value={m.userId}>
+                                            {m.user?.email || m.userId}
+                                            {m.role === "ADMIN" ? " (admin)" : m.role === "OWNER" ? " (owner)" : ""}
+                                          </option>
+                                        ))}
+                                      </select>
+                                      <div className="mt-1 text-[11px] text-zinc-600">
+                                        Sets the “assigned lead” for later steps (e.g. Create Task → Assigned lead).
+                                      </div>
+                                    </div>
+                                  </>
                                 );
                               }
 

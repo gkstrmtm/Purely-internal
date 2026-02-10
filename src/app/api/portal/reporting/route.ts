@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 
-import { requireClientSession } from "@/lib/apiAuth";
+import { requireClientSessionForService } from "@/lib/portalAccess";
 import { prisma } from "@/lib/db";
 import { getCreditsState } from "@/lib/credits";
 import { listAiReceptionistEvents } from "@/lib/aiReceptionist";
@@ -59,7 +59,7 @@ function safeDate(value: unknown): Date | null {
 }
 
 export async function GET(req: Request) {
-  const auth = await requireClientSession();
+  const auth = await requireClientSessionForService("reporting");
   if (!auth.ok) {
     return NextResponse.json(
       { error: auth.status === 401 ? "Unauthorized" : "Forbidden" },

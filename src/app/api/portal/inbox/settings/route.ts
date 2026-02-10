@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
 
-import { requireClientSession } from "@/lib/apiAuth";
+import { requireClientSessionForService } from "@/lib/portalAccess";
 import { getOwnerTwilioSmsConfigMasked } from "@/lib/portalTwilio";
 import { getPortalInboxSettings, regeneratePortalInboxWebhookToken } from "@/lib/portalInbox";
 import { webhookUrlFromRequest } from "@/lib/webhookBase";
@@ -10,7 +10,7 @@ export const dynamic = "force-dynamic";
 export const revalidate = 0;
 
 export async function GET(req: Request) {
-  const auth = await requireClientSession();
+  const auth = await requireClientSessionForService("inbox");
   if (!auth.ok) {
     return NextResponse.json(
       { ok: false, error: auth.status === 401 ? "Unauthorized" : "Forbidden" },
@@ -48,7 +48,7 @@ export async function GET(req: Request) {
 const putSchema = z.object({ regenerateToken: z.boolean().optional() });
 
 export async function PUT(req: Request) {
-  const auth = await requireClientSession();
+  const auth = await requireClientSessionForService("inbox");
   if (!auth.ok) {
     return NextResponse.json(
       { ok: false, error: auth.status === 401 ? "Unauthorized" : "Forbidden" },

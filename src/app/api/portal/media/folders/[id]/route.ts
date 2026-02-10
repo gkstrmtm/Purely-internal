@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
 
-import { requireClientSession } from "@/lib/apiAuth";
+import { requireClientSessionForService } from "@/lib/portalAccess";
 import { prisma } from "@/lib/db";
 import { normalizeNameKey } from "@/lib/portalMedia";
 
@@ -41,7 +41,7 @@ async function wouldCreateCycle(ownerId: string, folderId: string, nextParentId:
 }
 
 export async function PATCH(req: Request, { params }: { params: Promise<{ id: string }> }) {
-  const auth = await requireClientSession();
+  const auth = await requireClientSessionForService("media");
   if (!auth.ok) return NextResponse.json({ ok: false, error: "Unauthorized" }, { status: auth.status });
 
   const ownerId = auth.session.user.id;

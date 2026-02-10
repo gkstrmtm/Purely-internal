@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 
 import { prisma } from "@/lib/db";
-import { requireClientSession } from "@/lib/apiAuth";
+import { requireClientSessionForService } from "@/lib/portalAccess";
 import { hashPassword, verifyPassword } from "@/lib/password";
 
 export const dynamic = "force-dynamic";
@@ -20,7 +20,7 @@ const schema = z
   });
 
 export async function PUT(req: Request) {
-  const auth = await requireClientSession();
+  const auth = await requireClientSessionForService("profile");
   if (!auth.ok) {
     return NextResponse.json(
       { error: auth.status === 401 ? "Unauthorized" : "Forbidden" },

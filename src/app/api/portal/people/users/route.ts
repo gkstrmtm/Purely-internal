@@ -1,7 +1,6 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
 
-import { requireClientSession } from "@/lib/apiAuth";
 import { prisma } from "@/lib/db";
 import { baseUrlFromRequest, sendEmail } from "@/lib/leadOutbound";
 import {
@@ -10,6 +9,8 @@ import {
   listPortalAccountInvites,
   listPortalAccountMembers,
 } from "@/lib/portalAccounts";
+import { normalizePortalPermissions, portalPermissionsInputSchema } from "@/lib/portalPermissions";
+import { requireClientSessionForService } from "@/lib/portalAccess";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -18,12 +19,13 @@ export const revalidate = 0;
 const inviteSchema = z
   .object({
     email: z.string().email(),
-    role: z.enum(["OWNER", "ADMIN", "MEMBER"]).optional(),
+    role: z.enum(["ADMIN", "MEMBER"]).optional(),
+    permissions: portalPermissionsInputSchema.optional(),
   })
   .strict();
 
 export async function GET() {
-  const auth = await requireClientSession();
+  const auth = await requireClientSessionForService("people");
   if (!auth.ok) {
     return NextResponse.json(
       { ok: false, error: auth.status === 401 ? "Unauthorized" : "Forbidden" },
@@ -65,7 +67,7 @@ export async function GET() {
 }
 
 export async function POST(req: Request) {
-  const auth = await requireClientSession();
+  const auth = await requireClientSessionForService("people");
   if (!auth.ok) {
     return NextResponse.json(
       { ok: false, error: auth.status === 401 ? "Unauthorized" : "Forbidden" },
@@ -89,10 +91,13 @@ export async function POST(req: Request) {
   const email = parsed.data.email.toLowerCase().trim();
   const role = parsed.data.role ?? "MEMBER";
 
-  const invite = await createPortalAccountInvite({ ownerId, email, role }).catch(() => null);
+  const permissionsJson = normalizePortalPermissions(parsed.data.permissions, role);
+
+  const invite = await createPortalAccountInvite({ ownerId, email, role, permissionsJson }).catch(() => null);
   if (!invite) return NextResponse.json({ ok: false, error: "Failed to create invite" }, { status: 500 });
 
-  const link = `${baseUrlFromRequest(req)}/portal/invite/${invite.token}`;
+  const base = process.env.NODE_ENV === "production" ? "https://purelyautomation.com" : baseUrlFromRequest(req);
+  const link = `${base}/portalinvite/${invite.token}`;
 
   // Best-effort invite email.
   try {

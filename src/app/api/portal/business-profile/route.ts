@@ -3,7 +3,7 @@ import { z } from "zod";
 import { Prisma } from "@prisma/client";
 
 import { prisma } from "@/lib/db";
-import { requireClientSession } from "@/lib/apiAuth";
+import { requireClientSessionForService } from "@/lib/portalAccess";
 import { hasPublicColumn } from "@/lib/dbSchema";
 
 export const dynamic = "force-dynamic";
@@ -138,7 +138,7 @@ function normalizeProfile(row: any, flags: ProfileColumnFlags) {
 }
 
 export async function GET() {
-  const auth = await requireClientSession();
+  const auth = await requireClientSessionForService("businessProfile");
   if (!auth.ok) {
     return NextResponse.json(
       { error: auth.status === 401 ? "Unauthorized" : "Forbidden" },
@@ -159,7 +159,7 @@ export async function GET() {
 }
 
 export async function PUT(req: Request) {
-  const auth = await requireClientSession();
+  const auth = await requireClientSessionForService("businessProfile");
   if (!auth.ok) {
     return NextResponse.json(
       { error: auth.status === 401 ? "Unauthorized" : "Forbidden" },

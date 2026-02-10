@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
 
-import { requireClientSession } from "@/lib/apiAuth";
+import { requireClientSessionForService } from "@/lib/portalAccess";
 import { prisma } from "@/lib/db";
 import {
   getFollowUpServiceData,
@@ -14,7 +14,7 @@ export const dynamic = "force-dynamic";
 export const revalidate = 0;
 
 export async function GET() {
-  const auth = await requireClientSession();
+  const auth = await requireClientSessionForService("followUp");
   if (!auth.ok) {
     return NextResponse.json(
       { error: auth.status === 401 ? "Unauthorized" : "Forbidden" },
@@ -70,7 +70,7 @@ export async function GET() {
 const putSchema = z.object({ settings: z.unknown() });
 
 export async function PUT(req: Request) {
-  const auth = await requireClientSession();
+  const auth = await requireClientSessionForService("followUp");
   if (!auth.ok) {
     return NextResponse.json(
       { error: auth.status === 401 ? "Unauthorized" : "Forbidden" },

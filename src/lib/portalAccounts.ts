@@ -31,7 +31,16 @@ export async function listPortalAccountInvites(ownerId: string) {
 
   const rows = await (prisma as any).portalAccountInvite.findMany({
     where: { ownerId },
-    select: { id: true, email: true, role: true, token: true, expiresAt: true, acceptedAt: true, createdAt: true },
+    select: {
+      id: true,
+      email: true,
+      role: true,
+      token: true,
+      expiresAt: true,
+      acceptedAt: true,
+      createdAt: true,
+      permissionsJson: true,
+    },
     orderBy: { createdAt: "desc" },
     take: 500,
   });
@@ -43,6 +52,7 @@ export async function createPortalAccountInvite(opts: {
   ownerId: string;
   email: string;
   role: PortalAccountMemberRole;
+  permissionsJson?: any | null;
   expiresHours?: number;
 }) {
   await ensurePortalTasksSchema().catch(() => null);
@@ -59,8 +69,18 @@ export async function createPortalAccountInvite(opts: {
       role: opts.role,
       token,
       expiresAt,
+      permissionsJson: opts.permissionsJson ?? null,
     },
-    select: { id: true, ownerId: true, email: true, role: true, token: true, expiresAt: true, acceptedAt: true },
+    select: {
+      id: true,
+      ownerId: true,
+      email: true,
+      role: true,
+      token: true,
+      expiresAt: true,
+      acceptedAt: true,
+      permissionsJson: true,
+    },
   });
 
   return invite as any;
@@ -71,7 +91,17 @@ export async function findInviteByToken(token: string) {
 
   const invite = await (prisma as any).portalAccountInvite.findUnique({
     where: { token },
-    select: { id: true, ownerId: true, email: true, role: true, token: true, expiresAt: true, acceptedAt: true, createdAt: true },
+    select: {
+      id: true,
+      ownerId: true,
+      email: true,
+      role: true,
+      token: true,
+      expiresAt: true,
+      acceptedAt: true,
+      createdAt: true,
+      permissionsJson: true,
+    },
   });
 
   return invite as any | null;
@@ -116,12 +146,13 @@ export async function acceptInvite(opts: { token: string; name: string; password
 
     await (tx as any).portalAccountMember.upsert({
       where: { ownerId_userId: { ownerId: invite.ownerId, userId: user.id } },
-      update: { role: invite.role },
+      update: { role: invite.role, permissionsJson: (invite as any).permissionsJson ?? null },
       create: {
         id: crypto.randomUUID().replace(/-/g, ""),
         ownerId: invite.ownerId,
         userId: user.id,
         role: invite.role,
+        permissionsJson: (invite as any).permissionsJson ?? null,
       },
       select: { id: true },
     });

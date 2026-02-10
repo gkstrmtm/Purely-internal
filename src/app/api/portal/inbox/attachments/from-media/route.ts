@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import crypto from "crypto";
 import { z } from "zod";
 
-import { requireClientSession } from "@/lib/apiAuth";
+import { requireClientSessionForService } from "@/lib/portalAccess";
 import { prisma } from "@/lib/db";
 
 export const dynamic = "force-dynamic";
@@ -13,7 +13,7 @@ const postSchema = z.object({
 });
 
 export async function POST(req: Request) {
-  const auth = await requireClientSession();
+  const auth = await requireClientSessionForService("inbox");
   if (!auth.ok) return NextResponse.json({ ok: false, error: "Unauthorized" }, { status: auth.status });
 
   const ownerId = auth.session.user.id;

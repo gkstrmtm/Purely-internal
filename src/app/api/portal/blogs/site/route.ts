@@ -3,7 +3,7 @@ import { z } from "zod";
 import crypto from "crypto";
 
 import { prisma } from "@/lib/db";
-import { requireClientSession } from "@/lib/apiAuth";
+import { requireClientSessionForService } from "@/lib/portalAccess";
 import { slugify } from "@/lib/slugify";
 import { hasPublicColumn } from "@/lib/dbSchema";
 import {
@@ -52,7 +52,7 @@ async function ensurePublicSlug(ownerId: string, desiredName: string, canUseSlug
 }
 
 export async function GET() {
-  const auth = await requireClientSession();
+  const auth = await requireClientSessionForService("blogs");
   if (!auth.ok) {
     return NextResponse.json(
       { error: auth.status === 401 ? "Unauthorized" : "Forbidden" },
@@ -117,7 +117,7 @@ export async function GET() {
 }
 
 export async function POST(req: Request) {
-  const auth = await requireClientSession();
+  const auth = await requireClientSessionForService("blogs");
   if (!auth.ok) {
     return NextResponse.json(
       { error: auth.status === 401 ? "Unauthorized" : "Forbidden" },
@@ -274,7 +274,7 @@ export async function POST(req: Request) {
 }
 
 export async function PUT(req: Request) {
-  const auth = await requireClientSession();
+  const auth = await requireClientSessionForService("blogs");
   if (!auth.ok) {
     return NextResponse.json(
       { error: auth.status === 401 ? "Unauthorized" : "Forbidden" },

@@ -14,6 +14,7 @@ export async function middleware(req: NextRequest) {
 
   const isPortalMarketingHome = path === "/portal" || path === "/portal/";
   const isPortalPublicAuth = path === "/portal/login" || path === "/portal/get-started";
+  const isPortalPublicInvite = path === "/portal/invite" || path.startsWith("/portal/invite/");
   const isPortalPublicApiAuth = path === "/portal/api/login" || path === "/portal/api/logout";
 
   const isPortalApp = path === "/portal/app" || path.startsWith("/portal/app/");
@@ -47,6 +48,11 @@ export async function middleware(req: NextRequest) {
 
   // Public portal auth pages
   if (isPortalPublicAuth) {
+    return NextResponse.next();
+  }
+
+  // Public portal invite acceptance page must be reachable without an employee session.
+  if (isPortalPublicInvite) {
     return NextResponse.next();
   }
 

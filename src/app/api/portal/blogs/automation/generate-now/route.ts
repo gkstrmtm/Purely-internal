@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 
 import { prisma } from "@/lib/db";
-import { requireClientSession } from "@/lib/apiAuth";
+import { requireClientSessionForService } from "@/lib/portalAccess";
 import { generateClientBlogDraft } from "@/lib/clientBlogAutomation";
 import { consumeCredits } from "@/lib/credits";
 import { slugify } from "@/lib/slugify";
@@ -61,7 +61,7 @@ function aiConfigured() {
 }
 
 export async function POST() {
-  const auth = await requireClientSession();
+  const auth = await requireClientSessionForService("blogs");
   if (!auth.ok) {
     return NextResponse.json(
       { error: auth.status === 401 ? "Unauthorized" : "Forbidden" },

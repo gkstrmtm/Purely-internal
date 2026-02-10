@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
 
-import { requireClientSession } from "@/lib/apiAuth";
+import { requireClientSessionForService } from "@/lib/portalAccess";
 import { prisma } from "@/lib/db";
 import { ensurePortalContactTagsReady } from "@/lib/portalContactTags";
 import { ensurePortalInboxSchema } from "@/lib/portalInboxSchema";
@@ -39,7 +39,7 @@ const bodySchema = z.object({
 });
 
 export async function POST(req: Request, { params }: { params: Promise<{ threadId: string }> }) {
-  const auth = await requireClientSession();
+  const auth = await requireClientSessionForService("inbox");
   if (!auth.ok) {
     return NextResponse.json(
       { ok: false, error: auth.status === 401 ? "Unauthorized" : "Forbidden" },

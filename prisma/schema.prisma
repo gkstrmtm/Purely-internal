@@ -106,7 +106,8 @@ model User {
   portalContacts PortalContact[]
 
   portalLeadScrapeRuns  PortalLeadScrapeRun[]
-  portalLeads           PortalLead[]
+  portalLeads           PortalLead[] @relation("PortalLeadOwner")
+  portalLeadsAssigned   PortalLead[] @relation("PortalLeadAssignee")
 
   portalBlogGenerationEvents PortalBlogGenerationEvent[]
 
@@ -218,6 +219,9 @@ model PortalLead {
   // Optional link to the normalized contact record.
   contactId String?
 
+  // Optional assignment of this lead to a portal user (owner or member).
+  assignedToUserId String?
+
   source PortalLeadSource @default(GOOGLE_PLACES)
   kind   PortalLeadScrapeKind @default(B2B)
 
@@ -240,7 +244,9 @@ model PortalLead {
 
   createdAt DateTime @default(now())
 
-  owner User @relation(fields: [ownerId], references: [id])
+  owner User @relation("PortalLeadOwner", fields: [ownerId], references: [id])
+
+  assignedToUser User? @relation("PortalLeadAssignee", fields: [assignedToUserId], references: [id], onDelete: SetNull)
 
   contact PortalContact? @relation(fields: [contactId], references: [id], onDelete: SetNull)
 
@@ -250,6 +256,7 @@ model PortalLead {
   @@index([ownerId, kind, createdAt])
   @@index([ownerId, starred, createdAt])
   @@index([ownerId, contactId])
+  @@index([ownerId, assignedToUserId])
 }
 
 model PortalContact {

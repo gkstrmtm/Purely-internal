@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 
 import { prisma } from "@/lib/db";
-import { requireClientSession } from "@/lib/apiAuth";
+import { requireClientSessionForService } from "@/lib/portalAccess";
 import { ensurePortalTasksSchema } from "@/lib/portalTasksSchema";
 
 export const runtime = "nodejs";
@@ -20,7 +20,7 @@ const patchSchema = z
   .strict();
 
 export async function PATCH(req: Request, ctx: { params: Promise<{ taskId: string }> }) {
-  const auth = await requireClientSession();
+  const auth = await requireClientSessionForService("tasks");
   if (!auth.ok) {
     return NextResponse.json(
       { ok: false, error: auth.status === 401 ? "Unauthorized" : "Forbidden" },

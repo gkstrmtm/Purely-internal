@@ -3,7 +3,7 @@ import { z } from "zod";
 import { Prisma } from "@prisma/client";
 
 import { prisma } from "@/lib/db";
-import { requireClientSession } from "@/lib/apiAuth";
+import { requireClientSessionForService } from "@/lib/portalAccess";
 import { slugify } from "@/lib/slugify";
 
 export const dynamic = "force-dynamic";
@@ -24,7 +24,7 @@ const updateSchema = z.object({
 });
 
 export async function GET(_req: Request, ctx: { params: Promise<{ postId: string }> }) {
-  const auth = await requireClientSession();
+  const auth = await requireClientSessionForService("blogs");
   if (!auth.ok) {
     return NextResponse.json(
       { error: auth.status === 401 ? "Unauthorized" : "Forbidden" },
@@ -74,7 +74,7 @@ async function uniqueSlug(siteId: string, desired: string, currentId: string) {
 }
 
 export async function PUT(req: Request, ctx: { params: Promise<{ postId: string }> }) {
-  const auth = await requireClientSession();
+  const auth = await requireClientSessionForService("blogs");
   if (!auth.ok) {
     return NextResponse.json(
       { error: auth.status === 401 ? "Unauthorized" : "Forbidden" },
@@ -130,7 +130,7 @@ export async function PUT(req: Request, ctx: { params: Promise<{ postId: string 
 }
 
 export async function DELETE(_req: Request, ctx: { params: Promise<{ postId: string }> }) {
-  const auth = await requireClientSession();
+  const auth = await requireClientSessionForService("blogs");
   if (!auth.ok) {
     return NextResponse.json(
       { error: auth.status === 401 ? "Unauthorized" : "Forbidden" },

@@ -2,6 +2,14 @@
 
 import { useEffect, useMemo, useState } from "react";
 
+import {
+  defaultPortalPermissionsForRole,
+  PORTAL_SERVICE_KEYS,
+  PORTAL_SERVICE_LABELS,
+  type PortalPermissions,
+  type PortalServiceKey,
+} from "@/lib/portalPermissions.shared";
+
 type MemberRow = {
   userId: string;
   role: "OWNER" | "ADMIN" | "MEMBER";
@@ -17,6 +25,7 @@ type InviteRow = {
   expiresAt: string;
   acceptedAt: string | null;
   createdAt?: string;
+  permissionsJson?: unknown;
 };
 
 type UsersPayload = {
@@ -39,8 +48,31 @@ export function PortalPeopleUsersClient() {
 
   const [inviteEmail, setInviteEmail] = useState("");
   const [inviteRole, setInviteRole] = useState<"ADMIN" | "MEMBER">("MEMBER");
+  const [invitePermissions, setInvitePermissions] = useState<PortalPermissions>(() =>
+    defaultPortalPermissionsForRole("MEMBER"),
+  );
   const [inviting, setInviting] = useState(false);
   const [inviteMsg, setInviteMsg] = useState<string | null>(null);
+
+  const [permissionsOpen, setPermissionsOpen] = useState(false);
+
+  useEffect(() => {
+    setInvitePermissions(defaultPortalPermissionsForRole(inviteRole));
+  }, [inviteRole]);
+
+  const selectedServicesCount = useMemo(() => {
+    return PORTAL_SERVICE_KEYS.reduce((acc, k) => acc + (invitePermissions?.[k] ? 1 : 0), 0);
+  }, [invitePermissions]);
+
+  function setAllPermissions(value: boolean) {
+    const next = { ...invitePermissions };
+    for (const k of PORTAL_SERVICE_KEYS) next[k] = value;
+    setInvitePermissions(next);
+  }
+
+  function togglePermission(k: PortalServiceKey) {
+    setInvitePermissions((prev) => ({ ...prev, [k]: !prev[k] }));
+  }
 
   async function load() {
     setLoading(true);
@@ -76,13 +108,15 @@ export function PortalPeopleUsersClient() {
       const res = await fetch("/api/portal/people/users", {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ email, role: inviteRole }),
+        body: JSON.stringify({ email, role: inviteRole, permissions: invitePermissions }),
       });
       const json = (await res.json()) as any;
       if (!res.ok || !json?.ok) throw new Error(json?.error || "Failed to invite");
 
       setInviteEmail("");
       setInviteRole("MEMBER");
+      setInvitePermissions(defaultPortalPermissionsForRole("MEMBER"));
+      setPermissionsOpen(false);
 
       const link = String(json.link || "");
       if (link) {
@@ -220,6 +254,67 @@ export function PortalPeopleUsersClient() {
                       <option value="MEMBER">Member</option>
                       <option value="ADMIN">Admin</option>
                     </select>
+                  </div>
+                </div>
+
+                <div className="mt-3">
+                  <div className="text-xs font-semibold text-zinc-700">Service access</div>
+                  <div className="relative mt-1">
+                    <button
+                      type="button"
+                      onClick={() => setPermissionsOpen((v) => !v)}
+                      className="flex w-full items-center justify-between rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-sm text-zinc-800 hover:bg-zinc-50"
+                    >
+                      <span>
+                        {selectedServicesCount} of {PORTAL_SERVICE_KEYS.length} enabled
+                      </span>
+                      <span className="text-xs text-zinc-500">{permissionsOpen ? "Hide" : "Edit"}</span>
+                    </button>
+
+                    {permissionsOpen ? (
+                      <div className="absolute z-20 mt-2 w-full overflow-hidden rounded-2xl border border-zinc-200 bg-white shadow-lg">
+                        <div className="flex items-center justify-between gap-2 border-b border-zinc-200 bg-zinc-50 px-3 py-2">
+                          <div className="text-xs font-semibold uppercase tracking-wide text-zinc-500">Services</div>
+                          <div className="flex items-center gap-2">
+                            <button
+                              type="button"
+                              onClick={() => setAllPermissions(true)}
+                              className="rounded-lg border border-zinc-200 bg-white px-2 py-1 text-xs font-semibold text-zinc-700 hover:bg-zinc-50"
+                            >
+                              All
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => setAllPermissions(false)}
+                              className="rounded-lg border border-zinc-200 bg-white px-2 py-1 text-xs font-semibold text-zinc-700 hover:bg-zinc-50"
+                            >
+                              None
+                            </button>
+                          </div>
+                        </div>
+
+                        <div className="max-h-72 overflow-auto p-2">
+                          {PORTAL_SERVICE_KEYS.map((k) => (
+                            <label
+                              key={k}
+                              className="flex cursor-pointer items-center justify-between gap-3 rounded-xl px-2 py-2 text-sm hover:bg-zinc-50"
+                            >
+                              <span className="text-zinc-800">{PORTAL_SERVICE_LABELS[k]}</span>
+                              <input
+                                type="checkbox"
+                                checked={!!invitePermissions?.[k]}
+                                onChange={() => togglePermission(k)}
+                                className="h-4 w-4 rounded border-zinc-300 text-[color:var(--color-brand-blue)]"
+                              />
+                            </label>
+                          ))}
+                        </div>
+
+                        <div className="border-t border-zinc-200 bg-zinc-50 px-3 py-2 text-xs text-zinc-500">
+                          Defaults: Admin = all services, Member = limited.
+                        </div>
+                      </div>
+                    ) : null}
                   </div>
                 </div>
 

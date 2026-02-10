@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
 
-import { requireClientSession } from "@/lib/apiAuth";
+import { requireClientSessionForService } from "@/lib/portalAccess";
 import {
   addContactTagAssignment,
   listContactTagsForContact,
@@ -20,7 +20,7 @@ const bodySchema = z.object({
 });
 
 export async function GET(_req: Request, ctx: { params: Promise<{ contactId: string }> }) {
-  const auth = await requireClientSession();
+  const auth = await requireClientSessionForService("inbox");
   if (!auth.ok) {
     return NextResponse.json(
       { ok: false, error: auth.status === 401 ? "Unauthorized" : "Forbidden" },
@@ -38,7 +38,7 @@ export async function GET(_req: Request, ctx: { params: Promise<{ contactId: str
 }
 
 export async function POST(req: Request, ctx: { params: Promise<{ contactId: string }> }) {
-  const auth = await requireClientSession();
+  const auth = await requireClientSessionForService("inbox");
   if (!auth.ok) {
     return NextResponse.json(
       { ok: false, error: auth.status === 401 ? "Unauthorized" : "Forbidden" },
@@ -75,7 +75,7 @@ export async function POST(req: Request, ctx: { params: Promise<{ contactId: str
 }
 
 export async function DELETE(req: Request, ctx: { params: Promise<{ contactId: string }> }) {
-  const auth = await requireClientSession();
+  const auth = await requireClientSessionForService("inbox");
   if (!auth.ok) {
     return NextResponse.json(
       { ok: false, error: auth.status === 401 ? "Unauthorized" : "Forbidden" },

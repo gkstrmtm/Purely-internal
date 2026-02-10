@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
 
-import { requireClientSession } from "@/lib/apiAuth";
+import { requireClientSessionForService } from "@/lib/portalAccess";
 import { prisma } from "@/lib/db";
 import { resolveEntitlements } from "@/lib/entitlements";
 import { baseUrlFromRequest, renderTemplate, sendEmail, sendSms } from "@/lib/leadOutbound";
@@ -205,7 +205,7 @@ function normalizeSettings(value: unknown): SettingsV3 {
 }
 
 export async function POST(req: Request) {
-  const auth = await requireClientSession();
+  const auth = await requireClientSessionForService("leadScraping");
   if (!auth.ok) {
     return NextResponse.json(
       { error: auth.status === 401 ? "Unauthorized" : "Forbidden" },
@@ -328,6 +328,7 @@ export async function POST(req: Request) {
               triggerKind: "outbound_sent",
               message: { from: "", to, body: text },
               contact: { name: String((lead as any).contactName || lead.businessName || to), email: to, phone: lead.phone || null },
+              event: { leadId: lead.id } as any,
             });
           } catch {
             // ignore
@@ -353,6 +354,7 @@ export async function POST(req: Request) {
                 triggerKind: "outbound_sent",
                 message: { from: "", to: lead.phone, body: smsBody },
                 contact: { name: String((lead as any).contactName || lead.businessName || lead.phone), email: lead.email || null, phone: lead.phone },
+                event: { leadId: lead.id } as any,
               });
             } catch {
               // ignore

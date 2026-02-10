@@ -3,7 +3,7 @@ import { z } from "zod";
 import { resolveTxt } from "dns/promises";
 
 import { prisma } from "@/lib/db";
-import { requireClientSession } from "@/lib/apiAuth";
+import { requireClientSessionForService } from "@/lib/portalAccess";
 import { hasPublicColumn } from "@/lib/dbSchema";
 
 export const runtime = "nodejs";
@@ -29,7 +29,7 @@ function flattenTxt(rows: string[][]) {
 }
 
 export async function POST(req: Request) {
-  const auth = await requireClientSession();
+  const auth = await requireClientSessionForService("blogs");
   if (!auth.ok) {
     return NextResponse.json(
       { error: auth.status === 401 ? "Unauthorized" : "Forbidden" },

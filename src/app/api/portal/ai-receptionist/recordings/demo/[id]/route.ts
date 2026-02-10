@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 
-import { requireClientSession } from "@/lib/apiAuth";
+import { requireClientSessionForService } from "@/lib/portalAccess";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -68,7 +68,7 @@ function wavSineTone(opts: { seconds: number; hz: number; sampleRate: number; am
 }
 
 export async function GET(_req: Request, ctx: { params: Promise<{ id: string }> }) {
-  const auth = await requireClientSession();
+  const auth = await requireClientSessionForService("aiReceptionist");
   if (!auth.ok) {
     return jsonError(auth.status === 401 ? "Unauthorized" : "Forbidden", auth.status);
   }

@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
 
-import { requireClientSession } from "@/lib/apiAuth";
+import { requireClientSessionForService } from "@/lib/portalAccess";
 import { prisma } from "@/lib/db";
 import { getCreditsState, setAutoTopUp } from "@/lib/credits";
 import { isStripeConfigured } from "@/lib/stripeFetch";
@@ -20,7 +20,7 @@ function purchaseAvailable() {
 }
 
 export async function GET() {
-  const auth = await requireClientSession();
+  const auth = await requireClientSessionForService("billing");
   if (!auth.ok) {
     return NextResponse.json(
       { error: auth.status === 401 ? "Unauthorized" : "Forbidden" },
@@ -73,7 +73,7 @@ export async function GET() {
 }
 
 export async function PUT(req: Request) {
-  const auth = await requireClientSession();
+  const auth = await requireClientSessionForService("billing");
   if (!auth.ok) {
     return NextResponse.json(
       { error: auth.status === 401 ? "Unauthorized" : "Forbidden" },

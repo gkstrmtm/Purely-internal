@@ -1,9 +1,9 @@
 import { NextResponse } from "next/server";
-import { requireClientSession } from "@/lib/apiAuth";
+import { requireClientSessionForService } from "@/lib/portalAccess";
 import { getReviewRequestsServiceData, parseReviewRequestsSettings, setReviewRequestsSettings } from "@/lib/reviewRequests";
 
 export async function GET() {
-  const auth = await requireClientSession();
+  const auth = await requireClientSessionForService("reviews");
   if (!auth.ok) {
     return NextResponse.json(
       { error: auth.status === 401 ? "Unauthorized" : "Forbidden" },
@@ -17,7 +17,7 @@ export async function GET() {
 }
 
 export async function PUT(req: Request) {
-  const auth = await requireClientSession();
+  const auth = await requireClientSessionForService("reviews");
   if (!auth.ok) {
     return NextResponse.json(
       { error: auth.status === 401 ? "Unauthorized" : "Forbidden" },
