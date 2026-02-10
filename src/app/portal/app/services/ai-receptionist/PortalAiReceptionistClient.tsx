@@ -484,13 +484,6 @@ export function PortalAiReceptionistClient() {
             </div>
             <div className="mt-1 text-[11px] text-zinc-500">AI calls are 1 credit / started minute.</div>
           </div>
-
-          <Link
-            href="/portal/app/services"
-            className="inline-flex items-center justify-center rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm font-semibold text-brand-ink hover:bg-zinc-50"
-          >
-            All services
-          </Link>
         </div>
       </div>
 

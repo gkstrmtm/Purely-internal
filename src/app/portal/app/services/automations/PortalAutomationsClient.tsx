@@ -1224,6 +1224,9 @@ export function PortalAutomationsClient() {
   function deleteSelectedNode() {
     if (!selectedAutomation || !selectedNodeId) return;
 
+    const ok = window.confirm("Delete this node? This cannot be undone.");
+    if (!ok) return;
+
     updateSelectedAutomation((a) => {
       const nodes = a.nodes.filter((n) => n.id !== selectedNodeId);
       const edges = a.edges.filter((e) => e.from !== selectedNodeId && e.to !== selectedNodeId);
@@ -1329,7 +1332,7 @@ export function PortalAutomationsClient() {
 
   async function deleteAutomationById(automationId: string) {
     const a = automations.find((x) => x.id === automationId);
-    const ok = window.confirm(`Delete automation "${a?.name ?? "(untitled)"}"?`);
+    const ok = window.confirm(`Delete automation "${a?.name ?? "(untitled)"}"? This cannot be undone.`);
     if (!ok) return;
 
     const nextList = automations.filter((x) => x.id !== automationId);
@@ -1400,11 +1403,6 @@ export function PortalAutomationsClient() {
         <div>
           <h1 className="text-2xl font-bold text-brand-ink sm:text-3xl">Automation Builder</h1>
           <div className="mt-1 text-sm text-zinc-600">Drag triggers + steps, connect them, and save multiple automations.</div>
-        </div>
-        <div className="flex items-center gap-2">
-          <Link href="/portal/app/services" className="rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm font-semibold hover:bg-zinc-50">
-            All services
-          </Link>
         </div>
       </div>
 
@@ -1552,7 +1550,7 @@ export function PortalAutomationsClient() {
               </button>
               <button
                 type="button"
-                className="rounded-xl bg-blue-600 px-3 py-2 text-xs font-semibold text-white hover:bg-blue-700 disabled:opacity-60"
+                className="rounded-xl border border-zinc-200 bg-white px-3 py-2 text-xs font-semibold text-zinc-700 hover:bg-zinc-50 disabled:opacity-60"
                 onClick={() => void runTestAutomation()}
                 disabled={!String(testFrom || "").trim() || saving}
               >
@@ -1902,7 +1900,7 @@ export function PortalAutomationsClient() {
             </button>
             <button
               type="button"
-              className="rounded-2xl bg-emerald-600 px-3 py-2 text-sm font-semibold text-white hover:bg-emerald-700 disabled:opacity-60"
+              className="rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-sm font-semibold text-zinc-700 hover:bg-zinc-50 disabled:opacity-60"
               onClick={() => openTestModal()}
               disabled={saving || !selectedAutomation}
             >
@@ -1910,7 +1908,7 @@ export function PortalAutomationsClient() {
             </button>
             <button
               type="button"
-              className="rounded-2xl bg-indigo-600 px-3 py-2 text-sm font-semibold text-white hover:bg-indigo-700 disabled:opacity-60"
+              className="rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-sm font-semibold text-zinc-700 hover:bg-zinc-50 disabled:opacity-60"
               onClick={() => duplicateAutomation()}
               disabled={saving || !selectedAutomation}
             >

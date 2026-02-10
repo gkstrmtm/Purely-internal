@@ -111,6 +111,9 @@ model User {
 
   portalBlogGenerationEvents PortalBlogGenerationEvent[]
 
+  portalNewsletterGenerationEvents PortalNewsletterGenerationEvent[]
+  portalNewsletterSendEvents PortalNewsletterSendEvent[]
+
   portalInboxThreads  PortalInboxThread[]
   portalInboxMessages PortalInboxMessage[]
   portalInboxAttachments PortalInboxAttachment[]
@@ -813,6 +816,27 @@ enum PortalBlogGenerationSource {
   DRAFT_GENERATE
 }
 
+enum ClientNewsletterKind {
+  EXTERNAL
+  INTERNAL
+}
+
+enum ClientNewsletterStatus {
+  DRAFT
+  READY
+  SENT
+}
+
+enum PortalNewsletterGenerationSource {
+  CRON
+  GENERATE_NOW
+}
+
+enum PortalNewsletterSendChannel {
+  EMAIL
+  SMS
+}
+
 model ClientBlogSite {
   id String @id @default(cuid())
 
@@ -833,6 +857,10 @@ model ClientBlogSite {
   owner User @relation(fields: [ownerId], references: [id])
   posts ClientBlogPost[]
   blogGenerationEvents PortalBlogGenerationEvent[]
+
+  newsletters ClientNewsletter[]
+  newsletterGenerationEvents PortalNewsletterGenerationEvent[]
+  newsletterSendEvents PortalNewsletterSendEvent[]
 
   @@index([ownerId])
   @@index([primaryDomain])
@@ -884,6 +912,83 @@ model ClientBlogPost {
   @@unique([siteId, slug])
   @@index([siteId, status, publishedAt])
   @@index([siteId, archivedAt])
+}
+
+model ClientNewsletter {
+  id String @id @default(cuid())
+
+  siteId String
+  kind   ClientNewsletterKind
+  status ClientNewsletterStatus @default(DRAFT)
+
+  slug    String
+  title   String
+  excerpt String
+  content String
+
+  smsText String?
+
+  sentAt DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  site ClientBlogSite @relation(fields: [siteId], references: [id], onDelete: Cascade)
+
+  generationEvents PortalNewsletterGenerationEvent[]
+  sendEvents PortalNewsletterSendEvent[]
+
+  @@unique([siteId, kind, slug])
+  @@index([siteId, kind, createdAt])
+  @@index([siteId, kind, status, sentAt])
+}
+
+model PortalNewsletterGenerationEvent {
+  id String @id @default(cuid())
+
+  ownerId      String
+  siteId       String
+  newsletterId String?
+
+  source PortalNewsletterGenerationSource
+  chargedCredits Int @default(1)
+  kind ClientNewsletterKind
+
+  createdAt DateTime @default(now())
+
+  owner User @relation(fields: [ownerId], references: [id])
+  site  ClientBlogSite @relation(fields: [siteId], references: [id], onDelete: Cascade)
+  newsletter ClientNewsletter? @relation(fields: [newsletterId], references: [id], onDelete: SetNull)
+
+  @@index([ownerId, createdAt])
+  @@index([siteId, createdAt])
+  @@index([newsletterId])
+}
+
+model PortalNewsletterSendEvent {
+  id String @id @default(cuid())
+
+  ownerId      String
+  siteId       String
+  newsletterId String
+
+  channel PortalNewsletterSendChannel
+  kind ClientNewsletterKind
+
+  requestedCount Int @default(0)
+  sentCount      Int @default(0)
+  failedCount    Int @default(0)
+  errorsJson     Json?
+
+  createdAt DateTime @default(now())
+
+  owner User @relation(fields: [ownerId], references: [id])
+  site  ClientBlogSite @relation(fields: [siteId], references: [id], onDelete: Cascade)
+  newsletter ClientNewsletter @relation(fields: [newsletterId], references: [id], onDelete: Cascade)
+
+  @@index([ownerId, createdAt])
+  @@index([siteId, createdAt])
+  @@index([newsletterId, createdAt])
 }
 
 model PortalReview {

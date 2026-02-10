@@ -1,0 +1,344 @@
+import { NextResponse } from "next/server";
+
+import { prisma } from "@/lib/db";
+import { consumeCredits } from "@/lib/credits";
+import { generateClientNewsletterDraft } from "@/lib/clientNewsletterAutomation";
+import { uniqueNewsletterSlug, sendNewsletterToAudience } from "@/lib/portalNewsletter";
+
+export const runtime = "nodejs";
+export const dynamic = "force-dynamic";
+export const revalidate = 0;
+
+type NewsletterKind = "EXTERNAL" | "INTERNAL";
+
+type StoredKindSettings = {
+  enabled?: boolean;
+  frequencyDays?: number;
+  cursor?: number;
+  requireApproval?: boolean;
+  channels?: { email?: boolean; sms?: boolean };
+  topics?: string[];
+  promptAnswers?: Record<string, string>;
+  audience?: { tagIds?: string[]; contactIds?: string[]; emails?: string[]; userIds?: string[] };
+  lastRunAt?: string;
+};
+
+type StoredSettings = {
+  external?: StoredKindSettings;
+  internal?: StoredKindSettings;
+};
+
+function normalizeStrings(items: unknown, max: number) {
+  if (!Array.isArray(items)) return [];
+  const out: string[] = [];
+  const seen = new Set<string>();
+  for (const item of items) {
+    if (typeof item !== "string") continue;
+    const t = item.trim();
+    if (!t) continue;
+    const key = t.toLowerCase();
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push(t);
+    if (out.length >= max) break;
+  }
+  return out;
+}
+
+function normalizeKindSettings(value: unknown) {
+  const rec = value && typeof value === "object" ? (value as Record<string, unknown>) : null;
+  const channelsRec = rec?.channels && typeof rec.channels === "object" ? (rec.channels as Record<string, unknown>) : null;
+
+  return {
+    enabled: Boolean(rec?.enabled),
+    frequencyDays:
+      typeof rec?.frequencyDays === "number" && Number.isFinite(rec.frequencyDays)
+        ? Math.min(30, Math.max(1, Math.floor(rec.frequencyDays)))
+        : 7,
+    cursor: typeof rec?.cursor === "number" && Number.isFinite(rec.cursor) ? Math.max(0, Math.floor(rec.cursor)) : 0,
+    requireApproval: Boolean(rec?.requireApproval),
+    channels: {
+      email: channelsRec ? Boolean(channelsRec.email ?? true) : true,
+      sms: channelsRec ? Boolean(channelsRec.sms ?? true) : true,
+    },
+    topics: normalizeStrings(rec?.topics, 50),
+    promptAnswers: rec?.promptAnswers && typeof rec.promptAnswers === "object" ? (rec.promptAnswers as Record<string, string>) : {},
+    audience: rec?.audience && typeof rec.audience === "object" ? (rec.audience as any) : {},
+    lastRunAt: typeof rec?.lastRunAt === "string" ? rec.lastRunAt : undefined,
+  };
+}
+
+function normalizeSettings(value: unknown) {
+  const rec = value && typeof value === "object" ? (value as Record<string, unknown>) : null;
+  return {
+    external: normalizeKindSettings(rec?.external),
+    internal: normalizeKindSettings(rec?.internal),
+  };
+}
+
+function msDays(n: number) {
+  return n * 24 * 60 * 60 * 1000;
+}
+
+function isStaleLastRunAt(lastRunAt: string | undefined, now: Date) {
+  if (!lastRunAt) return true;
+  const d = new Date(lastRunAt);
+  if (!Number.isFinite(d.getTime())) return true;
+  return now.getTime() - d.getTime() > 6 * 60 * 60 * 1000;
+}
+
+async function shouldGenerate(siteId: string, kind: NewsletterKind, frequencyDays: number, now: Date) {
+  const last = await prisma.clientNewsletter.findFirst({
+    where: { siteId, kind },
+    orderBy: { createdAt: "desc" },
+    select: { createdAt: true },
+  });
+
+  if (!last?.createdAt) return { due: true, lastAt: null as Date | null };
+  const dueAt = new Date(last.createdAt.getTime() + msDays(frequencyDays));
+  return { due: dueAt <= now, lastAt: last.createdAt };
+}
+
+async function runKind(opts: {
+  req: Request;
+  ownerId: string;
+  site: { id: string; slug: string | null; name: string };
+  kind: NewsletterKind;
+  s: ReturnType<typeof normalizeKindSettings>;
+  setupId: string;
+  storedRaw: any;
+  now: Date;
+}) {
+  if (!opts.s.enabled) return { created: 0 };
+
+  const due = await shouldGenerate(opts.site.id, opts.kind, opts.s.frequencyDays, opts.now);
+  if (!due.due) {
+    if (isStaleLastRunAt(opts.s.lastRunAt, opts.now)) {
+      const next = { ...opts.storedRaw };
+      const key = opts.kind === "INTERNAL" ? "internal" : "external";
+      next[key] = { ...(next[key] || {}), lastRunAt: opts.now.toISOString() };
+      await prisma.portalServiceSetup.update({ where: { id: opts.setupId }, data: { dataJson: next } });
+    }
+    return { created: 0 };
+  }
+
+  const needCredits = 1;
+  const consumed = await consumeCredits(opts.ownerId, needCredits);
+  if (!consumed.ok) return { created: 0, error: "INSUFFICIENT_CREDITS" };
+
+  const profile = await prisma.businessProfile.findUnique({
+    where: { ownerId: opts.ownerId },
+    select: {
+      businessName: true,
+      websiteUrl: true,
+      industry: true,
+      businessModel: true,
+      primaryGoals: true,
+      targetCustomer: true,
+      brandVoice: true,
+    },
+  });
+
+  const primaryGoals = Array.isArray(profile?.primaryGoals)
+    ? (profile?.primaryGoals as unknown[]).filter((x) => typeof x === "string").map((x) => String(x)).slice(0, 10)
+    : undefined;
+
+  const topicHint = opts.s.topics.length ? opts.s.topics[opts.s.cursor % opts.s.topics.length] : undefined;
+
+  const draft = await generateClientNewsletterDraft({
+    kind: opts.kind,
+    businessName: profile?.businessName,
+    websiteUrl: profile?.websiteUrl,
+    industry: profile?.industry,
+    businessModel: profile?.businessModel,
+    primaryGoals,
+    targetCustomer: profile?.targetCustomer,
+    brandVoice: profile?.brandVoice,
+    promptAnswers: opts.s.promptAnswers,
+    topicHint,
+  });
+
+  const slug = await uniqueNewsletterSlug(opts.site.id, opts.kind, draft.title);
+
+  const newsletter = await prisma.clientNewsletter.create({
+    data: {
+      siteId: opts.site.id,
+      kind: opts.kind,
+      status: opts.s.requireApproval ? "READY" : "DRAFT",
+      slug,
+      title: draft.title,
+      excerpt: draft.excerpt,
+      content: draft.content,
+      smsText: draft.smsText ?? undefined,
+    },
+    select: { id: true },
+  });
+
+  try {
+    await prisma.portalNewsletterGenerationEvent.create({
+      data: {
+        ownerId: opts.ownerId,
+        siteId: opts.site.id,
+        newsletterId: newsletter.id,
+        source: "CRON",
+        chargedCredits: needCredits,
+        kind: opts.kind,
+      },
+      select: { id: true },
+    });
+  } catch {
+    // best-effort
+  }
+
+  const siteHandle = (opts.site as any).slug ?? opts.site.id;
+  const fromName = profile?.businessName || opts.site.name || "Purely Automation";
+
+  if (!opts.s.requireApproval) {
+    const sendResults = await sendNewsletterToAudience({
+      req: opts.req,
+      ownerId: opts.ownerId,
+      kind: opts.kind,
+      siteHandle,
+      newsletter: { title: draft.title, excerpt: draft.excerpt, slug, smsText: draft.smsText ?? null },
+      channels: opts.s.channels,
+      audience: opts.s.audience,
+      fromName,
+    });
+
+    const sentAt = new Date();
+    await prisma.clientNewsletter.update({ where: { id: newsletter.id }, data: { status: "SENT", sentAt } });
+
+    const errorsEmail = sendResults.email.results.filter((r: any) => !r.ok);
+    const errorsSms = sendResults.sms.results.filter((r: any) => !r.ok);
+
+    if (opts.s.channels.email) {
+      await prisma.portalNewsletterSendEvent.create({
+        data: {
+          ownerId: opts.ownerId,
+          siteId: opts.site.id,
+          newsletterId: newsletter.id,
+          channel: "EMAIL",
+          kind: opts.kind,
+          requestedCount: sendResults.email.requested,
+          sentCount: sendResults.email.sent,
+          failedCount: Math.max(0, sendResults.email.requested - sendResults.email.sent),
+          ...(errorsEmail.length ? { errorsJson: errorsEmail.slice(0, 200) } : {}),
+        },
+      });
+    }
+
+    if (opts.s.channels.sms) {
+      await prisma.portalNewsletterSendEvent.create({
+        data: {
+          ownerId: opts.ownerId,
+          siteId: opts.site.id,
+          newsletterId: newsletter.id,
+          channel: "SMS",
+          kind: opts.kind,
+          requestedCount: sendResults.sms.requested,
+          sentCount: sendResults.sms.sent,
+          failedCount: Math.max(0, sendResults.sms.requested - sendResults.sms.sent),
+          ...(errorsSms.length ? { errorsJson: errorsSms.slice(0, 200) } : {}),
+        },
+      });
+    }
+  }
+
+  const next = { ...opts.storedRaw };
+  const key = opts.kind === "INTERNAL" ? "internal" : "external";
+  next[key] = {
+    ...(next[key] || {}),
+    cursor: opts.s.cursor + 1,
+    lastRunAt: opts.now.toISOString(),
+  };
+
+  await prisma.portalServiceSetup.update({ where: { id: opts.setupId }, data: { dataJson: next } });
+
+  return { created: 1 };
+}
+
+export async function GET(req: Request) {
+  const aiBaseUrl = (process.env.AI_BASE_URL ?? "").trim();
+  const aiApiKey = (process.env.AI_API_KEY ?? "").trim();
+  if (!aiBaseUrl || !aiApiKey) {
+    return NextResponse.json(
+      { error: "AI is not configured for this environment. Set AI_BASE_URL and AI_API_KEY." },
+      { status: 503 },
+    );
+  }
+
+  const isProd = process.env.NODE_ENV === "production";
+  const secret = process.env.NEWSLETTER_CRON_SECRET ?? process.env.MARKETING_CRON_SECRET;
+  if (isProd && !secret) {
+    return NextResponse.json({ error: "Missing NEWSLETTER_CRON_SECRET" }, { status: 503 });
+  }
+
+  if (secret) {
+    const url = new URL(req.url);
+    const authz = req.headers.get("authorization") ?? "";
+    const bearer = authz.toLowerCase().startsWith("bearer ") ? authz.slice(7).trim() : null;
+    const provided =
+      req.headers.get("x-newsletter-cron-secret") ??
+      req.headers.get("x-marketing-cron-secret") ??
+      bearer ??
+      url.searchParams.get("secret");
+
+    if (provided !== secret) {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    }
+  }
+
+  const setups = await prisma.portalServiceSetup.findMany({
+    where: { serviceSlug: "newsletter" },
+    select: { id: true, ownerId: true, dataJson: true },
+  });
+
+  const now = new Date();
+  let scanned = 0;
+  let eligible = 0;
+  let created = 0;
+  const errors: Array<{ ownerId: string; kind?: NewsletterKind; error: string }> = [];
+
+  for (const setup of setups) {
+    scanned += 1;
+    const settings = normalizeSettings(setup.dataJson);
+
+    const site = await prisma.clientBlogSite.findUnique({ where: { ownerId: setup.ownerId }, select: { id: true, slug: true, name: true } });
+    if (!site?.id) continue;
+
+    const storedRaw = (setup.dataJson && typeof setup.dataJson === "object" ? (setup.dataJson as any) : {}) as any;
+
+    for (const kind of ["EXTERNAL", "INTERNAL"] as const) {
+      const s = kind === "INTERNAL" ? settings.internal : settings.external;
+      if (!s.enabled) continue;
+      eligible += 1;
+
+      try {
+        const result = await runKind({
+          req,
+          ownerId: setup.ownerId,
+          site: { id: site.id, slug: (site as any).slug ?? null, name: site.name },
+          kind,
+          s,
+          setupId: setup.id,
+          storedRaw,
+          now,
+        });
+
+        if ((result as any).error) {
+          errors.push({ ownerId: setup.ownerId, kind, error: String((result as any).error) });
+          continue;
+        }
+
+        created += result.created;
+        if (created >= 10) break;
+      } catch (e) {
+        errors.push({ ownerId: setup.ownerId, kind, error: e instanceof Error ? e.message : "Unknown error" });
+      }
+    }
+
+    if (created >= 10) break;
+  }
+
+  return NextResponse.json({ ok: true, scanned, eligible, created, errors });
+}
