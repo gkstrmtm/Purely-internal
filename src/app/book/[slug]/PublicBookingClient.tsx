@@ -3,6 +3,8 @@
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 
+import { useToast } from "@/components/ToastProvider";
+
 type Site = {
   enabled: boolean;
   slug: string;
@@ -109,6 +111,7 @@ function bookingApiBase(target: PublicBookingTarget) {
 }
 
 export function PublicBookingClient({ target }: { target: PublicBookingTarget }) {
+  const toast = useToast();
   const [site, setSite] = useState<Site | null>(null);
   const [slots, setSlots] = useState<Slot[]>([]);
   const [step, setStep] = useState<Step>("date");
@@ -129,6 +132,10 @@ export function PublicBookingClient({ target }: { target: PublicBookingTarget })
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<Booking | null>(null);
   const [rescheduleUrl, setRescheduleUrl] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (error) toast.error(error);
+  }, [error, toast]);
 
   const canBook = useMemo(() => {
     if (!selected) return false;
@@ -520,7 +527,6 @@ export function PublicBookingClient({ target }: { target: PublicBookingTarget })
                   {site?.timeZone ? ` (${site.timeZone})` : ""}
                 </div>
 
-                {error ? <div className="mt-4 rounded-2xl bg-red-50 px-4 py-3 text-sm text-red-700">{error}</div> : null}
               </div>
             ) : null}
 
@@ -582,7 +588,6 @@ export function PublicBookingClient({ target }: { target: PublicBookingTarget })
                   )}
                 </div>
 
-                {error ? <div className="mt-4 rounded-2xl bg-red-50 px-4 py-3 text-sm text-red-700">{error}</div> : null}
               </div>
             ) : null}
 
@@ -721,7 +726,6 @@ export function PublicBookingClient({ target }: { target: PublicBookingTarget })
                 {bookingBusy ? "Booking…" : "Confirm booking"}
               </button>
 
-              {error ? <div className="rounded-2xl bg-red-50 px-4 py-3 text-sm text-red-700">{error}</div> : null}
             </div>
           </div>
         </div>

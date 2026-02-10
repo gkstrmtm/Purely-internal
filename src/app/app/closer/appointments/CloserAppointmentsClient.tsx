@@ -2,6 +2,8 @@
 
 import { useEffect, useMemo, useState } from "react";
 
+import { useToast } from "@/components/ToastProvider";
+
 function toDatetimeLocalValue(iso: string) {
   const d = new Date(iso);
   const pad = (n: number) => String(n).padStart(2, "0");
@@ -71,6 +73,7 @@ export default function CloserAppointmentsClient({
 }: {
   initialAppointments: CloserAppointment[];
 }) {
+  const toast = useToast();
   const [appointments, setAppointments] = useState<CloserAppointment[]>(initialAppointments ?? []);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -83,6 +86,14 @@ export default function CloserAppointmentsClient({
     useState<boolean>(false);
   const [rescheduleBusy, setRescheduleBusy] = useState<boolean>(false);
   const [rescheduleError, setRescheduleError] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (error) toast.error(error);
+  }, [error, toast]);
+
+  useEffect(() => {
+    if (rescheduleError) toast.error(rescheduleError);
+  }, [rescheduleError, toast]);
 
   const [rescheduleSuggestBusy, setRescheduleSuggestBusy] = useState<boolean>(false);
   const [rescheduleSuggestIncludeUnavailable, setRescheduleSuggestIncludeUnavailable] = useState<boolean>(false);
@@ -604,12 +615,6 @@ export default function CloserAppointmentsClient({
             </div>
           </div>
 
-          {error ? (
-            <div className="mt-3 rounded-xl bg-red-50 px-3 py-2 text-sm text-red-700">
-              {error}
-            </div>
-          ) : null}
-
           <div className="mt-4 rounded-2xl border border-zinc-200 p-4">
             <div className="grid grid-cols-1 gap-3">
               <div>
@@ -870,11 +875,6 @@ export default function CloserAppointmentsClient({
                       </button>
                     </div>
 
-                    {rescheduleError ? (
-                      <div className="mt-3 rounded-xl bg-red-50 px-3 py-2 text-xs text-red-700">
-                        {rescheduleError}
-                      </div>
-                    ) : null}
                   </div>
                 ) : null}
               </div>

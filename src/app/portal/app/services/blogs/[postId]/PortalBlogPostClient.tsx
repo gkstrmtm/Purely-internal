@@ -5,6 +5,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { RichTextMarkdownEditor } from "@/components/RichTextMarkdownEditor";
 import { PortalMediaPickerModal } from "@/components/PortalMediaPickerModal";
+import { useToast } from "@/components/ToastProvider";
 
 type Post = {
   id: string;
@@ -159,6 +160,7 @@ function validateMarkdownForPublish(md: string): string | null {
 }
 
 export function PortalBlogPostClient({ postId }: { postId: string }) {
+  const toast = useToast();
   const [loading, setLoading] = useState(true);
   const [working, setWorking] = useState<"save" | "publish" | "delete" | "archive" | "generate" | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -188,6 +190,10 @@ export function PortalBlogPostClient({ postId }: { postId: string }) {
   const [imagePickerOpen, setImagePickerOpen] = useState(false);
 
   const [confirmKind, setConfirmKind] = useState<ConfirmKind | null>(null);
+
+  useEffect(() => {
+    if (error) toast.error(error);
+  }, [error, toast]);
 
   useEffect(() => {
     if (!confirmKind) return;
@@ -790,8 +796,6 @@ export function PortalBlogPostClient({ postId }: { postId: string }) {
           Not enough credits. <a className="font-semibold underline" href={billingCta}>Top off your credits here</a>.
         </div>
       ) : null}
-
-      {error ? <div className="mt-4 rounded-2xl border border-red-200 bg-red-50 p-4 text-sm text-red-700">{error}</div> : null}
 
       <div className="mt-6 grid grid-cols-1 gap-4 lg:grid-cols-3">
         <div className="rounded-3xl border border-zinc-200 bg-white p-6 lg:col-span-2">

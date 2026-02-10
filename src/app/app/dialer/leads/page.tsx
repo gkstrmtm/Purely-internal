@@ -2,6 +2,8 @@
 
 import { useEffect, useMemo, useState } from "react";
 
+import { useToast } from "@/components/ToastProvider";
+
 type Lead = {
   id: string;
   businessName: string;
@@ -26,6 +28,7 @@ function toDatetimeLocalValue(iso: string) {
 }
 
 export default function DialerLeadsPage() {
+  const toast = useToast();
   const [leads, setLeads] = useState<Lead[]>([]);
   const [loading, setLoading] = useState(true);
 
@@ -93,6 +96,18 @@ export default function DialerLeadsPage() {
   const [bookResult, setBookResult] = useState<string | null>(null);
   const [suggestedSlots, setSuggestedSlots] = useState<SuggestedSlot[]>([]);
   const [suggestionsError, setSuggestionsError] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (pullError) toast.error(pullError);
+  }, [pullError, toast]);
+
+  useEffect(() => {
+    if (error) toast.error(error);
+  }, [error, toast]);
+
+  useEffect(() => {
+    if (suggestionsError) toast.error(suggestionsError);
+  }, [suggestionsError, toast]);
 
   async function refresh() {
     setLoading(true);
@@ -559,11 +574,6 @@ export default function DialerLeadsPage() {
                 </div>
               ) : null}
 
-              {pullError ? (
-                <div className="rounded-xl bg-red-50 px-3 py-2 text-sm text-red-700">
-                  {pullError}
-                </div>
-              ) : null}
             </div>
           </div>
 
@@ -793,11 +803,6 @@ export default function DialerLeadsPage() {
               </div>
             </div>
 
-            {error ? (
-              <div className="mt-3 rounded-xl bg-red-50 px-3 py-2 text-sm text-red-700">
-                {error}
-              </div>
-            ) : null}
             {status ? (
               <div className="mt-3 rounded-xl bg-emerald-50 px-3 py-2 text-sm text-emerald-800">
                 {status}
@@ -859,10 +864,6 @@ export default function DialerLeadsPage() {
                     Refresh
                   </button>
                 </div>
-
-                {suggestionsError ? (
-                  <div className="mt-2 text-xs text-[color:var(--color-brand-pink)]">{suggestionsError}</div>
-                ) : null}
 
                 {activeLead && suggestedSlots.length > 0 ? (
                   <div className="mt-2 flex flex-wrap gap-2">

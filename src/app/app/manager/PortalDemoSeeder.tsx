@@ -1,6 +1,8 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
+
+import { useToast } from "@/components/ToastProvider";
 
 type SeedResult = {
   full: { email: string; password: string };
@@ -27,6 +29,7 @@ type SeedAiReceptionistResult =
   | { error: string; details?: string };
 
 export default function PortalDemoSeeder() {
+  const toast = useToast();
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [result, setResult] = useState<SeedResult | null>(null);
@@ -36,6 +39,26 @@ export default function PortalDemoSeeder() {
   const [aiError, setAiError] = useState<string | null>(null);
   const [aiResult, setAiResult] = useState<SeedAiReceptionistResult | null>(null);
   const [forceAiSeed, setForceAiSeed] = useState(false);
+
+  useEffect(() => {
+    if (error) toast.error(error);
+  }, [error, toast]);
+
+  useEffect(() => {
+    if (aiError) toast.error(aiError);
+  }, [aiError, toast]);
+
+  useEffect(() => {
+    if (result?.inboxSeed && !result.inboxSeed.ok) {
+      toast.error(`Inbox seed failed: ${result.inboxSeed.error}`);
+    }
+  }, [result?.inboxSeed, toast]);
+
+  useEffect(() => {
+    if (result?.aiReceptionistSeed && !result.aiReceptionistSeed.ok) {
+      toast.error(`AI receptionist seed failed: ${result.aiReceptionistSeed.error}`);
+    }
+  }, [result?.aiReceptionistSeed, toast]);
 
   async function readErrorMessage(res: Response) {
     const text = await res.text().catch(() => "");
@@ -151,12 +174,6 @@ export default function PortalDemoSeeder() {
         </div>
       </div>
 
-      {error ? (
-        <div className="mt-4 rounded-2xl bg-red-50 px-4 py-3 text-sm text-red-700">
-          {error}
-        </div>
-      ) : null}
-
       {result ? (
         <div className="mt-4 grid grid-cols-1 gap-3 sm:grid-cols-2">
           <div className="rounded-2xl border border-zinc-200 bg-zinc-50 p-4">
@@ -192,7 +209,7 @@ export default function PortalDemoSeeder() {
                     : null}
                 </div>
               ) : (
-                <div className="mt-1 text-red-700">Failed: {result.inboxSeed.error}</div>
+                <div className="mt-1 text-zinc-700">Failed: {result.inboxSeed.error}</div>
               )}
             </div>
           ) : null}
@@ -225,10 +242,6 @@ export default function PortalDemoSeeder() {
             </button>
           </div>
         </div>
-
-        {aiError ? (
-          <div className="mt-4 rounded-2xl bg-red-50 px-4 py-3 text-sm text-red-700">{aiError}</div>
-        ) : null}
 
         {aiResult && (aiResult as any).ok ? (
           <div className="mt-4 rounded-2xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-800">

@@ -3,6 +3,7 @@
 import { useEffect, useId, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Lightbox, type LightboxImage } from "@/components/Lightbox";
+import { useToast } from "@/components/ToastProvider";
 
 type Destination = { id: string; label: string; url: string };
 
@@ -66,6 +67,7 @@ export function PublicReviewsClient({
   initialQuestions: AnsweredQuestion[];
 }) {
   const router = useRouter();
+  const toast = useToast();
 
   const fileInputId = useId();
 
@@ -86,6 +88,14 @@ export function PublicReviewsClient({
   const [qStatus, setQStatus] = useState<string | null>(null);
   const [qError, setQError] = useState<string | null>(null);
   const [qaAskOpen, setQaAskOpen] = useState(false);
+
+  useEffect(() => {
+    if (error) toast.error(error);
+  }, [error, toast]);
+
+  useEffect(() => {
+    if (qError) toast.error(qError);
+  }, [qError, toast]);
 
   const [lightboxOpen, setLightboxOpen] = useState(false);
   const [lightboxImages, setLightboxImages] = useState<LightboxImage[]>([]);
@@ -330,7 +340,6 @@ export function PublicReviewsClient({
         </div>
         <div className="mt-2 text-sm text-zinc-600">Share your experience.</div>
 
-        {error ? <div className="mt-3 rounded-2xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">{error}</div> : null}
         {status ? <div className="mt-3 rounded-2xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-800">{status}</div> : null}
 
         <div className="mt-4 grid gap-3">
@@ -604,10 +613,6 @@ export function PublicReviewsClient({
                     placeholder="Ask something about services, availability, pricing, etc."
                   />
                 </div>
-
-                {qError ? (
-                  <div className="rounded-2xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-800">{qError}</div>
-                ) : null}
 
                 <div className="flex flex-wrap items-center justify-between gap-2">
                   <button

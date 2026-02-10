@@ -4,6 +4,8 @@ import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 import type { ComponentType } from "react";
 
+import { useToast } from "@/components/ToastProvider";
+
 import { Responsive as ResponsiveGridLayout } from "react-grid-layout";
 import type { Layout, LayoutItem, ResponsiveLayouts } from "react-grid-layout";
 
@@ -207,12 +209,17 @@ function StatLine({ label, value }: { label: string; value: string }) {
 }
 
 export function PortalDashboardClient() {
+  const toast = useToast();
   const [data, setData] = useState<MeResponse | null>(null);
   const [reporting, setReporting] = useState<ReportingPayload | null>(null);
   const [mediaStats, setMediaStats] = useState<MediaStatsPayload | null>(null);
   const [dashboard, setDashboard] = useState<DashboardPayload["data"] | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (error) toast.error(error);
+  }, [error, toast]);
 
   const [editMode, setEditMode] = useState(false);
   const [savingLayout, setSavingLayout] = useState(false);
@@ -383,8 +390,8 @@ export function PortalDashboardClient() {
 
   if (error) {
     return (
-      <div className="rounded-3xl border border-red-200 bg-red-50 p-6 text-sm text-red-700">
-        {error}
+      <div className="rounded-3xl border border-zinc-200 bg-white p-6 text-sm text-zinc-700">
+        Something went wrong loading your dashboard. Please refresh.
       </div>
     );
   }

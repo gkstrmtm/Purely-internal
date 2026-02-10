@@ -7,6 +7,7 @@ import { PortalSettingsSection } from "@/components/PortalSettingsSection";
 import { PortalMediaPickerModal, type PortalMediaPickItem } from "@/components/PortalMediaPickerModal";
 import { ContactTagsEditor, type ContactTag } from "@/components/ContactTagsEditor";
 import { PortalVariablePickerModal } from "@/components/PortalVariablePickerModal";
+import { useToast } from "@/components/ToastProvider";
 import { PORTAL_MESSAGE_VARIABLES } from "@/lib/portalTemplateVars";
 
 type Channel = "email" | "sms";
@@ -124,6 +125,7 @@ function safeEmailFromPeer(raw: string) {
 }
 
 export function PortalInboxClient() {
+  const toast = useToast();
   const [tab, setTab] = useState<Channel>("email");
   const [emailBox, setEmailBox] = useState<EmailBox>("inbox");
   const [threads, setThreads] = useState<Thread[]>([]);
@@ -132,6 +134,10 @@ export function PortalInboxClient() {
   const [loadingThreads, setLoadingThreads] = useState(true);
   const [loadingMessages, setLoadingMessages] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (error) toast.error(error);
+  }, [error, toast]);
 
   const [settings, setSettings] = useState<SettingsRes | null>(null);
 
@@ -637,10 +643,6 @@ export function PortalInboxClient() {
           SMS
         </button>
       </div>
-
-      {error ? (
-        <div className="mt-4 rounded-3xl border border-red-200 bg-red-50 p-4 text-sm text-red-700">{error}</div>
-      ) : null}
 
       {contactModalOpen && activeThread ? (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/30 p-4" onMouseDown={() => setContactModalOpen(false)}>

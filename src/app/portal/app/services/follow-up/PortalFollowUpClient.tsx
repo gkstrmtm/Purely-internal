@@ -7,6 +7,7 @@ import { PORTAL_SERVICES } from "@/app/portal/services/catalog";
 import { PortalSettingsSection } from "@/components/PortalSettingsSection";
 import { PortalMediaPickerModal, type PortalMediaPickItem } from "@/components/PortalMediaPickerModal";
 import { PortalVariablePickerModal } from "@/components/PortalVariablePickerModal";
+import { useToast } from "@/components/ToastProvider";
 import {
   PORTAL_BOOKING_VARIABLES,
   PORTAL_MESSAGE_VARIABLES,
@@ -130,6 +131,7 @@ function fmtWhen(iso: string) {
 }
 
 export function PortalFollowUpClient({ embedded }: { embedded?: boolean } = {}) {
+  const toast = useToast();
   const isEmbedded = Boolean(embedded);
   const service = useMemo(() => PORTAL_SERVICES.find((s) => s.slug === "follow-up") ?? null, []);
 
@@ -146,6 +148,10 @@ export function PortalFollowUpClient({ embedded }: { embedded?: boolean } = {}) 
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (error) toast.error(error);
+  }, [error, toast]);
 
   const [mediaPicker, setMediaPicker] = useState<null | { templateId: string; field: "email" | "sms" }>(null);
   const [attachUploadBusy, setAttachUploadBusy] = useState<null | { templateId: string; field: "email" | "sms" }>(null);
@@ -749,7 +755,6 @@ export function PortalFollowUpClient({ embedded }: { embedded?: boolean } = {}) 
         </button>
       </div>
 
-      {error ? <div className="mt-4 rounded-2xl border border-red-200 bg-red-50 p-4 text-sm text-red-700">{error}</div> : null}
       {notice ? <div className="mt-4 rounded-2xl border border-emerald-200 bg-emerald-50 p-4 text-sm text-emerald-800">{notice}</div> : null}
 
       {tab === "settings" ? (

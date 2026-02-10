@@ -8,6 +8,7 @@ import { PortalMediaPickerModal, type PortalMediaPickItem } from "@/components/P
 import { PortalSettingsSection } from "@/components/PortalSettingsSection";
 import { ContactTagsEditor, type ContactTag } from "@/components/ContactTagsEditor";
 import { PortalVariablePickerModal } from "@/components/PortalVariablePickerModal";
+import { useToast } from "@/components/ToastProvider";
 import { PORTAL_BOOKING_VARIABLES, PORTAL_MESSAGE_VARIABLES } from "@/lib/portalTemplateVars";
 
 type BookingFormConfig = {
@@ -204,6 +205,7 @@ function getApiError(body: unknown): string | undefined {
 }
 
 export function PortalBookingClient() {
+  const toast = useToast();
   const [me, setMe] = useState<Me | null>(null);
   const [site, setSite] = useState<Site | null>(null);
   const [upcoming, setUpcoming] = useState<Booking[]>([]);
@@ -213,6 +215,10 @@ export function PortalBookingClient() {
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [status, setStatus] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (error) toast.error(error);
+  }, [error, toast]);
 
   const [photoBusy, setPhotoBusy] = useState(false);
   const [photoPickerOpen, setPhotoPickerOpen] = useState(false);
@@ -2292,9 +2298,6 @@ export function PortalBookingClient() {
         </>
       ) : null}
 
-      {error ? (
-        <div className="mt-4 rounded-2xl bg-red-50 px-4 py-3 text-sm text-red-700">{error}</div>
-      ) : null}
       {status ? (
         <div className="mt-4 rounded-2xl bg-emerald-50 px-4 py-3 text-sm text-emerald-800">{status}</div>
       ) : null}

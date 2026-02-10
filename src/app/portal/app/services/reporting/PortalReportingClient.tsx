@@ -3,6 +3,8 @@
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 
+import { useToast } from "@/components/ToastProvider";
+
 type RangeKey = "today" | "7d" | "30d" | "90d" | "all";
 
 type ReportingPayload = {
@@ -455,6 +457,7 @@ function MenuButton({
 }
 
 export function PortalReportingClient() {
+  const toast = useToast();
   const [range, setRange] = useState<RangeKey>("30d");
   const [data, setData] = useState<ReportingPayload | null>(null);
   const [mediaStats, setMediaStats] = useState<MediaStatsPayload | null>(null);
@@ -463,6 +466,10 @@ export function PortalReportingClient() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [note, setNote] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (error) toast.error(error);
+  }, [error, toast]);
 
   const [openMenuId, setOpenMenuId] = useState<string | null>(null);
   const [search, setSearch] = useState("");
@@ -702,7 +709,6 @@ export function PortalReportingClient() {
         </div>
       </div>
 
-      {error ? <div className="mt-4 rounded-2xl border border-red-200 bg-red-50 p-4 text-sm text-red-700">{error}</div> : null}
       {note ? <div className="mt-4 rounded-2xl border border-emerald-200 bg-emerald-50 p-4 text-sm text-emerald-800">{note}</div> : null}
 
       {loading ? (

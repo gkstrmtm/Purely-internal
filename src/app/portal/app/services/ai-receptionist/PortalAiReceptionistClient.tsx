@@ -6,6 +6,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { PortalMissedCallTextBackClient } from "@/app/portal/app/services/missed-call-textback/PortalMissedCallTextBackClient";
 import { PortalSettingsSection } from "@/components/PortalSettingsSection";
 import { ContactTagsEditor, type ContactTag } from "@/components/ContactTagsEditor";
+import { useToast } from "@/components/ToastProvider";
 
 type Settings = {
   version: 1;
@@ -202,11 +203,16 @@ function MiniAudioPlayer(props: { src: string; durationHintSec?: number | null }
 }
 
 export function PortalAiReceptionistClient() {
+  const toast = useToast();
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [savingEnabled, setSavingEnabled] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [note, setNote] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (error) toast.error(error);
+  }, [error, toast]);
 
   const [credits, setCredits] = useState<number | null>(null);
   const [billingPath, setBillingPath] = useState<string>("/portal/app/billing");
@@ -543,7 +549,6 @@ export function PortalAiReceptionistClient() {
         </button>
       </div>
 
-      {error ? <div className="mt-4 rounded-2xl border border-red-200 bg-red-50 p-4 text-sm text-red-700">{error}</div> : null}
       {note ? <div className="mt-4 rounded-2xl border border-emerald-200 bg-emerald-50 p-4 text-sm text-emerald-800">{note}</div> : null}
 
       {tab === "settings" ? (

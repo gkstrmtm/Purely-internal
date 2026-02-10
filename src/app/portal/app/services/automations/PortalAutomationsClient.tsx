@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useEffect, useMemo, useRef, useState } from "react";
 
 import { PortalVariablePickerModal } from "@/components/PortalVariablePickerModal";
+import { useToast } from "@/components/ToastProvider";
 import { PORTAL_LINK_VARIABLES, PORTAL_MESSAGE_VARIABLES } from "@/lib/portalTemplateVars";
 
 type BuilderNodeType = "trigger" | "action" | "delay" | "condition" | "note";
@@ -404,6 +405,7 @@ function shouldAutolabel(currentLabel: string) {
 }
 
 export function PortalAutomationsClient() {
+  const toast = useToast();
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -426,6 +428,14 @@ export function PortalAutomationsClient() {
   const [createTagBusy, setCreateTagBusy] = useState(false);
   const [createTagError, setCreateTagError] = useState<string | null>(null);
   const [createTagApplyTo, setCreateTagApplyTo] = useState<null | { nodeId: string; kind: "action" | "trigger" }>(null);
+
+  useEffect(() => {
+    if (error) toast.error(error);
+  }, [error, toast]);
+
+  useEffect(() => {
+    if (createTagError) toast.error(createTagError);
+  }, [createTagError, toast]);
 
   const [variablePickerOpen, setVariablePickerOpen] = useState(false);
   const [variablePickerTarget, setVariablePickerTarget] = useState<
@@ -1328,7 +1338,6 @@ export function PortalAutomationsClient() {
         </div>
       </div>
 
-      {error ? <div className="mt-4 rounded-2xl bg-red-50 px-4 py-3 text-sm text-red-700">{error}</div> : null}
       {note ? <div className="mt-4 rounded-2xl bg-emerald-50 px-4 py-3 text-sm text-emerald-800">{note}</div> : null}
 
       <PortalVariablePickerModal
@@ -1504,8 +1513,6 @@ export function PortalAutomationsClient() {
                 Close
               </button>
             </div>
-
-            {createTagError ? <div className="mt-3 rounded-2xl bg-red-50 px-3 py-2 text-sm text-red-700">{createTagError}</div> : null}
 
             <div className="mt-4">
               <label className="text-xs font-semibold text-zinc-600">Name</label>

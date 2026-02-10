@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { createPortal } from "react-dom";
 import { PortalSettingsSection } from "@/components/PortalSettingsSection";
+import { useToast } from "@/components/ToastProvider";
 
 type Me = {
   user: { email: string; name: string; role: string };
@@ -67,12 +68,17 @@ function formatDate(value: string | null) {
 }
 
 export function PortalBlogsClient() {
+  const toast = useToast();
   const [me, setMe] = useState<Me | null>(null);
   const [site, setSite] = useState<Site | null>(null);
   const [posts, setPosts] = useState<PostRow[]>([]);
   const [automation, setAutomation] = useState<AutomationSettings | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (error) toast.error(error);
+  }, [error, toast]);
 
   const [credits, setCredits] = useState<number | null>(null);
   const [billingPath, setBillingPath] = useState<string>("/portal/app/billing");
@@ -460,8 +466,6 @@ export function PortalBlogsClient() {
           </button>
         </div>
       </div>
-
-      {error ? <div className="mt-4 rounded-2xl border border-red-200 bg-red-50 p-4 text-sm text-red-700">{error}</div> : null}
 
       <div className="mt-6 flex w-full flex-wrap gap-2">
         <button

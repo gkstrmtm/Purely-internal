@@ -4,6 +4,8 @@
 
 import { useEffect, useMemo, useState } from "react";
 
+import { useToast } from "@/components/ToastProvider";
+
 type CloserOption = { id: string; name: string | null; email: string };
 
 type SuggestionSlot = { startAt: string; endAt: string; closerCount: number };
@@ -25,6 +27,7 @@ type Appointment = {
 };
 
 export default function DialerAppointmentsPage() {
+  const toast = useToast();
   const [appointments, setAppointments] = useState<Appointment[]>([]);
 
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -34,6 +37,10 @@ export default function DialerAppointmentsPage() {
   const [editCloserId, setEditCloserId] = useState<string>("");
   const [editBusy, setEditBusy] = useState<boolean>(false);
   const [editError, setEditError] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (editError) toast.error(editError);
+  }, [editError, toast]);
 
   const [suggestBusy, setSuggestBusy] = useState<boolean>(false);
   const [suggestIncludeUnavailable, setSuggestIncludeUnavailable] = useState<boolean>(false);
@@ -475,11 +482,6 @@ export default function DialerAppointmentsPage() {
                       </button>
                     </div>
 
-                    {editError ? (
-                      <div className="mt-3 rounded-xl bg-red-50 px-3 py-2 text-xs text-red-700">
-                        {editError}
-                      </div>
-                    ) : null}
                   </div>
                 ) : null}
               </div>

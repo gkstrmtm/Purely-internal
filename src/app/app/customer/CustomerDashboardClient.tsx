@@ -2,6 +2,8 @@
 
 import { useEffect, useMemo, useState } from "react";
 
+import { useToast } from "@/components/ToastProvider";
+
 type ModuleKey = "blog" | "booking" | "crm" | "leadOutbound";
 
 type MeResponse = {
@@ -21,9 +23,14 @@ function Card({ title, children }: { title: string; children: React.ReactNode })
 }
 
 export function CustomerDashboardClient() {
+  const toast = useToast();
   const [data, setData] = useState<MeResponse | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (error) toast.error(error);
+  }, [error, toast]);
 
   useEffect(() => {
     let mounted = true;
@@ -107,8 +114,8 @@ export function CustomerDashboardClient() {
 
   if (error) {
     return (
-      <div className="rounded-3xl border border-red-200 bg-red-50 p-6 text-sm text-red-700">
-        {error}
+      <div className="rounded-3xl border border-zinc-200 bg-white p-6 text-sm text-zinc-600">
+        Unable to load dashboard.
       </div>
     );
   }

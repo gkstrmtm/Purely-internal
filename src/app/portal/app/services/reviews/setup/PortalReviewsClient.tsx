@@ -5,6 +5,7 @@ import { PortalMediaPickerModal } from "@/components/PortalMediaPickerModal";
 import { Lightbox, type LightboxImage } from "@/components/Lightbox";
 import { PortalSettingsSection } from "@/components/PortalSettingsSection";
 import { PortalVariablePickerModal } from "@/components/PortalVariablePickerModal";
+import { useToast } from "@/components/ToastProvider";
 import type { TemplateVariable } from "@/lib/portalTemplateVars";
 
 type ReviewDelayUnit = "minutes" | "hours" | "days" | "weeks";
@@ -156,10 +157,15 @@ function idFromLabel(label: string) {
 }
 
 export default function PortalReviewsClient() {
+  const toast = useToast();
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [settings, setSettings] = useState<ReviewRequestsSettings>(DEFAULT_SETTINGS);
+
+  useEffect(() => {
+    if (error) toast.error(error);
+  }, [error, toast]);
 
   const [tab, setTab] = useState<"reviews" | "settings">("reviews");
 
@@ -693,10 +699,6 @@ export default function PortalReviewsClient() {
           Send a review link after an appointment, and optionally host a public Reviews page.
         </div>
       </div>
-
-      {error ? (
-        <div className="mt-4 rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-800">{error}</div>
-      ) : null}
 
       <div className="mt-6 flex w-full flex-wrap gap-2">
         <button

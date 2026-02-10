@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { PortalMediaPickerModal } from "@/components/PortalMediaPickerModal";
+import { useToast } from "@/components/ToastProvider";
 
 type BusinessProfile = {
   businessName: string;
@@ -47,9 +48,14 @@ export function BusinessProfileForm({
   embedded?: boolean;
   onSaved?: () => void;
 }) {
+  const toast = useToast();
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (error) toast.error(error);
+  }, [error, toast]);
 
   const [businessName, setBusinessName] = useState("");
   const [websiteUrl, setWebsiteUrl] = useState("");
@@ -160,8 +166,6 @@ export function BusinessProfileForm({
           </div>
         </>
       ) : null}
-
-      {error ? <div className={embedded ? "text-sm text-red-700" : "mt-3 text-sm text-red-700"}>{error}</div> : null}
 
       <div className={(embedded ? "mt-2" : "mt-5") + " grid grid-cols-1 gap-4 sm:grid-cols-2"}>
         <div className="sm:col-span-2">

@@ -2,6 +2,8 @@
 
 import { useEffect, useMemo, useState } from "react";
 
+import { useToast } from "@/components/ToastProvider";
+
 import { BusinessProfileForm } from "./BusinessProfileForm";
 import { formatPhoneForDisplay, normalizePhoneStrict } from "@/lib/phone";
 import { PortalSettingsSection } from "@/components/PortalSettingsSection";
@@ -59,6 +61,7 @@ function CopyRow({ label, value }: { label: string; value: string | null | undef
 }
 
 export function PortalProfileClient() {
+  const toast = useToast();
   const [me, setMe] = useState<Me | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -84,6 +87,18 @@ export function PortalProfileClient() {
     const res = normalizePhoneStrict(phone);
     return res;
   }, [phone]);
+
+  useEffect(() => {
+    if (error) toast.error(error);
+  }, [error, toast]);
+
+  useEffect(() => {
+    if (twilioError) toast.error(twilioError);
+  }, [twilioError, toast]);
+
+  useEffect(() => {
+    if (!phoneValidation.ok) toast.error(phoneValidation.error);
+  }, [phoneValidation, toast]);
 
   const [pwCurrent, setPwCurrent] = useState("");
   const [pwNext, setPwNext] = useState("");
@@ -370,9 +385,6 @@ export function PortalProfileClient() {
                       className="mt-1 w-full rounded-2xl border border-zinc-200 bg-white px-4 py-3 text-sm outline-none focus:border-zinc-300"
                       placeholder="+1 (555) 123-4567"
                     />
-                    {!phoneValidation.ok ? (
-                      <div className="mt-1 text-xs text-red-700">{phoneValidation.error}</div>
-                    ) : null}
                   </div>
                   <div className="sm:col-span-2">
                     <label className="text-xs font-semibold text-zinc-600">Current password (required for name/email changes)</label>
@@ -389,9 +401,6 @@ export function PortalProfileClient() {
                   </div>
                 </div>
 
-                {error ? (
-                  <div className="mt-4 rounded-2xl border border-red-200 bg-red-50 p-4 text-sm text-red-700">{error}</div>
-                ) : null}
                 {notice ? (
                   <div className="mt-4 rounded-2xl border border-emerald-200 bg-emerald-50 p-4 text-sm text-emerald-800">{notice}</div>
                 ) : null}
@@ -496,9 +505,6 @@ export function PortalProfileClient() {
             accent="blue"
           >
             <div className="space-y-3">
-              {twilioError ? (
-                <div className="rounded-2xl border border-red-200 bg-red-50 p-4 text-sm text-red-700">{twilioError}</div>
-              ) : null}
               {twilioNote ? (
                 <div className="rounded-2xl border border-emerald-200 bg-emerald-50 p-4 text-sm text-emerald-800">{twilioNote}</div>
               ) : null}

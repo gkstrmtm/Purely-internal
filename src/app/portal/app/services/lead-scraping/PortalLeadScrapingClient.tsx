@@ -4,6 +4,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { PortalMediaPickerModal } from "@/components/PortalMediaPickerModal";
 import { ContactTagsEditor, type ContactTag } from "@/components/ContactTagsEditor";
 import { PortalVariablePickerModal } from "@/components/PortalVariablePickerModal";
+import { useToast } from "@/components/ToastProvider";
 import { LEAD_OUTBOUND_VARIABLES } from "@/lib/portalTemplateVars";
 
 const TAG_COLORS = [
@@ -334,6 +335,7 @@ function SettingsSection({
 }
 
 export function PortalLeadScrapingClient() {
+  const toast = useToast();
   const [tab, setTab] = useState<"b2b" | "b2c">("b2b");
   const [b2bSubTab, setB2bSubTab] = useState<"pull" | "settings">("pull");
   const [b2cSubTab, setB2cSubTab] = useState<"pull" | "settings">("pull");
@@ -481,6 +483,10 @@ export function PortalLeadScrapingClient() {
 
   const [status, setStatus] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (error) toast.error(error);
+  }, [error, toast]);
 
   const estimatedRunCost = useMemo(() => {
     const c = settings?.b2b?.count ?? 0;
@@ -1435,9 +1441,6 @@ export function PortalLeadScrapingClient() {
         </button>
       </div>
 
-      {error ? (
-        <div className="mt-4 rounded-2xl bg-red-50 px-4 py-3 text-sm text-red-700">{error}</div>
-      ) : null}
       {status ? (
         <div className="mt-4 rounded-2xl bg-emerald-50 px-4 py-3 text-sm text-emerald-800">{status}</div>
       ) : null}

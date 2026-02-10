@@ -1,7 +1,9 @@
 "use client";
 
 import Link from "next/link";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
+
+import { useToast } from "@/components/ToastProvider";
 
 function classNames(...xs: Array<string | false | null | undefined>) {
   return xs.filter(Boolean).join(" ");
@@ -21,6 +23,8 @@ export function PortalInviteAcceptClient({
   token: string;
   invite: InviteJson | null;
 }) {
+  const toast = useToast();
+  const lastAutoToastRef = useRef<string | null>(null);
   const [name, setName] = useState("");
   const [password, setPassword] = useState("");
   const [busy, setBusy] = useState(false);
@@ -33,6 +37,18 @@ export function PortalInviteAcceptClient({
     if (exp && exp < Date.now()) return { ok: false, reason: "Invite expired" as const };
     return { ok: true as const };
   }, [invite]);
+
+  useEffect(() => {
+    if (error) toast.error(error);
+  }, [error, toast]);
+
+  useEffect(() => {
+    const msg = !invite ? "Invite not found." : !state.ok ? state.reason : null;
+    if (!msg) return;
+    if (lastAutoToastRef.current === msg) return;
+    lastAutoToastRef.current = msg;
+    toast.error(msg);
+  }, [invite, state, toast]);
 
   async function accept() {
     setError(null);
@@ -81,9 +97,9 @@ export function PortalInviteAcceptClient({
           <p className="mt-2 text-sm text-zinc-600">Join a client portal account.</p>
 
           {!invite ? (
-            <div className="mt-6 rounded-2xl border border-rose-200 bg-rose-50 p-4 text-sm text-rose-800">Invite not found.</div>
+            <div className="mt-6 rounded-2xl border border-zinc-200 bg-white p-4 text-sm text-zinc-700">Invite not found.</div>
           ) : !state.ok ? (
-            <div className="mt-6 rounded-2xl border border-rose-200 bg-rose-50 p-4 text-sm text-rose-800">{state.reason}</div>
+            <div className="mt-6 rounded-2xl border border-zinc-200 bg-white p-4 text-sm text-zinc-700">{state.reason}</div>
           ) : (
             <div className="mt-6 space-y-4">
               <div className="rounded-2xl border border-zinc-200 bg-zinc-50 p-4">
@@ -121,10 +137,6 @@ export function PortalInviteAcceptClient({
                   className="mt-1 w-full rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-sm outline-none focus:border-[color:var(--color-brand-blue)]"
                 />
               </div>
-
-              {error ? (
-                <div className="rounded-2xl border border-rose-200 bg-rose-50 p-4 text-sm text-rose-800">{error}</div>
-              ) : null}
 
               <button
                 type="button"

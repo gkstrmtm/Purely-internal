@@ -6,6 +6,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { PortalSettingsSection } from "@/components/PortalSettingsSection";
 import { PortalMediaPickerModal, type PortalMediaPickItem } from "@/components/PortalMediaPickerModal";
 import { PortalVariablePickerModal } from "@/components/PortalVariablePickerModal";
+import { useToast } from "@/components/ToastProvider";
 import type { TemplateVariable } from "@/lib/portalTemplateVars";
 
 type Me = {
@@ -94,6 +95,7 @@ const APPOINTMENT_REMINDER_VARIABLES: TemplateVariable[] = [
 ];
 
 export function PortalAppointmentRemindersClient() {
+  const toast = useToast();
   const [me, setMe] = useState<Me | null>(null);
   const [loading, setLoading] = useState(true);
 
@@ -108,6 +110,10 @@ export function PortalAppointmentRemindersClient() {
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [status, setStatus] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (error) toast.error(error);
+  }, [error, toast]);
 
   const [mediaPickerStepId, setMediaPickerStepId] = useState<string | null>(null);
   const [uploadBusyStepId, setUploadBusyStepId] = useState<string | null>(null);
@@ -399,9 +405,6 @@ export function PortalAppointmentRemindersClient() {
         </div>
       </div>
 
-      {error ? (
-        <div className="mt-4 rounded-2xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">{error}</div>
-      ) : null}
       {status ? (
         <div className="mt-4 rounded-2xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-700">{status}</div>
       ) : null}

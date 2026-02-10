@@ -2,6 +2,8 @@
 
 import { useEffect, useState } from "react";
 
+import { useToast } from "@/components/ToastProvider";
+
 type BillingStatus = { configured: boolean };
 
 type Me = {
@@ -35,6 +37,7 @@ function formatMoney(cents: number, currency: string) {
 }
 
 export function PortalBillingClient() {
+  const toast = useToast();
   const [status, setStatus] = useState<BillingStatus | null>(null);
   const [me, setMe] = useState<Me | null>(null);
   const [summary, setSummary] = useState<BillingSummary | null>(null);
@@ -45,6 +48,10 @@ export function PortalBillingClient() {
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [actionBusy, setActionBusy] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (error) toast.error(error);
+  }, [error, toast]);
 
   useEffect(() => {
     let mounted = true;
@@ -208,8 +215,8 @@ export function PortalBillingClient() {
 
   if (error) {
     return (
-      <div className="rounded-3xl border border-red-200 bg-red-50 p-6 text-sm text-red-700">
-        {error}
+      <div className="rounded-3xl border border-zinc-200 bg-white p-6 text-sm text-zinc-700">
+        Something went wrong loading billing. Please refresh.
       </div>
     );
   }

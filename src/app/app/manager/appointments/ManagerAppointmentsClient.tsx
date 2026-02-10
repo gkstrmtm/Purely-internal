@@ -2,6 +2,8 @@
 
 import { useEffect, useMemo, useState } from "react";
 
+import { useToast } from "@/components/ToastProvider";
+
 type CloserOption = {
   id: string;
   name: string | null;
@@ -37,8 +39,13 @@ export default function ManagerAppointmentsClient({
 }: {
   initialAppointments: ManagerAppointment[];
 }) {
+  const toast = useToast();
   const [appointments, setAppointments] = useState<ManagerAppointment[]>(initialAppointments ?? []);
   const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (error) toast.error(error);
+  }, [error, toast]);
 
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editStartLocal, setEditStartLocal] = useState<string>("");
@@ -231,10 +238,6 @@ export default function ManagerAppointmentsClient({
           Refresh
         </button>
       </div>
-
-      {error ? (
-        <div className="mt-4 rounded-xl bg-red-50 px-3 py-2 text-sm text-red-700">{error}</div>
-      ) : null}
 
       <div className="mt-4 grid grid-cols-1 gap-3 sm:grid-cols-3">
         <div className="sm:col-span-2">

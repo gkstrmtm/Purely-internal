@@ -3,12 +3,15 @@
 import Image from "next/image";
 import { signIn } from "next-auth/react";
 import { useRouter } from "next/navigation";
-import { useState } from "react";
+import { useEffect, useState } from "react";
+
+import { useToast } from "@/components/ToastProvider";
 
 type RoleChoice = "DIALER" | "CLOSER";
 
 export default function SignupPage() {
   const router = useRouter();
+  const toast = useToast();
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -17,6 +20,10 @@ export default function SignupPage() {
 
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
+
+  useEffect(() => {
+    if (error) toast.error(error);
+  }, [error, toast]);
 
   async function onSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -126,12 +133,6 @@ export default function SignupPage() {
                 required
               />
             </div>
-
-            {error ? (
-              <div className="rounded-2xl bg-red-50 px-4 py-3 text-sm text-red-700">
-                {error}
-              </div>
-            ) : null}
 
             <button
               className="w-full rounded-2xl bg-brand-ink px-5 py-3 text-base font-semibold text-white hover:opacity-95 disabled:opacity-60"

@@ -2,6 +2,8 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 
+import { useToast } from "@/components/ToastProvider";
+
 type Settings = {
   weeklyEnabled: boolean;
   topicQueue: unknown;
@@ -120,8 +122,13 @@ function InfoTip({ text }: { text: string }) {
 }
 
 export default function ManagerBlogsClient() {
+  const toast = useToast();
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (error) toast.error(error);
+  }, [error, toast]);
 
   const [savingSettings, setSavingSettings] = useState(false);
   const [runningWeekly, setRunningWeekly] = useState(false);
@@ -145,6 +152,10 @@ export default function ManagerBlogsClient() {
   const [includeArchived, setIncludeArchived] = useState(false);
   const [selectedPostIds, setSelectedPostIds] = useState<Record<string, boolean>>({});
   const [bulkWorking, setBulkWorking] = useState<"archive" | "delete" | null>(null);
+
+  useEffect(() => {
+    if (postsError) toast.error(postsError);
+  }, [postsError, toast]);
 
   const [forceWeekly, setForceWeekly] = useState(false);
 
@@ -548,10 +559,6 @@ export default function ManagerBlogsClient() {
 
   return (
     <div className="space-y-6">
-      {error ? (
-        <div className="rounded-2xl border border-red-200 bg-red-50 p-4 text-sm text-red-700">{error}</div>
-      ) : null}
-
       <div className="rounded-2xl border border-zinc-200 p-5">
         <div className="flex flex-col justify-between gap-3 sm:flex-row sm:items-center">
           <div>
@@ -768,8 +775,6 @@ export default function ManagerBlogsClient() {
             </span>
           </button>
         </div>
-
-        {postsError ? <div className="mt-3 text-xs text-red-700">{postsError}</div> : null}
 
         <div className="mt-4 max-h-[420px] overflow-auto rounded-2xl border border-zinc-200">
           {posts.length === 0 ? (

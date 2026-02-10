@@ -2,6 +2,8 @@
 
 import { useEffect, useMemo, useState } from "react";
 
+import { useToast } from "@/components/ToastProvider";
+
 type PublicFolderRes =
   | {
       ok: true;
@@ -58,6 +60,8 @@ function formatBytes(n: number) {
 export function PublicMediaFolderClient(props: { folderId: string; token: string }) {
   const { folderId, token } = props;
 
+  const toast = useToast();
+
   const apiJsonUrl = useMemo(
     () => `/api/public/media/folder/${String(folderId)}/${String(token)}?json=1`,
     [folderId, token],
@@ -70,6 +74,10 @@ export function PublicMediaFolderClient(props: { folderId: string; token: string
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [data, setData] = useState<PublicFolderRes | null>(null);
+
+  useEffect(() => {
+    if (error) toast.error(error);
+  }, [error, toast]);
 
   useEffect(() => {
     let alive = true;
@@ -119,7 +127,7 @@ export function PublicMediaFolderClient(props: { folderId: string; token: string
   if (error || !data || data.ok !== true) {
     return (
       <div className="mx-auto w-full max-w-5xl p-6">
-        <div className="rounded-3xl border border-red-200 bg-red-50 p-6 text-sm text-red-700">{error || "Not found"}</div>
+        <div className="rounded-3xl border border-zinc-200 bg-white p-6 text-sm text-zinc-700">Not found.</div>
       </div>
     );
   }

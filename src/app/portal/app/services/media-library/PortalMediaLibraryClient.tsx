@@ -3,6 +3,8 @@
 import { createPortal } from "react-dom";
 import { type MouseEvent, useEffect, useMemo, useRef, useState } from "react";
 
+import { useToast } from "@/components/ToastProvider";
+
 type Folder = {
   id: string;
   name: string;
@@ -59,8 +61,13 @@ function formatBytes(n: number) {
 }
 
 export function PortalMediaLibraryClient() {
+  const toastNotify = useToast();
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (error) toastNotify.error(error);
+  }, [error, toastNotify]);
 
   const [folderId, setFolderId] = useState<string | null>(null);
   const [breadcrumbs, setBreadcrumbs] = useState<Folder[]>([]);
@@ -476,10 +483,6 @@ export function PortalMediaLibraryClient() {
           </button>
         </div>
       </div>
-
-      {error ? (
-        <div className="mt-4 rounded-3xl border border-red-200 bg-red-50 p-4 text-sm text-red-700">{error}</div>
-      ) : null}
 
       {folderId ? (
         <div className="mt-4 flex flex-wrap items-center gap-2 text-sm">

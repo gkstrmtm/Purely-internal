@@ -3,6 +3,8 @@
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 
+import { useToast } from "@/components/ToastProvider";
+
 type Site = {
   slug: string;
   title: string;
@@ -81,6 +83,7 @@ export function PublicRescheduleClient({
   bookingId: string;
   token: string;
 }) {
+  const toast = useToast();
   const [site, setSite] = useState<Site | null>(null);
   const [booking, setBooking] = useState<Booking | null>(null);
   const [slots, setSlots] = useState<Slot[]>([]);
@@ -96,6 +99,10 @@ export function PublicRescheduleClient({
 
   const [error, setError] = useState<string | null>(null);
   const [doneUrl, setDoneUrl] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (error) toast.error(error);
+  }, [error, toast]);
 
   const slotsByDay = useMemo(() => {
     const map = new Map<string, Slot[]>();
@@ -377,9 +384,6 @@ export function PublicRescheduleClient({
                 </div>
               ) : null}
 
-              {error ? (
-                <div className="mt-4 rounded-2xl bg-red-50 px-4 py-3 text-sm text-red-700">{error}</div>
-              ) : null}
             </div>
 
             <div>

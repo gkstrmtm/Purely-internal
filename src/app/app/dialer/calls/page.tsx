@@ -2,6 +2,8 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 
+import { useToast } from "@/components/ToastProvider";
+
 type Lead = {
   id: string;
   businessName: string;
@@ -55,6 +57,7 @@ const DISPOSITIONS = [
 const METHODS = ["PHONE", "ZOOM", "GOOGLE_MEET", "IN_PERSON", "OTHER"] as const;
 
 export default function DialerCallsPage() {
+  const toast = useToast();
   const [leads, setLeads] = useState<Lead[]>([]);
   const [logs, setLogs] = useState<CallLog[]>([]);
   const [selectedId, setSelectedId] = useState<string | null>(null);
@@ -92,6 +95,14 @@ export default function DialerCallsPage() {
   const [transcriptDraft, setTranscriptDraft] = useState<string>("");
   const [status, setStatus] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (error) toast.error(error);
+  }, [error, toast]);
+
+  useEffect(() => {
+    if (suggestionsError) toast.error(suggestionsError);
+  }, [suggestionsError, toast]);
 
   const recorderRef = useRef<MediaRecorder | null>(null);
   const chunksRef = useRef<BlobPart[]>([]);
@@ -906,10 +917,6 @@ export default function DialerCallsPage() {
                   </button>
                 </div>
 
-                {suggestionsError ? (
-                  <div className="mt-2 text-xs text-[color:var(--color-brand-pink)]">{suggestionsError}</div>
-                ) : null}
-
                 {leadId && suggestedSlots.length > 0 ? (
                   <div className="mt-2 flex flex-wrap gap-2">
                     {suggestedSlots.map((s) => (
@@ -1118,9 +1125,6 @@ export default function DialerCallsPage() {
             </div>
           )}
 
-          {error ? (
-            <div className="mt-4 rounded-xl bg-red-50 px-3 py-2 text-sm text-red-700">{error}</div>
-          ) : null}
           {status ? (
             <div className="mt-4 rounded-xl bg-emerald-50 px-3 py-2 text-sm text-emerald-800">{status}</div>
           ) : null}

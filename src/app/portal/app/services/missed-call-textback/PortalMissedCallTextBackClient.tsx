@@ -6,6 +6,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { PortalSettingsSection } from "@/components/PortalSettingsSection";
 import { PortalMediaPickerModal, type PortalMediaPickItem } from "@/components/PortalMediaPickerModal";
 import { PortalVariablePickerModal } from "@/components/PortalVariablePickerModal";
+import { useToast } from "@/components/ToastProvider";
 import { PORTAL_MISSED_CALL_VARIABLES } from "@/lib/portalTemplateVars";
 
 type Settings = {
@@ -72,10 +73,15 @@ function badgeClass(kind: string) {
 }
 
 export function PortalMissedCallTextBackClient({ embedded }: { embedded?: boolean } = {}) {
+  const toast = useToast();
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [note, setNote] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (error) toast.error(error);
+  }, [error, toast]);
 
   const [uploading, setUploading] = useState(false);
   const [pickerOpen, setPickerOpen] = useState(false);
@@ -296,11 +302,6 @@ export function PortalMissedCallTextBackClient({ embedded }: { embedded?: boolea
         </div>
       ) : null}
 
-      {error ? (
-        <div className="mt-5 rounded-3xl border border-red-200 bg-red-50 p-4 text-sm text-red-800">
-          {error}
-        </div>
-      ) : null}
       {note ? (
         <div className="mt-5 rounded-3xl border border-emerald-200 bg-emerald-50 p-4 text-sm text-emerald-800">
           {note}

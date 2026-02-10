@@ -1,6 +1,8 @@
 "use client";
 
-import { useCallback, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
+
+import { useToast } from "@/components/ToastProvider";
 
 type LeadRow = {
   id: string;
@@ -97,10 +99,15 @@ export default function ManagerLeadsClient({
   initialLeads: LeadRow[];
   dialers: DialerRow[];
 }) {
+  const toast = useToast();
   const [leads, setLeads] = useState<LeadRow[]>(initialLeads ?? []);
   const [q, setQ] = useState<string>("");
   const [error, setError] = useState<string | null>(null);
   const [status, setStatus] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (error) toast.error(error);
+  }, [error, toast]);
 
   const [selectedLeadIds, setSelectedLeadIds] = useState<Record<string, boolean>>({});
   const [bulkWorking, setBulkWorking] = useState<"delete" | "unassign" | "reassign" | null>(null);
@@ -348,9 +355,6 @@ export default function ManagerLeadsClient({
           </button>
         </div>
 
-        {error ? (
-          <div className="mt-4 rounded-xl bg-red-50 px-3 py-2 text-sm text-red-700">{error}</div>
-        ) : null}
         {status ? (
           <div className="mt-4 rounded-xl bg-emerald-50 px-3 py-2 text-sm text-emerald-700">{status}</div>
         ) : null}

@@ -5,6 +5,8 @@
 import Link from "next/link";
 import { useEffect, useMemo, useRef, useState } from "react";
 
+import { useToast } from "@/components/ToastProvider";
+
 type Block = { id: string; startAt: string; endAt: string };
 
 const SLOT_MINUTES = 30;
@@ -84,12 +86,17 @@ function buildBlocksFromSlots(slotKeys: string[]) {
 }
 
 export function PortalBookingAvailabilityClient() {
+  const toast = useToast();
   const [blocks, setBlocks] = useState<Block[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [status, setStatus] = useState<string | null>(null);
   const [saving, setSaving] = useState<boolean>(false);
   const [lastSavedAt, setLastSavedAt] = useState<Date | null>(null);
   const [dirty, setDirty] = useState<boolean>(false);
+
+  useEffect(() => {
+    if (error) toast.error(error);
+  }, [error, toast]);
 
   const [weekStart, setWeekStart] = useState<Date>(() => startOfWeekMonday(new Date()));
   const weekEnd = useMemo(() => addDays(weekStart, 7), [weekStart]);
@@ -329,7 +336,6 @@ export function PortalBookingAvailabilityClient() {
           </div>
         ) : null}
 
-        {error ? <div className="mt-4 rounded-xl bg-red-50 px-3 py-2 text-sm text-red-700">{error}</div> : null}
         {status ? <div className="mt-4 rounded-xl bg-emerald-50 px-3 py-2 text-sm text-emerald-800">{status}</div> : null}
       </div>
     </div>
