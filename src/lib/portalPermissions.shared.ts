@@ -21,7 +21,12 @@ export const PORTAL_SERVICE_KEYS = [
 
 export type PortalServiceKey = (typeof PORTAL_SERVICE_KEYS)[number];
 
-export type PortalPermissions = Record<PortalServiceKey, boolean>;
+export type PortalServicePermissions = {
+  view: boolean;
+  edit: boolean;
+};
+
+export type PortalPermissions = Record<PortalServiceKey, PortalServicePermissions>;
 
 export const PORTAL_SERVICE_LABELS: Record<PortalServiceKey, string> = {
   inbox: "Inbox",
@@ -45,10 +50,12 @@ export const PORTAL_SERVICE_LABELS: Record<PortalServiceKey, string> = {
 };
 
 export function defaultPortalPermissionsForRole(role: "OWNER" | "ADMIN" | "MEMBER"): PortalPermissions {
-  const base = Object.fromEntries(PORTAL_SERVICE_KEYS.map((k) => [k, false])) as PortalPermissions;
+  const base = Object.fromEntries(
+    PORTAL_SERVICE_KEYS.map((k) => [k, { view: false, edit: false }]),
+  ) as PortalPermissions;
 
   if (role === "OWNER" || role === "ADMIN") {
-    for (const k of PORTAL_SERVICE_KEYS) base[k] = true;
+    for (const k of PORTAL_SERVICE_KEYS) base[k] = { view: true, edit: true };
     return base;
   }
 
@@ -69,14 +76,14 @@ export function defaultPortalPermissionsForRole(role: "OWNER" | "ADMIN" | "MEMBE
     "tasks",
   ];
 
-  for (const k of allow) base[k] = true;
+  for (const k of allow) base[k] = { view: true, edit: true };
 
   // Explicitly keep these off for members by default.
-  base.billing = false;
-  base.profile = false;
-  base.people = false;
-  base.integrations = false;
-  base.businessProfile = false;
+  base.billing = { view: false, edit: false };
+  base.profile = { view: false, edit: false };
+  base.people = { view: false, edit: false };
+  base.integrations = { view: false, edit: false };
+  base.businessProfile = { view: false, edit: false };
 
   return base;
 }

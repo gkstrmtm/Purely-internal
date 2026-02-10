@@ -25,7 +25,7 @@ const inviteSchema = z
   .strict();
 
 export async function GET() {
-  const auth = await requireClientSessionForService("people");
+  const auth = await requireClientSessionForService("people", "edit");
   if (!auth.ok) {
     return NextResponse.json(
       { ok: false, error: auth.status === 401 ? "Unauthorized" : "Forbidden" },
@@ -67,7 +67,7 @@ export async function GET() {
 }
 
 export async function POST(req: Request) {
-  const auth = await requireClientSessionForService("people");
+  const auth = await requireClientSessionForService("people", "edit");
   if (!auth.ok) {
     return NextResponse.json(
       { ok: false, error: auth.status === 401 ? "Unauthorized" : "Forbidden" },

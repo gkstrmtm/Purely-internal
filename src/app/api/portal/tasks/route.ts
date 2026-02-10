@@ -97,7 +97,7 @@ export async function GET(req: Request) {
 }
 
 export async function POST(req: Request) {
-  const auth = await requireClientSessionForService("tasks");
+  const auth = await requireClientSessionForService("tasks", "edit");
   if (!auth.ok) {
     return NextResponse.json(
       { ok: false, error: auth.status === 401 ? "Unauthorized" : "Forbidden" },

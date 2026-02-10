@@ -1,10 +1,13 @@
 import { prisma } from "@/lib/db";
 import { requireClientSession } from "@/lib/apiAuth";
 import { ensurePortalTasksSchema } from "@/lib/portalTasksSchema";
-import { hasPortalServiceAccess } from "@/lib/portalPermissions";
+import { hasPortalServiceCapability, type PortalServiceCapability } from "@/lib/portalPermissions";
 import type { PortalServiceKey } from "@/lib/portalPermissions.shared";
 
-export async function requireClientSessionForService(service: PortalServiceKey) {
+export async function requireClientSessionForService(
+  service: PortalServiceKey,
+  capability: PortalServiceCapability = "view",
+) {
   const auth = await requireClientSession();
   if (!auth.ok) return auth;
 
@@ -34,7 +37,7 @@ export async function requireClientSessionForService(service: PortalServiceKey) 
     };
   }
 
-  if (!hasPortalServiceAccess({ role: memberRole, permissionsJson: row?.permissionsJson, service })) {
+  if (!hasPortalServiceCapability({ role: memberRole, permissionsJson: row?.permissionsJson, service, capability })) {
     return {
       ok: false as const,
       status: 403 as const,

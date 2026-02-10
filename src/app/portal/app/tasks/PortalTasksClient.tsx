@@ -14,6 +14,13 @@ type TaskRow = {
   updatedAtIso: string | null;
 };
 
+type AssigneeRow = {
+  userId: string;
+  role: string;
+  user: { id: string; email: string; name: string; active: boolean };
+  implicit?: boolean;
+};
+
 function classNames(...xs: Array<string | false | null | undefined>) {
   return xs.filter(Boolean).join(" ");
 }
@@ -23,8 +30,11 @@ export function PortalTasksClient() {
   const [err, setErr] = useState<string | null>(null);
   const [tasks, setTasks] = useState<TaskRow[]>([]);
 
+  const [assignees, setAssignees] = useState<AssigneeRow[]>([]);
+
   const [title, setTitle] = useState("");
   const [description, setDescription] = useState("");
+  const [assignedToUserId, setAssignedToUserId] = useState<string>("");
   const [creating, setCreating] = useState(false);
 
   const openTasks = useMemo(() => tasks.filter((t) => String(t.status) === "OPEN"), [tasks]);
@@ -34,10 +44,21 @@ export function PortalTasksClient() {
     setLoading(true);
     setErr(null);
     try {
-      const res = await fetch("/api/portal/tasks?status=ALL", { cache: "no-store" });
-      const json = (await res.json()) as any;
-      if (!res.ok || !json?.ok) throw new Error(String(json?.error || "Failed to load tasks"));
-      setTasks(Array.isArray(json.tasks) ? (json.tasks as TaskRow[]) : []);
+      const [tasksRes, assigneesRes] = await Promise.all([
+        fetch("/api/portal/tasks?status=ALL", { cache: "no-store" }),
+        fetch("/api/portal/tasks/assignees", { cache: "no-store" }).catch(() => null as any),
+      ]);
+
+      const tasksJson = (await tasksRes.json()) as any;
+      if (!tasksRes.ok || !tasksJson?.ok) throw new Error(String(tasksJson?.error || "Failed to load tasks"));
+      setTasks(Array.isArray(tasksJson.tasks) ? (tasksJson.tasks as TaskRow[]) : []);
+
+      if (assigneesRes?.ok) {
+        const assigneesJson = (await assigneesRes.json().catch(() => null)) as any;
+        if (assigneesJson?.ok && Array.isArray(assigneesJson.members)) {
+          setAssignees(assigneesJson.members as AssigneeRow[]);
+        }
+      }
     } catch (e: any) {
       setErr(String(e?.message || "Failed to load"));
     } finally {
@@ -59,12 +80,17 @@ export function PortalTasksClient() {
       const res = await fetch("/api/portal/tasks", {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ title: t, description: description.trim() || undefined }),
+        body: JSON.stringify({
+          title: t,
+          description: description.trim() || undefined,
+          assignedToUserId: assignedToUserId.trim() || null,
+        }),
       });
       const json = (await res.json().catch(() => null)) as any;
       if (!res.ok || !json?.ok) throw new Error(String(json?.error || "Failed to create"));
       setTitle("");
       setDescription("");
+      setAssignedToUserId("");
       await load();
     } catch (e: any) {
       setErr(String(e?.message || "Failed to create"));
@@ -80,6 +106,22 @@ export function PortalTasksClient() {
         method: "PATCH",
         headers: { "content-type": "application/json" },
         body: JSON.stringify({ status }),
+      });
+      const json = (await res.json().catch(() => null)) as any;
+      if (!res.ok || !json?.ok) throw new Error(String(json?.error || "Update failed"));
+      await load();
+    } catch (e: any) {
+      setErr(String(e?.message || "Update failed"));
+    }
+  }
+
+  async function setAssignee(taskId: string, userId: string) {
+    setErr(null);
+    try {
+      const res = await fetch(`/api/portal/tasks/${encodeURIComponent(taskId)}`, {
+        method: "PATCH",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ assignedToUserId: userId.trim() || null }),
       });
       const json = (await res.json().catch(() => null)) as any;
       if (!res.ok || !json?.ok) throw new Error(String(json?.error || "Update failed"));
@@ -114,6 +156,23 @@ export function PortalTasksClient() {
             placeholder="Task title"
             className="w-full rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-sm outline-none focus:border-[color:var(--color-brand-blue)]"
           />
+          <div>
+            <div className="text-xs font-semibold text-zinc-700">Assignee</div>
+            <select
+              value={assignedToUserId}
+              onChange={(e) => setAssignedToUserId(e.target.value)}
+              className="mt-1 w-full rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-sm"
+            >
+              <option value="">Unassigned</option>
+              {assignees
+                .filter((a) => a?.user?.active)
+                .map((a) => (
+                  <option key={a.userId} value={a.userId}>
+                    {(a.user?.name || a.user?.email || "").trim() || a.userId}
+                  </option>
+                ))}
+            </select>
+          </div>
           <textarea
             value={description}
             onChange={(e) => setDescription(e.target.value)}
@@ -155,7 +214,23 @@ export function PortalTasksClient() {
                       <div>
                         <div className="font-semibold text-zinc-900">{t.title}</div>
                         {t.description ? <div className="mt-1 text-sm text-zinc-600">{t.description}</div> : null}
-                        {t.assignedTo?.email ? <div className="mt-2 text-xs text-zinc-500">Assigned to {t.assignedTo.email}</div> : null}
+                        <div className="mt-3">
+                          <div className="text-xs font-semibold text-zinc-700">Assigned to</div>
+                          <select
+                            value={t.assignedToUserId || ""}
+                            onChange={(e) => setAssignee(t.id, e.target.value)}
+                            className="mt-1 w-full rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-sm"
+                          >
+                            <option value="">Unassigned</option>
+                            {assignees
+                              .filter((a) => a?.user?.active)
+                              .map((a) => (
+                                <option key={a.userId} value={a.userId}>
+                                  {(a.user?.name || a.user?.email || "").trim() || a.userId}
+                                </option>
+                              ))}
+                          </select>
+                        </div>
                       </div>
                       <button
                         type="button"
@@ -183,6 +258,7 @@ export function PortalTasksClient() {
                       <div>
                         <div className="font-semibold text-zinc-900">{t.title}</div>
                         {t.description ? <div className="mt-1 text-sm text-zinc-600">{t.description}</div> : null}
+                        {t.assignedTo?.email ? <div className="mt-2 text-xs text-zinc-500">Assigned to {t.assignedTo.email}</div> : null}
                       </div>
                       <button
                         type="button"

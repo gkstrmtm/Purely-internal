@@ -4,6 +4,7 @@ import type { Metadata } from "next";
 
 import { SignOutButton } from "@/components/SignOutButton";
 import { getPortalUser } from "@/lib/portalAuth";
+import { PortalHeaderCta } from "@/app/portal/PortalHeaderCta";
 
 export const metadata: Metadata = {
   icons: {
@@ -60,14 +61,7 @@ export default async function PortalLayout({
                 <div className="hidden text-sm text-zinc-600 sm:block">
                   {user.email}
                 </div>
-                {canOpenPortalApp ? (
-                  <Link
-                    href="/portal/app"
-                    className="rounded-xl bg-brand-ink px-3 py-2 text-sm font-semibold text-white hover:opacity-95"
-                  >
-                    Open portal
-                  </Link>
-                ) : null}
+                <PortalHeaderCta canOpenPortalApp={canOpenPortalApp} />
                 <SignOutButton />
               </>
             ) : (

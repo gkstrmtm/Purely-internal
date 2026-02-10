@@ -10,6 +10,8 @@ import {
   type PortalServiceKey,
 } from "@/lib/portalPermissions.shared";
 
+import { PortalPeopleTabs } from "@/app/portal/app/people/PortalPeopleTabs";
+
 type MemberRow = {
   userId: string;
   role: "OWNER" | "ADMIN" | "MEMBER";
@@ -41,6 +43,10 @@ function classNames(...xs: Array<string | false | null | undefined>) {
   return xs.filter(Boolean).join(" ");
 }
 
+async function copyToClipboard(text: string) {
+  await navigator.clipboard.writeText(text);
+}
+
 export function PortalPeopleUsersClient() {
   const [loading, setLoading] = useState(true);
   const [err, setErr] = useState<string | null>(null);
@@ -61,17 +67,32 @@ export function PortalPeopleUsersClient() {
   }, [inviteRole]);
 
   const selectedServicesCount = useMemo(() => {
-    return PORTAL_SERVICE_KEYS.reduce((acc, k) => acc + (invitePermissions?.[k] ? 1 : 0), 0);
+    return PORTAL_SERVICE_KEYS.reduce((acc, k) => acc + (invitePermissions?.[k]?.view ? 1 : 0), 0);
   }, [invitePermissions]);
 
   function setAllPermissions(value: boolean) {
     const next = { ...invitePermissions };
-    for (const k of PORTAL_SERVICE_KEYS) next[k] = value;
+    for (const k of PORTAL_SERVICE_KEYS) next[k] = { view: value, edit: value };
     setInvitePermissions(next);
   }
 
-  function togglePermission(k: PortalServiceKey) {
-    setInvitePermissions((prev) => ({ ...prev, [k]: !prev[k] }));
+  type PermissionLevel = "none" | "view" | "full";
+
+  function levelFor(k: PortalServiceKey): PermissionLevel {
+    const p = invitePermissions?.[k];
+    if (!p?.view && !p?.edit) return "none";
+    if (p?.view && !p?.edit) return "view";
+    return "full";
+  }
+
+  function setPermissionLevel(k: PortalServiceKey, level: PermissionLevel) {
+    setInvitePermissions((prev) => {
+      const base = prev ?? defaultPortalPermissionsForRole(inviteRole);
+      const next = { ...base };
+      next[k] =
+        level === "none" ? { view: false, edit: false } : level === "view" ? { view: true, edit: false } : { view: true, edit: true };
+      return next;
+    });
   }
 
   async function load() {
@@ -144,6 +165,7 @@ export function PortalPeopleUsersClient() {
         <div>
           <h1 className="text-2xl font-bold text-brand-ink sm:text-3xl">People</h1>
           <p className="mt-2 text-sm text-zinc-600">Manage portal users and invites.</p>
+          <PortalPeopleTabs />
         </div>
         <button
           type="button"
@@ -281,7 +303,18 @@ export function PortalPeopleUsersClient() {
                               onClick={() => setAllPermissions(true)}
                               className="rounded-lg border border-zinc-200 bg-white px-2 py-1 text-xs font-semibold text-zinc-700 hover:bg-zinc-50"
                             >
-                              All
+                              All full
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => {
+                                const next = { ...invitePermissions };
+                                for (const k of PORTAL_SERVICE_KEYS) next[k] = { view: true, edit: false };
+                                setInvitePermissions(next);
+                              }}
+                              className="rounded-lg border border-zinc-200 bg-white px-2 py-1 text-xs font-semibold text-zinc-700 hover:bg-zinc-50"
+                            >
+                              All view
                             </button>
                             <button
                               type="button"
@@ -295,18 +328,21 @@ export function PortalPeopleUsersClient() {
 
                         <div className="max-h-72 overflow-auto p-2">
                           {PORTAL_SERVICE_KEYS.map((k) => (
-                            <label
+                            <div
                               key={k}
-                              className="flex cursor-pointer items-center justify-between gap-3 rounded-xl px-2 py-2 text-sm hover:bg-zinc-50"
+                              className="flex items-center justify-between gap-3 rounded-xl px-2 py-2 text-sm hover:bg-zinc-50"
                             >
                               <span className="text-zinc-800">{PORTAL_SERVICE_LABELS[k]}</span>
-                              <input
-                                type="checkbox"
-                                checked={!!invitePermissions?.[k]}
-                                onChange={() => togglePermission(k)}
-                                className="h-4 w-4 rounded border-zinc-300 text-[color:var(--color-brand-blue)]"
-                              />
-                            </label>
+                              <select
+                                value={levelFor(k)}
+                                onChange={(e) => setPermissionLevel(k, (e.target.value as PermissionLevel) || "none")}
+                                className="rounded-xl border border-zinc-200 bg-white px-2 py-1 text-xs font-semibold text-zinc-800"
+                              >
+                                <option value="none">No access</option>
+                                <option value="view">View only</option>
+                                <option value="full">Full</option>
+                              </select>
+                            </div>
                           ))}
                         </div>
 
@@ -334,10 +370,10 @@ export function PortalPeopleUsersClient() {
                     {inviting ? "Inviting…" : "Send invite"}
                   </button>
                 </div>
-
-                {inviteMsg ? <div className="mt-3 text-sm text-zinc-700">{inviteMsg}</div> : null}
               </div>
             ) : null}
+
+            {inviteMsg ? <div className="mt-4 text-sm text-zinc-700">{inviteMsg}</div> : null}
 
             <div className="mt-4 overflow-hidden rounded-2xl border border-zinc-200">
               <table className="w-full text-left text-sm">
@@ -346,6 +382,7 @@ export function PortalPeopleUsersClient() {
                     <th className="px-4 py-3">Email</th>
                     <th className="px-4 py-3">Role</th>
                     <th className="px-4 py-3">State</th>
+                    <th className="px-4 py-3">Link</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -372,11 +409,29 @@ export function PortalPeopleUsersClient() {
                             </span>
                           )}
                         </td>
+                        <td className="px-4 py-3">
+                          <button
+                            type="button"
+                            onClick={async () => {
+                              try {
+                                const base = typeof window !== "undefined" ? window.location.origin : "https://purelyautomation.com";
+                                const link = `${base}/portalinvite/${inv.token}`;
+                                await copyToClipboard(link);
+                                setInviteMsg("Invite link copied to clipboard.");
+                              } catch {
+                                setInviteMsg("Could not copy invite link.");
+                              }
+                            }}
+                            className="rounded-xl border border-zinc-200 bg-white px-3 py-2 text-xs font-semibold text-zinc-800 hover:bg-zinc-50"
+                          >
+                            Copy
+                          </button>
+                        </td>
                       </tr>
                     ))
                   ) : (
                     <tr className="border-t border-zinc-200">
-                      <td className="px-4 py-5 text-sm text-zinc-600" colSpan={3}>
+                      <td className="px-4 py-5 text-sm text-zinc-600" colSpan={4}>
                         No invites yet.
                       </td>
                     </tr>
