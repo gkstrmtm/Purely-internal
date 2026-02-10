@@ -74,6 +74,7 @@ const settingsSchema = z.object({
     .object({
       enabled: z.boolean(),
       aiDraftAndSend: z.boolean().optional(),
+      aiPrompt: z.string().max(4000).optional(),
       email: z.object({
         enabled: z.boolean(),
         trigger: z.enum(["MANUAL", "ON_SCRAPE", "ON_APPROVE"]),
@@ -236,6 +237,7 @@ function normalizeOutbound(value: unknown): OutboundSettings {
     return {
       enabled,
       aiDraftAndSend: false,
+      aiPrompt: "",
       email: {
         enabled: enabled && sendEmail,
         trigger,
@@ -257,6 +259,7 @@ function normalizeOutbound(value: unknown): OutboundSettings {
   return {
     enabled: Boolean((rec as any).enabled),
     aiDraftAndSend: Boolean((rec as any).aiDraftAndSend),
+    aiPrompt: (typeof (rec as any).aiPrompt === "string" ? ((rec as any).aiPrompt as string) : "").slice(0, 4000),
     email: {
       enabled: Boolean(emailRec.enabled),
       trigger: parseTrigger(emailRec.trigger),
@@ -319,6 +322,7 @@ function normalizeSettings(value: unknown): NormalizedLeadScrapingSettings {
   const defaultOutbound: OutboundSettings = {
     enabled: false,
     aiDraftAndSend: false,
+    aiPrompt: "",
     email: {
       enabled: true,
       trigger: "MANUAL",

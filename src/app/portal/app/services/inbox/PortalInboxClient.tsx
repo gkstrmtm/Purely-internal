@@ -59,6 +59,13 @@ type ApiErrorRes = { ok: false; code?: string; error?: string };
 type ThreadsRes = { ok: true; threads: Thread[] } | ApiErrorRes;
 type MessagesRes = { ok: true; messages: Message[] } | ApiErrorRes;
 
+type ContactLite = {
+  id: string;
+  name: string;
+  email: string | null;
+  phone: string | null;
+};
+
 type UploadedAttachment = NonNullable<Message["attachments"]>[number];
 
 function classNames(...xs: Array<string | false | null | undefined>) {
@@ -200,6 +207,13 @@ export function PortalInboxClient() {
   const [uploading, setUploading] = useState(false);
   const [sending, setSending] = useState(false);
 
+  const [contacts, setContacts] = useState<ContactLite[] | null>(null);
+  const [contactsLoading, setContactsLoading] = useState(false);
+  const [toSuggestionsOpen, setToSuggestionsOpen] = useState(false);
+
+  const smsToRef = useRef<HTMLInputElement | null>(null);
+  const emailToRef = useRef<HTMLInputElement | null>(null);
+
   const [smsMoreOpen, setSmsMoreOpen] = useState(false);
   const [mediaPickerOpen, setMediaPickerOpen] = useState(false);
 
@@ -209,6 +223,116 @@ export function PortalInboxClient() {
   const smsComposeRef = useRef<HTMLInputElement | null>(null);
   const emailSubjectRef = useRef<HTMLInputElement | null>(null);
   const emailBodyRef = useRef<HTMLTextAreaElement | null>(null);
+
+  function clearConversationForCompose() {
+    setActiveThreadId(null);
+    setMessages([]);
+    setLoadingMessages(false);
+  }
+
+  async function ensureContactsLoaded() {
+    if (contacts || contactsLoading) return;
+    setContactsLoading(true);
+    try {
+      const res = await fetch("/api/portal/people/contacts", { cache: "no-store" }).catch(() => null as any);
+      const data = (await res?.json?.().catch(() => null)) as any;
+      if (!res?.ok || !data?.ok || !Array.isArray(data.contacts)) {
+        setContactsLoading(false);
+        setContacts([]);
+        return;
+      }
+
+      const next: ContactLite[] = data.contacts
+        .map((c: any) => ({
+          id: String(c.id || ""),
+          name: String(c.name || "").slice(0, 80),
+          email: c.email ? String(c.email) : null,
+          phone: c.phone ? String(c.phone) : null,
+        }))
+        .filter((c: ContactLite) => c.id && c.name);
+
+      setContactsLoading(false);
+      setContacts(next);
+    } catch {
+      setContactsLoading(false);
+      setContacts([]);
+    }
+  }
+
+  function normalizeForMatch(raw: string) {
+    return String(raw || "")
+      .toLowerCase()
+      .replace(/\s+/g, " ")
+      .trim();
+  }
+
+  function findContactSuggestions(queryRaw: string) {
+    const q = normalizeForMatch(queryRaw);
+    if (!q || !contacts?.length) return [] as ContactLite[];
+
+    const phoneNeedle = q.replace(/[^0-9+]/g, "");
+
+    const scored = contacts
+      .map((c) => {
+        const name = normalizeForMatch(c.name);
+        const email = normalizeForMatch(c.email || "");
+        const phone = normalizeForMatch(c.phone || "");
+        const phoneDigits = phone.replace(/[^0-9+]/g, "");
+
+        let score = 0;
+        if (name === q) score += 100;
+        else if (name.startsWith(q)) score += 80;
+        else if (name.includes(q)) score += 60;
+
+        if (email && (email === q || email.startsWith(q) || email.includes(q))) score += 50;
+        if (phoneNeedle && phoneDigits && (phoneDigits.startsWith(phoneNeedle) || phoneDigits.includes(phoneNeedle))) score += 40;
+
+        return { c, score };
+      })
+      .filter((x) => x.score > 0)
+      .sort((a, b) => b.score - a.score)
+      .slice(0, 8)
+      .map((x) => x.c);
+
+    return scored;
+  }
+
+  function findThreadIdForContact(nextTab: Channel, contact: ContactLite) {
+    if (nextTab === "email") {
+      const email = String(contact.email || "").trim().toLowerCase();
+      if (!email) return null;
+      return (
+        threads.find((t) => safeEmailFromPeer(t.peerAddress).toLowerCase() === email)?.id ??
+        threads.find((t) => String(t.peerAddress || "").trim().toLowerCase() === email)?.id ??
+        null
+      );
+    }
+
+    const normalized = normalizePhoneForStorage(String(contact.phone || "").trim());
+    if (!normalized) return null;
+    return threads.find((t) => String(t.peerAddress || "").trim() === normalized)?.id ?? null;
+  }
+
+  function applyContactToCompose(contact: ContactLite) {
+    const to = tab === "email" ? String(contact.email || "").trim() : String(contact.phone || "").trim();
+    if (!to) {
+      setError(tab === "email" ? "This contact doesn’t have an email address." : "This contact doesn’t have a phone number.");
+      return;
+    }
+
+    setError(null);
+    setToSuggestionsOpen(false);
+    setComposeTo(to);
+    setComposeAttachments([]);
+    if (tab === "email") setComposeSubject("");
+    setComposeBody("");
+    clearConversationForCompose();
+
+    const threadId = findThreadIdForContact(tab, contact);
+    if (threadId) {
+      setActiveThreadId(threadId);
+    }
+  }
 
   const [contactModalOpen, setContactModalOpen] = useState(false);
   const [contactName, setContactName] = useState("");
@@ -412,6 +536,12 @@ export function PortalInboxClient() {
     if (!activeThreadId) return;
     loadMessages(activeThreadId);
     // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeThreadId]);
+
+  useEffect(() => {
+    if (activeThreadId) return;
+    setMessages([]);
+    setLoadingMessages(false);
   }, [activeThreadId]);
 
   useEffect(() => {
@@ -808,7 +938,7 @@ export function PortalInboxClient() {
                   type="button"
                   className="rounded-xl bg-zinc-900 px-3 py-2 text-xs font-semibold text-white hover:bg-zinc-800"
                   onClick={() => {
-                    setActiveThreadId(null);
+                    clearConversationForCompose();
                     setComposeTo("");
                     setComposeSubject("");
                     setComposeBody("");
@@ -852,7 +982,7 @@ export function PortalInboxClient() {
                   type="button"
                   className="rounded-xl bg-zinc-900 px-3 py-2 text-xs font-semibold text-white hover:bg-zinc-800"
                   onClick={() => {
-                    setActiveThreadId(null);
+                    clearConversationForCompose();
                     setComposeTo("");
                     setComposeBody("");
                     setComposeAttachments([]);
@@ -1021,20 +1151,78 @@ export function PortalInboxClient() {
 
               {!activeThread ? (
                 <div className="border-b border-zinc-100 p-3">
-                  <div className="flex items-center gap-2 rounded-2xl border border-zinc-200 bg-white px-3 py-2">
-                    <div className="text-xs font-semibold text-zinc-600">To:</div>
-                    <input
-                      value={composeTo}
-                      onChange={(e) => setComposeTo(e.target.value)}
-                      placeholder="+15551234567"
-                      className="w-full bg-transparent text-sm text-zinc-900 placeholder:text-zinc-400 focus:outline-none"
+                  {toSuggestionsOpen ? (
+                    <div
+                      className="fixed inset-0 z-[65]"
+                      onMouseDown={() => setToSuggestionsOpen(false)}
+                      onTouchStart={() => setToSuggestionsOpen(false)}
+                      aria-hidden
                     />
+                  ) : null}
+                  <div className="relative">
+                    <div className="flex items-center gap-2 rounded-2xl border border-zinc-200 bg-white px-3 py-2">
+                      <div className="text-xs font-semibold text-zinc-600">To:</div>
+                      <input
+                        ref={smsToRef}
+                        value={composeTo}
+                        onFocus={() => {
+                          void ensureContactsLoaded();
+                          setToSuggestionsOpen(true);
+                        }}
+                        onChange={(e) => {
+                          void ensureContactsLoaded();
+                          setComposeTo(e.target.value);
+                          setToSuggestionsOpen(true);
+                        }}
+                        onKeyDown={(e) => {
+                          if (e.key === "Escape") setToSuggestionsOpen(false);
+                        }}
+                        placeholder="Phone number or contact name"
+                        className="w-full bg-transparent text-sm text-zinc-900 placeholder:text-zinc-400 focus:outline-none"
+                      />
+                    </div>
+
+                    {toSuggestionsOpen ? (
+                      <div className="absolute left-0 right-0 top-full z-[80] mt-2 overflow-hidden rounded-2xl border border-zinc-200 bg-white shadow-lg">
+                        {contactsLoading ? (
+                          <div className="px-3 py-3 text-sm text-zinc-600">Loading contacts…</div>
+                        ) : (
+                          (() => {
+                            const suggestions = findContactSuggestions(composeTo);
+                            if (!suggestions.length) {
+                              return <div className="px-3 py-3 text-sm text-zinc-600">No matching contacts.</div>;
+                            }
+
+                            return (
+                              <div className="max-h-72 overflow-y-auto py-1">
+                                {suggestions.map((c) => (
+                                  <button
+                                    key={c.id}
+                                    type="button"
+                                    className="w-full px-3 py-2 text-left hover:bg-zinc-50"
+                                    onMouseDown={(e) => {
+                                      e.preventDefault();
+                                      applyContactToCompose(c);
+                                    }}
+                                  >
+                                    <div className="truncate text-sm font-semibold text-zinc-900">{c.name}</div>
+                                    <div className="mt-0.5 truncate text-xs text-zinc-600">{c.phone || "No phone"}</div>
+                                  </button>
+                                ))}
+                              </div>
+                            );
+                          })()
+                        )}
+                      </div>
+                    ) : null}
                   </div>
                 </div>
               ) : null}
 
               <div ref={smsScrollRef} className={classNames("flex-1 overflow-y-auto px-4 py-4", styles.smsPane)}>
-                {loadingMessages ? (
+                {!activeThread ? (
+                  <div className="text-sm text-zinc-600">Start a new text by choosing a contact or entering a phone number.</div>
+                ) : loadingMessages ? (
                   <div className="text-sm text-zinc-600">Loading…</div>
                 ) : messages.length ? (
                   <div className="space-y-2">
@@ -1266,15 +1454,71 @@ export function PortalInboxClient() {
 
               {!activeThread ? (
                 <div className="border-b border-zinc-100 p-4">
+                  {toSuggestionsOpen ? (
+                    <div
+                      className="fixed inset-0 z-[65]"
+                      onMouseDown={() => setToSuggestionsOpen(false)}
+                      onTouchStart={() => setToSuggestionsOpen(false)}
+                      aria-hidden
+                    />
+                  ) : null}
                   <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
                     <div>
                       <div className="text-xs font-semibold text-zinc-700">To</div>
-                      <input
-                        value={composeTo}
-                        onChange={(e) => setComposeTo(e.target.value)}
-                        placeholder="name@company.com"
-                        className="mt-1 w-full rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-sm text-zinc-900 placeholder:text-zinc-400"
-                      />
+                      <div className="relative">
+                        <input
+                          ref={emailToRef}
+                          value={composeTo}
+                          onFocus={() => {
+                            void ensureContactsLoaded();
+                            setToSuggestionsOpen(true);
+                          }}
+                          onChange={(e) => {
+                            void ensureContactsLoaded();
+                            setComposeTo(e.target.value);
+                            setToSuggestionsOpen(true);
+                          }}
+                          onKeyDown={(e) => {
+                            if (e.key === "Escape") setToSuggestionsOpen(false);
+                          }}
+                          placeholder="Email address or contact name"
+                          className="mt-1 w-full rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-sm text-zinc-900 placeholder:text-zinc-400"
+                        />
+
+                        {toSuggestionsOpen ? (
+                          <div className="absolute left-0 right-0 top-full z-[80] mt-2 overflow-hidden rounded-2xl border border-zinc-200 bg-white shadow-lg">
+                            {contactsLoading ? (
+                              <div className="px-3 py-3 text-sm text-zinc-600">Loading contacts…</div>
+                            ) : (
+                              (() => {
+                                const suggestions = findContactSuggestions(composeTo);
+                                if (!suggestions.length) {
+                                  return <div className="px-3 py-3 text-sm text-zinc-600">No matching contacts.</div>;
+                                }
+
+                                return (
+                                  <div className="max-h-72 overflow-y-auto py-1">
+                                    {suggestions.map((c) => (
+                                      <button
+                                        key={c.id}
+                                        type="button"
+                                        className="w-full px-3 py-2 text-left hover:bg-zinc-50"
+                                        onMouseDown={(e) => {
+                                          e.preventDefault();
+                                          applyContactToCompose(c);
+                                        }}
+                                      >
+                                        <div className="truncate text-sm font-semibold text-zinc-900">{c.name}</div>
+                                        <div className="mt-0.5 truncate text-xs text-zinc-600">{c.email || "No email"}</div>
+                                      </button>
+                                    ))}
+                                  </div>
+                                );
+                              })()
+                            )}
+                          </div>
+                        ) : null}
+                      </div>
                     </div>
                     <div>
                       <div className="flex items-center justify-between gap-2">
@@ -1300,7 +1544,9 @@ export function PortalInboxClient() {
               ) : null}
 
               <div className="flex-1 overflow-y-auto bg-zinc-50 p-4">
-                {loadingMessages ? (
+                {!activeThread ? (
+                  <div className="text-sm text-zinc-600">Choose a contact or type an email address to start a new conversation.</div>
+                ) : loadingMessages ? (
                   <div className="text-sm text-zinc-600">Loading…</div>
                 ) : messages.length ? (
                   <div className="space-y-3">

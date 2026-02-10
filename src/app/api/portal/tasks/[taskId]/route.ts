@@ -49,7 +49,7 @@ export async function PATCH(req: Request, ctx: { params: Promise<{ taskId: strin
   let everyoneTaskCompletionHandled = false;
   if (statusReq === "DONE" || statusReq === "OPEN") {
     const row = (await prisma.$queryRawUnsafe(
-      `SELECT "assignedToUserId" FROM "PortalTask" WHERE "ownerId" = $1 AND "id" = $2 LIMIT 1`,
+      `SELECT "assignedToUserId", "createdByUserId" FROM "PortalTask" WHERE "ownerId" = $1 AND "id" = $2 LIMIT 1`,
       ownerId,
       trimmedTaskId,
     ).catch(() => [])) as any[];
@@ -78,6 +78,21 @@ export async function PATCH(req: Request, ctx: { params: Promise<{ taskId: strin
         );
       }
       everyoneTaskCompletionHandled = true;
+    }
+  }
+
+  // Only the creator can change assignee after creation.
+  if (parsed.data.assignedToUserId !== undefined) {
+    const row = (await prisma.$queryRawUnsafe(
+      `SELECT "createdByUserId" FROM "PortalTask" WHERE "ownerId" = $1 AND "id" = $2 LIMIT 1`,
+      ownerId,
+      trimmedTaskId,
+    ).catch(() => [])) as any[];
+
+    const createdByUserId = row?.[0]?.createdByUserId ? String(row[0].createdByUserId) : null;
+    const canEditAssignee = createdByUserId ? createdByUserId === String(memberId) : String(memberId) === String(ownerId);
+    if (!canEditAssignee) {
+      return NextResponse.json({ ok: false, error: "Only the task creator can change the assignee." }, { status: 403 });
     }
   }
 

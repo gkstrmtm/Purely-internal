@@ -823,9 +823,10 @@ async function runAutomationOnce(opts: {
                 const id = crypto.randomUUID().replace(/-/g, "");
                 const now = new Date();
                 await prisma.$executeRawUnsafe(
-                  `INSERT INTO "PortalTask" ("id","ownerId","title","description","status","assignedToUserId","dueAt","createdAt","updatedAt")
-                   VALUES ($1,$2,$3,$4,'OPEN',$5,NULL,DEFAULT,$6)`,
+                  `INSERT INTO "PortalTask" ("id","ownerId","createdByUserId","title","description","status","assignedToUserId","dueAt","createdAt","updatedAt")
+                   VALUES ($1,$2,$3,$4,$5,'OPEN',$6,NULL,DEFAULT,$7)`,
                   id,
+                  opts.ownerId,
                   opts.ownerId,
                   title,
                   description || null,

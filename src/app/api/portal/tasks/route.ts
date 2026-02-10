@@ -67,6 +67,7 @@ export async function GET(req: Request) {
     SELECT
       t."id",
       t."ownerId",
+      t."createdByUserId",
       t."title",
       t."description",
       t."status",
@@ -96,6 +97,8 @@ export async function GET(req: Request) {
       status: String(r.status || "OPEN"),
       assignedToUserId: r.assignedToUserId ? String(r.assignedToUserId) : null,
       assignedTo: r.assignedToUserId ? { userId: String(r.assignedToUserId), email: String(r.assignedEmail || ""), name: String(r.assignedName || "") } : null,
+      createdByUserId: r.createdByUserId ? String(r.createdByUserId) : null,
+      canEditAssignee: r.createdByUserId ? String(r.createdByUserId) === String(memberId) : String(ownerId) === String(memberId),
       viewerDoneAtIso: r.viewerCompletedAt ? new Date(r.viewerCompletedAt).toISOString() : null,
       dueAtIso: r.dueAt ? new Date(r.dueAt).toISOString() : null,
       createdAtIso: r.createdAt ? new Date(r.createdAt).toISOString() : null,
@@ -116,6 +119,7 @@ export async function POST(req: Request) {
   await ensurePortalTasksSchema().catch(() => null);
 
   const ownerId = auth.session.user.id;
+  const memberId = (auth.session.user as any).memberId || ownerId;
 
   const body = (await req.json().catch(() => null)) as unknown;
   const parsed = createSchema.safeParse(body ?? {});
@@ -136,11 +140,11 @@ export async function POST(req: Request) {
   const now = new Date();
 
   const sql = `
-    INSERT INTO "PortalTask" ("id","ownerId","title","description","status","assignedToUserId","dueAt","createdAt","updatedAt")
-    VALUES ($1,$2,$3,$4,'OPEN',$5,$6,DEFAULT,$7)
+    INSERT INTO "PortalTask" ("id","ownerId","createdByUserId","title","description","status","assignedToUserId","dueAt","createdAt","updatedAt")
+    VALUES ($1,$2,$3,$4,$5,'OPEN',$6,$7,DEFAULT,$8)
   `;
 
-  await prisma.$executeRawUnsafe(sql, id, ownerId, title, description || null, assignedToUserId, dueAt, now);
+  await prisma.$executeRawUnsafe(sql, id, ownerId, memberId, title, description || null, assignedToUserId, dueAt, now);
 
   // Best-effort automation trigger.
   try {

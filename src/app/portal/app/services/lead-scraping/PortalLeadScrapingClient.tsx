@@ -71,6 +71,7 @@ type LeadScrapingSettings = {
   outbound: {
     enabled: boolean;
     aiDraftAndSend?: boolean;
+    aiPrompt?: string;
     email: {
       enabled: boolean;
       trigger: "MANUAL" | "ON_SCRAPE" | "ON_APPROVE";
@@ -1087,18 +1088,44 @@ export function PortalLeadScrapingClient() {
                             ...prev,
                             outbound: {
                               ...prev.outbound,
+                              enabled: e.target.checked ? true : prev.outbound.enabled,
                               aiDraftAndSend: e.target.checked,
                             },
                           }
                         : prev,
                     )
                   }
-                  disabled={!settings.outbound.enabled}
                   className="h-4 w-4 rounded border-zinc-300"
                 />
                 On
               </label>
             </div>
+
+            {Boolean((settings.outbound as any).aiDraftAndSend) ? (
+              <div className="mt-3">
+                <div className="text-xs font-semibold text-zinc-600">AI goals (prompt)</div>
+                <textarea
+                  value={String((settings.outbound as any).aiPrompt || "")}
+                  onChange={(e) =>
+                    setSettings((prev) =>
+                      prev
+                        ? {
+                            ...prev,
+                            outbound: {
+                              ...prev.outbound,
+                              aiPrompt: e.target.value,
+                            },
+                          }
+                        : prev,
+                    )
+                  }
+                  rows={4}
+                  placeholder="Example: Write friendly, concise outreach. Offer a quick call. Mention their business name and website if available. Avoid spammy language."
+                  className="mt-1 w-full resize-y rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-sm text-zinc-900 placeholder:text-zinc-400"
+                />
+                <div className="mt-1 text-[11px] text-zinc-500">This prompt guides the AI when drafting outbound email/SMS.</div>
+              </div>
+            ) : null}
           </div>
 
           <div className="rounded-2xl border border-zinc-200 bg-zinc-50 p-4">
@@ -1115,13 +1142,13 @@ export function PortalLeadScrapingClient() {
                             ...prev,
                             outbound: {
                               ...prev.outbound,
+                              enabled: e.target.checked ? true : prev.outbound.enabled,
                               email: { ...prev.outbound.email, enabled: e.target.checked },
                             },
                           }
                         : prev,
                     )
                   }
-                  disabled={!settings.outbound.enabled}
                   className="h-4 w-4 rounded border-zinc-300"
                 />
                 On
@@ -1147,7 +1174,7 @@ export function PortalLeadScrapingClient() {
                         : prev,
                     )
                   }
-                  disabled={!settings.outbound.enabled || !settings.outbound.email.enabled}
+                  disabled={!settings.outbound.email.enabled}
                 >
                   <option value="MANUAL">Manual only</option>
                   <option value="ON_SCRAPE">Send on scrape</option>
@@ -1173,7 +1200,7 @@ export function PortalLeadScrapingClient() {
                         : prev,
                     )
                   }
-                  disabled={!settings.outbound.enabled || !settings.outbound.email.enabled}
+                  disabled={!settings.outbound.email.enabled}
                   autoComplete="off"
                 />
               </label>
@@ -1197,7 +1224,7 @@ export function PortalLeadScrapingClient() {
                         : prev,
                     )
                   }
-                  disabled={!settings.outbound.enabled || !settings.outbound.email.enabled}
+                  disabled={!settings.outbound.email.enabled}
                 />
               </label>
 
@@ -1221,13 +1248,13 @@ export function PortalLeadScrapingClient() {
                             ...prev,
                             outbound: {
                               ...prev.outbound,
+                              enabled: e.target.checked ? true : prev.outbound.enabled,
                               sms: { ...prev.outbound.sms, enabled: e.target.checked },
                             },
                           }
                         : prev,
                     )
                   }
-                  disabled={!settings.outbound.enabled}
                   className="h-4 w-4 rounded border-zinc-300"
                 />
                 On
@@ -1253,7 +1280,7 @@ export function PortalLeadScrapingClient() {
                         : prev,
                     )
                   }
-                  disabled={!settings.outbound.enabled || !settings.outbound.sms.enabled}
+                  disabled={!settings.outbound.sms.enabled}
                 >
                   <option value="MANUAL">Manual only</option>
                   <option value="ON_SCRAPE">Send on scrape</option>
@@ -1280,7 +1307,7 @@ export function PortalLeadScrapingClient() {
                         : prev,
                     )
                   }
-                  disabled={!settings.outbound.enabled || !settings.outbound.sms.enabled}
+                  disabled={!settings.outbound.sms.enabled}
                 />
               </label>
 

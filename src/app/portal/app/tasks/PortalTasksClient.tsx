@@ -12,6 +12,8 @@ type TaskRow = {
   assignedToUserId: string | null;
   assignedTo: { userId: string; email: string; name: string } | null;
   viewerDoneAtIso?: string | null;
+  createdByUserId?: string | null;
+  canEditAssignee?: boolean;
   dueAtIso: string | null;
   createdAtIso: string | null;
   updatedAtIso: string | null;
@@ -202,7 +204,14 @@ export function PortalTasksClient() {
                           <div className="text-xs font-semibold text-zinc-700">Assigned to</div>
                           <select
                             value={t.assignedToUserId || ""}
-                            onChange={(e) => setAssignee(t.id, e.target.value)}
+                            onChange={(e) => {
+                              if (t.canEditAssignee === false) {
+                                toast.error("Only the task creator can change the assignee.");
+                                return;
+                              }
+                              void setAssignee(t.id, e.target.value);
+                            }}
+                            disabled={t.canEditAssignee === false}
                             className="mt-1 w-full rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-sm"
                           >
                             <option value="">Everyone</option>

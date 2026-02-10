@@ -66,6 +66,7 @@ export function PortalPeopleUsersClient() {
 
   const [editingMember, setEditingMember] = useState<MemberRow | null>(null);
   const [memberPermissions, setMemberPermissions] = useState<PortalPermissions | null>(null);
+  const [memberRole, setMemberRole] = useState<"ADMIN" | "MEMBER" | null>(null);
   const [savingMember, setSavingMember] = useState(false);
   const [removingMember, setRemovingMember] = useState(false);
 
@@ -151,6 +152,7 @@ export function PortalPeopleUsersClient() {
 
     const role = m.role === "ADMIN" || m.role === "MEMBER" ? m.role : "MEMBER";
     setEditingMember(m);
+    setMemberRole(role);
 
     if (role === "ADMIN") {
       setMemberPermissions(defaultPortalPermissionsForRole("ADMIN"));
@@ -162,12 +164,13 @@ export function PortalPeopleUsersClient() {
   function closeMemberEditor() {
     setEditingMember(null);
     setMemberPermissions(null);
+    setMemberRole(null);
     setSavingMember(false);
   }
 
-  async function saveMemberPermissions() {
-    if (!editingMember || !memberPermissions) return;
-    if (editingMember.role === "ADMIN") {
+  async function saveMember() {
+    if (!editingMember || !memberPermissions || !memberRole) return;
+    if (memberRole === "ADMIN" && editingMember.role === "ADMIN") {
       toast.info("Admins always have full access.");
       return;
     }
@@ -176,7 +179,7 @@ export function PortalPeopleUsersClient() {
       const res = await fetch(`/api/portal/people/users/${encodeURIComponent(editingMember.userId)}`, {
         method: "PATCH",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ permissions: memberPermissions }),
+        body: JSON.stringify({ role: memberRole, permissions: memberRole === "MEMBER" ? memberPermissions : undefined }),
       });
       const json = (await res.json().catch(() => null)) as any;
       if (!res.ok || !json?.ok) throw new Error(String(json?.error || "Update failed"));
@@ -554,9 +557,38 @@ export function PortalPeopleUsersClient() {
               <div>
                 <div className="text-base font-semibold text-zinc-900">Edit permissions</div>
                 <div className="mt-1 text-sm text-zinc-600">{editingMember.user?.email || editingMember.userId}</div>
-                {editingMember.role === "ADMIN" ? (
+                {(memberRole || editingMember.role) === "ADMIN" ? (
                   <div className="mt-1 text-xs font-semibold text-zinc-500">Admins always have full access.</div>
                 ) : null}
+
+                <div className="mt-3 flex items-center gap-2">
+                  <div className="text-xs font-semibold text-zinc-700">Role</div>
+                  <select
+                    value={memberRole || "MEMBER"}
+                    onChange={(e) => {
+                      const nextRole = (e.target.value as any) === "ADMIN" ? "ADMIN" : "MEMBER";
+                      const current = memberRole || "MEMBER";
+
+                      if (current === "ADMIN" && nextRole === "MEMBER") {
+                        const ok = window.confirm(
+                          "By removing admin access, you’re demoting this admin to a user (member). Continue?",
+                        );
+                        if (!ok) return;
+                        setMemberRole("MEMBER");
+                        setMemberPermissions(defaultPortalPermissionsForRole("MEMBER"));
+                        return;
+                      }
+
+                      setMemberRole(nextRole);
+                      if (nextRole === "ADMIN") setMemberPermissions(defaultPortalPermissionsForRole("ADMIN"));
+                    }}
+                    disabled={savingMember || removingMember}
+                    className="rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm"
+                  >
+                    <option value="MEMBER">Member</option>
+                    <option value="ADMIN">Admin</option>
+                  </select>
+                </div>
               </div>
               <button
                 type="button"
@@ -586,7 +618,7 @@ export function PortalPeopleUsersClient() {
                           <input
                             type="checkbox"
                             checked={!!p?.view}
-                            disabled={editingMember.role === "ADMIN"}
+                            disabled={(memberRole || editingMember.role) === "ADMIN"}
                             onChange={(e) => {
                               const checked = e.target.checked;
                               setMemberPermissions((prev) => {
@@ -604,7 +636,7 @@ export function PortalPeopleUsersClient() {
                           <input
                             type="checkbox"
                             checked={!!p?.edit}
-                            disabled={editingMember.role === "ADMIN"}
+                            disabled={(memberRole || editingMember.role) === "ADMIN"}
                             onChange={(e) => {
                               const checked = e.target.checked;
                               setMemberPermissions((prev) => {
@@ -648,21 +680,19 @@ export function PortalPeopleUsersClient() {
               >
                 Cancel
               </button>
-              {editingMember.role !== "ADMIN" ? (
-                <button
-                  type="button"
-                  disabled={savingMember}
-                  onClick={() => saveMemberPermissions()}
-                  className={classNames(
-                    "rounded-2xl px-4 py-2 text-sm font-semibold",
-                    savingMember
-                      ? "cursor-not-allowed bg-zinc-200 text-zinc-600"
-                      : "bg-[color:var(--color-brand-blue)] text-white hover:brightness-95",
-                  )}
-                >
-                  {savingMember ? "Saving…" : "Save"}
-                </button>
-              ) : null}
+              <button
+                type="button"
+                disabled={savingMember}
+                onClick={() => saveMember()}
+                className={classNames(
+                  "rounded-2xl px-4 py-2 text-sm font-semibold",
+                  savingMember
+                    ? "cursor-not-allowed bg-zinc-200 text-zinc-600"
+                    : "bg-[color:var(--color-brand-blue)] text-white hover:brightness-95",
+                )}
+              >
+                {savingMember ? "Saving…" : "Save"}
+              </button>
               </div>
             </div>
           </div>

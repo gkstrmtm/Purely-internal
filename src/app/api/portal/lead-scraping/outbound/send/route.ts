@@ -23,6 +23,7 @@ type SettingsV3 = {
   outbound: {
     enabled: boolean;
     aiDraftAndSend: boolean;
+    aiPrompt?: string;
     email: {
       enabled: boolean;
       trigger: "MANUAL" | "ON_SCRAPE" | "ON_APPROVE";
@@ -83,6 +84,7 @@ function normalizeSettings(value: unknown): SettingsV3 {
   const defaultOutbound: SettingsV3["outbound"] = {
     enabled: false,
     aiDraftAndSend: false,
+    aiPrompt: "",
     email: {
       enabled: true,
       trigger: "MANUAL",
@@ -133,6 +135,7 @@ function normalizeSettings(value: unknown): SettingsV3 {
         ...defaultOutbound,
         enabled,
         aiDraftAndSend: false,
+        aiPrompt: "",
         email: {
           enabled: enabled && sendEmail,
           trigger,
@@ -155,6 +158,7 @@ function normalizeSettings(value: unknown): SettingsV3 {
       ...defaultOutbound,
       enabled: Boolean((outboundRaw as any).enabled),
       aiDraftAndSend: Boolean((outboundRaw as any).aiDraftAndSend),
+      aiPrompt: (typeof (outboundRaw as any).aiPrompt === "string" ? ((outboundRaw as any).aiPrompt as string) : "").slice(0, 4000),
       email: {
         enabled: Boolean((emailRec as any).enabled),
         trigger: parseTrigger((emailRec as any).trigger),
@@ -293,7 +297,7 @@ export async function POST(req: Request) {
 
   if (settings.outbound.aiDraftAndSend) {
     try {
-      const draft = await draftLeadOutboundEmail({ lead, resources, fromName });
+        const draft = await draftLeadOutboundEmail({ lead, resources, fromName, prompt: settings.outbound.aiPrompt });
       if (draft?.subject) subject = draft.subject.slice(0, 120);
       if (draft?.text) textBase = draft.text;
     } catch {
@@ -348,7 +352,7 @@ export async function POST(req: Request) {
 
         if (settings.outbound.aiDraftAndSend) {
           try {
-            const draft = await draftLeadOutboundSms({ lead, resources, fromName });
+              const draft = await draftLeadOutboundSms({ lead, resources, fromName, prompt: settings.outbound.aiPrompt });
             if (draft) smsBodyBase = draft.slice(0, 900);
           } catch {
             // ignore and fall back to templates

@@ -411,9 +411,13 @@ export function PortalAutomationsClient() {
   const [error, setError] = useState<string | null>(null);
   const [note, setNote] = useState<string | null>(null);
 
+  const [lastSavedAtIso, setLastSavedAtIso] = useState<string | null>(null);
+  const [dirty, setDirty] = useState(false);
+  const lastSavedSigRef = useRef<string>("");
+  const autosaveTimerRef = useRef<number | null>(null);
+
   const [libraryOpen, setLibraryOpen] = useState(false);
   const [libraryMenuFor, setLibraryMenuFor] = useState<string | null>(null);
-  const [topMenuOpen, setTopMenuOpen] = useState(false);
 
   const [renameOpen, setRenameOpen] = useState(false);
   const [renameValue, setRenameValue] = useState("");
@@ -792,6 +796,13 @@ export function PortalAutomationsClient() {
 
     const list = Array.isArray((data as any).automations) ? ((data as any).automations as Automation[]) : [];
     setAutomations(list);
+    try {
+      lastSavedSigRef.current = JSON.stringify(list);
+      setDirty(false);
+      setLastSavedAtIso(new Date().toISOString());
+    } catch {
+      // ignore
+    }
 
     const v = (data as any).viewer;
     if (v && typeof v === "object") {
@@ -817,6 +828,8 @@ export function PortalAutomationsClient() {
     if (!selected) {
       const starter = buildStarterAutomation();
       setAutomations([starter]);
+      lastSavedSigRef.current = "";
+      setDirty(true);
       selected = starter.id;
     }
 
@@ -852,6 +865,11 @@ export function PortalAutomationsClient() {
   }
 
   async function saveAll(next?: Automation[]) {
+    if (autosaveTimerRef.current) {
+      window.clearTimeout(autosaveTimerRef.current);
+      autosaveTimerRef.current = null;
+    }
+
     setSaving(true);
     setError(null);
     setNote(null);
@@ -871,11 +889,48 @@ export function PortalAutomationsClient() {
       return;
     }
 
-    setAutomations((data as any).automations || []);
+    const saved = ((data as any).automations || []) as Automation[];
+    setAutomations(saved);
+    try {
+      lastSavedSigRef.current = JSON.stringify(saved);
+      setDirty(false);
+      setLastSavedAtIso(new Date().toISOString());
+    } catch {
+      // ignore
+    }
     setSaving(false);
     setNote("Saved.");
     window.setTimeout(() => setNote(null), 1400);
   }
+
+  // Autosave: when automations change, debounce a save.
+  useEffect(() => {
+    if (loading) return;
+    if (saving) return;
+    if (!automations) return;
+
+    let sig = "";
+    try {
+      sig = JSON.stringify(automations);
+    } catch {
+      sig = "";
+    }
+
+    const isDirty = sig !== lastSavedSigRef.current;
+    setDirty(isDirty);
+
+    if (!isDirty) return;
+
+    if (autosaveTimerRef.current) window.clearTimeout(autosaveTimerRef.current);
+    autosaveTimerRef.current = window.setTimeout(() => {
+      void saveAll(automations);
+    }, 1200);
+
+    return () => {
+      if (autosaveTimerRef.current) window.clearTimeout(autosaveTimerRef.current);
+      autosaveTimerRef.current = null;
+    };
+  }, [automations, loading, saving]);
 
   useEffect(() => {
     void load();
@@ -1229,24 +1284,30 @@ export function PortalAutomationsClient() {
 
   function duplicateAutomation() {
     if (!selectedAutomation) return;
+    duplicateAutomationById(selectedAutomation.id);
+  }
+
+  function duplicateAutomationById(automationId: string) {
+    const source = automations.find((x) => x.id === automationId);
+    if (!source) return;
     const copy: Automation = {
-      ...selectedAutomation,
+      ...source,
       id: uid("auto"),
-      name: `${selectedAutomation.name} (copy)`
+      name: `${source.name} (copy)`
         .replace(/\s+/g, " ")
         .trim()
         .slice(0, 80),
       updatedAtIso: new Date().toISOString(),
-      nodes: selectedAutomation.nodes.map((n) => ({ ...n, id: uid("n") })),
+      nodes: source.nodes.map((n) => ({ ...n, id: uid("n") })),
       edges: [],
     };
 
     // Re-map edges using old->new ids by index ordering
-    const oldIds = selectedAutomation.nodes.map((n) => n.id);
+    const oldIds = source.nodes.map((n) => n.id);
     const newIds = copy.nodes.map((n) => n.id);
     const map = new Map<string, string>();
     for (let i = 0; i < Math.min(oldIds.length, newIds.length); i++) map.set(oldIds[i], newIds[i]);
-    copy.edges = selectedAutomation.edges
+    copy.edges = source.edges
       .flatMap((e) => {
         const from = map.get(e.from);
         const to = map.get(e.to);
@@ -1715,6 +1776,30 @@ export function PortalAutomationsClient() {
                             </button>
                             <button
                               type="button"
+                              className="block w-full px-3 py-2 text-left text-sm font-semibold text-zinc-900 hover:bg-zinc-50"
+                              onClick={() => {
+                                setSelectedAutomation(a.id);
+                                setLibraryOpen(false);
+                                setLibraryMenuFor(null);
+                                setRenameValue(a.name);
+                                setRenameOpen(true);
+                              }}
+                            >
+                              Rename
+                            </button>
+                            <button
+                              type="button"
+                              className="block w-full px-3 py-2 text-left text-sm font-semibold text-zinc-900 hover:bg-zinc-50"
+                              onClick={() => {
+                                setLibraryOpen(false);
+                                setLibraryMenuFor(null);
+                                duplicateAutomationById(a.id);
+                              }}
+                            >
+                              Duplicate
+                            </button>
+                            <button
+                              type="button"
                               className="block w-full px-3 py-2 text-left text-sm font-semibold text-red-700 hover:bg-red-50"
                               onClick={() => {
                                 setLibraryMenuFor(null);
@@ -1791,6 +1876,14 @@ export function PortalAutomationsClient() {
           </div>
 
           <div className="flex items-center gap-2">
+            <div className="mr-2 hidden flex-col items-end sm:flex">
+              <div className="text-xs font-semibold text-zinc-700">
+                {saving ? "Saving…" : dirty ? "Autosaving…" : "Saved"}
+              </div>
+              <div className="text-xs text-zinc-500">
+                {lastSavedAtIso ? `Last saved ${new Date(lastSavedAtIso).toLocaleTimeString()}` : ""}
+              </div>
+            </div>
             <button
               type="button"
               className="rounded-2xl bg-blue-600 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-700 disabled:opacity-60"
@@ -1799,69 +1892,38 @@ export function PortalAutomationsClient() {
             >
               {saving ? "Saving…" : "Save"}
             </button>
-
-            <div className="relative">
-              <button
-                type="button"
-                className="rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-sm font-semibold hover:bg-zinc-50"
-                onClick={() => setTopMenuOpen((v) => !v)}
-                disabled={!selectedAutomation}
-                title="More actions"
-              >
-                ⋯
-              </button>
-              {topMenuOpen ? (
-                <div
-                  className="absolute right-0 z-10 mt-2 w-48 overflow-hidden rounded-2xl border border-zinc-200 bg-white shadow"
-                  onMouseDown={(e) => e.stopPropagation()}
-                >
-                  <button
-                    type="button"
-                    className="block w-full px-3 py-2 text-left text-sm font-semibold text-zinc-900 hover:bg-zinc-50 disabled:opacity-60"
-                    onClick={() => {
-                      setTopMenuOpen(false);
-                      openRenameModal();
-                    }}
-                    disabled={saving || !selectedAutomation}
-                  >
-                    Rename
-                  </button>
-                  <button
-                    type="button"
-                    className="block w-full px-3 py-2 text-left text-sm font-semibold text-zinc-900 hover:bg-zinc-50 disabled:opacity-60"
-                    onClick={() => {
-                      setTopMenuOpen(false);
-                      openTestModal();
-                    }}
-                    disabled={saving || !selectedAutomation}
-                  >
-                    Test automation
-                  </button>
-                  <button
-                    type="button"
-                    className="block w-full px-3 py-2 text-left text-sm font-semibold text-zinc-900 hover:bg-zinc-50 disabled:opacity-60"
-                    onClick={() => {
-                      setTopMenuOpen(false);
-                      duplicateAutomation();
-                    }}
-                    disabled={saving || !selectedAutomation}
-                  >
-                    Duplicate
-                  </button>
-                  <button
-                    type="button"
-                    className="block w-full px-3 py-2 text-left text-sm font-semibold text-red-700 hover:bg-red-50 disabled:opacity-60"
-                    onClick={() => {
-                      setTopMenuOpen(false);
-                      deleteAutomation();
-                    }}
-                    disabled={saving || !selectedAutomation}
-                  >
-                    Delete
-                  </button>
-                </div>
-              ) : null}
-            </div>
+            <button
+              type="button"
+              className="rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-sm font-semibold hover:bg-zinc-50 disabled:opacity-60"
+              onClick={() => openRenameModal()}
+              disabled={saving || !selectedAutomation}
+            >
+              Rename
+            </button>
+            <button
+              type="button"
+              className="rounded-2xl bg-emerald-600 px-3 py-2 text-sm font-semibold text-white hover:bg-emerald-700 disabled:opacity-60"
+              onClick={() => openTestModal()}
+              disabled={saving || !selectedAutomation}
+            >
+              Test
+            </button>
+            <button
+              type="button"
+              className="rounded-2xl bg-indigo-600 px-3 py-2 text-sm font-semibold text-white hover:bg-indigo-700 disabled:opacity-60"
+              onClick={() => duplicateAutomation()}
+              disabled={saving || !selectedAutomation}
+            >
+              Duplicate
+            </button>
+            <button
+              type="button"
+              className="rounded-2xl bg-red-600 px-3 py-2 text-sm font-semibold text-white hover:bg-red-700 disabled:opacity-60"
+              onClick={() => deleteAutomation()}
+              disabled={saving || !selectedAutomation}
+            >
+              Delete
+            </button>
           </div>
         </div>
 

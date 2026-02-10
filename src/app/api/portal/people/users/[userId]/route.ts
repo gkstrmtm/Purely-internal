@@ -12,6 +12,7 @@ export const revalidate = 0;
 
 const patchSchema = z
   .object({
+    role: z.enum(["ADMIN", "MEMBER"]).optional(),
     permissions: portalPermissionsInputSchema.optional(),
   })
   .strict();
@@ -45,20 +46,30 @@ export async function PATCH(req: Request, ctx: { params: Promise<{ userId: strin
   const parsed = patchSchema.safeParse(body ?? {});
   if (!parsed.success) return NextResponse.json({ ok: false, error: "Invalid input" }, { status: 400 });
 
-  // Keep role the same; only update permissionsJson.
   const existing = await (prisma as any).portalAccountMember.findUnique({
     where: { ownerId_userId: { ownerId, userId: targetUserId } },
-    select: { role: true },
+    select: { role: true, permissionsJson: true },
   });
 
   const roleRaw = typeof existing?.role === "string" ? String(existing.role) : null;
   const role = roleRaw === "ADMIN" || roleRaw === "MEMBER" ? roleRaw : "MEMBER";
 
-  const permissionsJson = normalizePortalPermissions(parsed.data.permissions, role);
+  const nextRole = parsed.data.role ?? role;
+  if (nextRole !== "ADMIN" && nextRole !== "MEMBER") {
+    return NextResponse.json({ ok: false, error: "Invalid role" }, { status: 400 });
+  }
+
+  const nextPermissionsJson =
+    nextRole === "ADMIN"
+      ? null
+      : normalizePortalPermissions(
+          parsed.data.permissions !== undefined ? parsed.data.permissions : (existing?.permissionsJson as any),
+          nextRole,
+        );
 
   await (prisma as any).portalAccountMember.update({
     where: { ownerId_userId: { ownerId, userId: targetUserId } },
-    data: { permissionsJson },
+    data: { role: nextRole, permissionsJson: nextPermissionsJson },
     select: { id: true },
   });
 

@@ -61,6 +61,14 @@ export async function ensurePortalTasksSchema() {
     `CREATE INDEX IF NOT EXISTS "PortalTask_ownerId_status_updatedAt_idx" ON "PortalTask"("ownerId","status","updatedAt");`,
     `CREATE INDEX IF NOT EXISTS "PortalTask_ownerId_assignedToUserId_status_idx" ON "PortalTask"("ownerId","assignedToUserId","status");`,
 
+    // Add creator tracking (for permissioning) if missing.
+    `ALTER TABLE "PortalTask" ADD COLUMN IF NOT EXISTS "createdByUserId" TEXT;`,
+    `DO $$ BEGIN
+      ALTER TABLE "PortalTask" ADD CONSTRAINT "PortalTask_createdByUserId_fkey" FOREIGN KEY ("createdByUserId") REFERENCES "User"("id") ON DELETE SET NULL ON UPDATE CASCADE;
+    EXCEPTION WHEN duplicate_object THEN NULL; END $$;`,
+    `CREATE INDEX IF NOT EXISTS "PortalTask_ownerId_createdByUserId_idx" ON "PortalTask"("ownerId","createdByUserId");`,
+    `UPDATE "PortalTask" SET "createdByUserId" = "ownerId" WHERE "createdByUserId" IS NULL;`,
+
     // PortalTaskMemberCompletion: per-member completion tracking for tasks assigned to everyone.
     `CREATE TABLE IF NOT EXISTS "PortalTaskMemberCompletion" (
       "id" TEXT PRIMARY KEY,
