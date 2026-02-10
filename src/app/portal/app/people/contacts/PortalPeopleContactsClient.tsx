@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 
 import { PortalPeopleTabs } from "@/app/portal/app/people/PortalPeopleTabs";
+import { useToast } from "@/components/ToastProvider";
 
 type ContactRow = {
   id: string;
@@ -34,21 +35,20 @@ function classNames(...xs: Array<string | false | null | undefined>) {
 }
 
 export function PortalPeopleContactsClient() {
+  const toast = useToast();
   const [loading, setLoading] = useState(true);
-  const [err, setErr] = useState<string | null>(null);
   const [data, setData] = useState<ContactsPayload | null>(null);
   const [q, setQ] = useState("");
 
   async function load() {
     setLoading(true);
-    setErr(null);
     try {
       const res = await fetch("/api/portal/people/contacts", { cache: "no-store" });
       const json = (await res.json()) as any;
       if (!res.ok || !json?.ok) throw new Error(String(json?.error || "Failed to load"));
       setData(json as ContactsPayload);
     } catch (e: any) {
-      setErr(String(e?.message || "Failed to load"));
+      toast.error(String(e?.message || "Failed to load"));
     } finally {
       setLoading(false);
     }
@@ -107,8 +107,6 @@ export function PortalPeopleContactsClient() {
 
       {loading ? (
         <div className="mt-6 rounded-3xl border border-zinc-200 bg-white p-6 text-sm text-zinc-600">Loading…</div>
-      ) : err ? (
-        <div className="mt-6 rounded-3xl border border-rose-200 bg-rose-50 p-6 text-sm text-rose-800">{err}</div>
       ) : null}
 
       {data ? (

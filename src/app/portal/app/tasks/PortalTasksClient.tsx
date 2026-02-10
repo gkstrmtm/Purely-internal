@@ -2,6 +2,8 @@
 
 import { useEffect, useMemo, useState } from "react";
 
+import { useToast } from "@/components/ToastProvider";
+
 type TaskRow = {
   id: string;
   title: string;
@@ -26,12 +28,13 @@ function classNames(...xs: Array<string | false | null | undefined>) {
 }
 
 export function PortalTasksClient() {
+  const toast = useToast();
   const [loading, setLoading] = useState(true);
-  const [err, setErr] = useState<string | null>(null);
   const [tasks, setTasks] = useState<TaskRow[]>([]);
 
   const [assignees, setAssignees] = useState<AssigneeRow[]>([]);
 
+  const [createOpen, setCreateOpen] = useState(false);
   const [title, setTitle] = useState("");
   const [description, setDescription] = useState("");
   const [assignedToUserId, setAssignedToUserId] = useState<string>("");
@@ -42,7 +45,6 @@ export function PortalTasksClient() {
 
   async function load() {
     setLoading(true);
-    setErr(null);
     try {
       const [tasksRes, assigneesRes] = await Promise.all([
         fetch("/api/portal/tasks?status=ALL", { cache: "no-store" }),
@@ -60,7 +62,7 @@ export function PortalTasksClient() {
         }
       }
     } catch (e: any) {
-      setErr(String(e?.message || "Failed to load"));
+      toast.error(String(e?.message || "Failed to load"));
     } finally {
       setLoading(false);
     }
@@ -75,7 +77,6 @@ export function PortalTasksClient() {
     if (!t) return;
 
     setCreating(true);
-    setErr(null);
     try {
       const res = await fetch("/api/portal/tasks", {
         method: "POST",
@@ -91,16 +92,17 @@ export function PortalTasksClient() {
       setTitle("");
       setDescription("");
       setAssignedToUserId("");
+      setCreateOpen(false);
+      toast.success("Task created.");
       await load();
     } catch (e: any) {
-      setErr(String(e?.message || "Failed to create"));
+      toast.error(String(e?.message || "Failed to create"));
     } finally {
       setCreating(false);
     }
   }
 
   async function setStatus(taskId: string, status: "OPEN" | "DONE" | "CANCELED") {
-    setErr(null);
     try {
       const res = await fetch(`/api/portal/tasks/${encodeURIComponent(taskId)}`, {
         method: "PATCH",
@@ -111,12 +113,11 @@ export function PortalTasksClient() {
       if (!res.ok || !json?.ok) throw new Error(String(json?.error || "Update failed"));
       await load();
     } catch (e: any) {
-      setErr(String(e?.message || "Update failed"));
+      toast.error(String(e?.message || "Update failed"));
     }
   }
 
   async function setAssignee(taskId: string, userId: string) {
-    setErr(null);
     try {
       const res = await fetch(`/api/portal/tasks/${encodeURIComponent(taskId)}`, {
         method: "PATCH",
@@ -125,9 +126,10 @@ export function PortalTasksClient() {
       });
       const json = (await res.json().catch(() => null)) as any;
       if (!res.ok || !json?.ok) throw new Error(String(json?.error || "Update failed"));
+      toast.success("Assignee updated.");
       await load();
     } catch (e: any) {
-      setErr(String(e?.message || "Update failed"));
+      toast.error(String(e?.message || "Update failed"));
     }
   }
 
@@ -138,68 +140,26 @@ export function PortalTasksClient() {
           <h1 className="text-2xl font-bold text-brand-ink sm:text-3xl">Tasks</h1>
           <p className="mt-2 text-sm text-zinc-600">Internal tasks for your portal team.</p>
         </div>
-        <button
-          type="button"
-          onClick={() => load()}
-          className="rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm font-semibold text-zinc-800 hover:bg-zinc-50"
-        >
-          Refresh
-        </button>
-      </div>
-
-      <div className="mt-6 rounded-3xl border border-zinc-200 bg-white p-6">
-        <div className="text-base font-semibold text-zinc-900">Create task</div>
-        <div className="mt-3 grid grid-cols-1 gap-3">
-          <input
-            value={title}
-            onChange={(e) => setTitle(e.target.value)}
-            placeholder="Task title"
-            className="w-full rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-sm outline-none focus:border-[color:var(--color-brand-blue)]"
-          />
-          <div>
-            <div className="text-xs font-semibold text-zinc-700">Assignee</div>
-            <select
-              value={assignedToUserId}
-              onChange={(e) => setAssignedToUserId(e.target.value)}
-              className="mt-1 w-full rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-sm"
-            >
-              <option value="">Unassigned</option>
-              {assignees
-                .filter((a) => a?.user?.active)
-                .map((a) => (
-                  <option key={a.userId} value={a.userId}>
-                    {(a.user?.name || a.user?.email || "").trim() || a.userId}
-                  </option>
-                ))}
-            </select>
-          </div>
-          <textarea
-            value={description}
-            onChange={(e) => setDescription(e.target.value)}
-            rows={3}
-            placeholder="Description (optional)"
-            className="w-full resize-none rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-sm outline-none focus:border-[color:var(--color-brand-blue)]"
-          />
-        </div>
-        <div className="mt-3 flex items-center justify-end">
+        <div className="flex items-center gap-2">
           <button
             type="button"
-            disabled={creating || !title.trim()}
-            onClick={() => createTask()}
-            className={classNames(
-              "rounded-2xl px-4 py-2 text-sm font-semibold",
-              creating || !title.trim() ? "cursor-not-allowed bg-zinc-200 text-zinc-600" : "bg-[color:var(--color-brand-blue)] text-white hover:brightness-95",
-            )}
+            onClick={() => setCreateOpen(true)}
+            className="rounded-2xl bg-[color:var(--color-brand-blue)] px-4 py-2 text-sm font-semibold text-white hover:brightness-95"
           >
-            {creating ? "Creating…" : "Create"}
+            + Task
+          </button>
+          <button
+            type="button"
+            onClick={() => load()}
+            className="rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm font-semibold text-zinc-800 hover:bg-zinc-50"
+          >
+            Refresh
           </button>
         </div>
       </div>
 
       {loading ? (
         <div className="mt-6 rounded-3xl border border-zinc-200 bg-white p-6 text-sm text-zinc-600">Loading…</div>
-      ) : err ? (
-        <div className="mt-6 rounded-3xl border border-rose-200 bg-rose-50 p-6 text-sm text-rose-800">{err}</div>
       ) : null}
 
       {!loading ? (
@@ -277,6 +237,91 @@ export function PortalTasksClient() {
           </div>
         </div>
       ) : null}
+
+      {createOpen ? (
+        <div className="fixed inset-0 z-[9998] flex items-end justify-center bg-black/30 p-3 sm:items-center">
+          <div className="w-full max-w-2xl rounded-3xl border border-zinc-200 bg-white p-5 shadow-xl">
+            <div className="flex items-start justify-between gap-3">
+              <div>
+                <div className="text-base font-semibold text-zinc-900">Create task</div>
+                <div className="mt-1 text-sm text-zinc-600">Add a task for your portal team.</div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setCreateOpen(false)}
+                className="rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-sm font-semibold text-zinc-800 hover:bg-zinc-50"
+              >
+                Close
+              </button>
+            </div>
+
+            <div className="mt-4 grid grid-cols-1 gap-3">
+              <input
+                value={title}
+                onChange={(e) => setTitle(e.target.value)}
+                placeholder="Task title"
+                className="w-full rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-sm outline-none focus:border-[color:var(--color-brand-blue)]"
+              />
+              <div>
+                <div className="text-xs font-semibold text-zinc-700">Assignee</div>
+                <select
+                  value={assignedToUserId}
+                  onChange={(e) => setAssignedToUserId(e.target.value)}
+                  className="mt-1 w-full rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-sm"
+                >
+                  <option value="">Unassigned</option>
+                  {assignees
+                    .filter((a) => a?.user?.active)
+                    .map((a) => (
+                      <option key={a.userId} value={a.userId}>
+                        {(a.user?.name || a.user?.email || "").trim() || a.userId}
+                      </option>
+                    ))}
+                </select>
+              </div>
+              <textarea
+                value={description}
+                onChange={(e) => setDescription(e.target.value)}
+                rows={4}
+                placeholder="Description (optional)"
+                className="w-full resize-none rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-sm outline-none focus:border-[color:var(--color-brand-blue)]"
+              />
+            </div>
+
+            <div className="mt-4 flex items-center justify-end gap-2">
+              <button
+                type="button"
+                onClick={() => setCreateOpen(false)}
+                className="rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm font-semibold text-zinc-800 hover:bg-zinc-50"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                disabled={creating || !title.trim()}
+                onClick={() => createTask()}
+                className={classNames(
+                  "rounded-2xl px-4 py-2 text-sm font-semibold",
+                  creating || !title.trim()
+                    ? "cursor-not-allowed bg-zinc-200 text-zinc-600"
+                    : "bg-[color:var(--color-brand-blue)] text-white hover:brightness-95",
+                )}
+              >
+                {creating ? "Creating…" : "Create"}
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
+
+      <button
+        type="button"
+        onClick={() => setCreateOpen(true)}
+        className="fixed bottom-4 right-4 z-[9997] rounded-full bg-[color:var(--color-brand-blue)] px-4 py-3 text-base font-semibold text-white shadow-lg hover:brightness-95 sm:hidden"
+        aria-label="Create task"
+      >
+        +
+      </button>
     </div>
   );
 }

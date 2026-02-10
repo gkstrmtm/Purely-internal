@@ -5,6 +5,8 @@ import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useMemo, useState } from "react";
 
+import { useToast } from "@/components/ToastProvider";
+
 function safeInternalPath(raw: string | null | undefined, fallback: string) {
   if (!raw) return fallback;
   if (!raw.startsWith("/")) return fallback;
@@ -15,18 +17,17 @@ function safeInternalPath(raw: string | null | undefined, fallback: string) {
 export default function PortalLoginClient() {
   const router = useRouter();
   const searchParams = useSearchParams();
+  const toast = useToast();
 
   const fromRaw = searchParams.get("from");
   const from = useMemo(() => safeInternalPath(fromRaw, "/portal/app"), [fromRaw]);
 
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
-  const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
 
   async function onSubmit(e: React.FormEvent) {
     e.preventDefault();
-    setError(null);
     setLoading(true);
 
     const res = await fetch("/portal/api/login", {
@@ -38,7 +39,7 @@ export default function PortalLoginClient() {
     setLoading(false);
 
     if (!res.ok) {
-      setError("Incorrect username or incorrect password");
+      toast.error("Incorrect username or incorrect password");
       return;
     }
 
@@ -88,10 +89,6 @@ export default function PortalLoginClient() {
                 required
               />
             </div>
-
-            {error ? (
-              <div className="rounded-2xl bg-red-50 px-4 py-3 text-sm text-red-700">{error}</div>
-            ) : null}
 
             <button
               className="w-full rounded-2xl bg-brand-ink px-5 py-3 text-base font-semibold text-white hover:opacity-95 disabled:opacity-60"

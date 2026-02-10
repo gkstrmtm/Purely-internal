@@ -57,6 +57,7 @@ export async function GET() {
       userId: m.userId,
       role: m.role,
       user: m.user,
+      permissionsJson: m.permissionsJson,
       implicit: false,
     })),
   ].filter((m, idx, arr) => arr.findIndex((x) => x.userId === m.userId) === idx);

@@ -11,12 +11,15 @@ import {
 } from "@/lib/portalPermissions.shared";
 
 import { PortalPeopleTabs } from "@/app/portal/app/people/PortalPeopleTabs";
+import { normalizePortalPermissions } from "@/lib/portalPermissions";
+import { useToast } from "@/components/ToastProvider";
 
 type MemberRow = {
   userId: string;
   role: "OWNER" | "ADMIN" | "MEMBER";
   user: { id: string; email: string; name: string; role: string; active: boolean };
   implicit?: boolean;
+  permissionsJson?: unknown;
 };
 
 type InviteRow = {
@@ -48,8 +51,8 @@ async function copyToClipboard(text: string) {
 }
 
 export function PortalPeopleUsersClient() {
+  const toast = useToast();
   const [loading, setLoading] = useState(true);
-  const [err, setErr] = useState<string | null>(null);
   const [data, setData] = useState<UsersPayload | null>(null);
 
   const [inviteEmail, setInviteEmail] = useState("");
@@ -58,9 +61,11 @@ export function PortalPeopleUsersClient() {
     defaultPortalPermissionsForRole("MEMBER"),
   );
   const [inviting, setInviting] = useState(false);
-  const [inviteMsg, setInviteMsg] = useState<string | null>(null);
-
   const [permissionsOpen, setPermissionsOpen] = useState(false);
+
+  const [editingMember, setEditingMember] = useState<MemberRow | null>(null);
+  const [memberPermissions, setMemberPermissions] = useState<PortalPermissions | null>(null);
+  const [savingMember, setSavingMember] = useState(false);
 
   useEffect(() => {
     setInvitePermissions(defaultPortalPermissionsForRole(inviteRole));
@@ -97,14 +102,13 @@ export function PortalPeopleUsersClient() {
 
   async function load() {
     setLoading(true);
-    setErr(null);
     try {
       const res = await fetch("/api/portal/people/users", { cache: "no-store" });
       const json = (await res.json()) as any;
       if (!res.ok || !json?.ok) throw new Error(json?.error || "Failed to load users");
       setData(json as UsersPayload);
     } catch (e: any) {
-      setErr(String(e?.message || "Failed to load"));
+      toast.error(String(e?.message || "Failed to load"));
     } finally {
       setLoading(false);
     }
@@ -119,8 +123,48 @@ export function PortalPeopleUsersClient() {
     return r === "OWNER" || r === "ADMIN";
   }, [data?.myRole]);
 
+  const canEditMembers = canInvite;
+
+  function openMemberEditor(m: MemberRow) {
+    if (!canEditMembers) return;
+    if (m.implicit || m.role === "OWNER") {
+      toast.info("The account owner always has full access.");
+      return;
+    }
+
+    const role = m.role === "ADMIN" || m.role === "MEMBER" ? m.role : "MEMBER";
+    setEditingMember(m);
+    setMemberPermissions(normalizePortalPermissions(m.permissionsJson, role));
+  }
+
+  function closeMemberEditor() {
+    setEditingMember(null);
+    setMemberPermissions(null);
+    setSavingMember(false);
+  }
+
+  async function saveMemberPermissions() {
+    if (!editingMember || !memberPermissions) return;
+    setSavingMember(true);
+    try {
+      const res = await fetch(`/api/portal/people/users/${encodeURIComponent(editingMember.userId)}`, {
+        method: "PATCH",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ permissions: memberPermissions }),
+      });
+      const json = (await res.json().catch(() => null)) as any;
+      if (!res.ok || !json?.ok) throw new Error(String(json?.error || "Update failed"));
+      toast.success("Permissions updated.");
+      closeMemberEditor();
+      await load();
+    } catch (e: any) {
+      toast.error(String(e?.message || "Update failed"));
+    } finally {
+      setSavingMember(false);
+    }
+  }
+
   async function createInvite() {
-    setInviteMsg(null);
     const email = inviteEmail.trim();
     if (!email) return;
 
@@ -143,17 +187,17 @@ export function PortalPeopleUsersClient() {
       if (link) {
         try {
           await navigator.clipboard.writeText(link);
-          setInviteMsg("Invite created. Link copied to clipboard.");
+          toast.success("Invite created. Link copied to clipboard.");
         } catch {
-          setInviteMsg("Invite created.");
+          toast.success("Invite created.");
         }
       } else {
-        setInviteMsg("Invite created.");
+        toast.success("Invite created.");
       }
 
       await load();
     } catch (e: any) {
-      setInviteMsg(String(e?.message || "Failed to invite"));
+      toast.error(String(e?.message || "Failed to invite"));
     } finally {
       setInviting(false);
     }
@@ -178,8 +222,6 @@ export function PortalPeopleUsersClient() {
 
       {loading ? (
         <div className="mt-6 rounded-3xl border border-zinc-200 bg-white p-6 text-sm text-zinc-600">Loading…</div>
-      ) : err ? (
-        <div className="mt-6 rounded-3xl border border-rose-200 bg-rose-50 p-6 text-sm text-rose-800">{err}</div>
       ) : null}
 
       {data ? (
@@ -203,7 +245,14 @@ export function PortalPeopleUsersClient() {
                 </thead>
                 <tbody>
                   {data.members.map((m) => (
-                    <tr key={m.userId} className="border-t border-zinc-200">
+                    <tr
+                      key={m.userId}
+                      className={classNames(
+                        "border-t border-zinc-200",
+                        canEditMembers && !m.implicit && m.role !== "OWNER" ? "cursor-pointer hover:bg-zinc-50" : "",
+                      )}
+                      onClick={() => openMemberEditor(m)}
+                    >
                       <td className="px-4 py-3">
                         <div className="font-semibold text-zinc-900">{m.user?.name || "—"}</div>
                         <div className="text-xs text-zinc-500">{m.user?.email || ""}</div>
@@ -373,8 +422,6 @@ export function PortalPeopleUsersClient() {
               </div>
             ) : null}
 
-            {inviteMsg ? <div className="mt-4 text-sm text-zinc-700">{inviteMsg}</div> : null}
-
             <div className="mt-4 overflow-hidden rounded-2xl border border-zinc-200">
               <table className="w-full text-left text-sm">
                 <thead className="bg-zinc-50 text-xs font-semibold uppercase tracking-wide text-zinc-500">
@@ -417,9 +464,9 @@ export function PortalPeopleUsersClient() {
                                 const base = typeof window !== "undefined" ? window.location.origin : "https://purelyautomation.com";
                                 const link = `${base}/portalinvite/${inv.token}`;
                                 await copyToClipboard(link);
-                                setInviteMsg("Invite link copied to clipboard.");
+                                toast.success("Invite link copied to clipboard.");
                               } catch {
-                                setInviteMsg("Could not copy invite link.");
+                                toast.error("Could not copy invite link.");
                               }
                             }}
                             className="rounded-xl border border-zinc-200 bg-white px-3 py-2 text-xs font-semibold text-zinc-800 hover:bg-zinc-50"
@@ -438,6 +485,105 @@ export function PortalPeopleUsersClient() {
                   )}
                 </tbody>
               </table>
+            </div>
+          </div>
+        </div>
+      ) : null}
+
+      {editingMember && memberPermissions ? (
+        <div className="fixed inset-0 z-[9998] flex items-end justify-center bg-black/30 p-3 sm:items-center">
+          <div className="w-full max-w-2xl rounded-3xl border border-zinc-200 bg-white p-5 shadow-xl">
+            <div className="flex items-start justify-between gap-3">
+              <div>
+                <div className="text-base font-semibold text-zinc-900">Edit permissions</div>
+                <div className="mt-1 text-sm text-zinc-600">{editingMember.user?.email || editingMember.userId}</div>
+              </div>
+              <button
+                type="button"
+                onClick={() => closeMemberEditor()}
+                className="rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-sm font-semibold text-zinc-800 hover:bg-zinc-50"
+              >
+                Close
+              </button>
+            </div>
+
+            <div className="mt-4 max-h-[60vh] overflow-auto rounded-2xl border border-zinc-200">
+              <table className="w-full text-left text-sm">
+                <thead className="bg-zinc-50 text-xs font-semibold uppercase tracking-wide text-zinc-500">
+                  <tr>
+                    <th className="px-4 py-3">Service</th>
+                    <th className="px-4 py-3">View</th>
+                    <th className="px-4 py-3">Edit</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {PORTAL_SERVICE_KEYS.map((k) => {
+                    const p = memberPermissions[k];
+                    return (
+                      <tr key={k} className="border-t border-zinc-200">
+                        <td className="px-4 py-3 font-semibold text-zinc-900">{PORTAL_SERVICE_LABELS[k]}</td>
+                        <td className="px-4 py-3">
+                          <input
+                            type="checkbox"
+                            checked={!!p?.view}
+                            onChange={(e) => {
+                              const checked = e.target.checked;
+                              setMemberPermissions((prev) => {
+                                if (!prev) return prev;
+                                const next = { ...prev };
+                                const prevP = next[k];
+                                next[k] = { view: checked || !!prevP?.edit, edit: !!prevP?.edit };
+                                return next;
+                              });
+                            }}
+                            className="h-4 w-4 rounded border-zinc-300 text-[color:var(--color-brand-blue)]"
+                          />
+                        </td>
+                        <td className="px-4 py-3">
+                          <input
+                            type="checkbox"
+                            checked={!!p?.edit}
+                            onChange={(e) => {
+                              const checked = e.target.checked;
+                              setMemberPermissions((prev) => {
+                                if (!prev) return prev;
+                                const next = { ...prev };
+                                next[k] = { view: checked ? true : !!next[k]?.view, edit: checked };
+                                if (checked) next[k].view = true;
+                                return next;
+                              });
+                            }}
+                            className="h-4 w-4 rounded border-zinc-300 text-[color:var(--color-brand-blue)]"
+                          />
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+
+            <div className="mt-4 flex items-center justify-end gap-2">
+              <button
+                type="button"
+                onClick={() => closeMemberEditor()}
+                className="rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm font-semibold text-zinc-800 hover:bg-zinc-50"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                disabled={savingMember}
+                onClick={() => saveMemberPermissions()}
+                className={classNames(
+                  "rounded-2xl px-4 py-2 text-sm font-semibold",
+                  savingMember
+                    ? "cursor-not-allowed bg-zinc-200 text-zinc-600"
+                    : "bg-[color:var(--color-brand-blue)] text-white hover:brightness-95",
+                )}
+              >
+                {savingMember ? "Saving…" : "Save"}
+              </button>
             </div>
           </div>
         </div>

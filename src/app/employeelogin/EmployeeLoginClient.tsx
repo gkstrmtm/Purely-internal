@@ -5,6 +5,8 @@ import { signIn, signOut } from "next-auth/react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useEffect, useMemo, useState } from "react";
 
+import { useToast } from "@/components/ToastProvider";
+
 function safeInternalPath(raw: string | null | undefined, fallback: string) {
   if (!raw) return fallback;
   if (!raw.startsWith("/")) return fallback;
@@ -16,6 +18,7 @@ function safeInternalPath(raw: string | null | undefined, fallback: string) {
 export default function EmployeeLoginClient() {
   const router = useRouter();
   const searchParams = useSearchParams();
+  const toast = useToast();
 
   const fromRaw = searchParams.get("from");
   const from = useMemo(() => safeInternalPath(fromRaw, "/dashboard"), [fromRaw]);
@@ -25,7 +28,6 @@ export default function EmployeeLoginClient() {
 
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
-  const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
 
   useEffect(() => {
@@ -46,7 +48,6 @@ export default function EmployeeLoginClient() {
 
   async function onSubmit(e: React.FormEvent) {
     e.preventDefault();
-    setError(null);
     setLoading(true);
 
     const res = await signIn("credentials", {
@@ -58,7 +59,7 @@ export default function EmployeeLoginClient() {
     setLoading(false);
 
     if (!res || res.error) {
-      setError("Incorrect username or incorrect password");
+      toast.error("Incorrect username or incorrect password");
       return;
     }
 
@@ -114,8 +115,6 @@ export default function EmployeeLoginClient() {
                 required
               />
             </div>
-
-            {error ? <div className="rounded-2xl bg-red-50 px-4 py-3 text-sm text-red-700">{error}</div> : null}
 
             <button
               className="w-full rounded-2xl bg-brand-ink px-5 py-3 text-base font-semibold text-white hover:opacity-95 disabled:opacity-60"
