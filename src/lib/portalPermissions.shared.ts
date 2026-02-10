@@ -13,6 +13,8 @@ export const PORTAL_SERVICE_KEYS = [
   "reporting",
   "tasks",
   "integrations",
+  "twilio",
+  "webhooks",
   "businessProfile",
   "people",
   "billing",
@@ -43,7 +45,9 @@ export const PORTAL_SERVICE_LABELS: Record<PortalServiceKey, string> = {
   reporting: "Reporting",
   tasks: "Tasks",
   integrations: "Integrations",
-  businessProfile: "Business profile",
+  twilio: "Twilio",
+  webhooks: "Webhooks",
+  businessProfile: "Business info",
   people: "People",
   billing: "Billing",
   profile: "Profile",
@@ -74,15 +78,17 @@ export function defaultPortalPermissionsForRole(role: "OWNER" | "ADMIN" | "MEMBE
     "missedCallTextback",
     "reporting",
     "tasks",
+    "profile",
   ];
 
   for (const k of allow) base[k] = { view: true, edit: true };
 
   // Explicitly keep these off for members by default.
   base.billing = { view: false, edit: false };
-  base.profile = { view: false, edit: false };
   base.people = { view: false, edit: false };
   base.integrations = { view: false, edit: false };
+  base.twilio = { view: false, edit: false };
+  base.webhooks = { view: false, edit: false };
   base.businessProfile = { view: false, edit: false };
 
   return base;

@@ -41,11 +41,13 @@ export function BusinessProfileForm({
   title,
   description,
   embedded,
+  readOnly,
   onSaved,
 }: {
   title?: string;
   description?: string;
   embedded?: boolean;
+  readOnly?: boolean;
   onSaved?: () => void;
 }) {
   const toast = useToast();
@@ -72,7 +74,7 @@ export function BusinessProfileForm({
   const [logoBusy, setLogoBusy] = useState(false);
   const [logoPickerOpen, setLogoPickerOpen] = useState(false);
 
-  const canSave = useMemo(() => businessName.trim().length >= 2, [businessName]);
+  const canSave = useMemo(() => !readOnly && businessName.trim().length >= 2, [businessName, readOnly]);
 
   useEffect(() => {
     let mounted = true;
@@ -190,8 +192,9 @@ export function BusinessProfileForm({
                 type="file"
                 accept="image/*"
                 className="hidden"
-                disabled={logoBusy}
+                disabled={logoBusy || Boolean(readOnly)}
                 onChange={async (e) => {
+                  if (readOnly) return;
                   const file = e.target.files?.[0];
                   if (!file) return;
                   setLogoBusy(true);
@@ -217,7 +220,8 @@ export function BusinessProfileForm({
             <button
               type="button"
               className="inline-flex items-center justify-center rounded-2xl border border-zinc-200 bg-white px-4 py-3 text-sm font-semibold text-brand-ink hover:bg-zinc-50"
-              onClick={() => setLogoPickerOpen(true)}
+              onClick={() => !readOnly && setLogoPickerOpen(true)}
+              disabled={Boolean(readOnly)}
             >
               Choose from media library
             </button>
@@ -240,6 +244,7 @@ export function BusinessProfileForm({
           <input
             value={businessName}
             onChange={(e) => setBusinessName(e.target.value)}
+            disabled={Boolean(readOnly)}
             className="mt-1 w-full rounded-2xl border border-zinc-200 bg-white px-4 py-3 text-sm outline-none focus:border-zinc-300"
             placeholder="Acme Dental"
           />
@@ -250,6 +255,7 @@ export function BusinessProfileForm({
           <input
             value={websiteUrl}
             onChange={(e) => setWebsiteUrl(e.target.value)}
+            disabled={Boolean(readOnly)}
             className="mt-1 w-full rounded-2xl border border-zinc-200 bg-white px-4 py-3 text-sm outline-none focus:border-zinc-300"
             placeholder="https://example.com"
           />
@@ -260,6 +266,7 @@ export function BusinessProfileForm({
           <input
             value={industry}
             onChange={(e) => setIndustry(e.target.value)}
+            disabled={Boolean(readOnly)}
             className="mt-1 w-full rounded-2xl border border-zinc-200 bg-white px-4 py-3 text-sm outline-none focus:border-zinc-300"
             placeholder="Home services, dental, legal…"
           />
@@ -270,6 +277,7 @@ export function BusinessProfileForm({
           <input
             value={businessModel}
             onChange={(e) => setBusinessModel(e.target.value)}
+            disabled={Boolean(readOnly)}
             className="mt-1 w-full rounded-2xl border border-zinc-200 bg-white px-4 py-3 text-sm outline-none focus:border-zinc-300"
             placeholder="Appointments, subscriptions, one-time jobs…"
           />
@@ -280,6 +288,7 @@ export function BusinessProfileForm({
           <input
             value={primaryGoalsText}
             onChange={(e) => setPrimaryGoalsText(e.target.value)}
+            disabled={Boolean(readOnly)}
             className="mt-1 w-full rounded-2xl border border-zinc-200 bg-white px-4 py-3 text-sm outline-none focus:border-zinc-300"
             placeholder="More leads, fewer no-shows, better SEO"
           />
@@ -291,6 +300,7 @@ export function BusinessProfileForm({
           <input
             value={targetCustomer}
             onChange={(e) => setTargetCustomer(e.target.value)}
+            disabled={Boolean(readOnly)}
             className="mt-1 w-full rounded-2xl border border-zinc-200 bg-white px-4 py-3 text-sm outline-none focus:border-zinc-300"
             placeholder="Families in Atlanta looking for…"
           />
@@ -301,6 +311,7 @@ export function BusinessProfileForm({
           <input
             value={brandVoice}
             onChange={(e) => setBrandVoice(e.target.value)}
+            disabled={Boolean(readOnly)}
             className="mt-1 w-full rounded-2xl border border-zinc-200 bg-white px-4 py-3 text-sm outline-none focus:border-zinc-300"
             placeholder="Professional, friendly, short paragraphs"
           />
@@ -312,6 +323,7 @@ export function BusinessProfileForm({
             <input
               value={brandPrimaryHex}
               onChange={(e) => setBrandPrimaryHex(e.target.value)}
+              disabled={Boolean(readOnly)}
               className="w-full rounded-2xl border border-zinc-200 bg-white px-4 py-3 text-sm outline-none focus:border-zinc-300"
               placeholder="#1d4ed8"
             />
@@ -325,6 +337,7 @@ export function BusinessProfileForm({
             <input
               value={brandAccentHex}
               onChange={(e) => setBrandAccentHex(e.target.value)}
+              disabled={Boolean(readOnly)}
               className="w-full rounded-2xl border border-zinc-200 bg-white px-4 py-3 text-sm outline-none focus:border-zinc-300"
               placeholder="#fb7185"
             />
@@ -338,6 +351,7 @@ export function BusinessProfileForm({
             <input
               value={brandTextHex}
               onChange={(e) => setBrandTextHex(e.target.value)}
+              disabled={Boolean(readOnly)}
               className="w-full rounded-2xl border border-zinc-200 bg-white px-4 py-3 text-sm outline-none focus:border-zinc-300"
               placeholder="#0f172a"
             />
@@ -349,14 +363,20 @@ export function BusinessProfileForm({
       </div>
 
       <div className="mt-5 flex flex-col gap-3 sm:flex-row">
-        <button
-          type="button"
-          onClick={save}
-          disabled={!canSave || saving}
-          className="inline-flex items-center justify-center rounded-2xl bg-brand-ink px-5 py-3 text-sm font-semibold text-white hover:opacity-95 disabled:opacity-60"
-        >
-          {saving ? "Saving…" : "Save"}
-        </button>
+        {!readOnly ? (
+          <button
+            type="button"
+            onClick={save}
+            disabled={!canSave || saving}
+            className="inline-flex items-center justify-center rounded-2xl bg-brand-ink px-5 py-3 text-sm font-semibold text-white hover:opacity-95 disabled:opacity-60"
+          >
+            {saving ? "Saving…" : "Save"}
+          </button>
+        ) : (
+          <div className="rounded-2xl border border-zinc-200 bg-zinc-50 px-4 py-3 text-sm text-zinc-600">
+            You have view-only access.
+          </div>
+        )}
         <div className="text-xs text-zinc-500 sm:self-center">
           We use this to personalize onboarding and content.
         </div>

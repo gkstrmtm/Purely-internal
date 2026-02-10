@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 
 import {
   defaultPortalPermissionsForRole,
@@ -62,14 +62,31 @@ export function PortalPeopleUsersClient() {
   );
   const [inviting, setInviting] = useState(false);
   const [permissionsOpen, setPermissionsOpen] = useState(false);
+  const permissionsDropdownRef = useRef<HTMLDivElement | null>(null);
 
   const [editingMember, setEditingMember] = useState<MemberRow | null>(null);
   const [memberPermissions, setMemberPermissions] = useState<PortalPermissions | null>(null);
   const [savingMember, setSavingMember] = useState(false);
+  const [removingMember, setRemovingMember] = useState(false);
 
   useEffect(() => {
     setInvitePermissions(defaultPortalPermissionsForRole(inviteRole));
+    if (inviteRole === "ADMIN") setPermissionsOpen(false);
   }, [inviteRole]);
+
+  useEffect(() => {
+    if (!permissionsOpen) return;
+
+    function onDown(e: MouseEvent) {
+      const el = permissionsDropdownRef.current;
+      if (!el) return;
+      if (el.contains(e.target as Node)) return;
+      setPermissionsOpen(false);
+    }
+
+    window.addEventListener("mousedown", onDown);
+    return () => window.removeEventListener("mousedown", onDown);
+  }, [permissionsOpen]);
 
   const selectedServicesCount = useMemo(() => {
     return PORTAL_SERVICE_KEYS.reduce((acc, k) => acc + (invitePermissions?.[k]?.view ? 1 : 0), 0);
@@ -134,7 +151,12 @@ export function PortalPeopleUsersClient() {
 
     const role = m.role === "ADMIN" || m.role === "MEMBER" ? m.role : "MEMBER";
     setEditingMember(m);
-    setMemberPermissions(normalizePortalPermissions(m.permissionsJson, role));
+
+    if (role === "ADMIN") {
+      setMemberPermissions(defaultPortalPermissionsForRole("ADMIN"));
+    } else {
+      setMemberPermissions(normalizePortalPermissions(m.permissionsJson, role));
+    }
   }
 
   function closeMemberEditor() {
@@ -145,6 +167,10 @@ export function PortalPeopleUsersClient() {
 
   async function saveMemberPermissions() {
     if (!editingMember || !memberPermissions) return;
+    if (editingMember.role === "ADMIN") {
+      toast.info("Admins always have full access.");
+      return;
+    }
     setSavingMember(true);
     try {
       const res = await fetch(`/api/portal/people/users/${encodeURIComponent(editingMember.userId)}`, {
@@ -161,6 +187,31 @@ export function PortalPeopleUsersClient() {
       toast.error(String(e?.message || "Update failed"));
     } finally {
       setSavingMember(false);
+    }
+  }
+
+  async function removeMember() {
+    if (!editingMember) return;
+    if (editingMember.role === "OWNER" || editingMember.implicit) return;
+
+    const email = editingMember.user?.email || editingMember.userId;
+    const ok = window.confirm(`Remove ${email} from this account?`);
+    if (!ok) return;
+
+    setRemovingMember(true);
+    try {
+      const res = await fetch(`/api/portal/people/users/${encodeURIComponent(editingMember.userId)}`, {
+        method: "DELETE",
+      });
+      const json = (await res.json().catch(() => null)) as any;
+      if (!res.ok || !json?.ok) throw new Error(String(json?.error || "Remove failed"));
+      toast.success("User removed.");
+      closeMemberEditor();
+      await load();
+    } catch (e: any) {
+      toast.error(String(e?.message || "Remove failed"));
+    } finally {
+      setRemovingMember(false);
     }
   }
 
@@ -330,7 +381,12 @@ export function PortalPeopleUsersClient() {
 
                 <div className="mt-3">
                   <div className="text-xs font-semibold text-zinc-700">Service access</div>
-                  <div className="relative mt-1">
+                  {inviteRole === "ADMIN" ? (
+                    <div className="mt-1 rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-sm text-zinc-700">
+                      Admins have full access to all services.
+                    </div>
+                  ) : (
+                  <div className="relative mt-1" ref={permissionsDropdownRef}>
                     <button
                       type="button"
                       onClick={() => setPermissionsOpen((v) => !v)}
@@ -401,6 +457,7 @@ export function PortalPeopleUsersClient() {
                       </div>
                     ) : null}
                   </div>
+                  )}
                 </div>
 
                 <div className="mt-3 flex items-center justify-between gap-3">
@@ -497,6 +554,9 @@ export function PortalPeopleUsersClient() {
               <div>
                 <div className="text-base font-semibold text-zinc-900">Edit permissions</div>
                 <div className="mt-1 text-sm text-zinc-600">{editingMember.user?.email || editingMember.userId}</div>
+                {editingMember.role === "ADMIN" ? (
+                  <div className="mt-1 text-xs font-semibold text-zinc-500">Admins always have full access.</div>
+                ) : null}
               </div>
               <button
                 type="button"
@@ -526,6 +586,7 @@ export function PortalPeopleUsersClient() {
                           <input
                             type="checkbox"
                             checked={!!p?.view}
+                            disabled={editingMember.role === "ADMIN"}
                             onChange={(e) => {
                               const checked = e.target.checked;
                               setMemberPermissions((prev) => {
@@ -543,6 +604,7 @@ export function PortalPeopleUsersClient() {
                           <input
                             type="checkbox"
                             checked={!!p?.edit}
+                            disabled={editingMember.role === "ADMIN"}
                             onChange={(e) => {
                               const checked = e.target.checked;
                               setMemberPermissions((prev) => {
@@ -563,7 +625,22 @@ export function PortalPeopleUsersClient() {
               </table>
             </div>
 
-            <div className="mt-4 flex items-center justify-end gap-2">
+            <div className="mt-4 flex items-center justify-between gap-2">
+              <button
+                type="button"
+                disabled={removingMember || savingMember}
+                onClick={() => removeMember()}
+                className={classNames(
+                  "rounded-2xl px-4 py-2 text-sm font-semibold",
+                  removingMember
+                    ? "cursor-not-allowed bg-zinc-200 text-zinc-600"
+                    : "border border-red-200 bg-white text-red-600 hover:bg-red-50",
+                )}
+              >
+                {removingMember ? "Removing…" : "Remove user"}
+              </button>
+
+              <div className="flex items-center justify-end gap-2">
               <button
                 type="button"
                 onClick={() => closeMemberEditor()}
@@ -571,19 +648,22 @@ export function PortalPeopleUsersClient() {
               >
                 Cancel
               </button>
-              <button
-                type="button"
-                disabled={savingMember}
-                onClick={() => saveMemberPermissions()}
-                className={classNames(
-                  "rounded-2xl px-4 py-2 text-sm font-semibold",
-                  savingMember
-                    ? "cursor-not-allowed bg-zinc-200 text-zinc-600"
-                    : "bg-[color:var(--color-brand-blue)] text-white hover:brightness-95",
-                )}
-              >
-                {savingMember ? "Saving…" : "Save"}
-              </button>
+              {editingMember.role !== "ADMIN" ? (
+                <button
+                  type="button"
+                  disabled={savingMember}
+                  onClick={() => saveMemberPermissions()}
+                  className={classNames(
+                    "rounded-2xl px-4 py-2 text-sm font-semibold",
+                    savingMember
+                      ? "cursor-not-allowed bg-zinc-200 text-zinc-600"
+                      : "bg-[color:var(--color-brand-blue)] text-white hover:brightness-95",
+                  )}
+                >
+                  {savingMember ? "Saving…" : "Save"}
+                </button>
+              ) : null}
+              </div>
             </div>
           </div>
         </div>

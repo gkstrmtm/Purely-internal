@@ -40,6 +40,16 @@ type WebhooksRes = {
   };
 };
 
+type PortalMe =
+  | {
+      ok: true;
+      ownerId: string;
+      memberId: string;
+      role: "OWNER" | "ADMIN" | "MEMBER";
+      permissions: Record<string, { view: boolean; edit: boolean }>;
+    }
+  | { ok: false; error?: string };
+
 function CopyRow({ label, value }: { label: string; value: string | null | undefined }) {
   const v = value && value.trim() ? value : null;
   return (
@@ -63,6 +73,7 @@ function CopyRow({ label, value }: { label: string; value: string | null | undef
 export function PortalProfileClient() {
   const toast = useToast();
   const [me, setMe] = useState<Me | null>(null);
+  const [portalMe, setPortalMe] = useState<PortalMe | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
@@ -87,6 +98,12 @@ export function PortalProfileClient() {
     const res = normalizePhoneStrict(phone);
     return res;
   }, [phone]);
+
+  const canViewWebhooks = portalMe?.ok === true ? Boolean((portalMe.permissions as any)?.webhooks?.view) : false;
+  const canViewTwilio = portalMe?.ok === true ? Boolean((portalMe.permissions as any)?.twilio?.view) : false;
+  const canEditTwilio = portalMe?.ok === true ? Boolean((portalMe.permissions as any)?.twilio?.edit) : false;
+  const canViewBusinessInfo = portalMe?.ok === true ? Boolean((portalMe.permissions as any)?.businessProfile?.view) : false;
+  const canEditBusinessInfo = portalMe?.ok === true ? Boolean((portalMe.permissions as any)?.businessProfile?.edit) : false;
 
   useEffect(() => {
     if (error) toast.error(error);
@@ -160,6 +177,30 @@ export function PortalProfileClient() {
     })();
 
     (async () => {
+      const res = await fetch("/api/portal/me", { cache: "no-store" }).catch(() => null as any);
+      if (!mounted) return;
+      if (!res?.ok) {
+        setPortalMe({ ok: false, error: "Forbidden" });
+        return;
+      }
+      const json = ((await res.json().catch(() => null)) as PortalMe | null) ?? null;
+      setPortalMe(json);
+    })();
+
+    return () => {
+      mounted = false;
+    };
+  }, []);
+
+  useEffect(() => {
+    let mounted = true;
+    if (!portalMe || portalMe.ok !== true) return;
+
+    (async () => {
+      if (!canViewWebhooks) {
+        if (mounted) setWebhooks(null);
+        return;
+      }
       const res = await fetch("/api/portal/webhooks", { cache: "no-store" }).catch(() => null as any);
       if (!mounted) return;
       if (!res?.ok) return;
@@ -167,6 +208,10 @@ export function PortalProfileClient() {
     })();
 
     (async () => {
+      if (!canViewTwilio) {
+        if (mounted) setTwilioMasked(null);
+        return;
+      }
       const res = await fetch("/api/portal/integrations/twilio", { cache: "no-store" }).catch(() => null as any);
       if (!mounted) return;
       if (!res?.ok) return;
@@ -180,9 +225,13 @@ export function PortalProfileClient() {
     return () => {
       mounted = false;
     };
-  }, []);
+  }, [portalMe, canViewWebhooks, canViewTwilio]);
 
   async function saveTwilio() {
+    if (!canEditTwilio) {
+      setTwilioError("Forbidden");
+      return;
+    }
     setSavingTwilio(true);
     setTwilioError(null);
     setTwilioNote(null);
@@ -215,6 +264,10 @@ export function PortalProfileClient() {
   }
 
   async function clearTwilio() {
+    if (!canEditTwilio) {
+      setTwilioError("Forbidden");
+      return;
+    }
     setSavingTwilio(true);
     setTwilioError(null);
     setTwilioNote(null);
@@ -481,99 +534,126 @@ export function PortalProfileClient() {
             </div>
           </div>
 
-          <PortalSettingsSection
-            title="Webhooks"
-            description="Copy/paste inbound webhook URLs (token-based)."
-            accent="blue"
-          >
-            <div className="space-y-3">
-              <CopyRow label="Inbox (Twilio SMS)" value={webhooks?.legacy?.inboxTwilioSmsUrl ?? null} />
-              <CopyRow label="AI Receptionist (Twilio Voice)" value={webhooks?.legacy?.aiReceptionistVoiceUrl ?? null} />
-              <CopyRow label="Missed Call Text Back (Twilio Voice)" value={webhooks?.legacy?.missedCallVoiceUrl ?? null} />
+          {canViewWebhooks ? (
+            <PortalSettingsSection
+              title="Webhooks"
+              description="Copy/paste inbound webhook URLs (token-based)."
+              accent="blue"
+            >
+              <div className="space-y-3">
+                <CopyRow label="Inbox (Twilio SMS)" value={webhooks?.legacy?.inboxTwilioSmsUrl ?? null} />
+                <CopyRow label="AI Receptionist (Twilio Voice)" value={webhooks?.legacy?.aiReceptionistVoiceUrl ?? null} />
+                <CopyRow label="Missed Call Text Back (Twilio Voice)" value={webhooks?.legacy?.missedCallVoiceUrl ?? null} />
 
-              {webhooks?.baseUrl ? (
-                <div className="text-xs text-zinc-500">
-                  Webhook base: <span className="font-mono">{webhooks.baseUrl}</span>
-                </div>
-              ) : null}
-            </div>
-          </PortalSettingsSection>
-
-          <PortalSettingsSection
-            title="Twilio"
-            description="Account SID, Auth Token, and From number. Used across SMS + calling services."
-            accent="blue"
-          >
-            <div className="space-y-3">
-              {twilioNote ? (
-                <div className="rounded-2xl border border-emerald-200 bg-emerald-50 p-4 text-sm text-emerald-800">{twilioNote}</div>
-              ) : null}
-
-              <div className="rounded-2xl border border-zinc-200 bg-zinc-50 p-4 text-xs text-zinc-600">
-                <div>Configured: <span className="font-semibold text-zinc-900">{twilioMasked?.configured ? "Yes" : "No"}</span></div>
-                <div className="mt-1">Account: <span className="font-mono">{twilioMasked?.accountSidMasked ?? "—"}</span></div>
-                <div className="mt-1">From: <span className="font-mono">{twilioMasked?.fromNumberE164 ?? "—"}</span></div>
+                {webhooks?.baseUrl ? (
+                  <div className="text-xs text-zinc-500">
+                    Webhook base: <span className="font-mono">{webhooks.baseUrl}</span>
+                  </div>
+                ) : null}
               </div>
+            </PortalSettingsSection>
+          ) : null}
 
-              <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-                <div className="sm:col-span-2">
-                  <label className="text-xs font-semibold text-zinc-700">Account SID</label>
-                  <input
-                    value={twilioAccountSid}
-                    onChange={(e) => setTwilioAccountSid(e.target.value)}
-                    placeholder={twilioMasked?.accountSidMasked ? `Current: ${twilioMasked.accountSidMasked}` : "AC…"}
-                    className="mt-2 w-full rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-sm"
-                  />
+          {canViewTwilio ? (
+            <PortalSettingsSection
+              title="Twilio"
+              description="Account SID, Auth Token, and From number. Used across SMS + calling services."
+              accent="blue"
+            >
+              <div className="space-y-3">
+                {twilioNote ? (
+                  <div className="rounded-2xl border border-emerald-200 bg-emerald-50 p-4 text-sm text-emerald-800">{twilioNote}</div>
+                ) : null}
+
+                {!canEditTwilio ? (
+                  <div className="rounded-2xl border border-zinc-200 bg-zinc-50 p-4 text-sm text-zinc-600">
+                    You have view-only access.
+                  </div>
+                ) : null}
+
+                <div className="rounded-2xl border border-zinc-200 bg-zinc-50 p-4 text-xs text-zinc-600">
+                  <div>
+                    Configured: <span className="font-semibold text-zinc-900">{twilioMasked?.configured ? "Yes" : "No"}</span>
+                  </div>
+                  <div className="mt-1">
+                    Account: <span className="font-mono">{twilioMasked?.accountSidMasked ?? "—"}</span>
+                  </div>
+                  <div className="mt-1">
+                    From: <span className="font-mono">{twilioMasked?.fromNumberE164 ?? "—"}</span>
+                  </div>
                 </div>
-                <div>
-                  <label className="text-xs font-semibold text-zinc-700">Auth Token</label>
-                  <input
-                    value={twilioAuthToken}
-                    onChange={(e) => setTwilioAuthToken(e.target.value)}
-                    type="password"
-                    placeholder={twilioMasked?.configured ? "•••••• (leave blank to keep)" : ""}
-                    className="mt-2 w-full rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-sm"
-                  />
+
+                <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                  <div className="sm:col-span-2">
+                    <label className="text-xs font-semibold text-zinc-700">Account SID</label>
+                    <input
+                      value={twilioAccountSid}
+                      onChange={(e) => setTwilioAccountSid(e.target.value)}
+                      placeholder={twilioMasked?.accountSidMasked ? `Current: ${twilioMasked.accountSidMasked}` : "AC…"}
+                      className="mt-2 w-full rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-sm"
+                      disabled={!canEditTwilio}
+                    />
+                  </div>
+                  <div>
+                    <label className="text-xs font-semibold text-zinc-700">Auth Token</label>
+                    <input
+                      value={twilioAuthToken}
+                      onChange={(e) => setTwilioAuthToken(e.target.value)}
+                      type="password"
+                      placeholder={twilioMasked?.configured ? "•••••• (leave blank to keep)" : ""}
+                      className="mt-2 w-full rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-sm"
+                      disabled={!canEditTwilio}
+                    />
+                  </div>
+                  <div>
+                    <label className="text-xs font-semibold text-zinc-700">From number</label>
+                    <input
+                      value={twilioFromNumber}
+                      onChange={(e) => setTwilioFromNumber(e.target.value)}
+                      placeholder={twilioMasked?.fromNumberE164 ?? "+1…"}
+                      className="mt-2 w-full rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-sm"
+                      disabled={!canEditTwilio}
+                    />
+                  </div>
                 </div>
-                <div>
-                  <label className="text-xs font-semibold text-zinc-700">From number</label>
-                  <input
-                    value={twilioFromNumber}
-                    onChange={(e) => setTwilioFromNumber(e.target.value)}
-                    placeholder={twilioMasked?.fromNumberE164 ?? "+1…"}
-                    className="mt-2 w-full rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-sm"
-                  />
-                </div>
+
+                {canEditTwilio ? (
+                  <div className="flex flex-col gap-2 sm:flex-row">
+                    <button
+                      type="button"
+                      onClick={() => void saveTwilio()}
+                      disabled={savingTwilio}
+                      className="inline-flex items-center justify-center rounded-2xl bg-[color:var(--color-brand-blue)] px-4 py-2 text-sm font-semibold text-white hover:opacity-95 disabled:opacity-60"
+                    >
+                      {savingTwilio ? "Saving…" : "Save Twilio"}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => void clearTwilio()}
+                      disabled={savingTwilio}
+                      className="inline-flex items-center justify-center rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm font-semibold text-brand-ink hover:bg-zinc-50 disabled:opacity-60"
+                    >
+                      Clear
+                    </button>
+                  </div>
+                ) : null}
               </div>
+            </PortalSettingsSection>
+          ) : null}
 
-              <div className="flex flex-col gap-2 sm:flex-row">
-                <button
-                  type="button"
-                  onClick={() => void saveTwilio()}
-                  disabled={savingTwilio}
-                  className="inline-flex items-center justify-center rounded-2xl bg-[color:var(--color-brand-blue)] px-4 py-2 text-sm font-semibold text-white hover:opacity-95 disabled:opacity-60"
-                >
-                  {savingTwilio ? "Saving…" : "Save Twilio"}
-                </button>
-                <button
-                  type="button"
-                  onClick={() => void clearTwilio()}
-                  disabled={savingTwilio}
-                  className="inline-flex items-center justify-center rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm font-semibold text-brand-ink hover:bg-zinc-50 disabled:opacity-60"
-                >
-                  Clear
-                </button>
-              </div>
-            </div>
-          </PortalSettingsSection>
-
-          <PortalSettingsSection
-            title="Business info"
-            description="Update your business details and branding anytime."
-            accent="pink"
-          >
-            <BusinessProfileForm embedded onSaved={() => setNotice("Business info saved.")} />
-          </PortalSettingsSection>
+          {canViewBusinessInfo ? (
+            <PortalSettingsSection
+              title="Business info"
+              description="Update your business details and branding anytime."
+              accent="pink"
+            >
+              <BusinessProfileForm
+                embedded
+                readOnly={!canEditBusinessInfo}
+                onSaved={() => setNotice("Business info saved.")}
+              />
+            </PortalSettingsSection>
+          ) : null}
         </div>
       )}
     </div>

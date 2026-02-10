@@ -3,6 +3,10 @@ import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
 import { decode } from "next-auth/jwt";
 
+import { prisma } from "@/lib/db";
+import { hasPortalServiceCapability, type PortalServiceCapability } from "@/lib/portalPermissions";
+import type { PortalServiceKey } from "@/lib/portalPermissions.shared";
+
 export const PORTAL_SESSION_COOKIE_NAME = "pa.portal.session";
 
 export type PortalSessionUser = {
@@ -38,5 +42,59 @@ export async function requirePortalUser() {
   const user = await getPortalUser();
   if (!user) redirect("/login");
   if (user.role !== "CLIENT" && user.role !== "ADMIN") redirect("/login");
+  return user;
+}
+
+export async function requirePortalUserForService(service: PortalServiceKey, capability: PortalServiceCapability = "view") {
+  const user = await requirePortalUser();
+  const ownerId = user.id;
+  const memberId = user.memberId || ownerId;
+
+  if (memberId === ownerId) return user;
+
+  const row = await (prisma as any).portalAccountMember.findUnique({
+    where: { ownerId_userId: { ownerId, userId: memberId } },
+    select: { role: true, permissionsJson: true },
+  });
+
+  const roleRaw = typeof row?.role === "string" ? String(row.role) : null;
+  const role = roleRaw === "ADMIN" || roleRaw === "MEMBER" ? roleRaw : null;
+  if (!role) redirect("/portal/login");
+
+  const ok = hasPortalServiceCapability({
+    role,
+    permissionsJson: row?.permissionsJson,
+    service,
+    capability,
+  });
+  if (!ok) redirect("/portal/app");
+
+  return user;
+}
+
+export async function requirePortalUserForAnyService(
+  services: PortalServiceKey[],
+  capability: PortalServiceCapability = "view",
+) {
+  const user = await requirePortalUser();
+  const ownerId = user.id;
+  const memberId = user.memberId || ownerId;
+
+  if (memberId === ownerId) return user;
+
+  const row = await (prisma as any).portalAccountMember.findUnique({
+    where: { ownerId_userId: { ownerId, userId: memberId } },
+    select: { role: true, permissionsJson: true },
+  });
+
+  const roleRaw = typeof row?.role === "string" ? String(row.role) : null;
+  const role = roleRaw === "ADMIN" || roleRaw === "MEMBER" ? roleRaw : null;
+  if (!role) redirect("/portal/login");
+
+  const ok = services.some((service) =>
+    hasPortalServiceCapability({ role, permissionsJson: row?.permissionsJson, service, capability }),
+  );
+  if (!ok) redirect("/portal/app");
+
   return user;
 }

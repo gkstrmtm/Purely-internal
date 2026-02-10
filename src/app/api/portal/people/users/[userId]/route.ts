@@ -64,3 +64,41 @@ export async function PATCH(req: Request, ctx: { params: Promise<{ userId: strin
 
   return NextResponse.json({ ok: true });
 }
+
+export async function DELETE(_req: Request, ctx: { params: Promise<{ userId: string }> }) {
+  const auth = await requireClientSessionForService("people", "edit");
+  if (!auth.ok) {
+    return NextResponse.json(
+      { ok: false, error: auth.status === 401 ? "Unauthorized" : "Forbidden" },
+      { status: auth.status },
+    );
+  }
+
+  const ownerId = auth.session.user.id;
+  const memberId = (auth.session.user as any).memberId || ownerId;
+
+  const myRole = memberId === ownerId ? "OWNER" : await getPortalAccountMemberRole({ ownerId, userId: memberId });
+  if (myRole !== "OWNER" && myRole !== "ADMIN") {
+    return NextResponse.json({ ok: false, error: "Forbidden" }, { status: 403 });
+  }
+
+  const { userId } = await ctx.params;
+  const targetUserId = String(userId || "").trim();
+  if (!targetUserId) return NextResponse.json({ ok: false, error: "Invalid user" }, { status: 400 });
+  if (targetUserId === ownerId) {
+    return NextResponse.json({ ok: false, error: "Owner cannot be removed." }, { status: 400 });
+  }
+  if (targetUserId === memberId) {
+    return NextResponse.json({ ok: false, error: "You can’t remove yourself." }, { status: 400 });
+  }
+
+  const deleted = await (prisma as any).portalAccountMember.deleteMany({
+    where: { ownerId, userId: targetUserId },
+  });
+
+  if (!deleted?.count) {
+    return NextResponse.json({ ok: false, error: "Not found" }, { status: 404 });
+  }
+
+  return NextResponse.json({ ok: true });
+}

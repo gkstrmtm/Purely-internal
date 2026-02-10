@@ -8,7 +8,7 @@ export const dynamic = "force-dynamic";
 export const revalidate = 0;
 
 export async function GET() {
-  const auth = await requireClientSessionForService("integrations");
+  const auth = await requireClientSessionForService("twilio", "view");
   if (!auth.ok) {
     return NextResponse.json(
       { error: auth.status === 401 ? "Unauthorized" : "Forbidden" },
@@ -30,7 +30,7 @@ const putSchema = z.object({
 });
 
 export async function PUT(req: Request) {
-  const auth = await requireClientSessionForService("integrations");
+  const auth = await requireClientSessionForService("twilio", "edit");
   if (!auth.ok) {
     return NextResponse.json(
       { error: auth.status === 401 ? "Unauthorized" : "Forbidden" },

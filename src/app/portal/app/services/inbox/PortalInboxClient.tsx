@@ -8,6 +8,7 @@ import { PortalMediaPickerModal, type PortalMediaPickItem } from "@/components/P
 import { ContactTagsEditor, type ContactTag } from "@/components/ContactTagsEditor";
 import { PortalVariablePickerModal } from "@/components/PortalVariablePickerModal";
 import { useToast } from "@/components/ToastProvider";
+import { normalizePhoneForStorage } from "@/lib/phone";
 import { PORTAL_MESSAGE_VARIABLES } from "@/lib/portalTemplateVars";
 
 type Channel = "email" | "sms";
@@ -126,7 +127,12 @@ function safeEmailFromPeer(raw: string) {
 
 export function PortalInboxClient() {
   const toast = useToast();
-  const [tab, setTab] = useState<Channel>("email");
+  const [tab, setTab] = useState<Channel>(() => {
+    if (typeof window === "undefined") return "email";
+    const p = new URLSearchParams(window.location.search);
+    const ch = String(p.get("channel") || "").toLowerCase();
+    return ch === "sms" ? "sms" : "email";
+  });
   const [emailBox, setEmailBox] = useState<EmailBox>("inbox");
   const [threads, setThreads] = useState<Thread[]>([]);
   const [activeThreadId, setActiveThreadId] = useState<string | null>(null);
@@ -134,6 +140,31 @@ export function PortalInboxClient() {
   const [loadingThreads, setLoadingThreads] = useState(true);
   const [loadingMessages, setLoadingMessages] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  const initialDeepLink = useMemo(() => {
+    if (typeof window === "undefined") return { threadId: null as string | null, to: null as string | null };
+    const p = new URLSearchParams(window.location.search);
+    const threadId = String(p.get("threadId") || "").trim() || null;
+    const to = String(p.get("to") || "").trim() || null;
+    return { threadId, to };
+  }, []);
+
+  const preferredThreadIdRef = useRef<string | null>(initialDeepLink.threadId);
+  const preferredToRef = useRef<string | null>(initialDeepLink.to);
+
+  function pickThreadIdFromTo(nextTab: Channel, nextThreads: Thread[], toRaw: string) {
+    const to = String(toRaw || "").trim();
+    if (!to) return null;
+
+    if (nextTab === "email") {
+      const needle = to.toLowerCase();
+      return nextThreads.find((t) => String(t.peerAddress || "").trim().toLowerCase() === needle)?.id ?? null;
+    }
+
+    const normalized = normalizePhoneForStorage(to);
+    if (!normalized) return null;
+    return nextThreads.find((t) => String(t.peerAddress || "").trim() === normalized)?.id ?? null;
+  }
 
   useEffect(() => {
     if (error) toast.error(error);
@@ -299,8 +330,25 @@ export function PortalInboxClient() {
     setThreads(json.threads);
     setLoadingThreads(false);
 
-    if (json.threads.length) {
+    const preferredThreadId = (preferredThreadIdRef.current || "").trim();
+    const preferredTo = (preferredToRef.current || "").trim();
+
+    let nextActiveId: string | null = null;
+    if (preferredThreadId && json.threads.some((t) => t.id === preferredThreadId)) {
+      nextActiveId = preferredThreadId;
+    } else if (preferredTo) {
+      nextActiveId = pickThreadIdFromTo(nextTab, json.threads, preferredTo);
+    }
+
+    if (nextActiveId) {
+      setActiveThreadId(nextActiveId);
+      preferredThreadIdRef.current = null;
+      preferredToRef.current = null;
+    } else if (json.threads.length) {
       setActiveThreadId(json.threads[0].id);
+    } else if (preferredTo) {
+      setComposeTo(preferredTo);
+      preferredToRef.current = null;
     }
   }
 

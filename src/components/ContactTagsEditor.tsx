@@ -2,6 +2,8 @@
 
 import { useEffect, useMemo, useState } from "react";
 
+import { DEFAULT_TAG_COLORS } from "@/lib/tagColors.shared";
+
 export type ContactTag = { id: string; name: string; color: string | null };
 
 type TagsRes = { ok: true; tags: ContactTag[] } | { ok: false; error?: string };
@@ -34,7 +36,7 @@ export function ContactTagsEditor(props: Props) {
 
   const [creating, setCreating] = useState(false);
   const [newName, setNewName] = useState("");
-  const [newColor, setNewColor] = useState("#2563EB");
+  const [newColor, setNewColor] = useState<(typeof DEFAULT_TAG_COLORS)[number]>("#2563EB");
 
   const selectedIds = useMemo(() => new Set(tags.map((t) => t.id)), [tags]);
 
@@ -185,13 +187,24 @@ export function ContactTagsEditor(props: Props) {
                   onChange={(e) => setNewName(e.target.value)}
                 />
                 {!compact ? (
-                  <input
-                    className="h-10 w-12 rounded-xl border border-zinc-200 bg-white"
-                    type="color"
-                    value={newColor}
-                    onChange={(e) => setNewColor(e.target.value)}
-                    title="Pick color"
-                  />
+                  <div className="flex items-center gap-1.5">
+                    {DEFAULT_TAG_COLORS.slice(0, 10).map((c) => {
+                      const selected = c === newColor;
+                      return (
+                        <button
+                          key={c}
+                          type="button"
+                          className={classNames(
+                            "h-6 w-6 rounded-full border",
+                            selected ? "border-zinc-900 ring-2 ring-zinc-900/20" : "border-zinc-200",
+                          )}
+                          style={{ backgroundColor: c }}
+                          onClick={() => setNewColor(c)}
+                          title={c}
+                        />
+                      );
+                    })}
+                  </div>
                 ) : null}
                 <button
                   type="button"

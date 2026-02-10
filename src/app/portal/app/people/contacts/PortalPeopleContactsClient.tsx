@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 
 import { PortalPeopleTabs } from "@/app/portal/app/people/PortalPeopleTabs";
 import { useToast } from "@/components/ToastProvider";
+import { DEFAULT_TAG_COLORS } from "@/lib/tagColors.shared";
 
 type ContactTag = { id: string; name: string; color: string | null };
 
@@ -98,8 +99,23 @@ export function PortalPeopleContactsClient() {
   const [detailTags, setDetailTags] = useState<ContactTag[]>([]);
   const [tagBusyId, setTagBusyId] = useState<string | null>(null);
   const [createTagName, setCreateTagName] = useState("");
-  const [createTagColor, setCreateTagColor] = useState<string>("");
+  const [createTagColor, setCreateTagColor] = useState<(typeof DEFAULT_TAG_COLORS)[number]>("#2563EB");
   const [createTagBusy, setCreateTagBusy] = useState(false);
+
+  const [editingContact, setEditingContact] = useState(false);
+  const [editName, setEditName] = useState("");
+  const [editEmail, setEditEmail] = useState("");
+  const [editPhone, setEditPhone] = useState("");
+  const [savingContact, setSavingContact] = useState(false);
+
+  const [leadModalOpen, setLeadModalOpen] = useState(false);
+  const [activeLeadId, setActiveLeadId] = useState<string | null>(null);
+  const [leadBusinessName, setLeadBusinessName] = useState("");
+  const [leadEmail, setLeadEmail] = useState("");
+  const [leadPhone, setLeadPhone] = useState("");
+  const [leadWebsite, setLeadWebsite] = useState("");
+  const [leadLinkContactId, setLeadLinkContactId] = useState<string>("");
+  const [savingLead, setSavingLead] = useState(false);
 
   async function load() {
     setLoading(true);
@@ -157,6 +173,10 @@ export function PortalPeopleContactsClient() {
       }
       const payload = json as ContactDetailPayload;
       setDetail(payload.contact);
+      setEditingContact(false);
+      setEditName(payload.contact?.name ?? "");
+      setEditEmail(payload.contact?.email ?? "");
+      setEditPhone(payload.contact?.phone ?? "");
     } catch (e: any) {
       toast.error(String(e?.message || "Failed to load contact"));
     } finally {
@@ -249,15 +269,14 @@ export function PortalPeopleContactsClient() {
       toast.error("Enter a tag name");
       return;
     }
-    const color = createTagColor.trim();
-    const safeColor = color && /^#[0-9a-fA-F]{6}$/.test(color) ? color : null;
+    const safeColor = createTagColor;
 
     setCreateTagBusy(true);
     try {
       const res = await fetch("/api/portal/contact-tags", {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify(safeColor ? { name, color: safeColor } : { name }),
+        body: JSON.stringify({ name, color: safeColor }),
       });
       const json = (await res.json().catch(() => ({}))) as any;
       if (!res.ok || !json?.ok || !json?.tag?.id) {
@@ -275,7 +294,7 @@ export function PortalPeopleContactsClient() {
         return next;
       });
       setCreateTagName("");
-      setCreateTagColor("");
+      setCreateTagColor("#2563EB");
       if (selectedContactId) {
         await addTagToSelected(created.id);
       }
@@ -283,6 +302,91 @@ export function PortalPeopleContactsClient() {
       toast.error(String(e?.message || "Failed to create tag"));
     } finally {
       setCreateTagBusy(false);
+    }
+  }
+
+  async function saveContactEdits() {
+    if (!selectedContactId) return;
+    setSavingContact(true);
+    try {
+      const res = await fetch(`/api/portal/contacts/${encodeURIComponent(selectedContactId)}`, {
+        method: "PATCH",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ name: editName, email: editEmail, phone: editPhone }),
+      });
+      const json = (await res.json().catch(() => ({}))) as any;
+      if (!res.ok || !json?.ok) throw new Error(String(json?.error || "Failed to save"));
+
+      toast.success("Contact updated.");
+      setEditingContact(false);
+      await load();
+      if (selectedContactId) await openContact(selectedContactId);
+    } catch (e: any) {
+      toast.error(String(e?.message || "Failed to save"));
+    } finally {
+      setSavingContact(false);
+    }
+  }
+
+  function openLeadModal(lead: LeadRow) {
+    setActiveLeadId(lead.id);
+    setLeadBusinessName(lead.businessName || "");
+    setLeadEmail(lead.email || "");
+    setLeadPhone(lead.phone || "");
+    setLeadWebsite(lead.website || "");
+    setLeadLinkContactId("");
+    setLeadModalOpen(true);
+  }
+
+  async function saveLeadEdits() {
+    if (!activeLeadId) return;
+    setSavingLead(true);
+    try {
+      const payload: any = {
+        businessName: leadBusinessName,
+        email: leadEmail,
+        phone: leadPhone,
+        website: leadWebsite,
+      };
+
+      if (leadLinkContactId.trim()) payload.contactId = leadLinkContactId.trim();
+
+      const res = await fetch(`/api/portal/people/leads/${encodeURIComponent(activeLeadId)}`, {
+        method: "PATCH",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+      const json = (await res.json().catch(() => ({}))) as any;
+      if (!res.ok || !json?.ok) throw new Error(String(json?.error || "Failed to save lead"));
+      toast.success("Lead updated.");
+      setLeadModalOpen(false);
+      await load();
+      if (selectedContactId) await openContact(selectedContactId);
+    } catch (e: any) {
+      toast.error(String(e?.message || "Failed to save lead"));
+    } finally {
+      setSavingLead(false);
+    }
+  }
+
+  async function linkLeadToSelected(leadId: string) {
+    if (!selectedContactId || !leadId) return;
+    setSavingLead(true);
+    try {
+      const res = await fetch(`/api/portal/people/leads/${encodeURIComponent(leadId)}`, {
+        method: "PATCH",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ contactId: selectedContactId }),
+      });
+      const json = (await res.json().catch(() => ({}))) as any;
+      if (!res.ok || !json?.ok) throw new Error(String(json?.error || "Failed to link lead"));
+      toast.success("Lead linked.");
+      await load();
+      await openContact(selectedContactId);
+    } catch (e: any) {
+      toast.error(String(e?.message || "Failed to link lead"));
+    } finally {
+      setSavingLead(false);
     }
   }
 
@@ -408,7 +512,12 @@ export function PortalPeopleContactsClient() {
             <div className="mt-4 space-y-3">
               {filteredLeads.length ? (
                 filteredLeads.slice(0, 200).map((l) => (
-                  <div key={l.id} className="rounded-2xl border border-zinc-200 p-4">
+                  <button
+                    key={l.id}
+                    type="button"
+                    onClick={() => openLeadModal(l)}
+                    className="w-full rounded-2xl border border-zinc-200 p-4 text-left hover:bg-zinc-50"
+                  >
                     <div className="flex items-start justify-between gap-3">
                       <div>
                         <div className="font-semibold text-zinc-900">{l.businessName || "—"}</div>
@@ -426,7 +535,7 @@ export function PortalPeopleContactsClient() {
                         {l.assignedToUserId ? "Assigned" : "Unassigned"}
                       </span>
                     </div>
-                  </div>
+                  </button>
                 ))
               ) : (
                 <div className="text-sm text-zinc-600">No unlinked leads.</div>
@@ -480,11 +589,101 @@ export function PortalPeopleContactsClient() {
             <div className="mt-6 grid grid-cols-1 gap-4 sm:grid-cols-2">
               <div className="rounded-2xl border border-zinc-200 p-4">
                 <div className="text-xs font-semibold text-zinc-600">Name</div>
-                <div className="mt-1 text-sm font-semibold text-zinc-900">{detail?.name ?? "—"}</div>
+                {editingContact ? (
+                  <input
+                    className="mt-1 w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm font-semibold text-zinc-900 outline-none focus:border-[color:var(--color-brand-blue)]"
+                    value={editName}
+                    onChange={(e) => setEditName(e.target.value)}
+                    placeholder="Full name"
+                  />
+                ) : (
+                  <div className="mt-1 text-sm font-semibold text-zinc-900">{detail?.name ?? "—"}</div>
+                )}
                 <div className="mt-3 text-xs font-semibold text-zinc-600">Email</div>
-                <div className="mt-1 text-sm text-zinc-800">{detail?.email ?? "—"}</div>
+                {editingContact ? (
+                  <input
+                    className="mt-1 w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm text-zinc-800 outline-none focus:border-[color:var(--color-brand-blue)]"
+                    value={editEmail}
+                    onChange={(e) => setEditEmail(e.target.value)}
+                    placeholder="email@company.com"
+                  />
+                ) : (
+                  <div className="mt-1 text-sm text-zinc-800">{detail?.email ?? "—"}</div>
+                )}
                 <div className="mt-3 text-xs font-semibold text-zinc-600">Phone</div>
-                <div className="mt-1 text-sm text-zinc-800">{detail?.phone ?? "—"}</div>
+                {editingContact ? (
+                  <input
+                    className="mt-1 w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm text-zinc-800 outline-none focus:border-[color:var(--color-brand-blue)]"
+                    value={editPhone}
+                    onChange={(e) => setEditPhone(e.target.value)}
+                    placeholder="+15551234567"
+                  />
+                ) : (
+                  <div className="mt-1 text-sm text-zinc-800">{detail?.phone ?? "—"}</div>
+                )}
+
+                <div className="mt-4 flex flex-wrap items-center gap-2">
+                  <a
+                    className="rounded-xl border border-zinc-200 bg-white px-3 py-2 text-xs font-semibold text-zinc-800 hover:bg-zinc-50"
+                    href={(() => {
+                      const smsThread = detail?.inboxThreads?.find((t) => String(t.channel).toUpperCase() === "SMS");
+                      if (smsThread?.id) return `/portal/app/services/inbox?channel=sms&threadId=${encodeURIComponent(smsThread.id)}`;
+                      const to = (detail?.phone || "").trim();
+                      return to ? `/portal/app/services/inbox?channel=sms&to=${encodeURIComponent(to)}` : "/portal/app/services/inbox?channel=sms";
+                    })()}
+                  >
+                    SMS
+                  </a>
+                  <a
+                    className="rounded-xl border border-zinc-200 bg-white px-3 py-2 text-xs font-semibold text-zinc-800 hover:bg-zinc-50"
+                    href={(() => {
+                      const emailThread = detail?.inboxThreads?.find((t) => String(t.channel).toUpperCase() === "EMAIL");
+                      if (emailThread?.id) return `/portal/app/services/inbox?channel=email&threadId=${encodeURIComponent(emailThread.id)}`;
+                      const to = (detail?.email || "").trim();
+                      return to ? `/portal/app/services/inbox?channel=email&to=${encodeURIComponent(to)}` : "/portal/app/services/inbox?channel=email";
+                    })()}
+                  >
+                    Email
+                  </a>
+
+                  <div className="ml-auto flex items-center gap-2">
+                    {!editingContact ? (
+                      <button
+                        type="button"
+                        className="rounded-xl bg-zinc-900 px-3 py-2 text-xs font-semibold text-white hover:bg-zinc-800"
+                        onClick={() => setEditingContact(true)}
+                        disabled={!detail}
+                      >
+                        Edit
+                      </button>
+                    ) : (
+                      <>
+                        <button
+                          type="button"
+                          className="rounded-xl border border-zinc-200 bg-white px-3 py-2 text-xs font-semibold text-zinc-800 hover:bg-zinc-50"
+                          onClick={() => {
+                            setEditingContact(false);
+                            setEditName(detail?.name ?? "");
+                            setEditEmail(detail?.email ?? "");
+                            setEditPhone(detail?.phone ?? "");
+                          }}
+                          disabled={savingContact}
+                        >
+                          Cancel
+                        </button>
+                        <button
+                          type="button"
+                          className="rounded-xl bg-zinc-900 px-3 py-2 text-xs font-semibold text-white hover:bg-zinc-800 disabled:opacity-60"
+                          onClick={() => void saveContactEdits()}
+                          disabled={savingContact}
+                        >
+                          {savingContact ? "Saving…" : "Save"}
+                        </button>
+                      </>
+                    )}
+                  </div>
+                </div>
+
                 <div className="mt-3 text-xs text-zinc-500">
                   Created: {detail?.createdAtIso ? new Date(detail.createdAtIso).toLocaleString() : "—"}
                   {detail?.updatedAtIso ? ` • Updated: ${new Date(detail.updatedAtIso).toLocaleString()}` : ""}
@@ -556,15 +755,27 @@ export function PortalPeopleContactsClient() {
                         value={createTagName}
                         onChange={(e) => setCreateTagName(e.target.value)}
                       />
-                      <input
-                        className="w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm outline-none focus:border-[color:var(--color-brand-blue)]"
-                        placeholder="#3b82f6"
-                        value={createTagColor}
-                        onChange={(e) => setCreateTagColor(e.target.value)}
-                      />
+                      <div className="flex flex-wrap items-center gap-1.5 rounded-xl border border-zinc-200 bg-white px-2 py-2">
+                        {DEFAULT_TAG_COLORS.slice(0, 10).map((c) => {
+                          const selected = c === createTagColor;
+                          return (
+                            <button
+                              key={c}
+                              type="button"
+                              className={classNames(
+                                "h-6 w-6 rounded-full border",
+                                selected ? "border-zinc-900 ring-2 ring-zinc-900/20" : "border-zinc-200",
+                              )}
+                              style={{ backgroundColor: c }}
+                              onClick={() => setCreateTagColor(c)}
+                              title={c}
+                            />
+                          );
+                        })}
+                      </div>
                     </div>
                     <div className="mt-2 flex items-center justify-between gap-3">
-                      <div className="text-xs text-zinc-500">Optional color must be a hex like #3b82f6.</div>
+                      <div className="text-xs text-zinc-500">Pick a default color.</div>
                       <button
                         type="button"
                         className="rounded-xl bg-zinc-900 px-3 py-2 text-xs font-semibold text-white hover:bg-zinc-800 disabled:opacity-60"
@@ -582,6 +793,28 @@ export function PortalPeopleContactsClient() {
             <div className="mt-6 grid grid-cols-1 gap-4">
               <div className="rounded-2xl border border-zinc-200 p-4">
                 <div className="text-sm font-semibold text-zinc-900">Linked leads</div>
+                {data?.unlinkedLeads?.length ? (
+                  <div className="mt-2">
+                    <label className="text-xs font-semibold text-zinc-600">Link a lead</label>
+                    <select
+                      className="mt-1 w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm"
+                      value={""}
+                      onChange={(e) => {
+                        const leadId = e.target.value;
+                        if (!leadId) return;
+                        void linkLeadToSelected(leadId);
+                      }}
+                      disabled={!selectedContactId || savingLead}
+                    >
+                      <option value="">Select an unlinked lead…</option>
+                      {data.unlinkedLeads.slice(0, 250).map((l) => (
+                        <option key={l.id} value={l.id}>
+                          {l.businessName}{l.email ? ` • ${l.email}` : ""}{l.phone ? ` • ${l.phone}` : ""}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                ) : null}
                 <div className="mt-2 text-sm text-zinc-700">
                   {detail?.leads?.length ? (
                     <div className="space-y-2">
@@ -608,6 +841,14 @@ export function PortalPeopleContactsClient() {
                           <div className="text-xs font-semibold text-zinc-600">{t.channel}</div>
                           <div className="font-semibold">{t.peerAddress}</div>
                           <div className="mt-1 text-xs text-zinc-500">{t.lastMessagePreview}</div>
+                          <div className="mt-2">
+                            <a
+                              className="text-xs font-semibold text-brand-ink hover:underline"
+                              href={`/portal/app/services/inbox?channel=${String(t.channel).toLowerCase() === "sms" ? "sms" : "email"}&threadId=${encodeURIComponent(t.id)}`}
+                            >
+                              Open thread
+                            </a>
+                          </div>
                         </div>
                       ))}
                     </div>
@@ -616,6 +857,110 @@ export function PortalPeopleContactsClient() {
                   )}
                 </div>
               </div>
+            </div>
+          </div>
+        </div>
+      ) : null}
+
+      {leadModalOpen ? (
+        <div className="fixed inset-0 z-[90] flex items-start justify-center overflow-auto bg-black/40 p-4">
+          <div className="w-full max-w-xl rounded-3xl border border-zinc-200 bg-white p-6 shadow-xl">
+            <div className="flex items-start justify-between gap-3">
+              <div>
+                <div className="text-base font-semibold text-zinc-900">Lead</div>
+                <div className="mt-1 text-xs text-zinc-500">Edit lead info and optionally link it to a contact.</div>
+              </div>
+              <button
+                type="button"
+                className="rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm font-semibold hover:bg-zinc-50"
+                onClick={() => {
+                  setLeadModalOpen(false);
+                  setActiveLeadId(null);
+                }}
+              >
+                Close
+              </button>
+            </div>
+
+            <div className="mt-4 grid grid-cols-1 gap-3">
+              <div>
+                <div className="text-xs font-semibold text-zinc-700">Business name</div>
+                <input
+                  className="mt-1 w-full rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-sm outline-none focus:border-[color:var(--color-brand-blue)]"
+                  value={leadBusinessName}
+                  onChange={(e) => setLeadBusinessName(e.target.value)}
+                  placeholder="Business name"
+                />
+              </div>
+
+              <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                <div>
+                  <div className="text-xs font-semibold text-zinc-700">Email</div>
+                  <input
+                    className="mt-1 w-full rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-sm outline-none focus:border-[color:var(--color-brand-blue)]"
+                    value={leadEmail}
+                    onChange={(e) => setLeadEmail(e.target.value)}
+                    placeholder="email@company.com"
+                  />
+                </div>
+                <div>
+                  <div className="text-xs font-semibold text-zinc-700">Phone</div>
+                  <input
+                    className="mt-1 w-full rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-sm outline-none focus:border-[color:var(--color-brand-blue)]"
+                    value={leadPhone}
+                    onChange={(e) => setLeadPhone(e.target.value)}
+                    placeholder="+15551234567"
+                  />
+                </div>
+              </div>
+
+              <div>
+                <div className="text-xs font-semibold text-zinc-700">Website</div>
+                <input
+                  className="mt-1 w-full rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-sm outline-none focus:border-[color:var(--color-brand-blue)]"
+                  value={leadWebsite}
+                  onChange={(e) => setLeadWebsite(e.target.value)}
+                  placeholder="https://example.com"
+                />
+              </div>
+
+              <div>
+                <div className="text-xs font-semibold text-zinc-700">Link to contact (optional)</div>
+                <select
+                  className="mt-1 w-full rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-sm"
+                  value={leadLinkContactId}
+                  onChange={(e) => setLeadLinkContactId(e.target.value)}
+                >
+                  <option value="">Don’t link</option>
+                  {(data?.contacts || []).slice(0, 400).map((c) => (
+                    <option key={c.id} value={c.id}>
+                      {c.name}{c.email ? ` • ${c.email}` : ""}{c.phone ? ` • ${c.phone}` : ""}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            </div>
+
+            <div className="mt-5 flex items-center justify-end gap-2">
+              <button
+                type="button"
+                className="rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm font-semibold text-zinc-800 hover:bg-zinc-50"
+                onClick={() => {
+                  setLeadModalOpen(false);
+                  setActiveLeadId(null);
+                }}
+                disabled={savingLead}
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                className="rounded-2xl bg-zinc-900 px-4 py-2 text-sm font-semibold text-white hover:bg-zinc-800 disabled:opacity-60"
+                onClick={() => void saveLeadEdits()}
+                disabled={savingLead || !leadBusinessName.trim()}
+              >
+                {savingLead ? "Saving…" : "Save"}
+              </button>
             </div>
           </div>
         </div>

@@ -1,8 +1,8 @@
-import { requirePortalUser } from "@/lib/portalAuth";
+import { requirePortalUserForService } from "@/lib/portalAuth";
 import { PortalOnboardingClient } from "@/app/portal/app/onboarding/PortalOnboardingClient";
 
 export default async function PortalOnboardingPage() {
-  await requirePortalUser();
+  await requirePortalUserForService("businessProfile", "edit");
 
   return (
     <div className="mx-auto w-full max-w-6xl">

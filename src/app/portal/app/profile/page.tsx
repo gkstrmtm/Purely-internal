@@ -1,8 +1,8 @@
-import { requirePortalUser } from "@/lib/portalAuth";
+import { requirePortalUserForService } from "@/lib/portalAuth";
 import { PortalProfileClient } from "@/app/portal/profile/PortalProfileClient";
 
 export default async function PortalAppProfilePage() {
-  await requirePortalUser();
+  await requirePortalUserForService("profile", "view");
 
   return <PortalProfileClient />;
 }

@@ -138,7 +138,7 @@ function normalizeProfile(row: any, flags: ProfileColumnFlags) {
 }
 
 export async function GET() {
-  const auth = await requireClientSessionForService("businessProfile");
+  const auth = await requireClientSessionForService("businessProfile", "view");
   if (!auth.ok) {
     return NextResponse.json(
       { error: auth.status === 401 ? "Unauthorized" : "Forbidden" },
@@ -159,7 +159,7 @@ export async function GET() {
 }
 
 export async function PUT(req: Request) {
-  const auth = await requireClientSessionForService("businessProfile");
+  const auth = await requireClientSessionForService("businessProfile", "edit");
   if (!auth.ok) {
     return NextResponse.json(
       { error: auth.status === 401 ? "Unauthorized" : "Forbidden" },

@@ -1,8 +1,8 @@
 import { PortalBillingClient } from "@/app/portal/billing/PortalBillingClient";
-import { requirePortalUser } from "@/lib/portalAuth";
+import { requirePortalUserForService } from "@/lib/portalAuth";
 
 export default async function PortalAppBillingPage() {
-  await requirePortalUser();
+  await requirePortalUserForService("billing", "view");
 
   return (
     <div className="mx-auto w-full max-w-6xl">

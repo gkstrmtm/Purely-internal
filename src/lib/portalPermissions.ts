@@ -48,6 +48,7 @@ export function normalizePortalPermissions(
   role: "OWNER" | "ADMIN" | "MEMBER",
 ): PortalPermissions {
   const defaults = defaultPortalPermissionsForRole(role);
+  if (role === "OWNER" || role === "ADMIN") return defaults;
   const parsed = portalPermissionsInputSchema.safeParse(input ?? {});
   if (!parsed.success) return defaults;
 

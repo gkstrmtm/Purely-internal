@@ -19,6 +19,7 @@ import {
 } from "@/app/portal/PortalIcons";
 import { PORTAL_SERVICES } from "@/app/portal/services/catalog";
 import { PortalFloatingTools } from "@/app/portal/PortalFloatingTools";
+import { PORTAL_SERVICE_KEYS, type PortalServiceKey } from "@/lib/portalPermissions.shared";
 
 const DEFAULT_FULL_DEMO_EMAIL = "demo-full@purelyautomation.dev";
 
@@ -27,6 +28,16 @@ type Me = {
   entitlements: { blog: boolean; booking: boolean; crm: boolean; leadOutbound: boolean };
   metrics: { hoursSavedThisWeek: number; hoursSavedAllTime: number };
 };
+
+type PortalMe =
+  | {
+      ok: true;
+      ownerId: string;
+      memberId: string;
+      role: "OWNER" | "ADMIN" | "MEMBER";
+      permissions: Record<string, { view: boolean; edit: boolean }>;
+    }
+  | { ok: false; error?: string };
 
 function classNames(...xs: Array<string | false | null | undefined>) {
   return xs.filter(Boolean).join(" ");
@@ -37,10 +48,28 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
   const [collapsed, setCollapsed] = useState(false);
   const [mobileOpen, setMobileOpen] = useState(false);
   const [me, setMe] = useState<Me | null>(null);
+  const [portalMe, setPortalMe] = useState<PortalMe | null>(null);
 
   useEffect(() => {
     const saved = window.localStorage.getItem("portalSidebarCollapsed");
     if (saved === "1") setCollapsed(true);
+  }, []);
+
+  useEffect(() => {
+    let mounted = true;
+    (async () => {
+      const res = await fetch("/api/portal/me", { cache: "no-store" });
+      if (!mounted) return;
+      if (!res.ok) {
+        setPortalMe({ ok: false, error: "Forbidden" });
+        return;
+      }
+      const json = (await res.json().catch(() => null)) as PortalMe | null;
+      setPortalMe(json);
+    })();
+    return () => {
+      mounted = false;
+    };
   }, []);
 
   useEffect(() => {
@@ -70,17 +99,53 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
   }, []);
 
   const isFullDemo = (me?.user.email ?? "").toLowerCase().trim() === DEFAULT_FULL_DEMO_EMAIL;
+  const knownServiceKeys = useMemo(() => new Set<string>(PORTAL_SERVICE_KEYS as unknown as string[]), []);
 
   const navItems = useMemo(() => {
+    const can = (key: PortalServiceKey) => {
+      if (portalMe && portalMe.ok === true) {
+        const p = (portalMe.permissions as any)?.[key];
+        return Boolean(p?.view);
+      }
+      // Before we load permissions, show everything to avoid flicker.
+      return true;
+    };
+
     const base = [
       { href: "/portal/app", label: "Dashboard", icon: <IconDashboard /> },
       { href: "/portal/app/services", label: "Services", icon: <IconService /> },
-      { href: "/portal/app/people", label: "People", icon: <IconPeople /> },
-      { href: "/portal/app/billing", label: "Billing", icon: <IconBilling /> },
-      { href: "/portal/app/profile", label: "Profile", icon: <IconProfile /> },
+      ...(can("people") ? [{ href: "/portal/app/people", label: "People", icon: <IconPeople /> }] : []),
+      ...(can("billing") ? [{ href: "/portal/app/billing", label: "Billing", icon: <IconBilling /> }] : []),
+      ...(can("profile") ? [{ href: "/portal/app/profile", label: "Profile", icon: <IconProfile /> }] : []),
     ];
     return base;
-  }, []);
+  }, [portalMe]);
+
+  function canViewServiceKey(key: PortalServiceKey) {
+    if (!portalMe || portalMe.ok !== true) return true;
+    const p = (portalMe.permissions as any)?.[key];
+    return Boolean(p?.view);
+  }
+
+  function canViewServiceSlug(slug: string) {
+    switch (slug) {
+      case "inbox":
+        return canViewServiceKey("inbox") || canViewServiceKey("outbox");
+      case "media-library":
+        return canViewServiceKey("media");
+      case "ai-receptionist":
+        return canViewServiceKey("aiReceptionist");
+      case "lead-scraping":
+        return canViewServiceKey("leadScraping");
+      case "missed-call-textback":
+        return canViewServiceKey("missedCallTextback");
+      case "follow-up":
+        return canViewServiceKey("followUp");
+      default:
+        if (!knownServiceKeys.has(slug)) return true;
+        return canViewServiceKey(slug as any);
+    }
+  }
 
   function isActive(href: string) {
     if (href === "/portal/app") return pathname === "/portal/app";
@@ -172,6 +237,7 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
                 </div>
                 <div className="mt-2 space-y-1">
                   {PORTAL_SERVICES.filter((s) => !s.hidden).map((s) => {
+                    if (!canViewServiceSlug(s.slug)) return null;
                     const unlocked = serviceUnlocked(s);
                     return (
                       <Link

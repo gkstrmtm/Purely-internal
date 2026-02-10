@@ -4,6 +4,7 @@ import { z } from "zod";
 import { prisma } from "@/lib/db";
 import { requireClientSessionForService } from "@/lib/portalAccess";
 import { ensurePortalContactTagsReady } from "@/lib/portalContactTags";
+import { normalizePhoneStrict } from "@/lib/phone";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
@@ -156,4 +157,67 @@ export async function GET(_req: Request, ctx: { params: Promise<{ contactId: str
       })),
     },
   });
+}
+
+export async function PATCH(req: Request, ctx: { params: Promise<{ contactId: string }> }) {
+  const auth = await requireClientSessionForService("people", "edit");
+  if (!auth.ok) {
+    return NextResponse.json(
+      { ok: false, error: auth.status === 401 ? "Unauthorized" : "Forbidden" },
+      { status: auth.status },
+    );
+  }
+
+  const params = await ctx.params;
+  const contactId = contactIdSchema.safeParse(params.contactId);
+  if (!contactId.success) {
+    return NextResponse.json({ ok: false, error: "Invalid contact id" }, { status: 400 });
+  }
+
+  const ownerId = auth.session.user.id;
+
+  const body = (await req.json().catch(() => ({}))) as any;
+  const name = typeof body?.name === "string" ? body.name.trim() : "";
+  const emailRaw = typeof body?.email === "string" ? body.email.trim() : "";
+  const phoneRaw = typeof body?.phone === "string" ? body.phone.trim() : "";
+
+  if (!name) {
+    return NextResponse.json({ ok: false, error: "Name is required." }, { status: 400 });
+  }
+  if (name.length > 120) {
+    return NextResponse.json({ ok: false, error: "Name is too long." }, { status: 400 });
+  }
+
+  let email: string | null = null;
+  if (emailRaw) {
+    const emailOk = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(emailRaw);
+    if (!emailOk) {
+      return NextResponse.json({ ok: false, error: "Invalid email." }, { status: 400 });
+    }
+    email = emailRaw.toLowerCase();
+  }
+
+  let phone: string | null = null;
+  if (phoneRaw) {
+    const normalized = normalizePhoneStrict(phoneRaw);
+    if (!normalized.ok) {
+      return NextResponse.json({ ok: false, error: normalized.error || "Invalid phone number." }, { status: 400 });
+    }
+    phone = normalized.e164;
+  }
+
+  const updated = await prisma.portalContact.updateMany({
+    where: { id: contactId.data, ownerId },
+    data: {
+      name,
+      email,
+      phone,
+    },
+  });
+
+  if (!updated.count) {
+    return NextResponse.json({ ok: false, error: "Contact not found." }, { status: 404 });
+  }
+
+  return NextResponse.json({ ok: true });
 }
