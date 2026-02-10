@@ -10,6 +10,7 @@ import { resolveEntitlements } from "@/lib/entitlements";
 import { getOwnerTwilioSmsConfig } from "@/lib/portalTwilio";
 import { createPortalLeadCompat } from "@/lib/portalLeadCompat";
 import { isB2cLeadPullUnlocked } from "@/lib/leadScrapingAccess";
+import { draftLeadOutboundEmail, draftLeadOutboundSms } from "@/lib/leadOutboundAi";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -83,6 +84,7 @@ type Settings = {
   };
   outbound: {
     enabled: boolean;
+    aiDraftAndSend?: boolean;
     email: {
       enabled: boolean;
       trigger: "MANUAL" | "ON_SCRAPE" | "ON_APPROVE";
@@ -232,6 +234,7 @@ function normalizeOutbound(value: unknown): Settings["outbound"] {
 
     return {
       enabled,
+      aiDraftAndSend: false,
       email: {
         enabled: enabled && sendEmail,
         trigger,
@@ -252,6 +255,7 @@ function normalizeOutbound(value: unknown): Settings["outbound"] {
 
   return {
     enabled: Boolean((rec as any).enabled),
+    aiDraftAndSend: Boolean((rec as any).aiDraftAndSend),
     email: {
       enabled: Boolean((emailRec as any).enabled),
       trigger: parseTrigger((emailRec as any).trigger),
@@ -425,6 +429,7 @@ function normalizeSettings(value: unknown): Settings {
 
   const defaultOutbound: Settings["outbound"] = {
     enabled: false,
+    aiDraftAndSend: false,
     email: {
       enabled: false,
       trigger: "MANUAL",
@@ -1081,8 +1086,19 @@ export async function POST(req: Request) {
           .filter((r) => Boolean(r.url));
 
         if (shouldSendEmail && lead.email) {
-          const subject = renderTemplate(updatedSettings.outbound.email.subject, lead).slice(0, 120);
-          const textBase = renderTemplate(updatedSettings.outbound.email.text, lead);
+          let subject = renderTemplate(updatedSettings.outbound.email.subject, lead).slice(0, 120);
+          let textBase = renderTemplate(updatedSettings.outbound.email.text, lead);
+
+          if (updatedSettings.outbound.aiDraftAndSend) {
+            try {
+              const draft = await draftLeadOutboundEmail({ lead, resources, fromName });
+              if (draft?.subject) subject = draft.subject.slice(0, 120);
+              if (draft?.text) textBase = draft.text;
+            } catch {
+              // ignore and fall back to templates
+            }
+          }
+
           const textResources = resources.length
             ? `\n\nResources:\n${resources.map((r) => `- ${r.label}: ${r.url}`).join("\n")}`
             : "";
@@ -1098,8 +1114,36 @@ export async function POST(req: Request) {
         }
 
         if (shouldSendSms && lead.phone) {
-          const smsBody = renderTemplate(updatedSettings.outbound.sms.text, lead).slice(0, 900);
-          if (smsBody.trim()) {
+          let smsBodyBase = renderTemplate(updatedSettings.outbound.sms.text, lead).slice(0, 900);
+
+          if (updatedSettings.outbound.aiDraftAndSend) {
+            try {
+              const draft = await draftLeadOutboundSms({ lead, resources, fromName });
+              if (draft) smsBodyBase = draft.slice(0, 900);
+            } catch {
+              // ignore and fall back to templates
+            }
+          }
+
+          if (smsBodyBase.trim()) {
+            let smsBody = smsBodyBase;
+
+            if (resources.length) {
+              const prefix = "\n\nResources:\n";
+              const remaining = 900 - smsBody.length;
+              if (remaining > prefix.length + 10) {
+                let suffix = prefix;
+                for (const r of resources) {
+                  const line = `- ${r.label}: ${r.url}`;
+                  if (suffix.length + line.length + 1 > remaining) break;
+                  suffix += line + "\n";
+                }
+                if (suffix !== prefix) {
+                  smsBody = (smsBody + suffix.trimEnd()).slice(0, 900);
+                }
+              }
+            }
+
             await sendSms({ ownerId, to: lead.phone, body: smsBody });
           }
         }

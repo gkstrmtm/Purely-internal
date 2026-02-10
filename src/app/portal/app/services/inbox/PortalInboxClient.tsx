@@ -142,15 +142,20 @@ export function PortalInboxClient() {
   const [error, setError] = useState<string | null>(null);
 
   const initialDeepLink = useMemo(() => {
-    if (typeof window === "undefined") return { threadId: null as string | null, to: null as string | null };
+    if (typeof window === "undefined") {
+      return { threadId: null as string | null, to: null as string | null, compose: false };
+    }
     const p = new URLSearchParams(window.location.search);
     const threadId = String(p.get("threadId") || "").trim() || null;
     const to = String(p.get("to") || "").trim() || null;
-    return { threadId, to };
+    const composeRaw = String(p.get("compose") || "").trim().toLowerCase();
+    const compose = composeRaw === "1" || composeRaw === "true" || composeRaw === "yes";
+    return { threadId, to, compose };
   }, []);
 
   const preferredThreadIdRef = useRef<string | null>(initialDeepLink.threadId);
   const preferredToRef = useRef<string | null>(initialDeepLink.to);
+  const preferredComposeRef = useRef<boolean>(Boolean(initialDeepLink.compose));
 
   function pickThreadIdFromTo(nextTab: Channel, nextThreads: Thread[], toRaw: string) {
     const to = String(toRaw || "").trim();
@@ -332,6 +337,19 @@ export function PortalInboxClient() {
 
     const preferredThreadId = (preferredThreadIdRef.current || "").trim();
     const preferredTo = (preferredToRef.current || "").trim();
+    const preferredCompose = Boolean(preferredComposeRef.current);
+
+    if (preferredCompose) {
+      setActiveThreadId(null);
+      setComposeTo(preferredTo);
+      if (nextTab === "email") setComposeSubject("");
+      setComposeBody("");
+      setComposeAttachments([]);
+      preferredThreadIdRef.current = null;
+      preferredToRef.current = null;
+      preferredComposeRef.current = false;
+      return;
+    }
 
     let nextActiveId: string | null = null;
     if (preferredThreadId && json.threads.some((t) => t.id === preferredThreadId)) {
@@ -784,7 +802,22 @@ export function PortalInboxClient() {
         )}>
           {tab === "email" ? (
             <div className="border-b border-zinc-100 p-3">
-              <div className="text-sm font-semibold text-zinc-900">Mailboxes</div>
+              <div className="flex items-center justify-between gap-3">
+                <div className="text-sm font-semibold text-zinc-900">Mailboxes</div>
+                <button
+                  type="button"
+                  className="rounded-xl bg-zinc-900 px-3 py-2 text-xs font-semibold text-white hover:bg-zinc-800"
+                  onClick={() => {
+                    setActiveThreadId(null);
+                    setComposeTo("");
+                    setComposeSubject("");
+                    setComposeBody("");
+                    setComposeAttachments([]);
+                  }}
+                >
+                  New Email
+                </button>
+              </div>
               <div className="mt-2 flex items-center gap-2">
                 <button
                   type="button"
@@ -810,8 +843,24 @@ export function PortalInboxClient() {
             </div>
           ) : (
             <div className="border-b border-zinc-100 p-3">
-              <div className="text-sm font-semibold text-zinc-900">Messages</div>
-              <div className="mt-1 text-xs text-zinc-500">Your text conversations</div>
+              <div className="flex items-center justify-between gap-3">
+                <div>
+                  <div className="text-sm font-semibold text-zinc-900">Messages</div>
+                  <div className="mt-1 text-xs text-zinc-500">Your text conversations</div>
+                </div>
+                <button
+                  type="button"
+                  className="rounded-xl bg-zinc-900 px-3 py-2 text-xs font-semibold text-white hover:bg-zinc-800"
+                  onClick={() => {
+                    setActiveThreadId(null);
+                    setComposeTo("");
+                    setComposeBody("");
+                    setComposeAttachments([]);
+                  }}
+                >
+                  New SMS
+                </button>
+              </div>
             </div>
           )}
 

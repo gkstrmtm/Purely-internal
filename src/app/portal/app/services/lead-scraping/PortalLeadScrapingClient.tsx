@@ -70,6 +70,7 @@ type LeadScrapingSettings = {
   };
   outbound: {
     enabled: boolean;
+    aiDraftAndSend?: boolean;
     email: {
       enabled: boolean;
       trigger: "MANUAL" | "ON_SCRAPE" | "ON_APPROVE";
@@ -1067,6 +1068,39 @@ export function PortalLeadScrapingClient() {
         </div>
 
         <div className="mt-4 grid grid-cols-1 gap-4 sm:grid-cols-2">
+          <div className="rounded-2xl border border-zinc-200 bg-zinc-50 p-4 sm:col-span-2">
+            <div className="flex items-center justify-between gap-3">
+              <div>
+                <div className="text-sm font-semibold text-zinc-900">AI draft + send</div>
+                <div className="mt-1 text-xs text-zinc-500">
+                  When enabled, outbound messages are drafted by AI (uses your existing AI env vars) instead of the templates below.
+                </div>
+              </div>
+              <label className="inline-flex items-center gap-2 text-sm text-zinc-700">
+                <input
+                  type="checkbox"
+                  checked={Boolean((settings.outbound as any).aiDraftAndSend)}
+                  onChange={(e) =>
+                    setSettings((prev) =>
+                      prev
+                        ? {
+                            ...prev,
+                            outbound: {
+                              ...prev.outbound,
+                              aiDraftAndSend: e.target.checked,
+                            },
+                          }
+                        : prev,
+                    )
+                  }
+                  disabled={!settings.outbound.enabled}
+                  className="h-4 w-4 rounded border-zinc-300"
+                />
+                On
+              </label>
+            </div>
+          </div>
+
           <div className="rounded-2xl border border-zinc-200 bg-zinc-50 p-4">
             <div className="flex items-center justify-between gap-3">
               <div className="text-sm font-semibold text-zinc-900">Email</div>

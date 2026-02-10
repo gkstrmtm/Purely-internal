@@ -5,6 +5,7 @@ import { requireClientSessionForService } from "@/lib/portalAccess";
 import { prisma } from "@/lib/db";
 import { resolveEntitlements } from "@/lib/entitlements";
 import { baseUrlFromRequest, renderTemplate, sendEmail, sendSms } from "@/lib/leadOutbound";
+import { draftLeadOutboundEmail, draftLeadOutboundSms } from "@/lib/leadOutboundAi";
 import { runOwnerAutomationsForEvent } from "@/lib/portalAutomationsRunner";
 
 export const runtime = "nodejs";
@@ -22,6 +23,7 @@ type SettingsV3 = {
   version: 3;
   outbound: {
     enabled: boolean;
+    aiDraftAndSend: boolean;
     email: {
       enabled: boolean;
       trigger: "MANUAL" | "ON_SCRAPE" | "ON_APPROVE";
@@ -81,6 +83,7 @@ function normalizeSettings(value: unknown): SettingsV3 {
 
   const defaultOutbound: SettingsV3["outbound"] = {
     enabled: false,
+    aiDraftAndSend: false,
     email: {
       enabled: true,
       trigger: "MANUAL",
@@ -130,6 +133,7 @@ function normalizeSettings(value: unknown): SettingsV3 {
       return {
         ...defaultOutbound,
         enabled,
+        aiDraftAndSend: false,
         email: {
           enabled: enabled && sendEmail,
           trigger,
@@ -151,6 +155,7 @@ function normalizeSettings(value: unknown): SettingsV3 {
     return {
       ...defaultOutbound,
       enabled: Boolean((outboundRaw as any).enabled),
+      aiDraftAndSend: Boolean((outboundRaw as any).aiDraftAndSend),
       email: {
         enabled: Boolean((emailRec as any).enabled),
         trigger: parseTrigger((emailRec as any).trigger),
@@ -294,9 +299,19 @@ export async function POST(req: Request) {
       }))
       .filter((r) => Boolean(r.url));
 
-    const subject = renderTemplate(settings.outbound.email.subject, lead).slice(0, 120);
+    let subject = renderTemplate(settings.outbound.email.subject, lead).slice(0, 120);
+    let textBase = renderTemplate(settings.outbound.email.text, lead);
 
-    const textBase = renderTemplate(settings.outbound.email.text, lead);
+    if (settings.outbound.aiDraftAndSend) {
+      try {
+        const draft = await draftLeadOutboundEmail({ lead, resources, fromName });
+        if (draft?.subject) subject = draft.subject.slice(0, 120);
+        if (draft?.text) textBase = draft.text;
+      } catch {
+        // ignore and fall back to templates
+      }
+    }
+
     const textResources = resources.length
       ? `\n\nResources:\n${resources.map((r) => `- ${r.label}: ${r.url}`).join("\n")}`
       : "";
@@ -340,10 +355,38 @@ export async function POST(req: Request) {
         if (!lead.phone) {
           skippedNow.push("Text skipped: lead has no phone.");
         } else {
-          const smsBody = renderTemplate(settings.outbound.sms.text, lead).slice(0, 900);
-          if (!smsBody.trim()) {
+          let smsBodyBase = renderTemplate(settings.outbound.sms.text, lead).slice(0, 900);
+
+          if (settings.outbound.aiDraftAndSend) {
+            try {
+              const draft = await draftLeadOutboundSms({ lead, resources, fromName });
+              if (draft) smsBodyBase = draft.slice(0, 900);
+            } catch {
+              // ignore and fall back to templates
+            }
+          }
+
+          if (!smsBodyBase.trim()) {
             skippedNow.push("Text skipped: SMS template is empty.");
           } else {
+            let smsBody = smsBodyBase;
+
+            if (resources.length) {
+              const prefix = "\n\nResources:\n";
+              const remaining = 900 - smsBody.length;
+              if (remaining > prefix.length + 10) {
+                let suffix = prefix;
+                for (const r of resources) {
+                  const line = `- ${r.label}: ${r.url}`;
+                  if (suffix.length + line.length + 1 > remaining) break;
+                  suffix += line + "\n";
+                }
+                if (suffix !== prefix) {
+                  smsBody = (smsBody + suffix.trimEnd()).slice(0, 900);
+                }
+              }
+            }
+
             await sendSms({ ownerId, to: lead.phone, body: smsBody });
             sentNow.sms = true;
 

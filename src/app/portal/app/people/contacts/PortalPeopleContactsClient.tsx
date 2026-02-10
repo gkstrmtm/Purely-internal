@@ -626,24 +626,24 @@ export function PortalPeopleContactsClient() {
                   <a
                     className="rounded-xl border border-zinc-200 bg-white px-3 py-2 text-xs font-semibold text-zinc-800 hover:bg-zinc-50"
                     href={(() => {
-                      const smsThread = detail?.inboxThreads?.find((t) => String(t.channel).toUpperCase() === "SMS");
-                      if (smsThread?.id) return `/portal/app/services/inbox?channel=sms&threadId=${encodeURIComponent(smsThread.id)}`;
                       const to = (detail?.phone || "").trim();
-                      return to ? `/portal/app/services/inbox?channel=sms&to=${encodeURIComponent(to)}` : "/portal/app/services/inbox?channel=sms";
+                      return to
+                        ? `/portal/app/services/inbox?channel=sms&compose=1&to=${encodeURIComponent(to)}`
+                        : "/portal/app/services/inbox?channel=sms&compose=1";
                     })()}
                   >
-                    SMS
+                    New SMS
                   </a>
                   <a
                     className="rounded-xl border border-zinc-200 bg-white px-3 py-2 text-xs font-semibold text-zinc-800 hover:bg-zinc-50"
                     href={(() => {
-                      const emailThread = detail?.inboxThreads?.find((t) => String(t.channel).toUpperCase() === "EMAIL");
-                      if (emailThread?.id) return `/portal/app/services/inbox?channel=email&threadId=${encodeURIComponent(emailThread.id)}`;
                       const to = (detail?.email || "").trim();
-                      return to ? `/portal/app/services/inbox?channel=email&to=${encodeURIComponent(to)}` : "/portal/app/services/inbox?channel=email";
+                      return to
+                        ? `/portal/app/services/inbox?channel=email&compose=1&to=${encodeURIComponent(to)}`
+                        : "/portal/app/services/inbox?channel=email&compose=1";
                     })()}
                   >
-                    Email
+                    New Email
                   </a>
 
                   <div className="ml-auto flex items-center gap-2">
