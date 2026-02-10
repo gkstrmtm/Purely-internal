@@ -411,6 +411,10 @@ export function PortalAutomationsClient() {
   const [error, setError] = useState<string | null>(null);
   const [note, setNote] = useState<string | null>(null);
 
+  const [libraryOpen, setLibraryOpen] = useState(false);
+  const [libraryMenuFor, setLibraryMenuFor] = useState<string | null>(null);
+  const [topMenuOpen, setTopMenuOpen] = useState(false);
+
   const [renameOpen, setRenameOpen] = useState(false);
   const [renameValue, setRenameValue] = useState("");
   const [testOpen, setTestOpen] = useState(false);
@@ -1259,13 +1263,18 @@ export function PortalAutomationsClient() {
 
   function deleteAutomation() {
     if (!selectedAutomation) return;
-    const ok = window.confirm(`Delete automation "${selectedAutomation.name}"?`);
+    void deleteAutomationById(selectedAutomation.id);
+  }
+
+  async function deleteAutomationById(automationId: string) {
+    const a = automations.find((x) => x.id === automationId);
+    const ok = window.confirm(`Delete automation "${a?.name ?? "(untitled)"}"?`);
     if (!ok) return;
 
-    const nextList = automations.filter((a) => a.id !== selectedAutomation.id);
+    const nextList = automations.filter((x) => x.id !== automationId);
     setAutomations(nextList);
     setSelectedAutomation(nextList[0]?.id ?? null);
-    void saveAll(nextList);
+    await saveAll(nextList);
   }
 
   function openTestModal() {
@@ -1613,151 +1622,301 @@ export function PortalAutomationsClient() {
         </div>
       ) : null}
 
-      <div className="mt-5 grid grid-cols-1 gap-4 lg:grid-cols-12">
-        <div className="lg:col-span-3">
-          <div className="rounded-3xl border border-zinc-200 bg-white p-4">
-            <div className="flex items-center justify-between gap-3">
-              <div className="text-sm font-semibold text-zinc-900">Automations</div>
+      {libraryOpen ? (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/30 p-4"
+          onMouseDown={() => {
+            setLibraryOpen(false);
+            setLibraryMenuFor(null);
+          }}
+        >
+          <div
+            className="w-full max-w-2xl rounded-3xl border border-zinc-200 bg-white p-4 shadow-xl"
+            onMouseDown={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-start justify-between gap-3">
+              <div>
+                <div className="text-sm font-semibold text-zinc-900">All automations</div>
+                <div className="mt-1 text-sm text-zinc-600">Click an automation to edit it. Use the menu for edit or delete.</div>
+              </div>
               <button
                 type="button"
                 className="rounded-xl border border-zinc-200 bg-white px-3 py-2 text-xs font-semibold hover:bg-zinc-50"
+                onClick={() => {
+                  setLibraryOpen(false);
+                  setLibraryMenuFor(null);
+                }}
+              >
+                Close
+              </button>
+            </div>
+
+            <div className="mt-4 space-y-2">
+              {automations.length === 0 ? (
+                <div className="rounded-2xl border border-dashed border-zinc-200 bg-zinc-50 p-4 text-sm text-zinc-600">
+                  No automations yet.
+                </div>
+              ) : (
+                automations.map((a) => {
+                  const isSel = a.id === selectedAutomationId;
+                  return (
+                    <div
+                      key={a.id}
+                      className={
+                        "flex items-center justify-between gap-3 rounded-2xl border px-3 py-3 " +
+                        (isSel ? "border-zinc-900 bg-zinc-900 text-white" : "border-zinc-200 bg-white")
+                      }
+                    >
+                      <button
+                        type="button"
+                        className="min-w-0 flex-1 text-left"
+                        onClick={() => {
+                          setSelectedAutomation(a.id);
+                          setLibraryOpen(false);
+                          setLibraryMenuFor(null);
+                        }}
+                      >
+                        <div className={"truncate text-sm font-semibold " + (isSel ? "text-white" : "text-zinc-900")}>
+                          {a.name}
+                        </div>
+                        <div className={"mt-1 text-xs " + (isSel ? "text-zinc-200" : "text-zinc-600")}>
+                          {(a.nodes?.length ?? 0)} nodes · {(a.edges?.length ?? 0)} connections
+                        </div>
+                      </button>
+
+                      <div className="relative">
+                        <button
+                          type="button"
+                          className={
+                            "rounded-xl border px-2 py-1 text-xs font-semibold hover:bg-zinc-50 " +
+                            (isSel ? "border-zinc-700 bg-zinc-800 text-white hover:bg-zinc-700" : "border-zinc-200 bg-white text-zinc-700")
+                          }
+                          onClick={() => setLibraryMenuFor((prev) => (prev === a.id ? null : a.id))}
+                          title="Actions"
+                        >
+                          ⋯
+                        </button>
+
+                        {libraryMenuFor === a.id ? (
+                          <div
+                            className="absolute right-0 z-10 mt-2 w-40 overflow-hidden rounded-2xl border border-zinc-200 bg-white shadow"
+                            onMouseDown={(e) => e.stopPropagation()}
+                          >
+                            <button
+                              type="button"
+                              className="block w-full px-3 py-2 text-left text-sm font-semibold text-zinc-900 hover:bg-zinc-50"
+                              onClick={() => {
+                                setSelectedAutomation(a.id);
+                                setLibraryOpen(false);
+                                setLibraryMenuFor(null);
+                              }}
+                            >
+                              Edit
+                            </button>
+                            <button
+                              type="button"
+                              className="block w-full px-3 py-2 text-left text-sm font-semibold text-red-700 hover:bg-red-50"
+                              onClick={() => {
+                                setLibraryMenuFor(null);
+                                void deleteAutomationById(a.id);
+                              }}
+                            >
+                              Delete
+                            </button>
+                          </div>
+                        ) : null}
+                      </div>
+                    </div>
+                  );
+                })
+              )}
+            </div>
+
+            <div className="mt-4 flex items-center justify-end gap-2">
+              <button
+                type="button"
+                className="rounded-xl border border-zinc-200 bg-white px-3 py-2 text-xs font-semibold hover:bg-zinc-50"
+                onClick={() => {
+                  setLibraryOpen(false);
+                  setLibraryMenuFor(null);
+                }}
+              >
+                Done
+              </button>
+              <button
+                type="button"
+                className="rounded-xl bg-blue-600 px-3 py-2 text-xs font-semibold text-white hover:bg-blue-700 disabled:opacity-60"
                 onClick={createAutomation}
                 disabled={saving}
               >
                 + New
               </button>
             </div>
+          </div>
+        </div>
+      ) : null}
 
-            <div className="mt-3 space-y-2">
-              {automations
-                .filter((a) => a.id !== selectedAutomationId)
-                .map((a) => (
+      <div className="mt-5 rounded-3xl border border-zinc-200 bg-white p-4">
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div className="flex min-w-0 items-center gap-2">
+            <button
+              type="button"
+              className="min-w-0 rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-sm font-semibold text-zinc-900 hover:bg-zinc-50"
+              onClick={() => {
+                setLibraryOpen(true);
+                setLibraryMenuFor(null);
+              }}
+              title="Select automation"
+            >
+              <span className="block max-w-[360px] truncate">{selectedAutomation ? selectedAutomation.name : "Select automation"}</span>
+            </button>
+            <button
+              type="button"
+              className="rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-sm font-semibold hover:bg-zinc-50"
+              onClick={createAutomation}
+              disabled={saving}
+            >
+              + New
+            </button>
+            <button
+              type="button"
+              className="rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-sm font-semibold hover:bg-zinc-50"
+              onClick={() => {
+                setLibraryOpen(true);
+                setLibraryMenuFor(null);
+              }}
+            >
+              All automations
+            </button>
+          </div>
+
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              className="rounded-2xl bg-blue-600 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-700 disabled:opacity-60"
+              onClick={() => void saveAll()}
+              disabled={saving}
+            >
+              {saving ? "Saving…" : "Save"}
+            </button>
+
+            <div className="relative">
+              <button
+                type="button"
+                className="rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-sm font-semibold hover:bg-zinc-50"
+                onClick={() => setTopMenuOpen((v) => !v)}
+                disabled={!selectedAutomation}
+                title="More actions"
+              >
+                ⋯
+              </button>
+              {topMenuOpen ? (
+                <div
+                  className="absolute right-0 z-10 mt-2 w-48 overflow-hidden rounded-2xl border border-zinc-200 bg-white shadow"
+                  onMouseDown={(e) => e.stopPropagation()}
+                >
                   <button
-                    key={a.id}
                     type="button"
-                    className="w-full rounded-2xl border border-zinc-200 bg-zinc-50 px-4 py-3 text-left text-sm transition hover:bg-zinc-100"
-                    onClick={() => setSelectedAutomation(a.id)}
+                    className="block w-full px-3 py-2 text-left text-sm font-semibold text-zinc-900 hover:bg-zinc-50 disabled:opacity-60"
+                    onClick={() => {
+                      setTopMenuOpen(false);
+                      openRenameModal();
+                    }}
+                    disabled={saving || !selectedAutomation}
                   >
-                    <div className="truncate font-semibold text-zinc-900">{a.name}</div>
-                    <div className="mt-1 text-xs text-zinc-600">
-                      {(a.nodes?.length ?? 0)} nodes · {(a.edges?.length ?? 0)} connections
-                    </div>
+                    Rename
                   </button>
-                ))}
-            </div>
-
-            {selectedAutomation ? (
-              <div className="mt-4">
-                <div className="rounded-2xl border border-zinc-900 bg-zinc-900 px-4 py-3 text-white">
-                  <div className="flex items-center justify-between gap-2">
-                    <div className="min-w-0 truncate text-sm font-semibold">{selectedAutomation.name}</div>
-                    <button
-                      type="button"
-                      className="shrink-0 rounded-xl border border-zinc-700 bg-zinc-800 px-2 py-1 text-xs font-semibold hover:bg-zinc-700 disabled:opacity-60"
-                      onClick={openRenameModal}
-                      disabled={saving}
-                    >
-                      Rename
-                    </button>
-                  </div>
-                  <div className="mt-1 text-xs text-zinc-200">
-                    {(selectedAutomation.nodes?.length ?? 0)} nodes · {(selectedAutomation.edges?.length ?? 0)} connections
-                  </div>
-                  {selectedAutomation.createdBy?.userId ? (
-                    <div className="mt-1 text-xs text-zinc-300">
-                      Created by {selectedAutomation.createdBy.name || selectedAutomation.createdBy.email || selectedAutomation.createdBy.userId}
-                    </div>
-                  ) : viewer?.userId ? (
-                    <div className="mt-1 text-xs text-zinc-300">Created by {viewer.name || viewer.email || viewer.userId}</div>
-                  ) : null}
-                </div>
-
-                <div className="mt-3 grid gap-2">
                   <button
                     type="button"
-                    className="w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-xs font-semibold hover:bg-zinc-50 disabled:opacity-60"
-                    onClick={openTestModal}
-                    disabled={saving}
+                    className="block w-full px-3 py-2 text-left text-sm font-semibold text-zinc-900 hover:bg-zinc-50 disabled:opacity-60"
+                    onClick={() => {
+                      setTopMenuOpen(false);
+                      openTestModal();
+                    }}
+                    disabled={saving || !selectedAutomation}
                   >
                     Test automation
                   </button>
                   <button
                     type="button"
-                    className="w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-xs font-semibold hover:bg-zinc-50 disabled:opacity-60"
-                    onClick={duplicateAutomation}
-                    disabled={saving}
+                    className="block w-full px-3 py-2 text-left text-sm font-semibold text-zinc-900 hover:bg-zinc-50 disabled:opacity-60"
+                    onClick={() => {
+                      setTopMenuOpen(false);
+                      duplicateAutomation();
+                    }}
+                    disabled={saving || !selectedAutomation}
                   >
                     Duplicate
                   </button>
                   <button
                     type="button"
-                    className="w-full rounded-xl bg-blue-600 px-3 py-2 text-xs font-semibold text-white hover:bg-blue-700 disabled:opacity-60"
-                    onClick={() => void saveAll()}
-                    disabled={saving}
-                  >
-                    {saving ? "Saving…" : "Save"}
-                  </button>
-                  <button
-                    type="button"
-                    className="w-full rounded-xl border border-red-200 bg-red-50 px-3 py-2 text-xs font-semibold text-red-700 hover:bg-red-100 disabled:opacity-60"
-                    onClick={deleteAutomation}
-                    disabled={saving}
+                    className="block w-full px-3 py-2 text-left text-sm font-semibold text-red-700 hover:bg-red-50 disabled:opacity-60"
+                    onClick={() => {
+                      setTopMenuOpen(false);
+                      deleteAutomation();
+                    }}
+                    disabled={saving || !selectedAutomation}
                   >
                     Delete
                   </button>
                 </div>
-              </div>
-            ) : null}
-          </div>
-
-          <div className="mt-4 rounded-3xl border border-zinc-200 bg-white p-4">
-            <div className="text-sm font-semibold text-zinc-900">Palette</div>
-            <div className="mt-1 text-sm text-zinc-600">Drag onto the canvas.</div>
-
-            <div className="mt-3 space-y-2">
-              {([
-                { type: "trigger" as const, title: "Trigger" },
-                { type: "action" as const, title: "Action" },
-                { type: "condition" as const, title: "Condition" },
-                { type: "delay" as const, title: "Delay" },
-                { type: "note" as const, title: "Note" },
-              ] as const).map((x) => {
-                const b = badgeForType(x.type);
-                const disabled =
-                  x.type === "trigger" && Boolean(selectedAutomation && (selectedAutomation.nodes || []).some((n) => n.type === "trigger"));
-                return (
-                  <div
-                    key={x.type}
-                    draggable={!disabled}
-                    onDragStart={(ev) => {
-                      if (disabled) {
-                        ev.preventDefault();
-                        return;
-                      }
-                      ev.dataTransfer.setData("text/plain", x.type);
-                      ev.dataTransfer.effectAllowed = "copy";
-                    }}
-                    className={
-                      "rounded-2xl border border-zinc-200 px-4 py-3 " +
-                      (disabled ? "cursor-not-allowed bg-zinc-50 opacity-60" : "cursor-grab bg-zinc-50 active:cursor-grabbing")
-                    }
-                  >
-                    <div className="flex items-center justify-between gap-3">
-                      <div className="text-sm font-semibold text-zinc-900">{x.title}</div>
-                      <div className={`rounded-full border px-2 py-0.5 text-xs font-semibold ${b.cls}`}>{b.label}</div>
-                    </div>
-                    <div className="mt-1 text-xs text-zinc-600">
-                      {disabled ? "Trigger already set (only one allowed)." : `Drop to add a ${x.title.toLowerCase()} node.`}
-                    </div>
-                  </div>
-                );
-              })}
+              ) : null}
             </div>
           </div>
         </div>
 
-        <div className="lg:col-span-9">
-          <div className="rounded-3xl border border-zinc-200 bg-white p-4">
+        <div className="mt-3">
+          <div className="flex items-center justify-between gap-3">
+            <div>
+              <div className="text-sm font-semibold text-zinc-900">Palette</div>
+              <div className="mt-1 text-sm text-zinc-600">Drag onto the canvas.</div>
+            </div>
+          </div>
+
+          <div className="mt-3 flex gap-2 overflow-x-auto pb-1">
+            {([
+              { type: "trigger" as const, title: "Trigger" },
+              { type: "action" as const, title: "Action" },
+              { type: "condition" as const, title: "Condition" },
+              { type: "delay" as const, title: "Delay" },
+              { type: "note" as const, title: "Note" },
+            ] as const).map((x) => {
+              const b = badgeForType(x.type);
+              const disabled =
+                x.type === "trigger" && Boolean(selectedAutomation && (selectedAutomation.nodes || []).some((n) => n.type === "trigger"));
+              return (
+                <div
+                  key={x.type}
+                  draggable={!disabled}
+                  onDragStart={(ev) => {
+                    if (disabled) {
+                      ev.preventDefault();
+                      return;
+                    }
+                    ev.dataTransfer.setData("text/plain", x.type);
+                    ev.dataTransfer.effectAllowed = "copy";
+                  }}
+                  className={
+                    "min-w-[220px] rounded-2xl border border-zinc-200 px-4 py-3 " +
+                    (disabled ? "cursor-not-allowed bg-zinc-50 opacity-60" : "cursor-grab bg-zinc-50 active:cursor-grabbing")
+                  }
+                >
+                  <div className="flex items-center justify-between gap-3">
+                    <div className="text-sm font-semibold text-zinc-900">{x.title}</div>
+                    <div className={`rounded-full border px-2 py-0.5 text-xs font-semibold ${b.cls}`}>{b.label}</div>
+                  </div>
+                  <div className="mt-1 text-xs text-zinc-600">
+                    {disabled ? "Trigger already set (only one allowed)." : `Drop to add a ${x.title.toLowerCase()} node.`}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      </div>
+
+      <div className="mt-4">
+        <div className="rounded-3xl border border-zinc-200 bg-white p-4">
             <div className="flex items-center justify-between gap-3">
               <div>
                 <div className="text-sm font-semibold text-zinc-900">Canvas</div>
@@ -3545,7 +3704,6 @@ export function PortalAutomationsClient() {
                 </div>
               </div>
             )}
-          </div>
         </div>
       </div>
     </div>

@@ -70,6 +70,40 @@ export const PORTAL_SERVICES: PortalService[] = [
     accent: "ink",
   },
   {
+    slug: "tasks",
+    title: "Tasks",
+    description: "Internal tasks for your portal team.",
+    highlights: [
+      "Create and assign tasks",
+      "Track open vs done",
+      "Use tasks inside automations",
+    ],
+    included: true,
+    accent: "ink",
+  },
+  {
+    slug: "newsletter",
+    title: "Newsletter",
+    description: "Send newsletters to your contacts (coming soon).",
+    highlights: [
+      "Build segments and send campaigns",
+      "Templates and personalization",
+      "Basic analytics",
+    ],
+    accent: "blue",
+  },
+  {
+    slug: "nurture-campaigns",
+    title: "Nurture Campaigns",
+    description: "Longer-running nurture sequences across channels (coming soon).",
+    highlights: [
+      "Multi-step sequences",
+      "Delays and conditions",
+      "Simple reporting",
+    ],
+    accent: "coral",
+  },
+  {
     slug: "follow-up",
     title: "Follow-up Automation",
     description: "Keep leads warm with simple, reliable touch points.",

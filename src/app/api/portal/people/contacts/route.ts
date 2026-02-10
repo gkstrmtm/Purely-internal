@@ -21,7 +21,19 @@ export async function GET() {
   const [contacts, unlinkedLeads] = await Promise.all([
     prisma.portalContact.findMany({
       where: { ownerId },
-      select: { id: true, name: true, email: true, phone: true, createdAt: true, updatedAt: true },
+      select: {
+        id: true,
+        name: true,
+        email: true,
+        phone: true,
+        createdAt: true,
+        updatedAt: true,
+        tagAssignments: {
+          select: {
+            tag: { select: { id: true, name: true, color: true } },
+          },
+        },
+      },
       orderBy: { updatedAt: "desc" },
       take: 500,
     }),
@@ -50,6 +62,16 @@ export async function GET() {
       phone: c.phone,
       createdAtIso: c.createdAt ? c.createdAt.toISOString() : null,
       updatedAtIso: c.updatedAt ? c.updatedAt.toISOString() : null,
+      tags: (c as any).tagAssignments
+        ? (c as any).tagAssignments
+            .map((a: any) => a?.tag)
+            .filter(Boolean)
+            .map((t: any) => ({
+              id: String(t.id),
+              name: String(t.name || "").slice(0, 60),
+              color: typeof t.color === "string" ? String(t.color) : null,
+            }))
+        : [],
     })),
     unlinkedLeads: unlinkedLeads.map((l) => ({
       id: l.id,

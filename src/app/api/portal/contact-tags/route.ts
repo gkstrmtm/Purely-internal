@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
 
-import { requireClientSessionForService } from "@/lib/portalAccess";
+import { requireClientSessionForAnyService } from "@/lib/portalAccess";
 import { createOwnerContactTag, ensureOwnerContactTagsSeededFromLeadScrapingPresets, listOwnerContactTags } from "@/lib/portalContactTags";
 
 export const dynamic = "force-dynamic";
@@ -24,7 +24,7 @@ const postSchema = z.object({
 });
 
 export async function GET() {
-  const auth = await requireClientSessionForService("inbox");
+  const auth = await requireClientSessionForAnyService(["inbox", "people", "automations"]);
   if (!auth.ok) {
     return NextResponse.json(
       { ok: false, error: auth.status === 401 ? "Unauthorized" : "Forbidden" },
@@ -39,7 +39,7 @@ export async function GET() {
 }
 
 export async function POST(req: Request) {
-  const auth = await requireClientSessionForService("inbox");
+  const auth = await requireClientSessionForAnyService(["inbox", "people", "automations"], "edit");
   if (!auth.ok) {
     return NextResponse.json(
       { ok: false, error: auth.status === 401 ? "Unauthorized" : "Forbidden" },

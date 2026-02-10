@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
 
-import { requireClientSessionForService } from "@/lib/portalAccess";
+import { requireClientSessionForAnyService } from "@/lib/portalAccess";
 import { deleteOwnerContactTag, updateOwnerContactTag } from "@/lib/portalContactTags";
 
 export const dynamic = "force-dynamic";
@@ -23,7 +23,7 @@ const patchSchema = z
   .refine((v) => v.name !== undefined || v.color !== undefined, { message: "No changes" });
 
 export async function PATCH(req: Request, ctx: { params: Promise<{ tagId: string }> }) {
-  const auth = await requireClientSessionForService("inbox");
+  const auth = await requireClientSessionForAnyService(["inbox", "people", "automations"], "edit");
   if (!auth.ok) {
     return NextResponse.json(
       { ok: false, error: auth.status === 401 ? "Unauthorized" : "Forbidden" },
@@ -49,7 +49,7 @@ export async function PATCH(req: Request, ctx: { params: Promise<{ tagId: string
 }
 
 export async function DELETE(_req: Request, ctx: { params: Promise<{ tagId: string }> }) {
-  const auth = await requireClientSessionForService("inbox");
+  const auth = await requireClientSessionForAnyService(["inbox", "people", "automations"], "edit");
   if (!auth.ok) {
     return NextResponse.json(
       { ok: false, error: auth.status === 401 ? "Unauthorized" : "Forbidden" },
