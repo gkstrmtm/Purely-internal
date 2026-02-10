@@ -95,7 +95,7 @@ export async function GET() {
     );
   }
 
-  const userId = auth.session.user.id;
+  const userId = ((auth as any).access?.memberId as string | undefined) || auth.session.user.id;
   const user = await prisma.user.findUnique({
     where: { id: userId },
     select: { id: true, name: true, email: true, role: true, updatedAt: true },
@@ -124,7 +124,7 @@ export async function PUT(req: Request) {
     );
   }
 
-  const userId = auth.session.user.id;
+  const userId = ((auth as any).access?.memberId as string | undefined) || auth.session.user.id;
 
   const phoneProvided = parsed.data.phone !== undefined;
   let nextPhone: string | null = null;

@@ -3,6 +3,7 @@ import { z } from "zod";
 
 import { prisma } from "@/lib/db";
 import { requireClientSessionForService } from "@/lib/portalAccess";
+import { ensurePortalContactTagsReady } from "@/lib/portalContactTags";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
@@ -20,6 +21,9 @@ export async function GET(_req: Request, ctx: { params: Promise<{ contactId: str
   }
 
   const ownerId = auth.session.user.id;
+
+  await ensurePortalContactTagsReady().catch(() => null);
+
   const params = await ctx.params;
   const contactId = contactIdSchema.safeParse(params.contactId);
   if (!contactId.success) {
@@ -85,6 +89,11 @@ export async function GET(_req: Request, ctx: { params: Promise<{ contactId: str
         orderBy: { createdAt: "desc" },
         take: 25,
       },
+      tagAssignments: {
+        select: {
+          tag: { select: { id: true, name: true, color: true } },
+        },
+      },
     },
   });
 
@@ -101,6 +110,16 @@ export async function GET(_req: Request, ctx: { params: Promise<{ contactId: str
       phone: contact.phone,
       createdAtIso: contact.createdAt.toISOString(),
       updatedAtIso: contact.updatedAt.toISOString(),
+      tags: (contact as any).tagAssignments
+        ? (contact as any).tagAssignments
+            .map((a: any) => a?.tag)
+            .filter(Boolean)
+            .map((t: any) => ({
+              id: String(t.id),
+              name: String(t.name || "").slice(0, 60),
+              color: typeof t.color === "string" ? String(t.color) : null,
+            }))
+        : [],
       leads: contact.portalLeads.map((l) => ({
         id: l.id,
         businessName: l.businessName,

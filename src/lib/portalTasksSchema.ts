@@ -60,6 +60,20 @@ export async function ensurePortalTasksSchema() {
     );`,
     `CREATE INDEX IF NOT EXISTS "PortalTask_ownerId_status_updatedAt_idx" ON "PortalTask"("ownerId","status","updatedAt");`,
     `CREATE INDEX IF NOT EXISTS "PortalTask_ownerId_assignedToUserId_status_idx" ON "PortalTask"("ownerId","assignedToUserId","status");`,
+
+    // PortalTaskMemberCompletion: per-member completion tracking for tasks assigned to everyone.
+    `CREATE TABLE IF NOT EXISTS "PortalTaskMemberCompletion" (
+      "id" TEXT PRIMARY KEY,
+      "ownerId" TEXT NOT NULL,
+      "taskId" TEXT NOT NULL,
+      "userId" TEXT NOT NULL,
+      "completedAt" TIMESTAMP(3) NOT NULL,
+      CONSTRAINT "PortalTaskMemberCompletion_ownerId_fkey" FOREIGN KEY ("ownerId") REFERENCES "User"("id") ON DELETE RESTRICT ON UPDATE CASCADE,
+      CONSTRAINT "PortalTaskMemberCompletion_taskId_fkey" FOREIGN KEY ("taskId") REFERENCES "PortalTask"("id") ON DELETE CASCADE ON UPDATE CASCADE,
+      CONSTRAINT "PortalTaskMemberCompletion_userId_fkey" FOREIGN KEY ("userId") REFERENCES "User"("id") ON DELETE CASCADE ON UPDATE CASCADE
+    );`,
+    `CREATE UNIQUE INDEX IF NOT EXISTS "PortalTaskMemberCompletion_taskId_userId_key" ON "PortalTaskMemberCompletion"("taskId","userId");`,
+    `CREATE INDEX IF NOT EXISTS "PortalTaskMemberCompletion_ownerId_userId_idx" ON "PortalTaskMemberCompletion"("ownerId","userId");`,
   ];
 
   for (const sql of statements) {

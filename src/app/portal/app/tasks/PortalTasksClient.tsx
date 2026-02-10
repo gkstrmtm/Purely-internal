@@ -11,6 +11,7 @@ type TaskRow = {
   status: "OPEN" | "DONE" | "CANCELED" | string;
   assignedToUserId: string | null;
   assignedTo: { userId: string; email: string; name: string } | null;
+  viewerDoneAtIso?: string | null;
   dueAtIso: string | null;
   createdAtIso: string | null;
   updatedAtIso: string | null;
@@ -40,7 +41,20 @@ export function PortalTasksClient() {
   const [assignedToUserId, setAssignedToUserId] = useState<string>("");
   const [creating, setCreating] = useState(false);
 
-  const openTasks = useMemo(() => tasks.filter((t) => String(t.status) === "OPEN"), [tasks]);
+  const openTasks = useMemo(() => {
+    const rows = tasks.filter((t) => String(t.status) === "OPEN");
+    // For everyone-assigned tasks (assignedToUserId null), sort unfinished first.
+    return rows.sort((a, b) => {
+      const aEveryone = !a.assignedToUserId;
+      const bEveryone = !b.assignedToUserId;
+      if (aEveryone && bEveryone) {
+        const aDone = Boolean(a.viewerDoneAtIso);
+        const bDone = Boolean(b.viewerDoneAtIso);
+        if (aDone !== bDone) return aDone ? 1 : -1;
+      }
+      return 0;
+    });
+  }, [tasks]);
   const doneTasks = useMemo(() => tasks.filter((t) => String(t.status) === "DONE"), [tasks]);
 
   async function load() {
@@ -172,8 +186,18 @@ export function PortalTasksClient() {
                   <div key={t.id} className="rounded-2xl border border-zinc-200 p-4">
                     <div className="flex items-start justify-between gap-3">
                       <div>
-                        <div className="font-semibold text-zinc-900">{t.title}</div>
+                        <div
+                          className={classNames(
+                            "font-semibold",
+                            !t.assignedToUserId && t.viewerDoneAtIso ? "text-zinc-500 line-through" : "text-zinc-900",
+                          )}
+                        >
+                          {t.title}
+                        </div>
                         {t.description ? <div className="mt-1 text-sm text-zinc-600">{t.description}</div> : null}
+                        {!t.assignedToUserId ? (
+                          <div className="mt-2 text-xs font-semibold text-zinc-500">Assigned to everyone</div>
+                        ) : null}
                         <div className="mt-3">
                           <div className="text-xs font-semibold text-zinc-700">Assigned to</div>
                           <select
@@ -181,7 +205,7 @@ export function PortalTasksClient() {
                             onChange={(e) => setAssignee(t.id, e.target.value)}
                             className="mt-1 w-full rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-sm"
                           >
-                            <option value="">Unassigned</option>
+                            <option value="">Everyone</option>
                             {assignees
                               .filter((a) => a?.user?.active)
                               .map((a) => (
@@ -194,10 +218,15 @@ export function PortalTasksClient() {
                       </div>
                       <button
                         type="button"
-                        onClick={() => setStatus(t.id, "DONE")}
-                        className="rounded-2xl bg-[color:var(--color-brand-blue)] px-3 py-2 text-xs font-semibold text-white hover:brightness-95"
+                        onClick={() => setStatus(t.id, !t.assignedToUserId && t.viewerDoneAtIso ? "OPEN" : "DONE")}
+                        className={classNames(
+                          "rounded-2xl px-3 py-2 text-xs font-semibold hover:brightness-95",
+                          !t.assignedToUserId && t.viewerDoneAtIso
+                            ? "border border-zinc-200 bg-white text-zinc-800 hover:bg-zinc-50"
+                            : "bg-[color:var(--color-brand-blue)] text-white",
+                        )}
                       >
-                        Mark done
+                        {!t.assignedToUserId && t.viewerDoneAtIso ? "Undo" : "Mark done"}
                       </button>
                     </div>
                   </div>
@@ -269,7 +298,7 @@ export function PortalTasksClient() {
                   onChange={(e) => setAssignedToUserId(e.target.value)}
                   className="mt-1 w-full rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-sm"
                 >
-                  <option value="">Unassigned</option>
+                  <option value="">Everyone</option>
                   {assignees
                     .filter((a) => a?.user?.active)
                     .map((a) => (

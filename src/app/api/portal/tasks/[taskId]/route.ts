@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
+import crypto from "crypto";
 
 import { prisma } from "@/lib/db";
 import { requireClientSessionForService } from "@/lib/portalAccess";
@@ -31,16 +32,56 @@ export async function PATCH(req: Request, ctx: { params: Promise<{ taskId: strin
   await ensurePortalTasksSchema().catch(() => null);
 
   const ownerId = auth.session.user.id;
+  const memberId = (auth.session.user as any).memberId || ownerId;
   const { taskId } = await ctx.params;
 
   const body = (await req.json().catch(() => null)) as unknown;
   const parsed = patchSchema.safeParse(body ?? {});
   if (!parsed.success) return NextResponse.json({ ok: false, error: "Invalid input" }, { status: 400 });
 
+  const trimmedTaskId = String(taskId || "").trim();
   const sets: string[] = [];
-  const params: any[] = [ownerId, String(taskId || "").trim()];
+  const params: any[] = [ownerId, trimmedTaskId];
 
-  if (parsed.data.status) {
+  // If the client is trying to mark a task DONE/OPEN, and the task is assigned to everyone
+  // (assignedToUserId is NULL), store completion per-member instead of closing the task globally.
+  const statusReq = parsed.data.status;
+  let everyoneTaskCompletionHandled = false;
+  if (statusReq === "DONE" || statusReq === "OPEN") {
+    const row = (await prisma.$queryRawUnsafe(
+      `SELECT "assignedToUserId" FROM "PortalTask" WHERE "ownerId" = $1 AND "id" = $2 LIMIT 1`,
+      ownerId,
+      trimmedTaskId,
+    ).catch(() => [])) as any[];
+
+    const assignedToUserId = row?.[0]?.assignedToUserId ? String(row[0].assignedToUserId) : null;
+    if (row?.length && !assignedToUserId) {
+      const now = new Date();
+      if (statusReq === "DONE") {
+        const id = crypto.randomUUID().replace(/-/g, "");
+        await prisma.$executeRawUnsafe(
+          `INSERT INTO "PortalTaskMemberCompletion" ("id","ownerId","taskId","userId","completedAt")
+           VALUES ($1,$2,$3,$4,$5)
+           ON CONFLICT ("taskId","userId") DO UPDATE SET "completedAt" = EXCLUDED."completedAt"`,
+          id,
+          ownerId,
+          trimmedTaskId,
+          memberId,
+          now,
+        );
+      } else {
+        await prisma.$executeRawUnsafe(
+          `DELETE FROM "PortalTaskMemberCompletion" WHERE "ownerId" = $1 AND "taskId" = $2 AND "userId" = $3`,
+          ownerId,
+          trimmedTaskId,
+          memberId,
+        );
+      }
+      everyoneTaskCompletionHandled = true;
+    }
+  }
+
+  if (parsed.data.status && !everyoneTaskCompletionHandled) {
     params.push(parsed.data.status);
     sets.push(`"status" = $${params.length}`);
   }

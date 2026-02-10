@@ -34,7 +34,7 @@ export async function PUT(req: Request) {
     return NextResponse.json({ error: parsed.error.issues[0]?.message ?? "Invalid input" }, { status: 400 });
   }
 
-  const userId = auth.session.user.id;
+  const userId = ((auth as any).access?.memberId as string | undefined) || auth.session.user.id;
   const user = await prisma.user.findUnique({ where: { id: userId }, select: { passwordHash: true } });
   if (!user) return NextResponse.json({ error: "Not found" }, { status: 404 });
 

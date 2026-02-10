@@ -40,20 +40,25 @@ export async function GET(req: Request) {
   const assignedRaw = (url.searchParams.get("assigned") || "all").toLowerCase();
   const limit = Math.max(1, Math.min(500, Number(url.searchParams.get("limit") || 200) || 200));
 
-  const status = statusRaw === "ALL" ? null : (statusRaw === "OPEN" || statusRaw === "DONE" || statusRaw === "CANCELED" ? statusRaw : "OPEN");
-  const assignedToUserId = assignedRaw === "me" ? memberId : null;
+  const status =
+    statusRaw === "ALL"
+      ? null
+      : statusRaw === "OPEN" || statusRaw === "DONE" || statusRaw === "CANCELED"
+        ? statusRaw
+        : "OPEN";
 
+  // Always include memberId for viewer completion join.
   const whereParts: string[] = [`t."ownerId" = $1`];
-  const params: any[] = [ownerId];
+  const params: any[] = [ownerId, memberId];
 
   if (status) {
     params.push(status);
     whereParts.push(`t."status" = $${params.length}`);
   }
 
-  if (assignedToUserId) {
-    params.push(assignedToUserId);
-    whereParts.push(`t."assignedToUserId" = $${params.length}`);
+  if (assignedRaw === "me") {
+    // "Me" includes tasks assigned to me AND tasks assigned to everyone (assignedToUserId is NULL).
+    whereParts.push(`(t."assignedToUserId" = $2 OR t."assignedToUserId" IS NULL)`);
   }
 
   params.push(limit);
@@ -70,9 +75,11 @@ export async function GET(req: Request) {
       t."createdAt",
       t."updatedAt",
       u."email" as "assignedEmail",
-      u."name" as "assignedName"
+      u."name" as "assignedName",
+      c."completedAt" as "viewerCompletedAt"
     FROM "PortalTask" t
     LEFT JOIN "User" u ON u."id" = t."assignedToUserId"
+    LEFT JOIN "PortalTaskMemberCompletion" c ON c."taskId" = t."id" AND c."userId" = $2
     WHERE ${whereParts.join(" AND ")}
     ORDER BY t."updatedAt" DESC
     LIMIT $${params.length}
@@ -89,6 +96,7 @@ export async function GET(req: Request) {
       status: String(r.status || "OPEN"),
       assignedToUserId: r.assignedToUserId ? String(r.assignedToUserId) : null,
       assignedTo: r.assignedToUserId ? { userId: String(r.assignedToUserId), email: String(r.assignedEmail || ""), name: String(r.assignedName || "") } : null,
+      viewerDoneAtIso: r.viewerCompletedAt ? new Date(r.viewerCompletedAt).toISOString() : null,
       dueAtIso: r.dueAt ? new Date(r.dueAt).toISOString() : null,
       createdAtIso: r.createdAt ? new Date(r.createdAt).toISOString() : null,
       updatedAtIso: r.updatedAt ? new Date(r.updatedAt).toISOString() : null,
