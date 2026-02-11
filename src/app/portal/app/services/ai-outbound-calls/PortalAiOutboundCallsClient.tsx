@@ -4,6 +4,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 
 import { PortalListboxDropdown } from "@/components/PortalListboxDropdown";
 import { useToast } from "@/components/ToastProvider";
+import { DEFAULT_TAG_COLORS } from "@/lib/tagColors.shared";
 
 type CampaignStatus = "DRAFT" | "ACTIVE" | "PAUSED" | "ARCHIVED";
 
@@ -54,8 +55,9 @@ export function PortalAiOutboundCallsClient() {
   const [addTagValue, setAddTagValue] = useState<string>("");
 
   const [newTagName, setNewTagName] = useState("");
-  const [newTagColor, setNewTagColor] = useState("");
   const [tagSearch, setTagSearch] = useState("");
+  const [createTagColor, setCreateTagColor] = useState<(typeof DEFAULT_TAG_COLORS)[number]>("#2563EB");
+  const [showCreateTag, setShowCreateTag] = useState(false);
 
   const mountedRef = useRef(true);
   useEffect(() => {
@@ -155,7 +157,7 @@ export function PortalAiOutboundCallsClient() {
         headers: { "content-type": "application/json" },
         body: JSON.stringify({
           name,
-          color: newTagColor.trim() || undefined,
+          color: createTagColor,
         }),
       });
 
@@ -165,7 +167,7 @@ export function PortalAiOutboundCallsClient() {
       }
 
       setNewTagName("");
-      setNewTagColor("");
+      setShowCreateTag(false);
 
       // Refresh tags + campaigns to keep everything in sync.
       await loadAll();
@@ -224,19 +226,17 @@ export function PortalAiOutboundCallsClient() {
 
   const addTagOptions = useMemo(() => {
     const selectedTagSet = new Set(selected?.audienceTagIds ?? []);
-    const usable = tags.filter((t) => !selectedTagSet.has(t.id));
-    return [
-      { value: "", label: "Add existing tag…" },
-      ...usable.map((t) => ({ value: t.id, label: t.name })),
-    ];
-  }, [tags, selected]);
-
-  const allTagsFiltered = useMemo(() => {
     const q = tagSearch.trim().toLowerCase();
-    const xs = [...tags].sort((a, b) => a.name.localeCompare(b.name));
-    if (!q) return xs;
-    return xs.filter((t) => t.name.toLowerCase().includes(q));
-  }, [tags, tagSearch]);
+    const usable = tags
+      .filter((t) => !selectedTagSet.has(t.id))
+      .filter((t) => (!q ? true : t.name.toLowerCase().includes(q)))
+      .sort((a, b) => a.name.localeCompare(b.name));
+    return [
+      { value: "", label: "Add a tag…" },
+      ...usable.map((t) => ({ value: t.id, label: t.name })),
+      { value: "__create__", label: "Create tag…" },
+    ];
+  }, [tags, selected, tagSearch]);
 
   function addAudienceTag(tagId: string) {
     if (!selected) return;
@@ -388,6 +388,13 @@ export function PortalAiOutboundCallsClient() {
                 </div>
 
                 <div className="mt-2 max-w-sm">
+                  <input
+                    value={tagSearch}
+                    onChange={(e) => setTagSearch(e.target.value)}
+                    placeholder="Search tags…"
+                    className="w-full rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-sm"
+                  />
+                  <div className="mt-2">
                   <PortalListboxDropdown
                     value={addTagValue}
                     options={addTagOptions as any}
@@ -397,45 +404,78 @@ export function PortalAiOutboundCallsClient() {
                         setAddTagValue("");
                         return;
                       }
+                      if (id === "__create__") {
+                        setAddTagValue("");
+                        setShowCreateTag(true);
+                        return;
+                      }
                       setAddTagValue("");
                       addAudienceTag(id);
                     }}
                   />
+                  </div>
                 </div>
 
-                <div className="mt-3 rounded-2xl border border-zinc-200 bg-zinc-50 p-3">
-                  <div className="text-xs font-semibold text-zinc-700">Create a tag</div>
-                  <div className="mt-2 grid grid-cols-1 gap-2 sm:grid-cols-[1fr,140px,120px]">
-                    <input
-                      value={newTagName}
-                      onChange={(e) => setNewTagName(e.target.value)}
-                      placeholder="Tag name"
-                      className="w-full rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-sm"
-                    />
-                    <input
-                      value={newTagColor}
-                      onChange={(e) => setNewTagColor(e.target.value)}
-                      placeholder="#64748B (optional)"
-                      className="w-full rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-sm"
-                    />
-                    <button
-                      type="button"
-                      disabled={busy || !newTagName.trim()}
-                      onClick={createTagAndMaybeAdd}
-                      className={classNames(
-                        "inline-flex items-center justify-center rounded-2xl px-4 py-2 text-sm font-semibold",
-                        busy || !newTagName.trim()
-                          ? "bg-zinc-200 text-zinc-600"
-                          : "bg-brand-ink text-white hover:opacity-95",
-                      )}
-                    >
-                      Create
-                    </button>
+                {showCreateTag ? (
+                  <div className="mt-3 rounded-2xl border border-zinc-200 bg-zinc-50 p-3">
+                    <div className="text-xs font-semibold text-zinc-700">Create tag</div>
+                    <div className="mt-2 grid grid-cols-1 gap-2 sm:grid-cols-3">
+                      <input
+                        value={newTagName}
+                        onChange={(e) => setNewTagName(e.target.value)}
+                        placeholder="Tag name"
+                        className="sm:col-span-2 w-full rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-sm"
+                      />
+
+                      <div className="flex flex-wrap items-center gap-1.5 rounded-2xl border border-zinc-200 bg-white px-2 py-2">
+                        {DEFAULT_TAG_COLORS.slice(0, 10).map((c) => {
+                          const sel = c === createTagColor;
+                          return (
+                            <button
+                              key={c}
+                              type="button"
+                              className={classNames(
+                                "h-7 w-7 rounded-full border",
+                                sel ? "border-zinc-900 ring-2 ring-zinc-900/20" : "border-zinc-200",
+                              )}
+                              style={{ backgroundColor: c }}
+                              onClick={() => setCreateTagColor(c)}
+                              title={c}
+                            />
+                          );
+                        })}
+                      </div>
+                    </div>
+
+                    <div className="mt-2 flex items-center justify-between gap-3">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setShowCreateTag(false);
+                          setNewTagName("");
+                        }}
+                        className="rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-xs font-semibold text-zinc-700 hover:bg-zinc-50"
+                        disabled={busy}
+                      >
+                        Cancel
+                      </button>
+                      <button
+                        type="button"
+                        disabled={busy || !newTagName.trim()}
+                        onClick={createTagAndMaybeAdd}
+                        className={classNames(
+                          "rounded-2xl px-4 py-2 text-xs font-semibold",
+                          busy || !newTagName.trim()
+                            ? "bg-zinc-200 text-zinc-600"
+                            : "bg-brand-ink text-white hover:opacity-95",
+                        )}
+                      >
+                        {busy ? "Creating…" : "Create"}
+                      </button>
+                    </div>
+                    <div className="mt-2 text-[11px] text-zinc-500">Pick a color from the standard palette.</div>
                   </div>
-                  <div className="mt-2 text-[11px] text-zinc-500">
-                    Tip: created tags show up immediately, and clicking a tag adds it to this campaign.
-                  </div>
-                </div>
+                ) : null}
 
                 {selectedTags.length ? (
                   <div className="mt-3 flex flex-wrap gap-2">
@@ -457,50 +497,6 @@ export function PortalAiOutboundCallsClient() {
                   <div className="mt-3 text-xs text-zinc-500">No tags selected.</div>
                 )}
 
-                <div className="mt-5">
-                  <div className="flex items-center justify-between gap-3">
-                    <div className="text-sm font-semibold text-zinc-800">All tags</div>
-                    <div className="text-xs font-semibold text-zinc-500">{tags.length.toLocaleString()} total</div>
-                  </div>
-
-                  <div className="mt-2 max-w-sm">
-                    <input
-                      value={tagSearch}
-                      onChange={(e) => setTagSearch(e.target.value)}
-                      placeholder="Search tags…"
-                      className="w-full rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-sm"
-                    />
-                  </div>
-
-                  {allTagsFiltered.length ? (
-                    <div className="mt-3 flex flex-wrap gap-2">
-                      {allTagsFiltered.map((t) => {
-                        const already = !!selected?.audienceTagIds?.includes(t.id);
-                        return (
-                          <button
-                            key={t.id}
-                            type="button"
-                            disabled={already}
-                            onClick={() => addAudienceTag(t.id)}
-                            className={classNames(
-                              "inline-flex items-center gap-2 rounded-full border px-3 py-1 text-xs font-semibold",
-                              already
-                                ? "border-zinc-200 bg-zinc-100 text-zinc-500"
-                                : "border-zinc-200 bg-white text-zinc-800 hover:bg-zinc-50",
-                            )}
-                            title={already ? "Already selected" : "Add to campaign"}
-                          >
-                            <span className="h-2 w-2 rounded-full" style={{ backgroundColor: t.color || "#64748B" }} />
-                            <span className="max-w-[220px] truncate">{t.name}</span>
-                            {already ? <span className="text-zinc-400">✓</span> : <span className="text-zinc-400">+</span>}
-                          </button>
-                        );
-                      })}
-                    </div>
-                  ) : (
-                    <div className="mt-3 text-xs text-zinc-500">No tags found.</div>
-                  )}
-                </div>
               </div>
             </div>
           )}
