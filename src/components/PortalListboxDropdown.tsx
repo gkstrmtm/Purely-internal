@@ -36,8 +36,6 @@ export function PortalListboxDropdown<T extends string>(props: {
 
     const width = Math.min(Math.max(180, r.width), vw - 16);
     const left = Math.min(Math.max(8, r.left), Math.max(8, vw - width - 8));
-
-    const approxMenuHeight = 320;
     const spaceBelow = vh - r.bottom;
     const placement: "down" | "up" = spaceBelow >= 240 ? "down" : "up";
     const top = placement === "down" ? Math.min(r.bottom + 8, vh - 8) : Math.max(8, r.top - 8);
@@ -144,7 +142,6 @@ export function PortalListboxDropdown<T extends string>(props: {
       window.removeEventListener("resize", onResize);
       window.removeEventListener("scroll", onScroll, true);
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, portal]);
 
   return (

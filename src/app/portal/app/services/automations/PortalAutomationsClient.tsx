@@ -1,6 +1,4 @@
 "use client";
-
-import Link from "next/link";
 import { useEffect, useMemo, useRef, useState } from "react";
 
 import { PortalListboxDropdown } from "@/components/PortalListboxDropdown";
@@ -1529,15 +1527,6 @@ export function PortalAutomationsClient() {
       setConfirmBusy(false);
       setConfirm(null);
     }
-  }
-
-  function deleteSelectedEdge(edgeId: string) {
-    if (!selectedAutomation) return;
-    updateSelectedAutomation((a) => ({
-      ...a,
-      edges: a.edges.filter((e) => e.id !== edgeId),
-      updatedAtIso: new Date().toISOString(),
-    }));
   }
 
   function createAutomation() {

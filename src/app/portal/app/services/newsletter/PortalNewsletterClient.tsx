@@ -118,7 +118,6 @@ export function PortalNewsletterClient({ initialAudience }: { initialAudience: A
   const toast = useToast();
 
   const [audience, setAudience] = useState<AudienceTab>(initialAudience);
-  const kind = audience === "internal" ? "INTERNAL" : "EXTERNAL";
 
   const [site, setSite] = useState<Site | null>(null);
   const [settings, setSettings] = useState<Settings | null>(null);
