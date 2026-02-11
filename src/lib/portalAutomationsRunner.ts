@@ -72,6 +72,8 @@ type ConditionOp =
   | "ends_with"
   | "is_empty"
   | "is_not_empty"
+  | "before"
+  | "after"
   | "gt"
   | "gte"
   | "lt"
@@ -85,7 +87,9 @@ type BuilderNodeConfig =
       body?: string;
       subject?: string;
       tagId?: string;
-  assignedToUserId?: string;
+      tagMode?: "latest" | "all";
+      maxContacts?: number;
+      assignedToUserId?: string;
       smsTo?: MessageTarget;
       smsToNumber?: string;
       emailTo?: Exclude<MessageTarget, "inbound_sender">;
@@ -460,6 +464,14 @@ function evalCondition(
   const a = left;
   const b = coerceString(right);
 
+  const parseComparableDate = (raw: string): number | null => {
+    const s = String(raw || "").trim();
+    if (!s) return null;
+    const ms = Date.parse(s);
+    if (Number.isFinite(ms)) return ms;
+    return null;
+  };
+
   switch (cfg.op) {
     case "equals":
       return a === b;
@@ -473,6 +485,18 @@ function evalCondition(
       return !a.trim();
     case "is_not_empty":
       return Boolean(a.trim());
+    case "before": {
+      const da = parseComparableDate(a);
+      const db = parseComparableDate(b);
+      if (da == null || db == null) return false;
+      return da < db;
+    }
+    case "after": {
+      const da = parseComparableDate(a);
+      const db = parseComparableDate(b);
+      if (da == null || db == null) return false;
+      return da > db;
+    }
     case "gt": {
       const na = Number(a);
       const nb = Number(b);
@@ -642,6 +666,68 @@ async function runAutomationOnce(opts: {
     getOwnerInternalPhone(opts.ownerId).catch(() => null),
   ]);
 
+  const bookingId = String(opts.event?.bookingId || "").trim();
+  const leadId = String(opts.event?.leadId || "").trim();
+
+  const [booking, calendarsConfig, leadRow] = await Promise.all([
+    bookingId
+      ? prisma.portalBooking
+          .findUnique({
+            where: { id: bookingId },
+            select: {
+              id: true,
+              startAt: true,
+              endAt: true,
+              status: true,
+              calendarId: true,
+              contactName: true,
+              contactEmail: true,
+              contactPhone: true,
+              notes: true,
+              canceledAt: true,
+              site: { select: { ownerId: true, slug: true, title: true, timeZone: true } },
+            },
+          })
+          .catch(() => null)
+      : Promise.resolve(null),
+    (async () => {
+      const calendarId = String(opts.event?.calendarId || "").trim();
+      if (!calendarId && !bookingId) return null;
+      return await getBookingCalendarsConfig(opts.ownerId).catch(() => null);
+    })(),
+    leadId
+      ? (prisma as any).portalLead
+          .findFirst({
+            where: { id: leadId, ownerId: opts.ownerId },
+            select: {
+              id: true,
+              assignedToUserId: true,
+              contactId: true,
+              source: true,
+              kind: true,
+              businessName: true,
+              email: true,
+              phone: true,
+              website: true,
+              address: true,
+              niche: true,
+              tag: true,
+              tagColor: true,
+              createdAt: true,
+            },
+          })
+          .catch(() => null)
+      : Promise.resolve(null),
+  ]);
+
+  const bookingSafe = booking && booking.site?.ownerId === opts.ownerId ? booking : null;
+  const calendarIdForVars =
+    String(bookingSafe?.calendarId || "").trim() || String(opts.event?.calendarId || "").trim() || "";
+  const calendarCfg =
+    calendarIdForVars && calendarsConfig?.calendars?.length
+      ? calendarsConfig.calendars.find((c: any) => String(c?.id || "") === calendarIdForVars) || null
+      : null;
+
   const getTemplateVars = () => {
     const base = buildPortalTemplateVars({
       contact: {
@@ -665,6 +751,48 @@ async function runAutomationOnce(opts: {
     base["lead.id"] = String(opts.event?.leadId || "");
     base["lead.assigneeUserId"] = String(ctx.assigneeUserId || "");
     base["lead.contactId"] = String(ctx.contact.id || "");
+
+    // Booking vars (best-effort).
+    base["booking.id"] = String(bookingSafe?.id || "");
+    base["booking.status"] = String((bookingSafe as any)?.status || "");
+    base["booking.calendarId"] = String(bookingSafe?.calendarId || calendarIdForVars || "");
+    base["booking.calendarTitle"] = String((calendarCfg as any)?.title || "");
+    base["booking.meetingLocation"] = String((calendarCfg as any)?.meetingLocation || "");
+    base["booking.meetingDetails"] = String((calendarCfg as any)?.meetingDetails || "");
+
+    const startIso = bookingSafe?.startAt ? new Date(bookingSafe.startAt).toISOString() : "";
+    const endIso = bookingSafe?.endAt ? new Date(bookingSafe.endAt).toISOString() : "";
+    base["booking.startAtIso"] = startIso;
+    base["booking.endAtIso"] = endIso;
+    base["booking.startDate"] = startIso ? startIso.slice(0, 10) : "";
+    base["booking.startTime"] = startIso ? startIso.slice(11, 16) : "";
+    base["booking.endDate"] = endIso ? endIso.slice(0, 10) : "";
+    base["booking.endTime"] = endIso ? endIso.slice(11, 16) : "";
+    base["booking.canceledAtIso"] = bookingSafe?.canceledAt ? new Date(bookingSafe.canceledAt).toISOString() : "";
+
+    base["booking.contactName"] = String(bookingSafe?.contactName || "");
+    base["booking.contactEmail"] = String(bookingSafe?.contactEmail || "");
+    base["booking.contactPhone"] = String(bookingSafe?.contactPhone || "");
+    base["booking.notes"] = String(bookingSafe?.notes || "");
+
+    base["booking.siteSlug"] = String(bookingSafe?.site?.slug || "");
+    base["booking.siteTitle"] = String(bookingSafe?.site?.title || "");
+    base["booking.siteTimeZone"] = String(bookingSafe?.site?.timeZone || "");
+
+    // Lead vars (best-effort).
+    base["lead.businessName"] = String((leadRow as any)?.businessName || "");
+    base["lead.email"] = String((leadRow as any)?.email || "");
+    base["lead.phone"] = String((leadRow as any)?.phone || "");
+    base["lead.website"] = String((leadRow as any)?.website || "");
+    base["lead.address"] = String((leadRow as any)?.address || "");
+    base["lead.niche"] = String((leadRow as any)?.niche || "");
+    base["lead.source"] = String((leadRow as any)?.source || "");
+    base["lead.kind"] = String((leadRow as any)?.kind || "");
+    base["lead.tag"] = String((leadRow as any)?.tag || "");
+    base["lead.tagColor"] = String((leadRow as any)?.tagColor || "");
+    base["lead.createdAtIso"] = (leadRow as any)?.createdAt ? new Date((leadRow as any).createdAt).toISOString() : "";
+    base["lead.assigneeUserId"] = String((leadRow as any)?.assignedToUserId || base["lead.assigneeUserId"] || "");
+    base["lead.contactId"] = String((leadRow as any)?.contactId || base["lead.contactId"] || "");
 
     // Dynamic time vars.
     base["now.hour"] = String(new Date().getHours());

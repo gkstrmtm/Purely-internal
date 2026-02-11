@@ -27,13 +27,56 @@ const PORTAL_EVENT_VARIABLES: TemplateVariable[] = [
   { key: "lead.contactId", label: "Lead contact ID", group: "Custom", appliesTo: "Lead" },
 ];
 
+const PORTAL_BOOKING_VARIABLES: TemplateVariable[] = [
+  { key: "booking.id", label: "Booking ID", group: "Custom", appliesTo: "Booking" },
+  { key: "booking.status", label: "Booking status", group: "Custom", appliesTo: "Booking" },
+  { key: "booking.calendarId", label: "Booking calendar ID", group: "Custom", appliesTo: "Booking" },
+  { key: "booking.calendarTitle", label: "Booking calendar title", group: "Custom", appliesTo: "Booking" },
+  { key: "booking.meetingLocation", label: "Booking meeting location", group: "Custom", appliesTo: "Booking" },
+  { key: "booking.meetingDetails", label: "Booking meeting details", group: "Custom", appliesTo: "Booking" },
+  { key: "booking.startAtIso", label: "Booking start time (ISO)", group: "Custom", appliesTo: "Booking" },
+  { key: "booking.endAtIso", label: "Booking end time (ISO)", group: "Custom", appliesTo: "Booking" },
+  { key: "booking.startDate", label: "Booking start date (YYYY-MM-DD)", group: "Custom", appliesTo: "Booking" },
+  { key: "booking.startTime", label: "Booking start time (HH:MM)", group: "Custom", appliesTo: "Booking" },
+  { key: "booking.endDate", label: "Booking end date (YYYY-MM-DD)", group: "Custom", appliesTo: "Booking" },
+  { key: "booking.endTime", label: "Booking end time (HH:MM)", group: "Custom", appliesTo: "Booking" },
+  { key: "booking.canceledAtIso", label: "Booking canceled at (ISO)", group: "Custom", appliesTo: "Booking" },
+  { key: "booking.contactName", label: "Booking contact name", group: "Custom", appliesTo: "Booking" },
+  { key: "booking.contactEmail", label: "Booking contact email", group: "Custom", appliesTo: "Booking" },
+  { key: "booking.contactPhone", label: "Booking contact phone", group: "Custom", appliesTo: "Booking" },
+  { key: "booking.notes", label: "Booking notes", group: "Custom", appliesTo: "Booking" },
+  { key: "booking.siteSlug", label: "Booking site slug", group: "Custom", appliesTo: "Booking" },
+  { key: "booking.siteTitle", label: "Booking site title", group: "Custom", appliesTo: "Booking" },
+  { key: "booking.siteTimeZone", label: "Booking site timezone", group: "Custom", appliesTo: "Booking" },
+];
+
+const PORTAL_LEAD_VARIABLES: TemplateVariable[] = [
+  { key: "lead.businessName", label: "Lead business name", group: "Custom", appliesTo: "Lead" },
+  { key: "lead.email", label: "Lead email", group: "Custom", appliesTo: "Lead" },
+  { key: "lead.phone", label: "Lead phone", group: "Custom", appliesTo: "Lead" },
+  { key: "lead.website", label: "Lead website", group: "Custom", appliesTo: "Lead" },
+  { key: "lead.address", label: "Lead address", group: "Custom", appliesTo: "Lead" },
+  { key: "lead.niche", label: "Lead niche", group: "Custom", appliesTo: "Lead" },
+  { key: "lead.source", label: "Lead source", group: "Custom", appliesTo: "Lead" },
+  { key: "lead.kind", label: "Lead kind", group: "Custom", appliesTo: "Lead" },
+  { key: "lead.tag", label: "Lead tag", group: "Custom", appliesTo: "Lead" },
+  { key: "lead.tagColor", label: "Lead tag color", group: "Custom", appliesTo: "Lead" },
+  { key: "lead.createdAtIso", label: "Lead created at (ISO)", group: "Custom", appliesTo: "Lead" },
+];
+
 const CONDITION_FIELD_KEYS = Array.from(
-  new Set([...PORTAL_TIME_VARIABLES, ...PORTAL_EVENT_VARIABLES, ...PORTAL_MESSAGE_VARIABLES, ...PORTAL_LINK_VARIABLES].map((v) => v.key)),
+  new Set(
+    [...PORTAL_TIME_VARIABLES, ...PORTAL_EVENT_VARIABLES, ...PORTAL_BOOKING_VARIABLES, ...PORTAL_LEAD_VARIABLES, ...PORTAL_MESSAGE_VARIABLES, ...PORTAL_LINK_VARIABLES].map(
+      (v) => v.key,
+    ),
+  ),
 );
 
 const CONDITION_FIELD_OPTIONS: Array<{ value: string; label: string; hint?: string }> = [
   ...PORTAL_TIME_VARIABLES.map((v) => ({ value: v.key, label: v.label || v.key, hint: v.key })),
   ...PORTAL_EVENT_VARIABLES.map((v) => ({ value: v.key, label: v.label || v.key, hint: v.key })),
+  ...PORTAL_BOOKING_VARIABLES.map((v) => ({ value: v.key, label: v.label || v.key, hint: v.key })),
+  ...PORTAL_LEAD_VARIABLES.map((v) => ({ value: v.key, label: v.label || v.key, hint: v.key })),
   ...PORTAL_MESSAGE_VARIABLES.map((v) => ({ value: v.key, label: v.label || v.key, hint: v.key })),
   ...PORTAL_LINK_VARIABLES.map((v) => ({ value: v.key, label: v.label || v.key, hint: v.key })),
 ].filter((o) => o.value);
@@ -83,7 +126,9 @@ type ConditionOp =
   | "gt"
   | "gte"
   | "lt"
-  | "lte";
+  | "lte"
+  | "before"
+  | "after";
 
 type MessageTarget = "inbound_sender" | "event_contact" | "internal_notification" | "assigned_lead" | "custom";
 
@@ -484,6 +529,8 @@ function labelForConfig(t: BuilderNodeType, cfg: BuilderNodeConfig | undefined) 
       gte: ">=",
       lt: "<",
       lte: "<=",
+      before: "before",
+      after: "after",
     };
     const op = opLabel[cfg.op] ?? cfg.op;
     return `Condition: ${left} ${op}${cfg.op === "is_empty" || cfg.op === "is_not_empty" ? "" : ` ${right || "(value)"}`}`;
@@ -1645,7 +1692,14 @@ export function PortalAutomationsClient() {
 
       <PortalVariablePickerModal
         open={variablePickerOpen}
-        variables={[...PORTAL_TIME_VARIABLES, ...PORTAL_EVENT_VARIABLES, ...PORTAL_MESSAGE_VARIABLES, ...PORTAL_LINK_VARIABLES]}
+        variables={[
+          ...PORTAL_TIME_VARIABLES,
+          ...PORTAL_EVENT_VARIABLES,
+          ...PORTAL_BOOKING_VARIABLES,
+          ...PORTAL_LEAD_VARIABLES,
+          ...PORTAL_MESSAGE_VARIABLES,
+          ...PORTAL_LINK_VARIABLES,
+        ]}
         onPick={applyPickedVariable}
         onClose={() => {
           setVariablePickerOpen(false);
@@ -4280,7 +4334,15 @@ export function PortalAutomationsClient() {
                             const isKnownField = CONDITION_FIELD_KEYS.includes(leftKey);
                             const fieldDropdownValue = isKnownField ? leftKey : "__custom__";
                             const numericOps: ConditionOp[] = ["gt", "gte", "lt", "lte"];
+                            const dateOps: ConditionOp[] = ["before", "after"];
                             const expectsNumber = numericOps.includes(op) || leftKey === "now.hour" || leftKey === "now.weekday";
+                            const expectsDate =
+                              dateOps.includes(op) ||
+                              leftKey.endsWith("AtIso") ||
+                              leftKey.endsWith("createdAtIso") ||
+                              leftKey.endsWith("now.iso") ||
+                              leftKey.endsWith("now.date") ||
+                              leftKey.endsWith("Date");
 
                             const rightQuickOptions =
                               leftKey === "now.weekday"
@@ -4382,6 +4444,8 @@ export function PortalAutomationsClient() {
                                     { value: "gte", label: "Greater than or equal (≥)" },
                                     { value: "lt", label: "Less than (<)" },
                                     { value: "lte", label: "Less than or equal (≤)" },
+                                    { value: "before", label: "Before (date/time)" },
+                                    { value: "after", label: "After (date/time)" },
                                     { value: "is_empty", label: "Is empty" },
                                     { value: "is_not_empty", label: "Is not empty" },
                                   ]}
@@ -4408,7 +4472,7 @@ export function PortalAutomationsClient() {
                                     <input
                                       ref={conditionRightRef}
                                       className="w-full rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-sm"
-                                      placeholder={expectsNumber ? "Number" : "Value"}
+                                      placeholder={expectsNumber ? "Number" : expectsDate ? "YYYY-MM-DD or ISO timestamp" : "Value"}
                                       inputMode={expectsNumber ? "numeric" : undefined}
                                       type={expectsNumber && !rightQuickOptions ? "number" : "text"}
                                       value={right}
