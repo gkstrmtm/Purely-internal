@@ -77,7 +77,39 @@ export async function GET(
       },
     });
 
-    const withUrls = (messages ?? []).map((m: any) => ({
+    // Best-effort dedupe: historically, outbound SMS could be logged twice
+    // (Twilio send helper + API route). Collapse by provider message id.
+    const deduped: any[] = [];
+    const seen = new Map<string, number>();
+    for (const m of messages ?? []) {
+      const provider = typeof m?.provider === "string" ? m.provider : "";
+      const providerMessageId = typeof m?.providerMessageId === "string" ? m.providerMessageId : "";
+      const key = provider && providerMessageId ? `${provider}:${providerMessageId}` : "";
+      if (!key) {
+        deduped.push(m);
+        continue;
+      }
+
+      const idx = seen.get(key);
+      if (idx === undefined) {
+        seen.set(key, deduped.length);
+        deduped.push(m);
+        continue;
+      }
+
+      const existing = deduped[idx];
+      const existingAtt = Array.isArray(existing?.attachments) ? existing.attachments.length : 0;
+      const nextAtt = Array.isArray(m?.attachments) ? m.attachments.length : 0;
+      const existingBody = String(existing?.bodyText ?? "").trim();
+      const nextBody = String(m?.bodyText ?? "").trim();
+
+      // Prefer the row that has attachments and/or a non-empty body.
+      if (nextAtt > existingAtt || (!existingBody && nextBody)) {
+        deduped[idx] = m;
+      }
+    }
+
+    const withUrls = deduped.map((m: any) => ({
       ...m,
       attachments: Array.isArray(m.attachments)
         ? m.attachments.map((a: any) => ({

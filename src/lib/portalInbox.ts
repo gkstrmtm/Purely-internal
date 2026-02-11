@@ -236,6 +236,35 @@ export async function upsertPortalInboxMessage(opts: {
     select: { id: true },
   });
 
+  const provider = opts.provider ? String(opts.provider).slice(0, 40) : null;
+  const providerMessageId = opts.providerMessageId ? String(opts.providerMessageId).slice(0, 120) : null;
+  const bodyText = String(opts.bodyText ?? "").slice(0, 20000);
+
+  // Dedupe: the same provider message can be logged from multiple places
+  // (e.g. send function + API route). If we already have it, return it.
+  if (provider && providerMessageId) {
+    const existing = await (prisma as any).portalInboxMessage.findFirst({
+      where: { ownerId, provider, providerMessageId },
+      select: { id: true, threadId: true, bodyText: true },
+    });
+
+    if (existing?.id) {
+      const existingBody = String(existing.bodyText ?? "").trim();
+      const nextBody = String(bodyText ?? "").trim();
+      if (!existingBody && nextBody) {
+        await (prisma as any).portalInboxMessage
+          .update({
+            where: { id: existing.id },
+            data: { bodyText },
+            select: { id: true },
+          })
+          .catch(() => null);
+      }
+
+      return { threadId: String(existing.threadId || thread.id), messageId: String(existing.id) };
+    }
+  }
+
   const msg = await (prisma as any).portalInboxMessage.create({
     data: {
       ownerId,
@@ -245,9 +274,9 @@ export async function upsertPortalInboxMessage(opts: {
       fromAddress: String(opts.fromAddress ?? "").slice(0, 240),
       toAddress: String(opts.toAddress ?? "").slice(0, 240),
       subject,
-      bodyText: String(opts.bodyText ?? "").slice(0, 20000),
-      provider: opts.provider ? String(opts.provider).slice(0, 40) : null,
-      providerMessageId: opts.providerMessageId ? String(opts.providerMessageId).slice(0, 120) : null,
+      bodyText,
+      provider,
+      providerMessageId,
       ...(opts.createdAt ? { createdAt: opts.createdAt } : {}),
     },
     select: { id: true },
