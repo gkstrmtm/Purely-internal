@@ -20,6 +20,12 @@ const CONDITION_FIELD_KEYS = Array.from(
   new Set([...PORTAL_TIME_VARIABLES, ...PORTAL_MESSAGE_VARIABLES, ...PORTAL_LINK_VARIABLES].map((v) => v.key)),
 );
 
+const CONDITION_FIELD_OPTIONS: Array<{ value: string; label: string; hint?: string }> = [
+  ...PORTAL_TIME_VARIABLES.map((v) => ({ value: v.key, label: v.label || v.key, hint: v.key })),
+  ...PORTAL_MESSAGE_VARIABLES.map((v) => ({ value: v.key, label: v.label || v.key, hint: v.key })),
+  ...PORTAL_LINK_VARIABLES.map((v) => ({ value: v.key, label: v.label || v.key, hint: v.key })),
+].filter((o) => o.value);
+
 type BuilderNodeType = "trigger" | "action" | "delay" | "condition" | "note";
 
 type EdgePort = "out" | "true" | "false";
@@ -97,6 +103,8 @@ type BuilderNodeConfig =
       body?: string;
       subject?: string;
       tagId?: string;
+      tagMode?: "latest" | "all";
+      maxContacts?: number;
       assignedToUserId?: string;
       smsTo?: MessageTarget;
       smsToNumber?: string;
@@ -4257,6 +4265,11 @@ export function PortalAutomationsClient() {
                             const hidesRight = op === "is_empty" || op === "is_not_empty";
                             const leftKey = left.trim();
 
+                            const isKnownField = CONDITION_FIELD_KEYS.includes(leftKey);
+                            const fieldDropdownValue = isKnownField ? leftKey : "__custom__";
+                            const numericOps: ConditionOp[] = ["gt", "gte", "lt", "lte"];
+                            const expectsNumber = numericOps.includes(op) || leftKey === "now.hour" || leftKey === "now.weekday";
+
                             const rightQuickOptions =
                               leftKey === "now.weekday"
                                 ? ([
@@ -4275,12 +4288,44 @@ export function PortalAutomationsClient() {
                             return (
                               <div className="mt-1 space-y-2">
                                 <div className="text-xs font-semibold text-zinc-600">If</div>
-                                <div className="flex items-center gap-2">
+                                <div className="flex flex-wrap items-center gap-2">
+                                  <div className="min-w-[240px] flex-1">
+                                    <PortalListboxDropdown
+                                      value={fieldDropdownValue as any}
+                                      options={[
+                                        { value: "__custom__", label: "Custom field…", hint: "Type any key" },
+                                        ...CONDITION_FIELD_OPTIONS,
+                                      ]}
+                                      onChange={(next) => {
+                                        const v = String(next || "");
+                                        if (!v || v === "__custom__") {
+                                          requestAnimationFrame(() => conditionLeftRef.current?.focus());
+                                          return;
+                                        }
+                                        const nextLeft = v.slice(0, 60);
+                                        updateSelectedAutomation((a) => {
+                                          const nodes = a.nodes.map((n) => {
+                                            if (n.id !== selectedNode.id) return n;
+                                            const prev =
+                                              n.config?.kind === "condition" ? n.config : (defaultConfigForType("condition") as any);
+                                            const nextCfg: BuilderNodeConfig = { ...(prev as any), kind: "condition", left: nextLeft };
+                                            const nextLabel =
+                                              autolabelSelectedNode && shouldAutolabel(n.label)
+                                                ? labelForConfig("condition", nextCfg)
+                                                : n.label;
+                                            return { ...n, config: nextCfg, label: nextLabel };
+                                          });
+                                          return { ...a, nodes, updatedAtIso: new Date().toISOString() };
+                                        });
+                                      }}
+                                    />
+                                  </div>
+
                                   <input
                                     ref={conditionLeftRef}
                                     list="condition_field_keys"
-                                    className="w-full rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-sm"
-                                    placeholder="Field (e.g. contact.email)"
+                                    className="min-w-[240px] flex-1 rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-sm"
+                                    placeholder="Field key (e.g. contact.email)"
                                     value={left}
                                     onChange={(e) => {
                                       const nextLeft = e.target.value.slice(0, 60);
@@ -4310,7 +4355,7 @@ export function PortalAutomationsClient() {
                                     className="shrink-0 rounded-xl border border-zinc-200 bg-white px-3 py-2 text-xs font-semibold hover:bg-zinc-50"
                                     onClick={() => openVariablePicker("condition_left")}
                                   >
-                                    Pick
+                                    Insert
                                   </button>
                                 </div>
 
@@ -4351,7 +4396,9 @@ export function PortalAutomationsClient() {
                                     <input
                                       ref={conditionRightRef}
                                       className="w-full rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-sm"
-                                      placeholder="Value"
+                                      placeholder={expectsNumber ? "Number" : "Value"}
+                                      inputMode={expectsNumber ? "numeric" : undefined}
+                                      type={expectsNumber && !rightQuickOptions ? "number" : "text"}
                                       value={right}
                                       onChange={(e) => {
                                         const nextRight = e.target.value.slice(0, 120);
