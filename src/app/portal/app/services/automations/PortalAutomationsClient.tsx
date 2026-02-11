@@ -2004,8 +2004,8 @@ export function PortalAutomationsClient() {
       ) : null}
 
       <div className="mt-5 rounded-3xl border border-zinc-200 bg-white p-4">
-        <div className="flex flex-wrap items-center justify-between gap-3">
-          <div className="flex min-w-0 items-center gap-2">
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+          <div className="flex w-full min-w-0 flex-wrap items-center gap-2 sm:w-auto sm:flex-nowrap">
             <button
               type="button"
               className="min-w-0 rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-sm font-semibold text-zinc-900 hover:bg-zinc-50"
@@ -2037,7 +2037,7 @@ export function PortalAutomationsClient() {
             </button>
           </div>
 
-          <div className="flex items-center gap-2">
+          <div className="flex w-full flex-wrap items-center justify-start gap-2 sm:w-auto sm:flex-nowrap sm:justify-end">
             <div className="mr-2 hidden flex-col items-end sm:flex">
               <div className="text-xs font-semibold text-zinc-700">
                 {saving ? "Saving…" : dirty ? "Autosaving…" : "Saved"}
