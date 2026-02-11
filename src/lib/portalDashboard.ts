@@ -18,10 +18,16 @@ export type DashboardWidgetId =
   | "leadsCaptured"
   | "reliabilitySummary"
   | "aiCalls"
+  | "aiOutboundCalls"
   | "missedCalls"
   | "bookingsCreated"
   | "reviewsCollected"
   | "avgReviewRating"
+  | "newsletterSends"
+  | "nurtureEnrollments"
+  | "tasks"
+  | "inboxMessagesIn"
+  | "inboxMessagesOut"
   | "leadsCreated"
   | "contactsCreated"
   | "leadScrapeRuns"
@@ -73,10 +79,16 @@ const ALL_WIDGET_IDS: DashboardWidgetId[] = [
   "leadsCaptured",
   "reliabilitySummary",
   "aiCalls",
+  "aiOutboundCalls",
   "missedCalls",
   "bookingsCreated",
   "reviewsCollected",
   "avgReviewRating",
+  "newsletterSends",
+  "nurtureEnrollments",
+  "tasks",
+  "inboxMessagesIn",
+  "inboxMessagesOut",
   "leadsCreated",
   "contactsCreated",
   "leadScrapeRuns",

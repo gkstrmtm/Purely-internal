@@ -39,10 +39,16 @@ type DashboardWidgetId =
   | "leadsCaptured"
   | "reliabilitySummary"
   | "aiCalls"
+  | "aiOutboundCalls"
   | "missedCalls"
   | "bookingsCreated"
   | "reviewsCollected"
   | "avgReviewRating"
+  | "newsletterSends"
+  | "nurtureEnrollments"
+  | "tasks"
+  | "inboxMessagesIn"
+  | "inboxMessagesOut"
   | "leadsCreated"
   | "contactsCreated"
   | "leadScrapeRuns"
@@ -87,6 +93,24 @@ type ReportingPayload = {
     avgReviewRating: number | null;
     leadsCreated: number;
     contactsCreated: number;
+
+    aiOutboundQueuedNow: number;
+    aiOutboundCompleted: number;
+    aiOutboundFailed: number;
+
+    nurtureEnrollmentsCreated: number;
+    nurtureEnrollmentsActiveNow: number;
+    nurtureEnrollmentsCompleted: number;
+
+    newsletterSendEvents: number;
+    newsletterSentCount: number;
+    newsletterFailedCount: number;
+
+    tasksOpenNow: number;
+    tasksCompleted: number;
+
+    inboxMessagesIn: number;
+    inboxMessagesOut: number;
   };
   daily: Array<{
     day: string;
@@ -434,6 +458,8 @@ export function PortalDashboardClient() {
         return "Reliability";
       case "aiCalls":
         return "AI calls";
+      case "aiOutboundCalls":
+        return "AI outbound calls";
       case "missedCalls":
         return "Missed calls";
       case "bookingsCreated":
@@ -442,6 +468,16 @@ export function PortalDashboardClient() {
         return "Reviews collected";
       case "avgReviewRating":
         return "Average rating";
+      case "newsletterSends":
+        return "Newsletter sends";
+      case "nurtureEnrollments":
+        return "Nurture enrollments";
+      case "tasks":
+        return "Tasks";
+      case "inboxMessagesIn":
+        return "Inbox messages";
+      case "inboxMessagesOut":
+        return "Outbox messages";
       case "leadsCreated":
         return "Leads created";
       case "contactsCreated":
@@ -843,10 +879,16 @@ export function PortalDashboardClient() {
       case "creditsUsed":
       case "automationsRun":
       case "aiCalls":
+      case "aiOutboundCalls":
       case "missedCalls":
       case "bookingsCreated":
       case "reviewsCollected":
       case "avgReviewRating":
+      case "newsletterSends":
+      case "nurtureEnrollments":
+      case "tasks":
+      case "inboxMessagesIn":
+      case "inboxMessagesOut":
       case "leadsCreated":
       case "contactsCreated":
       case "leadScrapeRuns": {
@@ -859,6 +901,8 @@ export function PortalDashboardClient() {
               return compactNum(k.automationsRun);
             case "aiCalls":
               return compactNum(k.aiCalls);
+            case "aiOutboundCalls":
+              return compactNum(k.aiOutboundCompleted);
             case "missedCalls":
               return compactNum(k.missedCalls);
             case "bookingsCreated":
@@ -867,6 +911,16 @@ export function PortalDashboardClient() {
               return compactNum(k.reviewsCollected);
             case "avgReviewRating":
               return typeof k.avgReviewRating === "number" ? k.avgReviewRating.toFixed(1) : "—";
+            case "newsletterSends":
+              return compactNum(k.newsletterSentCount);
+            case "nurtureEnrollments":
+              return compactNum(k.nurtureEnrollmentsCreated);
+            case "tasks":
+              return compactNum(k.tasksOpenNow);
+            case "inboxMessagesIn":
+              return compactNum(k.inboxMessagesIn);
+            case "inboxMessagesOut":
+              return compactNum(k.inboxMessagesOut);
             case "leadsCreated":
               return compactNum(k.leadsCreated);
             case "contactsCreated":
@@ -887,13 +941,42 @@ export function PortalDashboardClient() {
                 <StatLine label="Failed" value={compactNum(k.aiFailed)} />
               </div>
             ) : null}
+            {id === "aiOutboundCalls" && k ? (
+              <div className="mt-3 space-y-2">
+                <StatLine label="Queued now" value={compactNum(k.aiOutboundQueuedNow)} />
+                <StatLine label="Failed" value={compactNum(k.aiOutboundFailed)} />
+              </div>
+            ) : null}
             {id === "missedCalls" && k ? (
               <div className="mt-3 space-y-2">
                 <StatLine label="Texts sent" value={compactNum(k.textsSent)} />
                 <StatLine label="Texts failed" value={compactNum(k.textsFailed)} />
               </div>
             ) : null}
+            {id === "newsletterSends" && k ? (
+              <div className="mt-3 space-y-2">
+                <StatLine label="Send events" value={compactNum(k.newsletterSendEvents)} />
+                <StatLine label="Failed" value={compactNum(k.newsletterFailedCount)} />
+              </div>
+            ) : null}
+            {id === "nurtureEnrollments" && k ? (
+              <div className="mt-3 space-y-2">
+                <StatLine label="Active now" value={compactNum(k.nurtureEnrollmentsActiveNow)} />
+                <StatLine label="Completed" value={compactNum(k.nurtureEnrollmentsCompleted)} />
+              </div>
+            ) : null}
+            {id === "tasks" && k ? (
+              <div className="mt-3 space-y-2">
+                <StatLine label="Completed" value={compactNum(k.tasksCompleted)} />
+              </div>
+            ) : null}
             {id === "creditsUsed" ? <div className="mt-2 text-xs text-zinc-500">Last 30 days</div> : null}
+            {id === "tasks" ? <div className="mt-2 text-xs text-zinc-500">Open now · completed in range</div> : null}
+            {id === "aiOutboundCalls" ? <div className="mt-2 text-xs text-zinc-500">Completed in range</div> : null}
+            {id === "newsletterSends" ? <div className="mt-2 text-xs text-zinc-500">Sent in range</div> : null}
+            {id === "nurtureEnrollments" ? <div className="mt-2 text-xs text-zinc-500">Created in range</div> : null}
+            {id === "inboxMessagesIn" ? <div className="mt-2 text-xs text-zinc-500">Inbound in range</div> : null}
+            {id === "inboxMessagesOut" ? <div className="mt-2 text-xs text-zinc-500">Outbound in range</div> : null}
           </AccentCard>
         );
       }

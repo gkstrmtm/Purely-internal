@@ -29,6 +29,10 @@ type ApiCreateCampaignResponse =
   | { ok: true; id: string }
   | { ok: false; error: string };
 
+type ApiCreateTagResponse =
+  | { ok: true; tag: ContactTag }
+  | { ok: false; error: string };
+
 function classNames(...xs: Array<string | false | null | undefined>) {
   return xs.filter(Boolean).join(" ");
 }
@@ -48,6 +52,10 @@ export function PortalAiOutboundCallsClient() {
 
   const [createName, setCreateName] = useState("");
   const [addTagValue, setAddTagValue] = useState<string>("");
+
+  const [newTagName, setNewTagName] = useState("");
+  const [newTagColor, setNewTagColor] = useState("");
+  const [tagSearch, setTagSearch] = useState("");
 
   const mountedRef = useRef(true);
   useEffect(() => {
@@ -133,6 +141,48 @@ export function PortalAiOutboundCallsClient() {
     }
   }
 
+  async function createTagAndMaybeAdd() {
+    const name = newTagName.trim();
+    if (!name) return;
+    if (busy) return;
+
+    setBusy(true);
+    setError(null);
+
+    try {
+      const res = await fetch("/api/portal/contact-tags", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          name,
+          color: newTagColor.trim() || undefined,
+        }),
+      });
+
+      const json = (await res.json().catch(() => null)) as ApiCreateTagResponse | null;
+      if (!res.ok || !json || !json.ok) {
+        throw new Error((json as any)?.error || "Failed to create tag");
+      }
+
+      setNewTagName("");
+      setNewTagColor("");
+
+      // Refresh tags + campaigns to keep everything in sync.
+      await loadAll();
+
+      // Convenience: add to the selected campaign if present.
+      if (selected?.id && json.tag?.id) {
+        addAudienceTag(json.tag.id);
+      }
+
+      toast.success("Tag created");
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Failed to create tag");
+    } finally {
+      setBusy(false);
+    }
+  }
+
   async function updateCampaign(patch: Partial<Pick<Campaign, "name" | "status" | "script" | "audienceTagIds">>) {
     if (!selected) return;
     if (busy) return;
@@ -180,6 +230,13 @@ export function PortalAiOutboundCallsClient() {
       ...usable.map((t) => ({ value: t.id, label: t.name })),
     ];
   }, [tags, selected]);
+
+  const allTagsFiltered = useMemo(() => {
+    const q = tagSearch.trim().toLowerCase();
+    const xs = [...tags].sort((a, b) => a.name.localeCompare(b.name));
+    if (!q) return xs;
+    return xs.filter((t) => t.name.toLowerCase().includes(q));
+  }, [tags, tagSearch]);
 
   function addAudienceTag(tagId: string) {
     if (!selected) return;
@@ -346,6 +403,40 @@ export function PortalAiOutboundCallsClient() {
                   />
                 </div>
 
+                <div className="mt-3 rounded-2xl border border-zinc-200 bg-zinc-50 p-3">
+                  <div className="text-xs font-semibold text-zinc-700">Create a tag</div>
+                  <div className="mt-2 grid grid-cols-1 gap-2 sm:grid-cols-[1fr,140px,120px]">
+                    <input
+                      value={newTagName}
+                      onChange={(e) => setNewTagName(e.target.value)}
+                      placeholder="Tag name"
+                      className="w-full rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-sm"
+                    />
+                    <input
+                      value={newTagColor}
+                      onChange={(e) => setNewTagColor(e.target.value)}
+                      placeholder="#64748B (optional)"
+                      className="w-full rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-sm"
+                    />
+                    <button
+                      type="button"
+                      disabled={busy || !newTagName.trim()}
+                      onClick={createTagAndMaybeAdd}
+                      className={classNames(
+                        "inline-flex items-center justify-center rounded-2xl px-4 py-2 text-sm font-semibold",
+                        busy || !newTagName.trim()
+                          ? "bg-zinc-200 text-zinc-600"
+                          : "bg-brand-ink text-white hover:opacity-95",
+                      )}
+                    >
+                      Create
+                    </button>
+                  </div>
+                  <div className="mt-2 text-[11px] text-zinc-500">
+                    Tip: created tags show up immediately, and clicking a tag adds it to this campaign.
+                  </div>
+                </div>
+
                 {selectedTags.length ? (
                   <div className="mt-3 flex flex-wrap gap-2">
                     {selectedTags.map((t) => (
@@ -365,6 +456,51 @@ export function PortalAiOutboundCallsClient() {
                 ) : (
                   <div className="mt-3 text-xs text-zinc-500">No tags selected.</div>
                 )}
+
+                <div className="mt-5">
+                  <div className="flex items-center justify-between gap-3">
+                    <div className="text-sm font-semibold text-zinc-800">All tags</div>
+                    <div className="text-xs font-semibold text-zinc-500">{tags.length.toLocaleString()} total</div>
+                  </div>
+
+                  <div className="mt-2 max-w-sm">
+                    <input
+                      value={tagSearch}
+                      onChange={(e) => setTagSearch(e.target.value)}
+                      placeholder="Search tags…"
+                      className="w-full rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-sm"
+                    />
+                  </div>
+
+                  {allTagsFiltered.length ? (
+                    <div className="mt-3 flex flex-wrap gap-2">
+                      {allTagsFiltered.map((t) => {
+                        const already = !!selected?.audienceTagIds?.includes(t.id);
+                        return (
+                          <button
+                            key={t.id}
+                            type="button"
+                            disabled={already}
+                            onClick={() => addAudienceTag(t.id)}
+                            className={classNames(
+                              "inline-flex items-center gap-2 rounded-full border px-3 py-1 text-xs font-semibold",
+                              already
+                                ? "border-zinc-200 bg-zinc-100 text-zinc-500"
+                                : "border-zinc-200 bg-white text-zinc-800 hover:bg-zinc-50",
+                            )}
+                            title={already ? "Already selected" : "Add to campaign"}
+                          >
+                            <span className="h-2 w-2 rounded-full" style={{ backgroundColor: t.color || "#64748B" }} />
+                            <span className="max-w-[220px] truncate">{t.name}</span>
+                            {already ? <span className="text-zinc-400">✓</span> : <span className="text-zinc-400">+</span>}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  ) : (
+                    <div className="mt-3 text-xs text-zinc-500">No tags found.</div>
+                  )}
+                </div>
               </div>
             </div>
           )}

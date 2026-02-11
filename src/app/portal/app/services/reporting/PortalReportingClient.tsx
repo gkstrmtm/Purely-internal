@@ -33,6 +33,24 @@ type ReportingPayload = {
     avgReviewRating: number | null;
     leadsCreated: number;
     contactsCreated: number;
+
+    aiOutboundQueuedNow: number;
+    aiOutboundCompleted: number;
+    aiOutboundFailed: number;
+
+    nurtureEnrollmentsCreated: number;
+    nurtureEnrollmentsActiveNow: number;
+    nurtureEnrollmentsCompleted: number;
+
+    newsletterSendEvents: number;
+    newsletterSentCount: number;
+    newsletterFailedCount: number;
+
+    tasksOpenNow: number;
+    tasksCompleted: number;
+
+    inboxMessagesIn: number;
+    inboxMessagesOut: number;
   };
   daily: Array<{
     day: string;
@@ -76,11 +94,16 @@ type ServiceKey =
   | "billing"
   | "mediaLibrary"
   | "aiReceptionist"
+  | "aiOutboundCalls"
   | "missedCallTextBack"
   | "booking"
   | "blogs"
   | "reviews"
-  | "leadScraping";
+  | "leadScraping"
+  | "newsletter"
+  | "nurtureCampaigns"
+  | "tasks"
+  | "inbox";
 
 type ServiceInfo = { key: ServiceKey; name: string; href: string | null };
 
@@ -90,9 +113,14 @@ const SERVICE_INFOS: ServiceInfo[] = [
   { key: "billing", name: "Billing", href: "/portal/app/billing" },
   { key: "mediaLibrary", name: "Media Library", href: "/portal/app/services/media-library" },
   { key: "aiReceptionist", name: "AI Receptionist", href: "/portal/app/services/ai-receptionist" },
+  { key: "aiOutboundCalls", name: "AI Outbound Calls", href: "/portal/app/services/ai-outbound-calls" },
   { key: "missedCallTextBack", name: "Missed-Call Text Back", href: "/portal/app/services/missed-call-textback" },
   { key: "booking", name: "Booking Automation", href: "/portal/app/services/booking" },
   { key: "blogs", name: "Automated Blogs", href: "/portal/app/services/blogs" },
+  { key: "newsletter", name: "Newsletter", href: "/portal/app/services/newsletter" },
+  { key: "nurtureCampaigns", name: "Nurture Campaigns", href: "/portal/app/services/nurture-campaigns" },
+  { key: "tasks", name: "Tasks", href: "/portal/app/services/tasks" },
+  { key: "inbox", name: "Inbox / Outbox", href: "/portal/app/services/inbox" },
   { key: "reviews", name: "Review Requests", href: "/portal/app/services/reviews" },
   { key: "leadScraping", name: "Lead Scraping", href: "/portal/app/services/lead-scraping" },
 ];
@@ -124,6 +152,8 @@ function serviceForWidget(widgetId: string): ServiceInfo {
       return SERVICE_INFOS.find((s) => s.key === "blogs")!;
     case "aiCalls":
       return SERVICE_INFOS.find((s) => s.key === "aiReceptionist")!;
+    case "aiOutboundCalls":
+      return SERVICE_INFOS.find((s) => s.key === "aiOutboundCalls")!;
     case "missedCalls":
       return SERVICE_INFOS.find((s) => s.key === "missedCallTextBack")!;
     case "bookingsCreated":
@@ -131,6 +161,15 @@ function serviceForWidget(widgetId: string): ServiceInfo {
     case "reviewsCollected":
     case "avgReviewRating":
       return SERVICE_INFOS.find((s) => s.key === "reviews")!;
+    case "newsletterSends":
+      return SERVICE_INFOS.find((s) => s.key === "newsletter")!;
+    case "nurtureEnrollments":
+      return SERVICE_INFOS.find((s) => s.key === "nurtureCampaigns")!;
+    case "tasks":
+      return SERVICE_INFOS.find((s) => s.key === "tasks")!;
+    case "inboxMessagesIn":
+    case "inboxMessagesOut":
+      return SERVICE_INFOS.find((s) => s.key === "inbox")!;
     case "leadScrapeRuns":
     case "leadsCreated":
     case "contactsCreated":
@@ -908,6 +947,34 @@ export function PortalReportingClient() {
               </div>
             ) : null}
 
+            {visible("aiOutboundCalls", "aiOutboundCalls", ["AI outbound calls", "Outbound", "Calls", "Queued", "Completed"]) ? (
+              <div className="relative">
+                <div className="absolute right-4 top-4">
+                  {(() => {
+                    const added = dashboardWidgetIds.has("aiOutboundCalls");
+                    return (
+                      <MenuButton
+                        id="aiOutboundCalls"
+                        openId={openMenuId}
+                        setOpenId={setOpenMenuId}
+                        onAdd={() => void addWidget("aiOutboundCalls")}
+                        addDisabled={added}
+                        addLabel={added ? "Already on dashboard" : "Add to dashboard"}
+                        goToHref={serviceForWidget("aiOutboundCalls").href}
+                        goToLabel={serviceForWidget("aiOutboundCalls").name}
+                      />
+                    );
+                  })()}
+                </div>
+                <StatCard
+                  label="AI outbound calls"
+                  value={data.kpis.aiOutboundCompleted.toLocaleString()}
+                  sub={`${data.kpis.aiOutboundQueuedNow} queued now · ${data.kpis.aiOutboundFailed} failed`}
+                  tone="violet"
+                />
+              </div>
+            ) : null}
+
             {visible("missedCalls", "missedCallTextBack", ["Missed calls", "Texts sent", "Text back"]) ? (
               <div className="relative">
                 <div className="absolute right-4 top-4">
@@ -932,6 +999,146 @@ export function PortalReportingClient() {
                   value={data.kpis.missedCalls.toLocaleString()}
                   sub={`${data.kpis.textsSent} texts sent · ${data.kpis.textsFailed} failed`}
                   tone="pink"
+                />
+              </div>
+            ) : null}
+
+            {visible("newsletterSends", "newsletter", ["Newsletter", "Sends", "Sent", "Email", "SMS"]) ? (
+              <div className="relative">
+                <div className="absolute right-4 top-4">
+                  {(() => {
+                    const added = dashboardWidgetIds.has("newsletterSends");
+                    return (
+                      <MenuButton
+                        id="newsletterSends"
+                        openId={openMenuId}
+                        setOpenId={setOpenMenuId}
+                        onAdd={() => void addWidget("newsletterSends")}
+                        addDisabled={added}
+                        addLabel={added ? "Already on dashboard" : "Add to dashboard"}
+                        goToHref={serviceForWidget("newsletterSends").href}
+                        goToLabel={serviceForWidget("newsletterSends").name}
+                      />
+                    );
+                  })()}
+                </div>
+                <StatCard
+                  label="Newsletter sends"
+                  value={data.kpis.newsletterSentCount.toLocaleString()}
+                  sub={`${data.kpis.newsletterSendEvents} send events · ${data.kpis.newsletterFailedCount} failed`}
+                  tone="amber"
+                />
+              </div>
+            ) : null}
+
+            {visible("nurtureEnrollments", "nurtureCampaigns", ["Nurture", "Enrollments", "Campaigns", "Follow-up"]) ? (
+              <div className="relative">
+                <div className="absolute right-4 top-4">
+                  {(() => {
+                    const added = dashboardWidgetIds.has("nurtureEnrollments");
+                    return (
+                      <MenuButton
+                        id="nurtureEnrollments"
+                        openId={openMenuId}
+                        setOpenId={setOpenMenuId}
+                        onAdd={() => void addWidget("nurtureEnrollments")}
+                        addDisabled={added}
+                        addLabel={added ? "Already on dashboard" : "Add to dashboard"}
+                        goToHref={serviceForWidget("nurtureEnrollments").href}
+                        goToLabel={serviceForWidget("nurtureEnrollments").name}
+                      />
+                    );
+                  })()}
+                </div>
+                <StatCard
+                  label="Nurture enrollments"
+                  value={data.kpis.nurtureEnrollmentsCreated.toLocaleString()}
+                  sub={`${data.kpis.nurtureEnrollmentsActiveNow} active now · ${data.kpis.nurtureEnrollmentsCompleted} completed`}
+                  tone="emerald"
+                />
+              </div>
+            ) : null}
+
+            {visible("tasks", "tasks", ["Tasks", "To-do", "Done", "Assigned"]) ? (
+              <div className="relative">
+                <div className="absolute right-4 top-4">
+                  {(() => {
+                    const added = dashboardWidgetIds.has("tasks");
+                    return (
+                      <MenuButton
+                        id="tasks"
+                        openId={openMenuId}
+                        setOpenId={setOpenMenuId}
+                        onAdd={() => void addWidget("tasks")}
+                        addDisabled={added}
+                        addLabel={added ? "Already on dashboard" : "Add to dashboard"}
+                        goToHref={serviceForWidget("tasks").href}
+                        goToLabel={serviceForWidget("tasks").name}
+                      />
+                    );
+                  })()}
+                </div>
+                <StatCard
+                  label="Tasks"
+                  value={data.kpis.tasksOpenNow.toLocaleString()}
+                  sub={`${data.kpis.tasksCompleted} completed (${rangeLabel.toLowerCase()})`}
+                  tone="slate"
+                />
+              </div>
+            ) : null}
+
+            {visible("inboxMessagesIn", "inbox", ["Inbox", "Inbound", "Messages", "Email", "SMS"]) ? (
+              <div className="relative">
+                <div className="absolute right-4 top-4">
+                  {(() => {
+                    const added = dashboardWidgetIds.has("inboxMessagesIn");
+                    return (
+                      <MenuButton
+                        id="inboxMessagesIn"
+                        openId={openMenuId}
+                        setOpenId={setOpenMenuId}
+                        onAdd={() => void addWidget("inboxMessagesIn")}
+                        addDisabled={added}
+                        addLabel={added ? "Already on dashboard" : "Add to dashboard"}
+                        goToHref={serviceForWidget("inboxMessagesIn").href}
+                        goToLabel={serviceForWidget("inboxMessagesIn").name}
+                      />
+                    );
+                  })()}
+                </div>
+                <StatCard
+                  label="Inbox messages"
+                  value={data.kpis.inboxMessagesIn.toLocaleString()}
+                  sub={`${data.kpis.inboxMessagesOut} outbox (${rangeLabel.toLowerCase()})`}
+                  tone="ink"
+                />
+              </div>
+            ) : null}
+
+            {visible("inboxMessagesOut", "inbox", ["Outbox", "Outbound", "Messages", "Email", "SMS"]) ? (
+              <div className="relative">
+                <div className="absolute right-4 top-4">
+                  {(() => {
+                    const added = dashboardWidgetIds.has("inboxMessagesOut");
+                    return (
+                      <MenuButton
+                        id="inboxMessagesOut"
+                        openId={openMenuId}
+                        setOpenId={setOpenMenuId}
+                        onAdd={() => void addWidget("inboxMessagesOut")}
+                        addDisabled={added}
+                        addLabel={added ? "Already on dashboard" : "Add to dashboard"}
+                        goToHref={serviceForWidget("inboxMessagesOut").href}
+                        goToLabel={serviceForWidget("inboxMessagesOut").name}
+                      />
+                    );
+                  })()}
+                </div>
+                <StatCard
+                  label="Outbox messages"
+                  value={data.kpis.inboxMessagesOut.toLocaleString()}
+                  sub={`${data.kpis.inboxMessagesIn} inbox (${rangeLabel.toLowerCase()})`}
+                  tone="slate"
                 />
               </div>
             ) : null}

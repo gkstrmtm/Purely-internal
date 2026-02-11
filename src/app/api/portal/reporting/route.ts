@@ -85,7 +85,27 @@ export async function GET(req: Request) {
     }
   }
 
-  const [credits, aiEventsRaw, missedEventsRaw, leadRuns, bookingSite, reviewsAgg, leadsCount, contactsCount] =
+  const [
+    credits,
+    aiEventsRaw,
+    missedEventsRaw,
+    leadRuns,
+    bookingSite,
+    reviewsAgg,
+    leadsCount,
+    contactsCount,
+    aiOutboundQueuedNow,
+    aiOutboundCompleted,
+    aiOutboundFailed,
+    nurtureEnrollmentsCreated,
+    nurtureEnrollmentsActiveNow,
+    nurtureEnrollmentsCompleted,
+    newsletterAgg,
+    tasksOpenNow,
+    tasksCompleted,
+    inboxMessagesIn,
+    inboxMessagesOut,
+  ] =
     await Promise.all([
       safe("credits", () => getCreditsState(ownerId), { balance: 0, autoTopUp: false }),
       safe("aiEvents", () => listAiReceptionistEvents(ownerId, 200), []),
@@ -122,6 +142,82 @@ export async function GET(req: Request) {
       ),
       safe("leadsCount", () => prisma.portalLead.count({ where: { ownerId, createdAt: { gte: start } } }), 0),
       safe("contactsCount", () => prisma.portalContact.count({ where: { ownerId, createdAt: { gte: start } } }), 0),
+
+      safe(
+        "aiOutboundQueuedNow",
+        () => prisma.portalAiOutboundCallEnrollment.count({ where: { ownerId, status: "QUEUED" } }),
+        0,
+      ),
+      safe(
+        "aiOutboundCompleted",
+        () =>
+          prisma.portalAiOutboundCallEnrollment.count({
+            where: { ownerId, status: "COMPLETED", completedAt: { gte: start } },
+          }),
+        0,
+      ),
+      safe(
+        "aiOutboundFailed",
+        () =>
+          prisma.portalAiOutboundCallEnrollment.count({
+            where: { ownerId, status: "FAILED", updatedAt: { gte: start } },
+          }),
+        0,
+      ),
+
+      safe(
+        "nurtureEnrollmentsCreated",
+        () => prisma.portalNurtureEnrollment.count({ where: { ownerId, createdAt: { gte: start } } }),
+        0,
+      ),
+      safe(
+        "nurtureEnrollmentsActiveNow",
+        () => prisma.portalNurtureEnrollment.count({ where: { ownerId, status: "ACTIVE" } }),
+        0,
+      ),
+      safe(
+        "nurtureEnrollmentsCompleted",
+        () =>
+          prisma.portalNurtureEnrollment.count({
+            where: { ownerId, status: "COMPLETED", updatedAt: { gte: start } },
+          }),
+        0,
+      ),
+
+      safe(
+        "newsletterAgg",
+        () =>
+          prisma.portalNewsletterSendEvent.aggregate({
+            where: { ownerId, createdAt: { gte: start } },
+            _count: { id: true },
+            _sum: { sentCount: true, failedCount: true },
+          }),
+        { _count: { id: 0 }, _sum: { sentCount: 0, failedCount: 0 } },
+      ),
+
+      safe("tasksOpenNow", () => prisma.portalTask.count({ where: { ownerId, status: "OPEN" } }), 0),
+      safe(
+        "tasksCompleted",
+        () => prisma.portalTask.count({ where: { ownerId, status: "DONE", updatedAt: { gte: start } } }),
+        0,
+      ),
+
+      safe(
+        "inboxMessagesIn",
+        () =>
+          prisma.portalInboxMessage.count({
+            where: { ownerId, direction: "IN", createdAt: { gte: start } },
+          }),
+        0,
+      ),
+      safe(
+        "inboxMessagesOut",
+        () =>
+          prisma.portalInboxMessage.count({
+            where: { ownerId, direction: "OUT", createdAt: { gte: start } },
+          }),
+        0,
+      ),
     ]);
 
   const [blogAgg, blogEvents] = await Promise.all([
@@ -298,6 +394,24 @@ export async function GET(req: Request) {
       avgReviewRating: reviewsAgg._avg.rating,
       leadsCreated: leadsCount,
       contactsCreated: contactsCount,
+
+      aiOutboundQueuedNow,
+      aiOutboundCompleted,
+      aiOutboundFailed,
+
+      nurtureEnrollmentsCreated,
+      nurtureEnrollmentsActiveNow,
+      nurtureEnrollmentsCompleted,
+
+      newsletterSendEvents: (newsletterAgg as any)?._count?.id ?? 0,
+      newsletterSentCount: (newsletterAgg as any)?._sum?.sentCount ?? 0,
+      newsletterFailedCount: (newsletterAgg as any)?._sum?.failedCount ?? 0,
+
+      tasksOpenNow,
+      tasksCompleted,
+
+      inboxMessagesIn,
+      inboxMessagesOut,
     },
     daily,
   });
