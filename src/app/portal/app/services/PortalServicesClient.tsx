@@ -94,6 +94,8 @@ export function PortalServicesClient() {
     switch (slug) {
       case "inbox":
         return canViewFromPermissions(portalMe, "inbox") || canViewFromPermissions(portalMe, "outbox");
+      case "nurture-campaigns":
+        return canViewFromPermissions(portalMe, "nurtureCampaigns");
       case "media-library":
         return canViewFromPermissions(portalMe, "media");
       case "ai-receptionist":

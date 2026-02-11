@@ -123,6 +123,10 @@ model User {
 
   portalMediaFolders PortalMediaFolder[]
   portalMediaItems   PortalMediaItem[]
+
+  portalNurtureCampaigns  PortalNurtureCampaign[]
+  portalNurtureSteps      PortalNurtureStep[]
+  portalNurtureEnrollments PortalNurtureEnrollment[]
 }
 
 model PortalMediaFolder {
@@ -289,6 +293,8 @@ model PortalContact {
   inboxThreads PortalInboxThread[]
   portalLeads  PortalLead[]
 
+  portalNurtureEnrollments PortalNurtureEnrollment[]
+
   @@index([ownerId])
   @@index([ownerId, emailKey])
   @@index([ownerId, phoneKey])
@@ -372,6 +378,24 @@ enum MarketingMessageStatus {
   SENT
   SKIPPED
   FAILED
+}
+
+enum PortalNurtureCampaignStatus {
+  DRAFT
+  ACTIVE
+  PAUSED
+  ARCHIVED
+}
+
+enum PortalNurtureStepKind {
+  SMS
+  EMAIL
+}
+
+enum PortalNurtureEnrollmentStatus {
+  ACTIVE
+  COMPLETED
+  STOPPED
 }
 
 enum PortalInboxChannel {
@@ -508,6 +532,87 @@ model MarketingMessage {
   request MarketingDemoRequest @relation(fields: [requestId], references: [id])
 
   @@index([status, sendAt])
+}
+
+model PortalNurtureCampaign {
+  id String @id @default(cuid())
+
+  ownerId String
+
+  name String
+  status PortalNurtureCampaignStatus @default(DRAFT)
+
+  // Tag-based audience (stored as string[])
+  audienceTagIdsJson Json?
+
+  // Optional footers appended to campaign messages.
+  smsFooter   String @default("Reply STOP to opt out.")
+  emailFooter String @default("")
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  owner User @relation(fields: [ownerId], references: [id])
+
+  steps       PortalNurtureStep[]
+  enrollments PortalNurtureEnrollment[]
+
+  @@index([ownerId, updatedAt])
+  @@index([ownerId, status, updatedAt])
+}
+
+model PortalNurtureStep {
+  id String @id @default(cuid())
+
+  ownerId    String
+  campaignId String
+
+  ord Int
+  kind PortalNurtureStepKind
+
+  // Delay after the previous step is sent.
+  delayMinutes Int @default(0)
+
+  subject String?
+  body    String
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  owner    User                 @relation(fields: [ownerId], references: [id])
+  campaign PortalNurtureCampaign @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+
+  @@unique([campaignId, ord])
+  @@index([ownerId, campaignId])
+}
+
+model PortalNurtureEnrollment {
+  id String @id @default(cuid())
+
+  ownerId    String
+  campaignId String
+  contactId  String
+
+  status PortalNurtureEnrollmentStatus @default(ACTIVE)
+
+  // Index into the ordered steps list.
+  stepIndex Int @default(0)
+
+  nextSendAt DateTime?
+  lastSentAt DateTime?
+  lastError  String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  owner    User                 @relation(fields: [ownerId], references: [id])
+  campaign PortalNurtureCampaign @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+  contact  PortalContact         @relation(fields: [contactId], references: [id], onDelete: Cascade)
+
+  @@unique([campaignId, contactId])
+  @@index([ownerId, status, nextSendAt])
+  @@index([campaignId, status, nextSendAt])
+  @@index([ownerId, contactId])
 }
 
 model LeadAssignment {

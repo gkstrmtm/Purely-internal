@@ -131,6 +131,8 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
     switch (slug) {
       case "inbox":
         return canViewServiceKey("inbox") || canViewServiceKey("outbox");
+      case "nurture-campaigns":
+        return canViewServiceKey("nurtureCampaigns");
       case "media-library":
         return canViewServiceKey("media");
       case "ai-receptionist":

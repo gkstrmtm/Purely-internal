@@ -101,6 +101,7 @@ export const PORTAL_SERVICES: PortalService[] = [
       "Delays and conditions",
       "Simple reporting",
     ],
+    included: true,
     accent: "coral",
   },
   {

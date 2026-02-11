@@ -156,6 +156,18 @@ Delivery notes:
 - Email sender name uses the client’s Business Name (stored in `BusinessProfile`).
 - SMS sends via the configured SMS provider credentials.
 
+## Nurture campaigns (portal)
+
+Nurture Campaigns are simple multi-step SMS/email sequences with tag-based audience enrollment.
+
+- Portal page: `/portal/app/services/nurture-campaigns`
+- Campaigns API: `GET/POST /api/portal/nurture/campaigns`
+- Campaign detail: `GET/PATCH/DELETE /api/portal/nurture/campaigns/[campaignId]`
+- Steps: `POST /api/portal/nurture/campaigns/[campaignId]/steps`, `PATCH/DELETE /api/portal/nurture/steps/[stepId]`
+- Enrollment: `POST /api/portal/nurture/campaigns/[campaignId]/enroll`
+- Cron processor: `GET /api/portal/nurture/cron`
+	- If `NURTURE_CRON_SECRET` is set, the request must include `x-nurture-cron-secret: <secret>` (or `Authorization: Bearer <secret>`).
+
 ## Public marketing landing
 
 - `/` is the public landing page.
