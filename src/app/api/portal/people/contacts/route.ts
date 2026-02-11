@@ -60,7 +60,7 @@ export async function GET(req: Request) {
     ];
   }
 
-  const [contactsRaw, unlinkedLeadsRaw] = await Promise.all([
+  const [contactsRaw, unlinkedLeadsRaw, totalContacts, totalUnlinkedLeads] = await Promise.all([
     prisma.portalContact.findMany({
       where: contactsWhere,
       select: {
@@ -93,6 +93,8 @@ export async function GET(req: Request) {
       orderBy: [{ createdAt: "desc" }, { id: "desc" }],
       take: take + 1,
     }),
+    prisma.portalContact.count({ where: { ownerId } }),
+    prisma.portalLead.count({ where: { ownerId, contactId: null } }),
   ]);
 
   const contactsHasMore = contactsRaw.length > take;
@@ -115,6 +117,8 @@ export async function GET(req: Request) {
 
   return NextResponse.json({
     ok: true,
+    totalContacts,
+    totalUnlinkedLeads,
     contactsNextCursor,
     unlinkedLeadsNextCursor,
     contacts: contacts.map((c) => ({

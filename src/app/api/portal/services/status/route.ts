@@ -58,10 +58,17 @@ export async function GET() {
   }
 
   const ownerId = auth.session.user.id;
-  const email = auth.session.user.email;
-  const isFullDemo = String(email || "").toLowerCase().trim() === DEFAULT_FULL_DEMO_EMAIL;
 
-  const entitlements = await resolveEntitlements(email);
+  // IMPORTANT: portal sessions can represent an acting member/admin. Entitlements and feature
+  // unlocks must always be computed from the portal account owner identity.
+  const fallbackEmail = auth.session.user.email;
+  const owner = await prisma.user
+    .findUnique({ where: { id: ownerId }, select: { email: true } })
+    .catch(() => null);
+  const entitlementsEmail = String(owner?.email || fallbackEmail || "");
+
+  const isFullDemo = entitlementsEmail.toLowerCase().trim() === DEFAULT_FULL_DEMO_EMAIL;
+  const entitlements = await resolveEntitlements(entitlementsEmail);
 
   const serviceSlugs = [
     "inbox",

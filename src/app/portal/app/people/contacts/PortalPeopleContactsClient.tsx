@@ -32,6 +32,8 @@ type ContactsPayload = {
   ok: true;
   contacts: ContactRow[];
   unlinkedLeads: LeadRow[];
+  totalContacts?: number;
+  totalUnlinkedLeads?: number;
   contactsNextCursor?: string | null;
   unlinkedLeadsNextCursor?: string | null;
 };
@@ -98,6 +100,9 @@ export function PortalPeopleContactsClient() {
   const [contactsNextCursor, setContactsNextCursor] = useState<string | null>(null);
   const [leadsNextCursor, setLeadsNextCursor] = useState<string | null>(null);
 
+  const [contactsCursorStack, setContactsCursorStack] = useState<Array<string | null>>([null]);
+  const [leadsCursorStack, setLeadsCursorStack] = useState<Array<string | null>>([null]);
+
   const [ownerTags, setOwnerTags] = useState<ContactTag[]>([]);
   const [selectedContactId, setSelectedContactId] = useState<string | null>(null);
   const [detailOpen, setDetailOpen] = useState(false);
@@ -124,6 +129,86 @@ export function PortalPeopleContactsClient() {
   const [leadLinkContactId, setLeadLinkContactId] = useState<string>("");
   const [savingLead, setSavingLead] = useState(false);
 
+  useEffect(() => {
+    function isTypingTarget(el: Element | null) {
+      if (!el) return false;
+      const tag = (el as HTMLElement).tagName?.toLowerCase?.() ?? "";
+      if (tag === "input" || tag === "textarea" || tag === "select") return true;
+      if ((el as HTMLElement).isContentEditable) return true;
+      return false;
+    }
+
+    async function contactsBack() {
+      if (contactsCursorStack.length <= 1) return;
+      const prev = contactsCursorStack[contactsCursorStack.length - 2] ?? null;
+      const ok = await load({ contactsCursor: prev, leadsCursor });
+      if (ok) setContactsCursorStack((s) => (s.length > 1 ? s.slice(0, -1) : s));
+    }
+
+    async function contactsNext() {
+      if (!contactsNextCursor) return;
+      const ok = await load({ contactsCursor: contactsNextCursor, leadsCursor });
+      if (ok) setContactsCursorStack((s) => [...s, contactsNextCursor]);
+    }
+
+    async function leadsBack() {
+      if (leadsCursorStack.length <= 1) return;
+      const prev = leadsCursorStack[leadsCursorStack.length - 2] ?? null;
+      const ok = await load({ contactsCursor, leadsCursor: prev });
+      if (ok) setLeadsCursorStack((s) => (s.length > 1 ? s.slice(0, -1) : s));
+    }
+
+    async function leadsNext() {
+      if (!leadsNextCursor) return;
+      const ok = await load({ contactsCursor, leadsCursor: leadsNextCursor });
+      if (ok) setLeadsCursorStack((s) => [...s, leadsNextCursor]);
+    }
+
+    function onKeyDown(e: KeyboardEvent) {
+      if (detailOpen || leadModalOpen) return;
+      if (loading) return;
+      if (e.metaKey || e.ctrlKey || e.altKey) return;
+      if (isTypingTarget(document.activeElement)) return;
+
+      // Contacts: [ back, ] next
+      if (e.key === "[") {
+        e.preventDefault();
+        void contactsBack();
+        return;
+      }
+      if (e.key === "]") {
+        e.preventDefault();
+        void contactsNext();
+        return;
+      }
+
+      // Unlinked leads: { back, } next
+      if (e.key === "{") {
+        e.preventDefault();
+        void leadsBack();
+        return;
+      }
+      if (e.key === "}") {
+        e.preventDefault();
+        void leadsNext();
+        return;
+      }
+    }
+
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [
+    contactsCursor,
+    leadsCursor,
+    contactsNextCursor,
+    leadsNextCursor,
+    contactsCursorStack,
+    leadsCursorStack,
+    detailOpen,
+    leadModalOpen,
+    loading,
+  ]);
+
   async function load(opts?: { contactsCursor?: string | null; leadsCursor?: string | null }) {
     setLoading(true);
     try {
@@ -146,8 +231,11 @@ export function PortalPeopleContactsClient() {
 
       if (opts?.contactsCursor !== undefined) setContactsCursor(opts.contactsCursor);
       if (opts?.leadsCursor !== undefined) setLeadsCursor(opts.leadsCursor);
+
+      return true;
     } catch (e: any) {
       toast.error(String(e?.message || "Failed to load"));
+      return false;
     } finally {
       setLoading(false);
     }
@@ -445,6 +533,8 @@ export function PortalPeopleContactsClient() {
           onClick={() => {
             setContactsCursor(null);
             setLeadsCursor(null);
+            setContactsCursorStack([null]);
+            setLeadsCursorStack([null]);
             void load({ contactsCursor: null, leadsCursor: null });
           }}
           className="rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm font-semibold text-zinc-800 hover:bg-zinc-50"
@@ -471,13 +561,40 @@ export function PortalPeopleContactsClient() {
         <div className="mt-6 grid grid-cols-1 gap-6 lg:grid-cols-2">
           <div className="rounded-3xl border border-zinc-200 bg-white p-6">
             <div className="flex items-center justify-between gap-3">
-              <div className="text-base font-semibold text-zinc-900">Contacts ({filteredContacts.length})</div>
+              <div className="text-base font-semibold text-zinc-900">
+                Contacts ({data.contacts.length} of {typeof data.totalContacts === "number" ? data.totalContacts : "—"})
+                {q.trim() ? <span className="ml-2 text-xs font-semibold text-zinc-500">Filtered: {filteredContacts.length}</span> : null}
+              </div>
               <div className="flex items-center gap-2">
+                <div className="text-xs text-zinc-500">Page {contactsCursorStack.length}</div>
+                <div className="text-xs text-zinc-500">•</div>
                 <div className="text-xs text-zinc-500">50 per page</div>
                 <button
                   type="button"
+                  disabled={contactsCursorStack.length <= 1}
+                  title="Back ([)"
+                  onClick={() =>
+                    void (async () => {
+                      const prev = contactsCursorStack[contactsCursorStack.length - 2] ?? null;
+                      const ok = await load({ contactsCursor: prev, leadsCursor });
+                      if (ok) setContactsCursorStack((s) => (s.length > 1 ? s.slice(0, -1) : s));
+                    })()
+                  }
+                  className="rounded-xl border border-zinc-200 bg-white px-3 py-2 text-xs font-semibold text-zinc-800 hover:bg-zinc-50 disabled:opacity-50"
+                >
+                  Back
+                </button>
+                <button
+                  type="button"
                   disabled={!contactsNextCursor}
-                  onClick={() => void load({ contactsCursor: contactsNextCursor, leadsCursor })}
+                  title="Next (])"
+                  onClick={() =>
+                    void (async () => {
+                      if (!contactsNextCursor) return;
+                      const ok = await load({ contactsCursor: contactsNextCursor, leadsCursor });
+                      if (ok) setContactsCursorStack((s) => [...s, contactsNextCursor]);
+                    })()
+                  }
                   className="rounded-xl border border-zinc-200 bg-white px-3 py-2 text-xs font-semibold text-zinc-800 hover:bg-zinc-50 disabled:opacity-50"
                 >
                   Next
@@ -540,18 +657,45 @@ export function PortalPeopleContactsClient() {
               </table>
             </div>
 
-            <div className="mt-3 text-xs text-zinc-500">Showing up to 50 rows.</div>
+            <div className="mt-3 text-xs text-zinc-500">Showing {data.contacts.length} on this page.</div>
           </div>
 
           <div className="rounded-3xl border border-zinc-200 bg-white p-6">
             <div className="flex items-center justify-between gap-3">
-              <div className="text-base font-semibold text-zinc-900">Unlinked leads ({filteredLeads.length})</div>
+              <div className="text-base font-semibold text-zinc-900">
+                Unlinked leads ({data.unlinkedLeads.length} of {typeof data.totalUnlinkedLeads === "number" ? data.totalUnlinkedLeads : "—"})
+                {q.trim() ? <span className="ml-2 text-xs font-semibold text-zinc-500">Filtered: {filteredLeads.length}</span> : null}
+              </div>
               <div className="flex items-center gap-2">
+                <div className="text-xs text-zinc-500">Page {leadsCursorStack.length}</div>
+                <div className="text-xs text-zinc-500">•</div>
                 <div className="text-xs text-zinc-500">50 per page</div>
                 <button
                   type="button"
+                  disabled={leadsCursorStack.length <= 1}
+                  title="Back ({)"
+                  onClick={() =>
+                    void (async () => {
+                      const prev = leadsCursorStack[leadsCursorStack.length - 2] ?? null;
+                      const ok = await load({ contactsCursor, leadsCursor: prev });
+                      if (ok) setLeadsCursorStack((s) => (s.length > 1 ? s.slice(0, -1) : s));
+                    })()
+                  }
+                  className="rounded-xl border border-zinc-200 bg-white px-3 py-2 text-xs font-semibold text-zinc-800 hover:bg-zinc-50 disabled:opacity-50"
+                >
+                  Back
+                </button>
+                <button
+                  type="button"
                   disabled={!leadsNextCursor}
-                  onClick={() => void load({ contactsCursor, leadsCursor: leadsNextCursor })}
+                  title="Next (})"
+                  onClick={() =>
+                    void (async () => {
+                      if (!leadsNextCursor) return;
+                      const ok = await load({ contactsCursor, leadsCursor: leadsNextCursor });
+                      if (ok) setLeadsCursorStack((s) => [...s, leadsNextCursor]);
+                    })()
+                  }
                   className="rounded-xl border border-zinc-200 bg-white px-3 py-2 text-xs font-semibold text-zinc-800 hover:bg-zinc-50 disabled:opacity-50"
                 >
                   Next
@@ -592,7 +736,7 @@ export function PortalPeopleContactsClient() {
               )}
             </div>
 
-            <div className="mt-3 text-xs text-zinc-500">Showing up to 50 cards.</div>
+            <div className="mt-3 text-xs text-zinc-500">Showing {data.unlinkedLeads.length} on this page.</div>
           </div>
         </div>
       ) : null}
