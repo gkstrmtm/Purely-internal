@@ -21,7 +21,11 @@ type StoredKindSettings = {
   channels?: { email?: boolean; sms?: boolean };
   topics?: string[];
   promptAnswers?: Record<string, string>;
-  audience?: { tagIds?: string[]; contactIds?: string[]; emails?: string[]; userIds?: string[] };
+  deliveryEmailHint?: string;
+  deliverySmsHint?: string;
+  includeImages?: boolean;
+  includeImagesWhereNeeded?: boolean;
+  audience?: { tagIds?: string[]; contactIds?: string[]; emails?: string[]; userIds?: string[]; sendAllUsers?: boolean };
 };
 
 type StoredSettings = {
@@ -63,8 +67,75 @@ function parseKindSettings(value: unknown) {
     },
     topics: normalizeStrings(rec?.topics, 50),
     promptAnswers: rec?.promptAnswers && typeof rec.promptAnswers === "object" ? (rec.promptAnswers as Record<string, string>) : {},
+    deliveryEmailHint: typeof rec?.deliveryEmailHint === "string" ? rec.deliveryEmailHint.trim().slice(0, 1500) : "",
+    deliverySmsHint: typeof rec?.deliverySmsHint === "string" ? rec.deliverySmsHint.trim().slice(0, 800) : "",
+    includeImages: Boolean(rec?.includeImages),
+    includeImagesWhereNeeded: Boolean(rec?.includeImagesWhereNeeded),
     audience: rec?.audience && typeof rec.audience === "object" ? (rec.audience as any) : {},
   };
+}
+
+type CommonsImage = { url: string; thumbUrl: string; mime: string; title: string; sourcePage: string };
+
+async function pickCommonsImages(q: string, take: number): Promise<CommonsImage[]> {
+  const query = String(q || "").trim();
+  if (query.length < 2) return [];
+
+  const api = new URL("https://commons.wikimedia.org/w/api.php");
+  api.searchParams.set("action", "query");
+  api.searchParams.set("format", "json");
+  api.searchParams.set("generator", "search");
+  api.searchParams.set("gsrsearch", `${query} filetype:bitmap`);
+  api.searchParams.set("gsrlimit", String(Math.max(6, Math.min(18, take * 3))));
+  api.searchParams.set("gsrnamespace", "6");
+  api.searchParams.set("prop", "imageinfo");
+  api.searchParams.set("iiprop", "url|mime");
+  api.searchParams.set("iiurlwidth", "1400");
+
+  const res = await fetch(api.toString(), {
+    method: "GET",
+    headers: { "user-agent": "purelyautomation/portal-newsletter" },
+    cache: "no-store",
+  }).catch(() => null as any);
+  if (!res?.ok) return [];
+
+  const json = (await res.json().catch(() => null)) as any;
+  const pages = json?.query?.pages && typeof json.query.pages === "object" ? Object.values(json.query.pages) : [];
+  const out: CommonsImage[] = [];
+  for (const p of pages as any[]) {
+    const title = String(p?.title || "");
+    const info = Array.isArray(p?.imageinfo) ? p.imageinfo[0] : null;
+    const url = typeof info?.url === "string" ? info.url : null;
+    const thumbUrl = typeof info?.thumburl === "string" ? info.thumburl : url;
+    const mime = typeof info?.mime === "string" ? info.mime : "";
+    if (!url || !thumbUrl) continue;
+    if (mime && !mime.startsWith("image/")) continue;
+    const sourcePage = `https://commons.wikimedia.org/wiki/${encodeURIComponent(title.replace(/\s/g, "_"))}`;
+    out.push({ url, thumbUrl, mime: mime || "image/*", title, sourcePage });
+    if (out.length >= take) break;
+  }
+  return out;
+}
+
+function insertImagesIntoMarkdown(markdown: string, images: CommonsImage[], opts: { whereNeeded: boolean }) {
+  const md = String(markdown || "");
+  if (!images.length) return md;
+  if (opts.whereNeeded && /!\[[^\]]*\]\([^\)]+\)/.test(md)) return md;
+
+  const imgLines = images
+    .slice(0, 2)
+    .map((i) => `![${i.title.replace(/^File:/, "").slice(0, 80)}](${i.thumbUrl})`);
+
+  if (!imgLines.length) return md;
+
+  // Insert after first non-empty line (keeps any leading heading/intro intact).
+  const lines = md.split(/\r?\n/);
+  let idx = 0;
+  while (idx < lines.length && !String(lines[idx] || "").trim()) idx += 1;
+  const insertAt = Math.min(lines.length, idx + 1);
+  const before = lines.slice(0, insertAt);
+  const after = lines.slice(insertAt);
+  return [...before, "", imgLines[0], "", ...(imgLines[1] && !opts.whereNeeded ? [imgLines[1], ""] : []), ...after].join("\n");
 }
 
 function parseStored(value: unknown) {
@@ -148,7 +219,16 @@ export async function POST(req: Request) {
     brandVoice: profile?.brandVoice,
     promptAnswers: s.promptAnswers,
     topicHint,
+    deliveryEmailHint: s.deliveryEmailHint,
+    deliverySmsHint: s.deliverySmsHint,
   });
+
+  let contentWithImages = draft.content;
+  if (s.includeImages) {
+    const query = [topicHint, profile?.industry, profile?.businessName].filter(Boolean).join(" ").trim();
+    const images = await pickCommonsImages(query || "newsletter", s.includeImagesWhereNeeded ? 1 : 2);
+    contentWithImages = insertImagesIntoMarkdown(draft.content, images, { whereNeeded: Boolean(s.includeImagesWhereNeeded) });
+  }
 
   const slug = await uniqueNewsletterSlug(site.id, kind, draft.title);
 
@@ -163,7 +243,7 @@ export async function POST(req: Request) {
       slug,
       title: draft.title,
       excerpt: draft.excerpt,
-      content: draft.content,
+      content: contentWithImages,
       smsText: draft.smsText ?? undefined,
     },
     select: { id: true, slug: true },

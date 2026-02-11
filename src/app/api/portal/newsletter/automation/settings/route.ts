@@ -17,6 +17,10 @@ type StoredKindSettings = {
   channels?: { email?: boolean; sms?: boolean };
   topics?: string[];
   promptAnswers?: Record<string, string>;
+  deliveryEmailHint?: string;
+  deliverySmsHint?: string;
+  includeImages?: boolean;
+  includeImagesWhereNeeded?: boolean;
   audience?: {
     tagIds?: string[];
     contactIds?: string[];
@@ -92,7 +96,26 @@ function parseKindSettings(value: unknown): Required<
     sendAllUsers: Boolean(audienceRaw?.sendAllUsers),
   };
 
-  return { enabled, frequencyDays, cursor, requireApproval, channels, topics, promptAnswers, audience };
+  const deliveryEmailHint = typeof rec?.deliveryEmailHint === "string" ? rec.deliveryEmailHint.trim().slice(0, 1500) : "";
+  const deliverySmsHint = typeof rec?.deliverySmsHint === "string" ? rec.deliverySmsHint.trim().slice(0, 800) : "";
+  const includeImages = Boolean(rec?.includeImages);
+  const includeImagesWhereNeeded = Boolean(rec?.includeImagesWhereNeeded);
+
+  return {
+    enabled,
+    frequencyDays,
+    cursor,
+    requireApproval,
+    channels,
+    topics,
+    promptAnswers,
+    audience,
+    // These are optional in storage but we expose normalized values.
+    ...(deliveryEmailHint ? { deliveryEmailHint } : {}),
+    ...(deliverySmsHint ? { deliverySmsHint } : {}),
+    ...(includeImages ? { includeImages } : {}),
+    ...(includeImagesWhereNeeded ? { includeImagesWhereNeeded } : {}),
+  } as any;
 }
 
 function parseStored(value: unknown): { external: ReturnType<typeof parseKindSettings>; internal: ReturnType<typeof parseKindSettings> } {
@@ -111,6 +134,10 @@ const putSchema = z.object({
   channels: z.object({ email: z.boolean().optional(), sms: z.boolean().optional() }).optional(),
   topics: z.array(z.string().trim().min(1).max(200)).max(50).optional(),
   promptAnswers: z.record(z.string().trim().min(1).max(80), z.string().trim().min(1).max(2000)).optional(),
+  deliveryEmailHint: z.string().trim().max(1500).optional(),
+  deliverySmsHint: z.string().trim().max(800).optional(),
+  includeImages: z.boolean().optional(),
+  includeImagesWhereNeeded: z.boolean().optional(),
   audience: z
     .object({
       tagIds: z.array(z.string().trim().min(1).max(80)).max(200).optional(),
@@ -204,6 +231,16 @@ export async function PUT(req: Request) {
     },
     topics: normalizeStrings(parsedBody.data.topics ?? prevKind.topics, 50),
     promptAnswers: parsedBody.data.promptAnswers ? parsedBody.data.promptAnswers : prevKind.promptAnswers,
+    deliveryEmailHint:
+      typeof parsedBody.data.deliveryEmailHint === "string" ? parsedBody.data.deliveryEmailHint.trim().slice(0, 1500) : (prevKind as any).deliveryEmailHint,
+    deliverySmsHint:
+      typeof parsedBody.data.deliverySmsHint === "string" ? parsedBody.data.deliverySmsHint.trim().slice(0, 800) : (prevKind as any).deliverySmsHint,
+    includeImages:
+      typeof parsedBody.data.includeImages === "boolean" ? parsedBody.data.includeImages : Boolean((prevKind as any).includeImages),
+    includeImagesWhereNeeded:
+      typeof parsedBody.data.includeImagesWhereNeeded === "boolean"
+        ? parsedBody.data.includeImagesWhereNeeded
+        : Boolean((prevKind as any).includeImagesWhereNeeded),
     audience: {
       tagIds: normalizeStrings(parsedBody.data.audience?.tagIds ?? prevKind.audience.tagIds, 200),
       contactIds: normalizeStrings(parsedBody.data.audience?.contactIds ?? prevKind.audience.contactIds, 200),

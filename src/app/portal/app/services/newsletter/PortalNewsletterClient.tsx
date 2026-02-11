@@ -28,6 +28,10 @@ type Settings = {
   channels: { email: boolean; sms: boolean };
   topics: string[];
   promptAnswers: Record<string, string>;
+  deliveryEmailHint?: string;
+  deliverySmsHint?: string;
+  includeImages?: boolean;
+  includeImagesWhereNeeded?: boolean;
   audience: { tagIds: string[]; contactIds: string[]; emails: string[]; userIds: string[]; sendAllUsers?: boolean };
   lastGeneratedAt: string | null;
   nextDueAt: string | null;
@@ -130,6 +134,23 @@ export function PortalNewsletterClient({ initialAudience }: { initialAudience: A
   const [saving, setSaving] = useState(false);
   const [generating, setGenerating] = useState(false);
 
+  const [mode, setMode] = useState<"ai" | "manual">("ai");
+
+  const [manualTitle, setManualTitle] = useState("");
+  const [manualExcerpt, setManualExcerpt] = useState("");
+  const [manualSmsText, setManualSmsText] = useState("");
+  const [manualContent, setManualContent] = useState("");
+  const [manualCreating, setManualCreating] = useState(false);
+
+  const [manualAssetAlt, setManualAssetAlt] = useState("");
+  const [manualAssetUrl, setManualAssetUrl] = useState<string | null>(null);
+  const [manualAssetFileName, setManualAssetFileName] = useState<string>("");
+  const [manualAssetBusy, setManualAssetBusy] = useState(false);
+  const [manualAssetPickerOpen, setManualAssetPickerOpen] = useState(false);
+  const [manualImageSearch, setManualImageSearch] = useState("");
+  const [manualImageSearching, setManualImageSearching] = useState(false);
+  const [manualImageResults, setManualImageResults] = useState<Array<{ url: string; thumbUrl: string; title: string; sourcePage: string }>>([]);
+
   const [createTagName, setCreateTagName] = useState("");
   const [createTagColor, setCreateTagColor] = useState<(typeof DEFAULT_TAG_COLORS)[number]>("#2563EB");
   const [createTagBusy, setCreateTagBusy] = useState(false);
@@ -223,6 +244,11 @@ export function PortalNewsletterClient({ initialAudience }: { initialAudience: A
     void refresh();
   }, [refresh]);
 
+  useEffect(() => {
+    // Default to AI tab per audience switch.
+    setMode("ai");
+  }, [audience]);
+
   const saveSettings = useCallback(async () => {
     if (!settings) return;
     setSaving(true);
@@ -238,6 +264,10 @@ export function PortalNewsletterClient({ initialAudience }: { initialAudience: A
         channels: settings.channels,
         topics: settings.topics,
         promptAnswers: settings.promptAnswers,
+        deliveryEmailHint: settings.deliveryEmailHint ?? "",
+        deliverySmsHint: settings.deliverySmsHint ?? "",
+        includeImages: Boolean(settings.includeImages),
+        includeImagesWhereNeeded: Boolean(settings.includeImagesWhereNeeded),
         audience: settings.audience,
       }),
     });
@@ -250,6 +280,35 @@ export function PortalNewsletterClient({ initialAudience }: { initialAudience: A
     setSaving(false);
     await refresh();
   }, [audience, refresh, settings, toast]);
+
+  const searchManualImages = useCallback(async () => {
+    const q = manualImageSearch.trim();
+    if (q.length < 2) {
+      setManualImageResults([]);
+      return;
+    }
+    setManualImageSearching(true);
+    try {
+      const res = await fetch(`/api/portal/newsletter/royalty-free-images?q=${encodeURIComponent(q)}&take=10`, { cache: "no-store" });
+      const json = (await res.json().catch(() => ({}))) as any;
+      if (!res.ok || !json?.ok || !Array.isArray(json?.images)) {
+        setManualImageResults([]);
+        return;
+      }
+      setManualImageResults(
+        json.images
+          .map((i: any) => ({
+            url: String(i?.url || ""),
+            thumbUrl: String(i?.thumbUrl || i?.url || ""),
+            title: String(i?.title || ""),
+            sourcePage: String(i?.sourcePage || ""),
+          }))
+          .filter((i: any) => i.url && i.thumbUrl),
+      );
+    } finally {
+      setManualImageSearching(false);
+    }
+  }, [manualImageSearch]);
 
   const createOwnerTag = useCallback(async () => {
     const name = createTagName.trim().slice(0, 60);
@@ -410,6 +469,47 @@ export function PortalNewsletterClient({ initialAudience }: { initialAudience: A
     setDraftLoading(false);
   }, []);
 
+  const createManual = useCallback(
+    async (status: "DRAFT" | "READY") => {
+      if (!manualTitle.trim()) {
+        toast.error("Title is required");
+        return;
+      }
+
+      setManualCreating(true);
+      try {
+        const res = await fetch("/api/portal/newsletter/newsletters", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({
+            kind: audience,
+            status,
+            title: manualTitle,
+            excerpt: manualExcerpt,
+            content: manualContent,
+            smsText: manualSmsText || null,
+          }),
+        });
+        const json = (await res.json().catch(() => ({}))) as any;
+        if (!res.ok || !json?.ok || !json?.newsletter?.id) {
+          toast.error(String(json?.error || "Failed to create newsletter"));
+          return;
+        }
+        toast.success(status === "READY" ? "Manual newsletter created (READY)" : "Manual newsletter created");
+        const id = String(json.newsletter.id);
+        setManualTitle("");
+        setManualExcerpt("");
+        setManualSmsText("");
+        setManualContent("");
+        await refresh();
+        await openDraft(id);
+      } finally {
+        setManualCreating(false);
+      }
+    },
+    [audience, manualContent, manualExcerpt, manualSmsText, manualTitle, openDraft, refresh, toast],
+  );
+
   const saveDraft = useCallback(async () => {
     if (!draftId) return;
     setDraftSaving(true);
@@ -545,6 +645,27 @@ export function PortalNewsletterClient({ initialAudience }: { initialAudience: A
         <div className="flex flex-wrap items-center gap-2">
           <button
             type="button"
+            onClick={() => setMode("ai")}
+            className={
+              "rounded-2xl border px-4 py-2 text-sm font-semibold transition " +
+              (mode === "ai" ? "border-zinc-900 bg-zinc-900 text-white" : "border-zinc-200 bg-white text-zinc-700 hover:bg-zinc-50")
+            }
+          >
+            AI
+          </button>
+          <button
+            type="button"
+            onClick={() => setMode("manual")}
+            className={
+              "rounded-2xl border px-4 py-2 text-sm font-semibold transition " +
+              (mode === "manual" ? "border-zinc-900 bg-zinc-900 text-white" : "border-zinc-200 bg-white text-zinc-700 hover:bg-zinc-50")
+            }
+          >
+            Manual
+          </button>
+
+          <button
+            type="button"
             onClick={() => setAudience("external")}
             className={
               "rounded-2xl border px-4 py-2 text-sm font-semibold transition " +
@@ -577,21 +698,272 @@ export function PortalNewsletterClient({ initialAudience }: { initialAudience: A
             >
               {saving ? "Saving…" : "Save"}
             </button>
-            <button
-              type="button"
-              onClick={generateNow}
-              disabled={generating}
-              className="rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm font-semibold text-zinc-700 hover:bg-zinc-50 disabled:opacity-50"
-            >
-              {generating ? "Generating…" : "Generate now (1 credit)"}
-            </button>
+            {mode === "ai" ? (
+              <button
+                type="button"
+                onClick={generateNow}
+                disabled={generating}
+                className="rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm font-semibold text-zinc-700 hover:bg-zinc-50 disabled:opacity-50"
+              >
+                {generating ? "Generating…" : "Generate now (1 credit)"}
+              </button>
+            ) : null}
           </div>
         </div>
       </div>
 
       <div className="mt-4 grid gap-4 lg:grid-cols-3">
         <div className="rounded-3xl border border-zinc-200 bg-white p-6 lg:col-span-2">
-          <div className="text-sm font-semibold text-zinc-900">Automation</div>
+          {mode === "ai" ? <div className="text-sm font-semibold text-zinc-900">Automation</div> : <div className="text-sm font-semibold text-zinc-900">Manual composer</div>}
+
+          {mode === "manual" ? (
+            <div className="mt-3 grid gap-4">
+              <div>
+                <label className="text-xs font-semibold text-zinc-600">Title</label>
+                <input
+                  value={manualTitle}
+                  onChange={(e) => setManualTitle(e.target.value)}
+                  className="mt-1 w-full rounded-2xl border border-zinc-200 bg-white px-4 py-3 text-sm outline-none focus:border-zinc-300"
+                  placeholder="Newsletter title"
+                />
+              </div>
+
+              <div>
+                <label className="text-xs font-semibold text-zinc-600">Email message (sent with hosted link)</label>
+                <textarea
+                  value={manualExcerpt}
+                  onChange={(e) => setManualExcerpt(e.target.value)}
+                  className="mt-1 min-h-[90px] w-full rounded-2xl border border-zinc-200 bg-white px-4 py-3 text-sm outline-none focus:border-zinc-300"
+                  placeholder="Write the email message. The hosted link is appended automatically."
+                />
+              </div>
+
+              <div>
+                <label className="text-xs font-semibold text-zinc-600">SMS message (sent with hosted link)</label>
+                <input
+                  value={manualSmsText}
+                  onChange={(e) => setManualSmsText(e.target.value)}
+                  className="mt-1 w-full rounded-2xl border border-zinc-200 bg-white px-4 py-3 text-sm outline-none focus:border-zinc-300"
+                  placeholder="New newsletter is ready."
+                />
+              </div>
+
+              <div>
+                <label className="text-xs font-semibold text-zinc-600">Hosted page content (Markdown)</label>
+                <div className="mt-1">
+                  <RichTextMarkdownEditor markdown={manualContent} onChange={setManualContent} placeholder="Write the hosted page…" disabled={manualCreating} />
+                </div>
+              </div>
+
+              <div className="rounded-2xl border border-zinc-200 bg-zinc-50 p-4">
+                <div className="text-sm font-semibold text-zinc-900">Images & files</div>
+                <div className="mt-2 text-sm text-zinc-600">Upload, pick from the media library, or pull a royalty-free image.</div>
+
+                <div className="mt-4 grid gap-3 sm:grid-cols-2">
+                  <div>
+                    <label className="text-xs font-semibold text-zinc-600">Alt text (optional)</label>
+                    <input
+                      value={manualAssetAlt}
+                      onChange={(e) => setManualAssetAlt(e.target.value)}
+                      className="mt-1 w-full rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-sm outline-none focus:border-zinc-300"
+                      placeholder="Team photo, product, etc."
+                    />
+                  </div>
+                  <div>
+                    <label className="text-xs font-semibold text-zinc-600">URL (optional)</label>
+                    <input
+                      value={manualAssetUrl ?? ""}
+                      onChange={(e) => setManualAssetUrl(e.target.value.trim() ? e.target.value : null)}
+                      className="mt-1 w-full rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-sm outline-none focus:border-zinc-300"
+                      placeholder="https://…"
+                    />
+                  </div>
+                </div>
+
+                <div className="mt-3 flex flex-wrap gap-2">
+                  <label className="inline-flex cursor-pointer items-center justify-center rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-xs font-semibold text-zinc-700 hover:bg-zinc-50">
+                    {manualAssetBusy ? "Uploading…" : "Upload image"}
+                    <input
+                      type="file"
+                      accept="image/*"
+                      className="hidden"
+                      disabled={manualAssetBusy}
+                      onChange={async (e) => {
+                        const file = e.target.files?.[0];
+                        if (!file) return;
+                        setManualAssetBusy(true);
+                        try {
+                          const fd = new FormData();
+                          fd.set("file", file);
+                          const up = await fetch("/api/uploads", { method: "POST", body: fd });
+                          const upBody = (await up.json().catch(() => ({}))) as any;
+                          if (!up.ok || !upBody.url) {
+                            toast.error(String(upBody.error || "Upload failed"));
+                            return;
+                          }
+                          setManualAssetUrl(String(upBody.url));
+                          setManualAssetFileName(String(upBody.fileName || file.name || ""));
+                        } finally {
+                          setManualAssetBusy(false);
+                          if (e.target) e.target.value = "";
+                        }
+                      }}
+                    />
+                  </label>
+
+                  <label className="inline-flex cursor-pointer items-center justify-center rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-xs font-semibold text-zinc-700 hover:bg-zinc-50">
+                    {manualAssetBusy ? "Uploading…" : "Upload file"}
+                    <input
+                      type="file"
+                      className="hidden"
+                      disabled={manualAssetBusy}
+                      onChange={async (e) => {
+                        const file = e.target.files?.[0];
+                        if (!file) return;
+                        setManualAssetBusy(true);
+                        try {
+                          const fd = new FormData();
+                          fd.set("file", file);
+                          const up = await fetch("/api/uploads", { method: "POST", body: fd });
+                          const upBody = (await up.json().catch(() => ({}))) as any;
+                          if (!up.ok || !upBody.url) {
+                            toast.error(String(upBody.error || "Upload failed"));
+                            return;
+                          }
+                          setManualAssetUrl(String(upBody.url));
+                          setManualAssetFileName(String(upBody.fileName || file.name || "file"));
+                        } finally {
+                          setManualAssetBusy(false);
+                          if (e.target) e.target.value = "";
+                        }
+                      }}
+                    />
+                  </label>
+
+                  <button
+                    type="button"
+                    className="rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-xs font-semibold text-zinc-700 hover:bg-zinc-50"
+                    onClick={() => setManualAssetPickerOpen(true)}
+                  >
+                    Choose from media library
+                  </button>
+                </div>
+
+                <div className="mt-3 flex flex-wrap gap-2">
+                  <button
+                    type="button"
+                    disabled={!manualAssetUrl}
+                    className="rounded-2xl bg-zinc-900 px-3 py-2 text-xs font-semibold text-white hover:bg-zinc-800 disabled:opacity-50"
+                    onClick={() => {
+                      if (!manualAssetUrl) return;
+                      const alt = manualAssetAlt.trim() || "image";
+                      setManualContent((prev) => {
+                        const p = String(prev || "");
+                        const snippet = `![${alt}](${manualAssetUrl})`;
+                        if (!p.trim()) return `${snippet}\n`;
+                        return p.endsWith("\n") ? `${p}\n${snippet}\n` : `${p}\n\n${snippet}\n`;
+                      });
+                    }}
+                  >
+                    Insert image
+                  </button>
+                  <button
+                    type="button"
+                    disabled={!manualAssetUrl}
+                    className="rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-xs font-semibold text-zinc-700 hover:bg-zinc-50 disabled:opacity-50"
+                    onClick={() => {
+                      if (!manualAssetUrl) return;
+                      const label = (manualAssetFileName || manualAssetAlt || "file").trim() || "file";
+                      setManualContent((prev) => {
+                        const p = String(prev || "");
+                        const snippet = `[${label}](${manualAssetUrl})`;
+                        if (!p.trim()) return `${snippet}\n`;
+                        return p.endsWith("\n") ? `${p}\n${snippet}\n` : `${p}\n\n${snippet}\n`;
+                      });
+                    }}
+                  >
+                    Insert link
+                  </button>
+                </div>
+
+                <PortalMediaPickerModal
+                  open={manualAssetPickerOpen}
+                  title="Choose a file"
+                  confirmLabel="Use"
+                  onClose={() => setManualAssetPickerOpen(false)}
+                  onPick={(item) => {
+                    setManualAssetUrl(item.shareUrl);
+                    setManualAssetFileName(String(item.fileName || ""));
+                    setManualAssetPickerOpen(false);
+                  }}
+                />
+
+                <div className="mt-5 rounded-2xl border border-zinc-200 bg-white p-3">
+                  <div className="text-xs font-semibold uppercase tracking-wide text-zinc-500">Royalty-free images</div>
+                  <div className="mt-2 flex gap-2">
+                    <input
+                      value={manualImageSearch}
+                      onChange={(e) => setManualImageSearch(e.target.value)}
+                      className="w-full rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-sm outline-none focus:border-zinc-300"
+                      placeholder="Search (e.g. office team, roofing, plumbing)…"
+                    />
+                    <button
+                      type="button"
+                      className="rounded-2xl bg-zinc-900 px-3 py-2 text-sm font-semibold text-white hover:bg-zinc-800"
+                      onClick={() => void searchManualImages()}
+                      disabled={manualImageSearching}
+                    >
+                      {manualImageSearching ? "Searching…" : "Search"}
+                    </button>
+                  </div>
+                  <div className="mt-3 grid gap-2 sm:grid-cols-2">
+                    {manualImageResults.slice(0, 6).map((img) => (
+                      <button
+                        key={img.url}
+                        type="button"
+                        className="flex items-center gap-3 rounded-2xl border border-zinc-200 bg-white p-2 text-left hover:bg-zinc-50"
+                        onClick={() => {
+                          setManualAssetUrl(img.thumbUrl || img.url);
+                          setManualAssetFileName(img.title.replace(/^File:/, "").slice(0, 120));
+                        }}
+                        title={img.sourcePage}
+                      >
+                        {/* eslint-disable-next-line @next/next/no-img-element */}
+                        <img src={img.thumbUrl} alt={img.title} className="h-12 w-12 rounded-xl object-cover" />
+                        <div className="min-w-0">
+                          <div className="truncate text-xs font-semibold text-zinc-900">{img.title.replace(/^File:/, "")}</div>
+                          <div className="truncate text-[11px] text-zinc-500">Wikimedia Commons</div>
+                        </div>
+                      </button>
+                    ))}
+                  </div>
+                  <div className="mt-2 text-xs text-zinc-500">Images are sourced from Wikimedia Commons.</div>
+                </div>
+              </div>
+
+              <div className="flex flex-wrap items-center justify-end gap-2">
+                <button
+                  type="button"
+                  className="rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm font-semibold text-zinc-700 hover:bg-zinc-50 disabled:opacity-60"
+                  onClick={() => void createManual("DRAFT")}
+                  disabled={manualCreating}
+                >
+                  {manualCreating ? "Working…" : "Create draft"}
+                </button>
+                <button
+                  type="button"
+                  className="rounded-2xl bg-zinc-900 px-4 py-2 text-sm font-semibold text-white hover:bg-zinc-800 disabled:opacity-60"
+                  onClick={() => void createManual("READY")}
+                  disabled={manualCreating}
+                >
+                  {manualCreating ? "Working…" : "Create READY"}
+                </button>
+              </div>
+            </div>
+          ) : null}
+
+          {mode === "ai" ? (
+            <>
           <div className="mt-3 grid gap-4 sm:grid-cols-2">
             <label className="flex items-center gap-3 rounded-2xl border border-zinc-200 bg-white px-4 py-3">
               <input
@@ -655,6 +1027,56 @@ export function PortalNewsletterClient({ initialAudience }: { initialAudience: A
                 </label>
               </div>
             </div>
+
+            <div className="rounded-2xl border border-zinc-200 bg-white px-4 py-3 sm:col-span-2">
+              <div className="text-xs font-semibold uppercase tracking-wide text-zinc-500">Delivery copy (AI)</div>
+              <div className="mt-2 grid gap-3 sm:grid-cols-2">
+                <label className="block">
+                  <div className="text-xs font-semibold text-zinc-600">Email message guidance</div>
+                  <textarea
+                    value={settings?.deliveryEmailHint ?? ""}
+                    onChange={(e) => setSettings((prev) => (prev ? { ...prev, deliveryEmailHint: e.target.value.slice(0, 1500) } : prev))}
+                    rows={3}
+                    className="mt-1 w-full rounded-2xl border border-zinc-200 px-3 py-2 text-sm"
+                    placeholder="Example: Keep it short. Mention the key value + 1 clear CTA. No URL; the system appends the hosted link."
+                  />
+                </label>
+                <label className="block">
+                  <div className="text-xs font-semibold text-zinc-600">SMS message guidance</div>
+                  <textarea
+                    value={settings?.deliverySmsHint ?? ""}
+                    onChange={(e) => setSettings((prev) => (prev ? { ...prev, deliverySmsHint: e.target.value.slice(0, 800) } : prev))}
+                    rows={3}
+                    className="mt-1 w-full rounded-2xl border border-zinc-200 px-3 py-2 text-sm"
+                    placeholder="Example: Under 140 characters if possible. Direct and friendly. No URL (system appends link)."
+                  />
+                </label>
+              </div>
+            </div>
+
+            <div className="rounded-2xl border border-zinc-200 bg-white px-4 py-3 sm:col-span-2">
+              <div className="text-xs font-semibold uppercase tracking-wide text-zinc-500">Images (AI)</div>
+              <div className="mt-2 flex flex-wrap gap-4 text-sm">
+                <label className="flex items-center gap-2">
+                  <input
+                    type="checkbox"
+                    checked={Boolean(settings?.includeImages)}
+                    onChange={(e) => setSettings((prev) => (prev ? { ...prev, includeImages: e.target.checked } : prev))}
+                  />
+                  Include royalty-free images
+                </label>
+                <label className="flex items-center gap-2">
+                  <input
+                    type="checkbox"
+                    checked={Boolean(settings?.includeImagesWhereNeeded)}
+                    onChange={(e) => setSettings((prev) => (prev ? { ...prev, includeImagesWhereNeeded: e.target.checked } : prev))}
+                    disabled={!Boolean(settings?.includeImages)}
+                  />
+                  Only where needed
+                </label>
+                <div className="text-xs text-zinc-500">Images are pulled from Wikimedia Commons and inserted into the hosted page Markdown.</div>
+              </div>
+            </div>
           </div>
 
           <div className="mt-5 grid gap-4 sm:grid-cols-2">
@@ -707,6 +1129,8 @@ export function PortalNewsletterClient({ initialAudience }: { initialAudience: A
               placeholder={audience === "internal" ? "Weekly priorities\nOps changes\nHiring" : "Seasonal maintenance tips\nBefore/after photos\nFAQ"}
             />
           </div>
+            </>
+          ) : null}
         </div>
 
         <div className="rounded-3xl border border-zinc-200 bg-white p-6">

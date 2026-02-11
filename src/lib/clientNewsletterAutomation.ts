@@ -60,6 +60,8 @@ export type ClientNewsletterGenerationContext = {
   brandVoice?: string | null;
   promptAnswers?: Record<string, string>;
   topicHint?: string;
+  deliveryEmailHint?: string | null;
+  deliverySmsHint?: string | null;
 };
 
 export async function generateClientNewsletterDraft(ctx: ClientNewsletterGenerationContext): Promise<ClientNewsletterDraft> {
@@ -94,7 +96,8 @@ export async function generateClientNewsletterDraft(ctx: ClientNewsletterGenerat
     "Write content in Markdown.",
     "No code fences, no extra commentary.",
     "Keep it clear, concise, and non-fluffy.",
-    "If you include smsText, keep it under 240 characters and do NOT include a URL.",
+    "IMPORTANT: excerpt is the email message body. The system will append a hosted link after the excerpt. Do NOT include a URL in excerpt.",
+    "If you include smsText, keep it under 240 characters and do NOT include a URL (the system appends the link).",
     "No em dashes (—). Use a normal hyphen '-' instead.",
     "Avoid top-level '# ' headings. Prefer '## ' subheadings and plain paragraphs.",
   ].join(" ");
@@ -112,6 +115,10 @@ export async function generateClientNewsletterDraft(ctx: ClientNewsletterGenerat
     },
     guidedAnswers: ctx.promptAnswers ?? {},
     topicHint: ctx.topicHint ?? undefined,
+    deliveryHints: {
+      email: (ctx.deliveryEmailHint || "").trim() || undefined,
+      sms: (ctx.deliverySmsHint || "").trim() || undefined,
+    },
   };
 
   const system =
