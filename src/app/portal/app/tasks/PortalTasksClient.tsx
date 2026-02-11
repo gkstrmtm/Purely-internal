@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 
 import { useToast } from "@/components/ToastProvider";
+import { PortalListboxDropdown, type PortalListboxOption } from "@/components/PortalListboxDropdown";
 
 type TaskRow = {
   id: string;
@@ -37,6 +38,22 @@ export function PortalTasksClient() {
   const [viewerUserId, setViewerUserId] = useState<string>("");
 
   const [assignees, setAssignees] = useState<AssigneeRow[]>([]);
+
+  const assigneeOptions = useMemo((): Array<PortalListboxOption<string>> => {
+    const opts: Array<PortalListboxOption<string>> = [{ value: "", label: "Everyone" }];
+    for (const a of assignees) {
+      const u = a?.user;
+      if (!u?.id) continue;
+      const label = (u.name || u.email || "").trim() || u.id;
+      opts.push({
+        value: String(a.userId),
+        label,
+        disabled: !u.active,
+        hint: u.active ? undefined : "Inactive",
+      });
+    }
+    return opts;
+  }, [assignees]);
 
   const [createOpen, setCreateOpen] = useState(false);
   const [title, setTitle] = useState("");
@@ -127,8 +144,18 @@ export function PortalTasksClient() {
         headers: { "content-type": "application/json" },
         body: JSON.stringify({ status }),
       });
-      const json = (await res.json().catch(() => null)) as any;
-      if (!res.ok || !json?.ok) throw new Error(String(json?.error || "Update failed"));
+      const text = await res.text();
+      const json = ((): any => {
+        try {
+          return text ? JSON.parse(text) : null;
+        } catch {
+          return null;
+        }
+      })();
+      if (!res.ok || !json?.ok) {
+        const msg = String(json?.error || text || `HTTP ${res.status}` || "Update failed").trim();
+        throw new Error(msg || "Update failed");
+      }
       await load();
     } catch (e: any) {
       toast.error(String(e?.message || "Update failed"));
@@ -142,8 +169,18 @@ export function PortalTasksClient() {
         headers: { "content-type": "application/json" },
         body: JSON.stringify({ assignedToUserId: userId.trim() || null }),
       });
-      const json = (await res.json().catch(() => null)) as any;
-      if (!res.ok || !json?.ok) throw new Error(String(json?.error || "Update failed"));
+      const text = await res.text();
+      const json = ((): any => {
+        try {
+          return text ? JSON.parse(text) : null;
+        } catch {
+          return null;
+        }
+      })();
+      if (!res.ok || !json?.ok) {
+        const msg = String(json?.error || text || `HTTP ${res.status}` || "Update failed").trim();
+        throw new Error(msg || "Update failed");
+      }
       toast.success("Assignee updated.");
       await load();
     } catch (e: any) {
@@ -204,27 +241,21 @@ export function PortalTasksClient() {
                         ) : null}
                         <div className="mt-3">
                           <div className="text-xs font-semibold text-zinc-700">Assigned to</div>
-                          <select
-                            value={t.assignedToUserId || ""}
-                            onChange={(e) => {
-                              if (t.canEditAssignee === false) {
-                                toast.error("Only the task creator can change the assignee.");
-                                return;
-                              }
-                              void setAssignee(t.id, e.target.value);
-                            }}
-                            disabled={t.canEditAssignee === false}
-                            className="mt-1 w-full rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-sm"
-                          >
-                            <option value="">Everyone</option>
-                            {assignees
-                              .filter((a) => a?.user?.active)
-                              .map((a) => (
-                                <option key={a.userId} value={a.userId}>
-                                  {(a.user?.name || a.user?.email || "").trim() || a.userId}
-                                </option>
-                              ))}
-                          </select>
+                          {t.canEditAssignee === false ? (
+                            <div className="mt-1 w-full rounded-2xl border border-zinc-200 bg-zinc-50 px-3 py-2 text-sm text-zinc-700">
+                              {t.assignedToUserId
+                                ? (t.assignedTo?.name || t.assignedTo?.email || t.assignedToUserId)
+                                : "Everyone"}
+                            </div>
+                          ) : (
+                            <div className="mt-1">
+                              <PortalListboxDropdown
+                                value={t.assignedToUserId || ""}
+                                options={assigneeOptions}
+                                onChange={(v) => void setAssignee(t.id, v)}
+                              />
+                            </div>
+                          )}
                         </div>
                       </div>
                       {(!t.assignedToUserId || (viewerUserId && String(t.assignedToUserId) === String(viewerUserId))) ? (
@@ -306,20 +337,9 @@ export function PortalTasksClient() {
               />
               <div>
                 <div className="text-xs font-semibold text-zinc-700">Assignee</div>
-                <select
-                  value={assignedToUserId}
-                  onChange={(e) => setAssignedToUserId(e.target.value)}
-                  className="mt-1 w-full rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-sm"
-                >
-                  <option value="">Everyone</option>
-                  {assignees
-                    .filter((a) => a?.user?.active)
-                    .map((a) => (
-                      <option key={a.userId} value={a.userId}>
-                        {(a.user?.name || a.user?.email || "").trim() || a.userId}
-                      </option>
-                    ))}
-                </select>
+                <div className="mt-1">
+                  <PortalListboxDropdown value={assignedToUserId} options={assigneeOptions} onChange={setAssignedToUserId} />
+                </div>
               </div>
               <textarea
                 value={description}

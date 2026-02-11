@@ -142,6 +142,7 @@ export async function processDueScheduledAutomations(opts: {
     let firedThisOwner = 0;
     for (const a of automations) {
       if (!a || typeof a !== "object") continue;
+      if (Boolean((a as any).paused)) continue;
       const automationId = String((a as any).id || "").trim();
       if (!automationId) continue;
 

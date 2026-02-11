@@ -336,6 +336,7 @@ type BuilderEdge = {
 type Automation = {
   id: string;
   name: string;
+  paused?: boolean;
   nodes: BuilderNode[];
   edges: BuilderEdge[];
 };
@@ -540,6 +541,7 @@ async function loadOwnerAutomations(ownerId: string): Promise<Automation[]> {
     .map((a) => ({
       id: String((a as any).id || ""),
       name: String((a as any).name || ""),
+      paused: Boolean((a as any).paused),
       nodes: Array.isArray((a as any).nodes) ? ((a as any).nodes as any[]) : [],
       edges: Array.isArray((a as any).edges) ? ((a as any).edges as any[]) : [],
     }))
@@ -1394,9 +1396,10 @@ export async function runOwnerAutomationsForEvent(opts: {
   event?: { tagId?: string; webhookKey?: string; triggerNodeId?: string; bookingId?: string; calendarId?: string; leadId?: string };
 }) {
   const automations = await loadOwnerAutomations(opts.ownerId);
+  const active = automations.filter((a) => !a.paused);
 
   await Promise.all(
-    automations.map((automation) =>
+    active.map((automation) =>
       runAutomationOnce({
         ownerId: opts.ownerId,
         automation,
@@ -1419,7 +1422,7 @@ export async function runOwnerAutomationByIdForEvent(opts: {
 }) {
   const automations = await loadOwnerAutomations(opts.ownerId);
   const automation = automations.find((a) => a.id === opts.automationId);
-  if (!automation) return;
+  if (!automation || automation.paused) return;
 
   await runAutomationOnce({
     ownerId: opts.ownerId,

@@ -21,6 +21,7 @@ export function PortalListboxDropdown<T extends string>(props: {
   const [open, setOpen] = useState(false);
   const rootRef = useRef<HTMLDivElement | null>(null);
   const buttonRef = useRef<HTMLButtonElement | null>(null);
+  const menuRef = useRef<HTMLDivElement | null>(null);
 
   const [menuRect, setMenuRect] = useState<null | { left: number; top: number; width: number; placement: "down" | "up" }>(null);
 
@@ -49,6 +50,7 @@ export function PortalListboxDropdown<T extends string>(props: {
 
     const menu = (
       <div
+        ref={menuRef}
         className="overflow-hidden rounded-2xl border border-zinc-200 bg-white shadow-lg"
         style={{
           position: portal ? "fixed" : ("absolute" as any),
@@ -58,6 +60,10 @@ export function PortalListboxDropdown<T extends string>(props: {
           transform: portal && menuRect?.placement === "up" ? "translateY(-100%)" : undefined,
           width: portal ? (menuRect?.width ?? 0) : undefined,
           marginTop: portal ? 0 : undefined,
+        }}
+        onMouseDown={(e) => {
+          // Avoid parent mousedown handlers (e.g. canvas drag / outside click) firing first.
+          e.stopPropagation();
         }}
       >
         <div className="max-h-[260px] overflow-auto p-1">
@@ -108,12 +114,23 @@ export function PortalListboxDropdown<T extends string>(props: {
     if (!open) return;
     const onDown = (ev: MouseEvent) => {
       const el = rootRef.current;
+      const menuEl = menuRef.current;
       if (!el) return;
       if (ev.target && el.contains(ev.target as Node)) return;
+      if (ev.target && menuEl && menuEl.contains(ev.target as Node)) return;
       setOpen(false);
     };
     window.addEventListener("mousedown", onDown);
     return () => window.removeEventListener("mousedown", onDown);
+  }, [open]);
+
+  useEffect(() => {
+    if (!open) return;
+    const onKey = (ev: KeyboardEvent) => {
+      if (ev.key === "Escape") setOpen(false);
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
   }, [open]);
 
   useEffect(() => {

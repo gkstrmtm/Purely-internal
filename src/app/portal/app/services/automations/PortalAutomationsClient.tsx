@@ -259,6 +259,7 @@ type BuilderEdge = {
 type Automation = {
   id: string;
   name: string;
+  paused?: boolean;
   updatedAtIso?: string;
   createdBy?: { userId: string; email?: string; name?: string };
   nodes: BuilderNode[];
@@ -1302,12 +1303,16 @@ export function PortalAutomationsClient() {
       const rect = canvas.getBoundingClientRect();
       const v = viewRef.current;
 
-      // Contain scroll/zoom within the canvas.
+      // Default: allow normal page scroll even when hovering the canvas.
+      // Only capture wheel for zoom (pinch/ctrl/meta) or intentional canvas panning (alt/shift).
+      const wantsZoom = ev.ctrlKey || ev.metaKey;
+      const wantsPan = ev.altKey || ev.shiftKey;
+      if (!wantsZoom && !wantsPan) return;
+
       ev.preventDefault();
       ev.stopPropagation();
 
-      // Trackpad pinch triggers ctrl/meta wheel in browsers.
-      if (ev.ctrlKey || ev.metaKey) {
+      if (wantsZoom) {
         const dir = ev.deltaY < 0 ? 1 : -1;
         const factor = dir > 0 ? 1.1 : 0.9;
         const nextZoom = clampZoom(v.zoom * factor);
@@ -1325,7 +1330,7 @@ export function PortalAutomationsClient() {
         return;
       }
 
-      // Two-finger scroll pans around the world.
+      // Intentional wheel pan.
       setView((prev) => ({
         ...prev,
         panX: clamp(prev.panX - ev.deltaX, -6000, 6000),
@@ -2060,6 +2065,7 @@ export function PortalAutomationsClient() {
               ) : (
                 automations.map((a) => {
                   const isSel = a.id === selectedAutomationId;
+                  const isPaused = Boolean((a as any).paused);
                   const triggerNode = (a.nodes || []).find((n: any) => n?.type === "trigger" && n?.config?.kind === "trigger") as any;
                   const triggerKind = triggerNode?.config?.triggerKind as TriggerKind | undefined;
                   const canManualRun = triggerKind === "manual";
@@ -2085,7 +2091,35 @@ export function PortalAutomationsClient() {
                         </div>
                         <div className={"mt-1 text-xs " + (isSel ? "text-zinc-200" : "text-zinc-600")}>
                           {(a.nodes?.length ?? 0)} nodes · {(a.edges?.length ?? 0)} connections
+                          {isPaused ? " · Paused" : ""}
                         </div>
+                      </button>
+
+                      <button
+                        type="button"
+                        className={
+                          "rounded-xl px-3 py-2 text-xs font-semibold " +
+                          (isSel
+                            ? "bg-white/10 text-white hover:bg-white/15"
+                            : "border border-zinc-200 bg-white text-zinc-800 hover:bg-zinc-50")
+                        }
+                        onClick={() => {
+                          setAutomations((prev) =>
+                            prev.map((x) =>
+                              x.id !== a.id
+                                ? x
+                                : {
+                                    ...x,
+                                    paused: !Boolean((x as any).paused),
+                                    updatedAtIso: new Date().toISOString(),
+                                  },
+                            ),
+                          );
+                          setDirty(true);
+                        }}
+                        title={isPaused ? "Resume this automation" : "Pause this automation"}
+                      >
+                        {isPaused ? "Resume" : "Pause"}
                       </button>
 
                       {canManualRun ? (
@@ -2238,6 +2272,26 @@ export function PortalAutomationsClient() {
             >
               + New
             </button>
+
+            {selectedAutomation ? (
+              <button
+                type="button"
+                className={
+                  "rounded-2xl px-3 py-2 text-sm font-semibold " +
+                  (selectedAutomation.paused
+                    ? "border border-emerald-200 bg-emerald-50 text-emerald-800 hover:bg-emerald-100"
+                    : "border border-amber-200 bg-amber-50 text-amber-800 hover:bg-amber-100")
+                }
+                onClick={() => {
+                  const nextPaused = !Boolean(selectedAutomation.paused);
+                  updateSelectedAutomation((a) => ({ ...a, paused: nextPaused, updatedAtIso: new Date().toISOString() }));
+                  setDirty(true);
+                }}
+                title={selectedAutomation.paused ? "Resume this automation" : "Pause this automation"}
+              >
+                {selectedAutomation.paused ? "Paused (click to resume)" : "Active (click to pause)"}
+              </button>
+            ) : null}
             <button
               type="button"
               className="rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-sm font-semibold hover:bg-zinc-50"

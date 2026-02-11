@@ -121,6 +121,7 @@ const edgeSchema = z.object({
 const automationSchema = z.object({
   id: z.string().min(1).max(60),
   name: z.string().min(1).max(80),
+  paused: z.boolean().optional(),
   updatedAtIso: z.string().optional(),
   createdBy: z
     .object({

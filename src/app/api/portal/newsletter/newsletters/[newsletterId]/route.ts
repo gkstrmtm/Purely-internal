@@ -96,11 +96,16 @@ export async function PUT(req: Request, ctx: { params: Promise<{ newsletterId: s
 
   const current = await prisma.clientNewsletter.findFirst({
     where: { id: newsletterId, siteId: site.id },
-    select: { id: true, status: true },
+    select: { id: true, status: true, smsText: true },
   });
 
   if (!current) return NextResponse.json({ ok: false, error: "Not found" }, { status: 404 });
-  if (current.status === "SENT") return NextResponse.json({ ok: false, error: "Already sent" }, { status: 409 });
+
+  const { searchParams } = new URL(req.url);
+  const hostedOnly = searchParams.get("hosted") === "1" || searchParams.get("hosted") === "true";
+  if (current.status === "SENT" && !hostedOnly) {
+    return NextResponse.json({ ok: false, error: "Already sent" }, { status: 409 });
+  }
 
   const updated = await prisma.clientNewsletter.update({
     where: { id: current.id },
@@ -108,7 +113,7 @@ export async function PUT(req: Request, ctx: { params: Promise<{ newsletterId: s
       title: parsed.data.title,
       excerpt: parsed.data.excerpt,
       content: parsed.data.content,
-      smsText: parsed.data.smsText ?? null,
+      smsText: current.status === "SENT" ? current.smsText ?? null : (parsed.data.smsText ?? null),
     },
     select: { id: true, updatedAt: true },
   });

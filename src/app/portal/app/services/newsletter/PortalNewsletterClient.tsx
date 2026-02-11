@@ -150,6 +150,9 @@ export function PortalNewsletterClient({ initialAudience }: { initialAudience: A
   const [manualImageSearch, setManualImageSearch] = useState("");
   const [manualImageSearching, setManualImageSearching] = useState(false);
   const [manualImageResults, setManualImageResults] = useState<Array<{ url: string; thumbUrl: string; title: string; sourcePage: string }>>([]);
+  const [manualImagePreview, setManualImagePreview] = useState<{ url: string; thumbUrl: string; title: string; sourcePage: string } | null>(null);
+  const [manualImagePreviewOpen, setManualImagePreviewOpen] = useState(false);
+  const [manualImageImporting, setManualImageImporting] = useState(false);
 
   const [createTagName, setCreateTagName] = useState("");
   const [createTagColor, setCreateTagColor] = useState<(typeof DEFAULT_TAG_COLORS)[number]>("#2563EB");
@@ -515,7 +518,10 @@ export function PortalNewsletterClient({ initialAudience }: { initialAudience: A
     setDraftSaving(true);
     setDraftError(null);
     try {
-      const res = await fetch(`/api/portal/newsletter/newsletters/${encodeURIComponent(draftId)}`, {
+      const hostedOnly = draftStatus === "SENT";
+      const res = await fetch(
+        `/api/portal/newsletter/newsletters/${encodeURIComponent(draftId)}${hostedOnly ? "?hosted=1" : ""}`,
+        {
         method: "PUT",
         headers: { "content-type": "application/json" },
         body: JSON.stringify({
@@ -524,18 +530,19 @@ export function PortalNewsletterClient({ initialAudience }: { initialAudience: A
           content: draftContent,
           smsText: draftSmsText || null,
         }),
-      });
+        },
+      );
       const json = (await res.json().catch(() => ({}))) as any;
       if (!res.ok || !json?.ok) {
         setDraftError(String(json?.error || "Failed to save"));
         return;
       }
-      toast.success("Draft saved");
+      toast.success(hostedOnly ? "Hosted page updated" : "Draft saved");
       await refresh();
     } finally {
       setDraftSaving(false);
     }
-  }, [draftContent, draftExcerpt, draftId, draftSmsText, draftTitle, refresh, toast]);
+  }, [draftContent, draftExcerpt, draftId, draftSmsText, draftStatus, draftTitle, refresh, toast]);
 
   const insertIntoDraftContent = useCallback((snippet: string) => {
     const s = String(snippet || "").trim();
@@ -898,6 +905,113 @@ export function PortalNewsletterClient({ initialAudience }: { initialAudience: A
                   }}
                 />
 
+                {manualImagePreviewOpen && manualImagePreview ? (
+                  <div
+                    className="fixed inset-0 z-[9998] flex items-end justify-center bg-black/40 p-3 sm:items-center"
+                    onMouseDown={() => {
+                      if (manualImageImporting) return;
+                      setManualImagePreviewOpen(false);
+                    }}
+                  >
+                    <div
+                      className="w-full max-w-3xl rounded-3xl border border-zinc-200 bg-white p-4 shadow-xl"
+                      onMouseDown={(e) => e.stopPropagation()}
+                    >
+                      <div className="flex items-start justify-between gap-3">
+                        <div className="min-w-0">
+                          <div className="truncate text-sm font-semibold text-zinc-900">
+                            {manualImagePreview.title.replace(/^File:/, "") || "Royalty-free image"}
+                          </div>
+                          <div className="mt-1 text-xs text-zinc-500">Wikimedia Commons</div>
+                        </div>
+                        <button
+                          type="button"
+                          className="rounded-xl border border-zinc-200 bg-white px-3 py-2 text-xs font-semibold hover:bg-zinc-50 disabled:opacity-60"
+                          onClick={() => setManualImagePreviewOpen(false)}
+                          disabled={manualImageImporting}
+                        >
+                          Close
+                        </button>
+                      </div>
+
+                      <div className="mt-4 overflow-hidden rounded-2xl border border-zinc-200 bg-zinc-50">
+                        {/* eslint-disable-next-line @next/next/no-img-element */}
+                        <img
+                          src={manualImagePreview.url || manualImagePreview.thumbUrl}
+                          alt={manualImagePreview.title}
+                          className="max-h-[70vh] w-full object-contain"
+                        />
+                      </div>
+
+                      <div className="mt-3 flex flex-wrap items-center justify-between gap-2">
+                        <a
+                          className="text-xs font-semibold text-[color:var(--color-brand-blue)] hover:underline"
+                          href={manualImagePreview.sourcePage}
+                          target="_blank"
+                          rel="noreferrer"
+                        >
+                          View source
+                        </a>
+
+                        <div className="flex flex-wrap gap-2">
+                          <button
+                            type="button"
+                            className="rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-xs font-semibold text-zinc-700 hover:bg-zinc-50 disabled:opacity-60"
+                            disabled={manualImageImporting}
+                            onClick={() => {
+                              setManualAssetUrl(manualImagePreview.url || manualImagePreview.thumbUrl);
+                              setManualAssetFileName(
+                                (manualImagePreview.title || "")
+                                  .replace(/^File:/, "")
+                                  .trim()
+                                  .slice(0, 120),
+                              );
+                              setManualImagePreviewOpen(false);
+                            }}
+                          >
+                            Use without saving
+                          </button>
+                          <button
+                            type="button"
+                            className="rounded-2xl bg-zinc-900 px-3 py-2 text-xs font-semibold text-white hover:bg-zinc-800 disabled:opacity-60"
+                            disabled={manualImageImporting}
+                            onClick={async () => {
+                              setManualImageImporting(true);
+                              try {
+                                const fileName = (manualImagePreview.title || "")
+                                  .replace(/^File:/, "")
+                                  .trim()
+                                  .slice(0, 200);
+                                const res = await fetch("/api/portal/media/import-remote", {
+                                  method: "POST",
+                                  headers: { "content-type": "application/json" },
+                                  body: JSON.stringify({
+                                    url: manualImagePreview.url || manualImagePreview.thumbUrl,
+                                    fileName: fileName || null,
+                                  }),
+                                });
+                                const json = (await res.json().catch(() => ({}))) as any;
+                                if (!res.ok || !json?.ok || !json?.item?.shareUrl) {
+                                  toast.error(String(json?.error || "Import failed"));
+                                  return;
+                                }
+                                setManualAssetUrl(String(json.item.shareUrl));
+                                setManualAssetFileName(fileName || "image");
+                                toast.success("Added to Media Library");
+                                setManualImagePreviewOpen(false);
+                              } finally {
+                                setManualImageImporting(false);
+                              }
+                            }}
+                          >
+                            Use + add to Media Library
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                ) : null}
+
                 <div className="mt-5 rounded-2xl border border-zinc-200 bg-white p-3">
                   <div className="text-xs font-semibold uppercase tracking-wide text-zinc-500">Royalty-free images</div>
                   <div className="mt-2 flex gap-2">
@@ -923,13 +1037,13 @@ export function PortalNewsletterClient({ initialAudience }: { initialAudience: A
                         type="button"
                         className="flex items-center gap-3 rounded-2xl border border-zinc-200 bg-white p-2 text-left hover:bg-zinc-50"
                         onClick={() => {
-                          setManualAssetUrl(img.thumbUrl || img.url);
-                          setManualAssetFileName(img.title.replace(/^File:/, "").slice(0, 120));
+                          setManualImagePreview(img);
+                          setManualImagePreviewOpen(true);
                         }}
                         title={img.sourcePage}
                       >
                         {/* eslint-disable-next-line @next/next/no-img-element */}
-                        <img src={img.thumbUrl} alt={img.title} className="h-12 w-12 rounded-xl object-cover" />
+                        <img src={img.thumbUrl} alt={img.title} className="h-14 w-14 rounded-xl object-cover" />
                         <div className="min-w-0">
                           <div className="truncate text-xs font-semibold text-zinc-900">{img.title.replace(/^File:/, "")}</div>
                           <div className="truncate text-[11px] text-zinc-500">Wikimedia Commons</div>
@@ -1538,7 +1652,15 @@ export function PortalNewsletterClient({ initialAudience }: { initialAudience: A
                         >
                           Edit / preview
                         </button>
-                      ) : null}
+                      ) : (
+                        <button
+                          type="button"
+                          onClick={() => void openDraft(n.id)}
+                          className="rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-sm font-semibold text-zinc-700 hover:bg-zinc-50"
+                        >
+                          Edit hosted
+                        </button>
+                      )}
 
                       {n.status === "READY" ? (
                         <button
@@ -1568,8 +1690,12 @@ export function PortalNewsletterClient({ initialAudience }: { initialAudience: A
           >
             <div className="flex items-start justify-between gap-3">
               <div>
-                <div className="text-sm font-semibold text-zinc-900">Draft editor</div>
-                <div className="mt-1 text-sm text-zinc-600">Edit what will be sent and preview email/SMS.</div>
+                <div className="text-sm font-semibold text-zinc-900">{draftStatus === "SENT" ? "Hosted page editor" : "Draft editor"}</div>
+                <div className="mt-1 text-sm text-zinc-600">
+                  {draftStatus === "SENT"
+                    ? "Edits update the hosted page only. Email/SMS were already sent."
+                    : "Edit what will be sent and preview email/SMS."}
+                </div>
               </div>
               <button
                 type="button"
@@ -1590,6 +1716,12 @@ export function PortalNewsletterClient({ initialAudience }: { initialAudience: A
 
                   {draftError ? (
                     <div className="mt-3 rounded-2xl border border-red-200 bg-red-50 p-3 text-sm text-red-700">{draftError}</div>
+                  ) : null}
+
+                  {draftStatus === "SENT" ? (
+                    <div className="mt-3 rounded-2xl border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900">
+                      This newsletter was already sent. Saving will only change the hosted page version.
+                    </div>
                   ) : null}
 
                   <div className="mt-4">
@@ -1618,11 +1750,14 @@ export function PortalNewsletterClient({ initialAudience }: { initialAudience: A
                     <input
                       value={draftSmsText}
                       onChange={(e) => setDraftSmsText(e.target.value)}
+                      disabled={draftStatus === "SENT"}
                       className="mt-1 w-full rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-sm outline-none focus:border-zinc-300"
                       placeholder="New newsletter is ready."
                       maxLength={240}
                     />
-                    <div className="mt-1 text-xs text-zinc-500">A hosted link is appended automatically.</div>
+                    <div className="mt-1 text-xs text-zinc-500">
+                      {draftStatus === "SENT" ? "Locked after sending." : "A hosted link is appended automatically."}
+                    </div>
                   </div>
 
                   <div className="mt-4">
@@ -1790,7 +1925,7 @@ export function PortalNewsletterClient({ initialAudience }: { initialAudience: A
                       onClick={() => void saveDraft()}
                       disabled={draftSaving || !draftTitle.trim()}
                     >
-                      {draftSaving ? "Saving…" : "Save draft"}
+                      {draftSaving ? "Saving…" : draftStatus === "SENT" ? "Save hosted page" : "Save draft"}
                     </button>
                   </div>
                 </div>
@@ -1850,7 +1985,11 @@ export function PortalNewsletterClient({ initialAudience }: { initialAudience: A
                   <div className="mt-6 rounded-2xl border border-zinc-200 bg-zinc-50 p-4">
                     <div className="text-xs font-semibold uppercase tracking-wide text-zinc-500">Status</div>
                     <div className="mt-2 text-sm text-zinc-800">{draftStatus}</div>
-                    <div className="mt-1 text-xs text-zinc-500">SENT drafts are locked. READY drafts are safe to edit before sending.</div>
+                    <div className="mt-1 text-xs text-zinc-500">
+                      {draftStatus === "SENT"
+                        ? "SENT newsletters can be edited for the hosted page only."
+                        : "READY drafts are safe to edit before sending."}
+                    </div>
                   </div>
                 </div>
               </div>
