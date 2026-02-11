@@ -29,6 +29,62 @@ async function getProfilePhone(ownerId: string): Promise<string | null> {
   return parsed.ok ? parsed.e164 : null;
 }
 
+async function getProfileVoiceAgentId(ownerId: string): Promise<string | null> {
+  const row = await prisma.portalServiceSetup.findUnique({
+    where: { ownerId_serviceSlug: { ownerId, serviceSlug: PROFILE_EXTRAS_SERVICE_SLUG } },
+    select: { dataJson: true },
+  });
+
+  const rec =
+    row?.dataJson && typeof row.dataJson === "object" && !Array.isArray(row.dataJson)
+      ? (row.dataJson as Record<string, unknown>)
+      : null;
+
+  const raw = rec?.voiceAgentId;
+  const id = typeof raw === "string" ? raw.trim().slice(0, 120) : "";
+  return id ? id : null;
+}
+
+async function setProfileVoiceAgentId(ownerId: string, voiceAgentId: string | null): Promise<string | null> {
+  const existing = await prisma.portalServiceSetup.findUnique({
+    where: { ownerId_serviceSlug: { ownerId, serviceSlug: PROFILE_EXTRAS_SERVICE_SLUG } },
+    select: { dataJson: true },
+  });
+
+  const base =
+    existing?.dataJson && typeof existing.dataJson === "object" && !Array.isArray(existing.dataJson)
+      ? (existing.dataJson as Record<string, unknown>)
+      : {};
+
+  const next: any = { ...base, version: 1 };
+  const id = typeof voiceAgentId === "string" ? voiceAgentId.trim().slice(0, 120) : "";
+  if (id) next.voiceAgentId = id;
+  else delete next.voiceAgentId;
+
+  const row = await prisma.portalServiceSetup.upsert({
+    where: { ownerId_serviceSlug: { ownerId, serviceSlug: PROFILE_EXTRAS_SERVICE_SLUG } },
+    create: {
+      ownerId,
+      serviceSlug: PROFILE_EXTRAS_SERVICE_SLUG,
+      status: "COMPLETE",
+      dataJson: next,
+    },
+    update: {
+      status: "COMPLETE",
+      dataJson: next,
+    },
+    select: { dataJson: true },
+  });
+
+  const rec = row.dataJson && typeof row.dataJson === "object" && !Array.isArray(row.dataJson)
+    ? (row.dataJson as Record<string, unknown>)
+    : null;
+
+  const raw = rec?.voiceAgentId;
+  const out = typeof raw === "string" ? raw.trim().slice(0, 120) : "";
+  return out ? out : null;
+}
+
 async function setProfilePhone(ownerId: string, phone: string | null): Promise<string | null> {
   const existing = await prisma.portalServiceSetup.findUnique({
     where: { ownerId_serviceSlug: { ownerId, serviceSlug: PROFILE_EXTRAS_SERVICE_SLUG } },
@@ -75,9 +131,10 @@ const updateSchema = z
     name: z.string().trim().min(2).max(120).optional(),
     email: z.string().trim().email().optional(),
     phone: z.string().trim().max(32).optional(),
+    voiceAgentId: z.string().trim().max(120).optional(),
     currentPassword: z.string().min(6).optional(),
   })
-  .refine((v) => Boolean(v.name || v.email || v.phone), {
+  .refine((v) => Boolean(v.name || v.email || v.phone || v.voiceAgentId !== undefined), {
     message: "Provide at least one field to update",
     path: ["name"],
   })
@@ -101,9 +158,12 @@ export async function GET() {
     select: { id: true, name: true, email: true, role: true, updatedAt: true },
   });
 
-  const phone = await getProfilePhone(userId);
+  const [phone, voiceAgentId] = await Promise.all([
+    getProfilePhone(userId),
+    getProfileVoiceAgentId(userId),
+  ]);
 
-  return NextResponse.json({ ok: true, user: user ? { ...user, phone } : null });
+  return NextResponse.json({ ok: true, user: user ? { ...user, phone, voiceAgentId } : null });
 }
 
 export async function PUT(req: Request) {
@@ -128,6 +188,9 @@ export async function PUT(req: Request) {
 
   const phoneProvided = parsed.data.phone !== undefined;
   let nextPhone: string | null = null;
+    const voiceAgentProvided = parsed.data.voiceAgentId !== undefined;
+    const nextVoiceAgentId =
+      typeof parsed.data.voiceAgentId === "string" ? parsed.data.voiceAgentId.trim().slice(0, 120) : null;
   if (phoneProvided) {
     const parsedPhone = normalizePhoneStrict(parsed.data.phone ?? "");
     if (!parsedPhone.ok) {
@@ -168,6 +231,9 @@ export async function PUT(req: Request) {
   }
 
   const phone = phoneProvided ? await setProfilePhone(userId, nextPhone) : await getProfilePhone(userId);
+  const voiceAgentId = voiceAgentProvided
+    ? await setProfileVoiceAgentId(userId, nextVoiceAgentId)
+    : await getProfileVoiceAgentId(userId);
 
   const user = await prisma.user.findUnique({
     where: { id: userId },
@@ -186,7 +252,7 @@ export async function PUT(req: Request) {
 
   return NextResponse.json({
     ok: true,
-    user: user ? { ...user, phone } : null,
+    user: user ? { ...user, phone, voiceAgentId } : null,
     note: wantsToUpdateNameOrEmail ? "Sign out and back in to refresh your session." : "Saved.",
   });
 }

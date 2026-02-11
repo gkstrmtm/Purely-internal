@@ -11,7 +11,7 @@ import { PortalSettingsSection } from "@/components/PortalSettingsSection";
 type Me = {
   ok?: boolean;
   error?: string;
-  user: { email: string; name: string; role: string; phone?: string | null } | null;
+  user: { email: string; name: string; role: string; phone?: string | null; voiceAgentId?: string | null } | null;
 };
 
 type TwilioMasked = {
@@ -91,6 +91,7 @@ export function PortalProfileClient() {
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
   const [phone, setPhone] = useState("");
+  const [voiceAgentId, setVoiceAgentId] = useState("");
   const [currentPassword, setCurrentPassword] = useState("");
   const [savingContact, setSavingContact] = useState(false);
 
@@ -127,6 +128,7 @@ export function PortalProfileClient() {
     const nextName = name.trim();
     const nextEmail = email.trim().toLowerCase();
     const nextPhoneRaw = phone.trim();
+    const nextVoiceAgentId = voiceAgentId.trim();
 
     const nextPhoneRes = normalizePhoneStrict(nextPhoneRaw);
     if (!nextPhoneRes.ok) return false;
@@ -135,19 +137,21 @@ export function PortalProfileClient() {
     const curName = me.user?.name ?? "";
     const curEmail = (me.user?.email ?? "").toLowerCase();
     const curPhone = (me.user?.phone ?? "").trim();
+    const curVoiceAgentId = (me.user?.voiceAgentId ?? "").trim();
 
     const wantsNameChange = nextName !== curName;
     const wantsEmailChange = nextEmail !== curEmail;
     const wantsPhoneChange = nextPhone !== curPhone;
+    const wantsVoiceAgentIdChange = nextVoiceAgentId !== curVoiceAgentId;
 
-    if (!wantsNameChange && !wantsEmailChange && !wantsPhoneChange) return false;
+    if (!wantsNameChange && !wantsEmailChange && !wantsPhoneChange && !wantsVoiceAgentIdChange) return false;
 
     if (wantsNameChange || wantsEmailChange) {
       return currentPassword.trim().length >= 6 && nextName.length >= 2 && nextEmail.length >= 3;
     }
 
     return true;
-  }, [me, name, email, phone, currentPassword]);
+  }, [me, name, email, phone, voiceAgentId, currentPassword]);
 
   const canSavePassword = useMemo(() => {
     return (
@@ -169,6 +173,7 @@ export function PortalProfileClient() {
         setName(json.user?.name ?? "");
         setEmail(json.user?.email ?? "");
         setPhone(formatPhoneForDisplay(json.user?.phone ?? ""));
+        setVoiceAgentId(json.user?.voiceAgentId ?? "");
       } else {
         const json = (await res.json().catch(() => ({}))) as { error?: string };
         setError(json.error ?? "Unable to load profile");
@@ -303,6 +308,7 @@ export function PortalProfileClient() {
     const nextName = name.trim();
     const nextEmail = email.trim().toLowerCase();
     const nextPhoneRaw = phone.trim();
+    const nextVoiceAgentId = voiceAgentId.trim();
     const nextPhoneRes = normalizePhoneStrict(nextPhoneRaw);
     if (!nextPhoneRes.ok) {
       setSavingContact(false);
@@ -314,15 +320,18 @@ export function PortalProfileClient() {
     const curName = me.user.name ?? "";
     const curEmail = (me.user.email ?? "").toLowerCase();
     const curPhone = (me.user.phone ?? "").trim();
+    const curVoiceAgentId = (me.user.voiceAgentId ?? "").trim();
 
     const wantsNameChange = nextName !== curName;
     const wantsEmailChange = nextEmail !== curEmail;
     const wantsPhoneChange = nextPhone !== curPhone;
+    const wantsVoiceAgentIdChange = nextVoiceAgentId !== curVoiceAgentId;
 
     const payload: Record<string, unknown> = {};
     if (wantsNameChange) payload.name = nextName;
     if (wantsEmailChange) payload.email = nextEmail;
     if (wantsPhoneChange) payload.phone = nextPhone;
+    if (wantsVoiceAgentIdChange) payload.voiceAgentId = nextVoiceAgentId;
     if (wantsNameChange || wantsEmailChange) payload.currentPassword = currentPassword;
 
     const res = await fetch("/api/portal/profile", {
@@ -335,7 +344,7 @@ export function PortalProfileClient() {
       ok?: boolean;
       error?: string;
       note?: string;
-      user?: { name?: string; email?: string; phone?: string | null; role?: string } | null;
+      user?: { name?: string; email?: string; phone?: string | null; voiceAgentId?: string | null; role?: string } | null;
     };
     setSavingContact(false);
 
@@ -351,6 +360,7 @@ export function PortalProfileClient() {
         name: json.user?.name ?? nextName,
         email: json.user?.email ?? nextEmail,
         phone: json.user?.phone ?? nextPhone,
+        voiceAgentId: json.user?.voiceAgentId ?? nextVoiceAgentId,
         role: json.user?.role ?? me.user.role,
       },
     });
@@ -438,6 +448,17 @@ export function PortalProfileClient() {
                       className="mt-1 w-full rounded-2xl border border-zinc-200 bg-white px-4 py-3 text-sm outline-none focus:border-zinc-300"
                       placeholder="+1 (555) 123-4567"
                     />
+                  </div>
+                  <div>
+                    <label className="text-xs font-semibold text-zinc-600">Agent ID (optional)</label>
+                    <input
+                      value={voiceAgentId}
+                      onChange={(e) => setVoiceAgentId(e.target.value)}
+                      className="mt-1 w-full rounded-2xl border border-zinc-200 bg-white px-4 py-3 text-sm outline-none focus:border-zinc-300"
+                      placeholder="agent_…"
+                      autoComplete="off"
+                    />
+                    <div className="mt-2 text-xs text-zinc-500">Used by voice/AI calling services when enabled.</div>
                   </div>
                   <div className="sm:col-span-2">
                     <label className="text-xs font-semibold text-zinc-600">Current password (required for name/email changes)</label>
