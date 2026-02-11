@@ -70,6 +70,9 @@ export function PortalPeopleUsersClient() {
   const [savingMember, setSavingMember] = useState(false);
   const [removingMember, setRemovingMember] = useState(false);
 
+  const [demoteConfirmOpen, setDemoteConfirmOpen] = useState(false);
+  const demoteContinueRef = useRef<null | (() => void)>(null);
+
   useEffect(() => {
     setInvitePermissions(defaultPortalPermissionsForRole(inviteRole));
     if (inviteRole === "ADMIN") setPermissionsOpen(false);
@@ -570,12 +573,11 @@ export function PortalPeopleUsersClient() {
                       const current = memberRole || "MEMBER";
 
                       if (current === "ADMIN" && nextRole === "MEMBER") {
-                        const ok = window.confirm(
-                          "By removing admin access, you’re demoting this admin to a user (member). Continue?",
-                        );
-                        if (!ok) return;
-                        setMemberRole("MEMBER");
-                        setMemberPermissions(defaultPortalPermissionsForRole("MEMBER"));
+                        demoteContinueRef.current = () => {
+                          setMemberRole("MEMBER");
+                          setMemberPermissions(defaultPortalPermissionsForRole("MEMBER"));
+                        };
+                        setDemoteConfirmOpen(true);
                         return;
                       }
 
@@ -694,6 +696,46 @@ export function PortalPeopleUsersClient() {
                 {savingMember ? "Saving…" : "Save"}
               </button>
               </div>
+            </div>
+          </div>
+        </div>
+      ) : null}
+
+      {demoteConfirmOpen ? (
+        <div className="fixed inset-0 z-[9999] flex items-end justify-center bg-black/30 p-3 sm:items-center">
+          <div className="w-full max-w-lg rounded-3xl border border-zinc-200 bg-white p-5 shadow-xl">
+            <div className="text-base font-semibold text-zinc-900">Demote admin?</div>
+            <div className="mt-2 text-sm text-zinc-600">
+              By removing admin access, you’re demoting this admin to a user (member). Continue?
+            </div>
+            <div className="mt-4 flex items-center justify-end gap-2">
+              <button
+                type="button"
+                onClick={() => {
+                  demoteContinueRef.current = null;
+                  setDemoteConfirmOpen(false);
+                }}
+                className="rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm font-semibold text-zinc-800 hover:bg-zinc-50"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  const fn = demoteContinueRef.current;
+                  demoteContinueRef.current = null;
+                  setDemoteConfirmOpen(false);
+                  try {
+                    fn?.();
+                    toast.info("Admin access removed. Review permissions before saving.");
+                  } catch {
+                    // ignore
+                  }
+                }}
+                className="rounded-2xl bg-zinc-900 px-4 py-2 text-sm font-semibold text-white hover:bg-zinc-800"
+              >
+                Continue
+              </button>
             </div>
           </div>
         </div>

@@ -21,7 +21,23 @@ const patchSchema = z
   .strict();
 
 export async function PATCH(req: Request, ctx: { params: Promise<{ taskId: string }> }) {
-  const auth = await requireClientSessionForService("tasks", "edit");
+  const body = (await req.json().catch(() => null)) as unknown;
+  const parsed = patchSchema.safeParse(body ?? {});
+  if (!parsed.success) return NextResponse.json({ ok: false, error: "Invalid input" }, { status: 400 });
+
+  const statusReq = parsed.data.status;
+  const wantsStatusOnly =
+    (statusReq === "OPEN" || statusReq === "DONE") &&
+    parsed.data.title === undefined &&
+    parsed.data.description === undefined &&
+    parsed.data.assignedToUserId === undefined &&
+    parsed.data.dueAtIso === undefined;
+
+  // Allow assignees to mark their tasks done (and everyone tasks per-member completion)
+  // without requiring full edit permissions.
+  const auth = wantsStatusOnly
+    ? await requireClientSessionForService("tasks")
+    : await requireClientSessionForService("tasks", "edit");
   if (!auth.ok) {
     return NextResponse.json(
       { ok: false, error: auth.status === 401 ? "Unauthorized" : "Forbidden" },
@@ -35,17 +51,12 @@ export async function PATCH(req: Request, ctx: { params: Promise<{ taskId: strin
   const memberId = (auth.session.user as any).memberId || ownerId;
   const { taskId } = await ctx.params;
 
-  const body = (await req.json().catch(() => null)) as unknown;
-  const parsed = patchSchema.safeParse(body ?? {});
-  if (!parsed.success) return NextResponse.json({ ok: false, error: "Invalid input" }, { status: 400 });
-
   const trimmedTaskId = String(taskId || "").trim();
   const sets: string[] = [];
   const params: any[] = [ownerId, trimmedTaskId];
 
   // If the client is trying to mark a task DONE/OPEN, and the task is assigned to everyone
   // (assignedToUserId is NULL), store completion per-member instead of closing the task globally.
-  const statusReq = parsed.data.status;
   let everyoneTaskCompletionHandled = false;
   if (statusReq === "DONE" || statusReq === "OPEN") {
     const row = (await prisma.$queryRawUnsafe(
@@ -55,6 +66,11 @@ export async function PATCH(req: Request, ctx: { params: Promise<{ taskId: strin
     ).catch(() => [])) as any[];
 
     const assignedToUserId = row?.[0]?.assignedToUserId ? String(row[0].assignedToUserId) : null;
+
+    if (wantsStatusOnly && assignedToUserId && String(assignedToUserId) !== String(memberId)) {
+      return NextResponse.json({ ok: false, error: "You can only update tasks assigned to you." }, { status: 403 });
+    }
+
     if (row?.length && !assignedToUserId) {
       const now = new Date();
       if (statusReq === "DONE") {

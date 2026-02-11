@@ -34,6 +34,7 @@ export function PortalTasksClient() {
   const toast = useToast();
   const [loading, setLoading] = useState(true);
   const [tasks, setTasks] = useState<TaskRow[]>([]);
+  const [viewerUserId, setViewerUserId] = useState<string>("");
 
   const [assignees, setAssignees] = useState<AssigneeRow[]>([]);
 
@@ -70,6 +71,7 @@ export function PortalTasksClient() {
       const tasksJson = (await tasksRes.json()) as any;
       if (!tasksRes.ok || !tasksJson?.ok) throw new Error(String(tasksJson?.error || "Failed to load tasks"));
       setTasks(Array.isArray(tasksJson.tasks) ? (tasksJson.tasks as TaskRow[]) : []);
+      setViewerUserId(typeof tasksJson.viewerUserId === "string" ? tasksJson.viewerUserId : "");
 
       if (assigneesRes?.ok) {
         const assigneesJson = (await assigneesRes.json().catch(() => null)) as any;
@@ -225,18 +227,20 @@ export function PortalTasksClient() {
                           </select>
                         </div>
                       </div>
-                      <button
-                        type="button"
-                        onClick={() => setStatus(t.id, !t.assignedToUserId && t.viewerDoneAtIso ? "OPEN" : "DONE")}
-                        className={classNames(
-                          "rounded-2xl px-3 py-2 text-xs font-semibold hover:brightness-95",
-                          !t.assignedToUserId && t.viewerDoneAtIso
-                            ? "border border-zinc-200 bg-white text-zinc-800 hover:bg-zinc-50"
-                            : "bg-[color:var(--color-brand-blue)] text-white",
-                        )}
-                      >
-                        {!t.assignedToUserId && t.viewerDoneAtIso ? "Undo" : "Mark done"}
-                      </button>
+                      {(!t.assignedToUserId || (viewerUserId && String(t.assignedToUserId) === String(viewerUserId))) ? (
+                        <button
+                          type="button"
+                          onClick={() => setStatus(t.id, !t.assignedToUserId && t.viewerDoneAtIso ? "OPEN" : "DONE")}
+                          className={classNames(
+                            "rounded-2xl px-3 py-2 text-xs font-semibold hover:brightness-95",
+                            !t.assignedToUserId && t.viewerDoneAtIso
+                              ? "border border-zinc-200 bg-white text-zinc-800 hover:bg-zinc-50"
+                              : "bg-[color:var(--color-brand-blue)] text-white",
+                          )}
+                        >
+                          {!t.assignedToUserId && t.viewerDoneAtIso ? "Undo" : "Mark done"}
+                        </button>
+                      ) : null}
                     </div>
                   </div>
                 ))

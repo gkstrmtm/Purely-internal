@@ -2179,7 +2179,7 @@ export function PortalAutomationsClient() {
 
                 <div
                   data-kind="ui"
-                  className="absolute top-3 right-3 flex items-center gap-2 rounded-2xl border border-zinc-200 bg-white px-2 py-1 text-xs text-zinc-700 shadow-sm"
+                  className="absolute right-3 top-3 z-30 flex items-center gap-2 rounded-2xl border border-zinc-200 bg-white px-2 py-1 text-xs text-zinc-700 shadow-sm"
                   onPointerDown={(ev) => ev.stopPropagation()}
                 >
                   <button
@@ -2211,7 +2211,7 @@ export function PortalAutomationsClient() {
 
                 <div
                   data-kind="ui"
-                  className="absolute left-3 top-3 w-[360px] max-w-[calc(100%-1.5rem)] rounded-2xl border border-zinc-200 bg-white/95 p-3 shadow-sm backdrop-blur"
+                  className="absolute left-3 top-3 z-30 w-[360px] max-w-[calc(100%-1.5rem)] rounded-2xl border border-zinc-200 bg-white/95 p-3 shadow-lg backdrop-blur"
                   onPointerDown={(ev) => ev.stopPropagation()}
                   onWheel={(ev) => ev.stopPropagation()}
                 >
@@ -2221,7 +2221,7 @@ export function PortalAutomationsClient() {
                     </div>
                     <button
                       type="button"
-                      className="rounded-xl border border-zinc-200 bg-white px-2 py-1 text-xs font-semibold hover:bg-zinc-50"
+                      className="inline-flex h-9 w-9 items-center justify-center rounded-xl border border-zinc-200 bg-white text-sm font-semibold leading-none hover:bg-zinc-50 touch-manipulation"
                       onClick={() => setSelectedNodeId(null)}
                       title="Close inspector"
                     >

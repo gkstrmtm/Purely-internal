@@ -32,6 +32,8 @@ type ContactsPayload = {
   ok: true;
   contacts: ContactRow[];
   unlinkedLeads: LeadRow[];
+  contactsNextCursor?: string | null;
+  unlinkedLeadsNextCursor?: string | null;
 };
 
 type ContactDetailPayload = {
@@ -91,6 +93,11 @@ export function PortalPeopleContactsClient() {
   const [data, setData] = useState<ContactsPayload | null>(null);
   const [q, setQ] = useState("");
 
+  const [contactsCursor, setContactsCursor] = useState<string | null>(null);
+  const [leadsCursor, setLeadsCursor] = useState<string | null>(null);
+  const [contactsNextCursor, setContactsNextCursor] = useState<string | null>(null);
+  const [leadsNextCursor, setLeadsNextCursor] = useState<string | null>(null);
+
   const [ownerTags, setOwnerTags] = useState<ContactTag[]>([]);
   const [selectedContactId, setSelectedContactId] = useState<string | null>(null);
   const [detailOpen, setDetailOpen] = useState(false);
@@ -117,13 +124,28 @@ export function PortalPeopleContactsClient() {
   const [leadLinkContactId, setLeadLinkContactId] = useState<string>("");
   const [savingLead, setSavingLead] = useState(false);
 
-  async function load() {
+  async function load(opts?: { contactsCursor?: string | null; leadsCursor?: string | null }) {
     setLoading(true);
     try {
-      const res = await fetch("/api/portal/people/contacts", { cache: "no-store" });
+      const cCur = opts?.contactsCursor !== undefined ? opts.contactsCursor : contactsCursor;
+      const lCur = opts?.leadsCursor !== undefined ? opts.leadsCursor : leadsCursor;
+
+      const sp = new URLSearchParams();
+      sp.set("take", "50");
+      if (cCur) sp.set("contactsCursor", cCur);
+      if (lCur) sp.set("leadsCursor", lCur);
+
+      const res = await fetch(`/api/portal/people/contacts?${sp.toString()}`,
+        { cache: "no-store" },
+      );
       const json = (await res.json()) as any;
       if (!res.ok || !json?.ok) throw new Error(String(json?.error || "Failed to load"));
       setData(json as ContactsPayload);
+      setContactsNextCursor(typeof json?.contactsNextCursor === "string" ? json.contactsNextCursor : null);
+      setLeadsNextCursor(typeof json?.unlinkedLeadsNextCursor === "string" ? json.unlinkedLeadsNextCursor : null);
+
+      if (opts?.contactsCursor !== undefined) setContactsCursor(opts.contactsCursor);
+      if (opts?.leadsCursor !== undefined) setLeadsCursor(opts.leadsCursor);
     } catch (e: any) {
       toast.error(String(e?.message || "Failed to load"));
     } finally {
@@ -420,7 +442,11 @@ export function PortalPeopleContactsClient() {
         </div>
         <button
           type="button"
-          onClick={() => load()}
+          onClick={() => {
+            setContactsCursor(null);
+            setLeadsCursor(null);
+            void load({ contactsCursor: null, leadsCursor: null });
+          }}
           className="rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm font-semibold text-zinc-800 hover:bg-zinc-50"
         >
           Refresh
@@ -446,7 +472,17 @@ export function PortalPeopleContactsClient() {
           <div className="rounded-3xl border border-zinc-200 bg-white p-6">
             <div className="flex items-center justify-between gap-3">
               <div className="text-base font-semibold text-zinc-900">Contacts ({filteredContacts.length})</div>
-              <div className="text-xs text-zinc-500">Normalized people records</div>
+              <div className="flex items-center gap-2">
+                <div className="text-xs text-zinc-500">50 per page</div>
+                <button
+                  type="button"
+                  disabled={!contactsNextCursor}
+                  onClick={() => void load({ contactsCursor: contactsNextCursor, leadsCursor })}
+                  className="rounded-xl border border-zinc-200 bg-white px-3 py-2 text-xs font-semibold text-zinc-800 hover:bg-zinc-50 disabled:opacity-50"
+                >
+                  Next
+                </button>
+              </div>
             </div>
 
             <div className="mt-4 overflow-hidden rounded-2xl border border-zinc-200">
@@ -460,13 +496,13 @@ export function PortalPeopleContactsClient() {
                 </thead>
                 <tbody>
                   {filteredContacts.length ? (
-                    filteredContacts.slice(0, 250).map((c) => (
+                    filteredContacts.slice(0, 50).map((c) => (
                       <tr
                         key={c.id}
                         className="cursor-pointer border-t border-zinc-200 hover:bg-zinc-50"
                         onClick={() => openContact(c.id)}
                       >
-                        <td className="px-4 py-3">
+                        <td className="px-4 py-3 min-w-0">
                           <div className="font-semibold text-zinc-900">{c.name || "—"}</div>
                           {c.tags?.length ? (
                             <div className="mt-1 flex flex-wrap gap-1">
@@ -485,8 +521,12 @@ export function PortalPeopleContactsClient() {
                             </div>
                           ) : null}
                         </td>
-                        <td className="px-4 py-3">{c.email || "—"}</td>
-                        <td className="px-4 py-3">{c.phone || "—"}</td>
+                        <td className="px-4 py-3 min-w-0">
+                          <div className="truncate">{c.email || "—"}</div>
+                        </td>
+                        <td className="px-4 py-3 min-w-0">
+                          <div className="truncate">{c.phone || "—"}</div>
+                        </td>
                       </tr>
                     ))
                   ) : (
@@ -500,18 +540,28 @@ export function PortalPeopleContactsClient() {
               </table>
             </div>
 
-            <div className="mt-3 text-xs text-zinc-500">Showing up to 250 rows.</div>
+            <div className="mt-3 text-xs text-zinc-500">Showing up to 50 rows.</div>
           </div>
 
           <div className="rounded-3xl border border-zinc-200 bg-white p-6">
             <div className="flex items-center justify-between gap-3">
               <div className="text-base font-semibold text-zinc-900">Unlinked leads ({filteredLeads.length})</div>
-              <div className="text-xs text-zinc-500">Leads without a contact</div>
+              <div className="flex items-center gap-2">
+                <div className="text-xs text-zinc-500">50 per page</div>
+                <button
+                  type="button"
+                  disabled={!leadsNextCursor}
+                  onClick={() => void load({ contactsCursor, leadsCursor: leadsNextCursor })}
+                  className="rounded-xl border border-zinc-200 bg-white px-3 py-2 text-xs font-semibold text-zinc-800 hover:bg-zinc-50 disabled:opacity-50"
+                >
+                  Next
+                </button>
+              </div>
             </div>
 
             <div className="mt-4 space-y-3">
               {filteredLeads.length ? (
-                filteredLeads.slice(0, 200).map((l) => (
+                filteredLeads.slice(0, 50).map((l) => (
                   <button
                     key={l.id}
                     type="button"
@@ -519,12 +569,12 @@ export function PortalPeopleContactsClient() {
                     className="w-full rounded-2xl border border-zinc-200 p-4 text-left hover:bg-zinc-50"
                   >
                     <div className="flex items-start justify-between gap-3">
-                      <div>
-                        <div className="font-semibold text-zinc-900">{l.businessName || "—"}</div>
-                        <div className="mt-1 text-sm text-zinc-600">
+                      <div className="min-w-0">
+                        <div className="font-semibold text-zinc-900 truncate">{l.businessName || "—"}</div>
+                        <div className="mt-1 text-sm text-zinc-600 truncate">
                           {l.email || "—"} {l.phone ? `• ${l.phone}` : ""}
                         </div>
-                        {l.website ? <div className="mt-1 text-xs text-zinc-500">{l.website}</div> : null}
+                        {l.website ? <div className="mt-1 text-xs text-zinc-500 truncate">{l.website}</div> : null}
                       </div>
                       <span
                         className={classNames(
@@ -542,7 +592,7 @@ export function PortalPeopleContactsClient() {
               )}
             </div>
 
-            <div className="mt-3 text-xs text-zinc-500">Showing up to 200 cards.</div>
+            <div className="mt-3 text-xs text-zinc-500">Showing up to 50 cards.</div>
           </div>
         </div>
       ) : null}

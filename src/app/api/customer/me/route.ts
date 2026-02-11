@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
 
 import { authOptions } from "@/lib/auth";
+import { prisma } from "@/lib/db";
 import { isStripeConfigured } from "@/lib/stripeFetch";
 import type { Entitlements } from "@/lib/entitlements";
 import { resolveEntitlements } from "@/lib/entitlements";
@@ -37,7 +38,17 @@ export async function GET(req: Request) {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
 
-  const entitlements: Entitlements = await resolveEntitlements(user.email);
+  let entitlementsEmail = user.email;
+  if (app === "portal") {
+    const portalUser = await getPortalUser().catch(() => null);
+    const ownerId = portalUser?.id ? String(portalUser.id) : null;
+    if (ownerId) {
+      const owner = await prisma.user.findUnique({ where: { id: ownerId }, select: { email: true } }).catch(() => null);
+      if (owner?.email) entitlementsEmail = String(owner.email);
+    }
+  }
+
+  const entitlements: Entitlements = await resolveEntitlements(entitlementsEmail);
 
   return NextResponse.json({
     user: {

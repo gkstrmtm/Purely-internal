@@ -90,6 +90,7 @@ export async function GET(req: Request) {
 
   return NextResponse.json({
     ok: true,
+    viewerUserId: String(memberId),
     tasks: rows.map((r) => ({
       id: String(r.id),
       title: String(r.title || ""),
