@@ -664,8 +664,8 @@ async function runAutomationOnce(opts: {
 
   const maxSteps = 120;
 
-  for (const trigger of triggerNodes) {
-    let currentId: string | null = String((trigger as any).id || "") || null;
+  const runFromNode = async (startId: string | null, depth: number) => {
+    let currentId: string | null = startId;
     let steps = 0;
     const visited = new Map<string, number>();
 
@@ -716,6 +716,9 @@ async function runAutomationOnce(opts: {
           if (cfg.actionKind === "find_contact") {
             const vars = getTemplateVars();
             const tagId = String((cfg as any).tagId || "").trim();
+            const tagMode = String((cfg as any).tagMode || "latest").trim();
+            const maxContactsRaw = Number((cfg as any).maxContacts || 25);
+            const maxContacts = Math.max(1, Math.min(50, Number.isFinite(maxContactsRaw) ? Math.floor(maxContactsRaw) : 25));
             const nameTemplate = String((cfg as any).contactName || "").trim();
             const emailTemplate = String((cfg as any).contactEmail || "").trim();
             const phoneTemplate = String((cfg as any).contactPhone || "").trim();
@@ -724,6 +727,49 @@ async function runAutomationOnce(opts: {
               try {
                 await ensurePortalContactsSchema().catch(() => null);
                 await ensurePortalContactTagsReady().catch(() => null);
+
+                if (tagMode === "all" && depth < 1) {
+                  const rows = await prisma.portalContactTagAssignment.findMany({
+                    where: { ownerId: opts.ownerId, tagId },
+                    orderBy: { createdAt: "desc" },
+                    select: { contactId: true },
+                    distinct: ["contactId"],
+                    take: maxContacts,
+                  });
+
+                  const contactIds = rows
+                    .map((r) => String(r.contactId || "").trim())
+                    .filter(Boolean);
+
+                  const nexts = outgoing.get(outgoingKey(currentId, "out")) || [];
+                  const nextStart = nexts[0] || null;
+
+                  if (nextStart && contactIds.length) {
+                    const savedContactId = contactId;
+                    const savedContactRow = contactRow;
+                    const savedCtxContact = { ...ctx.contact };
+
+                    for (const cid of contactIds) {
+                      contactId = cid;
+                      contactRow = await loadContactRow(cid);
+                      ctx.contact.id = cid;
+                      ctx.contact.phone = contactRow?.phone || null;
+                      ctx.contact.email = contactRow?.email || null;
+                      ctx.contact.name = contactRow?.name || null;
+                      await runFromNode(nextStart, depth + 1);
+                    }
+
+                    contactId = savedContactId;
+                    contactRow = savedContactRow;
+                    ctx.contact.id = savedCtxContact.id;
+                    ctx.contact.phone = savedCtxContact.phone;
+                    ctx.contact.email = savedCtxContact.email;
+                    ctx.contact.name = savedCtxContact.name;
+
+                    return;
+                  }
+                }
+
                 const byTag = await prisma.portalContactTagAssignment.findFirst({
                   where: { ownerId: opts.ownerId, tagId },
                   orderBy: { createdAt: "desc" },
@@ -1161,6 +1207,12 @@ async function runAutomationOnce(opts: {
       const nexts = outgoing.get(outgoingKey(currentId, "out")) || [];
       currentId = nexts[0] || null;
     }
+
+    return;
+  };
+
+  for (const trigger of triggerNodes) {
+    await runFromNode(String((trigger as any).id || "") || null, 0);
   }
 }
 

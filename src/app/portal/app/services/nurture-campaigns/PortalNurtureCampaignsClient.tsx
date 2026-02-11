@@ -1045,6 +1045,7 @@ function StepCard(props: {
   const [varPickerTarget, setVarPickerTarget] = useState<"subject" | "body">("body");
   const [mediaOpen, setMediaOpen] = useState(false);
   const [aiBusy, setAiBusy] = useState(false);
+  const [uploadBusy, setUploadBusy] = useState(false);
 
   const subjectRef = useRef<HTMLInputElement | null>(null);
   const bodyRef = useRef<HTMLTextAreaElement | null>(null);
@@ -1274,6 +1275,40 @@ function StepCard(props: {
             >
               Insert media
             </button>
+            <label className="inline-flex cursor-pointer items-center justify-center rounded-xl border border-zinc-200 bg-white px-2 py-1 text-xs font-semibold text-zinc-700 hover:bg-zinc-50">
+              {uploadBusy ? "Uploading…" : "Upload"}
+              <input
+                type="file"
+                className="hidden"
+                disabled={uploadBusy}
+                onChange={async (e) => {
+                  const file = e.target.files?.[0];
+                  if (!file) return;
+                  setUploadBusy(true);
+                  try {
+                    const fd = new FormData();
+                    fd.set("file", file);
+                    const up = await fetch("/api/uploads", { method: "POST", body: fd });
+                    const upBody = (await up.json().catch(() => ({}))) as any;
+                    if (!up.ok || !upBody.url) {
+                      toast.error(String(upBody.error || "Upload failed"));
+                      return;
+                    }
+
+                    const token = String(upBody.url);
+                    const el = bodyRef.current;
+                    const withSpace = body && !/\s$/.test(body) ? ` ${token}` : token;
+                    const { next, caret } = insertAtCursor(body, withSpace, el);
+                    setBody(next);
+                    setDirty(true);
+                    setCaretSoon(el, caret);
+                  } finally {
+                    setUploadBusy(false);
+                    if (e.target) e.target.value = "";
+                  }
+                }}
+              />
+            </label>
             <button
               type="button"
               disabled={aiBusy}

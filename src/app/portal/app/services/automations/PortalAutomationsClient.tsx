@@ -3451,6 +3451,9 @@ export function PortalAutomationsClient() {
 
                               if (cfg.actionKind === "find_contact") {
                                 const tagId = String((cfg as any).tagId || "").trim();
+                                const tagMode = String((cfg as any).tagMode || "latest").trim();
+                                const maxContactsRaw = Number((cfg as any).maxContacts || 25);
+                                const maxContacts = Number.isFinite(maxContactsRaw) ? Math.max(1, Math.min(50, Math.floor(maxContactsRaw))) : 25;
                                 const contactName = String((cfg as any).contactName || "").slice(0, 200);
                                 const contactEmail = String((cfg as any).contactEmail || "").slice(0, 200);
                                 const contactPhone = String((cfg as any).contactPhone || "").slice(0, 64);
@@ -3485,9 +3488,84 @@ export function PortalAutomationsClient() {
                                         />
                                       </div>
                                       <div className="mt-1 text-[11px] text-zinc-600">
-                                        If set, it picks the most recent contact with this tag.
+                                        If set, you can pick the most recent contact with this tag, or fan-out and run later steps for multiple contacts.
                                       </div>
                                     </div>
+
+                                    {tagId ? (
+                                      <div className="mt-3 rounded-2xl border border-zinc-200 bg-zinc-50 p-3">
+                                        <div className="text-xs font-semibold text-zinc-700">Tag lookup mode</div>
+                                        <div className="mt-1">
+                                          <PortalListboxDropdown
+                                            value={(tagMode || "latest") as any}
+                                            options={[
+                                              { value: "latest", label: "Most recent tagged contact" },
+                                              { value: "all", label: "All tagged contacts (fan-out)" },
+                                            ]}
+                                            onChange={(next) => {
+                                              const nextMode = String(next || "latest").trim();
+                                              updateSelectedAutomation((a) => {
+                                                const nodes = a.nodes.map((n) => {
+                                                  if (n.id !== selectedNode.id) return n;
+                                                  const prev =
+                                                    n.config?.kind === "action" ? n.config : (defaultConfigForType("action") as any);
+                                                  const nextCfg: BuilderNodeConfig = {
+                                                    ...(prev as any),
+                                                    kind: "action",
+                                                    tagMode: nextMode,
+                                                  };
+                                                  const nextLabel =
+                                                    autolabelSelectedNode && shouldAutolabel(n.label)
+                                                      ? labelForConfig("action", nextCfg)
+                                                      : n.label;
+                                                  return { ...n, config: nextCfg, label: nextLabel };
+                                                });
+                                                return { ...a, nodes, updatedAtIso: new Date().toISOString() };
+                                              });
+                                            }}
+                                          />
+                                        </div>
+
+                                        {tagMode === "all" ? (
+                                          <div className="mt-3">
+                                            <div className="text-xs font-semibold text-zinc-700">Max contacts</div>
+                                            <input
+                                              inputMode="numeric"
+                                              className="mt-1 w-full rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-sm"
+                                              type="number"
+                                              min={1}
+                                              max={50}
+                                              step={1}
+                                              value={maxContacts}
+                                              onChange={(e) => {
+                                                const n = Math.max(1, Math.min(50, Math.floor(Number(e.target.value || 25) || 25)));
+                                                updateSelectedAutomation((a) => {
+                                                  const nodes = a.nodes.map((n0) => {
+                                                    if (n0.id !== selectedNode.id) return n0;
+                                                    const prev =
+                                                      n0.config?.kind === "action" ? n0.config : (defaultConfigForType("action") as any);
+                                                    const nextCfg: BuilderNodeConfig = {
+                                                      ...(prev as any),
+                                                      kind: "action",
+                                                      maxContacts: n,
+                                                    };
+                                                    const nextLabel =
+                                                      autolabelSelectedNode && shouldAutolabel(n0.label)
+                                                        ? labelForConfig("action", nextCfg)
+                                                        : n0.label;
+                                                    return { ...n0, config: nextCfg, label: nextLabel };
+                                                  });
+                                                  return { ...a, nodes, updatedAtIso: new Date().toISOString() };
+                                                });
+                                              }}
+                                            />
+                                            <div className="mt-1 text-[11px] text-zinc-600">
+                                              Fan-out runs the downstream steps once per matched contact.
+                                            </div>
+                                          </div>
+                                        ) : null}
+                                      </div>
+                                    ) : null}
 
                                     <div className="mt-2">
                                       <div className="flex items-center justify-between gap-3">
