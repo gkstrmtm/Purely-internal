@@ -654,6 +654,18 @@ async function runAutomationOnce(opts: {
       owner: { email: ownerInternalEmail, phone: ownerInternalPhone },
       message: { from: ctx.message.from, to: ctx.message.to, body: ctx.message.body },
     });
+
+    // Event/lead vars (best-effort).
+    base["event.tagId"] = String(opts.event?.tagId || "");
+    base["event.webhookKey"] = String(opts.event?.webhookKey || "");
+    base["event.triggerNodeId"] = String(opts.event?.triggerNodeId || "");
+    base["event.bookingId"] = String(opts.event?.bookingId || "");
+    base["event.calendarId"] = String(opts.event?.calendarId || "");
+    base["event.leadId"] = String(opts.event?.leadId || "");
+    base["lead.id"] = String(opts.event?.leadId || "");
+    base["lead.assigneeUserId"] = String(ctx.assigneeUserId || "");
+    base["lead.contactId"] = String(ctx.contact.id || "");
+
     // Dynamic time vars.
     base["now.hour"] = String(new Date().getHours());
     base["now.weekday"] = String(new Date().getDay());

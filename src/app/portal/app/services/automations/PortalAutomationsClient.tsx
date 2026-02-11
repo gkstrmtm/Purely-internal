@@ -16,12 +16,24 @@ const PORTAL_TIME_VARIABLES: TemplateVariable[] = [
   { key: "now.iso", label: "Now (ISO timestamp)", group: "Custom", appliesTo: "Now" },
 ];
 
+const PORTAL_EVENT_VARIABLES: TemplateVariable[] = [
+  { key: "event.leadId", label: "Event lead ID", group: "Custom", appliesTo: "Event" },
+  { key: "event.calendarId", label: "Event calendar ID", group: "Custom", appliesTo: "Event" },
+  { key: "event.bookingId", label: "Event booking ID", group: "Custom", appliesTo: "Event" },
+  { key: "event.tagId", label: "Event tag ID", group: "Custom", appliesTo: "Event" },
+  { key: "event.webhookKey", label: "Event webhook key", group: "Custom", appliesTo: "Event" },
+  { key: "event.triggerNodeId", label: "Event trigger node ID", group: "Custom", appliesTo: "Event" },
+  { key: "lead.assigneeUserId", label: "Lead assignee user ID", group: "Custom", appliesTo: "Lead" },
+  { key: "lead.contactId", label: "Lead contact ID", group: "Custom", appliesTo: "Lead" },
+];
+
 const CONDITION_FIELD_KEYS = Array.from(
-  new Set([...PORTAL_TIME_VARIABLES, ...PORTAL_MESSAGE_VARIABLES, ...PORTAL_LINK_VARIABLES].map((v) => v.key)),
+  new Set([...PORTAL_TIME_VARIABLES, ...PORTAL_EVENT_VARIABLES, ...PORTAL_MESSAGE_VARIABLES, ...PORTAL_LINK_VARIABLES].map((v) => v.key)),
 );
 
 const CONDITION_FIELD_OPTIONS: Array<{ value: string; label: string; hint?: string }> = [
   ...PORTAL_TIME_VARIABLES.map((v) => ({ value: v.key, label: v.label || v.key, hint: v.key })),
+  ...PORTAL_EVENT_VARIABLES.map((v) => ({ value: v.key, label: v.label || v.key, hint: v.key })),
   ...PORTAL_MESSAGE_VARIABLES.map((v) => ({ value: v.key, label: v.label || v.key, hint: v.key })),
   ...PORTAL_LINK_VARIABLES.map((v) => ({ value: v.key, label: v.label || v.key, hint: v.key })),
 ].filter((o) => o.value);
@@ -1633,7 +1645,7 @@ export function PortalAutomationsClient() {
 
       <PortalVariablePickerModal
         open={variablePickerOpen}
-        variables={[...PORTAL_TIME_VARIABLES, ...PORTAL_MESSAGE_VARIABLES, ...PORTAL_LINK_VARIABLES]}
+        variables={[...PORTAL_TIME_VARIABLES, ...PORTAL_EVENT_VARIABLES, ...PORTAL_MESSAGE_VARIABLES, ...PORTAL_LINK_VARIABLES]}
         onPick={applyPickedVariable}
         onClose={() => {
           setVariablePickerOpen(false);
