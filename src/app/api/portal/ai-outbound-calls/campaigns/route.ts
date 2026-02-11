@@ -7,6 +7,7 @@ import { prisma } from "@/lib/db";
 import { requireClientSessionForService } from "@/lib/portalAccess";
 import { ensurePortalAiOutboundCallsSchema } from "@/lib/portalAiOutboundCallsSchema";
 import { normalizeTagIdList } from "@/lib/portalAiOutboundCalls";
+import { parseVoiceAgentConfig } from "@/lib/voiceAgentConfig.shared";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -32,7 +33,17 @@ export async function GET() {
 
   const campaigns = await prisma.portalAiOutboundCallCampaign.findMany({
     where: { ownerId },
-    select: { id: true, name: true, status: true, script: true, audienceTagIdsJson: true, createdAt: true, updatedAt: true },
+    select: {
+      id: true,
+      name: true,
+      status: true,
+      script: true,
+      audienceTagIdsJson: true,
+      voiceAgentId: true,
+      voiceAgentConfigJson: true,
+      createdAt: true,
+      updatedAt: true,
+    },
     orderBy: [{ updatedAt: "desc" }, { id: "desc" }],
     take: 200,
   });
@@ -67,6 +78,8 @@ export async function GET() {
         status: c.status,
         script: c.script,
         audienceTagIds: normalizeTagIdList(c.audienceTagIdsJson),
+        voiceAgentId: c.voiceAgentId ? String(c.voiceAgentId) : "",
+        voiceAgentConfig: parseVoiceAgentConfig(c.voiceAgentConfigJson),
         createdAtIso: c.createdAt.toISOString(),
         updatedAtIso: c.updatedAt.toISOString(),
         enrollQueued: counts.queued,
@@ -103,6 +116,7 @@ export async function POST(req: Request) {
       status: "DRAFT",
       script: "Hi {contact.name} — this is {business.name}. We saw your recent request and wanted to help. If now isn’t a good time, you can call us back.",
       audienceTagIdsJson: [],
+      voiceAgentId: null,
       createdAt: now,
       updatedAt: now,
     },

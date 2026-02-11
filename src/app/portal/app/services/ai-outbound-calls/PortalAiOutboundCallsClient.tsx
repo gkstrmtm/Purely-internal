@@ -5,6 +5,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { PortalListboxDropdown } from "@/components/PortalListboxDropdown";
 import { useToast } from "@/components/ToastProvider";
 import { DEFAULT_TAG_COLORS } from "@/lib/tagColors.shared";
+import { DEFAULT_VOICE_AGENT_CONFIG, type VoiceAgentConfig } from "@/lib/voiceAgentConfig.shared";
 
 type CampaignStatus = "DRAFT" | "ACTIVE" | "PAUSED" | "ARCHIVED";
 
@@ -14,6 +15,8 @@ type Campaign = {
   status: CampaignStatus;
   script: string;
   audienceTagIds: string[];
+  voiceAgentId: string;
+  voiceAgentConfig: VoiceAgentConfig;
   createdAtIso: string;
   updatedAtIso: string;
   enrollQueued: number;
@@ -36,6 +39,22 @@ type ApiCreateTagResponse =
 
 function classNames(...xs: Array<string | false | null | undefined>) {
   return xs.filter(Boolean).join(" ");
+}
+
+function normalizeToolIdsCsv(raw: string): string[] {
+  const parts = String(raw || "")
+    .split(",")
+    .map((x) => x.trim())
+    .filter(Boolean);
+  const out: string[] = [];
+  for (const id of parts) {
+    if (!id) continue;
+    if (id.length > 120) continue;
+    if (out.includes(id)) continue;
+    out.push(id);
+    if (out.length >= 50) break;
+  }
+  return out;
 }
 
 export function PortalAiOutboundCallsClient() {
@@ -185,7 +204,11 @@ export function PortalAiOutboundCallsClient() {
     }
   }
 
-  async function updateCampaign(patch: Partial<Pick<Campaign, "name" | "status" | "script" | "audienceTagIds">>) {
+  async function updateCampaign(
+    patch: Partial<Pick<Campaign, "name" | "status" | "script" | "audienceTagIds" | "voiceAgentId">> & {
+      voiceAgentConfig?: Partial<VoiceAgentConfig>;
+    },
+  ) {
     if (!selected) return;
     if (busy) return;
     setBusy(true);
@@ -377,6 +400,232 @@ export function PortalAiOutboundCallsClient() {
                   rows={7}
                   className="mt-2 w-full rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-sm"
                 />
+              </div>
+
+              <div className="mt-5">
+                <div className="text-sm font-semibold text-zinc-800">Voice agent (ElevenLabs)</div>
+                <p className="mt-1 text-xs text-zinc-500">
+                  Optional: configure an ElevenLabs agent ID + behavior for this campaign.
+                </p>
+
+                <div className="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-2">
+                  <div>
+                    <div className="text-xs font-semibold text-zinc-700">Agent ID override</div>
+                    <input
+                      value={selected.voiceAgentId ?? ""}
+                      onChange={(e) => {
+                        const voiceAgentId = e.target.value;
+                        setCampaigns((prev) =>
+                          prev.map((c) => (c.id === selected.id ? { ...c, voiceAgentId } : c)),
+                        );
+                      }}
+                      onBlur={() => updateCampaign({ voiceAgentId: (selected.voiceAgentId ?? "").trim() })}
+                      placeholder="agent_... (optional)"
+                      className="mt-1 w-full rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-sm"
+                    />
+                    <div className="mt-1 text-[11px] text-zinc-500">Leave blank to use your Profile agent ID.</div>
+                  </div>
+
+                  <div>
+                    <div className="text-xs font-semibold text-zinc-700">Tool IDs</div>
+                    <input
+                      value={(selected.voiceAgentConfig?.toolIds ?? []).join(", ")}
+                      onChange={(e) => {
+                        const toolIds = normalizeToolIdsCsv(e.target.value);
+                        setCampaigns((prev) =>
+                          prev.map((c) =>
+                            c.id === selected.id
+                              ? {
+                                  ...c,
+                                  voiceAgentConfig: { ...(c.voiceAgentConfig ?? DEFAULT_VOICE_AGENT_CONFIG), toolIds },
+                                }
+                              : c,
+                          ),
+                        );
+                      }}
+                      onBlur={() =>
+                        updateCampaign({
+                          voiceAgentConfig: { toolIds: selected.voiceAgentConfig?.toolIds ?? [] },
+                        })
+                      }
+                      placeholder="tool_123, tool_abc (optional)"
+                      className="mt-1 w-full rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-sm"
+                    />
+                    <div className="mt-1 text-[11px] text-zinc-500">Comma-separated tool IDs from ElevenLabs.</div>
+                  </div>
+                </div>
+
+                <div className="mt-3">
+                  <div className="text-xs font-semibold text-zinc-700">First message</div>
+                  <input
+                    value={selected.voiceAgentConfig?.firstMessage ?? ""}
+                    onChange={(e) => {
+                      const firstMessage = e.target.value;
+                      setCampaigns((prev) =>
+                        prev.map((c) =>
+                          c.id === selected.id
+                            ? {
+                                ...c,
+                                voiceAgentConfig: {
+                                  ...(c.voiceAgentConfig ?? DEFAULT_VOICE_AGENT_CONFIG),
+                                  firstMessage,
+                                },
+                              }
+                            : c,
+                        ),
+                      );
+                    }}
+                    onBlur={() =>
+                      updateCampaign({
+                        voiceAgentConfig: { firstMessage: (selected.voiceAgentConfig?.firstMessage ?? "").trim() },
+                      })
+                    }
+                    placeholder="Hi — this is ..."
+                    className="mt-1 w-full rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-sm"
+                  />
+                </div>
+
+                <div className="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-2">
+                  <div>
+                    <div className="text-xs font-semibold text-zinc-700">Goal</div>
+                    <textarea
+                      value={selected.voiceAgentConfig?.goal ?? ""}
+                      onChange={(e) => {
+                        const goal = e.target.value;
+                        setCampaigns((prev) =>
+                          prev.map((c) =>
+                            c.id === selected.id
+                              ? {
+                                  ...c,
+                                  voiceAgentConfig: { ...(c.voiceAgentConfig ?? DEFAULT_VOICE_AGENT_CONFIG), goal },
+                                }
+                              : c,
+                          ),
+                        );
+                      }}
+                      onBlur={() =>
+                        updateCampaign({ voiceAgentConfig: { goal: (selected.voiceAgentConfig?.goal ?? "").trim() } })
+                      }
+                      rows={4}
+                      className="mt-1 w-full rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-sm"
+                    />
+                  </div>
+
+                  <div>
+                    <div className="text-xs font-semibold text-zinc-700">Personality</div>
+                    <textarea
+                      value={selected.voiceAgentConfig?.personality ?? ""}
+                      onChange={(e) => {
+                        const personality = e.target.value;
+                        setCampaigns((prev) =>
+                          prev.map((c) =>
+                            c.id === selected.id
+                              ? {
+                                  ...c,
+                                  voiceAgentConfig: {
+                                    ...(c.voiceAgentConfig ?? DEFAULT_VOICE_AGENT_CONFIG),
+                                    personality,
+                                  },
+                                }
+                              : c,
+                          ),
+                        );
+                      }}
+                      onBlur={() =>
+                        updateCampaign({
+                          voiceAgentConfig: { personality: (selected.voiceAgentConfig?.personality ?? "").trim() },
+                        })
+                      }
+                      rows={4}
+                      className="mt-1 w-full rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-sm"
+                    />
+                  </div>
+
+                  <div>
+                    <div className="text-xs font-semibold text-zinc-700">Tone</div>
+                    <textarea
+                      value={selected.voiceAgentConfig?.tone ?? ""}
+                      onChange={(e) => {
+                        const tone = e.target.value;
+                        setCampaigns((prev) =>
+                          prev.map((c) =>
+                            c.id === selected.id
+                              ? {
+                                  ...c,
+                                  voiceAgentConfig: { ...(c.voiceAgentConfig ?? DEFAULT_VOICE_AGENT_CONFIG), tone },
+                                }
+                              : c,
+                          ),
+                        );
+                      }}
+                      onBlur={() =>
+                        updateCampaign({ voiceAgentConfig: { tone: (selected.voiceAgentConfig?.tone ?? "").trim() } })
+                      }
+                      rows={4}
+                      className="mt-1 w-full rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-sm"
+                    />
+                  </div>
+
+                  <div>
+                    <div className="text-xs font-semibold text-zinc-700">Environment</div>
+                    <textarea
+                      value={selected.voiceAgentConfig?.environment ?? ""}
+                      onChange={(e) => {
+                        const environment = e.target.value;
+                        setCampaigns((prev) =>
+                          prev.map((c) =>
+                            c.id === selected.id
+                              ? {
+                                  ...c,
+                                  voiceAgentConfig: {
+                                    ...(c.voiceAgentConfig ?? DEFAULT_VOICE_AGENT_CONFIG),
+                                    environment,
+                                  },
+                                }
+                              : c,
+                          ),
+                        );
+                      }}
+                      onBlur={() =>
+                        updateCampaign({
+                          voiceAgentConfig: { environment: (selected.voiceAgentConfig?.environment ?? "").trim() },
+                        })
+                      }
+                      rows={4}
+                      className="mt-1 w-full rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-sm"
+                    />
+                  </div>
+
+                  <div className="sm:col-span-2">
+                    <div className="text-xs font-semibold text-zinc-700">Guard rails</div>
+                    <textarea
+                      value={selected.voiceAgentConfig?.guardRails ?? ""}
+                      onChange={(e) => {
+                        const guardRails = e.target.value;
+                        setCampaigns((prev) =>
+                          prev.map((c) =>
+                            c.id === selected.id
+                              ? {
+                                  ...c,
+                                  voiceAgentConfig: {
+                                    ...(c.voiceAgentConfig ?? DEFAULT_VOICE_AGENT_CONFIG),
+                                    guardRails,
+                                  },
+                                }
+                              : c,
+                          ),
+                        );
+                      }}
+                      onBlur={() =>
+                        updateCampaign({
+                          voiceAgentConfig: { guardRails: (selected.voiceAgentConfig?.guardRails ?? "").trim() },
+                        })
+                      }
+                      rows={4}
+                      className="mt-1 w-full rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-sm"
+                    />
+                  </div>
+                </div>
               </div>
 
               <div className="mt-5">

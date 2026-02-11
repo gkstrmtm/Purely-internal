@@ -39,10 +39,22 @@ CREATE TABLE IF NOT EXISTS "PortalAiOutboundCallCampaign" (
   "status" "PortalAiOutboundCallCampaignStatus" NOT NULL DEFAULT 'DRAFT',
   "audienceTagIdsJson" JSONB,
   "script" TEXT NOT NULL DEFAULT 'Hi — this is an automated call. Please call us back when you have a moment.',
+  "voiceAgentId" TEXT,
+  "voiceAgentConfigJson" JSONB,
   "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
   "updatedAt" TIMESTAMP(3) NOT NULL,
   CONSTRAINT "PortalAiOutboundCallCampaign_pkey" PRIMARY KEY ("id")
 );
+    `.trim(),
+
+    `
+ALTER TABLE "PortalAiOutboundCallCampaign"
+  ADD COLUMN IF NOT EXISTS "voiceAgentId" TEXT;
+    `.trim(),
+
+    `
+ALTER TABLE "PortalAiOutboundCallCampaign"
+  ADD COLUMN IF NOT EXISTS "voiceAgentConfigJson" JSONB;
     `.trim(),
 
     `
