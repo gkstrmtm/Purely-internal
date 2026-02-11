@@ -3,7 +3,7 @@ import crypto from "crypto";
 import { prisma } from "@/lib/db";
 import { sendOwnerTwilioSms } from "@/lib/portalTwilio";
 import { findOrCreatePortalContact, normalizeEmailKey, normalizeNameKey, normalizePhoneKey } from "@/lib/portalContacts";
-import { addContactTagAssignment } from "@/lib/portalContactTags";
+import { addContactTagAssignment, ensurePortalContactTagsReady } from "@/lib/portalContactTags";
 import { sendEmail as sendSendgridEmail } from "@/lib/leadOutbound";
 import { ensurePortalTasksSchema } from "@/lib/portalTasksSchema";
 import { buildPortalTemplateVars } from "@/lib/portalTemplateVars";
@@ -65,7 +65,17 @@ async function getOwnerBookingLink(ownerId: string): Promise<string | null> {
 
 type MessageTarget = "inbound_sender" | "event_contact" | "internal_notification" | "assigned_lead" | "custom";
 
-type ConditionOp = "equals" | "contains" | "starts_with" | "ends_with" | "is_empty" | "is_not_empty";
+type ConditionOp =
+  | "equals"
+  | "contains"
+  | "starts_with"
+  | "ends_with"
+  | "is_empty"
+  | "is_not_empty"
+  | "gt"
+  | "gte"
+  | "lt"
+  | "lte";
 
 type BuilderNodeConfig =
   | { kind: "trigger"; triggerKind: TriggerKind }
@@ -420,39 +430,35 @@ function outgoingKey(fromId: string, fromPort: EdgePort) {
   return `${fromId}::${fromPort}`;
 }
 
-function fieldValue(leftRaw: string, ctx: {
-  message: { from: string; to: string; body: string };
-  contact: { id: string | null; phone: string | null; email: string | null; name: string | null };
-}) {
+function fieldValue(
+  leftRaw: string,
+  vars: Record<string, string>,
+) {
   const left = String(leftRaw || "").trim();
-  switch (left) {
-    case "message.body":
-      return ctx.message.body;
-    case "message.from":
-      return ctx.message.from;
-    case "message.to":
-      return ctx.message.to;
-    case "contact.id":
-      return ctx.contact.id || "";
-    case "contact.phone":
-      return ctx.contact.phone || "";
-    case "contact.email":
-      return ctx.contact.email || "";
-    case "contact.name":
-      return ctx.contact.name || "";
-    default:
-      return "";
+  if (!left) return "";
+
+  // Allow templated left-hand expressions (e.g. {contact.phone}).
+  if (left.includes("{")) {
+    return renderTextTemplate(left, vars);
   }
+
+  // Built-ins.
+  if (left === "now.hour") return String(new Date().getHours());
+  if (left === "now.weekday") return String(new Date().getDay());
+  if (left === "now.iso") return new Date().toISOString();
+  if (left === "now.date") return new Date().toISOString().slice(0, 10);
+
+  return vars[left] ?? "";
 }
 
-function evalCondition(cfg: { left: string; op: ConditionOp; right: string }, ctx: {
-  message: { from: string; to: string; body: string };
-  contact: { id: string | null; phone: string | null; email: string | null; name: string | null };
-}) {
-  const left = coerceString(fieldValue(cfg.left, ctx));
-  const right = coerceString(cfg.right);
+function evalCondition(
+  cfg: { left: string; op: ConditionOp; right: string },
+  vars: Record<string, string>,
+) {
+  const left = coerceString(fieldValue(cfg.left, vars));
+  const right = cfg.right && String(cfg.right).includes("{") ? renderTextTemplate(String(cfg.right), vars) : coerceString(cfg.right);
   const a = left;
-  const b = right;
+  const b = coerceString(right);
 
   switch (cfg.op) {
     case "equals":
@@ -467,6 +473,30 @@ function evalCondition(cfg: { left: string; op: ConditionOp; right: string }, ct
       return !a.trim();
     case "is_not_empty":
       return Boolean(a.trim());
+    case "gt": {
+      const na = Number(a);
+      const nb = Number(b);
+      if (!Number.isFinite(na) || !Number.isFinite(nb)) return false;
+      return na > nb;
+    }
+    case "gte": {
+      const na = Number(a);
+      const nb = Number(b);
+      if (!Number.isFinite(na) || !Number.isFinite(nb)) return false;
+      return na >= nb;
+    }
+    case "lt": {
+      const na = Number(a);
+      const nb = Number(b);
+      if (!Number.isFinite(na) || !Number.isFinite(nb)) return false;
+      return na < nb;
+    }
+    case "lte": {
+      const na = Number(a);
+      const nb = Number(b);
+      if (!Number.isFinite(na) || !Number.isFinite(nb)) return false;
+      return na <= nb;
+    }
     default:
       return false;
   }
@@ -612,8 +642,8 @@ async function runAutomationOnce(opts: {
     getOwnerInternalPhone(opts.ownerId).catch(() => null),
   ]);
 
-  const getTemplateVars = () =>
-    buildPortalTemplateVars({
+  const getTemplateVars = () => {
+    const base = buildPortalTemplateVars({
       contact: {
         id: ctx.contact.id,
         name: ctx.contact.name,
@@ -624,6 +654,13 @@ async function runAutomationOnce(opts: {
       owner: { email: ownerInternalEmail, phone: ownerInternalPhone },
       message: { from: ctx.message.from, to: ctx.message.to, body: ctx.message.body },
     });
+    // Dynamic time vars.
+    base["now.hour"] = String(new Date().getHours());
+    base["now.weekday"] = String(new Date().getDay());
+    base["now.iso"] = new Date().toISOString();
+    base["now.date"] = new Date().toISOString().slice(0, 10);
+    return base;
+  };
 
   const maxSteps = 120;
 
@@ -642,7 +679,7 @@ async function runAutomationOnce(opts: {
 
       if (node.type === "condition") {
         const cfg = (node as any).config;
-        const ok = isConditionConfig(cfg) ? evalCondition(cfg, ctx) : false;
+        const ok = isConditionConfig(cfg) ? evalCondition(cfg, getTemplateVars()) : false;
         const port: EdgePort = ok ? "true" : "false";
         const nexts = outgoing.get(outgoingKey(currentId, port)) || [];
         currentId = nexts[0] || null;
@@ -678,9 +715,35 @@ async function runAutomationOnce(opts: {
 
           if (cfg.actionKind === "find_contact") {
             const vars = getTemplateVars();
+            const tagId = String((cfg as any).tagId || "").trim();
             const nameTemplate = String((cfg as any).contactName || "").trim();
             const emailTemplate = String((cfg as any).contactEmail || "").trim();
             const phoneTemplate = String((cfg as any).contactPhone || "").trim();
+
+            if (tagId) {
+              try {
+                await ensurePortalContactsSchema().catch(() => null);
+                await ensurePortalContactTagsReady().catch(() => null);
+                const byTag = await prisma.portalContactTagAssignment.findFirst({
+                  where: { ownerId: opts.ownerId, tagId },
+                  orderBy: { createdAt: "desc" },
+                  select: { contactId: true },
+                });
+                if (byTag?.contactId) {
+                  contactId = String(byTag.contactId);
+                }
+              } catch {
+                // best-effort
+              }
+
+              if (contactId) {
+                contactRow = await loadContactRow(contactId);
+                ctx.contact.id = contactId;
+                ctx.contact.phone = contactRow?.phone || null;
+                ctx.contact.email = contactRow?.email || null;
+                ctx.contact.name = contactRow?.name || null;
+              }
+            }
 
             const renderedName = nameTemplate ? renderTextTemplate(nameTemplate, vars).trim().slice(0, 80) : "";
             const renderedEmail = emailTemplate ? renderTextTemplate(emailTemplate, vars).trim().slice(0, 120) : "";

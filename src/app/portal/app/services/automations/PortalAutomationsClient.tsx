@@ -7,9 +7,18 @@ import { PortalListboxDropdown } from "@/components/PortalListboxDropdown";
 import { PortalVariablePickerModal } from "@/components/PortalVariablePickerModal";
 import { useToast } from "@/components/ToastProvider";
 import { PORTAL_SERVICES } from "@/app/portal/services/catalog";
-import { PORTAL_LINK_VARIABLES, PORTAL_MESSAGE_VARIABLES } from "@/lib/portalTemplateVars";
+import { PORTAL_LINK_VARIABLES, PORTAL_MESSAGE_VARIABLES, type TemplateVariable } from "@/lib/portalTemplateVars";
 
-const CONDITION_FIELD_KEYS = [...PORTAL_MESSAGE_VARIABLES, ...PORTAL_LINK_VARIABLES].map((v) => v.key);
+const PORTAL_TIME_VARIABLES: TemplateVariable[] = [
+  { key: "now.hour", label: "Current hour (0–23)", group: "Custom", appliesTo: "Now" },
+  { key: "now.weekday", label: "Current weekday (0=Sun…6=Sat)", group: "Custom", appliesTo: "Now" },
+  { key: "now.date", label: "Today (YYYY-MM-DD)", group: "Custom", appliesTo: "Now" },
+  { key: "now.iso", label: "Now (ISO timestamp)", group: "Custom", appliesTo: "Now" },
+];
+
+const CONDITION_FIELD_KEYS = Array.from(
+  new Set([...PORTAL_TIME_VARIABLES, ...PORTAL_MESSAGE_VARIABLES, ...PORTAL_LINK_VARIABLES].map((v) => v.key)),
+);
 
 type BuilderNodeType = "trigger" | "action" | "delay" | "condition" | "note";
 
@@ -46,7 +55,17 @@ type ActionKind =
   | "send_booking_link"
   | "update_contact"
   | "trigger_service";
-type ConditionOp = "equals" | "contains" | "starts_with" | "ends_with" | "is_empty" | "is_not_empty";
+type ConditionOp =
+  | "equals"
+  | "contains"
+  | "starts_with"
+  | "ends_with"
+  | "is_empty"
+  | "is_not_empty"
+  | "gt"
+  | "gte"
+  | "lt"
+  | "lte";
 
 type MessageTarget = "inbound_sender" | "event_contact" | "internal_notification" | "assigned_lead" | "custom";
 
@@ -441,6 +460,10 @@ function labelForConfig(t: BuilderNodeType, cfg: BuilderNodeConfig | undefined) 
       ends_with: "ends with",
       is_empty: "is empty",
       is_not_empty: "is not empty",
+      gt: ">",
+      gte: ">=",
+      lt: "<",
+      lte: "<=",
     };
     const op = opLabel[cfg.op] ?? cfg.op;
     return `Condition: ${left} ${op}${cfg.op === "is_empty" || cfg.op === "is_not_empty" ? "" : ` ${right || "(value)"}`}`;
@@ -1602,7 +1625,7 @@ export function PortalAutomationsClient() {
 
       <PortalVariablePickerModal
         open={variablePickerOpen}
-        variables={[...PORTAL_MESSAGE_VARIABLES, ...PORTAL_LINK_VARIABLES]}
+        variables={[...PORTAL_TIME_VARIABLES, ...PORTAL_MESSAGE_VARIABLES, ...PORTAL_LINK_VARIABLES]}
         onPick={applyPickedVariable}
         onClose={() => {
           setVariablePickerOpen(false);
@@ -3427,11 +3450,45 @@ export function PortalAutomationsClient() {
                               }
 
                               if (cfg.actionKind === "find_contact") {
+                                const tagId = String((cfg as any).tagId || "").trim();
                                 const contactName = String((cfg as any).contactName || "").slice(0, 200);
                                 const contactEmail = String((cfg as any).contactEmail || "").slice(0, 200);
                                 const contactPhone = String((cfg as any).contactPhone || "").slice(0, 64);
                                 return (
                                   <>
+                                    <div className="mt-2">
+                                      <div className="text-xs font-semibold text-zinc-600">Lookup tag (optional)</div>
+                                      <div className="mt-1">
+                                        <PortalListboxDropdown
+                                          value={(tagId || "__none__") as any}
+                                          options={[
+                                            { value: "__none__", label: "No tag", hint: "Skip tag lookup" },
+                                            ...ownerTags.map((t) => ({ value: t.id, label: t.name })),
+                                          ]}
+                                          onChange={(next) => {
+                                            const nextTagId = next === "__none__" ? "" : String(next);
+                                            updateSelectedAutomation((a) => {
+                                              const nodes = a.nodes.map((n) => {
+                                                if (n.id !== selectedNode.id) return n;
+                                                const prev =
+                                                  n.config?.kind === "action" ? n.config : (defaultConfigForType("action") as any);
+                                                const nextCfg: BuilderNodeConfig = { ...(prev as any), kind: "action", tagId: nextTagId };
+                                                const nextLabel =
+                                                  autolabelSelectedNode && shouldAutolabel(n.label)
+                                                    ? labelForConfig("action", nextCfg)
+                                                    : n.label;
+                                                return { ...n, config: nextCfg, label: nextLabel };
+                                              });
+                                              return { ...a, nodes, updatedAtIso: new Date().toISOString() };
+                                            });
+                                          }}
+                                        />
+                                      </div>
+                                      <div className="mt-1 text-[11px] text-zinc-600">
+                                        If set, it picks the most recent contact with this tag.
+                                      </div>
+                                    </div>
+
                                     <div className="mt-2">
                                       <div className="flex items-center justify-between gap-3">
                                         <div className="text-xs font-semibold text-zinc-600">Lookup name</div>
@@ -4120,9 +4177,26 @@ export function PortalAutomationsClient() {
                             const op = (cfg.op as ConditionOp) ?? "equals";
                             const right = String(cfg.right ?? "").slice(0, 120);
                             const hidesRight = op === "is_empty" || op === "is_not_empty";
+                            const leftKey = left.trim();
+
+                            const rightQuickOptions =
+                              leftKey === "now.weekday"
+                                ? ([
+                                    { value: "0", label: "Sunday" },
+                                    { value: "1", label: "Monday" },
+                                    { value: "2", label: "Tuesday" },
+                                    { value: "3", label: "Wednesday" },
+                                    { value: "4", label: "Thursday" },
+                                    { value: "5", label: "Friday" },
+                                    { value: "6", label: "Saturday" },
+                                  ] as Array<{ value: string; label: string }>)
+                                : leftKey === "now.hour"
+                                  ? (Array.from({ length: 24 }).map((_, i) => ({ value: String(i), label: String(i).padStart(2, "0") })) as Array<{ value: string; label: string }>)
+                                  : null;
 
                             return (
                               <div className="mt-1 space-y-2">
+                                <div className="text-xs font-semibold text-zinc-600">If</div>
                                 <div className="flex items-center gap-2">
                                   <input
                                     ref={conditionLeftRef}
@@ -4169,6 +4243,10 @@ export function PortalAutomationsClient() {
                                     { value: "contains", label: "Contains" },
                                     { value: "starts_with", label: "Starts with" },
                                     { value: "ends_with", label: "Ends with" },
+                                    { value: "gt", label: "Greater than (>)" },
+                                    { value: "gte", label: "Greater than or equal (≥)" },
+                                    { value: "lt", label: "Less than (<)" },
+                                    { value: "lte", label: "Less than or equal (≤)" },
                                     { value: "is_empty", label: "Is empty" },
                                     { value: "is_not_empty", label: "Is not empty" },
                                   ]}
@@ -4215,6 +4293,36 @@ export function PortalAutomationsClient() {
                                         });
                                       }}
                                     />
+
+                                    {rightQuickOptions ? (
+                                      <div className="w-[180px]">
+                                        <PortalListboxDropdown
+                                          value={((rightQuickOptions as any[]).some((o) => o.value === right) ? right : "__none__") as any}
+                                          options={[
+                                            { value: "__none__", label: "Pick…", disabled: true },
+                                            ...(rightQuickOptions as any),
+                                          ]}
+                                          onChange={(v) => {
+                                            if (!v || v === "__none__") return;
+                                            const nextRight = String(v).slice(0, 120);
+                                            updateSelectedAutomation((a) => {
+                                              const nodes = a.nodes.map((n) => {
+                                                if (n.id !== selectedNode.id) return n;
+                                                const prev =
+                                                  n.config?.kind === "condition" ? n.config : (defaultConfigForType("condition") as any);
+                                                const nextCfg: BuilderNodeConfig = { ...(prev as any), kind: "condition", right: nextRight };
+                                                const nextLabel =
+                                                  autolabelSelectedNode && shouldAutolabel(n.label)
+                                                    ? labelForConfig("condition", nextCfg)
+                                                    : n.label;
+                                                return { ...n, config: nextCfg, label: nextLabel };
+                                              });
+                                              return { ...a, nodes, updatedAtIso: new Date().toISOString() };
+                                            });
+                                          }}
+                                        />
+                                      </div>
+                                    ) : null}
                                     <button
                                       type="button"
                                       className="shrink-0 rounded-xl border border-zinc-200 bg-white px-3 py-2 text-xs font-semibold hover:bg-zinc-50"

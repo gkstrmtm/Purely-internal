@@ -69,7 +69,7 @@ const conditionConfigSchema = z
   .object({
     kind: z.literal("condition"),
     left: z.string().max(60),
-    op: z.enum(["equals", "contains", "starts_with", "ends_with", "is_empty", "is_not_empty"]),
+    op: z.enum(["equals", "contains", "starts_with", "ends_with", "is_empty", "is_not_empty", "gt", "gte", "lt", "lte"]),
     right: z.string().max(120),
   })
   .passthrough();
