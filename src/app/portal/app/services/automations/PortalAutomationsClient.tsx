@@ -6,6 +6,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { PortalListboxDropdown } from "@/components/PortalListboxDropdown";
 import { PortalVariablePickerModal } from "@/components/PortalVariablePickerModal";
 import { useToast } from "@/components/ToastProvider";
+import { PORTAL_SERVICES } from "@/app/portal/services/catalog";
 import { PORTAL_LINK_VARIABLES, PORTAL_MESSAGE_VARIABLES } from "@/lib/portalTemplateVars";
 
 const CONDITION_FIELD_KEYS = [...PORTAL_MESSAGE_VARIABLES, ...PORTAL_LINK_VARIABLES].map((v) => v.key);
@@ -15,6 +16,7 @@ type BuilderNodeType = "trigger" | "action" | "delay" | "condition" | "note";
 type EdgePort = "out" | "true" | "false";
 
 type TriggerKind =
+  | "manual"
   | "inbound_sms"
   | "inbound_mms"
   | "inbound_call"
@@ -100,6 +102,7 @@ type BuilderNodeConfig =
 type ContactTag = { id: string; name: string; color: string | null };
 
 type AiOutboundCallCampaign = { id: string; name: string; status: string };
+type NurtureCampaign = { id: string; name: string; status: string };
 
 type AccountMember = {
   userId: string;
@@ -384,6 +387,7 @@ function labelForConfig(t: BuilderNodeType, cfg: BuilderNodeConfig | undefined) 
 
   if (cfg.kind === "trigger") {
     const map: Record<TriggerKind, string> = {
+      manual: "Manual",
       inbound_sms: "Inbound SMS",
       inbound_mms: "Inbound MMS",
       inbound_call: "Inbound Call",
@@ -460,6 +464,10 @@ export function PortalAutomationsClient() {
   const [error, setError] = useState<string | null>(null);
   const [note, setNote] = useState<string | null>(null);
 
+  const autosaveBlockedUntilRef = useRef<number>(0);
+  const lastErrorToastRef = useRef<{ msg: string; at: number } | null>(null);
+  const lastSavedToastAtRef = useRef<number>(0);
+
   const [lastSavedAtIso, setLastSavedAtIso] = useState<string | null>(null);
   const [dirty, setDirty] = useState(false);
   const lastSavedSigRef = useRef<string>("");
@@ -467,6 +475,7 @@ export function PortalAutomationsClient() {
 
   const [libraryOpen, setLibraryOpen] = useState(false);
   const [libraryMenuFor, setLibraryMenuFor] = useState<string | null>(null);
+  const [manualRunBusyFor, setManualRunBusyFor] = useState<string | null>(null);
 
   const [renameOpen, setRenameOpen] = useState(false);
   const [renameValue, setRenameValue] = useState("");
@@ -479,6 +488,7 @@ export function PortalAutomationsClient() {
   const [ownerTags, setOwnerTags] = useState<ContactTag[]>([]);
   const [accountMembers, setAccountMembers] = useState<AccountMember[]>([]);
   const [aiOutboundCallCampaigns, setAiOutboundCallCampaigns] = useState<AiOutboundCallCampaign[]>([]);
+  const [nurtureCampaigns, setNurtureCampaigns] = useState<NurtureCampaign[]>([]);
 
   const [createTagOpen, setCreateTagOpen] = useState(false);
   const [createTagName, setCreateTagName] = useState("");
@@ -488,7 +498,14 @@ export function PortalAutomationsClient() {
   const [createTagApplyTo, setCreateTagApplyTo] = useState<null | { nodeId: string; kind: "action" | "trigger" }>(null);
 
   useEffect(() => {
-    if (error) toast.error(error);
+    if (!error) return;
+    const msg = String(error || "").trim();
+    if (!msg) return;
+    const now = Date.now();
+    const prev = lastErrorToastRef.current;
+    if (prev && prev.msg === msg && now - prev.at < 8000) return;
+    lastErrorToastRef.current = { msg, at: now };
+    toast.error(msg);
   }, [error, toast]);
 
   useEffect(() => {
@@ -981,7 +998,7 @@ export function PortalAutomationsClient() {
     }
 
     setSaving(true);
-    setError(null);
+    // Avoid clearing error on every autosave attempt (that causes toast spam).
     setNote(null);
 
     const payload = { automations: next ?? automations };
@@ -995,7 +1012,9 @@ export function PortalAutomationsClient() {
     const data = (await res?.json?.().catch(() => null)) as ApiPayload | null;
     if (!res?.ok || !data || (data as any).error) {
       setSaving(false);
-      setError((data as any)?.error || "Save failed.");
+      autosaveBlockedUntilRef.current = Date.now() + 6000;
+      const msg = String((data as any)?.error || "Save failed.");
+      setError((prev) => (prev === msg ? prev : msg));
       return;
     }
 
@@ -1009,8 +1028,12 @@ export function PortalAutomationsClient() {
       // ignore
     }
     setSaving(false);
-    setNote("Saved.");
-    window.setTimeout(() => setNote(null), 1400);
+
+    const now = Date.now();
+    if (now - lastSavedToastAtRef.current > 8000) {
+      lastSavedToastAtRef.current = now;
+      toast.success("Saved");
+    }
   }
 
   // Autosave: when automations change, debounce a save.
@@ -1018,6 +1041,7 @@ export function PortalAutomationsClient() {
     if (loading) return;
     if (saving) return;
     if (!automations) return;
+    if (Date.now() < autosaveBlockedUntilRef.current) return;
 
     let sig = "";
     try {
@@ -1142,6 +1166,29 @@ export function PortalAutomationsClient() {
       if (cancelled) return;
       if (res?.ok && data?.ok && Array.isArray(data?.campaigns)) {
         setAiOutboundCallCampaigns(
+          (data.campaigns as any[])
+            .map((c) => ({
+              id: String(c?.id || ""),
+              name: String(c?.name || "").slice(0, 120) || "Campaign",
+              status: String(c?.status || ""),
+            }))
+            .filter((c) => Boolean(c.id)),
+        );
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      const res = await fetch("/api/portal/nurture/campaigns", { cache: "no-store" }).catch(() => null as any);
+      const data = (await res?.json?.().catch(() => null)) as any;
+      if (cancelled) return;
+      if (res?.ok && data?.ok && Array.isArray(data?.campaigns)) {
+        setNurtureCampaigns(
           (data.campaigns as any[])
             .map((c) => ({
               id: String(c?.id || ""),
@@ -1916,6 +1963,9 @@ export function PortalAutomationsClient() {
               ) : (
                 automations.map((a) => {
                   const isSel = a.id === selectedAutomationId;
+                  const triggerNode = (a.nodes || []).find((n: any) => n?.type === "trigger" && n?.config?.kind === "trigger") as any;
+                  const triggerKind = triggerNode?.config?.triggerKind as TriggerKind | undefined;
+                  const canManualRun = triggerKind === "manual";
                   return (
                     <div
                       key={a.id}
@@ -1940,6 +1990,38 @@ export function PortalAutomationsClient() {
                           {(a.nodes?.length ?? 0)} nodes · {(a.edges?.length ?? 0)} connections
                         </div>
                       </button>
+
+                      {canManualRun ? (
+                        <button
+                          type="button"
+                          className={
+                            "rounded-xl px-3 py-2 text-xs font-semibold " +
+                            (isSel
+                              ? "bg-white/10 text-white hover:bg-white/15"
+                              : "border border-zinc-200 bg-white text-zinc-800 hover:bg-zinc-50")
+                          }
+                          disabled={manualRunBusyFor === a.id}
+                          onClick={async () => {
+                            if (manualRunBusyFor) return;
+                            setManualRunBusyFor(a.id);
+                            const res = await fetch("/api/portal/automations/run", {
+                              method: "POST",
+                              headers: { "content-type": "application/json" },
+                              body: JSON.stringify({ automationId: a.id }),
+                            }).catch(() => null as any);
+                            const data = (await res?.json?.().catch(() => null)) as any;
+                            if (!res?.ok || !data?.ok) {
+                              setError(String(data?.error || "Failed to trigger."));
+                            } else {
+                              toast.success("Triggered");
+                            }
+                            setManualRunBusyFor(null);
+                          }}
+                          title="Run this automation now"
+                        >
+                          {manualRunBusyFor === a.id ? "Triggering…" : "Trigger"}
+                        </button>
+                      ) : null}
 
                       <div className="relative">
                         <button
@@ -2488,6 +2570,7 @@ export function PortalAutomationsClient() {
                                   : (defaultConfigForType("trigger") as any).triggerKind
                               }
                               options={[
+                                { value: "manual", label: "Manual" },
                                 { value: "inbound_sms", label: "Inbound SMS" },
                                 { value: "inbound_mms", label: "Inbound MMS" },
                                 { value: "inbound_call", label: "Inbound Call" },
@@ -2862,7 +2945,7 @@ export function PortalAutomationsClient() {
                                   ? selectedNode.config.actionKind
                                   : (defaultConfigForType("action") as any).actionKind;
                               const triggerKind = selectedAutomationTriggerKind;
-                              const triggerHasContact = Boolean(triggerKind && triggerKind !== "scheduled_time");
+                              const triggerHasContact = Boolean(triggerKind && triggerKind !== "scheduled_time" && triggerKind !== "manual");
                               const needsContact = (k: ActionKind) =>
                                 k === "add_tag" ||
                                 k === "update_contact" ||
@@ -2946,8 +3029,21 @@ export function PortalAutomationsClient() {
                                 const serviceSlug = String((cfg as any).serviceSlug || "ai-outbound-calls");
                                 const serviceCampaignId = String((cfg as any).serviceCampaignId || "");
 
-                                const serviceOptions = [{ value: "ai-outbound-calls", label: "AI Outbound Calls" }];
-                                const campaignOptions = aiOutboundCallCampaigns.map((c) => ({
+                                const supported = new Set<string>(["ai-outbound-calls", "nurture-campaigns"]);
+
+                                const serviceOptions = PORTAL_SERVICES.filter((s) => !s.hidden && s.slug !== "automations").map((s) => ({
+                                  value: s.slug,
+                                  label: s.title,
+                                  disabled: !supported.has(s.slug),
+                                  hint: supported.has(s.slug) ? undefined : "Not supported yet",
+                                }));
+
+                                const outboundCampaignOptions = aiOutboundCallCampaigns.map((c) => ({
+                                  value: c.id,
+                                  label: c.status && c.status !== "ACTIVE" ? `${c.name} (${c.status})` : c.name,
+                                }));
+
+                                const nurtureCampaignOptions = nurtureCampaigns.map((c) => ({
                                   value: c.id,
                                   label: c.status && c.status !== "ACTIVE" ? `${c.name} (${c.status})` : c.name,
                                 }));
@@ -2992,7 +3088,40 @@ export function PortalAutomationsClient() {
                                           value={serviceCampaignId}
                                           options={[
                                             { value: "", label: "(default: latest ACTIVE campaign)" },
-                                            ...campaignOptions,
+                                            ...outboundCampaignOptions,
+                                          ]}
+                                          onChange={(next) => {
+                                            updateSelectedAutomation((a) => {
+                                              const nodes = a.nodes.map((n) => {
+                                                if (n.id !== selectedNode.id) return n;
+                                                const prev =
+                                                  n.config?.kind === "action" ? n.config : (defaultConfigForType("action") as any);
+                                                const nextCfg: BuilderNodeConfig = { ...(prev as any), kind: "action", serviceCampaignId: next };
+                                                const nextLabel =
+                                                  autolabelSelectedNode && shouldAutolabel(n.label)
+                                                    ? labelForConfig("action", nextCfg)
+                                                    : n.label;
+                                                return { ...n, config: nextCfg, label: nextLabel };
+                                              });
+                                              return { ...a, nodes, updatedAtIso: new Date().toISOString() };
+                                            });
+                                          }}
+                                        />
+                                        <div className="mt-2 text-[11px] text-zinc-600">
+                                          Optional. If not set, we’ll use the most recently updated ACTIVE campaign.
+                                        </div>
+                                      </div>
+                                    ) : null}
+
+                                    {serviceSlug === "nurture-campaigns" ? (
+                                      <div className="mt-2">
+                                        <div className="text-xs font-semibold text-zinc-600">Campaign</div>
+                                        <PortalListboxDropdown
+                                          className="mt-1"
+                                          value={serviceCampaignId}
+                                          options={[
+                                            { value: "", label: "(default: latest ACTIVE campaign)" },
+                                            ...nurtureCampaignOptions,
                                           ]}
                                           onChange={(next) => {
                                             updateSelectedAutomation((a) => {

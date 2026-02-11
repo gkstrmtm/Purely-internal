@@ -12,12 +12,14 @@ import { ensurePortalContactsSchema } from "@/lib/portalContactsSchema";
 import { getOwnerPrimaryReviewLink } from "@/lib/reviewRequests";
 import { getBookingCalendarsConfig } from "@/lib/bookingCalendars";
 import { enqueueOutboundCallForContact } from "@/lib/portalAiOutboundCalls";
+import { ensurePortalNurtureSchema } from "@/lib/portalNurtureSchema";
 
 type EdgePort = "out" | "true" | "false";
 
 type BuilderNodeType = "trigger" | "action" | "delay" | "condition" | "note";
 
 type TriggerKind =
+  | "manual"
   | "inbound_sms"
   | "inbound_mms"
   | "inbound_call"
@@ -1012,28 +1014,80 @@ async function runAutomationOnce(opts: {
           if (cfg.actionKind === "trigger_service") {
             const serviceSlug = String((cfg as any).serviceSlug || "").trim();
 
-            if (serviceSlug === "ai-outbound-calls") {
-              let effectiveContactId = contactId;
-
-              if (!effectiveContactId && (ctx.contact.phone || ctx.contact.email || ctx.contact.name)) {
-                const name = ctx.contact.name || ctx.contact.phone || ctx.contact.email || "Contact";
-                try {
-                  await ensurePortalContactsSchema().catch(() => null);
-                  effectiveContactId =
-                    (await findOrCreatePortalContact({
-                      ownerId: opts.ownerId,
-                      name,
-                      email: ctx.contact.email || null,
-                      phone: ctx.contact.phone || null,
-                    }).catch(() => null)) || null;
-                } catch {
-                  effectiveContactId = null;
-                }
+            let effectiveContactId = contactId;
+            if (!effectiveContactId && (ctx.contact.phone || ctx.contact.email || ctx.contact.name)) {
+              const name = ctx.contact.name || ctx.contact.phone || ctx.contact.email || "Contact";
+              try {
+                await ensurePortalContactsSchema().catch(() => null);
+                effectiveContactId =
+                  (await findOrCreatePortalContact({
+                    ownerId: opts.ownerId,
+                    name,
+                    email: ctx.contact.email || null,
+                    phone: ctx.contact.phone || null,
+                  }).catch(() => null)) || null;
+              } catch {
+                effectiveContactId = null;
               }
+            }
 
+            if (serviceSlug === "ai-outbound-calls") {
               if (effectiveContactId) {
                 const campaignId = String((cfg as any).serviceCampaignId || "").trim() || undefined;
                 await enqueueOutboundCallForContact({ ownerId: opts.ownerId, contactId: effectiveContactId, campaignId }).catch(() => null);
+              }
+            }
+
+            if (serviceSlug === "nurture-campaigns") {
+              if (!effectiveContactId) return;
+              const campaignIdRaw = String((cfg as any).serviceCampaignId || "").trim();
+              try {
+                await ensurePortalNurtureSchema().catch(() => null);
+
+                const campaign = campaignIdRaw
+                  ? await prisma.portalNurtureCampaign.findFirst({
+                      where: { ownerId: opts.ownerId, id: campaignIdRaw, status: "ACTIVE" },
+                      select: { id: true },
+                    })
+                  : await prisma.portalNurtureCampaign.findFirst({
+                      where: { ownerId: opts.ownerId, status: "ACTIVE" },
+                      select: { id: true },
+                      orderBy: [{ updatedAt: "desc" }],
+                    });
+
+                if (!campaign?.id) return;
+
+                const steps = await prisma.portalNurtureStep.findMany({
+                  where: { ownerId: opts.ownerId, campaignId: campaign.id },
+                  select: { ord: true, delayMinutes: true },
+                  orderBy: [{ ord: "asc" }],
+                  take: 1,
+                });
+                const firstDelay = steps.length ? Math.max(0, Number(steps[0].delayMinutes) || 0) : 0;
+                const now = new Date();
+                const firstSendAt = new Date(now.getTime() + firstDelay * 60 * 1000);
+
+                await prisma.portalNurtureEnrollment.upsert({
+                  where: { campaignId_contactId: { campaignId: campaign.id, contactId: effectiveContactId } },
+                  create: {
+                    id: crypto.randomUUID(),
+                    ownerId: opts.ownerId,
+                    campaignId: campaign.id,
+                    contactId: effectiveContactId,
+                    status: "ACTIVE",
+                    stepIndex: 0,
+                    nextSendAt: firstSendAt,
+                    createdAt: now,
+                    updatedAt: now,
+                  },
+                  update: {
+                    status: "ACTIVE",
+                    nextSendAt: firstSendAt,
+                    updatedAt: now,
+                  },
+                });
+              } catch {
+                // best-effort
               }
             }
           }

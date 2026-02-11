@@ -17,11 +17,13 @@ const triggerConfigSchema = z
   .object({
     kind: z.literal("trigger"),
     triggerKind: z.enum([
+      "manual",
       "inbound_sms",
       "inbound_mms",
       "inbound_call",
       "inbound_email",
       "new_lead",
+      "lead_scraped",
       "tag_added",
       "contact_created",
       "task_added",
@@ -51,6 +53,7 @@ const actionConfigSchema = z
       "send_review_request",
       "send_booking_link",
       "update_contact",
+      "trigger_service",
     ]),
   })
   .passthrough();
