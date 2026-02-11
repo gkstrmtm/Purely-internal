@@ -4,6 +4,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { PortalMediaPickerModal } from "@/components/PortalMediaPickerModal";
 import { ContactTagsEditor, type ContactTag } from "@/components/ContactTagsEditor";
 import { PortalVariablePickerModal } from "@/components/PortalVariablePickerModal";
+import { PortalListboxDropdown, type PortalListboxOption } from "@/components/PortalListboxDropdown";
 import { useToast } from "@/components/ToastProvider";
 import { LEAD_OUTBOUND_VARIABLES } from "@/lib/portalTemplateVars";
 
@@ -86,7 +87,6 @@ type LeadScrapingSettings = {
     calls?: {
       enabled: boolean;
       trigger: "MANUAL" | "ON_SCRAPE" | "ON_APPROVE";
-      script: string;
     };
     resources: Array<{ label: string; url: string }>;
   };
@@ -252,6 +252,12 @@ function toTelHref(phone: string) {
 function isHexColor(s: string) {
   return /^#[0-9a-fA-F]{6}$/.test(s);
 }
+
+const OUTBOUND_TRIGGER_OPTIONS: Array<PortalListboxOption<"MANUAL" | "ON_SCRAPE" | "ON_APPROVE">> = [
+  { value: "MANUAL", label: "Manual only" },
+  { value: "ON_SCRAPE", label: "On scrape" },
+  { value: "ON_APPROVE", label: "On approve" },
+];
 
 function ColorSwatches({
   value,
@@ -1166,28 +1172,26 @@ export function PortalLeadScrapingClient() {
             <div className="mt-3 grid grid-cols-1 gap-3">
               <label className="block">
                 <div className="text-xs font-semibold text-zinc-600">Trigger</div>
-                <select
-                  className="mt-1 w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm"
-                  value={settings.outbound.email.trigger}
-                  onChange={(e) =>
-                    setSettings((prev) =>
-                      prev
-                        ? {
-                            ...prev,
-                            outbound: {
-                              ...prev.outbound,
-                              email: { ...prev.outbound.email, trigger: e.target.value as any },
-                            },
-                          }
-                        : prev,
-                    )
-                  }
-                  disabled={!settings.outbound.email.enabled}
-                >
-                  <option value="MANUAL">Manual only</option>
-                  <option value="ON_SCRAPE">Send on scrape</option>
-                  <option value="ON_APPROVE">Send on approve</option>
-                </select>
+                <div className="mt-1">
+                  <PortalListboxDropdown
+                    value={settings.outbound.email.trigger}
+                    options={OUTBOUND_TRIGGER_OPTIONS}
+                    onChange={(v) =>
+                      setSettings((prev) =>
+                        prev
+                          ? {
+                              ...prev,
+                              outbound: {
+                                ...prev.outbound,
+                                email: { ...prev.outbound.email, trigger: v },
+                              },
+                            }
+                          : prev,
+                      )
+                    }
+                    className={!settings.outbound.email.enabled ? "pointer-events-none opacity-60" : ""}
+                  />
+                </div>
               </label>
 
               <label className="block">
@@ -1272,28 +1276,26 @@ export function PortalLeadScrapingClient() {
             <div className="mt-3 grid grid-cols-1 gap-3">
               <label className="block">
                 <div className="text-xs font-semibold text-zinc-600">Trigger</div>
-                <select
-                  className="mt-1 w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm"
-                  value={settings.outbound.sms.trigger}
-                  onChange={(e) =>
-                    setSettings((prev) =>
-                      prev
-                        ? {
-                            ...prev,
-                            outbound: {
-                              ...prev.outbound,
-                              sms: { ...prev.outbound.sms, trigger: e.target.value as any },
-                            },
-                          }
-                        : prev,
-                    )
-                  }
-                  disabled={!settings.outbound.sms.enabled}
-                >
-                  <option value="MANUAL">Manual only</option>
-                  <option value="ON_SCRAPE">Send on scrape</option>
-                  <option value="ON_APPROVE">Send on approve</option>
-                </select>
+                <div className="mt-1">
+                  <PortalListboxDropdown
+                    value={settings.outbound.sms.trigger}
+                    options={OUTBOUND_TRIGGER_OPTIONS}
+                    onChange={(v) =>
+                      setSettings((prev) =>
+                        prev
+                          ? {
+                              ...prev,
+                              outbound: {
+                                ...prev.outbound,
+                                sms: { ...prev.outbound.sms, trigger: v },
+                              },
+                            }
+                          : prev,
+                      )
+                    }
+                    className={!settings.outbound.sms.enabled ? "pointer-events-none opacity-60" : ""}
+                  />
+                </div>
               </label>
 
               <label className="block">
@@ -1328,7 +1330,7 @@ export function PortalLeadScrapingClient() {
               <div className="flex items-center justify-between gap-3">
                 <div>
                   <div className="text-sm font-semibold text-zinc-900">AI calls</div>
-                  <div className="mt-1 text-xs text-zinc-500">Calls use your Twilio voice number and read the script below.</div>
+                  <div className="mt-1 text-xs text-zinc-500">Calls are queued into your active AI Outbound Calls campaign.</div>
                 </div>
                 <label className="inline-flex items-center gap-2 text-sm text-zinc-700">
                   <input
@@ -1340,8 +1342,6 @@ export function PortalLeadScrapingClient() {
                         const calls = prev.outbound.calls ?? {
                           enabled: false,
                           trigger: "MANUAL" as const,
-                          script:
-                            "Hi {businessName} — this is an automated call. We saw your business and wanted to see if you're taking on new work right now. If so, please call us back when you have a moment.",
                         };
                         return {
                           ...prev,
@@ -1362,64 +1362,34 @@ export function PortalLeadScrapingClient() {
               <div className="mt-3 grid grid-cols-1 gap-3">
                 <label className="block">
                   <div className="text-xs font-semibold text-zinc-600">Trigger</div>
-                  <select
-                    className="mt-1 w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm"
-                    value={settings.outbound.calls?.trigger ?? "MANUAL"}
-                    onChange={(e) =>
-                      setSettings((prev) => {
-                        if (!prev) return prev;
-                        const calls = prev.outbound.calls ?? {
-                          enabled: false,
-                          trigger: "MANUAL" as const,
-                          script:
-                            "Hi {businessName} — this is an automated call. We saw your business and wanted to see if you're taking on new work right now. If so, please call us back when you have a moment.",
-                        };
-                        return {
-                          ...prev,
-                          outbound: {
-                            ...prev.outbound,
-                            calls: { ...calls, trigger: e.target.value as any },
-                          },
-                        };
-                      })
-                    }
-                    disabled={!settings.outbound.calls?.enabled}
-                  >
-                    <option value="MANUAL">Manual only</option>
-                    <option value="ON_SCRAPE">Call on scrape</option>
-                    <option value="ON_APPROVE">Call on approve</option>
-                  </select>
+                  <div className="mt-1">
+                    <PortalListboxDropdown
+                      value={settings.outbound.calls?.trigger ?? "MANUAL"}
+                      options={OUTBOUND_TRIGGER_OPTIONS}
+                      onChange={(v) =>
+                        setSettings((prev) => {
+                          if (!prev) return prev;
+                          const calls = prev.outbound.calls ?? {
+                            enabled: false,
+                            trigger: "MANUAL" as const,
+                          };
+                          return {
+                            ...prev,
+                            outbound: {
+                              ...prev.outbound,
+                              calls: { ...calls, trigger: v },
+                            },
+                          };
+                        })
+                      }
+                      className={!settings.outbound.calls?.enabled ? "pointer-events-none opacity-60" : ""}
+                    />
+                  </div>
                 </label>
 
-                <label className="block">
-                  <div className="text-xs font-semibold text-zinc-600">Script (plain text)</div>
-                  <textarea
-                    className="mt-1 w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm"
-                    rows={4}
-                    value={settings.outbound.calls?.script ?? ""}
-                    onChange={(e) =>
-                      setSettings((prev) => {
-                        if (!prev) return prev;
-                        const calls = prev.outbound.calls ?? {
-                          enabled: false,
-                          trigger: "MANUAL" as const,
-                          script:
-                            "Hi {businessName} — this is an automated call. We saw your business and wanted to see if you're taking on new work right now. If so, please call us back when you have a moment.",
-                        };
-                        return {
-                          ...prev,
-                          outbound: {
-                            ...prev.outbound,
-                            calls: { ...calls, script: e.target.value },
-                          },
-                        };
-                      })
-                    }
-                    disabled={!settings.outbound.calls?.enabled}
-                  />
-                </label>
-
-                <div className="text-xs text-zinc-500">Calls only place when the lead has a valid phone number.</div>
+                <div className="text-xs text-zinc-500">
+                  Calls only queue when the lead has a valid phone number. Configure the call prompt/script in your AI Outbound Calls campaign.
+                </div>
               </div>
             </div>
           ) : null}

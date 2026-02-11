@@ -5,6 +5,7 @@ import { ensurePortalAiOutboundCallsSchema } from "@/lib/portalAiOutboundCallsSc
 import { getOwnerTwilioSmsConfig } from "@/lib/portalTwilio";
 import { buildPortalTemplateVars } from "@/lib/portalTemplateVars";
 import { renderTextTemplate } from "@/lib/textTemplate";
+import { recordPortalContactServiceTrigger } from "@/lib/portalContactServiceTriggers";
 
 export type AiOutboundCallCampaignStatus = "DRAFT" | "ACTIVE" | "PAUSED" | "ARCHIVED";
 
@@ -86,6 +87,10 @@ export async function enqueueOutboundCallForTaggedContact(opts: {
     }
   }
 
+  if (enqueued > 0) {
+    await recordPortalContactServiceTrigger({ ownerId, contactId, serviceSlug: "ai-outbound-calls" }).catch(() => null);
+  }
+
   return { ok: true, enqueued };
 }
 
@@ -133,10 +138,14 @@ export async function enqueueOutboundCallForContact(opts: {
       },
       select: { id: true },
     });
+    await recordPortalContactServiceTrigger({ ownerId, contactId, serviceSlug: "ai-outbound-calls" }).catch(() => null);
     return { ok: true, enrollmentId: id };
   } catch (e: any) {
     const code = typeof e?.code === "string" ? e.code : "";
-    if (code === "P2002") return { ok: true };
+    if (code === "P2002") {
+      await recordPortalContactServiceTrigger({ ownerId, contactId, serviceSlug: "ai-outbound-calls" }).catch(() => null);
+      return { ok: true };
+    }
     return { ok: false, error: "Failed to enqueue" };
   }
 }

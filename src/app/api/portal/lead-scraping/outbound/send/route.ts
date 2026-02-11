@@ -7,8 +7,9 @@ import { resolveEntitlements } from "@/lib/entitlements";
 import { baseUrlFromRequest, renderTemplate, sendEmail, sendSms } from "@/lib/leadOutbound";
 import { draftLeadOutboundEmail, draftLeadOutboundSms } from "@/lib/leadOutboundAi";
 import { runOwnerAutomationsForEvent } from "@/lib/portalAutomationsRunner";
-import { placeTwilioOutboundCall } from "@/lib/portalAiOutboundCalls";
-import { normalizePhoneForStorage } from "@/lib/phone";
+import { enqueueOutboundCallForContact } from "@/lib/portalAiOutboundCalls";
+import { ensurePortalContactsSchema } from "@/lib/portalContactsSchema";
+import { findOrCreatePortalContact } from "@/lib/portalContacts";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -40,7 +41,6 @@ type SettingsV3 = {
     calls: {
       enabled: boolean;
       trigger: "MANUAL" | "ON_SCRAPE" | "ON_APPROVE";
-      script: string;
     };
     resources: Array<{ label: string; url: string }>;
   };
@@ -106,7 +106,6 @@ function normalizeSettings(value: unknown): SettingsV3 {
     calls: {
       enabled: false,
       trigger: "MANUAL",
-      script: "Hi {businessName} — this is an automated call. We saw your business and wanted to see if you're taking on new work right now. If so, please call us back when you have a moment.",
     },
     resources: [],
   };
@@ -162,7 +161,6 @@ function normalizeSettings(value: unknown): SettingsV3 {
         calls: {
           enabled: false,
           trigger: "MANUAL",
-          script: "",
         },
         resources,
       };
@@ -429,20 +427,30 @@ export async function POST(req: Request) {
       } else if (!lead.phone) {
         skipped.push("Call skipped: lead has no phone.");
       } else {
-        const toE164 = normalizePhoneForStorage(lead.phone);
-        if (!toE164) {
-          skipped.push("Call skipped: invalid phone number.");
+        let contactId = (lead as any).contactId ? String((lead as any).contactId).trim() : "";
+        if (!contactId) {
+          try {
+            await ensurePortalContactsSchema().catch(() => null);
+            contactId =
+              (await findOrCreatePortalContact({
+                ownerId,
+                name: String((lead as any).contactName || lead.businessName || lead.phone || "Contact"),
+                email: lead.email || null,
+                phone: lead.phone || null,
+              }).catch(() => "")) || "";
+          } catch {
+            contactId = "";
+          }
+        }
+
+        if (!contactId) {
+          skipped.push("Call skipped: unable to resolve contact.");
         } else {
-          const script = renderTemplate(settings.outbound.calls.script, lead).trim().slice(0, 1800);
-          if (!script) {
-            skipped.push("Call skipped: call script is empty.");
+          const enq = await enqueueOutboundCallForContact({ ownerId, contactId });
+          if (!enq.ok) {
+            skipped.push(`Call skipped: ${enq.error}`);
           } else {
-            const placed = await placeTwilioOutboundCall({ ownerId, toE164, script });
-            if (!placed.ok) {
-              skipped.push(`Call failed: ${placed.error}`);
-            } else {
-              sent.calls = true;
-            }
+            sent.calls = true;
           }
         }
       }

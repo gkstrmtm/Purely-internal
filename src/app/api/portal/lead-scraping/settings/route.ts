@@ -90,7 +90,6 @@ const settingsSchema = z.object({
         .object({
           enabled: z.boolean(),
           trigger: z.enum(["MANUAL", "ON_SCRAPE", "ON_APPROVE"]),
-          script: z.string().max(1800),
         })
         .optional(),
       resources: z
@@ -112,33 +111,6 @@ const settingsSchema = z.object({
 });
 
 type LeadScrapingSettings = z.infer<typeof settingsSchema>;
-
-type LeadScrapingSettingsV1 = {
-  version: 1;
-  b2b: {
-    niche: string;
-    location: string;
-    count: number;
-    requirePhone: boolean;
-    requireWebsite: boolean;
-    excludeNameContains: string[];
-    excludeDomains: string[];
-    excludePhones: string[];
-    scheduleEnabled: boolean;
-    frequencyDays: number;
-    lastRunAtIso: string | null;
-  };
-  b2c: {
-    source?: string;
-    location?: string;
-    country?: string;
-    count?: number;
-    notes: string;
-    scheduleEnabled: boolean;
-    frequencyDays: number;
-    lastRunAtIso: string | null;
-  };
-};
 
 type OutboundSettings = NonNullable<LeadScrapingSettings["outbound"]>;
 type OutboundState = NonNullable<LeadScrapingSettings["outboundState"]>;
@@ -282,7 +254,6 @@ function normalizeOutbound(value: unknown): OutboundSettings {
     calls: {
       enabled: Boolean((callsRec as any).enabled),
       trigger: parseTrigger((callsRec as any).trigger),
-      script: (typeof (callsRec as any).script === "string" ? ((callsRec as any).script as string) : "").slice(0, 1800),
     },
     resources,
   };
@@ -350,7 +321,6 @@ function normalizeSettings(value: unknown): NormalizedLeadScrapingSettings {
     calls: {
       enabled: false,
       trigger: "MANUAL",
-      script: "Hi {businessName} — this is an automated call. We saw your business and wanted to see if you're taking on new work right now. If so, please call us back when you have a moment.",
     },
     resources: [],
   };

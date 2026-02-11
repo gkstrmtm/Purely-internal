@@ -8,8 +8,9 @@ import { baseUrlFromRequest, renderTemplate, sendEmail, sendSms, stripHtml } fro
 import { draftLeadOutboundEmail, draftLeadOutboundSms } from "@/lib/leadOutboundAi";
 import { createPortalLeadCompat } from "@/lib/portalLeadCompat";
 import { runOwnerAutomationsForEvent } from "@/lib/portalAutomationsRunner";
-import { placeTwilioOutboundCall } from "@/lib/portalAiOutboundCalls";
-import { normalizePhoneForStorage } from "@/lib/phone";
+import { enqueueOutboundCallForContact } from "@/lib/portalAiOutboundCalls";
+import { ensurePortalContactsSchema } from "@/lib/portalContactsSchema";
+import { findOrCreatePortalContact } from "@/lib/portalContacts";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -73,7 +74,6 @@ type Settings = {
     calls: {
       enabled: boolean;
       trigger: "MANUAL" | "ON_SCRAPE" | "ON_APPROVE";
-      script: string;
     };
     resources: Array<{ label: string; url: string }>;
   };
@@ -159,7 +159,6 @@ function normalizeOutbound(value: unknown): Settings["outbound"] {
       calls: {
         enabled: false,
         trigger: "MANUAL",
-        script: "",
       },
       resources,
     };
@@ -187,7 +186,6 @@ function normalizeOutbound(value: unknown): Settings["outbound"] {
     calls: {
       enabled: Boolean((callsRec as any).enabled),
       trigger: parseTrigger((callsRec as any).trigger),
-      script: (typeof (callsRec as any).script === "string" ? ((callsRec as any).script as string) : "").slice(0, 1800),
     },
     resources,
   };
@@ -274,7 +272,6 @@ function normalizeSettings(value: unknown): Settings {
     calls: {
       enabled: false,
       trigger: "MANUAL",
-      script: "Hi {businessName} — this is an automated call. We saw your business and wanted to see if you're taking on new work right now. If so, please call us back when you have a moment.",
     },
     resources: [],
   };
@@ -675,11 +672,25 @@ async function runB2BForOwner(ownerId: string, settingsJson: unknown, baseUrl: s
         }
 
         if (shouldPlaceCalls && lead.phone) {
-          const toE164 = normalizePhoneForStorage(lead.phone);
-          const script = renderTemplate(settings.outbound.calls.script, lead).trim().slice(0, 1800);
-          if (toE164 && script) {
-            const placed = await placeTwilioOutboundCall({ ownerId, toE164, script });
-            if (placed.ok) didSend = true;
+          let contactId = (lead as any).contactId ? String((lead as any).contactId).trim() : "";
+          if (!contactId) {
+            try {
+              await ensurePortalContactsSchema().catch(() => null);
+              contactId =
+                (await findOrCreatePortalContact({
+                  ownerId,
+                  name: String((lead as any).contactName || lead.businessName || lead.phone || "Contact"),
+                  email: lead.email || null,
+                  phone: lead.phone || null,
+                }).catch(() => "")) || "";
+            } catch {
+              contactId = "";
+            }
+          }
+
+          if (contactId) {
+            const enq = await enqueueOutboundCallForContact({ ownerId, contactId }).catch(() => null);
+            if (enq && enq.ok) didSend = true;
           }
         }
 
