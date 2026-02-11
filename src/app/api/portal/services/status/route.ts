@@ -38,6 +38,10 @@ function isComingSoon(service: { title: string; description: string }) {
   return s.includes("coming soon");
 }
 
+function forceActiveForFullDemo(serviceSlug: string) {
+  return serviceSlug === "nurture-campaigns" || serviceSlug === "newsletter";
+}
+
 function isUnlocked(opts: {
   isFullDemo: boolean;
   included?: boolean;
@@ -113,7 +117,11 @@ export async function GET() {
   for (const s of PORTAL_SERVICES) {
     const comingSoon = isComingSoon(s);
     if (comingSoon) {
-      statuses[s.slug] = { state: "coming_soon", label: "Coming soon" };
+      if (isFullDemo && forceActiveForFullDemo(s.slug)) {
+        statuses[s.slug] = { state: "active", label: "Active" };
+      } else {
+        statuses[s.slug] = { state: "coming_soon", label: "Coming soon" };
+      }
       continue;
     }
 
