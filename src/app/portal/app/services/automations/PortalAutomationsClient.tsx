@@ -3,9 +3,12 @@
 import Link from "next/link";
 import { useEffect, useMemo, useRef, useState } from "react";
 
+import { PortalListboxDropdown } from "@/components/PortalListboxDropdown";
 import { PortalVariablePickerModal } from "@/components/PortalVariablePickerModal";
 import { useToast } from "@/components/ToastProvider";
 import { PORTAL_LINK_VARIABLES, PORTAL_MESSAGE_VARIABLES } from "@/lib/portalTemplateVars";
+
+const CONDITION_FIELD_KEYS = [...PORTAL_MESSAGE_VARIABLES, ...PORTAL_LINK_VARIABLES].map((v) => v.key);
 
 type BuilderNodeType = "trigger" | "action" | "delay" | "condition" | "note";
 
@@ -42,6 +45,8 @@ type ActionKind =
 type ConditionOp = "equals" | "contains" | "starts_with" | "ends_with" | "is_empty" | "is_not_empty";
 
 type MessageTarget = "inbound_sender" | "event_contact" | "internal_notification" | "assigned_lead" | "custom";
+
+type DelayUnit = "minutes" | "hours" | "days" | "weeks" | "months";
 
 type BuilderNodeConfig =
   | {
@@ -82,7 +87,7 @@ type BuilderNodeConfig =
       contactEmail?: string;
       contactPhone?: string;
     }
-  | { kind: "delay"; minutes: number }
+  | { kind: "delay"; minutes: number; unit?: DelayUnit; value?: number }
   | { kind: "condition"; left: string; op: ConditionOp; right: string }
   | { kind: "note"; text: string };
 
@@ -325,12 +330,43 @@ function defaultConfigForType(t: BuilderNodeType): BuilderNodeConfig {
     case "action":
       return { kind: "action", actionKind: "send_sms", smsTo: "inbound_sender", body: "" };
     case "delay":
-      return { kind: "delay", minutes: 5 };
+      return { kind: "delay", minutes: 5, unit: "minutes", value: 5 };
     case "condition":
       return { kind: "condition", left: "contact.phone", op: "is_not_empty", right: "" };
     default:
       return { kind: "note", text: "" };
   }
+}
+
+const DELAY_UNIT_TO_MINUTES: Record<DelayUnit, number> = {
+  minutes: 1,
+  hours: 60,
+  days: 60 * 24,
+  weeks: 60 * 24 * 7,
+  months: 60 * 24 * 30,
+};
+
+function inferDelayUnit(totalMinutesRaw: number): DelayUnit {
+  const totalMinutes = Math.max(0, Math.floor(totalMinutesRaw || 0));
+  if (totalMinutes !== 0) {
+    if (totalMinutes % DELAY_UNIT_TO_MINUTES.months === 0) return "months";
+    if (totalMinutes % DELAY_UNIT_TO_MINUTES.weeks === 0) return "weeks";
+    if (totalMinutes % DELAY_UNIT_TO_MINUTES.days === 0) return "days";
+    if (totalMinutes % DELAY_UNIT_TO_MINUTES.hours === 0) return "hours";
+  }
+  return "minutes";
+}
+
+function delayValueFromMinutes(totalMinutesRaw: number, unit: DelayUnit): number {
+  const totalMinutes = Math.max(0, Math.floor(totalMinutesRaw || 0));
+  const denom = DELAY_UNIT_TO_MINUTES[unit] || 1;
+  return denom ? Math.max(0, Math.round(totalMinutes / denom)) : totalMinutes;
+}
+
+function delayMinutesFromValue(valueRaw: number, unit: DelayUnit): number {
+  const value = Math.max(0, Math.floor(valueRaw || 0));
+  const mult = DELAY_UNIT_TO_MINUTES[unit] || 1;
+  return Math.max(0, value * mult);
 }
 
 function labelForConfig(t: BuilderNodeType, cfg: BuilderNodeConfig | undefined) {
@@ -375,8 +411,11 @@ function labelForConfig(t: BuilderNodeType, cfg: BuilderNodeConfig | undefined) 
     return `Action: ${map[cfg.actionKind]}`;
   }
   if (cfg.kind === "delay") {
-    const m = Math.max(0, Math.floor(cfg.minutes || 0));
-    return `Delay: ${m} minute${m === 1 ? "" : "s"}`;
+    const minutes = Math.max(0, Math.floor(cfg.minutes || 0));
+    const unit = cfg.unit ?? inferDelayUnit(minutes);
+    const value = Math.max(0, Math.floor(cfg.value ?? delayValueFromMinutes(minutes, unit)));
+    const labelUnit = unit === "hours" ? "hour" : unit === "days" ? "day" : unit === "weeks" ? "week" : unit === "months" ? "month" : "minute";
+    return `Delay: ${value} ${labelUnit}${value === 1 ? "" : "s"}`;
   }
   if (cfg.kind === "condition") {
     const left = cfg.left?.trim() || "(field)";
@@ -453,6 +492,8 @@ export function PortalAutomationsClient() {
     | "email_body"
     | "task_title"
     | "task_description"
+    | "condition_left"
+    | "condition_right"
     | "test_sms_body"
     | "webhook_body"
     | "find_contact_name"
@@ -462,6 +503,13 @@ export function PortalAutomationsClient() {
     | "update_contact_email"
     | "update_contact_phone"
   >(null);
+
+  const [confirm, setConfirm] = useState<
+    | null
+    | { kind: "delete_node"; nodeId: string }
+    | { kind: "delete_automation"; automationId: string }
+  >(null);
+  const [confirmBusy, setConfirmBusy] = useState(false);
 
   const smsBodyRef = useRef<HTMLTextAreaElement | null>(null);
   const emailSubjectRef = useRef<HTMLInputElement | null>(null);
@@ -476,6 +524,9 @@ export function PortalAutomationsClient() {
   const updateContactNameRef = useRef<HTMLInputElement | null>(null);
   const updateContactEmailRef = useRef<HTMLInputElement | null>(null);
   const updateContactPhoneRef = useRef<HTMLInputElement | null>(null);
+
+  const conditionLeftRef = useRef<HTMLInputElement | null>(null);
+  const conditionRightRef = useRef<HTMLInputElement | null>(null);
 
   const CREATE_TAG_VALUE = "__create_tag__";
 
@@ -502,6 +553,8 @@ export function PortalAutomationsClient() {
   >(null);
 
   const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null);
+
+  const [inspectorOpen, setInspectorOpen] = useState(true);
 
   const [autolabelSelectedNode, setAutolabelSelectedNode] = useState(true);
 
@@ -640,6 +693,52 @@ export function PortalAutomationsClient() {
       const { next, caret } = insertAtCursor(current, token, el);
       updateSelectedAutomation((a) => {
         const nodes = a.nodes.map((n) => (n.id === selectedNodeId ? { ...n, config: { ...(n.config as any), kind: "action", body: next } } : n));
+        return { ...a, nodes, updatedAtIso: new Date().toISOString() } as any;
+      });
+      setCaretSoon(el, caret);
+      return;
+    }
+
+    if (variablePickerTarget === "condition_left") {
+      const el = conditionLeftRef.current;
+      const current = String((selectedNode?.config as any)?.left ?? "");
+      const { next, caret } = insertAtCursor(current, token, el);
+      updateSelectedAutomation((a) => {
+        const nodes = a.nodes.map((n) =>
+          n.id === selectedNodeId
+            ? {
+                ...n,
+                config: {
+                  ...(n.config as any),
+                  kind: "condition",
+                  left: next,
+                },
+              }
+            : n,
+        );
+        return { ...a, nodes, updatedAtIso: new Date().toISOString() } as any;
+      });
+      setCaretSoon(el, caret);
+      return;
+    }
+
+    if (variablePickerTarget === "condition_right") {
+      const el = conditionRightRef.current;
+      const current = String((selectedNode?.config as any)?.right ?? "");
+      const { next, caret } = insertAtCursor(current, token, el);
+      updateSelectedAutomation((a) => {
+        const nodes = a.nodes.map((n) =>
+          n.id === selectedNodeId
+            ? {
+                ...n,
+                config: {
+                  ...(n.config as any),
+                  kind: "condition",
+                  right: next,
+                },
+              }
+            : n,
+        );
         return { ...a, nodes, updatedAtIso: new Date().toISOString() } as any;
       });
       setCaretSoon(el, caret);
@@ -1157,6 +1256,7 @@ export function PortalAutomationsClient() {
     }));
 
     setSelectedNodeId(node.id);
+    setInspectorOpen(true);
     setAutolabelSelectedNode(true);
   }
 
@@ -1223,18 +1323,36 @@ export function PortalAutomationsClient() {
 
   function deleteSelectedNode() {
     if (!selectedAutomation || !selectedNodeId) return;
+    setConfirm({ kind: "delete_node", nodeId: selectedNodeId });
+  }
 
-    const ok = window.confirm("Delete this node? This cannot be undone.");
-    if (!ok) return;
+  async function runConfirm() {
+    if (!confirm) return;
+    if (confirmBusy) return;
 
-    updateSelectedAutomation((a) => {
-      const nodes = a.nodes.filter((n) => n.id !== selectedNodeId);
-      const edges = a.edges.filter((e) => e.from !== selectedNodeId && e.to !== selectedNodeId);
-      return { ...a, nodes, edges, updatedAtIso: new Date().toISOString() };
-    });
+    setConfirmBusy(true);
+    try {
+      if (confirm.kind === "delete_node") {
+        const nodeId = confirm.nodeId;
+        updateSelectedAutomation((a) => {
+          const nodes = a.nodes.filter((n) => n.id !== nodeId);
+          const edges = a.edges.filter((e) => e.from !== nodeId && e.to !== nodeId);
+          return { ...a, nodes, edges, updatedAtIso: new Date().toISOString() };
+        });
+        if (selectedNodeId === nodeId) setSelectedNodeId(null);
+        setAutolabelSelectedNode(true);
+      }
 
-    setSelectedNodeId(null);
-    setAutolabelSelectedNode(true);
+      if (confirm.kind === "delete_automation") {
+        const nextList = automations.filter((x) => x.id !== confirm.automationId);
+        setAutomations(nextList);
+        setSelectedAutomation(nextList[0]?.id ?? null);
+        await saveAll(nextList);
+      }
+    } finally {
+      setConfirmBusy(false);
+      setConfirm(null);
+    }
   }
 
   function deleteSelectedEdge(edgeId: string) {
@@ -1331,14 +1449,7 @@ export function PortalAutomationsClient() {
   }
 
   async function deleteAutomationById(automationId: string) {
-    const a = automations.find((x) => x.id === automationId);
-    const ok = window.confirm(`Delete automation "${a?.name ?? "(untitled)"}"? This cannot be undone.`);
-    if (!ok) return;
-
-    const nextList = automations.filter((x) => x.id !== automationId);
-    setAutomations(nextList);
-    setSelectedAutomation(nextList[0]?.id ?? null);
-    await saveAll(nextList);
+    setConfirm({ kind: "delete_automation", automationId });
   }
 
   function openTestModal() {
@@ -1417,6 +1528,59 @@ export function PortalAutomationsClient() {
           setVariablePickerTarget(null);
         }}
       />
+
+      {confirm ? (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/30 p-4"
+          onMouseDown={() => {
+            if (confirmBusy) return;
+            setConfirm(null);
+          }}
+        >
+          <div
+            className="w-full max-w-lg rounded-3xl border border-zinc-200 bg-white p-4 shadow-xl"
+            onMouseDown={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-start justify-between gap-3">
+              <div>
+                <div className="text-sm font-semibold text-zinc-900">Confirm delete</div>
+                <div className="mt-1 text-sm text-zinc-600">
+                  {confirm.kind === "delete_node"
+                    ? "Delete this node? This cannot be undone."
+                    : `Delete automation "${automations.find((x) => x.id === confirm.automationId)?.name ?? "(untitled)"}"? This cannot be undone.`}
+                </div>
+              </div>
+              <button
+                type="button"
+                className="rounded-xl border border-zinc-200 bg-white px-3 py-2 text-xs font-semibold hover:bg-zinc-50"
+                onClick={() => setConfirm(null)}
+                disabled={confirmBusy}
+              >
+                Close
+              </button>
+            </div>
+
+            <div className="mt-4 flex items-center justify-end gap-2">
+              <button
+                type="button"
+                className="rounded-xl border border-zinc-200 bg-white px-3 py-2 text-xs font-semibold hover:bg-zinc-50"
+                onClick={() => setConfirm(null)}
+                disabled={confirmBusy}
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                className="rounded-xl border border-red-200 bg-red-50 px-3 py-2 text-xs font-semibold text-red-700 hover:bg-red-100 disabled:opacity-60"
+                onClick={() => void runConfirm()}
+                disabled={confirmBusy}
+              >
+                {confirmBusy ? "Deleting…" : "Delete"}
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
 
       {renameOpen && selectedAutomation ? (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/30 p-4" onMouseDown={() => setRenameOpen(false)}>
@@ -2090,10 +2254,14 @@ export function PortalAutomationsClient() {
                           const t = ev.target as HTMLElement;
                           if (t.dataset?.kind === "handle") return;
                           setSelectedNodeId(n.id);
+                          setInspectorOpen(true);
                           setAutolabelSelectedNode(true);
                           handleStartDragNode(ev, n.id);
                         }}
-                        onDoubleClick={() => setSelectedNodeId(n.id)}
+                        onDoubleClick={() => {
+                          setSelectedNodeId(n.id);
+                          setInspectorOpen(true);
+                        }}
                       >
                         <div className="flex h-full flex-col justify-between p-3">
                           <div className="flex items-center justify-between gap-2">
@@ -2209,12 +2377,13 @@ export function PortalAutomationsClient() {
                   </button>
                 </div>
 
-                <div
-                  data-kind="ui"
-                  className="absolute left-3 top-3 z-30 w-[360px] max-w-[calc(100%-1.5rem)] rounded-2xl border border-zinc-200 bg-white/95 p-3 shadow-lg backdrop-blur"
-                  onPointerDown={(ev) => ev.stopPropagation()}
-                  onWheel={(ev) => ev.stopPropagation()}
-                >
+                {inspectorOpen ? (
+                  <div
+                    data-kind="ui"
+                    className="absolute left-3 top-3 z-30 w-[360px] max-w-[calc(100%-1.5rem)] rounded-2xl border border-zinc-200 bg-white/95 p-3 shadow-lg backdrop-blur"
+                    onPointerDown={(ev) => ev.stopPropagation()}
+                    onWheel={(ev) => ev.stopPropagation()}
+                  >
                   <div className="flex items-start justify-between gap-3">
                     <div>
                       <div className="text-xs font-semibold text-zinc-900">Inspector</div>
@@ -2222,7 +2391,11 @@ export function PortalAutomationsClient() {
                     <button
                       type="button"
                       className="inline-flex h-9 w-9 items-center justify-center rounded-xl border border-zinc-200 bg-white text-sm font-semibold leading-none hover:bg-zinc-50 touch-manipulation"
-                      onClick={() => setSelectedNodeId(null)}
+                      onClick={() => {
+                        setInspectorOpen(false);
+                        setSelectedNodeId(null);
+                        setAutolabelSelectedNode(true);
+                      }}
                       title="Close inspector"
                     >
                       ✕
@@ -2273,15 +2446,32 @@ export function PortalAutomationsClient() {
 
                         {selectedNode.type === "trigger" ? (
                           <>
-                            <select
-                              className="mt-1 w-full rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-sm"
+                            <PortalListboxDropdown
+                              className="mt-1"
                               value={
                                 selectedNode.config?.kind === "trigger"
                                   ? selectedNode.config.triggerKind
                                   : (defaultConfigForType("trigger") as any).triggerKind
                               }
-                              onChange={(e) => {
-                                const nextKind = e.target.value as TriggerKind;
+                              options={[
+                                { value: "inbound_sms", label: "Inbound SMS" },
+                                { value: "inbound_mms", label: "Inbound MMS" },
+                                { value: "inbound_call", label: "Inbound Call" },
+                                { value: "inbound_email", label: "Inbound Email" },
+                                { value: "new_lead", label: "New Lead" },
+                                { value: "tag_added", label: "Tag added" },
+                                { value: "contact_created", label: "Contact created" },
+                                { value: "task_added", label: "Task added" },
+                                { value: "inbound_webhook", label: "Inbound webhook" },
+                                { value: "scheduled_time", label: "Scheduler / time" },
+                                { value: "missed_appointment", label: "Missed appointment" },
+                                { value: "appointment_booked", label: "Appointment booked" },
+                                { value: "missed_call", label: "Missed call" },
+                                { value: "review_received", label: "Review received" },
+                                { value: "follow_up_sent", label: "Follow-up sent" },
+                                { value: "outbound_sent", label: "Outbound sent" },
+                              ]}
+                              onChange={(nextKind) => {
                                 updateSelectedAutomation((a) => {
                                   const nodes = a.nodes.map((n) => {
                                     if (n.id !== selectedNode.id) return n;
@@ -2296,24 +2486,7 @@ export function PortalAutomationsClient() {
                                   return { ...a, nodes, updatedAtIso: new Date().toISOString() };
                                 });
                               }}
-                            >
-                              <option value="inbound_sms">Inbound SMS</option>
-                              <option value="inbound_mms">Inbound MMS</option>
-                              <option value="inbound_call">Inbound Call</option>
-                              <option value="inbound_email">Inbound Email</option>
-                              <option value="new_lead">New Lead</option>
-                              <option value="tag_added">Tag added</option>
-                              <option value="contact_created">Contact created</option>
-                              <option value="task_added">Task added</option>
-                              <option value="inbound_webhook">Inbound webhook</option>
-                              <option value="scheduled_time">Scheduler / time</option>
-                              <option value="missed_appointment">Missed appointment</option>
-                              <option value="appointment_booked">Appointment booked</option>
-                              <option value="missed_call">Missed call</option>
-                              <option value="review_received">Review received</option>
-                              <option value="follow_up_sent">Follow-up sent</option>
-                              <option value="outbound_sent">Outbound sent</option>
-                            </select>
+                            />
 
                             {(() => {
                               const cfg =
@@ -2325,11 +2498,15 @@ export function PortalAutomationsClient() {
                                 return (
                                   <div className="mt-2">
                                     <div className="text-xs font-semibold text-zinc-600">Only when tag is</div>
-                                    <select
-                                      className="mt-1 w-full rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-sm"
+                                    <PortalListboxDropdown
+                                      className="mt-1"
                                       value={tagId}
-                                      onChange={(e) => {
-                                        const next = String(e.target.value || "");
+                                      options={[
+                                        { value: "", label: "Any tag…" },
+                                        { value: CREATE_TAG_VALUE, label: "+ Create new tag…" },
+                                        ...ownerTags.map((t) => ({ value: t.id, label: t.name })),
+                                      ]}
+                                      onChange={(next) => {
                                         if (next === CREATE_TAG_VALUE) {
                                           setCreateTagApplyTo({ nodeId: selectedNode.id, kind: "trigger" });
                                           setCreateTagName("");
@@ -2352,15 +2529,7 @@ export function PortalAutomationsClient() {
                                           return { ...a, nodes, updatedAtIso: new Date().toISOString() };
                                         });
                                       }}
-                                    >
-                                      <option value="">Any tag…</option>
-                                      <option value={CREATE_TAG_VALUE}>+ Create new tag…</option>
-                                      {ownerTags.map((t) => (
-                                        <option key={t.id} value={t.id}>
-                                          {t.name}
-                                        </option>
-                                      ))}
-                                    </select>
+                                    />
                                   </div>
                                 );
                               }
@@ -2410,11 +2579,14 @@ export function PortalAutomationsClient() {
                                 return (
                                   <div className="mt-2">
                                     <div className="text-xs font-semibold text-zinc-600">Schedule</div>
-                                    <select
-                                      className="mt-1 w-full rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-sm"
+                                    <PortalListboxDropdown
+                                      className="mt-1"
                                       value={scheduleMode}
-                                      onChange={(e) => {
-                                        const nextMode = e.target.value === "specific" ? "specific" : "every";
+                                      options={[
+                                        { value: "every", label: "Run every X" },
+                                        { value: "specific", label: "Specific day/time" },
+                                      ]}
+                                      onChange={(nextMode) => {
                                         updateSelectedAutomation((a) => {
                                           const nodes = a.nodes.map((n) => {
                                             if (n.id !== selectedNode.id) return n;
@@ -2429,10 +2601,7 @@ export function PortalAutomationsClient() {
                                           return { ...a, nodes, updatedAtIso: new Date().toISOString() };
                                         });
                                       }}
-                                    >
-                                      <option value="every">Run every X</option>
-                                      <option value="specific">Specific day/time</option>
-                                    </select>
+                                    />
 
                                     {scheduleMode === "every" ? (
                                       <div className="mt-2">
@@ -2468,11 +2637,16 @@ export function PortalAutomationsClient() {
                                               });
                                             }}
                                           />
-                                          <select
-                                            className="shrink-0 rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-sm"
+                                          <PortalListboxDropdown
+                                            className="shrink-0"
                                             value={everyUnit}
-                                            onChange={(e) => {
-                                              const nextUnit = (e.target.value as any) as "minutes" | "days" | "weeks" | "months";
+                                            options={[
+                                              { value: "minutes", label: "minutes" },
+                                              { value: "days", label: "days" },
+                                              { value: "weeks", label: "weeks" },
+                                              { value: "months", label: "months" },
+                                            ]}
+                                            onChange={(nextUnit) => {
                                               updateSelectedAutomation((a) => {
                                                 const nodes = a.nodes.map((n) => {
                                                   if (n.id !== selectedNode.id) return n;
@@ -2482,10 +2656,15 @@ export function PortalAutomationsClient() {
                                                     kind: "trigger",
                                                     scheduleMode: "every",
                                                     everyUnit: nextUnit,
-                                                    everyValue: clampInt(Number((prev as any).everyValue ?? (prev as any).intervalMinutes ?? 60),
+                                                    everyValue: clampInt(
+                                                      Number((prev as any).everyValue ?? (prev as any).intervalMinutes ?? 60),
                                                       nextUnit === "minutes" ? 5 : 1,
-                                                      10_000),
-                                                    intervalMinutes: nextUnit === "minutes" ? clampInt(Number((prev as any).everyValue ?? (prev as any).intervalMinutes ?? 60), 5, 43200) : undefined,
+                                                      10_000,
+                                                    ),
+                                                    intervalMinutes:
+                                                      nextUnit === "minutes"
+                                                        ? clampInt(Number((prev as any).everyValue ?? (prev as any).intervalMinutes ?? 60), 5, 43200)
+                                                        : undefined,
                                                   } as any;
                                                   const nextLabel =
                                                     autolabelSelectedNode && shouldAutolabel(n.label)
@@ -2496,12 +2675,7 @@ export function PortalAutomationsClient() {
                                                 return { ...a, nodes, updatedAtIso: new Date().toISOString() };
                                               });
                                             }}
-                                          >
-                                            <option value="minutes">minutes</option>
-                                            <option value="days">days</option>
-                                            <option value="weeks">weeks</option>
-                                            <option value="months">months</option>
-                                          </select>
+                                          />
                                         </div>
                                         <div className="mt-1 text-[11px] text-zinc-600">Runs on the server when schedules are processed.</div>
                                       </div>
@@ -2509,16 +2683,25 @@ export function PortalAutomationsClient() {
                                       <div className="mt-2 space-y-2">
                                         <div>
                                           <div className="text-xs font-semibold text-zinc-600">Frequency</div>
-                                          <select
-                                            className="mt-1 w-full rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-sm"
+                                          <PortalListboxDropdown
+                                            className="mt-1"
                                             value={specificKind}
-                                            onChange={(e) => {
-                                              const nextKind = (e.target.value as any) as "daily" | "weekly" | "monthly";
+                                            options={[
+                                              { value: "daily", label: "Daily" },
+                                              { value: "weekly", label: "Weekly" },
+                                              { value: "monthly", label: "Monthly" },
+                                            ]}
+                                            onChange={(nextKind) => {
                                               updateSelectedAutomation((a) => {
                                                 const nodes = a.nodes.map((n) => {
                                                   if (n.id !== selectedNode.id) return n;
                                                   const prev = n.config?.kind === "trigger" ? n.config : (defaultConfigForType("trigger") as any);
-                                                  const nextCfg: BuilderNodeConfig = { ...(prev as any), kind: "trigger", scheduleMode: "specific", specificKind: nextKind } as any;
+                                                  const nextCfg: BuilderNodeConfig = {
+                                                    ...(prev as any),
+                                                    kind: "trigger",
+                                                    scheduleMode: "specific",
+                                                    specificKind: nextKind,
+                                                  } as any;
                                                   const nextLabel =
                                                     autolabelSelectedNode && shouldAutolabel(n.label)
                                                       ? labelForConfig("trigger", nextCfg)
@@ -2528,26 +2711,36 @@ export function PortalAutomationsClient() {
                                                 return { ...a, nodes, updatedAtIso: new Date().toISOString() };
                                               });
                                             }}
-                                          >
-                                            <option value="daily">Daily</option>
-                                            <option value="weekly">Weekly</option>
-                                            <option value="monthly">Monthly</option>
-                                          </select>
+                                          />
                                         </div>
 
                                         {specificKind === "weekly" ? (
                                           <div>
                                             <div className="text-xs font-semibold text-zinc-600">Day of week</div>
-                                            <select
-                                              className="mt-1 w-full rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-sm"
-                                              value={specificWeekday}
-                                              onChange={(e) => {
-                                                const nextWd = clampInt(Number(e.target.value ?? 1), 0, 6);
+                                            <PortalListboxDropdown
+                                              className="mt-1"
+                                              value={String(specificWeekday) as any}
+                                              options={[
+                                                { value: "1", label: "Monday" },
+                                                { value: "2", label: "Tuesday" },
+                                                { value: "3", label: "Wednesday" },
+                                                { value: "4", label: "Thursday" },
+                                                { value: "5", label: "Friday" },
+                                                { value: "6", label: "Saturday" },
+                                                { value: "0", label: "Sunday" },
+                                              ]}
+                                              onChange={(nextWdStr) => {
+                                                const nextWd = clampInt(Number(nextWdStr ?? 1), 0, 6);
                                                 updateSelectedAutomation((a) => {
                                                   const nodes = a.nodes.map((n) => {
                                                     if (n.id !== selectedNode.id) return n;
                                                     const prev = n.config?.kind === "trigger" ? n.config : (defaultConfigForType("trigger") as any);
-                                                    const nextCfg: BuilderNodeConfig = { ...(prev as any), kind: "trigger", scheduleMode: "specific", specificWeekday: nextWd } as any;
+                                                    const nextCfg: BuilderNodeConfig = {
+                                                      ...(prev as any),
+                                                      kind: "trigger",
+                                                      scheduleMode: "specific",
+                                                      specificWeekday: nextWd,
+                                                    } as any;
                                                     const nextLabel =
                                                       autolabelSelectedNode && shouldAutolabel(n.label)
                                                         ? labelForConfig("trigger", nextCfg)
@@ -2557,15 +2750,7 @@ export function PortalAutomationsClient() {
                                                   return { ...a, nodes, updatedAtIso: new Date().toISOString() };
                                                 });
                                               }}
-                                            >
-                                              <option value={1}>Monday</option>
-                                              <option value={2}>Tuesday</option>
-                                              <option value={3}>Wednesday</option>
-                                              <option value={4}>Thursday</option>
-                                              <option value={5}>Friday</option>
-                                              <option value={6}>Saturday</option>
-                                              <option value={0}>Sunday</option>
-                                            </select>
+                                            />
                                           </div>
                                         ) : null}
 
@@ -2718,11 +2903,17 @@ export function PortalAutomationsClient() {
                                   <>
                                     <div className="mt-2">
                                       <div className="text-xs font-semibold text-zinc-600">Send to</div>
-                                      <select
-                                        className="mt-1 w-full rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-sm"
+                                      <PortalListboxDropdown
+                                        className="mt-1"
                                         value={smsTo}
-                                        onChange={(e) => {
-                                          const next = e.target.value as MessageTarget;
+                                        options={[
+                                          { value: "inbound_sender", label: "Inbound sender" },
+                                          { value: "event_contact", label: "Step contact" },
+                                          { value: "internal_notification", label: "Internal notification (my number)" },
+                                          { value: "assigned_lead", label: "Assigned lead" },
+                                          { value: "custom", label: "Custom number" },
+                                        ]}
+                                        onChange={(next) => {
                                           updateSelectedAutomation((a) => {
                                             const nodes = a.nodes.map((n) => {
                                               if (n.id !== selectedNode.id) return n;
@@ -2738,13 +2929,7 @@ export function PortalAutomationsClient() {
                                             return { ...a, nodes, updatedAtIso: new Date().toISOString() };
                                           });
                                         }}
-                                      >
-                                        <option value="inbound_sender">Inbound sender</option>
-                                        <option value="event_contact">Step contact</option>
-                                        <option value="internal_notification">Internal notification (my number)</option>
-                                        <option value="assigned_lead">Assigned lead</option>
-                                        <option value="custom">Custom number</option>
-                                      </select>
+                                      />
                                     </div>
 
                                     {smsTo === "custom" ? (
@@ -2822,11 +3007,17 @@ export function PortalAutomationsClient() {
                                   <>
                                     <div className="mt-2">
                                       <div className="text-xs font-semibold text-zinc-600">Send to</div>
-                                      <select
-                                        className="mt-1 w-full rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-sm"
+                                      <PortalListboxDropdown
+                                        className="mt-1"
                                         value={smsTo}
-                                        onChange={(e) => {
-                                          const next = e.target.value as MessageTarget;
+                                        options={[
+                                          { value: "event_contact", label: "Step contact" },
+                                          { value: "inbound_sender", label: "Inbound sender" },
+                                          { value: "internal_notification", label: "Internal notification (my number)" },
+                                          { value: "assigned_lead", label: "Assigned lead" },
+                                          { value: "custom", label: "Custom number" },
+                                        ]}
+                                        onChange={(next) => {
                                           updateSelectedAutomation((a) => {
                                             const nodes = a.nodes.map((n) => {
                                               if (n.id !== selectedNode.id) return n;
@@ -2842,13 +3033,7 @@ export function PortalAutomationsClient() {
                                             return { ...a, nodes, updatedAtIso: new Date().toISOString() };
                                           });
                                         }}
-                                      >
-                                        <option value="event_contact">Step contact</option>
-                                        <option value="inbound_sender">Inbound sender</option>
-                                        <option value="internal_notification">Internal notification (my number)</option>
-                                        <option value="assigned_lead">Assigned lead</option>
-                                        <option value="custom">Custom number</option>
-                                      </select>
+                                      />
                                     </div>
 
                                     {smsTo === "custom" ? (
@@ -3235,11 +3420,16 @@ export function PortalAutomationsClient() {
                                   <>
                                     <div className="mt-2">
                                       <div className="text-xs font-semibold text-zinc-600">Send to</div>
-                                      <select
-                                        className="mt-1 w-full rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-sm"
+                                      <PortalListboxDropdown
+                                        className="mt-1"
                                         value={emailTo}
-                                        onChange={(e) => {
-                                          const next = e.target.value as MessageTarget;
+                                        options={[
+                                          { value: "internal_notification", label: "Internal notification (my email)" },
+                                          { value: "assigned_lead", label: "Assigned lead" },
+                                          { value: "event_contact", label: "Step contact" },
+                                          { value: "custom", label: "Custom email" },
+                                        ]}
+                                        onChange={(next) => {
                                           updateSelectedAutomation((a) => {
                                             const nodes = a.nodes.map((n) => {
                                               if (n.id !== selectedNode.id) return n;
@@ -3255,12 +3445,7 @@ export function PortalAutomationsClient() {
                                             return { ...a, nodes, updatedAtIso: new Date().toISOString() };
                                           });
                                         }}
-                                      >
-                                        <option value="internal_notification">Internal notification (my email)</option>
-                                        <option value="assigned_lead">Assigned lead</option>
-                                        <option value="event_contact">Step contact</option>
-                                        <option value="custom">Custom email</option>
-                                      </select>
+                                      />
                                     </div>
 
                                     {emailTo === "custom" ? (
@@ -3365,11 +3550,14 @@ export function PortalAutomationsClient() {
                                 const tagId = String(cfg.tagId || "");
                                 return (
                                   <div className="mt-2">
-                                    <select
-                                      className="w-full rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-sm"
+                                    <PortalListboxDropdown
                                       value={tagId}
-                                      onChange={(e) => {
-                                        const nextTagId = String(e.target.value || "");
+                                      options={[
+                                        { value: "", label: "Choose a tag…" },
+                                        { value: CREATE_TAG_VALUE, label: "+ Create new tag…" },
+                                        ...ownerTags.map((t) => ({ value: t.id, label: t.name })),
+                                      ]}
+                                      onChange={(nextTagId) => {
                                         if (nextTagId === CREATE_TAG_VALUE) {
                                           setCreateTagApplyTo({ nodeId: selectedNode.id, kind: "action" });
                                           setCreateTagName("");
@@ -3383,7 +3571,11 @@ export function PortalAutomationsClient() {
                                             if (n.id !== selectedNode.id) return n;
                                             const prev =
                                               n.config?.kind === "action" ? n.config : (defaultConfigForType("action") as any);
-                                            const nextCfg: BuilderNodeConfig = { ...(prev as any), kind: "action", tagId: nextTagId || undefined };
+                                            const nextCfg: BuilderNodeConfig = {
+                                              ...(prev as any),
+                                              kind: "action",
+                                              tagId: nextTagId || undefined,
+                                            };
                                             const nextLabel =
                                               autolabelSelectedNode && shouldAutolabel(n.label)
                                                 ? labelForConfig("action", nextCfg)
@@ -3393,15 +3585,7 @@ export function PortalAutomationsClient() {
                                           return { ...a, nodes, updatedAtIso: new Date().toISOString() };
                                         });
                                       }}
-                                    >
-                                      <option value="">Choose a tag…</option>
-                                      <option value={CREATE_TAG_VALUE}>+ Create new tag…</option>
-                                      {ownerTags.map((t) => (
-                                        <option key={t.id} value={t.id}>
-                                          {t.name}
-                                        </option>
-                                      ))}
-                                    </select>
+                                    />
                                     <div className="mt-1 flex items-center gap-2 text-[11px] text-zinc-600">
                                       <span
                                         className="h-2.5 w-2.5 rounded-full border border-zinc-200"
@@ -3423,17 +3607,28 @@ export function PortalAutomationsClient() {
                                   <>
                                     <div className="mt-2">
                                       <div className="text-xs font-semibold text-zinc-600">Assign to</div>
-                                      <select
-                                        className="mt-1 w-full rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-sm"
+                                      <PortalListboxDropdown
+                                        className="mt-1"
                                         value={assignedToUserId}
-                                        onChange={(e) => {
-                                          const next = String(e.target.value || "");
+                                        options={[
+                                          { value: "", label: "Account owner" },
+                                          { value: "__assigned_lead__", label: "Auto (booking calendar)" },
+                                          ...memberOptions.map((m) => ({
+                                            value: m.userId,
+                                            label: `${m.user?.email || m.userId}${m.role === "ADMIN" ? " (admin)" : m.role === "OWNER" ? " (owner)" : ""}`,
+                                          })),
+                                        ]}
+                                        onChange={(next) => {
                                           updateSelectedAutomation((a) => {
                                             const nodes = a.nodes.map((n) => {
                                               if (n.id !== selectedNode.id) return n;
                                               const prev =
                                                 n.config?.kind === "action" ? n.config : (defaultConfigForType("action") as any);
-                                              const nextCfg: BuilderNodeConfig = { ...(prev as any), kind: "action", assignedToUserId: next || undefined };
+                                              const nextCfg: BuilderNodeConfig = {
+                                                ...(prev as any),
+                                                kind: "action",
+                                                assignedToUserId: next || undefined,
+                                              };
                                               const nextLabel =
                                                 autolabelSelectedNode && shouldAutolabel(n.label)
                                                   ? labelForConfig("action", nextCfg)
@@ -3443,16 +3638,7 @@ export function PortalAutomationsClient() {
                                             return { ...a, nodes, updatedAtIso: new Date().toISOString() };
                                           });
                                         }}
-                                      >
-                                        <option value="">Account owner</option>
-                                        <option value="__assigned_lead__">Auto (booking calendar)</option>
-                                        {memberOptions.map((m) => (
-                                          <option key={m.userId} value={m.userId}>
-                                            {m.user?.email || m.userId}
-                                            {m.role === "ADMIN" ? " (admin)" : m.role === "OWNER" ? " (owner)" : ""}
-                                          </option>
-                                        ))}
-                                      </select>
+                                      />
                                       <div className="mt-1 text-[11px] text-zinc-600">
                                         Sets the “assigned lead” for later steps (e.g. Create Task → Assigned lead).
                                       </div>
@@ -3546,17 +3732,29 @@ export function PortalAutomationsClient() {
 
                                     <div className="mt-2">
                                       <div className="text-xs font-semibold text-zinc-600">Assign to</div>
-                                      <select
-                                        className="mt-1 w-full rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-sm"
+                                      <PortalListboxDropdown
+                                        className="mt-1"
                                         value={assignedToUserId}
-                                        onChange={(e) => {
-                                          const next = String(e.target.value || "");
+                                        options={[
+                                          { value: "__all_users__", label: "All users" },
+                                          { value: "__assigned_lead__", label: "Assigned lead" },
+                                          { value: "", label: "Account owner" },
+                                          ...memberOptions.map((m) => ({
+                                            value: m.userId,
+                                            label: `${m.user?.email || m.userId}${m.role === "ADMIN" ? " (admin)" : m.role === "OWNER" ? " (owner)" : ""}`,
+                                          })),
+                                        ]}
+                                        onChange={(next) => {
                                           updateSelectedAutomation((a) => {
                                             const nodes = a.nodes.map((n) => {
                                               if (n.id !== selectedNode.id) return n;
                                               const prev =
                                                 n.config?.kind === "action" ? n.config : (defaultConfigForType("action") as any);
-                                              const nextCfg: BuilderNodeConfig = { ...(prev as any), kind: "action", assignedToUserId: next || undefined };
+                                              const nextCfg: BuilderNodeConfig = {
+                                                ...(prev as any),
+                                                kind: "action",
+                                                assignedToUserId: next || undefined,
+                                              };
                                               const nextLabel =
                                                 autolabelSelectedNode && shouldAutolabel(n.label)
                                                   ? labelForConfig("action", nextCfg)
@@ -3566,17 +3764,7 @@ export function PortalAutomationsClient() {
                                             return { ...a, nodes, updatedAtIso: new Date().toISOString() };
                                           });
                                         }}
-                                      >
-                                        <option value="__all_users__">All users</option>
-                                        <option value="__assigned_lead__">Assigned lead</option>
-                                        <option value="">Account owner</option>
-                                        {memberOptions.map((m) => (
-                                          <option key={m.userId} value={m.userId}>
-                                            {m.user?.email || m.userId}
-                                            {m.role === "ADMIN" ? " (admin)" : m.role === "OWNER" ? " (owner)" : ""}
-                                          </option>
-                                        ))}
-                                      </select>
+                                      />
                                       {assignedToUserId === "__assigned_lead__" ? (
                                         <div className="mt-1 text-[11px] text-zinc-600">
                                           Uses the booking calendar’s notification email to pick a matching portal user when available; otherwise falls back to the account owner.
@@ -3594,127 +3782,198 @@ export function PortalAutomationsClient() {
                         ) : null}
 
                         {selectedNode.type === "delay" ? (
-                          <div className="mt-1 flex items-center gap-2">
-                            <input
-                              type="number"
-                              min={0}
-                              max={43200}
-                              className="w-full rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-sm"
-                              value={
-                                selectedNode.config?.kind === "delay"
-                                  ? selectedNode.config.minutes
-                                  : (defaultConfigForType("delay") as any).minutes
-                              }
-                              onChange={(e) => {
-                                const minutes = clamp(Number(e.target.value || 0), 0, 43200);
-                                updateSelectedAutomation((a) => {
-                                  const nodes = a.nodes.map((n) => {
-                                    if (n.id !== selectedNode.id) return n;
-                                    const nextCfg: BuilderNodeConfig = { kind: "delay", minutes };
-                                    const nextLabel =
-                                      autolabelSelectedNode && shouldAutolabel(n.label)
-                                        ? labelForConfig("delay", nextCfg)
-                                        : n.label;
-                                    return { ...n, config: nextCfg, label: nextLabel };
-                                  });
-                                  return { ...a, nodes, updatedAtIso: new Date().toISOString() };
-                                });
-                              }}
-                            />
-                            <div className="shrink-0 text-xs text-zinc-600">minutes</div>
-                          </div>
+                          (() => {
+                            const cfg =
+                              selectedNode.config?.kind === "delay"
+                                ? selectedNode.config
+                                : (defaultConfigForType("delay") as any);
+                            const minutes = clamp(Math.floor(Number(cfg.minutes || 0)), 0, 43200);
+                            const unit: DelayUnit = (cfg.unit as any) ?? inferDelayUnit(minutes);
+                            const value = clamp(Math.floor(Number(cfg.value ?? delayValueFromMinutes(minutes, unit))), 0, 43200);
+
+                            return (
+                              <div className="mt-1 flex items-center gap-2">
+                                <input
+                                  type="number"
+                                  min={0}
+                                  max={43200}
+                                  className="w-full rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-sm"
+                                  value={value}
+                                  onChange={(e) => {
+                                    const nextValue = clamp(Math.floor(Number(e.target.value || 0)), 0, 43200);
+                                    const nextMinutes = clamp(delayMinutesFromValue(nextValue, unit), 0, 43200);
+                                    const normalizedValue = delayValueFromMinutes(nextMinutes, unit);
+                                    updateSelectedAutomation((a) => {
+                                      const nodes = a.nodes.map((n) => {
+                                        if (n.id !== selectedNode.id) return n;
+                                        const nextCfg: BuilderNodeConfig = {
+                                          kind: "delay",
+                                          minutes: nextMinutes,
+                                          unit,
+                                          value: normalizedValue,
+                                        };
+                                        const nextLabel =
+                                          autolabelSelectedNode && shouldAutolabel(n.label)
+                                            ? labelForConfig("delay", nextCfg)
+                                            : n.label;
+                                        return { ...n, config: nextCfg, label: nextLabel };
+                                      });
+                                      return { ...a, nodes, updatedAtIso: new Date().toISOString() };
+                                    });
+                                  }}
+                                />
+                                <PortalListboxDropdown
+                                  value={unit}
+                                  options={[
+                                    { value: "minutes", label: "Minutes" },
+                                    { value: "hours", label: "Hours" },
+                                    { value: "days", label: "Days" },
+                                    { value: "weeks", label: "Weeks" },
+                                    { value: "months", label: "Months" },
+                                  ]}
+                                  onChange={(nextUnit) => {
+                                    const nextValue = delayValueFromMinutes(minutes, nextUnit);
+                                    updateSelectedAutomation((a) => {
+                                      const nodes = a.nodes.map((n) => {
+                                        if (n.id !== selectedNode.id) return n;
+                                        const nextCfg: BuilderNodeConfig = {
+                                          kind: "delay",
+                                          minutes,
+                                          unit: nextUnit,
+                                          value: nextValue,
+                                        };
+                                        const nextLabel =
+                                          autolabelSelectedNode && shouldAutolabel(n.label)
+                                            ? labelForConfig("delay", nextCfg)
+                                            : n.label;
+                                        return { ...n, config: nextCfg, label: nextLabel };
+                                      });
+                                      return { ...a, nodes, updatedAtIso: new Date().toISOString() };
+                                    });
+                                  }}
+                                />
+                              </div>
+                            );
+                          })()
                         ) : null}
 
                         {selectedNode.type === "condition" ? (
-                          <div className="mt-1 space-y-2">
-                            <input
-                              className="w-full rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-sm"
-                              placeholder="Field (e.g. contact.email)"
-                              value={
-                                selectedNode.config?.kind === "condition"
-                                  ? selectedNode.config.left
-                                  : (defaultConfigForType("condition") as any).left
-                              }
-                              onChange={(e) => {
-                                const left = e.target.value.slice(0, 60);
-                                updateSelectedAutomation((a) => {
-                                  const nodes = a.nodes.map((n) => {
-                                    if (n.id !== selectedNode.id) return n;
-                                    const prev =
-                                      n.config?.kind === "condition" ? n.config : (defaultConfigForType("condition") as any);
-                                    const nextCfg: BuilderNodeConfig = { ...(prev as any), kind: "condition", left };
-                                    const nextLabel =
-                                      autolabelSelectedNode && shouldAutolabel(n.label)
-                                        ? labelForConfig("condition", nextCfg)
-                                        : n.label;
-                                    return { ...n, config: nextCfg, label: nextLabel };
-                                  });
-                                  return { ...a, nodes, updatedAtIso: new Date().toISOString() };
-                                });
-                              }}
-                            />
+                          (() => {
+                            const cfg =
+                              selectedNode.config?.kind === "condition"
+                                ? selectedNode.config
+                                : (defaultConfigForType("condition") as any);
+                            const left = String(cfg.left ?? "").slice(0, 60);
+                            const op = (cfg.op as ConditionOp) ?? "equals";
+                            const right = String(cfg.right ?? "").slice(0, 120);
+                            const hidesRight = op === "is_empty" || op === "is_not_empty";
 
-                            <select
-                              className="w-full rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-sm"
-                              value={
-                                selectedNode.config?.kind === "condition"
-                                  ? selectedNode.config.op
-                                  : (defaultConfigForType("condition") as any).op
-                              }
-                              onChange={(e) => {
-                                const op = e.target.value as ConditionOp;
-                                updateSelectedAutomation((a) => {
-                                  const nodes = a.nodes.map((n) => {
-                                    if (n.id !== selectedNode.id) return n;
-                                    const prev =
-                                      n.config?.kind === "condition" ? n.config : (defaultConfigForType("condition") as any);
-                                    const nextCfg: BuilderNodeConfig = { ...(prev as any), kind: "condition", op };
-                                    const nextLabel =
-                                      autolabelSelectedNode && shouldAutolabel(n.label)
-                                        ? labelForConfig("condition", nextCfg)
-                                        : n.label;
-                                    return { ...n, config: nextCfg, label: nextLabel };
-                                  });
-                                  return { ...a, nodes, updatedAtIso: new Date().toISOString() };
-                                });
-                              }}
-                            >
-                              <option value="equals">Equals</option>
-                              <option value="contains">Contains</option>
-                              <option value="starts_with">Starts with</option>
-                              <option value="ends_with">Ends with</option>
-                              <option value="is_empty">Is empty</option>
-                              <option value="is_not_empty">Is not empty</option>
-                            </select>
+                            return (
+                              <div className="mt-1 space-y-2">
+                                <div className="flex items-center gap-2">
+                                  <input
+                                    ref={conditionLeftRef}
+                                    list="condition_field_keys"
+                                    className="w-full rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-sm"
+                                    placeholder="Field (e.g. contact.email)"
+                                    value={left}
+                                    onChange={(e) => {
+                                      const nextLeft = e.target.value.slice(0, 60);
+                                      updateSelectedAutomation((a) => {
+                                        const nodes = a.nodes.map((n) => {
+                                          if (n.id !== selectedNode.id) return n;
+                                          const prev =
+                                            n.config?.kind === "condition" ? n.config : (defaultConfigForType("condition") as any);
+                                          const nextCfg: BuilderNodeConfig = { ...(prev as any), kind: "condition", left: nextLeft };
+                                          const nextLabel =
+                                            autolabelSelectedNode && shouldAutolabel(n.label)
+                                              ? labelForConfig("condition", nextCfg)
+                                              : n.label;
+                                          return { ...n, config: nextCfg, label: nextLabel };
+                                        });
+                                        return { ...a, nodes, updatedAtIso: new Date().toISOString() };
+                                      });
+                                    }}
+                                  />
+                                  <datalist id="condition_field_keys">
+                                    {CONDITION_FIELD_KEYS.map((k) => (
+                                      <option key={k} value={k} />
+                                    ))}
+                                  </datalist>
+                                  <button
+                                    type="button"
+                                    className="shrink-0 rounded-xl border border-zinc-200 bg-white px-3 py-2 text-xs font-semibold hover:bg-zinc-50"
+                                    onClick={() => openVariablePicker("condition_left")}
+                                  >
+                                    Pick
+                                  </button>
+                                </div>
 
-                            <input
-                              className="w-full rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-sm"
-                              placeholder="Value"
-                              value={
-                                selectedNode.config?.kind === "condition"
-                                  ? selectedNode.config.right
-                                  : (defaultConfigForType("condition") as any).right
-                              }
-                              onChange={(e) => {
-                                const right = e.target.value.slice(0, 120);
-                                updateSelectedAutomation((a) => {
-                                  const nodes = a.nodes.map((n) => {
-                                    if (n.id !== selectedNode.id) return n;
-                                    const prev =
-                                      n.config?.kind === "condition" ? n.config : (defaultConfigForType("condition") as any);
-                                    const nextCfg: BuilderNodeConfig = { ...(prev as any), kind: "condition", right };
-                                    const nextLabel =
-                                      autolabelSelectedNode && shouldAutolabel(n.label)
-                                        ? labelForConfig("condition", nextCfg)
-                                        : n.label;
-                                    return { ...n, config: nextCfg, label: nextLabel };
-                                  });
-                                  return { ...a, nodes, updatedAtIso: new Date().toISOString() };
-                                });
-                              }}
-                            />
+                                <PortalListboxDropdown
+                                  value={op}
+                                  options={[
+                                    { value: "equals", label: "Equals" },
+                                    { value: "contains", label: "Contains" },
+                                    { value: "starts_with", label: "Starts with" },
+                                    { value: "ends_with", label: "Ends with" },
+                                    { value: "is_empty", label: "Is empty" },
+                                    { value: "is_not_empty", label: "Is not empty" },
+                                  ]}
+                                  onChange={(nextOp) => {
+                                    updateSelectedAutomation((a) => {
+                                      const nodes = a.nodes.map((n) => {
+                                        if (n.id !== selectedNode.id) return n;
+                                        const prev =
+                                          n.config?.kind === "condition" ? n.config : (defaultConfigForType("condition") as any);
+                                        const nextCfg: BuilderNodeConfig = { ...(prev as any), kind: "condition", op: nextOp };
+                                        const nextLabel =
+                                          autolabelSelectedNode && shouldAutolabel(n.label)
+                                            ? labelForConfig("condition", nextCfg)
+                                            : n.label;
+                                        return { ...n, config: nextCfg, label: nextLabel };
+                                      });
+                                      return { ...a, nodes, updatedAtIso: new Date().toISOString() };
+                                    });
+                                  }}
+                                />
 
-                          </div>
+                                {!hidesRight ? (
+                                  <div className="flex items-center gap-2">
+                                    <input
+                                      ref={conditionRightRef}
+                                      className="w-full rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-sm"
+                                      placeholder="Value"
+                                      value={right}
+                                      onChange={(e) => {
+                                        const nextRight = e.target.value.slice(0, 120);
+                                        updateSelectedAutomation((a) => {
+                                          const nodes = a.nodes.map((n) => {
+                                            if (n.id !== selectedNode.id) return n;
+                                            const prev =
+                                              n.config?.kind === "condition" ? n.config : (defaultConfigForType("condition") as any);
+                                            const nextCfg: BuilderNodeConfig = { ...(prev as any), kind: "condition", right: nextRight };
+                                            const nextLabel =
+                                              autolabelSelectedNode && shouldAutolabel(n.label)
+                                                ? labelForConfig("condition", nextCfg)
+                                                : n.label;
+                                            return { ...n, config: nextCfg, label: nextLabel };
+                                          });
+                                          return { ...a, nodes, updatedAtIso: new Date().toISOString() };
+                                        });
+                                      }}
+                                    />
+                                    <button
+                                      type="button"
+                                      className="shrink-0 rounded-xl border border-zinc-200 bg-white px-3 py-2 text-xs font-semibold hover:bg-zinc-50"
+                                      onClick={() => openVariablePicker("condition_right")}
+                                    >
+                                      Insert
+                                    </button>
+                                  </div>
+                                ) : null}
+                              </div>
+                            );
+                          })()
                         ) : null}
 
                         {selectedNode.type === "note" ? (
@@ -3757,7 +4016,8 @@ export function PortalAutomationsClient() {
                       </div>
                     </div>
                   )}
-                </div>
+                  </div>
+                ) : null}
 
                 <div className="absolute bottom-3 right-3 rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-xs text-zinc-600">
                   Tip: double-click a dot to remove a connection.

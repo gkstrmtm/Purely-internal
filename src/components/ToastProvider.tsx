@@ -41,7 +41,7 @@ export function ToastProvider({ children }: { children: React.ReactNode }) {
       const id = `${Date.now()}-${Math.random().toString(16).slice(2)}`;
       const item: ToastItem = { id, kind: toast.kind, message: String(toast.message || "").slice(0, 4000) };
 
-      setToasts((prev) => [item, ...prev].slice(0, 5));
+      setToasts((prev) => [item, ...prev].slice(0, 3));
 
       const timeout = setTimeout(() => remove(id), toast.kind === "error" ? 6000 : 3500);
       timeoutsRef.current.set(id, timeout);

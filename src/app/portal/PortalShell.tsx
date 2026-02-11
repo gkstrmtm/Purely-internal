@@ -155,10 +155,18 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
   function serviceUnlocked(service: { entitlementKey?: "blog" | "booking" | "crm"; included?: boolean }) {
     if (isFullDemo) return true;
     if (service.included) return true;
+
+    // While loading portal/me context, avoid showing incorrect paywall-style locks.
+    if (portalMe === null) return true;
+
+    // Portal admins should not see paywall-style locks in the portal shell.
+    // Their access is governed by portal permissions, not per-member entitlements.
+    if (portalMe && portalMe.ok === true && (portalMe.role === "ADMIN" || portalMe.role === "OWNER")) return true;
+
     const entitlementKey = service.entitlementKey;
     if (!entitlementKey) return false;
     const ent = me?.entitlements;
-    if (!ent) return false;
+    if (!ent) return true;
     return Boolean(ent[entitlementKey]);
   }
 
@@ -364,6 +372,7 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
               ) : null}
               <div className="mt-2 space-y-1">
                 {PORTAL_SERVICES.filter((s) => !s.hidden).map((s) => {
+                  if (!canViewServiceSlug(s.slug)) return null;
                   const unlocked = serviceUnlocked(s);
                   return (
                     <Link
