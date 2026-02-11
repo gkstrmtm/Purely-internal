@@ -22,6 +22,7 @@ type StoredKindSettings = {
     contactIds?: string[];
     emails?: string[];
     userIds?: string[];
+    sendAllUsers?: boolean;
   };
 };
 
@@ -88,6 +89,7 @@ function parseKindSettings(value: unknown): Required<
     contactIds: normalizeStrings(audienceRaw?.contactIds, 200),
     emails: normalizeStrings(audienceRaw?.emails, 200),
     userIds: normalizeStrings(audienceRaw?.userIds, 200),
+    sendAllUsers: Boolean(audienceRaw?.sendAllUsers),
   };
 
   return { enabled, frequencyDays, cursor, requireApproval, channels, topics, promptAnswers, audience };
@@ -115,6 +117,7 @@ const putSchema = z.object({
       contactIds: z.array(z.string().trim().min(1).max(80)).max(200).optional(),
       emails: z.array(z.string().trim().min(1).max(254)).max(200).optional(),
       userIds: z.array(z.string().trim().min(1).max(80)).max(200).optional(),
+      sendAllUsers: z.boolean().optional(),
     })
     .optional(),
 });
@@ -206,6 +209,7 @@ export async function PUT(req: Request) {
       contactIds: normalizeStrings(parsedBody.data.audience?.contactIds ?? prevKind.audience.contactIds, 200),
       emails: normalizeStrings(parsedBody.data.audience?.emails ?? prevKind.audience.emails, 200),
       userIds: normalizeStrings(parsedBody.data.audience?.userIds ?? prevKind.audience.userIds, 200),
+      sendAllUsers: Boolean(parsedBody.data.audience?.sendAllUsers ?? prevKind.audience.sendAllUsers),
     },
   };
 

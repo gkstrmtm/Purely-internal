@@ -10,6 +10,21 @@ export type ClientNewsletterDraft = {
 
 export type ClientNewsletterKind = "EXTERNAL" | "INTERNAL";
 
+function sanitizeMarkdownContent(input: string): string {
+  const text = String(input || "");
+  const noDashes = text.replace(/[\u2014\u2013]/g, "-");
+  // Convert top-level H1 markdown to H2 so public renderer doesn't show raw '#'.
+  return noDashes
+    .split(/\r?\n/)
+    .map((line) => (line.trimStart().startsWith("# ") ? line.replace(/^\s*#\s+/, "## ") : line))
+    .join("\n")
+    .trim();
+}
+
+function sanitizePlain(input: string): string {
+  return String(input || "").replace(/[\u2014\u2013]/g, "-").trim();
+}
+
 function tryParseJson(text: string): unknown {
   const trimmed = text.trim();
   const fenced = trimmed.match(/^```(?:json)?\s*([\s\S]*?)\s*```$/i);
@@ -27,10 +42,10 @@ function assertDraft(value: unknown): ClientNewsletterDraft {
   const smsText = typeof v.smsText === "string" ? v.smsText.trim().slice(0, 240) : undefined;
 
   return {
-    title: stripDoubleAsterisks(v.title.trim()).slice(0, 180),
-    excerpt: stripDoubleAsterisks(v.excerpt.trim()).slice(0, 6000),
-    content: v.content.trim().slice(0, 200000),
-    ...(smsText ? { smsText } : {}),
+    title: stripDoubleAsterisks(sanitizePlain(v.title)).slice(0, 180),
+    excerpt: stripDoubleAsterisks(sanitizePlain(v.excerpt)).slice(0, 6000),
+    content: sanitizeMarkdownContent(v.content).slice(0, 200000),
+    ...(smsText ? { smsText: sanitizePlain(smsText).slice(0, 240) } : {}),
   };
 }
 
@@ -56,15 +71,15 @@ export async function generateClientNewsletterDraft(ctx: ClientNewsletterGenerat
     const title = (ctx.topicHint || (ctx.kind === "INTERNAL" ? "Team update" : "Monthly update")).slice(0, 180);
     const excerpt = "A short newsletter generated without an AI provider configured.";
     const content = [
-      `# ${title}`,
+      title,
       "",
       "AI is not configured for this environment yet.",
       "",
-      "## What to do next",
-      "- Set `AI_API_KEY` and `AI_BASE_URL` in your environment",
+      "What to do next:",
+      "- Set AI_API_KEY and AI_BASE_URL in your environment",
       "- Then the scheduler will generate full newsletters automatically",
       "",
-      "## Notes",
+      "Notes:",
       "- This placeholder exists so the pipeline works end-to-end",
     ].join("\n");
 
@@ -80,6 +95,8 @@ export async function generateClientNewsletterDraft(ctx: ClientNewsletterGenerat
     "No code fences, no extra commentary.",
     "Keep it clear, concise, and non-fluffy.",
     "If you include smsText, keep it under 240 characters and do NOT include a URL.",
+    "No em dashes (—). Use a normal hyphen '-' instead.",
+    "Avoid top-level '# ' headings. Prefer '## ' subheadings and plain paragraphs.",
   ].join(" ");
 
   const prompt = {

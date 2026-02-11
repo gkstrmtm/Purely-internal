@@ -24,7 +24,7 @@ const postSchema = z.object({
 });
 
 export async function GET() {
-  const auth = await requireClientSessionForAnyService(["inbox", "people", "automations"]);
+  const auth = await requireClientSessionForAnyService(["inbox", "people", "automations", "newsletter"]);
   if (!auth.ok) {
     return NextResponse.json(
       { ok: false, error: auth.status === 401 ? "Unauthorized" : "Forbidden" },
@@ -39,7 +39,7 @@ export async function GET() {
 }
 
 export async function POST(req: Request) {
-  const auth = await requireClientSessionForAnyService(["inbox", "people", "automations"], "edit");
+  const auth = await requireClientSessionForAnyService(["inbox", "people", "automations", "newsletter"], "edit");
   if (!auth.ok) {
     return NextResponse.json(
       { ok: false, error: auth.status === 401 ? "Unauthorized" : "Forbidden" },

@@ -9,6 +9,16 @@ export type ClientBlogDraft = {
   coverImageAlt?: string;
 };
 
+function sanitizeMarkdownContent(input: string): string {
+  const text = String(input || "");
+  const noDashes = text.replace(/[\u2014\u2013]/g, "-");
+  return noDashes
+    .split(/\r?\n/)
+    .map((line) => (line.trimStart().startsWith("# ") ? line.replace(/^\s*#\s+/, "## ") : line))
+    .join("\n")
+    .trim();
+}
+
 function tryParseJson(text: string): unknown {
   const trimmed = text.trim();
   const fenced = trimmed.match(/^```(?:json)?\s*([\s\S]*?)\s*```$/i);
@@ -32,7 +42,7 @@ function assertDraft(value: unknown): ClientBlogDraft {
   return {
     title: stripDoubleAsterisks(v.title.trim()).slice(0, 180),
     excerpt: stripDoubleAsterisks(v.excerpt.trim()).slice(0, 6000),
-    content: v.content.trim().slice(0, 200000),
+    content: sanitizeMarkdownContent(v.content).slice(0, 200000),
     seoKeywords,
     coverImageAlt,
   };
@@ -58,15 +68,15 @@ export async function generateClientBlogDraft(ctx: ClientBlogGenerationContext):
     const title = (ctx.topic || "Helpful tips to grow your business").slice(0, 180);
     const excerpt = "A quick, practical post generated without an AI provider configured.";
     const content = [
-      `# ${title}`,
+      title,
       "",
       "AI is not configured for this environment yet.",
       "",
-      "## What to do next",
-      "- Set `AI_API_KEY` and `AI_BASE_URL` in your environment",
+      "What to do next:",
+      "- Set AI_API_KEY and AI_BASE_URL in your environment",
       "- Then the scheduler will generate full drafts automatically",
       "",
-      "## Notes",
+      "Notes:",
       "- This placeholder exists so the pipeline still works end-to-end",
     ].join("\n");
 

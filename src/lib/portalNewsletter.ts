@@ -9,7 +9,23 @@ export type StoredAudience = {
   contactIds?: string[];
   emails?: string[];
   userIds?: string[];
+  sendAllUsers?: boolean;
 };
+
+export function buildNewsletterEmailText(opts: {
+  excerpt: string;
+  link: string;
+}) {
+  return [opts.excerpt, "", `Read online: ${opts.link}`, "", "—", "Sent via Purely Automation"].join("\n");
+}
+
+export function buildNewsletterSmsText(opts: {
+  smsText: string | null;
+  link: string;
+}) {
+  const baseText = (opts.smsText || "New newsletter is ready.").trim() || "New newsletter is ready.";
+  return `${baseText} ${opts.link}`.slice(0, 900);
+}
 
 export async function uniqueNewsletterSlug(siteId: string, kind: NewsletterKind, desired: string) {
   const base = slugify(desired) || "newsletter";
@@ -54,15 +70,17 @@ export async function resolveNewsletterRecipients(ownerId: string, kind: Newslet
 
   let userEmails: string[] = [];
   if (kind === "INTERNAL") {
+    const sendAllUsers = Boolean((audience as any)?.sendAllUsers);
     const userIds = Array.isArray(audience?.userIds)
       ? audience.userIds.map(String).filter(Boolean).slice(0, 200)
       : [];
 
-    if (userIds.length) {
+    const memberWhere = sendAllUsers ? { ownerId } : userIds.length ? { ownerId, userId: { in: userIds } } : null;
+    if (memberWhere) {
       const members = await prisma.portalAccountMember.findMany({
-        where: { ownerId, userId: { in: userIds } },
+        where: memberWhere as any,
         select: { user: { select: { email: true } } },
-        take: 2000,
+        take: 5000,
       });
       userEmails = members.map((m) => m.user.email).filter(Boolean);
     }
@@ -117,14 +135,7 @@ export async function sendNewsletterToAudience(opts: {
 
   if (opts.channels.email) {
     const subject = opts.newsletter.title;
-    const text = [
-      opts.newsletter.excerpt,
-      "",
-      `Read online: ${link}`,
-      "",
-      "—",
-      "Sent via Purely Automation",
-    ].join("\n");
+    const text = buildNewsletterEmailText({ excerpt: opts.newsletter.excerpt, link });
 
     for (const to of emailTo) {
       try {
@@ -137,8 +148,7 @@ export async function sendNewsletterToAudience(opts: {
   }
 
   if (opts.channels.sms) {
-    const baseText = (opts.newsletter.smsText || "New newsletter is ready.").trim() || "New newsletter is ready.";
-    const body = `${baseText} ${link}`.slice(0, 900);
+    const body = buildNewsletterSmsText({ smsText: opts.newsletter.smsText ?? null, link });
 
     for (const to of smsTo) {
       try {

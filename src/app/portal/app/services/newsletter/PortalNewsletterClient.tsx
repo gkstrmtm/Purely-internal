@@ -3,6 +3,10 @@
 import Link from "next/link";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useToast } from "@/components/ToastProvider";
+import { DEFAULT_TAG_COLORS } from "@/lib/tagColors.shared";
+import { RichTextMarkdownEditor } from "@/components/RichTextMarkdownEditor";
+import { PortalMediaPickerModal } from "@/components/PortalMediaPickerModal";
+import { ContactTagsEditor, type ContactTag } from "@/components/ContactTagsEditor";
 
 type AudienceTab = "external" | "internal";
 
@@ -24,12 +28,20 @@ type Settings = {
   channels: { email: boolean; sms: boolean };
   topics: string[];
   promptAnswers: Record<string, string>;
-  audience: { tagIds: string[]; contactIds: string[]; emails: string[]; userIds: string[] };
+  audience: { tagIds: string[]; contactIds: string[]; emails: string[]; userIds: string[]; sendAllUsers?: boolean };
   lastGeneratedAt: string | null;
   nextDueAt: string | null;
 };
 
 type Tag = { id: string; name: string; color: string | null };
+
+type Contact = {
+  id: string;
+  name: string | null;
+  email: string | null;
+  phone: string | null;
+  tags: ContactTag[];
+};
 
 type NewsletterRow = {
   id: string;
@@ -83,6 +95,21 @@ function splitEmails(value: string): string[] {
   return out;
 }
 
+function isEmail(value: string): boolean {
+  const v = String(value || "").trim();
+  if (!v) return false;
+  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(v);
+}
+
+function buildNewsletterEmailPreview(opts: { excerpt: string; link: string }) {
+  return [opts.excerpt, "", `Read online: ${opts.link}`, "", "—", "Sent via Purely Automation"].join("\n");
+}
+
+function buildNewsletterSmsPreview(opts: { smsText: string | null; link: string }) {
+  const baseText = (opts.smsText || "New newsletter is ready.").trim() || "New newsletter is ready.";
+  return `${baseText} ${opts.link}`.slice(0, 900);
+}
+
 export function PortalNewsletterClient({ initialAudience }: { initialAudience: AudienceTab }) {
   const toast = useToast();
 
@@ -103,6 +130,35 @@ export function PortalNewsletterClient({ initialAudience }: { initialAudience: A
   const [saving, setSaving] = useState(false);
   const [generating, setGenerating] = useState(false);
 
+  const [createTagName, setCreateTagName] = useState("");
+  const [createTagColor, setCreateTagColor] = useState<(typeof DEFAULT_TAG_COLORS)[number]>("#2563EB");
+  const [createTagBusy, setCreateTagBusy] = useState(false);
+
+  const [contactQuery, setContactQuery] = useState("");
+  const [contactSearching, setContactSearching] = useState(false);
+  const [contactResults, setContactResults] = useState<Contact[]>([]);
+  const [selectedContacts, setSelectedContacts] = useState<Contact[]>([]);
+
+  const [internalEmailInput, setInternalEmailInput] = useState("");
+
+  const [draftOpen, setDraftOpen] = useState(false);
+  const [draftLoading, setDraftLoading] = useState(false);
+  const [draftSaving, setDraftSaving] = useState(false);
+  const [draftError, setDraftError] = useState<string | null>(null);
+  const [draftId, setDraftId] = useState<string | null>(null);
+  const [draftStatus, setDraftStatus] = useState<NewsletterRow["status"]>("DRAFT");
+  const [draftSlug, setDraftSlug] = useState<string>("");
+  const [draftTitle, setDraftTitle] = useState<string>("");
+  const [draftExcerpt, setDraftExcerpt] = useState<string>("");
+  const [draftContent, setDraftContent] = useState<string>("");
+  const [draftSmsText, setDraftSmsText] = useState<string>("");
+
+  const [assetAlt, setAssetAlt] = useState("");
+  const [assetUrl, setAssetUrl] = useState<string | null>(null);
+  const [assetFileName, setAssetFileName] = useState<string>("");
+  const [assetBusy, setAssetBusy] = useState(false);
+  const [assetPickerOpen, setAssetPickerOpen] = useState(false);
+
   const siteHandle = useMemo(() => {
     if (!site) return null;
     return site.slug ?? site.id;
@@ -112,6 +168,12 @@ export function PortalNewsletterClient({ initialAudience }: { initialAudience: A
     if (!siteHandle) return null;
     return audience === "internal" ? `/${siteHandle}/internal-newsletters` : `/${siteHandle}/newsletters`;
   }, [audience, siteHandle]);
+
+  const publicBaseUrl = useMemo(() => {
+    if (!publicBasePath) return null;
+    if (typeof window === "undefined") return publicBasePath;
+    return `${window.location.origin}${publicBasePath}`;
+  }, [publicBasePath]);
 
   const refresh = useCallback(async () => {
     setLoading(true);
@@ -189,6 +251,202 @@ export function PortalNewsletterClient({ initialAudience }: { initialAudience: A
     await refresh();
   }, [audience, refresh, settings, toast]);
 
+  const createOwnerTag = useCallback(async () => {
+    const name = createTagName.trim().slice(0, 60);
+    if (!name) {
+      toast.error("Enter a tag name");
+      return;
+    }
+
+    setCreateTagBusy(true);
+    try {
+      const res = await fetch("/api/portal/contact-tags", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ name, color: createTagColor }),
+      });
+      const json = (await res.json().catch(() => ({}))) as any;
+      if (!res.ok || !json?.ok || !json?.tag?.id) {
+        toast.error(String(json?.error || "Failed to create tag"));
+        return;
+      }
+
+      const created: Tag = {
+        id: String(json.tag.id),
+        name: String(json.tag.name || name).slice(0, 60),
+        color: typeof json.tag.color === "string" ? String(json.tag.color) : null,
+      };
+
+      setTags((prev) => {
+        const next = [...prev.filter((t) => t.id !== created.id), created];
+        next.sort((a, b) => a.name.localeCompare(b.name));
+        return next;
+      });
+      setCreateTagName("");
+      setCreateTagColor("#2563EB");
+      toast.success("Tag created");
+    } finally {
+      setCreateTagBusy(false);
+    }
+  }, [createTagColor, createTagName, toast]);
+
+  useEffect(() => {
+    // For external newsletters, fetch details for selected contacts so we can show a readable list.
+    if (audience !== "external") {
+      setSelectedContacts([]);
+      return;
+    }
+    const ids = (settings?.audience?.contactIds || []).filter(Boolean);
+    if (!ids.length) {
+      setSelectedContacts([]);
+      return;
+    }
+
+    let cancelled = false;
+    void (async () => {
+      const res = await fetch(`/api/portal/newsletter/audience/contacts?ids=${encodeURIComponent(ids.join(","))}&take=200`, {
+        cache: "no-store",
+      }).catch(() => null as any);
+      const json = (await res?.json().catch(() => ({}))) as any;
+      if (cancelled) return;
+      if (!res?.ok || !json?.ok || !Array.isArray(json?.contacts)) {
+        return;
+      }
+      setSelectedContacts(
+        json.contacts
+          .map((c: any) => ({
+            id: String(c?.id || ""),
+            name: c?.name ? String(c.name) : null,
+            email: c?.email ? String(c.email) : null,
+            phone: c?.phone ? String(c.phone) : null,
+            tags: Array.isArray(c?.tags)
+              ? c.tags
+                  .map((t: any) => ({ id: String(t?.id || ""), name: String(t?.name || "").slice(0, 60), color: typeof t?.color === "string" ? String(t.color) : null }))
+                  .filter((t: ContactTag) => t.id && t.name)
+              : [],
+          }))
+          .filter((c: Contact) => Boolean(c.id)),
+      );
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [audience, settings?.audience?.contactIds]);
+
+  useEffect(() => {
+    // Contact search (debounced).
+    if (audience !== "external") {
+      setContactResults([]);
+      return;
+    }
+    const q = contactQuery.trim();
+    if (q.length < 2) {
+      setContactResults([]);
+      return;
+    }
+
+    let cancelled = false;
+    setContactSearching(true);
+    const t = window.setTimeout(() => {
+      void (async () => {
+        const res = await fetch(`/api/portal/newsletter/audience/contacts?q=${encodeURIComponent(q)}&take=50`, { cache: "no-store" }).catch(() => null as any);
+        const json = (await res?.json().catch(() => ({}))) as any;
+        if (cancelled) return;
+        if (!res?.ok || !json?.ok || !Array.isArray(json?.contacts)) {
+          setContactResults([]);
+          setContactSearching(false);
+          return;
+        }
+        setContactResults(
+          json.contacts
+            .map((c: any) => ({
+              id: String(c?.id || ""),
+              name: c?.name ? String(c.name) : null,
+              email: c?.email ? String(c.email) : null,
+              phone: c?.phone ? String(c.phone) : null,
+              tags: Array.isArray(c?.tags)
+                ? c.tags
+                    .map((t: any) => ({ id: String(t?.id || ""), name: String(t?.name || "").slice(0, 60), color: typeof t?.color === "string" ? String(t.color) : null }))
+                    .filter((t: ContactTag) => t.id && t.name)
+                : [],
+            }))
+            .filter((c: Contact) => Boolean(c.id)),
+        );
+        setContactSearching(false);
+      })();
+    }, 250);
+
+    return () => {
+      cancelled = true;
+      window.clearTimeout(t);
+    };
+  }, [audience, contactQuery]);
+
+  const openDraft = useCallback(async (newsletterId: string) => {
+    setDraftOpen(true);
+    setDraftLoading(true);
+    setDraftError(null);
+    setDraftId(newsletterId);
+    setAssetAlt("");
+    setAssetUrl(null);
+    setAssetFileName("");
+
+    const res = await fetch(`/api/portal/newsletter/newsletters/${encodeURIComponent(newsletterId)}`, { cache: "no-store" }).catch(() => null as any);
+    const json = (await res?.json().catch(() => ({}))) as any;
+    if (!res?.ok || !json?.ok || !json?.newsletter?.id) {
+      setDraftError(String(json?.error || "Failed to load draft"));
+      setDraftLoading(false);
+      return;
+    }
+
+    const n = json.newsletter;
+    setDraftStatus(String(n.status || "DRAFT") as any);
+    setDraftSlug(String(n.slug || ""));
+    setDraftTitle(String(n.title || ""));
+    setDraftExcerpt(String(n.excerpt || ""));
+    setDraftContent(String(n.content || ""));
+    setDraftSmsText(String(n.smsText || ""));
+    setDraftLoading(false);
+  }, []);
+
+  const saveDraft = useCallback(async () => {
+    if (!draftId) return;
+    setDraftSaving(true);
+    setDraftError(null);
+    try {
+      const res = await fetch(`/api/portal/newsletter/newsletters/${encodeURIComponent(draftId)}`, {
+        method: "PUT",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          title: draftTitle,
+          excerpt: draftExcerpt,
+          content: draftContent,
+          smsText: draftSmsText || null,
+        }),
+      });
+      const json = (await res.json().catch(() => ({}))) as any;
+      if (!res.ok || !json?.ok) {
+        setDraftError(String(json?.error || "Failed to save"));
+        return;
+      }
+      toast.success("Draft saved");
+      await refresh();
+    } finally {
+      setDraftSaving(false);
+    }
+  }, [draftContent, draftExcerpt, draftId, draftSmsText, draftTitle, refresh, toast]);
+
+  const insertIntoDraftContent = useCallback((snippet: string) => {
+    const s = String(snippet || "").trim();
+    if (!s) return;
+    setDraftContent((prev) => {
+      const p = String(prev || "");
+      if (!p.trim()) return `${s}\n`;
+      return p.endsWith("\n") ? `${p}\n${s}\n` : `${p}\n\n${s}\n`;
+    });
+  }, []);
+
   const generateNow = useCallback(async () => {
     setGenerating(true);
 
@@ -230,6 +488,7 @@ export function PortalNewsletterClient({ initialAudience }: { initialAudience: A
   }, [refresh, toast]);
 
   const selectedTagIds = new Set(settings?.audience?.tagIds ?? []);
+  const selectedContactIds = new Set(settings?.audience?.contactIds ?? []);
 
   const promptFields = useMemo(() => {
     if (audience === "internal") {
@@ -314,7 +573,7 @@ export function PortalNewsletterClient({ initialAudience }: { initialAudience: A
               type="button"
               onClick={saveSettings}
               disabled={saving || !settings}
-              className="rounded-2xl bg-brand px-4 py-2 text-sm font-semibold text-white shadow-sm hover:opacity-90 disabled:opacity-50"
+              className="rounded-2xl bg-zinc-900 px-4 py-2 text-sm font-semibold text-white shadow-sm hover:bg-zinc-800 disabled:opacity-50"
             >
               {saving ? "Saving…" : "Save"}
             </button>
@@ -480,21 +739,280 @@ export function PortalNewsletterClient({ initialAudience }: { initialAudience: A
             )}
           </div>
 
-          {audience === "internal" ? (
-            <div className="mt-5">
-              <div className="text-sm font-semibold text-zinc-900">Extra emails (internal only)</div>
-              <div className="mt-2 text-sm text-zinc-600">Comma or newline separated.</div>
-              <textarea
-                value={(settings?.audience?.emails ?? []).join("\n")}
-                onChange={(e) =>
-                  setSettings((prev) =>
-                    prev ? { ...prev, audience: { ...prev.audience, emails: splitEmails(e.target.value) } } : prev,
-                  )
-                }
-                rows={4}
-                className="mt-3 w-full rounded-2xl border border-zinc-200 px-3 py-2 text-sm"
-                placeholder="ops@company.com\nmanager@company.com"
+          <div className="mt-4 rounded-2xl border border-zinc-200 bg-zinc-50 p-3">
+            <div className="text-xs font-semibold text-zinc-600">Create new tag</div>
+            <div className="mt-2 grid grid-cols-1 gap-2 sm:grid-cols-3">
+              <input
+                className="sm:col-span-2 w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm outline-none focus:border-[color:var(--color-brand-blue)]"
+                placeholder="Tag name"
+                value={createTagName}
+                onChange={(e) => setCreateTagName(e.target.value)}
               />
+              <div className="flex flex-wrap items-center gap-1.5 rounded-xl border border-zinc-200 bg-white px-2 py-2">
+                {DEFAULT_TAG_COLORS.slice(0, 10).map((c) => {
+                  const selected = c === createTagColor;
+                  return (
+                    <button
+                      key={c}
+                      type="button"
+                      className={
+                        "h-6 w-6 rounded-full border " +
+                        (selected ? "border-zinc-900 ring-2 ring-zinc-900/20" : "border-zinc-200")
+                      }
+                      style={{ backgroundColor: c }}
+                      onClick={() => setCreateTagColor(c)}
+                      title={c}
+                    />
+                  );
+                })}
+              </div>
+            </div>
+            <div className="mt-2 flex items-center justify-between gap-3">
+              <div className="text-xs text-zinc-500">Pick a default color.</div>
+              <button
+                type="button"
+                className="rounded-xl bg-zinc-900 px-3 py-2 text-xs font-semibold text-white hover:bg-zinc-800 disabled:opacity-60"
+                disabled={createTagBusy}
+                onClick={() => void createOwnerTag()}
+              >
+                {createTagBusy ? "Creating…" : "Create"}
+              </button>
+            </div>
+          </div>
+
+          {audience === "external" ? (
+            <div className="mt-5">
+              <div className="text-sm font-semibold text-zinc-900">Manually add people to this newsletter list</div>
+              <div className="mt-2 text-sm text-zinc-600">Search contacts by name, email, or phone and add them.</div>
+
+              <input
+                value={contactQuery}
+                onChange={(e) => setContactQuery(e.target.value)}
+                className="mt-3 w-full rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-sm outline-none focus:border-zinc-300"
+                placeholder="Search contacts…"
+              />
+
+              <div className="mt-3 rounded-2xl border border-zinc-200 bg-white p-3">
+                <div className="text-xs font-semibold uppercase tracking-wide text-zinc-500">Results</div>
+                <div className="mt-2 space-y-2">
+                  {contactSearching ? (
+                    <div className="text-sm text-zinc-600">Searching…</div>
+                  ) : contactResults.length ? (
+                    contactResults.slice(0, 25).map((c) => {
+                      const added = selectedContactIds.has(c.id);
+                      return (
+                        <div key={c.id} className="rounded-2xl border border-zinc-200 p-3">
+                          <div className="flex flex-wrap items-start justify-between gap-3">
+                            <div>
+                              <div className="text-sm font-semibold text-zinc-900">{c.name || c.email || c.phone || "(contact)"}</div>
+                              <div className="mt-1 text-xs text-zinc-500">
+                                {c.email ? c.email : ""}{c.email && c.phone ? " · " : ""}{c.phone ? c.phone : ""}
+                              </div>
+                              <div className="mt-2">
+                                <ContactTagsEditor
+                                  contactId={c.id}
+                                  tags={c.tags}
+                                  compact
+                                  onChange={(next) => {
+                                    setContactResults((prev) => prev.map((x) => (x.id === c.id ? { ...x, tags: next } : x)));
+                                    setSelectedContacts((prev) => prev.map((x) => (x.id === c.id ? { ...x, tags: next } : x)));
+                                  }}
+                                />
+                              </div>
+                            </div>
+
+                            <button
+                              type="button"
+                              className={
+                                "rounded-2xl px-3 py-2 text-sm font-semibold " +
+                                (added
+                                  ? "border border-zinc-200 bg-white text-zinc-700 hover:bg-zinc-50"
+                                  : "bg-zinc-900 text-white hover:bg-zinc-800")
+                              }
+                              onClick={() =>
+                                setSettings((prev) => {
+                                  if (!prev) return prev;
+                                  const ids = new Set(prev.audience.contactIds);
+                                  if (added) ids.delete(c.id);
+                                  else ids.add(c.id);
+                                  return { ...prev, audience: { ...prev.audience, contactIds: Array.from(ids).slice(0, 200) } };
+                                })
+                              }
+                            >
+                              {added ? "Remove" : "Add"}
+                            </button>
+                          </div>
+                        </div>
+                      );
+                    })
+                  ) : (
+                    <div className="text-sm text-zinc-600">Type at least 2 characters to search.</div>
+                  )}
+                </div>
+              </div>
+
+              <div className="mt-3 rounded-2xl border border-zinc-200 bg-zinc-50 p-3">
+                <div className="text-xs font-semibold uppercase tracking-wide text-zinc-500">Selected people</div>
+                <div className="mt-2 space-y-2">
+                  {selectedContacts.length ? (
+                    selectedContacts.slice(0, 50).map((c) => (
+                      <div key={c.id} className="flex flex-wrap items-center justify-between gap-2 rounded-2xl border border-zinc-200 bg-white px-3 py-2">
+                        <div className="min-w-0">
+                          <div className="truncate text-sm font-semibold text-zinc-900">{c.name || c.email || c.phone || c.id}</div>
+                          <div className="mt-0.5 truncate text-xs text-zinc-500">
+                            {c.email ? c.email : ""}{c.email && c.phone ? " · " : ""}{c.phone ? c.phone : ""}
+                          </div>
+                        </div>
+                        <button
+                          type="button"
+                          className="rounded-xl border border-zinc-200 bg-white px-3 py-1.5 text-xs font-semibold text-zinc-700 hover:bg-zinc-50"
+                          onClick={() =>
+                            setSettings((prev) => {
+                              if (!prev) return prev;
+                              const ids = prev.audience.contactIds.filter((id) => id !== c.id);
+                              return { ...prev, audience: { ...prev.audience, contactIds: ids } };
+                            })
+                          }
+                        >
+                          Remove
+                        </button>
+                      </div>
+                    ))
+                  ) : (
+                    <div className="text-sm text-zinc-600">No manual people selected.</div>
+                  )}
+                </div>
+              </div>
+            </div>
+          ) : null}
+
+          {audience === "internal" ? (
+            <div className="mt-5 space-y-4">
+              <label className="flex items-center gap-3 rounded-2xl border border-zinc-200 bg-white px-4 py-3">
+                <input
+                  type="checkbox"
+                  checked={Boolean(settings?.audience?.sendAllUsers)}
+                  onChange={(e) =>
+                    setSettings((prev) =>
+                      prev ? { ...prev, audience: { ...prev.audience, sendAllUsers: e.target.checked } } : prev,
+                    )
+                  }
+                />
+                <div>
+                  <div className="text-sm font-semibold text-zinc-800">Send to all users under this account</div>
+                  <div className="mt-1 text-xs text-zinc-500">Includes all team members. Use extra emails for additional recipients.</div>
+                </div>
+              </label>
+
+              <div>
+                <div className="text-sm font-semibold text-zinc-900">Extra emails (internal only)</div>
+                <div className="mt-2 text-sm text-zinc-600">Add one at a time, or upload a CSV.</div>
+
+                <div className="mt-3 flex gap-2">
+                  <input
+                    value={internalEmailInput}
+                    onChange={(e) => setInternalEmailInput(e.target.value)}
+                    className="w-full rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-sm outline-none focus:border-zinc-300"
+                    placeholder="name@company.com"
+                    onKeyDown={(e) => {
+                      if (e.key !== "Enter") return;
+                      const next = internalEmailInput.trim();
+                      if (!isEmail(next)) {
+                        toast.error("Enter a valid email");
+                        return;
+                      }
+                      setSettings((prev) => {
+                        if (!prev) return prev;
+                        const nextSet = new Set(prev.audience.emails.map((x) => x.toLowerCase()));
+                        const normalized = next.toLowerCase();
+                        const emails = [...prev.audience.emails];
+                        if (!nextSet.has(normalized)) emails.push(next);
+                        return { ...prev, audience: { ...prev.audience, emails: emails.slice(0, 200) } };
+                      });
+                      setInternalEmailInput("");
+                    }}
+                  />
+                  <button
+                    type="button"
+                    className="rounded-2xl bg-zinc-900 px-3 py-2 text-sm font-semibold text-white hover:bg-zinc-800"
+                    onClick={() => {
+                      const next = internalEmailInput.trim();
+                      if (!isEmail(next)) {
+                        toast.error("Enter a valid email");
+                        return;
+                      }
+                      setSettings((prev) => {
+                        if (!prev) return prev;
+                        const nextSet = new Set(prev.audience.emails.map((x) => x.toLowerCase()));
+                        const normalized = next.toLowerCase();
+                        const emails = [...prev.audience.emails];
+                        if (!nextSet.has(normalized)) emails.push(next);
+                        return { ...prev, audience: { ...prev.audience, emails: emails.slice(0, 200) } };
+                      });
+                      setInternalEmailInput("");
+                    }}
+                  >
+                    +
+                  </button>
+                </div>
+
+                <div className="mt-3 flex flex-wrap gap-2">
+                  {(settings?.audience?.emails ?? []).length ? (
+                    (settings?.audience?.emails ?? []).map((e) => (
+                      <button
+                        key={e}
+                        type="button"
+                        className="inline-flex items-center gap-2 rounded-full border border-zinc-200 bg-white px-3 py-1 text-xs font-semibold text-zinc-700 hover:bg-zinc-50"
+                        title="Remove"
+                        onClick={() =>
+                          setSettings((prev) => {
+                            if (!prev) return prev;
+                            return { ...prev, audience: { ...prev.audience, emails: prev.audience.emails.filter((x) => x !== e) } };
+                          })
+                        }
+                      >
+                        {e}
+                        <span className="text-zinc-400">×</span>
+                      </button>
+                    ))
+                  ) : (
+                    <div className="text-sm text-zinc-600">No extra emails added.</div>
+                  )}
+                </div>
+
+                <div className="mt-3">
+                  <label className="inline-flex cursor-pointer items-center justify-center rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm font-semibold text-zinc-700 hover:bg-zinc-50">
+                    Upload CSV
+                    <input
+                      type="file"
+                      accept=".csv,text/csv"
+                      className="hidden"
+                      onChange={async (e) => {
+                        const file = e.target.files?.[0];
+                        if (!file) return;
+                        try {
+                          const text = await file.text();
+                          const parsed = splitEmails(text).filter(isEmail);
+                          if (!parsed.length) {
+                            toast.error("No valid emails found in CSV");
+                            return;
+                          }
+                          setSettings((prev) => {
+                            if (!prev) return prev;
+                            const next = new Map<string, string>();
+                            for (const x of prev.audience.emails) next.set(x.toLowerCase(), x);
+                            for (const x of parsed) next.set(x.toLowerCase(), x);
+                            return { ...prev, audience: { ...prev.audience, emails: Array.from(next.values()).slice(0, 200) } };
+                          });
+                          toast.success(`Added ${parsed.length} emails`);
+                        } finally {
+                          if (e.target) e.target.value = "";
+                        }
+                      }}
+                    />
+                  </label>
+                </div>
+              </div>
             </div>
           ) : null}
 
@@ -508,8 +1026,34 @@ export function PortalNewsletterClient({ initialAudience }: { initialAudience: A
           {siteHandle ? (
             <div className="mt-4 text-sm">
               <div className="text-xs font-semibold uppercase tracking-wide text-zinc-500">Hosted pages</div>
-              <div className="mt-2 rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-xs text-zinc-700">
-                {typeof window === "undefined" ? `${publicBasePath}` : `${window.location.origin}${publicBasePath}`}
+              <div className="mt-2 flex flex-col gap-2">
+                <div className="rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-xs text-zinc-700 break-all">
+                  {publicBaseUrl}
+                </div>
+                <div className="flex flex-wrap items-center gap-2">
+                  <button
+                    type="button"
+                    className="rounded-xl border border-zinc-200 bg-white px-3 py-2 text-xs font-semibold text-zinc-700 hover:bg-zinc-50"
+                    onClick={async () => {
+                      if (!publicBaseUrl) return;
+                      try {
+                        await navigator.clipboard.writeText(publicBaseUrl);
+                        toast.success("Copied");
+                      } catch {
+                        toast.error("Copy failed");
+                      }
+                    }}
+                  >
+                    Copy link
+                  </button>
+                  <Link
+                    href={publicBasePath || "#"}
+                    target="_blank"
+                    className="rounded-xl bg-zinc-900 px-3 py-2 text-xs font-semibold text-white hover:bg-zinc-800"
+                  >
+                    Open
+                  </Link>
+                </div>
               </div>
             </div>
           ) : (
@@ -562,11 +1106,21 @@ export function PortalNewsletterClient({ initialAudience }: { initialAudience: A
                         </Link>
                       ) : null}
 
+                      {n.status !== "SENT" ? (
+                        <button
+                          type="button"
+                          onClick={() => void openDraft(n.id)}
+                          className="rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-sm font-semibold text-zinc-700 hover:bg-zinc-50"
+                        >
+                          Edit / preview
+                        </button>
+                      ) : null}
+
                       {n.status === "READY" ? (
                         <button
                           type="button"
                           onClick={() => void sendReady(n.id)}
-                          className="rounded-2xl bg-brand px-3 py-2 text-sm font-semibold text-white hover:opacity-90"
+                          className="rounded-2xl bg-zinc-900 px-3 py-2 text-sm font-semibold text-white hover:bg-zinc-800"
                         >
                           Send now
                         </button>
@@ -581,6 +1135,305 @@ export function PortalNewsletterClient({ initialAudience }: { initialAudience: A
           )}
         </div>
       </div>
+
+      {draftOpen ? (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/30 p-4" onMouseDown={() => setDraftOpen(false)}>
+          <div
+            className="w-full max-w-5xl rounded-3xl border border-zinc-200 bg-white p-4 shadow-xl"
+            onMouseDown={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-start justify-between gap-3">
+              <div>
+                <div className="text-sm font-semibold text-zinc-900">Draft editor</div>
+                <div className="mt-1 text-sm text-zinc-600">Edit what will be sent and preview email/SMS.</div>
+              </div>
+              <button
+                type="button"
+                className="rounded-xl border border-zinc-200 bg-white px-3 py-2 text-xs font-semibold hover:bg-zinc-50"
+                onClick={() => setDraftOpen(false)}
+                disabled={draftSaving}
+              >
+                Close
+              </button>
+            </div>
+
+            {draftLoading ? (
+              <div className="mt-4 rounded-2xl border border-zinc-200 bg-zinc-50 p-4 text-sm text-zinc-700">Loading…</div>
+            ) : (
+              <div className="mt-4 grid gap-4 lg:grid-cols-2">
+                <div className="rounded-3xl border border-zinc-200 bg-white p-4">
+                  <div className="text-xs font-semibold uppercase tracking-wide text-zinc-500">Draft fields</div>
+
+                  {draftError ? (
+                    <div className="mt-3 rounded-2xl border border-red-200 bg-red-50 p-3 text-sm text-red-700">{draftError}</div>
+                  ) : null}
+
+                  <div className="mt-4">
+                    <label className="text-xs font-semibold text-zinc-600">Title</label>
+                    <input
+                      value={draftTitle}
+                      onChange={(e) => setDraftTitle(e.target.value)}
+                      className="mt-1 w-full rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-sm outline-none focus:border-zinc-300"
+                      maxLength={180}
+                    />
+                  </div>
+
+                  <div className="mt-4">
+                    <label className="text-xs font-semibold text-zinc-600">Excerpt</label>
+                    <textarea
+                      value={draftExcerpt}
+                      onChange={(e) => setDraftExcerpt(e.target.value)}
+                      className="mt-1 min-h-[90px] w-full rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-sm outline-none focus:border-zinc-300"
+                      maxLength={6000}
+                    />
+                    <div className="mt-1 text-xs text-zinc-500">This is what the email contains today (plus the hosted link).</div>
+                  </div>
+
+                  <div className="mt-4">
+                    <label className="text-xs font-semibold text-zinc-600">SMS text</label>
+                    <input
+                      value={draftSmsText}
+                      onChange={(e) => setDraftSmsText(e.target.value)}
+                      className="mt-1 w-full rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-sm outline-none focus:border-zinc-300"
+                      placeholder="New newsletter is ready."
+                      maxLength={240}
+                    />
+                    <div className="mt-1 text-xs text-zinc-500">A hosted link is appended automatically.</div>
+                  </div>
+
+                  <div className="mt-4">
+                    <label className="text-xs font-semibold text-zinc-600">Hosted page content (Markdown)</label>
+                    <div className="mt-1">
+                      <RichTextMarkdownEditor markdown={draftContent} onChange={setDraftContent} placeholder="Write the hosted content…" disabled={draftSaving} />
+                    </div>
+                  </div>
+
+                  <div className="mt-4 rounded-2xl border border-zinc-200 bg-zinc-50 p-3">
+                    <div className="text-xs font-semibold text-zinc-700">Files & photos</div>
+                    <div className="mt-2 grid gap-3 sm:grid-cols-2">
+                      <div>
+                        <label className="text-xs font-semibold text-zinc-600">Alt text (optional)</label>
+                        <input
+                          value={assetAlt}
+                          onChange={(e) => setAssetAlt(e.target.value)}
+                          className="mt-1 w-full rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-sm outline-none focus:border-zinc-300"
+                          placeholder="Team photo, receipt, etc."
+                        />
+                      </div>
+                      <div>
+                        <label className="text-xs font-semibold text-zinc-600">URL (optional)</label>
+                        <input
+                          value={assetUrl ?? ""}
+                          onChange={(e) => setAssetUrl(e.target.value.trim() ? e.target.value : null)}
+                          className="mt-1 w-full rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-sm outline-none focus:border-zinc-300"
+                          placeholder="https://…"
+                        />
+                      </div>
+                    </div>
+
+                    <div className="mt-3 flex flex-wrap gap-2">
+                      <label className="inline-flex cursor-pointer items-center justify-center rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-xs font-semibold text-zinc-700 hover:bg-zinc-50">
+                        {assetBusy ? "Uploading…" : "Upload image"}
+                        <input
+                          type="file"
+                          accept="image/*"
+                          className="hidden"
+                          disabled={assetBusy}
+                          onChange={async (e) => {
+                            const file = e.target.files?.[0];
+                            if (!file) return;
+                            setAssetBusy(true);
+                            try {
+                              const fd = new FormData();
+                              fd.set("file", file);
+                              const up = await fetch("/api/uploads", { method: "POST", body: fd });
+                              const upBody = (await up.json().catch(() => ({}))) as any;
+                              if (!up.ok || !upBody.url) {
+                                toast.error(String(upBody.error || "Upload failed"));
+                                return;
+                              }
+                              setAssetUrl(String(upBody.url));
+                              setAssetFileName(String(upBody.fileName || file.name || ""));
+                            } finally {
+                              setAssetBusy(false);
+                              if (e.target) e.target.value = "";
+                            }
+                          }}
+                        />
+                      </label>
+
+                      <label className="inline-flex cursor-pointer items-center justify-center rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-xs font-semibold text-zinc-700 hover:bg-zinc-50">
+                        {assetBusy ? "Uploading…" : "Upload file"}
+                        <input
+                          type="file"
+                          className="hidden"
+                          disabled={assetBusy}
+                          onChange={async (e) => {
+                            const file = e.target.files?.[0];
+                            if (!file) return;
+                            setAssetBusy(true);
+                            try {
+                              const fd = new FormData();
+                              fd.set("file", file);
+                              const up = await fetch("/api/uploads", { method: "POST", body: fd });
+                              const upBody = (await up.json().catch(() => ({}))) as any;
+                              if (!up.ok || !upBody.url) {
+                                toast.error(String(upBody.error || "Upload failed"));
+                                return;
+                              }
+                              setAssetUrl(String(upBody.url));
+                              setAssetFileName(String(upBody.fileName || file.name || "file"));
+                            } finally {
+                              setAssetBusy(false);
+                              if (e.target) e.target.value = "";
+                            }
+                          }}
+                        />
+                      </label>
+
+                      <button
+                        type="button"
+                        className="rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-xs font-semibold text-zinc-700 hover:bg-zinc-50"
+                        onClick={() => setAssetPickerOpen(true)}
+                      >
+                        Choose from media library
+                      </button>
+                    </div>
+
+                    <div className="mt-3 flex flex-wrap gap-2">
+                      <button
+                        type="button"
+                        disabled={!assetUrl}
+                        className="rounded-2xl bg-zinc-900 px-3 py-2 text-xs font-semibold text-white hover:bg-zinc-800 disabled:opacity-50"
+                        onClick={() => {
+                          if (!assetUrl) return;
+                          const alt = assetAlt.trim() || "image";
+                          insertIntoDraftContent(`![${alt}](${assetUrl})`);
+                        }}
+                      >
+                        Insert image
+                      </button>
+                      <button
+                        type="button"
+                        disabled={!assetUrl}
+                        className="rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-xs font-semibold text-zinc-700 hover:bg-zinc-50 disabled:opacity-50"
+                        onClick={() => {
+                          if (!assetUrl) return;
+                          const label = (assetFileName || assetAlt || "file").trim() || "file";
+                          insertIntoDraftContent(`[${label}](${assetUrl})`);
+                        }}
+                      >
+                        Insert link
+                      </button>
+                    </div>
+
+                    <PortalMediaPickerModal
+                      open={assetPickerOpen}
+                      title="Choose a file"
+                      confirmLabel="Use"
+                      onClose={() => setAssetPickerOpen(false)}
+                      onPick={(item) => {
+                        setAssetUrl(item.shareUrl);
+                        setAssetFileName(String(item.fileName || ""));
+                        setAssetPickerOpen(false);
+                      }}
+                    />
+                  </div>
+
+                  <div className="mt-4 flex flex-wrap items-center justify-end gap-2">
+                    {siteHandle && draftSlug ? (
+                      <Link
+                        href={`${audience === "internal" ? `/${siteHandle}/internal-newsletters` : `/${siteHandle}/newsletters`}/${draftSlug}`}
+                        target="_blank"
+                        className="rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm font-semibold text-zinc-700 hover:bg-zinc-50"
+                      >
+                        Open hosted
+                      </Link>
+                    ) : null}
+                    <button
+                      type="button"
+                      className="rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm font-semibold text-zinc-700 hover:bg-zinc-50 disabled:opacity-60"
+                      onClick={() => {
+                        setDraftOpen(false);
+                      }}
+                      disabled={draftSaving}
+                    >
+                      Done
+                    </button>
+                    <button
+                      type="button"
+                      className="rounded-2xl bg-zinc-900 px-4 py-2 text-sm font-semibold text-white hover:bg-zinc-800 disabled:opacity-60"
+                      onClick={() => void saveDraft()}
+                      disabled={draftSaving || !draftTitle.trim()}
+                    >
+                      {draftSaving ? "Saving…" : "Save draft"}
+                    </button>
+                  </div>
+                </div>
+
+                <div className="rounded-3xl border border-zinc-200 bg-white p-4">
+                  <div className="text-xs font-semibold uppercase tracking-wide text-zinc-500">Preview</div>
+
+                  {siteHandle && draftSlug ? (
+                    <div className="mt-3 rounded-2xl border border-zinc-200 bg-zinc-50 p-3">
+                      <div className="text-xs font-semibold text-zinc-700">Hosted link</div>
+                      <div className="mt-1 text-xs text-zinc-700 break-all">
+                        {typeof window === "undefined"
+                          ? `${audience === "internal" ? `/${siteHandle}/internal-newsletters` : `/${siteHandle}/newsletters`}/${draftSlug}`
+                          : `${window.location.origin}${audience === "internal" ? `/${siteHandle}/internal-newsletters` : `/${siteHandle}/newsletters`}/${draftSlug}`}
+                      </div>
+                    </div>
+                  ) : null}
+
+                  <div className="mt-4">
+                    <div className="text-sm font-semibold text-zinc-900">Email preview</div>
+                    <div className="mt-2 text-xs text-zinc-500">Subject uses the title. Body uses excerpt + hosted link.</div>
+
+                    <div className="mt-3 rounded-2xl border border-zinc-200 bg-white p-3">
+                      <div className="text-xs font-semibold text-zinc-700">Subject</div>
+                      <div className="mt-1 text-sm text-zinc-900">{draftTitle || "(untitled)"}</div>
+                    </div>
+
+                    <div className="mt-3 rounded-2xl border border-zinc-200 bg-white p-3">
+                      <div className="text-xs font-semibold text-zinc-700">Body</div>
+                      <pre className="mt-2 whitespace-pre-wrap break-words text-xs text-zinc-800">
+                        {buildNewsletterEmailPreview({
+                          excerpt: draftExcerpt,
+                          link:
+                            typeof window === "undefined" || !siteHandle || !draftSlug
+                              ? "(hosted link)"
+                              : `${window.location.origin}${audience === "internal" ? `/${siteHandle}/internal-newsletters` : `/${siteHandle}/newsletters`}/${draftSlug}`,
+                        })}
+                      </pre>
+                    </div>
+                  </div>
+
+                  <div className="mt-6">
+                    <div className="text-sm font-semibold text-zinc-900">SMS preview</div>
+                    <div className="mt-2 rounded-2xl border border-zinc-200 bg-white p-3">
+                      <pre className="whitespace-pre-wrap break-words text-xs text-zinc-800">
+                        {buildNewsletterSmsPreview({
+                          smsText: draftSmsText || null,
+                          link:
+                            typeof window === "undefined" || !siteHandle || !draftSlug
+                              ? "(hosted link)"
+                              : `${window.location.origin}${audience === "internal" ? `/${siteHandle}/internal-newsletters` : `/${siteHandle}/newsletters`}/${draftSlug}`,
+                        })}
+                      </pre>
+                    </div>
+                  </div>
+
+                  <div className="mt-6 rounded-2xl border border-zinc-200 bg-zinc-50 p-4">
+                    <div className="text-xs font-semibold uppercase tracking-wide text-zinc-500">Status</div>
+                    <div className="mt-2 text-sm text-zinc-800">{draftStatus}</div>
+                    <div className="mt-1 text-xs text-zinc-500">SENT drafts are locked. READY drafts are safe to edit before sending.</div>
+                  </div>
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
+      ) : null}
     </div>
   );
 }
