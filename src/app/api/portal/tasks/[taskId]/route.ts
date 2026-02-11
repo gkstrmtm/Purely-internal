@@ -127,7 +127,7 @@ export async function PATCH(req: Request, ctx: { params: Promise<{ taskId: strin
 
     if (parsed.data.status && !everyoneTaskCompletionHandled) {
       params.push(parsed.data.status);
-      sets.push(`"status" = $${params.length}`);
+      sets.push(`"status" = $${params.length}::"PortalTaskStatus"`);
     }
 
     if (typeof parsed.data.title === "string") {

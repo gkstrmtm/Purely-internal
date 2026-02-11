@@ -83,6 +83,11 @@ type LeadScrapingSettings = {
       trigger: "MANUAL" | "ON_SCRAPE" | "ON_APPROVE";
       text: string;
     };
+    calls?: {
+      enabled: boolean;
+      trigger: "MANUAL" | "ON_SCRAPE" | "ON_APPROVE";
+      script: string;
+    };
     resources: Array<{ label: string; url: string }>;
   };
   outboundState: {
@@ -101,6 +106,7 @@ type SettingsResponse = {
   credits?: number;
   placesConfigured?: boolean;
   b2cUnlocked?: boolean;
+  aiCallsUnlocked?: boolean;
   error?: string;
 };
 
@@ -128,7 +134,7 @@ type RunResponse = {
 
 type OutboundSendResponse = {
   ok?: boolean;
-  sent?: { email?: boolean; sms?: boolean };
+  sent?: { email?: boolean; sms?: boolean; calls?: boolean };
   skipped?: string[];
   sentAtIso?: string | null;
   error?: string;
@@ -138,7 +144,7 @@ type OutboundApproveResponse = {
   ok?: boolean;
   approved?: boolean;
   approvedAtIso?: string | null;
-  sent?: { email?: boolean; sms?: boolean } | null;
+  sent?: { email?: boolean; sms?: boolean; calls?: boolean } | null;
   sentAtIso?: string | null;
   skipped?: string[];
   error?: string;
@@ -348,6 +354,7 @@ export function PortalLeadScrapingClient() {
   const [credits, setCredits] = useState<number | null>(null);
   const [placesConfigured, setPlacesConfigured] = useState<boolean>(false);
   const [b2cUnlocked, setB2cUnlocked] = useState<boolean>(false);
+  const [aiCallsUnlocked, setAiCallsUnlocked] = useState<boolean>(false);
 
   const [leads, setLeads] = useState<LeadRow[]>([]);
   const [leadTotalCount, setLeadTotalCount] = useState<number | null>(null);
@@ -565,6 +572,7 @@ export function PortalLeadScrapingClient() {
     setCredits(typeof settingsBody.credits === "number" ? settingsBody.credits : null);
     setPlacesConfigured(Boolean(settingsBody.placesConfigured));
     setB2cUnlocked(Boolean(settingsBody.b2cUnlocked));
+    setAiCallsUnlocked(Boolean(settingsBody.aiCallsUnlocked));
 
     await loadLeads(leadQueryDebounced);
 
@@ -1314,6 +1322,107 @@ export function PortalLeadScrapingClient() {
               <div className="text-xs text-zinc-500">Texts only send when the lead has a phone number.</div>
             </div>
           </div>
+
+          {aiCallsUnlocked ? (
+            <div className="rounded-2xl border border-zinc-200 bg-zinc-50 p-4 sm:col-span-2">
+              <div className="flex items-center justify-between gap-3">
+                <div>
+                  <div className="text-sm font-semibold text-zinc-900">AI calls</div>
+                  <div className="mt-1 text-xs text-zinc-500">Calls use your Twilio voice number and read the script below.</div>
+                </div>
+                <label className="inline-flex items-center gap-2 text-sm text-zinc-700">
+                  <input
+                    type="checkbox"
+                    checked={Boolean(settings.outbound.calls?.enabled)}
+                    onChange={(e) =>
+                      setSettings((prev) => {
+                        if (!prev) return prev;
+                        const calls = prev.outbound.calls ?? {
+                          enabled: false,
+                          trigger: "MANUAL" as const,
+                          script:
+                            "Hi {businessName} — this is an automated call. We saw your business and wanted to see if you're taking on new work right now. If so, please call us back when you have a moment.",
+                        };
+                        return {
+                          ...prev,
+                          outbound: {
+                            ...prev.outbound,
+                            enabled: e.target.checked ? true : prev.outbound.enabled,
+                            calls: { ...calls, enabled: e.target.checked },
+                          },
+                        };
+                      })
+                    }
+                    className="h-4 w-4 rounded border-zinc-300"
+                  />
+                  On
+                </label>
+              </div>
+
+              <div className="mt-3 grid grid-cols-1 gap-3">
+                <label className="block">
+                  <div className="text-xs font-semibold text-zinc-600">Trigger</div>
+                  <select
+                    className="mt-1 w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm"
+                    value={settings.outbound.calls?.trigger ?? "MANUAL"}
+                    onChange={(e) =>
+                      setSettings((prev) => {
+                        if (!prev) return prev;
+                        const calls = prev.outbound.calls ?? {
+                          enabled: false,
+                          trigger: "MANUAL" as const,
+                          script:
+                            "Hi {businessName} — this is an automated call. We saw your business and wanted to see if you're taking on new work right now. If so, please call us back when you have a moment.",
+                        };
+                        return {
+                          ...prev,
+                          outbound: {
+                            ...prev.outbound,
+                            calls: { ...calls, trigger: e.target.value as any },
+                          },
+                        };
+                      })
+                    }
+                    disabled={!settings.outbound.calls?.enabled}
+                  >
+                    <option value="MANUAL">Manual only</option>
+                    <option value="ON_SCRAPE">Call on scrape</option>
+                    <option value="ON_APPROVE">Call on approve</option>
+                  </select>
+                </label>
+
+                <label className="block">
+                  <div className="text-xs font-semibold text-zinc-600">Script (plain text)</div>
+                  <textarea
+                    className="mt-1 w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm"
+                    rows={4}
+                    value={settings.outbound.calls?.script ?? ""}
+                    onChange={(e) =>
+                      setSettings((prev) => {
+                        if (!prev) return prev;
+                        const calls = prev.outbound.calls ?? {
+                          enabled: false,
+                          trigger: "MANUAL" as const,
+                          script:
+                            "Hi {businessName} — this is an automated call. We saw your business and wanted to see if you're taking on new work right now. If so, please call us back when you have a moment.",
+                        };
+                        return {
+                          ...prev,
+                          outbound: {
+                            ...prev.outbound,
+                            calls: { ...calls, script: e.target.value },
+                          },
+                        };
+                      })
+                    }
+                    disabled={!settings.outbound.calls?.enabled}
+                  />
+                </label>
+
+                <div className="text-xs text-zinc-500">Calls only place when the lead has a valid phone number.</div>
+              </div>
+            </div>
+          ) : null}
         </div>
 
         <div className="mt-5 rounded-2xl border border-zinc-200 bg-zinc-50 p-4">

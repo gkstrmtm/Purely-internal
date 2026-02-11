@@ -12,6 +12,8 @@ import { createPortalLeadCompat } from "@/lib/portalLeadCompat";
 import { isB2cLeadPullUnlocked } from "@/lib/leadScrapingAccess";
 import { draftLeadOutboundEmail, draftLeadOutboundSms } from "@/lib/leadOutboundAi";
 import { runOwnerAutomationsForEvent } from "@/lib/portalAutomationsRunner";
+import { placeTwilioOutboundCall } from "@/lib/portalAiOutboundCalls";
+import { normalizePhoneForStorage } from "@/lib/phone";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -97,6 +99,11 @@ type Settings = {
       enabled: boolean;
       trigger: "MANUAL" | "ON_SCRAPE" | "ON_APPROVE";
       text: string;
+    };
+    calls: {
+      enabled: boolean;
+      trigger: "MANUAL" | "ON_SCRAPE" | "ON_APPROVE";
+      script: string;
     };
     resources: Array<{ label: string; url: string }>;
   };
@@ -249,12 +256,18 @@ function normalizeOutbound(value: unknown): Settings["outbound"] {
         trigger,
         text: (typeof (rec as any).smsText === "string" ? ((rec as any).smsText as string) : "").slice(0, 900),
       },
+      calls: {
+        enabled: false,
+        trigger: "MANUAL",
+        script: "",
+      },
       resources,
     };
   }
 
   const emailRec = (rec as any).email && typeof (rec as any).email === "object" ? ((rec as any).email as Record<string, unknown>) : {};
   const smsRec = (rec as any).sms && typeof (rec as any).sms === "object" ? ((rec as any).sms as Record<string, unknown>) : {};
+  const callsRec = (rec as any).calls && typeof (rec as any).calls === "object" ? ((rec as any).calls as Record<string, unknown>) : {};
 
   return {
     enabled: Boolean((rec as any).enabled),
@@ -271,10 +284,14 @@ function normalizeOutbound(value: unknown): Settings["outbound"] {
       trigger: parseTrigger((smsRec as any).trigger),
       text: (typeof (smsRec as any).text === "string" ? ((smsRec as any).text as string) : "").slice(0, 900),
     },
+    calls: {
+      enabled: Boolean((callsRec as any).enabled),
+      trigger: parseTrigger((callsRec as any).trigger),
+      script: (typeof (callsRec as any).script === "string" ? ((callsRec as any).script as string) : "").slice(0, 1800),
+    },
     resources,
   };
 }
-
 function normalizeOutboundState(value: unknown): Settings["outboundState"] {
   const rec = value && typeof value === "object" ? (value as Record<string, unknown>) : {};
   const approved =
@@ -446,6 +463,11 @@ function normalizeSettings(value: unknown): Settings {
       trigger: "MANUAL",
       text: "Hi {businessName} — quick question. Are you taking on new work right now?",
     },
+    calls: {
+      enabled: false,
+      trigger: "MANUAL",
+      script: "Hi {businessName} — this is an automated call. We saw your business and wanted to see if you're taking on new work right now. If so, please call us back when you have a moment.",
+    },
     resources: [],
   };
 
@@ -462,6 +484,10 @@ function normalizeSettings(value: unknown): Settings {
     sms: {
       ...defaultOutbound.sms,
       ...outbound.sms,
+    },
+    calls: {
+      ...defaultOutbound.calls,
+      ...outbound.calls,
     },
     resources: outbound.resources ?? defaultOutbound.resources,
   };
@@ -633,6 +659,7 @@ export async function POST(req: Request) {
   const ownerId = auth.session.user.id;
   const entitlements = await resolveEntitlements(auth.session.user.email);
   const outboundUnlocked = Boolean(entitlements.leadOutbound);
+  const aiCallsUnlocked = (await requireClientSessionForService("aiOutboundCalls")).ok;
   const profile = await prisma.businessProfile.findUnique({
     where: { ownerId },
     select: { businessName: true },
@@ -1090,13 +1117,20 @@ export async function POST(req: Request) {
     updatedSettings.outbound.enabled &&
     updatedSettings.outbound.sms.enabled &&
     updatedSettings.outbound.sms.trigger === "ON_SCRAPE";
+  const shouldPlaceCalls =
+    outboundUnlocked &&
+    aiCallsUnlocked &&
+    updatedSettings.outbound.enabled &&
+    updatedSettings.outbound.calls.enabled &&
+    updatedSettings.outbound.calls.trigger === "ON_SCRAPE";
 
-  if ((shouldSendEmail || shouldSendSms) && createdLeads.length) {
+  if ((shouldSendEmail || shouldSendSms || shouldPlaceCalls) && createdLeads.length) {
     const base = baseUrlFromEnv();
     const nextSent = { ...updatedSettings.outboundState.sentAtByLeadId };
 
     for (const lead of createdLeads) {
       try {
+        let didSend = false;
         const resources = updatedSettings.outbound.resources
           .map((r) => ({
             label: r.label,
@@ -1130,6 +1164,7 @@ export async function POST(req: Request) {
             text,
             fromName,
           });
+          didSend = true;
         }
 
         if (shouldSendSms && lead.phone) {
@@ -1164,10 +1199,20 @@ export async function POST(req: Request) {
             }
 
             await sendSms({ ownerId, to: lead.phone, body: smsBody });
+            didSend = true;
           }
         }
 
-        nextSent[lead.id] = nowIso;
+        if (shouldPlaceCalls && lead.phone) {
+          const toE164 = normalizePhoneForStorage(lead.phone);
+          const script = renderTemplate(updatedSettings.outbound.calls.script, lead).trim().slice(0, 1800);
+          if (toE164 && script) {
+            const placed = await placeTwilioOutboundCall({ ownerId, toE164, script });
+            if (placed.ok) didSend = true;
+          }
+        }
+
+        if (didSend) nextSent[lead.id] = nowIso;
       } catch {
         // Non-fatal: scraping should still succeed even if outbound fails.
       }

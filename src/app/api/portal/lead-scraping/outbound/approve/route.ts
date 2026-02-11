@@ -7,6 +7,8 @@ import { resolveEntitlements } from "@/lib/entitlements";
 import { baseUrlFromRequest, renderTemplate, sendEmail, sendSms } from "@/lib/leadOutbound";
 import { draftLeadOutboundEmail, draftLeadOutboundSms } from "@/lib/leadOutboundAi";
 import { runOwnerAutomationsForEvent } from "@/lib/portalAutomationsRunner";
+import { placeTwilioOutboundCall } from "@/lib/portalAiOutboundCalls";
+import { normalizePhoneForStorage } from "@/lib/phone";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -35,6 +37,11 @@ type SettingsV3 = {
       enabled: boolean;
       trigger: "MANUAL" | "ON_SCRAPE" | "ON_APPROVE";
       text: string;
+    };
+    calls: {
+      enabled: boolean;
+      trigger: "MANUAL" | "ON_SCRAPE" | "ON_APPROVE";
+      script: string;
     };
     resources: Array<{ label: string; url: string }>;
   };
@@ -97,6 +104,11 @@ function normalizeSettings(value: unknown): SettingsV3 {
       trigger: "MANUAL",
       text: "Hi {businessName} — quick question. Are you taking on new work right now?",
     },
+    calls: {
+      enabled: false,
+      trigger: "MANUAL",
+      script: "Hi {businessName} — this is an automated call. We saw your business and wanted to see if you're taking on new work right now. If so, please call us back when you have a moment.",
+    },
     resources: [],
   };
 
@@ -148,12 +160,18 @@ function normalizeSettings(value: unknown): SettingsV3 {
           trigger,
           text: (typeof (outboundRaw as any).smsText === "string" ? ((outboundRaw as any).smsText as string) : "").slice(0, 900),
         },
+        calls: {
+          enabled: false,
+          trigger: "MANUAL",
+          script: "",
+        },
         resources,
       };
     }
 
     const emailRec = (outboundRaw as any).email && typeof (outboundRaw as any).email === "object" ? ((outboundRaw as any).email as Record<string, unknown>) : {};
     const smsRec = (outboundRaw as any).sms && typeof (outboundRaw as any).sms === "object" ? ((outboundRaw as any).sms as Record<string, unknown>) : {};
+    const callsRec = (outboundRaw as any).calls && typeof (outboundRaw as any).calls === "object" ? ((outboundRaw as any).calls as Record<string, unknown>) : {};
 
     return {
       ...defaultOutbound,
@@ -170,6 +188,11 @@ function normalizeSettings(value: unknown): SettingsV3 {
         enabled: Boolean((smsRec as any).enabled),
         trigger: parseTrigger((smsRec as any).trigger),
         text: (typeof (smsRec as any).text === "string" ? ((smsRec as any).text as string) : "").slice(0, 900),
+      },
+      calls: {
+        enabled: Boolean((callsRec as any).enabled),
+        trigger: parseTrigger((callsRec as any).trigger),
+        script: (typeof (callsRec as any).script === "string" ? ((callsRec as any).script as string) : "").slice(0, 1800),
       },
       resources,
     };
@@ -223,6 +246,7 @@ export async function POST(req: Request) {
   }
 
   const ownerId = auth.session.user.id;
+  const aiCallsUnlocked = (await requireClientSessionForService("aiOutboundCalls")).ok;
 
   const entitlements = await resolveEntitlements(auth.session.user.email);
   if (!entitlements.leadOutbound) {
@@ -285,15 +309,17 @@ export async function POST(req: Request) {
   if (parsed.data.approved) approvedAtByLeadId[lead.id] = nowIso;
   else delete approvedAtByLeadId[lead.id];
 
-  let sent: { email: boolean; sms: boolean } | null = null;
+  let sent: { email: boolean; sms: boolean; calls: boolean } | null = null;
   let skipped: string[] = [];
 
   const shouldSendEmailOnApprove =
     parsed.data.approved && settings.outbound.enabled && settings.outbound.email.enabled && settings.outbound.email.trigger === "ON_APPROVE";
   const shouldSendSmsOnApprove =
     parsed.data.approved && settings.outbound.enabled && settings.outbound.sms.enabled && settings.outbound.sms.trigger === "ON_APPROVE";
+  const shouldPlaceCallsOnApprove =
+    parsed.data.approved && settings.outbound.enabled && settings.outbound.calls.enabled && settings.outbound.calls.trigger === "ON_APPROVE";
 
-  if (shouldSendEmailOnApprove || shouldSendSmsOnApprove) {
+  if (shouldSendEmailOnApprove || shouldSendSmsOnApprove || shouldPlaceCallsOnApprove) {
     const base = baseUrlFromRequest(req);
 
     const resources = settings.outbound.resources
@@ -321,7 +347,7 @@ export async function POST(req: Request) {
       : "";
     const text = (textBase + textResources).slice(0, 20000);
 
-    const sentNow = { email: false, sms: false };
+    const sentNow = { email: false, sms: false, calls: false };
     const skippedNow: string[] = [];
 
     try {
@@ -409,6 +435,31 @@ export async function POST(req: Request) {
           }
         }
       }
+
+      if (shouldPlaceCallsOnApprove) {
+        if (!aiCallsUnlocked) {
+          skippedNow.push("Call skipped: AI outbound calls service is not enabled.");
+        } else if (!lead.phone) {
+          skippedNow.push("Call skipped: lead has no phone.");
+        } else {
+          const toE164 = normalizePhoneForStorage(lead.phone);
+          if (!toE164) {
+            skippedNow.push("Call skipped: invalid phone number.");
+          } else {
+            const script = renderTemplate(settings.outbound.calls.script, lead).trim().slice(0, 1800);
+            if (!script) {
+              skippedNow.push("Call skipped: call script is empty.");
+            } else {
+              const placed = await placeTwilioOutboundCall({ ownerId, toE164, script });
+              if (!placed.ok) {
+                skippedNow.push(`Call failed: ${placed.error}`);
+              } else {
+                sentNow.calls = true;
+              }
+            }
+          }
+        }
+      }
     } catch (e) {
       return NextResponse.json(
         { error: e instanceof Error ? e.message : "Failed to send" },
@@ -419,7 +470,7 @@ export async function POST(req: Request) {
     sent = sentNow;
     skipped = skippedNow;
 
-    if (sentNow.email || sentNow.sms) {
+    if (sentNow.email || sentNow.sms || sentNow.calls) {
       settings.outboundState.sentAtByLeadId = {
         ...settings.outboundState.sentAtByLeadId,
         [lead.id]: nowIso,
@@ -442,7 +493,7 @@ export async function POST(req: Request) {
     select: { id: true },
   });
 
-  const sentAtIso = sent && (sent.email || sent.sms) ? nowIso : null;
+  const sentAtIso = sent && (sent.email || sent.sms || sent.calls) ? nowIso : null;
   return NextResponse.json({
     ok: true,
     approved: parsed.data.approved,

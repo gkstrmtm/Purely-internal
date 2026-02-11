@@ -86,6 +86,13 @@ const settingsSchema = z.object({
         trigger: z.enum(["MANUAL", "ON_SCRAPE", "ON_APPROVE"]),
         text: z.string().max(900),
       }),
+      calls: z
+        .object({
+          enabled: z.boolean(),
+          trigger: z.enum(["MANUAL", "ON_SCRAPE", "ON_APPROVE"]),
+          script: z.string().max(1800),
+        })
+        .optional(),
       resources: z
         .array(
           z.object({
@@ -255,6 +262,7 @@ function normalizeOutbound(value: unknown): OutboundSettings {
 
   const emailRec = (rec as any).email && typeof (rec as any).email === "object" ? ((rec as any).email as Record<string, unknown>) : {};
   const smsRec = (rec as any).sms && typeof (rec as any).sms === "object" ? ((rec as any).sms as Record<string, unknown>) : {};
+  const callsRec = (rec as any).calls && typeof (rec as any).calls === "object" ? ((rec as any).calls as Record<string, unknown>) : {};
 
   return {
     enabled: Boolean((rec as any).enabled),
@@ -270,6 +278,11 @@ function normalizeOutbound(value: unknown): OutboundSettings {
       enabled: Boolean(smsRec.enabled),
       trigger: parseTrigger(smsRec.trigger),
       text: (typeof smsRec.text === "string" ? (smsRec.text as string) : "").slice(0, 900),
+    },
+    calls: {
+      enabled: Boolean((callsRec as any).enabled),
+      trigger: parseTrigger((callsRec as any).trigger),
+      script: (typeof (callsRec as any).script === "string" ? ((callsRec as any).script as string) : "").slice(0, 1800),
     },
     resources,
   };
@@ -333,6 +346,11 @@ function normalizeSettings(value: unknown): NormalizedLeadScrapingSettings {
       enabled: false,
       trigger: "MANUAL",
       text: "Hi {businessName} — quick question. Are you taking on new work right now?",
+    },
+    calls: {
+      enabled: false,
+      trigger: "MANUAL",
+      script: "Hi {businessName} — this is an automated call. We saw your business and wanted to see if you're taking on new work right now. If so, please call us back when you have a moment.",
     },
     resources: [],
   };
@@ -424,6 +442,7 @@ export async function GET() {
   const ownerId = auth.session.user.id;
   const entitlements = await resolveEntitlements(auth.session.user.email);
   const b2cUnlocked = isB2cLeadPullUnlocked({ email: auth.session.user.email, role: auth.session.user.role });
+  const aiCallsUnlocked = (await requireClientSessionForService("aiOutboundCalls")).ok;
 
   const [settings, credits] = await Promise.all([
     loadSettings(ownerId),
@@ -449,15 +468,35 @@ export async function GET() {
             enabled: false,
             trigger: "MANUAL",
           },
+          calls: {
+            ...(settings.outbound as any).calls,
+            enabled: false,
+            trigger: "MANUAL",
+          },
+        },
+      };
+
+  const gatedSettings2: NormalizedLeadScrapingSettings = aiCallsUnlocked
+    ? gatedSettings
+    : {
+        ...gatedSettings,
+        outbound: {
+          ...gatedSettings.outbound,
+          calls: {
+            ...(gatedSettings.outbound as any).calls,
+            enabled: false,
+            trigger: "MANUAL",
+          },
         },
       };
 
   return NextResponse.json({
     ok: true,
-    settings: gatedSettings,
+    settings: gatedSettings2,
     credits: credits.balance,
     placesConfigured: hasPlacesKey(),
     b2cUnlocked,
+    aiCallsUnlocked,
   });
 }
 
@@ -475,6 +514,7 @@ export async function PUT(req: Request) {
   const ownerId = auth.session.user.id;
   const entitlements = await resolveEntitlements(auth.session.user.email);
   const b2cUnlocked = isB2cLeadPullUnlocked({ email: auth.session.user.email, role: auth.session.user.role });
+  const aiCallsUnlocked = (await requireClientSessionForService("aiOutboundCalls")).ok;
 
   const body = (await req.json().catch(() => null)) as unknown;
   const parsed = putSchema.safeParse(body);
@@ -500,6 +540,25 @@ export async function PUT(req: Request) {
           enabled: false,
           trigger: "MANUAL",
         },
+        calls: {
+          ...(normalized.outbound as any).calls,
+          enabled: false,
+          trigger: "MANUAL",
+        },
+      },
+    };
+  }
+
+  if (!aiCallsUnlocked) {
+    normalized = {
+      ...normalized,
+      outbound: {
+        ...normalized.outbound,
+        calls: {
+          ...(normalized.outbound as any).calls,
+          enabled: false,
+          trigger: "MANUAL",
+        },
       },
     };
   }
@@ -519,5 +578,6 @@ export async function PUT(req: Request) {
     credits: credits.balance,
     placesConfigured: hasPlacesKey(),
     b2cUnlocked,
+    aiCallsUnlocked,
   });
 }

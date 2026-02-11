@@ -858,7 +858,7 @@ async function runAutomationOnce(opts: {
           if (cfg.actionKind === "find_contact") {
             const vars = getTemplateVars();
             const tagId = String((cfg as any).tagId || "").trim();
-            const tagMode = String((cfg as any).tagMode || "latest").trim();
+            const tagMode = String((cfg as any).tagMode || (tagId ? "all" : "latest")).trim();
             const maxContactsRaw = Number((cfg as any).maxContacts || 25);
             const maxContacts = Math.max(1, Math.min(50, Number.isFinite(maxContactsRaw) ? Math.floor(maxContactsRaw) : 25));
             const nameTemplate = String((cfg as any).contactName || "").trim();

@@ -1302,10 +1302,9 @@ export function PortalAutomationsClient() {
       const v = viewRef.current;
 
       // Default: allow normal page scroll even when hovering the canvas.
-      // Only capture wheel for zoom (pinch/ctrl/meta) or intentional canvas panning (alt/shift).
+      // Only capture wheel for zoom (pinch/ctrl/meta).
       const wantsZoom = ev.ctrlKey || ev.metaKey;
-      const wantsPan = ev.altKey || ev.shiftKey;
-      if (!wantsZoom && !wantsPan) return;
+      if (!wantsZoom) return;
 
       ev.preventDefault();
       ev.stopPropagation();
@@ -1328,12 +1327,7 @@ export function PortalAutomationsClient() {
         return;
       }
 
-      // Intentional wheel pan.
-      setView((prev) => ({
-        ...prev,
-        panX: clamp(prev.panX - ev.deltaX, -6000, 6000),
-        panY: clamp(prev.panY - ev.deltaY, -6000, 6000),
-      }));
+      // No-op (wheel panning disabled to avoid trapping page scroll).
     };
 
     canvas.addEventListener("wheel", onWheel, { passive: false });
@@ -2424,7 +2418,7 @@ export function PortalAutomationsClient() {
                   backgroundImage: "radial-gradient(#0f172a12 1px, transparent 1px)",
                   backgroundSize: `${24 * view.zoom}px ${24 * view.zoom}px`,
                   backgroundPosition: `${view.panX}px ${view.panY}px`,
-                  overscrollBehavior: "contain",
+                  overscrollBehavior: "auto",
                   touchAction: "none",
                 }}
                 onDragOver={(ev) => ev.preventDefault()}
@@ -3568,7 +3562,7 @@ export function PortalAutomationsClient() {
 
                               if (cfg.actionKind === "find_contact") {
                                 const tagId = String((cfg as any).tagId || "").trim();
-                                const tagMode = String((cfg as any).tagMode || "latest").trim();
+                                const tagMode = String((cfg as any).tagMode || (tagId ? "all" : "latest")).trim();
                                 const maxContactsRaw = Number((cfg as any).maxContacts || 25);
                                 const maxContacts = Number.isFinite(maxContactsRaw) ? Math.max(1, Math.min(50, Math.floor(maxContactsRaw))) : 25;
                                 const contactName = String((cfg as any).contactName || "").slice(0, 200);
