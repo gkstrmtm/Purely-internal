@@ -105,6 +105,8 @@ model User {
   portalReviewPhotos PortalReviewPhoto[]
   portalContacts PortalContact[]
 
+  portalContactServiceTriggers PortalContactServiceTrigger[]
+
   portalLeadScrapeRuns  PortalLeadScrapeRun[]
   portalLeads           PortalLead[] @relation("PortalLeadOwner")
   portalLeadsAssigned   PortalLead[] @relation("PortalLeadAssignee")
@@ -300,10 +302,35 @@ model PortalContact {
 
   portalAiOutboundCallEnrollments PortalAiOutboundCallEnrollment[]
 
+  portalServiceTriggers PortalContactServiceTrigger[]
+
   @@index([ownerId])
   @@index([ownerId, emailKey])
   @@index([ownerId, phoneKey])
   @@index([ownerId, nameKey])
+}
+
+model PortalContactServiceTrigger {
+  id String @id @default(cuid())
+
+  ownerId String
+  contactId String
+
+  serviceSlug String
+
+  triggerCount Int @default(1)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  owner   User         @relation(fields: [ownerId], references: [id])
+  contact PortalContact @relation(fields: [contactId], references: [id], onDelete: Cascade)
+
+  @@unique([ownerId, contactId, serviceSlug])
+  @@index([ownerId])
+  @@index([ownerId, contactId])
+  @@index([ownerId, serviceSlug])
+  @@index([contactId])
 }
 
 model PortalContactTag {

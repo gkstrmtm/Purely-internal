@@ -13,6 +13,7 @@ import { getOwnerPrimaryReviewLink } from "@/lib/reviewRequests";
 import { getBookingCalendarsConfig } from "@/lib/bookingCalendars";
 import { enqueueOutboundCallForContact } from "@/lib/portalAiOutboundCalls";
 import { ensurePortalNurtureSchema } from "@/lib/portalNurtureSchema";
+import { ensurePortalContactServiceTriggersReady, listPortalContactServiceTriggers, recordPortalContactServiceTrigger } from "@/lib/portalContactServiceTriggers";
 
 type EdgePort = "out" | "true" | "false";
 
@@ -643,6 +644,33 @@ async function runAutomationOnce(opts: {
 
   let contactRow = await loadContactRow(contactId);
 
+  const serviceTriggerVarsCache = new Map<string, Record<string, string>>();
+  const loadServiceTriggerVarsForContact = async (cid: string | null): Promise<Record<string, string>> => {
+    const id = cid ? String(cid).trim() : "";
+    if (!id) return {};
+    if (serviceTriggerVarsCache.has(id)) return serviceTriggerVarsCache.get(id) as any;
+
+    const vars: Record<string, string> = {};
+    try {
+      await ensurePortalContactServiceTriggersReady().catch(() => null);
+      const rows = await listPortalContactServiceTriggers({ ownerId: opts.ownerId, contactId: id }).catch(() => []);
+      for (const r of rows) {
+        const slug = String(r.serviceSlug || "").trim();
+        if (!slug) continue;
+        vars[`service.triggered.${slug}`] = "true";
+        vars[`service.triggeredAt.${slug}`] = String(r.triggeredAtIso || "");
+        vars[`service.triggerCount.${slug}`] = String(r.triggerCount || 0);
+      }
+    } catch {
+      // ignore
+    }
+
+    serviceTriggerVarsCache.set(id, vars);
+    return vars;
+  };
+
+  let serviceTriggerVars: Record<string, string> = await loadServiceTriggerVarsForContact(contactId).catch(() => ({}));
+
   const ctx: {
     message: { from: string; to: string; body: string };
     contact: { id: string | null; phone: string | null; email: string | null; name: string | null };
@@ -801,6 +829,9 @@ async function runAutomationOnce(opts: {
     base["now.weekday"] = String(new Date().getDay());
     base["now.iso"] = new Date().toISOString();
     base["now.date"] = new Date().toISOString().slice(0, 10);
+
+    // Service-trigger vars (best-effort).
+    for (const [k, v] of Object.entries(serviceTriggerVars || {})) base[k] = v;
     return base;
   };
 
@@ -898,6 +929,7 @@ async function runAutomationOnce(opts: {
                       ctx.contact.phone = contactRow?.phone || null;
                       ctx.contact.email = contactRow?.email || null;
                       ctx.contact.name = contactRow?.name || null;
+                      serviceTriggerVars = await loadServiceTriggerVarsForContact(cid).catch(() => ({}));
                       await runFromNode(nextStart, depth + 1);
                     }
 
@@ -907,6 +939,7 @@ async function runAutomationOnce(opts: {
                     ctx.contact.phone = savedCtxContact.phone;
                     ctx.contact.email = savedCtxContact.email;
                     ctx.contact.name = savedCtxContact.name;
+                    serviceTriggerVars = await loadServiceTriggerVarsForContact(savedCtxContact.id || null).catch(() => ({}));
 
                     return;
                   }
@@ -1286,6 +1319,7 @@ async function runAutomationOnce(opts: {
               if (effectiveContactId) {
                 const campaignId = String((cfg as any).serviceCampaignId || "").trim() || undefined;
                 await enqueueOutboundCallForContact({ ownerId: opts.ownerId, contactId: effectiveContactId, campaignId }).catch(() => null);
+                await recordPortalContactServiceTrigger({ ownerId: opts.ownerId, contactId: effectiveContactId, serviceSlug }).catch(() => null);
               }
             }
 
@@ -1337,6 +1371,8 @@ async function runAutomationOnce(opts: {
                     updatedAt: now,
                   },
                 });
+
+                await recordPortalContactServiceTrigger({ ownerId: opts.ownerId, contactId: effectiveContactId, serviceSlug }).catch(() => null);
               } catch {
                 // best-effort
               }

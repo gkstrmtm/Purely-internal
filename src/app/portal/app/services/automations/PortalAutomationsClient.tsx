@@ -23,6 +23,9 @@ const PORTAL_EVENT_VARIABLES: TemplateVariable[] = [
   { key: "event.triggerNodeId", label: "Event trigger node ID", group: "Custom", appliesTo: "Event" },
   { key: "lead.assigneeUserId", label: "Lead assignee user ID", group: "Custom", appliesTo: "Lead" },
   { key: "lead.contactId", label: "Lead contact ID", group: "Custom", appliesTo: "Lead" },
+
+  { key: "service.triggered.ai-outbound-calls", label: "AI outbound calls triggered", group: "Custom", appliesTo: "Contact" },
+  { key: "service.triggered.nurture-campaigns", label: "Nurture campaign triggered", group: "Custom", appliesTo: "Contact" },
 ];
 
 const PORTAL_BOOKING_VARIABLES: TemplateVariable[] = [
