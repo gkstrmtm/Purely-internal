@@ -236,6 +236,31 @@ export function PortalAiOutboundCallsClient() {
     }
   }
 
+  async function syncVoiceAgent() {
+    if (!selected) return;
+    if (busy) return;
+    setBusy(true);
+    setError(null);
+
+    try {
+      const res = await fetch(
+        `/api/portal/ai-outbound-calls/campaigns/${encodeURIComponent(selected.id)}/sync-agent`,
+        { method: "POST" },
+      );
+
+      const json = (await res.json().catch(() => null)) as any;
+      if (!res.ok || !json || json.ok !== true) {
+        throw new Error(json?.error || "Failed to sync agent");
+      }
+
+      toast.success("Synced agent settings");
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Failed to sync agent");
+    } finally {
+      setBusy(false);
+    }
+  }
+
   const statusOptions = useMemo(
     () =>
       ([
@@ -407,6 +432,21 @@ export function PortalAiOutboundCallsClient() {
                 <p className="mt-1 text-xs text-zinc-500">
                   Optional: configure an ElevenLabs agent ID + behavior for this campaign.
                 </p>
+
+                <div className="mt-3 flex items-center justify-end">
+                  <button
+                    type="button"
+                    disabled={busy}
+                    onClick={syncVoiceAgent}
+                    className={classNames(
+                      "rounded-2xl px-4 py-2 text-xs font-semibold",
+                      busy ? "bg-zinc-200 text-zinc-600" : "bg-brand-ink text-white hover:opacity-95",
+                    )}
+                    title="Push these settings to ElevenLabs (requires API key set in AI Receptionist)"
+                  >
+                    {busy ? "Syncing…" : "Sync to ElevenLabs"}
+                  </button>
+                </div>
 
                 <div className="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-2">
                   <div>
