@@ -11,6 +11,7 @@ import { getOwnerTwilioSmsConfig } from "@/lib/portalTwilio";
 import { createPortalLeadCompat } from "@/lib/portalLeadCompat";
 import { isB2cLeadPullUnlocked } from "@/lib/leadScrapingAccess";
 import { draftLeadOutboundEmail, draftLeadOutboundSms } from "@/lib/leadOutboundAi";
+import { runOwnerAutomationsForEvent } from "@/lib/portalAutomationsRunner";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -760,7 +761,15 @@ export async function POST(req: Request) {
           },
         });
 
-        if (created) createdCount++;
+        if (created) {
+          createdCount++;
+          void runOwnerAutomationsForEvent({
+            ownerId,
+            triggerKind: "lead_scraped",
+            contact: { name: created.businessName || null, phone: created.phone || null },
+            event: { leadId: created.id },
+          }).catch(() => null);
+        }
       }
     } catch (e: any) {
       error = typeof e?.message === "string" ? e.message : "Unknown error";
@@ -1028,6 +1037,12 @@ export async function POST(req: Request) {
             });
             createdCount++;
             createdThisAttempt++;
+            void runOwnerAutomationsForEvent({
+              ownerId,
+              triggerKind: "lead_scraped",
+              contact: { name: created.businessName || null, phone: created.phone || null },
+              event: { leadId: created.id },
+            }).catch(() => null);
           }
         }
 

@@ -20,6 +20,7 @@ type TriggerKind =
   | "inbound_call"
   | "inbound_email"
   | "new_lead"
+  | "lead_scraped"
   | "tag_added"
   | "contact_created"
   | "task_added"
@@ -41,7 +42,8 @@ type ActionKind =
   | "send_webhook"
   | "send_review_request"
   | "send_booking_link"
-  | "update_contact";
+  | "update_contact"
+  | "trigger_service";
 type ConditionOp = "equals" | "contains" | "starts_with" | "ends_with" | "is_empty" | "is_not_empty";
 
 type MessageTarget = "inbound_sender" | "event_contact" | "internal_notification" | "assigned_lead" | "custom";
@@ -86,12 +88,18 @@ type BuilderNodeConfig =
       contactName?: string;
       contactEmail?: string;
       contactPhone?: string;
+
+      // Trigger service
+      serviceSlug?: string;
+      serviceCampaignId?: string;
     }
   | { kind: "delay"; minutes: number; unit?: DelayUnit; value?: number }
   | { kind: "condition"; left: string; op: ConditionOp; right: string }
   | { kind: "note"; text: string };
 
 type ContactTag = { id: string; name: string; color: string | null };
+
+type AiOutboundCallCampaign = { id: string; name: string; status: string };
 
 type AccountMember = {
   userId: string;
@@ -381,6 +389,7 @@ function labelForConfig(t: BuilderNodeType, cfg: BuilderNodeConfig | undefined) 
       inbound_call: "Inbound Call",
       inbound_email: "Inbound Email",
       new_lead: "New Lead",
+      lead_scraped: "Lead scraped",
       tag_added: "Tag added",
       contact_created: "Contact created",
       task_added: "Task added",
@@ -407,6 +416,7 @@ function labelForConfig(t: BuilderNodeType, cfg: BuilderNodeConfig | undefined) 
       send_review_request: "Review Request",
       send_booking_link: "Book Appointment",
       update_contact: "Update Contact",
+      trigger_service: "Trigger Service",
     };
     return `Action: ${map[cfg.actionKind]}`;
   }
@@ -468,6 +478,7 @@ export function PortalAutomationsClient() {
 
   const [ownerTags, setOwnerTags] = useState<ContactTag[]>([]);
   const [accountMembers, setAccountMembers] = useState<AccountMember[]>([]);
+  const [aiOutboundCallCampaigns, setAiOutboundCallCampaigns] = useState<AiOutboundCallCampaign[]>([]);
 
   const [createTagOpen, setCreateTagOpen] = useState(false);
   const [createTagName, setCreateTagName] = useState("");
@@ -1115,6 +1126,29 @@ export function PortalAutomationsClient() {
             name: String(t?.name || "").slice(0, 60),
             color: typeof t?.color === "string" ? String(t.color) : null,
           })),
+        );
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      const res = await fetch("/api/portal/ai-outbound-calls/campaigns", { cache: "no-store" }).catch(() => null as any);
+      const data = (await res?.json?.().catch(() => null)) as any;
+      if (cancelled) return;
+      if (res?.ok && data?.ok && Array.isArray(data?.campaigns)) {
+        setAiOutboundCallCampaigns(
+          (data.campaigns as any[])
+            .map((c) => ({
+              id: String(c?.id || ""),
+              name: String(c?.name || "").slice(0, 120) || "Campaign",
+              status: String(c?.status || ""),
+            }))
+            .filter((c) => Boolean(c.id)),
         );
       }
     })();
@@ -2459,6 +2493,7 @@ export function PortalAutomationsClient() {
                                 { value: "inbound_call", label: "Inbound Call" },
                                 { value: "inbound_email", label: "Inbound Email" },
                                 { value: "new_lead", label: "New Lead" },
+                                { value: "lead_scraped", label: "Lead scraped" },
                                 { value: "tag_added", label: "Tag added" },
                                 { value: "contact_created", label: "Contact created" },
                                 { value: "task_added", label: "Task added" },
@@ -2829,7 +2864,11 @@ export function PortalAutomationsClient() {
                               const triggerKind = selectedAutomationTriggerKind;
                               const triggerHasContact = Boolean(triggerKind && triggerKind !== "scheduled_time");
                               const needsContact = (k: ActionKind) =>
-                                k === "add_tag" || k === "update_contact" || k === "send_review_request" || k === "send_booking_link";
+                                k === "add_tag" ||
+                                k === "update_contact" ||
+                                k === "send_review_request" ||
+                                k === "send_booking_link" ||
+                                k === "trigger_service";
 
                               const opts: ActionKindOption[] = [
                                 { value: "send_sms", label: "Send SMS" },
@@ -2838,6 +2877,12 @@ export function PortalAutomationsClient() {
                                 { value: "create_task", label: "Create Task" },
                                 { value: "assign_lead", label: "Assign Lead" },
                                 { value: "find_contact", label: "Find Contact" },
+                                {
+                                  value: "trigger_service",
+                                  label: "Trigger service",
+                                  disabled: !triggerHasContact,
+                                  hint: !triggerHasContact ? "Not available for Scheduler/time" : undefined,
+                                },
                                 { value: "send_webhook", label: "Send Webhook" },
                                 {
                                   value: "send_review_request",
@@ -2896,6 +2941,85 @@ export function PortalAutomationsClient() {
                                 selectedNode.config?.kind === "action"
                                   ? selectedNode.config
                                   : (defaultConfigForType("action") as any);
+
+                              if (cfg.actionKind === "trigger_service") {
+                                const serviceSlug = String((cfg as any).serviceSlug || "ai-outbound-calls");
+                                const serviceCampaignId = String((cfg as any).serviceCampaignId || "");
+
+                                const serviceOptions = [{ value: "ai-outbound-calls", label: "AI Outbound Calls" }];
+                                const campaignOptions = aiOutboundCallCampaigns.map((c) => ({
+                                  value: c.id,
+                                  label: c.status && c.status !== "ACTIVE" ? `${c.name} (${c.status})` : c.name,
+                                }));
+
+                                return (
+                                  <>
+                                    <div className="mt-2">
+                                      <div className="text-xs font-semibold text-zinc-600">Service</div>
+                                      <PortalListboxDropdown
+                                        className="mt-1"
+                                        value={serviceSlug}
+                                        options={serviceOptions}
+                                        onChange={(next) => {
+                                          updateSelectedAutomation((a) => {
+                                            const nodes = a.nodes.map((n) => {
+                                              if (n.id !== selectedNode.id) return n;
+                                              const prev =
+                                                n.config?.kind === "action" ? n.config : (defaultConfigForType("action") as any);
+                                              const nextCfg: BuilderNodeConfig = {
+                                                ...(prev as any),
+                                                kind: "action",
+                                                serviceSlug: next,
+                                                serviceCampaignId: next === serviceSlug ? (prev as any).serviceCampaignId : "",
+                                              };
+                                              const nextLabel =
+                                                autolabelSelectedNode && shouldAutolabel(n.label)
+                                                  ? labelForConfig("action", nextCfg)
+                                                  : n.label;
+                                              return { ...n, config: nextCfg, label: nextLabel };
+                                            });
+                                            return { ...a, nodes, updatedAtIso: new Date().toISOString() };
+                                          });
+                                        }}
+                                      />
+                                    </div>
+
+                                    {serviceSlug === "ai-outbound-calls" ? (
+                                      <div className="mt-2">
+                                        <div className="text-xs font-semibold text-zinc-600">Campaign</div>
+                                        <PortalListboxDropdown
+                                          className="mt-1"
+                                          value={serviceCampaignId}
+                                          options={[
+                                            { value: "", label: "(default: latest ACTIVE campaign)" },
+                                            ...campaignOptions,
+                                          ]}
+                                          onChange={(next) => {
+                                            updateSelectedAutomation((a) => {
+                                              const nodes = a.nodes.map((n) => {
+                                                if (n.id !== selectedNode.id) return n;
+                                                const prev =
+                                                  n.config?.kind === "action" ? n.config : (defaultConfigForType("action") as any);
+                                                const nextCfg: BuilderNodeConfig = { ...(prev as any), kind: "action", serviceCampaignId: next };
+                                                const nextLabel =
+                                                  autolabelSelectedNode && shouldAutolabel(n.label)
+                                                    ? labelForConfig("action", nextCfg)
+                                                    : n.label;
+                                                return { ...n, config: nextCfg, label: nextLabel };
+                                              });
+                                              return { ...a, nodes, updatedAtIso: new Date().toISOString() };
+                                            });
+                                          }}
+                                        />
+                                        <div className="mt-2 text-[11px] text-zinc-600">
+                                          Optional. If not set, we’ll use the most recently updated ACTIVE campaign.
+                                        </div>
+                                      </div>
+                                    ) : null}
+                                  </>
+                                );
+                              }
+
                               if (cfg.actionKind === "send_sms") {
                                 const smsTo = ((cfg as any).smsTo as MessageTarget) || "inbound_sender";
                                 const smsToNumber = String((cfg as any).smsToNumber || "").slice(0, 32);

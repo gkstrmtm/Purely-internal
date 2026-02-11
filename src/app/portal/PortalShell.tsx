@@ -137,6 +137,8 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
         return canViewServiceKey("media");
       case "ai-receptionist":
         return canViewServiceKey("aiReceptionist");
+      case "ai-outbound-calls":
+        return canViewServiceKey("aiOutboundCalls");
       case "lead-scraping":
         return canViewServiceKey("leadScraping");
       case "missed-call-textback":

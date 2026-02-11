@@ -7,6 +7,7 @@ import { hasPlacesKey, placeDetails, placesTextSearch } from "@/lib/googlePlaces
 import { baseUrlFromRequest, renderTemplate, sendEmail, sendSms, stripHtml } from "@/lib/leadOutbound";
 import { draftLeadOutboundEmail, draftLeadOutboundSms } from "@/lib/leadOutboundAi";
 import { createPortalLeadCompat } from "@/lib/portalLeadCompat";
+import { runOwnerAutomationsForEvent } from "@/lib/portalAutomationsRunner";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -520,6 +521,12 @@ async function runB2BForOwner(ownerId: string, settingsJson: unknown, baseUrl: s
             });
             createdCount++;
             createdThisAttempt++;
+            void runOwnerAutomationsForEvent({
+              ownerId,
+              triggerKind: "lead_scraped",
+              contact: { name: created.businessName || null, phone: created.phone || null },
+              event: { leadId: created.id },
+            }).catch(() => null);
           }
       }
 

@@ -127,6 +127,9 @@ model User {
   portalNurtureCampaigns  PortalNurtureCampaign[]
   portalNurtureSteps      PortalNurtureStep[]
   portalNurtureEnrollments PortalNurtureEnrollment[]
+
+  portalAiOutboundCallCampaigns   PortalAiOutboundCallCampaign[]
+  portalAiOutboundCallEnrollments PortalAiOutboundCallEnrollment[]
 }
 
 model PortalMediaFolder {
@@ -295,6 +298,8 @@ model PortalContact {
 
   portalNurtureEnrollments PortalNurtureEnrollment[]
 
+  portalAiOutboundCallEnrollments PortalAiOutboundCallEnrollment[]
+
   @@index([ownerId])
   @@index([ownerId, emailKey])
   @@index([ownerId, phoneKey])
@@ -396,6 +401,21 @@ enum PortalNurtureEnrollmentStatus {
   ACTIVE
   COMPLETED
   STOPPED
+}
+
+enum PortalAiOutboundCallCampaignStatus {
+  DRAFT
+  ACTIVE
+  PAUSED
+  ARCHIVED
+}
+
+enum PortalAiOutboundCallEnrollmentStatus {
+  QUEUED
+  CALLING
+  COMPLETED
+  FAILED
+  SKIPPED
 }
 
 enum PortalInboxChannel {
@@ -612,6 +632,58 @@ model PortalNurtureEnrollment {
   @@unique([campaignId, contactId])
   @@index([ownerId, status, nextSendAt])
   @@index([campaignId, status, nextSendAt])
+  @@index([ownerId, contactId])
+}
+
+model PortalAiOutboundCallCampaign {
+  id String @id @default(cuid())
+
+  ownerId String
+
+  name   String
+  status PortalAiOutboundCallCampaignStatus @default(DRAFT)
+
+  // Tag-based audience (stored as string[])
+  audienceTagIdsJson Json?
+
+  // Script read aloud on connect.
+  script String @default("Hi — this is an automated call. Please call us back when you have a moment.")
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  owner       User                        @relation(fields: [ownerId], references: [id])
+  enrollments PortalAiOutboundCallEnrollment[]
+
+  @@index([ownerId, updatedAt])
+  @@index([ownerId, status, updatedAt])
+}
+
+model PortalAiOutboundCallEnrollment {
+  id String @id @default(cuid())
+
+  ownerId    String
+  campaignId String
+  contactId  String
+
+  status PortalAiOutboundCallEnrollmentStatus @default(QUEUED)
+
+  nextCallAt    DateTime?
+  callSid       String?
+  attemptCount  Int      @default(0)
+  lastError     String?
+  completedAt   DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  owner    User                       @relation(fields: [ownerId], references: [id])
+  campaign PortalAiOutboundCallCampaign @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+  contact  PortalContact                @relation(fields: [contactId], references: [id], onDelete: Cascade)
+
+  @@unique([campaignId, contactId])
+  @@index([ownerId, status, nextCallAt])
+  @@index([campaignId, status, nextCallAt])
   @@index([ownerId, contactId])
 }
 

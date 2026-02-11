@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 
 import { useToast } from "@/components/ToastProvider";
+import { PortalListboxDropdown } from "@/components/PortalListboxDropdown";
 import { DEFAULT_TAG_COLORS } from "@/lib/tagColors.shared";
 
 type CampaignStatus = "DRAFT" | "ACTIVE" | "PAUSED" | "ARCHIVED";
@@ -98,6 +99,8 @@ export function PortalNurtureCampaignsClient() {
 
   const [campaignDirty, setCampaignDirty] = useState(false);
   const [savingCampaign, setSavingCampaign] = useState(false);
+
+  const [addTagValue, setAddTagValue] = useState<string>("__none__");
 
   const selected = useMemo(() => campaigns.find((c) => c.id === selectedId) ?? null, [campaigns, selectedId]);
   const selectedTagIds = useMemo(() => new Set(detail?.audienceTagIds || []), [detail?.audienceTagIds]);
@@ -477,20 +480,22 @@ export function PortalNurtureCampaignsClient() {
 
                 <div>
                   <label className="text-xs font-semibold text-zinc-600">Status</label>
-                  <select
-                    className="mt-1 w-full rounded-2xl border border-zinc-200 bg-white px-4 py-3 text-sm outline-none focus:border-[color:var(--color-brand-blue)]"
-                    value={detail.status}
-                    onChange={(e) => {
-                      const next = e.target.value as CampaignStatus;
-                      setDetail((p) => (p ? { ...p, status: next } : p));
-                      setCampaignDirty(true);
-                    }}
-                  >
-                    <option value="DRAFT">DRAFT (not sending)</option>
-                    <option value="ACTIVE">ACTIVE (can enroll + send)</option>
-                    <option value="PAUSED">PAUSED (enrolled contacts wait)</option>
-                    <option value="ARCHIVED">ARCHIVED</option>
-                  </select>
+                  <div className="mt-1">
+                    <PortalListboxDropdown
+                      value={detail.status}
+                      options={[
+                        { value: "DRAFT", label: "DRAFT", hint: "Not sending" },
+                        { value: "ACTIVE", label: "ACTIVE", hint: "Can enroll + send" },
+                        { value: "PAUSED", label: "PAUSED", hint: "Enrolled contacts wait" },
+                        { value: "ARCHIVED", label: "ARCHIVED" },
+                      ]}
+                      onChange={(next) => {
+                        setDetail((p) => (p ? { ...p, status: next } : p));
+                        setCampaignDirty(true);
+                      }}
+                      className="w-full"
+                    />
+                  </div>
                   <div className="mt-1 text-xs text-zinc-500">Only ACTIVE campaigns can enroll contacts and send steps.</div>
                 </div>
               </div>
@@ -542,30 +547,29 @@ export function PortalNurtureCampaignsClient() {
                 <div className="mt-4 grid grid-cols-1 gap-3 lg:grid-cols-2">
                   <div>
                     <label className="text-xs font-semibold text-zinc-600">Add existing tag</label>
-                    <select
-                      className="mt-1 w-full rounded-2xl border border-zinc-200 bg-white px-4 py-3 text-sm outline-none focus:border-[color:var(--color-brand-blue)]"
-                      value={""}
-                      onChange={(e) => {
-                        const tagId = e.target.value;
-                        if (!tagId) return;
-                        setDetail((p) => {
-                          if (!p) return p;
-                          const set = new Set(p.audienceTagIds);
-                          set.add(tagId);
-                          return { ...p, audienceTagIds: Array.from(set).slice(0, 100) };
-                        });
-                        setCampaignDirty(true);
-                      }}
-                    >
-                      <option value="">Select a tag…</option>
-                      {ownerTags
-                        .filter((t) => !selectedTagIds.has(t.id))
-                        .map((t) => (
-                          <option key={t.id} value={t.id}>
-                            {t.name}
-                          </option>
-                        ))}
-                    </select>
+                    <div className="mt-1">
+                      <PortalListboxDropdown
+                        value={addTagValue}
+                        options={[
+                          { value: "__none__", label: "Select a tag…", disabled: true },
+                          ...ownerTags
+                            .filter((t) => !selectedTagIds.has(t.id))
+                            .map((t) => ({ value: t.id, label: t.name })),
+                        ]}
+                        onChange={(tagId) => {
+                          if (!tagId || tagId === "__none__") return;
+                          setDetail((p) => {
+                            if (!p) return p;
+                            const set = new Set(p.audienceTagIds);
+                            set.add(tagId);
+                            return { ...p, audienceTagIds: Array.from(set).slice(0, 100) };
+                          });
+                          setCampaignDirty(true);
+                          setAddTagValue("__none__");
+                        }}
+                        className="w-full"
+                      />
+                    </div>
                   </div>
 
                   <div className="rounded-2xl border border-zinc-200 bg-white p-3">
@@ -796,17 +800,17 @@ function StepCard(props: {
         <div>
           <div className="text-xs font-semibold text-zinc-500">Step {index + 1}</div>
           <div className="mt-1 flex flex-wrap items-center gap-2">
-            <select
-              className="rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-sm"
+            <PortalListboxDropdown
               value={kind}
-              onChange={(e) => {
-                setKind(e.target.value as StepKind);
+              options={[
+                { value: "SMS", label: "SMS" },
+                { value: "EMAIL", label: "Email" },
+              ]}
+              onChange={(next) => {
+                setKind(next);
                 setDirty(true);
               }}
-            >
-              <option value="SMS">SMS</option>
-              <option value="EMAIL">Email</option>
-            </select>
+            />
 
             <div className="flex items-center gap-2">
               <input
@@ -819,18 +823,18 @@ function StepCard(props: {
                   setDirty(true);
                 }}
               />
-              <select
-                className="rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-sm"
+              <PortalListboxDropdown
                 value={delayUnit}
-                onChange={(e) => {
-                  setDelayUnit(e.target.value as any);
+                options={[
+                  { value: "minutes", label: "minutes after" },
+                  { value: "hours", label: "hours after" },
+                  { value: "days", label: "days after" },
+                ]}
+                onChange={(next) => {
+                  setDelayUnit(next);
                   setDirty(true);
                 }}
-              >
-                <option value="minutes">minutes after</option>
-                <option value="hours">hours after</option>
-                <option value="days">days after</option>
-              </select>
+              />
               <span className="text-sm text-zinc-600">previous step</span>
             </div>
           </div>

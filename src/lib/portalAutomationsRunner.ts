@@ -11,6 +11,7 @@ import { renderTextTemplate } from "@/lib/textTemplate";
 import { ensurePortalContactsSchema } from "@/lib/portalContactsSchema";
 import { getOwnerPrimaryReviewLink } from "@/lib/reviewRequests";
 import { getBookingCalendarsConfig } from "@/lib/bookingCalendars";
+import { enqueueOutboundCallForContact } from "@/lib/portalAiOutboundCalls";
 
 type EdgePort = "out" | "true" | "false";
 
@@ -22,6 +23,7 @@ type TriggerKind =
   | "inbound_call"
   | "inbound_email"
   | "new_lead"
+  | "lead_scraped"
   | "tag_added"
   | "contact_created"
   | "task_added"
@@ -44,7 +46,8 @@ type ActionKind =
   | "send_webhook"
   | "send_review_request"
   | "send_booking_link"
-  | "update_contact";
+  | "update_contact"
+  | "trigger_service";
 
 function getBasePublicUrl() {
   const raw = process.env.NEXTAUTH_URL ?? process.env.NEXT_PUBLIC_APP_URL ?? "http://localhost:3000";
@@ -84,6 +87,10 @@ type BuilderNodeConfig =
       contactName?: string;
       contactEmail?: string;
       contactPhone?: string;
+
+      // Trigger service
+      serviceSlug?: string;
+      serviceCampaignId?: string;
     }
   | { kind: "delay"; minutes: number }
   | { kind: "condition"; left: string; op: ConditionOp; right: string }
@@ -998,6 +1005,35 @@ async function runAutomationOnce(opts: {
                 } catch {
                   // best-effort
                 }
+              }
+            }
+          }
+
+          if (cfg.actionKind === "trigger_service") {
+            const serviceSlug = String((cfg as any).serviceSlug || "").trim();
+
+            if (serviceSlug === "ai-outbound-calls") {
+              let effectiveContactId = contactId;
+
+              if (!effectiveContactId && (ctx.contact.phone || ctx.contact.email || ctx.contact.name)) {
+                const name = ctx.contact.name || ctx.contact.phone || ctx.contact.email || "Contact";
+                try {
+                  await ensurePortalContactsSchema().catch(() => null);
+                  effectiveContactId =
+                    (await findOrCreatePortalContact({
+                      ownerId: opts.ownerId,
+                      name,
+                      email: ctx.contact.email || null,
+                      phone: ctx.contact.phone || null,
+                    }).catch(() => null)) || null;
+                } catch {
+                  effectiveContactId = null;
+                }
+              }
+
+              if (effectiveContactId) {
+                const campaignId = String((cfg as any).serviceCampaignId || "").trim() || undefined;
+                await enqueueOutboundCallForContact({ ownerId: opts.ownerId, contactId: effectiveContactId, campaignId }).catch(() => null);
               }
             }
           }

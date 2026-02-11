@@ -129,6 +129,17 @@ export const PORTAL_SERVICES: PortalService[] = [
     accent: "blue",
   },
   {
+    slug: "ai-outbound-calls",
+    title: "AI Outbound Calls",
+    description: "Automatically place outbound calls when a contact is tagged.",
+    highlights: [
+      "Choose tags to target",
+      "Call script + simple logging",
+      "Works with automations",
+    ],
+    accent: "coral",
+  },
+  {
     slug: "missed-call-textback",
     title: "Missed-Call Text Back",
     description: "Turn missed calls into conversations.",

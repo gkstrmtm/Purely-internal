@@ -100,6 +100,8 @@ export function PortalServicesClient() {
         return canViewFromPermissions(portalMe, "media");
       case "ai-receptionist":
         return canViewFromPermissions(portalMe, "aiReceptionist");
+      case "ai-outbound-calls":
+        return canViewFromPermissions(portalMe, "aiOutboundCalls");
       case "lead-scraping":
         return canViewFromPermissions(portalMe, "leadScraping");
       case "missed-call-textback":

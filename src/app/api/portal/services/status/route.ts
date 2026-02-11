@@ -4,6 +4,8 @@ import { prisma } from "@/lib/db";
 import { requireClientSession } from "@/lib/apiAuth";
 import { resolveEntitlements } from "@/lib/entitlements";
 import { PORTAL_SERVICES } from "@/app/portal/services/catalog";
+import { ensurePortalAiOutboundCallsSchema } from "@/lib/portalAiOutboundCallsSchema";
+import { getOwnerTwilioSmsConfig } from "@/lib/portalTwilio";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -75,13 +77,14 @@ export async function GET() {
     "blogs",
     "automations",
     "ai-receptionist",
+    "ai-outbound-calls",
     "reviews",
     "lead-scraping",
     "missed-call-textback",
     "follow-up",
   ];
 
-  const [setupRows, bookingSite, blogSite, taskCount] = await Promise.all([
+  const [setupRows, bookingSite, blogSite, taskCount, outboundCampaignCount, twilioConfig] = await Promise.all([
     prisma.portalServiceSetup.findMany({
       where: { ownerId, serviceSlug: { in: serviceSlugs } },
       select: { serviceSlug: true, status: true, dataJson: true },
@@ -89,6 +92,15 @@ export async function GET() {
     prisma.portalBookingSite.findUnique({ where: { ownerId }, select: { enabled: true } }),
     prisma.clientBlogSite.findUnique({ where: { ownerId }, select: { id: true } }),
     prisma.portalTask.count({ where: { ownerId } }),
+    (async () => {
+      try {
+        await ensurePortalAiOutboundCallsSchema();
+        return await prisma.portalAiOutboundCallCampaign.count({ where: { ownerId } });
+      } catch {
+        return 0;
+      }
+    })(),
+    getOwnerTwilioSmsConfig(ownerId).catch(() => null),
   ]);
 
   const setupBySlug = new Map<string, { status: string; dataJson: unknown }>();
@@ -175,6 +187,17 @@ export async function GET() {
       const settings = readObj(setup?.dataJson, "settings");
       const enabled = readBool(settings, "enabled") ?? false;
       statuses[s.slug] = enabled ? { state: "active", label: "Active" } : { state: "needs_setup", label: "Off" };
+      continue;
+    }
+
+    if (s.slug === "ai-outbound-calls") {
+      const hasTwilio = Boolean(twilioConfig);
+      if (!hasTwilio) {
+        statuses[s.slug] = { state: "needs_setup", label: "Needs Twilio" };
+        continue;
+      }
+
+      statuses[s.slug] = outboundCampaignCount > 0 ? { state: "active", label: "Ready" } : { state: "needs_setup", label: "No campaigns" };
       continue;
     }
 

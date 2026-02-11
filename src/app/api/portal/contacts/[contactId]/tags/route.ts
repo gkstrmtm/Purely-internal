@@ -8,6 +8,7 @@ import {
   removeContactTagAssignment,
 } from "@/lib/portalContactTags";
 import { runOwnerAutomationsForEvent } from "@/lib/portalAutomationsRunner";
+import { enqueueOutboundCallForTaggedContact } from "@/lib/portalAiOutboundCalls";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
@@ -66,6 +67,13 @@ export async function POST(req: Request, ctx: { params: Promise<{ contactId: str
       contact: { id: contactId.data },
       event: { tagId: parsed.data.tagId },
     });
+  } catch {
+    // ignore
+  }
+
+  // Best-effort: if any outbound-call campaign targets this tag, queue a call.
+  try {
+    await enqueueOutboundCallForTaggedContact({ ownerId, contactId: contactId.data, tagId: parsed.data.tagId });
   } catch {
     // ignore
   }
