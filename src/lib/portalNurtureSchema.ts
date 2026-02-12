@@ -37,15 +37,6 @@ BEGIN
   ) THEN
     CREATE TYPE "PortalNurtureEnrollmentStatus" AS ENUM ('ACTIVE','COMPLETED','STOPPED');
   END IF;
-
-  IF NOT EXISTS (
-    SELECT 1
-    FROM pg_type t
-    JOIN pg_namespace n ON n.oid = t.typnamespace
-    WHERE n.nspname = 'public' AND t.typname = 'PortalNurtureMonthlyChargeStatus'
-  ) THEN
-    CREATE TYPE "PortalNurtureMonthlyChargeStatus" AS ENUM ('PENDING','CHARGED','FAILED');
-  END IF;
 END $$;
     `.trim(),
 
@@ -58,10 +49,33 @@ CREATE TABLE IF NOT EXISTS "PortalNurtureCampaign" (
   "audienceTagIdsJson" JSONB,
   "smsFooter" TEXT NOT NULL DEFAULT 'Reply STOP to opt out.',
   "emailFooter" TEXT NOT NULL DEFAULT '',
+  "installPaidAt" TIMESTAMP(3),
+  "stripeSubscriptionId" TEXT,
   "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
   "updatedAt" TIMESTAMP(3) NOT NULL,
   CONSTRAINT "PortalNurtureCampaign_pkey" PRIMARY KEY ("id")
 );
+    `.trim(),
+
+    `
+DO $$
+BEGIN
+  IF EXISTS (
+    SELECT 1 FROM information_schema.tables WHERE table_schema = 'public' AND table_name = 'PortalNurtureCampaign'
+  ) THEN
+    IF NOT EXISTS (
+      SELECT 1 FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'PortalNurtureCampaign' AND column_name = 'installPaidAt'
+    ) THEN
+      ALTER TABLE "PortalNurtureCampaign" ADD COLUMN "installPaidAt" TIMESTAMP(3);
+    END IF;
+
+    IF NOT EXISTS (
+      SELECT 1 FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'PortalNurtureCampaign' AND column_name = 'stripeSubscriptionId'
+    ) THEN
+      ALTER TABLE "PortalNurtureCampaign" ADD COLUMN "stripeSubscriptionId" TEXT;
+    END IF;
+  END IF;
+END $$;
     `.trim(),
 
     `
@@ -97,22 +111,6 @@ CREATE TABLE IF NOT EXISTS "PortalNurtureEnrollment" (
 );
     `.trim(),
 
-    `
-CREATE TABLE IF NOT EXISTS "PortalNurtureCampaignMonthlyCharge" (
-  "id" TEXT NOT NULL,
-  "ownerId" TEXT NOT NULL,
-  "campaignId" TEXT NOT NULL,
-  "periodKey" TEXT NOT NULL,
-  "status" "PortalNurtureMonthlyChargeStatus" NOT NULL DEFAULT 'PENDING',
-  "credits" INTEGER NOT NULL DEFAULT 29,
-  "chargedAt" TIMESTAMP(3),
-  "lastError" TEXT,
-  "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
-  "updatedAt" TIMESTAMP(3) NOT NULL,
-  CONSTRAINT "PortalNurtureCampaignMonthlyCharge_pkey" PRIMARY KEY ("id")
-);
-    `.trim(),
-
     `CREATE INDEX IF NOT EXISTS "PortalNurtureCampaign_ownerId_updatedAt_idx" ON "PortalNurtureCampaign"("ownerId","updatedAt");`,
     `CREATE INDEX IF NOT EXISTS "PortalNurtureCampaign_ownerId_status_updatedAt_idx" ON "PortalNurtureCampaign"("ownerId","status","updatedAt");`,
 
@@ -123,10 +121,6 @@ CREATE TABLE IF NOT EXISTS "PortalNurtureCampaignMonthlyCharge" (
     `CREATE INDEX IF NOT EXISTS "PortalNurtureEnrollment_ownerId_status_nextSendAt_idx" ON "PortalNurtureEnrollment"("ownerId","status","nextSendAt");`,
     `CREATE INDEX IF NOT EXISTS "PortalNurtureEnrollment_campaignId_status_nextSendAt_idx" ON "PortalNurtureEnrollment"("campaignId","status","nextSendAt");`,
     `CREATE INDEX IF NOT EXISTS "PortalNurtureEnrollment_ownerId_contactId_idx" ON "PortalNurtureEnrollment"("ownerId","contactId");`,
-
-    `CREATE UNIQUE INDEX IF NOT EXISTS "PortalNurtureCampaignMonthlyCharge_campaignId_periodKey_key" ON "PortalNurtureCampaignMonthlyCharge"("campaignId","periodKey");`,
-    `CREATE INDEX IF NOT EXISTS "PortalNurtureCampaignMonthlyCharge_ownerId_periodKey_idx" ON "PortalNurtureCampaignMonthlyCharge"("ownerId","periodKey");`,
-    `CREATE INDEX IF NOT EXISTS "PortalNurtureCampaignMonthlyCharge_campaignId_status_updatedAt_idx" ON "PortalNurtureCampaignMonthlyCharge"("campaignId","status","updatedAt");`,
 
     `
 DO $$
@@ -183,21 +177,6 @@ BEGIN
     END IF;
   END IF;
 
-  IF NOT EXISTS (
-    SELECT 1 FROM pg_constraint WHERE conname = 'PortalNurtureCampaignMonthlyCharge_ownerId_fkey'
-  ) THEN
-    ALTER TABLE "PortalNurtureCampaignMonthlyCharge"
-      ADD CONSTRAINT "PortalNurtureCampaignMonthlyCharge_ownerId_fkey"
-      FOREIGN KEY ("ownerId") REFERENCES "User"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
-  END IF;
-
-  IF NOT EXISTS (
-    SELECT 1 FROM pg_constraint WHERE conname = 'PortalNurtureCampaignMonthlyCharge_campaignId_fkey'
-  ) THEN
-    ALTER TABLE "PortalNurtureCampaignMonthlyCharge"
-      ADD CONSTRAINT "PortalNurtureCampaignMonthlyCharge_campaignId_fkey"
-      FOREIGN KEY ("campaignId") REFERENCES "PortalNurtureCampaign"("id") ON DELETE CASCADE ON UPDATE CASCADE;
-  END IF;
 END $$;
     `.trim(),
   ];

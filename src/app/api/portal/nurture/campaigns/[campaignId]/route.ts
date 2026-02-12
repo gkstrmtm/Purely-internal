@@ -4,7 +4,7 @@ import { z } from "zod";
 import { prisma } from "@/lib/db";
 import { requireClientSessionForService } from "@/lib/portalAccess";
 import { ensurePortalNurtureSchema } from "@/lib/portalNurtureSchema";
-import { ensureNurtureCampaignMonthlyCharge } from "@/lib/portalNurtureMonthlyBilling";
+import { getOrCreateStripeCustomerId, isStripeConfigured, stripeGet, stripePost } from "@/lib/stripeFetch";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -102,7 +102,7 @@ export async function PATCH(req: Request, ctx: { params: Promise<{ campaignId: s
 
   const existing = await prisma.portalNurtureCampaign.findFirst({
     where: { ownerId, id: campaignId },
-    select: { status: true },
+    select: { id: true, status: true, installPaidAt: true, stripeSubscriptionId: true },
   });
 
   if (!existing) return NextResponse.json({ ok: false, error: "Not found" }, { status: 404 });
@@ -120,22 +120,84 @@ export async function PATCH(req: Request, ctx: { params: Promise<{ campaignId: s
   const isActivating = nextStatus === "ACTIVE" && existing.status !== "ACTIVE";
 
   if (isActivating) {
-    const charged = await ensureNurtureCampaignMonthlyCharge({ ownerId, campaignId, now });
-    if (!charged.ok) {
-      if (charged.reason === "insufficient_credits") {
-        return NextResponse.json(
-          {
-            ok: false,
-            error: "Insufficient credits",
-            code: "INSUFFICIENT_CREDITS",
-            neededCredits: 29,
-            balanceCredits: charged.state.balance,
-          },
-          { status: 402 },
-        );
+    const email = auth.session.user.email;
+    const installPriceId = (process.env.STRIPE_PRICE_NURTURE_CAMPAIGN_INSTALL ?? "").trim();
+    const monthlyPriceId = (process.env.STRIPE_PRICE_NURTURE_CAMPAIGN_MONTHLY ?? "").trim();
+
+    const stripeReady = Boolean(isStripeConfigured() && email && monthlyPriceId);
+    if (process.env.NODE_ENV === "production" && !stripeReady) {
+      return NextResponse.json({ ok: false, error: "Billing is unavailable right now." }, { status: 503 });
+    }
+
+    const origin =
+      req.headers.get("origin") ??
+      process.env.NEXTAUTH_URL ??
+      process.env.NEXT_PUBLIC_APP_URL ??
+      "http://localhost:3000";
+
+    // If we already have a subscription id stored, verify it's active.
+    if (stripeReady && existing.stripeSubscriptionId) {
+      try {
+        const sub = await stripeGet<any>(`/v1/subscriptions/${encodeURIComponent(String(existing.stripeSubscriptionId))}`);
+        const status = String(sub?.status ?? "");
+        if (["active", "trialing", "past_due"].includes(status)) {
+          // ok
+        } else {
+          throw new Error("Subscription inactive");
+        }
+      } catch {
+        // Fall through and create a new checkout session.
+      }
+    }
+
+    // If subscription is missing or inactive, redirect to Stripe Checkout to purchase $29/mo per active campaign.
+    if (stripeReady) {
+      const includeInstall = !existing.installPaidAt;
+      if (includeInstall && !installPriceId) {
+        return NextResponse.json({ ok: false, error: "That service is not for sale yet" }, { status: 400 });
       }
 
-      return NextResponse.json({ ok: false, error: "Billing is processing" }, { status: 409 });
+      const customer = await getOrCreateStripeCustomerId(String(email));
+
+      const successUrl = new URL(
+        `/portal/app/services/nurture-campaigns?billing=success&campaignId=${encodeURIComponent(campaignId)}&session_id={CHECKOUT_SESSION_ID}`,
+        origin,
+      ).toString();
+      const cancelUrl = new URL(
+        `/portal/app/services/nurture-campaigns?billing=cancel&campaignId=${encodeURIComponent(campaignId)}`,
+        origin,
+      ).toString();
+
+      const params: Record<string, unknown> = {
+        mode: "subscription",
+        customer,
+        success_url: successUrl,
+        cancel_url: cancelUrl,
+        allow_promotion_codes: true,
+        "metadata[kind]": includeInstall ? "nurture_install_and_monthly" : "nurture_monthly",
+        "metadata[ownerId]": ownerId,
+        "metadata[campaignId]": campaignId,
+        "subscription_data[metadata][kind]": "nurture_campaign",
+        "subscription_data[metadata][ownerId]": ownerId,
+        "subscription_data[metadata][campaignId]": campaignId,
+      };
+
+      let i = 0;
+      if (includeInstall) {
+        params[`line_items[${i}][price]`] = installPriceId;
+        params[`line_items[${i}][quantity]`] = 1;
+        i += 1;
+      }
+
+      params[`line_items[${i}][price]`] = monthlyPriceId;
+      params[`line_items[${i}][quantity]`] = 1;
+
+      const checkout = await stripePost<{ url: string }>("/v1/checkout/sessions", params);
+
+      return NextResponse.json(
+        { ok: false, error: "Billing required", code: "BILLING_REQUIRED", url: checkout.url },
+        { status: 402 },
+      );
     }
   }
 

@@ -235,6 +235,39 @@ const NURTURE_TEMPLATES: NurtureTemplate[] = [
 export function PortalNurtureCampaignsClient() {
   const toast = useToast();
 
+  useEffect(() => {
+    const params = new URLSearchParams(typeof window !== "undefined" ? window.location.search : "");
+    const sessionId = params.get("session_id") || "";
+    const campaignId = params.get("campaignId") || "";
+    if (!sessionId || !campaignId) return;
+
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await fetch(`/api/portal/nurture/campaigns/${encodeURIComponent(campaignId)}/confirm-checkout`, {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ sessionId }),
+        });
+        const json = (await res.json().catch(() => ({}))) as any;
+        if (!res.ok || !json?.ok) throw new Error(String(json?.error || "Billing confirmation failed"));
+        if (!cancelled) toast.success("Billing confirmed");
+
+        // Clean up URL params.
+        const next = new URL(window.location.href);
+        next.searchParams.delete("session_id");
+        next.searchParams.delete("billing");
+        window.history.replaceState({}, "", next.toString());
+      } catch (e: any) {
+        if (!cancelled) toast.error(String(e?.message || "Billing confirmation failed"));
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [toast]);
+
   const [loadingList, setLoadingList] = useState(false);
   const [campaigns, setCampaigns] = useState<CampaignListRow[]>([]);
   const [selectedId, setSelectedId] = useState<string | null>(null);
@@ -391,6 +424,12 @@ export function PortalNurtureCampaignsClient() {
         }),
       });
       const json = (await res.json().catch(() => ({}))) as any;
+
+      if (res.status === 402 && json?.url) {
+        window.location.href = String(json.url);
+        return;
+      }
+
       if (!res.ok || !json?.ok) throw new Error(String(json?.error || "Failed to save"));
       toast.success("Saved");
       setCampaignDirty(false);

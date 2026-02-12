@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 
 import { prisma } from "@/lib/db";
 import { ensurePortalNurtureSchema } from "@/lib/portalNurtureSchema";
-import { ensureNurtureCampaignMonthlyCharge } from "@/lib/portalNurtureMonthlyBilling";
+import { isStripeConfigured, stripeGet } from "@/lib/stripeFetch";
 import { sendOwnerTwilioSms } from "@/lib/portalTwilio";
 import { sendEmail } from "@/lib/leadOutbound";
 import { buildPortalTemplateVars } from "@/lib/portalTemplateVars";
@@ -55,7 +55,7 @@ export async function GET(req: Request) {
       stepIndex: true,
       nextSendAt: true,
       campaign: {
-        select: { id: true, name: true, smsFooter: true, emailFooter: true, status: true },
+        select: { id: true, name: true, smsFooter: true, emailFooter: true, status: true, stripeSubscriptionId: true },
       },
       contact: {
         select: { id: true, name: true, email: true, phone: true },
@@ -68,7 +68,7 @@ export async function GET(req: Request) {
   let processed = 0;
   const errors: Array<{ enrollmentId: string; error: string }> = [];
 
-  const billedCampaigns = new Map<string, { ok: boolean; reason?: string }>();
+  const canRunCampaign = new Map<string, { ok: boolean; reason?: string }>();
 
   for (const e of due) {
     if (e.campaign.status === "PAUSED") {
@@ -91,26 +91,43 @@ export async function GET(req: Request) {
     }
 
     const cacheKey = `${e.ownerId}:${e.campaignId}`;
-    const cached = billedCampaigns.get(cacheKey);
+    const cached = canRunCampaign.get(cacheKey);
     if (!cached) {
-      const charged = await ensureNurtureCampaignMonthlyCharge({ ownerId: e.ownerId, campaignId: e.campaignId, now });
-      if (!charged.ok) {
-        billedCampaigns.set(cacheKey, { ok: false, reason: charged.reason });
-
-        if (charged.reason === "insufficient_credits") {
-          await prisma.portalNurtureCampaign
-            .updateMany({ where: { id: e.campaignId, ownerId: e.ownerId, status: "ACTIVE" }, data: { status: "PAUSED", updatedAt: now } })
-            .catch(() => null);
+      if (!isStripeConfigured()) {
+        // Dev/test: allow cron without Stripe.
+        if (process.env.NODE_ENV !== "production") {
+          canRunCampaign.set(cacheKey, { ok: true });
+        } else {
+          canRunCampaign.set(cacheKey, { ok: false, reason: "Billing is unavailable." });
         }
       } else {
-        billedCampaigns.set(cacheKey, { ok: true });
+        const subId = String(e.campaign.stripeSubscriptionId ?? "").trim();
+        if (!subId) {
+          canRunCampaign.set(cacheKey, { ok: false, reason: "Missing campaign subscription." });
+        } else {
+          try {
+            const sub = await stripeGet<any>(`/v1/subscriptions/${encodeURIComponent(subId)}`);
+            const status = String(sub?.status ?? "");
+            if (["active", "trialing", "past_due"].includes(status)) {
+              canRunCampaign.set(cacheKey, { ok: true });
+            } else {
+              canRunCampaign.set(cacheKey, { ok: false, reason: "Campaign subscription inactive." });
+            }
+          } catch {
+            canRunCampaign.set(cacheKey, { ok: false, reason: "Unable to verify billing." });
+          }
+        }
       }
     }
 
-    const billed = billedCampaigns.get(cacheKey);
-    if (!billed?.ok) {
+    const okToRun = canRunCampaign.get(cacheKey);
+    if (!okToRun?.ok) {
+      await prisma.portalNurtureCampaign
+        .updateMany({ where: { id: e.campaignId, ownerId: e.ownerId, status: "ACTIVE" }, data: { status: "PAUSED", updatedAt: now } })
+        .catch(() => null);
+
       const retryAt = new Date(now.getTime() + 60 * 60 * 1000);
-      const msg = billed?.reason === "insufficient_credits" ? "Insufficient credits for monthly campaign billing." : "Billing is processing.";
+      const msg = okToRun?.reason || "Billing required.";
       await prisma.portalNurtureEnrollment.update({
         where: { id: e.id },
         data: { lastError: msg, nextSendAt: retryAt, updatedAt: now },
