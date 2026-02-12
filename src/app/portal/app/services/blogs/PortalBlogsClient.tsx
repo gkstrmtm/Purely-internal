@@ -401,12 +401,21 @@ export function PortalBlogsClient() {
         <div className="rounded-3xl border border-zinc-200 bg-white p-8">
           <div className="text-sm font-semibold text-zinc-900">Automated Blogs</div>
           <div className="mt-2 text-sm text-zinc-600">
-            This service isn’t active on your plan yet.
+            Publish consistent, SEO-ready posts without writing every week.
+          </div>
+
+          <div className="mt-6 rounded-3xl border border-zinc-200 bg-zinc-50 p-6">
+            <div className="text-sm font-semibold text-zinc-900">Why teams turn this on</div>
+            <ul className="mt-3 space-y-2 text-sm text-zinc-700">
+              <li className="flex items-start gap-2"><span className="mt-1 h-1.5 w-1.5 shrink-0 rounded-full bg-zinc-500" /><span>Fill your site with content that matches your offers and brand voice</span></li>
+              <li className="flex items-start gap-2"><span className="mt-1 h-1.5 w-1.5 shrink-0 rounded-full bg-zinc-500" /><span>Keep momentum with automation (set the cadence, review before publishing)</span></li>
+              <li className="flex items-start gap-2"><span className="mt-1 h-1.5 w-1.5 shrink-0 rounded-full bg-zinc-500" /><span>Build trust with prospects before they ever book a call</span></li>
+            </ul>
           </div>
 
           <div className="mt-6 flex flex-col gap-3 sm:flex-row">
             <Link
-              href="/portal/app/billing"
+              href="/portal/app/billing?buy=blog&autostart=1"
               className="inline-flex items-center justify-center rounded-2xl bg-[color:var(--color-brand-blue)] px-5 py-3 text-sm font-semibold text-white hover:opacity-95"
             >
               Unlock in billing

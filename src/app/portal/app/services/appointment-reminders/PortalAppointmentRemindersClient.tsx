@@ -363,9 +363,18 @@ export function PortalAppointmentRemindersClient() {
           </div>
           <h1 className="mt-2 text-2xl font-bold text-brand-ink sm:text-3xl">Appointment Reminders</h1>
           <p className="mt-3 max-w-2xl text-sm text-zinc-600">Requires Booking Automation to be on for your plan.</p>
+
+          <div className="mt-6 rounded-3xl border border-zinc-200 bg-zinc-50 p-6">
+            <div className="text-sm font-semibold text-zinc-900">Why this matters</div>
+            <ul className="mt-3 space-y-2 text-sm text-zinc-700">
+              <li className="flex items-start gap-2"><span className="mt-1 h-1.5 w-1.5 shrink-0 rounded-full bg-zinc-500" /><span>Cut no-shows with automatic SMS/email reminders</span></li>
+              <li className="flex items-start gap-2"><span className="mt-1 h-1.5 w-1.5 shrink-0 rounded-full bg-zinc-500" /><span>Keep customers informed without manual outreach</span></li>
+              <li className="flex items-start gap-2"><span className="mt-1 h-1.5 w-1.5 shrink-0 rounded-full bg-zinc-500" /><span>Spend time delivering service, not chasing confirmations</span></li>
+            </ul>
+          </div>
           <div className="mt-6 flex flex-col gap-3 sm:flex-row">
             <Link
-              href="/portal/app/billing"
+              href="/portal/app/billing?buy=booking&autostart=1"
               className="inline-flex items-center justify-center rounded-2xl bg-[color:var(--color-brand-blue)] px-5 py-3 text-sm font-semibold text-white hover:opacity-95"
             >
               Unlock in billing

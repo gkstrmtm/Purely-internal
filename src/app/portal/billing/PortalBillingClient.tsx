@@ -95,6 +95,7 @@ export function PortalBillingClient() {
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [actionBusy, setActionBusy] = useState<string | null>(null);
+  const [autoStartedCheckout, setAutoStartedCheckout] = useState(false);
 
   const [serviceMenuSlug, setServiceMenuSlug] = useState<string | null>(null);
 
@@ -218,10 +219,10 @@ export function PortalBillingClient() {
     }
   }, [toast]);
 
-  async function purchaseModule(module: "blog" | "booking" | "crm") {
+  async function purchaseModule(module: "blog" | "booking" | "crm" | "leadOutbound") {
     setError(null);
     setActionBusy(`module:${module}`);
-    const res = await fetch("/api/billing/checkout-module", {
+    const res = await fetch("/api/portal/billing/checkout-module", {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({
@@ -243,10 +244,47 @@ export function PortalBillingClient() {
     setError("Unable to start checkout");
   }
 
+  useEffect(() => {
+    if (loading) return;
+    if (!me) return;
+    if (autoStartedCheckout) return;
+
+    try {
+      const qs = new URLSearchParams(window.location.search);
+      const buyRaw = (qs.get("buy") || "").trim();
+      const autostart = (qs.get("autostart") || "").trim() === "1";
+      if (!buyRaw || !autostart) return;
+
+      if (!(["blog", "booking", "crm", "leadOutbound"] as const).includes(buyRaw as any)) return;
+      const buy = buyRaw as "blog" | "booking" | "crm" | "leadOutbound";
+
+      // Don't kick off checkout if it's already enabled.
+      if (Boolean((me as any)?.entitlements?.[buy])) {
+        const url = new URL(window.location.href);
+        url.searchParams.delete("buy");
+        url.searchParams.delete("autostart");
+        window.history.replaceState(null, "", url.toString());
+        setAutoStartedCheckout(true);
+        return;
+      }
+
+      setAutoStartedCheckout(true);
+      toast.success("Opening checkout…");
+      void purchaseModule(buy);
+
+      const url = new URL(window.location.href);
+      url.searchParams.delete("buy");
+      url.searchParams.delete("autostart");
+      window.history.replaceState(null, "", url.toString());
+    } catch {
+      // ignore
+    }
+  }, [loading, me, autoStartedCheckout, toast]);
+
   async function manage() {
     setError(null);
     setActionBusy("manage");
-    const res = await fetch("/api/billing/create-portal-session", {
+    const res = await fetch("/api/portal/billing/create-portal-session", {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({ returnPath: "/portal/app/billing" }),
@@ -934,7 +972,22 @@ export function PortalBillingClient() {
 
                   {serviceMenuSlug === s.slug ? (
                     <div className="absolute right-0 top-9 z-20 w-44 rounded-2xl border border-zinc-200 bg-white p-1 shadow-lg">
-                      {state === "paused" || state === "canceled" ? (
+                      {state === "locked" ? (
+                        <a
+                          href={
+                            s.entitlementKey
+                              ? `/portal/app/billing?buy=${encodeURIComponent(s.entitlementKey)}&autostart=1`
+                              : "/portal/app/billing"
+                          }
+                          className="block w-full rounded-xl px-3 py-2 text-left text-sm font-semibold text-zinc-900 hover:bg-zinc-50"
+                        >
+                          Unlock in billing
+                        </a>
+                      ) : state === "coming_soon" ? (
+                        <div className="w-full rounded-xl px-3 py-2 text-left text-sm font-semibold text-zinc-500">
+                          Coming soon
+                        </div>
+                      ) : state === "paused" || state === "canceled" ? (
                         <button
                           type="button"
                           disabled={busy || actionBusy !== null}
@@ -954,14 +1007,16 @@ export function PortalBillingClient() {
                         </button>
                       )}
 
-                      <button
-                        type="button"
-                        disabled={busy || actionBusy !== null}
-                        onClick={() => void setServiceLifecycle(s.slug, "cancel")}
-                        className="w-full rounded-xl px-3 py-2 text-left text-sm font-semibold text-red-700 hover:bg-red-50 disabled:opacity-60"
-                      >
-                        Cancel
-                      </button>
+                      {state === "locked" || state === "coming_soon" ? null : (
+                        <button
+                          type="button"
+                          disabled={busy || actionBusy !== null}
+                          onClick={() => void setServiceLifecycle(s.slug, "cancel")}
+                          className="w-full rounded-xl px-3 py-2 text-left text-sm font-semibold text-red-700 hover:bg-red-50 disabled:opacity-60"
+                        >
+                          Cancel
+                        </button>
+                      )}
                     </div>
                   ) : null}
                 </div>

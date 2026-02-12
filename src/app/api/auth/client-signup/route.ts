@@ -233,6 +233,22 @@ export async function POST(req: Request) {
         select: { id: true },
       });
 
+      // Default credits auto top-up ON for new accounts.
+      await tx.portalServiceSetup.upsert({
+        where: { ownerId_serviceSlug: { ownerId: user.id, serviceSlug: "credits" } },
+        create: {
+          ownerId: user.id,
+          serviceSlug: "credits",
+          status: "COMPLETE",
+          dataJson: { balance: 0, autoTopUp: true },
+        },
+        update: {
+          status: "COMPLETE",
+          dataJson: { balance: 0, autoTopUp: true },
+        },
+        select: { id: true },
+      });
+
       // Keep services gated until checkout completes.
       const allowed = new Set<string>(ONBOARDING_SERVICE_SLUGS_TO_GUARD as unknown as string[]);
       const coreIncluded = new Set<string>(CORE_INCLUDED_SERVICE_SLUGS as unknown as string[]);

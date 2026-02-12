@@ -39,6 +39,66 @@ function formatMonthly(cents: number, currency: string) {
   return `${curr} ${amount}`;
 }
 
+function benefitCopyForService(serviceSlug: string, entitlementKey?: string) {
+  const key = (entitlementKey || "").trim();
+  if (serviceSlug === "blogs" || key === "blog") {
+    return {
+      title: "Turn your website into a lead engine",
+      bullets: [
+        "Publish consistent, SEO-ready content without the weekly grind",
+        "Generate on-brand drafts from your topics and goals",
+        "Keep momentum with an automation schedule you control",
+        "Build trust with prospects before they ever talk to you",
+      ],
+    };
+  }
+
+  if (serviceSlug === "booking" || key === "booking") {
+    return {
+      title: "Book more appointments with less back-and-forth",
+      bullets: [
+        "Share a clean booking link that works 24/7",
+        "Capture the details you need up-front",
+        "Reduce no-shows with reminders",
+        "Stay organized with a single source of truth",
+      ],
+    };
+  }
+
+  if (serviceSlug === "follow-up" || key === "crm") {
+    return {
+      title: "Follow up faster (and never drop leads)",
+      bullets: [
+        "Automate follow-ups so every lead gets touched",
+        "Standardize messaging while staying personal",
+        "See what’s working and iterate",
+        "Spend time closing—not chasing",
+      ],
+    };
+  }
+
+  if (serviceSlug === "ai-outbound-calls" || key === "leadOutbound") {
+    return {
+      title: "Scale outbound without hiring a call team",
+      bullets: [
+        "Qualify leads consistently and route the best ones",
+        "Increase speed-to-lead with 24/7 coverage",
+        "Keep your team focused on warm conversations",
+        "Turn outbound into a predictable channel",
+      ],
+    };
+  }
+
+  return {
+    title: "Unlock this service",
+    bullets: [
+      "Add it in Billing and start configuring right away",
+      "Keep everything under one portal login",
+      "Upgrade or remove add-ons any time",
+    ],
+  };
+}
+
 export function PortalServicePageClient({ slug }: { slug: string }) {
   const service = useMemo(
     () => PORTAL_SERVICES.find((s) => s.slug === slug) ?? null,
@@ -105,6 +165,16 @@ export function PortalServicePageClient({ slug }: { slug: string }) {
       ? (pricing.modules as any)[service.entitlementKey as any]
       : null;
 
+  const entitlementKey = service?.entitlementKey;
+  const benefit = benefitCopyForService(slug, entitlementKey);
+
+  const billingUnlockHref =
+    isPaused || isCanceled
+      ? "/portal/app/billing"
+      : entitlementKey
+        ? `/portal/app/billing?buy=${encodeURIComponent(entitlementKey)}&autostart=1`
+        : "/portal/app/billing";
+
   if (!service) {
     return (
       <div className="mx-auto max-w-5xl rounded-3xl border border-zinc-200 bg-white p-6">
@@ -137,6 +207,18 @@ export function PortalServicePageClient({ slug }: { slug: string }) {
               ? "This service is turned off in Billing. Resume it any time to regain access."
               : "This service isn’t included in your current plan. You can add it any time."}
           </p>
+
+          <div className="mt-6 rounded-3xl border border-zinc-200 bg-zinc-50 p-6">
+            <div className="text-sm font-semibold text-zinc-900">{benefit.title}</div>
+            <ul className="mt-3 space-y-2 text-sm text-zinc-700">
+              {benefit.bullets.slice(0, 4).map((b) => (
+                <li key={b} className="flex items-start gap-2">
+                  <span className="mt-1 h-1.5 w-1.5 shrink-0 rounded-full bg-zinc-500" />
+                  <span>{b}</span>
+                </li>
+              ))}
+            </ul>
+          </div>
 
           {service.highlights?.length ? (
             <div className="mt-6 rounded-3xl border border-zinc-200 bg-zinc-50 p-6">
@@ -176,7 +258,7 @@ export function PortalServicePageClient({ slug }: { slug: string }) {
 
           <div className="mt-6 flex flex-col gap-3 sm:flex-row">
             <Link
-              href="/portal/app/billing"
+              href={billingUnlockHref}
               className="inline-flex items-center justify-center rounded-2xl bg-[color:var(--color-brand-blue)] px-5 py-3 text-sm font-semibold text-white hover:opacity-95"
             >
               Unlock in billing

@@ -819,9 +819,18 @@ export function PortalBookingClient() {
             This service isn’t included in your current plan. Upgrade to unlock your booking link and availability.
           </p>
 
+          <div className="mt-6 rounded-3xl border border-zinc-200 bg-zinc-50 p-6">
+            <div className="text-sm font-semibold text-zinc-900">What you unlock</div>
+            <ul className="mt-3 space-y-2 text-sm text-zinc-700">
+              <li className="flex items-start gap-2"><span className="mt-1 h-1.5 w-1.5 shrink-0 rounded-full bg-zinc-500" /><span>A booking link that works 24/7</span></li>
+              <li className="flex items-start gap-2"><span className="mt-1 h-1.5 w-1.5 shrink-0 rounded-full bg-zinc-500" /><span>Less back-and-forth scheduling</span></li>
+              <li className="flex items-start gap-2"><span className="mt-1 h-1.5 w-1.5 shrink-0 rounded-full bg-zinc-500" /><span>Reminders to reduce no-shows</span></li>
+            </ul>
+          </div>
+
           <div className="mt-6 flex flex-col gap-3 sm:flex-row">
             <Link
-              href="/portal/app/billing"
+              href="/portal/app/billing?buy=booking&autostart=1"
               className="inline-flex items-center justify-center rounded-2xl bg-[color:var(--color-brand-blue)] px-5 py-3 text-sm font-semibold text-white hover:opacity-95"
             >
               Unlock in billing
