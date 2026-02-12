@@ -11,8 +11,16 @@ export const dynamic = "force-dynamic";
 export const revalidate = 0;
 
 const bodySchema = z.object({
-  sessionId: z.string().min(10),
+  sessionId: z.string().min(10).optional(),
+  bypass: z.boolean().optional(),
 });
+
+function normalizeCouponCode(input: unknown): "RICHARD" | "BUILD" | null {
+  if (typeof input !== "string") return null;
+  const code = input.trim().toUpperCase();
+  if (code === "RICHARD" || code === "BUILD") return code;
+  return null;
+}
 
 type StripeCheckoutSession = {
   id?: string;
@@ -82,6 +90,13 @@ async function activateFromIntake(opts: { ownerId: string; intakeJson: Record<st
     for (const slug of plan.serviceSlugsToActivate) toActivate.add(slug);
   }
 
+  const couponCode = normalizeCouponCode((opts.intakeJson as any).couponCode);
+  if (couponCode === "BUILD") {
+    // BUILD: access to Inbox/Outbox + Media Library + Tasks (Core), plus AI Receptionist and Review Requests.
+    toActivate.add("ai-receptionist");
+    toActivate.add("reviews");
+  }
+
   const allKnownServiceSlugs = ALL_KNOWN_SERVICE_SLUGS as unknown as string[];
 
   await prisma.$transaction(async (tx) => {
@@ -135,6 +150,8 @@ export async function POST(req: Request) {
     return NextResponse.json({ ok: false, error: "Invalid payload" }, { status: 400 });
   }
 
+  const bypass = parsed.data.bypass === true;
+
   const ownerId = auth.session.user.id;
   const owner = await prisma.user.findUnique({ where: { id: ownerId }, select: { email: true } }).catch(() => null);
   const email = String(owner?.email || auth.session.user.email || "").trim().toLowerCase();
@@ -153,16 +170,19 @@ export async function POST(req: Request) {
     ? (intake.dataJson as Record<string, unknown>)
     : {};
 
-  if (!isStripeConfigured()) {
+  if (bypass || !isStripeConfigured()) {
     const activation = await activateFromIntake({ ownerId, intakeJson: intakeRec });
-    return NextResponse.json({ ok: true, stripeConfigured: false, activated: activation.activated });
+    return NextResponse.json({ ok: true, stripeConfigured: isStripeConfigured(), bypass, activated: activation.activated });
   }
 
   const customerId = await getOrCreateStripeCustomerId(email);
 
-  const session = await stripeGet<StripeCheckoutSession>(
-    `/v1/checkout/sessions/${encodeURIComponent(parsed.data.sessionId)}`,
-  );
+  const sessionId = parsed.data.sessionId;
+  if (!sessionId) {
+    return NextResponse.json({ ok: false, error: "Missing session_id" }, { status: 400 });
+  }
+
+  const session = await stripeGet<StripeCheckoutSession>(`/v1/checkout/sessions/${encodeURIComponent(sessionId)}`);
 
   if (!session || session.customer !== customerId) {
     return NextResponse.json({ ok: false, error: "Mismatched checkout session" }, { status: 400 });

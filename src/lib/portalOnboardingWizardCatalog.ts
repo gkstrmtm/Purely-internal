@@ -96,7 +96,7 @@ export const PORTAL_ONBOARDING_PLANS: PortalOnboardingPlan[] = [
     monthlyUsd: 139,
     serviceSlugsToActivate: ["newsletter"],
     requires: ["core"],
-    usageNotes: ["Extra sends: 30 credits each ($3.00)"],
+    usageNotes: [],
   },
   {
     id: "nurture",
@@ -121,7 +121,7 @@ export const PORTAL_ONBOARDING_PLANS: PortalOnboardingPlan[] = [
     monthlyUsd: 149,
     serviceSlugsToActivate: ["blogs"],
     requires: ["core"],
-    usageNotes: ["Extra blog posts: 50 credits each ($5.00)"],
+    usageNotes: [],
   },
   {
     id: "ai-receptionist",
@@ -130,7 +130,7 @@ export const PORTAL_ONBOARDING_PLANS: PortalOnboardingPlan[] = [
     monthlyUsd: 79,
     serviceSlugsToActivate: ["ai-receptionist"],
     requires: ["core"],
-    usageNotes: ["Usage: 5 credits per minute ($0.50/min)", "Twilio usage billed separately"],
+    usageNotes: [],
   },
   {
     id: "ai-outbound",
@@ -139,31 +139,25 @@ export const PORTAL_ONBOARDING_PLANS: PortalOnboardingPlan[] = [
     monthlyUsd: 99,
     serviceSlugsToActivate: ["ai-outbound-calls"],
     requires: ["core"],
-    usageNotes: [
-      "Call attempt: 10 credits each ($1.00/attempt)",
-      "Connected talk time: 5 credits per minute ($0.50/min)",
-      "AI message generation (SMS/email): 1 credit each ($0.10/message)",
-      "AI follow-up sequence generation: 5 credits each ($0.50/sequence)",
-      "Twilio usage billed separately",
-    ],
+    usageNotes: [],
   },
   {
     id: "lead-scraping-b2b",
     title: "Lead Scraping (B2B)",
-    description: "Usage-based lead delivery sourced from Google Maps.",
+    description: "Lead delivery for B2B prospecting.",
     monthlyUsd: 49,
     serviceSlugsToActivate: ["lead-scraping"],
     requires: ["core"],
-    usageNotes: ["20 credits per lead delivered ($2.00/lead)"],
+    usageNotes: [],
   },
   {
     id: "lead-scraping-b2c",
     title: "Lead Scraping (B2C)",
-    description: "Higher-volume consumer leads sourced from a third party.",
+    description: "Higher-volume consumer lead delivery.",
     monthlyUsd: 99,
     serviceSlugsToActivate: ["lead-scraping"],
     requires: ["core"],
-    usageNotes: ["30 credits per lead delivered ($3.00/lead)"],
+    usageNotes: [],
   },
 ];
 

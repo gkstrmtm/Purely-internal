@@ -19,7 +19,15 @@ export const revalidate = 0;
 const bodySchema = z.object({
   planIds: z.array(z.string()).max(20),
   planQuantities: z.record(z.string(), z.number().int().min(0).max(50)).optional(),
+  couponCode: z.string().trim().max(80).optional(),
 });
+
+function normalizeCouponCode(input: unknown): "RICHARD" | "BUILD" | null {
+  if (typeof input !== "string") return null;
+  const code = input.trim().toUpperCase();
+  if (code === "RICHARD" || code === "BUILD") return code;
+  return null;
+}
 
 function originFromReq(req: Request) {
   return (
@@ -49,6 +57,8 @@ export async function POST(req: Request) {
     return NextResponse.json({ ok: false, error: "Invalid payload" }, { status: 400 });
   }
 
+  const couponCode = normalizeCouponCode(parsed.data.couponCode);
+
   const ownerId = auth.session.user.id;
   const owner = await prisma.user.findUnique({ where: { id: ownerId }, select: { email: true } }).catch(() => null);
   const email = String(owner?.email || auth.session.user.email || "").trim().toLowerCase();
@@ -59,6 +69,11 @@ export async function POST(req: Request) {
   const allowed = new Set<string>(ONBOARDING_UPFRONT_PAID_PLAN_IDS as unknown as string[]);
   const raw = parsed.data.planIds.map((s) => s.trim()).filter(Boolean);
   const unique = Array.from(new Set(raw)).filter((id) => allowed.has(id));
+
+  // Internal coupons that bypass Stripe.
+  if (couponCode === "RICHARD") {
+    return NextResponse.json({ ok: true, bypass: true, couponCode }, { status: 200 });
+  }
 
   // Always include Core.
   if (!unique.includes("core")) unique.unshift("core");
@@ -103,6 +118,7 @@ export async function POST(req: Request) {
 
   let idx = 0;
   for (const planId of unique) {
+    if (couponCode === "BUILD" && (planId === "ai-receptionist" || planId === "reviews")) continue;
     const plan = planById(planId);
     if (!plan) continue;
 
@@ -133,9 +149,18 @@ export async function POST(req: Request) {
     idx += 1;
   }
 
-  const totalMonthly = monthlyTotalUsd(unique, qtyById);
-  const totalOneTime = oneTimeTotalUsd(unique, qtyById);
+  const billableForTotals = couponCode === "BUILD"
+    ? unique.filter((id) => id !== "ai-receptionist" && id !== "reviews")
+    : unique;
+
+  const totalMonthly = monthlyTotalUsd(billableForTotals, qtyById);
+  const totalOneTime = oneTimeTotalUsd(billableForTotals, qtyById);
   const totalDueToday = totalMonthly + totalOneTime;
+
+  if (couponCode === "BUILD" && (!totalDueToday || totalDueToday <= 0 || idx === 0)) {
+    return NextResponse.json({ ok: true, bypass: true, couponCode }, { status: 200 });
+  }
+
   if (!totalDueToday || totalDueToday <= 0 || idx === 0) {
     return NextResponse.json({ ok: false, error: "No billable items selected" }, { status: 400 });
   }

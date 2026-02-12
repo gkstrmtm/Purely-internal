@@ -29,6 +29,7 @@ const bodySchema = z.object({
   selectedServiceSlugs: z.array(z.string()).max(20).optional(),
   selectedPlanIds: z.array(z.string()).max(20).optional(),
   selectedPlanQuantities: z.record(z.string(), z.number()).optional(),
+  couponCode: z.string().trim().max(80).optional(),
 });
 
 const ONBOARDING_SERVICE_SLUGS_TO_GUARD = [
@@ -83,7 +84,9 @@ function withLifecycle(dataJson: unknown, lifecycle: { state: string; reason?: s
 }
 
 export async function POST(req: Request) {
-  if (process.env.CLIENT_SIGNUP_ENABLED !== "true") {
+  // Default to enabled. Set CLIENT_SIGNUP_ENABLED="false" to disable.
+  const enabledFlag = String(process.env.CLIENT_SIGNUP_ENABLED ?? "").trim().toLowerCase();
+  if (["0", "false", "off", "disabled"].includes(enabledFlag)) {
     return NextResponse.json(
       { error: "Customer signup is disabled" },
       { status: 403 },
@@ -115,6 +118,8 @@ export async function POST(req: Request) {
   const businessModel = (parsed.data.businessModel || "").trim();
   const targetCustomer = (parsed.data.targetCustomer || "").trim();
   const brandVoice = (parsed.data.brandVoice || "").trim();
+
+  const couponCode = (parsed.data.couponCode || "").trim().toUpperCase().slice(0, 40);
 
   const existing = await prisma.user.findUnique({ where: { email } });
   if (existing) {
@@ -190,6 +195,7 @@ export async function POST(req: Request) {
               ? parsed.data.selectedPlanIds.map((x) => (typeof x === "string" ? x.trim() : "")).filter(Boolean).slice(0, 20)
               : [],
             selectedPlanQuantities: normalizePlanQuantities(parsed.data.selectedPlanQuantities),
+            couponCode: couponCode || null,
             createdAt: new Date().toISOString(),
           },
         },
@@ -211,6 +217,7 @@ export async function POST(req: Request) {
               ? parsed.data.selectedPlanIds.map((x) => (typeof x === "string" ? x.trim() : "")).filter(Boolean).slice(0, 20)
               : [],
             selectedPlanQuantities: normalizePlanQuantities(parsed.data.selectedPlanQuantities),
+            couponCode: couponCode || null,
             createdAt: new Date().toISOString(),
           },
         },

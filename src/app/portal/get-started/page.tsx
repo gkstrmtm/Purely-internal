@@ -32,7 +32,7 @@ function classNames(...xs: Array<string | false | null | undefined>) {
 }
 
 function moneyLabel(monthlyUsd: number) {
-  if (!monthlyUsd || monthlyUsd <= 0) return "Usage-based";
+  if (!monthlyUsd || monthlyUsd <= 0) return "$0/mo";
   return `${formatUsd(monthlyUsd, { maximumFractionDigits: 0 })}/mo`;
 }
 
@@ -90,6 +90,11 @@ export default function PortalGetStartedPage() {
   const [selectionTouched, setSelectionTouched] = useState(false);
   const [showAllServices, setShowAllServices] = useState(false);
 
+  const [couponCode, setCouponCode] = useState("");
+  const normalizedCoupon = couponCode.trim().toUpperCase();
+  const couponIsRichard = normalizedCoupon === "RICHARD";
+  const couponIsBuild = normalizedCoupon === "BUILD";
+
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
 
@@ -101,6 +106,13 @@ export default function PortalGetStartedPage() {
     if (selectionTouched) return;
     setSelectedPlanIds(Array.from(new Set(["core", ...recommendedPlanIds])));
   }, [recommendedPlanIds, selectionTouched]);
+
+  useEffect(() => {
+    // BUILD coupon: free bundle access for testing.
+    if (!couponIsBuild) return;
+    setSelectionTouched(true);
+    setSelectedPlanIds((prev) => Array.from(new Set(["core", "ai-receptionist", "reviews", ...prev])));
+  }, [couponIsBuild]);
 
   useEffect(() => {
     // Keep quantities in sync with selection.
@@ -125,6 +137,7 @@ export default function PortalGetStartedPage() {
   }
 
   function togglePlan(id: string) {
+    if (couponIsBuild && (id === "ai-receptionist" || id === "reviews")) return;
     setSelectionTouched(true);
     setSelectedPlanIds((prev) => {
       const s = new Set(prev);
@@ -156,14 +169,17 @@ export default function PortalGetStartedPage() {
     .filter((p): p is NonNullable<ReturnType<typeof planById>> => Boolean(p));
 
   const upfrontPaidPlanIds = selectedPlanIds.filter((id) => (ONBOARDING_UPFRONT_PAID_PLAN_IDS as readonly string[]).includes(id));
-  const upfrontPaidPlans = upfrontPaidPlanIds
-    .map((id) => planById(id))
-    .filter((p): p is NonNullable<ReturnType<typeof planById>> => Boolean(p))
-    .filter((p) => (p.monthlyUsd || 0) > 0 || (p.oneTimeUsd || 0) > 0);
 
-  const monthlyTotalUsd = catalogMonthlyTotalUsd(upfrontPaidPlanIds, planQuantities);
-  const oneTimeTotalUsd = catalogOneTimeTotalUsd(upfrontPaidPlanIds, planQuantities);
+  const billablePlanIds = couponIsRichard
+    ? []
+    : couponIsBuild
+      ? upfrontPaidPlanIds.filter((id) => id !== "ai-receptionist" && id !== "reviews")
+      : upfrontPaidPlanIds;
+
+  const monthlyTotalUsd = catalogMonthlyTotalUsd(billablePlanIds, planQuantities);
+  const oneTimeTotalUsd = catalogOneTimeTotalUsd(billablePlanIds, planQuantities);
   const dueTodayUsd = monthlyTotalUsd + oneTimeTotalUsd;
+  const monthlyThereafterUsd = monthlyTotalUsd;
 
   const selectedServiceSlugs = Array.from(
     new Set(
@@ -204,6 +220,7 @@ export default function PortalGetStartedPage() {
         selectedServiceSlugs,
         selectedPlanIds,
         selectedPlanQuantities: planQuantities,
+        couponCode: normalizedCoupon,
       }),
     });
 
@@ -232,11 +249,17 @@ export default function PortalGetStartedPage() {
       body: JSON.stringify({
         planIds: upfrontPaidPlanIds,
         planQuantities: planQuantities,
+        couponCode: normalizedCoupon,
       }),
     });
 
     const checkoutJson = await checkoutRes.json().catch(() => null);
     setLoading(false);
+
+    if (checkoutJson?.ok && checkoutJson?.bypass) {
+      router.push("/portal/get-started/complete?bypass=1");
+      return;
+    }
 
     if (!checkoutRes.ok || !checkoutJson?.ok || !checkoutJson?.url) {
       toast.error(checkoutJson?.error || "Unable to start checkout");
@@ -409,6 +432,31 @@ export default function PortalGetStartedPage() {
                 </div>
 
                 <div className="mt-4 space-y-3">
+                  <div className="rounded-2xl border border-zinc-200 bg-white p-4">
+                    <div className="flex flex-wrap items-center justify-between gap-3">
+                      <div>
+                        <div className="text-sm font-semibold text-zinc-900">Coupon code</div>
+                        <div className="mt-1 text-xs text-zinc-500">Optional — you can also enter a promo code at checkout.</div>
+                      </div>
+
+                      <input
+                        value={couponCode}
+                        onChange={(e) => setCouponCode(e.target.value)}
+                        placeholder="Enter code"
+                        className="w-full rounded-2xl border border-zinc-200 bg-white px-4 py-3 text-sm outline-none focus:border-zinc-400 sm:w-64"
+                      />
+                    </div>
+
+                    {couponIsRichard ? (
+                      <div className="mt-2 text-xs font-semibold text-emerald-700">RICHARD applied — everything is free for testing.</div>
+                    ) : null}
+                    {couponIsBuild ? (
+                      <div className="mt-2 text-xs font-semibold text-emerald-700">
+                        BUILD applied — free bundle enabled (Core + AI Receptionist + Reviews).
+                      </div>
+                    ) : null}
+                  </div>
+
                   <div className="rounded-2xl border border-zinc-200 bg-zinc-50 p-4">
                     <div className="flex items-start justify-between gap-4">
                       <div>
@@ -429,14 +477,17 @@ export default function PortalGetStartedPage() {
                       if (!p) return null;
                       const checked = selectedPlanIds.includes(id);
                       const qty = planQuantity(p, planQuantities);
+                      const buildFree = couponIsBuild && (id === "ai-receptionist" || id === "reviews");
                       return (
                         <button
                           key={id}
                           type="button"
                           onClick={() => togglePlan(id)}
+                          disabled={couponIsBuild && (id === "ai-receptionist" || id === "reviews")}
                           className={classNames(
                             "flex w-full items-start justify-between gap-4 rounded-2xl border p-4 text-left",
                             checked ? "border-emerald-200 bg-emerald-50" : "border-zinc-200 bg-white hover:bg-zinc-50",
+                            couponIsBuild && (id === "ai-receptionist" || id === "reviews") ? "cursor-not-allowed opacity-70" : "",
                           )}
                         >
                           <div>
@@ -461,13 +512,10 @@ export default function PortalGetStartedPage() {
                                 />
                               </div>
                             ) : null}
-                            {p.usageNotes?.length ? (
-                              <div className="mt-2 text-xs text-zinc-500">{p.usageNotes[0]}</div>
-                            ) : null}
                           </div>
                           <div className="text-right">
-                            <div className="text-sm font-semibold text-zinc-900">{moneyLabel(p.monthlyUsd)}</div>
-                            {p.oneTimeUsd ? (
+                            <div className="text-sm font-semibold text-zinc-900">{buildFree ? "$0/mo" : moneyLabel(p.monthlyUsd)}</div>
+                            {p.oneTimeUsd && !buildFree ? (
                               <div className="mt-1 text-xs font-semibold text-zinc-600">+{formatUsd(p.oneTimeUsd, { maximumFractionDigits: 0 })} setup</div>
                             ) : null}
                             <div
@@ -495,14 +543,17 @@ export default function PortalGetStartedPage() {
                       {PORTAL_ONBOARDING_PLANS.filter((p) => p.id !== "core").map((p) => {
                         const checked = selectedPlanIds.includes(p.id);
                         const qty = planQuantity(p, planQuantities);
+                        const buildFree = couponIsBuild && (p.id === "ai-receptionist" || p.id === "reviews");
                         return (
                           <button
                             key={p.id}
                             type="button"
                             onClick={() => togglePlan(p.id)}
+                            disabled={couponIsBuild && (p.id === "ai-receptionist" || p.id === "reviews")}
                             className={classNames(
                               "flex w-full items-start justify-between gap-4 rounded-2xl border p-4 text-left",
                               checked ? "border-emerald-200 bg-emerald-50" : "border-zinc-200 bg-white hover:bg-zinc-50",
+                              couponIsBuild && (p.id === "ai-receptionist" || p.id === "reviews") ? "cursor-not-allowed opacity-70" : "",
                             )}
                           >
                             <div>
@@ -527,13 +578,10 @@ export default function PortalGetStartedPage() {
                                   />
                                 </div>
                               ) : null}
-                              {p.usageNotes?.length ? (
-                                <div className="mt-2 text-xs text-zinc-500">{p.usageNotes.slice(0, 2).join(" · ")}</div>
-                              ) : null}
                             </div>
                             <div className="text-right">
-                              <div className="text-sm font-semibold text-zinc-900">{moneyLabel(p.monthlyUsd)}</div>
-                              {p.oneTimeUsd ? (
+                              <div className="text-sm font-semibold text-zinc-900">{buildFree ? "$0/mo" : moneyLabel(p.monthlyUsd)}</div>
+                              {p.oneTimeUsd && !buildFree ? (
                                 <div className="mt-1 text-xs font-semibold text-zinc-600">+{formatUsd(p.oneTimeUsd, { maximumFractionDigits: 0 })} setup</div>
                               ) : null}
                               <div
@@ -556,12 +604,11 @@ export default function PortalGetStartedPage() {
                     </div>
                     <div className="mt-2 flex flex-wrap items-center justify-between gap-2">
                       <div className="text-xs font-semibold text-zinc-600">Monthly thereafter</div>
-                      <div className="text-xs font-semibold text-zinc-700">{formatUsd(monthlyTotalUsd, { maximumFractionDigits: 0 })}/mo</div>
+                      <div className="text-xs font-semibold text-zinc-700">{formatUsd(monthlyThereafterUsd, { maximumFractionDigits: 0 })}/mo</div>
                     </div>
                     {oneTimeTotalUsd > 0 ? (
                       <div className="mt-1 text-xs text-zinc-500">Includes {formatUsd(oneTimeTotalUsd, { maximumFractionDigits: 0 })} in one-time setup fees.</div>
                     ) : null}
-                    <div className="mt-2 text-xs text-zinc-500">Usage-based credits and Twilio usage are billed separately when used.</div>
                   </div>
                 </div>
               </div>

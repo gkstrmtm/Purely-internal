@@ -11,13 +11,14 @@ export default function PortalGetStartedCompletePage() {
   const toast = useToast();
 
   const sessionId = useMemo(() => (params?.get("session_id") || "").trim(), [params]);
+  const bypass = useMemo(() => (params?.get("bypass") || "").trim() === "1", [params]);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
     let mounted = true;
 
     (async () => {
-      if (!sessionId) {
+      if (!sessionId && !bypass) {
         toast.error("Missing checkout session");
         router.replace("/portal/get-started");
         return;
@@ -26,7 +27,7 @@ export default function PortalGetStartedCompletePage() {
       const res = await fetch("/api/portal/billing/onboarding-confirm", {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ sessionId }),
+        body: JSON.stringify(bypass ? { bypass: true } : { sessionId }),
       });
 
       const json = await res.json().catch(() => null);
@@ -46,7 +47,7 @@ export default function PortalGetStartedCompletePage() {
     return () => {
       mounted = false;
     };
-  }, [router, sessionId, toast]);
+  }, [router, sessionId, toast, bypass]);
 
   return (
     <div className="min-h-screen bg-brand-mist text-brand-ink">
