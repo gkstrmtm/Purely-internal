@@ -7,6 +7,7 @@ import { PortalVariablePickerModal } from "@/components/PortalVariablePickerModa
 import { PortalListboxDropdown, type PortalListboxOption } from "@/components/PortalListboxDropdown";
 import { useToast } from "@/components/ToastProvider";
 import { LEAD_OUTBOUND_VARIABLES } from "@/lib/portalTemplateVars";
+import { CREDIT_USD_VALUE, formatUsd } from "@/lib/pricing.shared";
 
 const TAG_COLORS = [
   "#0EA5E9", // sky
@@ -1620,7 +1621,9 @@ export function PortalLeadScrapingClient() {
                     <div className="mt-1 text-sm text-zinc-600">Search businesses by niche/keywords + location.</div>
                   </div>
                   <div className="text-right text-xs text-zinc-500">
-                    Est. max cost per run: <span className="font-semibold text-zinc-900">{estimatedRunCost}</span> credits
+                    Est. max cost per run:{" "}
+                    <span className="font-semibold text-zinc-900">{estimatedRunCost}</span> credits (
+                    {formatUsd(Number(estimatedRunCost || 0) * CREDIT_USD_VALUE)})
                   </div>
                 </div>
 

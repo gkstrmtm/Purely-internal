@@ -45,7 +45,7 @@ function forceActiveForFullDemo(serviceSlug: string) {
 function isUnlocked(opts: {
   isFullDemo: boolean;
   included?: boolean;
-  entitlementKey?: "blog" | "booking" | "crm";
+  entitlementKey?: "blog" | "booking" | "crm" | "leadOutbound";
   entitlements: Record<string, boolean>;
 }) {
   if (opts.isFullDemo) return true;

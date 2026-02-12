@@ -3,7 +3,7 @@ export type PortalService = {
   title: string;
   description: string;
   highlights?: string[];
-  entitlementKey?: "blog" | "booking" | "crm";
+  entitlementKey?: "blog" | "booking" | "crm" | "leadOutbound";
   included?: boolean;
   accent: "blue" | "coral" | "ink";
   hidden?: boolean;
@@ -137,6 +137,7 @@ export const PORTAL_SERVICES: PortalService[] = [
       "Call script + simple logging",
       "Works with automations",
     ],
+    entitlementKey: "leadOutbound",
     accent: "coral",
   },
   {

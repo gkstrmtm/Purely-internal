@@ -12,7 +12,7 @@ export async function listElevenLabsConvaiPhoneNumbers(opts: {
   apiKey: string;
 }): Promise<{ ok: true; phoneNumbers: ElevenLabsPhoneNumber[] } | { ok: false; error: string; status?: number }> {
   const apiKey = String(opts.apiKey || "").trim();
-  if (!apiKey) return { ok: false, error: "Missing ElevenLabs API key" };
+  if (!apiKey) return { ok: false, error: "Missing voice agent API key" };
 
   const url = `https://api.elevenlabs.io/v1/convai/phone-numbers`;
   const res = await fetch(url, {
@@ -24,7 +24,11 @@ export async function listElevenLabsConvaiPhoneNumbers(opts: {
 
   const text = await res.text().catch(() => "");
   if (!res.ok) {
-    return { ok: false, error: `ElevenLabs failed (${res.status}): ${text.slice(0, 400)}`, status: res.status };
+    return {
+      ok: false,
+      error: `Voice agent request failed (${res.status}): ${text.slice(0, 400)}`,
+      status: res.status,
+    };
   }
 
   try {
@@ -42,8 +46,8 @@ export async function resolveElevenLabsAgentPhoneNumberId(opts: {
 }): Promise<{ ok: true; phoneNumberId: string } | { ok: false; error: string; status?: number }> {
   const apiKey = String(opts.apiKey || "").trim();
   const agentId = String(opts.agentId || "").trim();
-  if (!apiKey) return { ok: false, error: "Missing ElevenLabs API key" };
-  if (!agentId) return { ok: false, error: "Missing ElevenLabs agent id" };
+  if (!apiKey) return { ok: false, error: "Missing voice agent API key" };
+  if (!agentId) return { ok: false, error: "Missing voice agent ID" };
 
   const list = await listElevenLabsConvaiPhoneNumbers({ apiKey });
   if (!list.ok) return list;
@@ -76,7 +80,7 @@ export async function resolveElevenLabsAgentPhoneNumberId(opts: {
   return {
     ok: false,
     error:
-      "Unable to choose an agent phone number in ElevenLabs. Assign a phone number to this agent in ElevenLabs ConvAI, or ensure only one phone number exists.",
+      "Unable to choose an agent phone number. Assign a phone number to this agent in your voice agent platform, or ensure only one phone number exists.",
   };
 }
 
@@ -101,9 +105,9 @@ export async function placeElevenLabsTwilioOutboundCall(opts: {
   const agentPhoneNumberId = String(opts.agentPhoneNumberId || "").trim();
   const toNumber = String(opts.toNumberE164 || "").trim();
 
-  if (!apiKey) return { ok: false, error: "Missing ElevenLabs API key" };
-  if (!agentId) return { ok: false, error: "Missing ElevenLabs agent id" };
-  if (!agentPhoneNumberId) return { ok: false, error: "Missing ElevenLabs agent phone number id" };
+  if (!apiKey) return { ok: false, error: "Missing voice agent API key" };
+  if (!agentId) return { ok: false, error: "Missing voice agent ID" };
+  if (!agentPhoneNumberId) return { ok: false, error: "Missing voice agent phone number ID" };
   if (!toNumber) return { ok: false, error: "Missing destination phone number" };
 
   const body: any = {
@@ -128,7 +132,11 @@ export async function placeElevenLabsTwilioOutboundCall(opts: {
 
   const text = await res.text().catch(() => "");
   if (!res.ok) {
-    return { ok: false, error: `ElevenLabs failed (${res.status}): ${text.slice(0, 400)}`, status: res.status };
+    return {
+      ok: false,
+      error: `Voice agent request failed (${res.status}): ${text.slice(0, 400)}`,
+      status: res.status,
+    };
   }
 
   try {
@@ -180,8 +188,8 @@ export async function patchElevenLabsAgent(opts: {
 }): Promise<{ ok: true; agent: any } | { ok: false; error: string; status?: number }> {
   const apiKey = String(opts.apiKey || "").trim();
   const agentId = String(opts.agentId || "").trim();
-  if (!apiKey) return { ok: false, error: "Missing ElevenLabs API key" };
-  if (!agentId) return { ok: false, error: "Missing ElevenLabs agent id" };
+  if (!apiKey) return { ok: false, error: "Missing voice agent API key" };
+  if (!agentId) return { ok: false, error: "Missing voice agent ID" };
 
   const body: any = {};
 
@@ -229,7 +237,11 @@ export async function patchElevenLabsAgent(opts: {
 
   const text = await res.text().catch(() => "");
   if (!res.ok) {
-    return { ok: false, error: `ElevenLabs failed (${res.status}): ${text.slice(0, 400)}`, status: res.status };
+    return {
+      ok: false,
+      error: `Voice agent request failed (${res.status}): ${text.slice(0, 400)}`,
+      status: res.status,
+    };
   }
 
   try {

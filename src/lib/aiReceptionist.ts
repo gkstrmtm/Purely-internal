@@ -50,7 +50,7 @@ export type AiReceptionistCallEvent = {
   recordingDurationSec?: number;
   // Demo-only recording id (served via an authenticated endpoint). Avoid storing URLs in event data.
   demoRecordingId?: string;
-  // Best-effort contact info captured by your voice agent (e.g. ElevenLabs).
+  // Best-effort contact info captured by your voice agent.
   contactName?: string;
   contactEmail?: string;
   contactPhone?: string;

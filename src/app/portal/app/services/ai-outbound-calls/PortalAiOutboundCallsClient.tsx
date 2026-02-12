@@ -25,6 +25,17 @@ type Campaign = {
 
 type ContactTag = { id: string; name: string; color: string | null };
 
+type VoiceTool = {
+  key: string;
+  label: string;
+  description: string;
+  toolId: string | null;
+};
+
+type ApiGetVoiceToolsResponse =
+  | { ok: true; tools: VoiceTool[] }
+  | { ok: false; error?: string };
+
 type ApiGetCampaignsResponse =
   | { ok: true; campaigns: Campaign[] }
   | { ok: false; error: string };
@@ -66,6 +77,7 @@ export function PortalAiOutboundCallsClient() {
 
   const [campaigns, setCampaigns] = useState<Campaign[]>([]);
   const [tags, setTags] = useState<ContactTag[]>([]);
+  const [voiceTools, setVoiceTools] = useState<VoiceTool[]>([]);
 
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const selected = useMemo(() => campaigns.find((c) => c.id === selectedId) ?? null, [campaigns, selectedId]);
@@ -128,6 +140,37 @@ export function PortalAiOutboundCallsClient() {
   useEffect(() => {
     loadAll();
     // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  useEffect(() => {
+    let mounted = true;
+    (async () => {
+      const res = await fetch("/api/portal/voice-agent/tools", { cache: "no-store" }).catch(() => null as any);
+      if (!mounted) return;
+      if (!res || !res.ok) {
+        setVoiceTools([]);
+        return;
+      }
+      const json = (await res.json().catch(() => null)) as ApiGetVoiceToolsResponse | null;
+      if (json && typeof json === "object" && (json as any).ok === true && Array.isArray((json as any).tools)) {
+        setVoiceTools(
+          (json as any).tools
+            .map((t: any) => ({
+              key: String(t?.key || "").trim(),
+              label: String(t?.label || "").trim(),
+              description: String(t?.description || "").trim(),
+              toolId: typeof t?.toolId === "string" && t.toolId.trim() ? String(t.toolId).trim() : null,
+            }))
+            .filter((t: VoiceTool) => Boolean(t.key && t.label)),
+        );
+      } else {
+        setVoiceTools([]);
+      }
+    })();
+
+    return () => {
+      mounted = false;
+    };
   }, []);
 
   useEffect(() => {
@@ -308,6 +351,20 @@ export function PortalAiOutboundCallsClient() {
     return (selected?.audienceTagIds ?? []).map((id) => map.get(id)).filter(Boolean) as ContactTag[];
   }, [tags, selected]);
 
+  const configuredVoiceTools = useMemo(() => voiceTools.filter((t) => Boolean(t.toolId)), [voiceTools]);
+
+  function toolIdsForPreset(preset: "none" | "recommended" | "all"): string[] {
+    if (preset === "none") return [];
+    const all = configuredVoiceTools.map((t) => t.toolId as string);
+    if (preset === "all") return all;
+
+    const recKeys = new Set<string>(["voicemail_detection", "language_detection", "end_call"]);
+    const rec = configuredVoiceTools
+      .filter((t) => recKeys.has(t.key))
+      .map((t) => t.toolId as string);
+    return rec.length ? rec : all;
+  }
+
   return (
     <div className="mx-auto w-full max-w-6xl">
       <div className="flex flex-col items-start justify-between gap-3 sm:flex-row sm:items-end">
@@ -413,7 +470,7 @@ export function PortalAiOutboundCallsClient() {
               <div className="mt-5">
                 <div className="text-sm font-semibold text-zinc-800">Call script</div>
                 <p className="mt-1 text-xs text-zinc-500">
-                  This is read aloud when the call connects.
+                  If set, this overrides the agent’s opening line for each call. Leave blank to use the agent’s configured first message.
                 </p>
                 <textarea
                   value={selected.script}
@@ -428,10 +485,20 @@ export function PortalAiOutboundCallsClient() {
               </div>
 
               <div className="mt-5">
-                <div className="text-sm font-semibold text-zinc-800">Voice agent (ElevenLabs)</div>
+                <div className="text-sm font-semibold text-zinc-800">Voice agent</div>
                 <p className="mt-1 text-xs text-zinc-500">
-                  Optional: configure an ElevenLabs agent ID + behavior for this campaign.
+                  Optional: configure an agent ID + behavior for this campaign.
                 </p>
+
+                <div className="mt-3 rounded-2xl border border-zinc-200 bg-zinc-50 p-4 text-sm text-zinc-700">
+                  <div className="font-semibold text-zinc-900">How this works</div>
+                  <ul className="mt-2 list-disc space-y-1 pl-5 text-xs text-zinc-600">
+                    <li>API key lives in <span className="font-semibold">AI Receptionist</span> settings.</li>
+                    <li>Default Agent ID lives in your <span className="font-semibold">Profile</span>; you can override it per campaign.</li>
+                    <li>Leaving behavior fields blank means Purely won’t overwrite your agent’s existing behavior when syncing.</li>
+                    <li>The campaign <span className="font-semibold">Call script</span> (if set) overrides the agent’s first message for that call.</li>
+                  </ul>
+                </div>
 
                 <div className="mt-3 flex items-center justify-end">
                   <button
@@ -442,15 +509,15 @@ export function PortalAiOutboundCallsClient() {
                       "rounded-2xl px-4 py-2 text-xs font-semibold",
                       busy ? "bg-zinc-200 text-zinc-600" : "bg-brand-ink text-white hover:opacity-95",
                     )}
-                    title="Push these settings to ElevenLabs (requires API key set in AI Receptionist)"
+                    title="Push these settings to your voice agent (requires API key set in AI Receptionist)"
                   >
-                    {busy ? "Syncing…" : "Sync to ElevenLabs"}
+                    {busy ? "Syncing…" : "Sync agent settings"}
                   </button>
                 </div>
 
                 <div className="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-2">
                   <div>
-                    <div className="text-xs font-semibold text-zinc-700">Agent ID override</div>
+                    <div className="text-xs font-semibold text-zinc-700">Agent ID (campaign override)</div>
                     <input
                       value={selected.voiceAgentId ?? ""}
                       onChange={(e) => {
@@ -467,31 +534,145 @@ export function PortalAiOutboundCallsClient() {
                   </div>
 
                   <div>
-                    <div className="text-xs font-semibold text-zinc-700">Tool IDs</div>
-                    <input
-                      value={(selected.voiceAgentConfig?.toolIds ?? []).join(", ")}
-                      onChange={(e) => {
-                        const toolIds = normalizeToolIdsCsv(e.target.value);
-                        setCampaigns((prev) =>
-                          prev.map((c) =>
-                            c.id === selected.id
-                              ? {
-                                  ...c,
-                                  voiceAgentConfig: { ...(c.voiceAgentConfig ?? DEFAULT_VOICE_AGENT_CONFIG), toolIds },
-                                }
-                              : c,
-                          ),
-                        );
-                      }}
-                      onBlur={() =>
-                        updateCampaign({
-                          voiceAgentConfig: { toolIds: selected.voiceAgentConfig?.toolIds ?? [] },
-                        })
-                      }
-                      placeholder="tool_123, tool_abc (optional)"
-                      className="mt-1 w-full rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-sm"
-                    />
-                    <div className="mt-1 text-[11px] text-zinc-500">Comma-separated tool IDs from ElevenLabs.</div>
+                    <div className="text-xs font-semibold text-zinc-700">Tools</div>
+                    <div className="mt-1 rounded-2xl border border-zinc-200 bg-white p-3">
+                      <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+                        <div className="text-[11px] text-zinc-600">
+                          Pick the tools you want the agent to have access to. Hover a tool to see what it does.
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <select
+                            className="h-9 rounded-xl border border-zinc-200 bg-white px-2 text-xs"
+                            defaultValue="recommended"
+                            onChange={(e) => {
+                              const preset = String(e.target.value || "recommended") as
+                                | "none"
+                                | "recommended"
+                                | "all";
+                              const next = toolIdsForPreset(preset);
+                              setCampaigns((prev) =>
+                                prev.map((c) =>
+                                  c.id === selected.id
+                                    ? {
+                                        ...c,
+                                        voiceAgentConfig: {
+                                          ...(c.voiceAgentConfig ?? DEFAULT_VOICE_AGENT_CONFIG),
+                                          toolIds: next,
+                                        },
+                                      }
+                                    : c,
+                                ),
+                              );
+                              updateCampaign({ voiceAgentConfig: { toolIds: next } });
+                            }}
+                            disabled={busy}
+                            title="Quick presets"
+                          >
+                            <option value="recommended">Recommended</option>
+                            <option value="none">None</option>
+                            <option value="all">All configured</option>
+                          </select>
+                        </div>
+                      </div>
+
+                      <div className="mt-3 grid grid-cols-1 gap-2">
+                        {voiceTools.length === 0 ? (
+                          <div className="text-[11px] text-zinc-500">
+                            No tool presets are configured yet. You can still enter tool IDs in Advanced.
+                          </div>
+                        ) : (
+                          voiceTools.map((t) => {
+                            const id = t.toolId;
+                            const enabled = Boolean(id && (selected.voiceAgentConfig?.toolIds ?? []).includes(id));
+                            const configured = Boolean(id);
+                            return (
+                              <label
+                                key={t.key}
+                                className={classNames(
+                                  "flex cursor-pointer items-start justify-between gap-3 rounded-xl border px-3 py-2",
+                                  configured ? "border-zinc-200 bg-zinc-50" : "border-zinc-200 bg-white opacity-60",
+                                )}
+                                title={t.description || t.label}
+                              >
+                                <span className="min-w-0">
+                                  <div className="truncate text-xs font-semibold text-zinc-800">{t.label}</div>
+                                  <div className="mt-0.5 text-[11px] text-zinc-500">
+                                    {t.description || ""}
+                                    {!configured ? " (Not configured)" : ""}
+                                  </div>
+                                </span>
+                                <input
+                                  type="checkbox"
+                                  className="mt-1"
+                                  disabled={busy || !configured}
+                                  checked={enabled}
+                                  onChange={(e) => {
+                                    const toolId = id;
+                                    if (!toolId) return;
+                                    const cur = selected.voiceAgentConfig?.toolIds ?? [];
+                                    const set = new Set(cur);
+                                    if (e.target.checked) set.add(toolId);
+                                    else set.delete(toolId);
+                                    const next = Array.from(set);
+                                    setCampaigns((prev) =>
+                                      prev.map((c) =>
+                                        c.id === selected.id
+                                          ? {
+                                              ...c,
+                                              voiceAgentConfig: {
+                                                ...(c.voiceAgentConfig ?? DEFAULT_VOICE_AGENT_CONFIG),
+                                                toolIds: next,
+                                              },
+                                            }
+                                          : c,
+                                      ),
+                                    );
+                                    updateCampaign({ voiceAgentConfig: { toolIds: next } });
+                                  }}
+                                />
+                              </label>
+                            );
+                          })
+                        )}
+                      </div>
+
+                      <details className="mt-3">
+                        <summary className="cursor-pointer text-xs font-semibold text-zinc-700">
+                          Advanced
+                        </summary>
+                        <div className="mt-2">
+                          <div className="text-[11px] text-zinc-500">
+                            Paste tool IDs directly (comma-separated). This overrides the toggles.
+                          </div>
+                          <input
+                            value={(selected.voiceAgentConfig?.toolIds ?? []).join(", ")}
+                            onChange={(e) => {
+                              const toolIds = normalizeToolIdsCsv(e.target.value);
+                              setCampaigns((prev) =>
+                                prev.map((c) =>
+                                  c.id === selected.id
+                                    ? {
+                                        ...c,
+                                        voiceAgentConfig: {
+                                          ...(c.voiceAgentConfig ?? DEFAULT_VOICE_AGENT_CONFIG),
+                                          toolIds,
+                                        },
+                                      }
+                                    : c,
+                                ),
+                              );
+                            }}
+                            onBlur={() =>
+                              updateCampaign({
+                                voiceAgentConfig: { toolIds: selected.voiceAgentConfig?.toolIds ?? [] },
+                              })
+                            }
+                            placeholder="tool_123, tool_abc (optional)"
+                            className="mt-2 w-full rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-sm"
+                          />
+                        </div>
+                      </details>
+                    </div>
                   </div>
                 </div>
 

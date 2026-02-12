@@ -60,7 +60,7 @@ export async function POST(req: Request, ctx: { params: Promise<{ campaignId: st
   const apiKey = receptionist?.settings?.voiceAgentApiKey?.trim() || "";
   if (!apiKey) {
     return NextResponse.json(
-      { ok: false, error: "Missing ElevenLabs API key. Set it in AI Receptionist settings first." },
+      { ok: false, error: "Missing voice agent API key. Set it in AI Receptionist settings first." },
       { status: 400 },
     );
   }

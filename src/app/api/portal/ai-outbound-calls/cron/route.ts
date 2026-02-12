@@ -11,6 +11,24 @@ export const dynamic = "force-dynamic";
 export const revalidate = 0;
 export const runtime = "nodejs";
 
+const PROFILE_EXTRAS_SERVICE_SLUG = "profile";
+
+async function getProfileVoiceAgentId(ownerId: string): Promise<string | null> {
+  const row = await prisma.portalServiceSetup.findUnique({
+    where: { ownerId_serviceSlug: { ownerId, serviceSlug: PROFILE_EXTRAS_SERVICE_SLUG } },
+    select: { dataJson: true },
+  });
+
+  const rec =
+    row?.dataJson && typeof row.dataJson === "object" && !Array.isArray(row.dataJson)
+      ? (row.dataJson as Record<string, unknown>)
+      : null;
+
+  const raw = rec?.voiceAgentId;
+  const id = typeof raw === "string" ? raw.trim().slice(0, 120) : "";
+  return id ? id : null;
+}
+
 function checkAuth(req: Request) {
   const isProd = process.env.NODE_ENV === "production";
   const secret = process.env.AI_OUTBOUND_CALLS_CRON_SECRET;
@@ -60,6 +78,7 @@ export async function GET(req: Request) {
 
   const receptionistCache = new Map<string, { agentId: string; apiKey: string }>();
   const phoneNumberIdCache = new Map<string, string>();
+  const profileAgentIdCache = new Map<string, string>();
 
   for (const e of due) {
     if (e.campaign.status !== "ACTIVE") {
@@ -95,6 +114,8 @@ export async function GET(req: Request) {
         campaign: { script: e.campaign.script },
       });
 
+      const scriptTrimmed = String(script || "").trim();
+
       const parsedTo = normalizePhoneStrict(to);
       if (!parsedTo.ok) throw new Error("Contact phone number is invalid.");
       if (!parsedTo.e164) throw new Error("Contact has no phone number.");
@@ -108,11 +129,20 @@ export async function GET(req: Request) {
         receptionistCache.set(e.ownerId, rec);
       }
 
-      const agentId = String(e.campaign.voiceAgentId || "").trim() || rec.agentId;
+      let profileAgentId = profileAgentIdCache.get(e.ownerId);
+      if (!profileAgentId) {
+        profileAgentId = (await getProfileVoiceAgentId(e.ownerId)) || "";
+        profileAgentIdCache.set(e.ownerId, profileAgentId);
+      }
+
+      const agentId =
+        String(e.campaign.voiceAgentId || "").trim() ||
+        String(profileAgentId || "").trim() ||
+        rec.agentId; // legacy fallback
       const apiKey = rec.apiKey;
 
-      if (!apiKey) throw new Error("Missing ElevenLabs API key. Set it in AI Receptionist settings.");
-      if (!agentId) throw new Error("Missing ElevenLabs agent id. Set it in AI Receptionist settings or on the campaign.");
+      if (!apiKey) throw new Error("Missing voice agent API key. Set it in AI Receptionist settings.");
+      if (!agentId) throw new Error("Missing voice agent ID. Set it in Profile or on the campaign.");
 
       const cacheKey = `${apiKey}:${agentId}`;
       let phoneNumberId = phoneNumberIdCache.get(cacheKey);
@@ -139,11 +169,15 @@ export async function GET(req: Request) {
             contact_email: e.contact?.email ? String(e.contact.email).slice(0, 160) : null,
             contact_phone: parsedTo.e164,
           },
-          conversation_config_override: {
-            agent: {
-              first_message: script,
-            },
-          },
+          ...(scriptTrimmed
+            ? {
+                conversation_config_override: {
+                  agent: {
+                    first_message: scriptTrimmed,
+                  },
+                },
+              }
+            : {}),
         },
       });
       if (!call.ok) throw new Error(call.error);

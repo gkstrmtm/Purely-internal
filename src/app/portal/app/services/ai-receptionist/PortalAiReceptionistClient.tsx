@@ -7,6 +7,7 @@ import { PortalMissedCallTextBackClient } from "@/app/portal/app/services/missed
 import { PortalSettingsSection } from "@/components/PortalSettingsSection";
 import { ContactTagsEditor, type ContactTag } from "@/components/ContactTagsEditor";
 import { useToast } from "@/components/ToastProvider";
+import { CREDIT_USD_VALUE, formatUsd } from "@/lib/pricing.shared";
 
 type Settings = {
   version: 1;
@@ -482,7 +483,9 @@ export function PortalAiReceptionistClient() {
                 Billing
               </Link>
             </div>
-            <div className="mt-1 text-[11px] text-zinc-500">AI calls are 1 credit / started minute.</div>
+            <div className="mt-1 text-[11px] text-zinc-500">
+              AI calls are 1 credit ({formatUsd(CREDIT_USD_VALUE)}) / started minute.
+            </div>
           </div>
         </div>
       </div>

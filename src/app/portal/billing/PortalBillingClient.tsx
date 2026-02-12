@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 
 import { useToast } from "@/components/ToastProvider";
+import { CREDIT_USD_VALUE, formatUsd } from "@/lib/pricing.shared";
 
 type BillingStatus = { configured: boolean };
 
@@ -44,6 +45,7 @@ export function PortalBillingClient() {
   const [credits, setCredits] = useState<number | null>(null);
   const [autoTopUp, setAutoTopUp] = useState(false);
   const [purchaseAvailable, setPurchaseAvailable] = useState(false);
+  const [creditsPerPackage, setCreditsPerPackage] = useState<number | null>(null);
   const [packages, setPackages] = useState(1);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
@@ -86,14 +88,19 @@ export function PortalBillingClient() {
           credits?: number;
           autoTopUp?: boolean;
           purchaseAvailable?: boolean;
+          creditsPerPackage?: number;
         };
         setCredits(typeof c.credits === "number" && Number.isFinite(c.credits) ? c.credits : 0);
         setAutoTopUp(Boolean(c.autoTopUp));
         setPurchaseAvailable(Boolean(c.purchaseAvailable));
+        setCreditsPerPackage(
+          typeof c.creditsPerPackage === "number" && Number.isFinite(c.creditsPerPackage) ? c.creditsPerPackage : null,
+        );
       } else {
         setCredits(0);
         setAutoTopUp(false);
         setPurchaseAvailable(false);
+        setCreditsPerPackage(null);
       }
 
       setLoading(false);
@@ -137,10 +144,14 @@ export function PortalBillingClient() {
       credits?: number;
       autoTopUp?: boolean;
       purchaseAvailable?: boolean;
+      creditsPerPackage?: number;
     };
     setCredits(typeof c.credits === "number" && Number.isFinite(c.credits) ? c.credits : 0);
     setAutoTopUp(Boolean(c.autoTopUp));
     setPurchaseAvailable(Boolean(c.purchaseAvailable));
+    setCreditsPerPackage(
+      typeof c.creditsPerPackage === "number" && Number.isFinite(c.creditsPerPackage) ? c.creditsPerPackage : null,
+    );
   }
 
   async function saveAutoTopUp(next: boolean) {
@@ -269,7 +280,9 @@ export function PortalBillingClient() {
           <div className="rounded-2xl border border-zinc-200 bg-zinc-50 p-4">
             <div className="text-xs text-zinc-500">Credits</div>
             <div className="mt-1 text-lg font-bold text-brand-ink">{credits ?? "—"}</div>
-            <div className="mt-1 text-xs text-zinc-500">Used by AI and other usage-based actions.</div>
+            <div className="mt-1 text-xs text-zinc-500">
+              Used by AI and other usage-based actions. 1 credit = {formatUsd(CREDIT_USD_VALUE)}.
+            </div>
 
             <div className="mt-3 flex flex-col gap-2">
               <label className="flex items-center justify-between gap-3 text-sm">
@@ -281,7 +294,9 @@ export function PortalBillingClient() {
                   onChange={(e) => void saveAutoTopUp(e.target.checked)}
                 />
               </label>
-              <div className="text-xs text-zinc-500">If enabled, we’ll send you to top up when you run out.</div>
+              <div className="text-xs text-zinc-500">
+                If enabled, we’ll send you to top up when you run out. Credits roll over.
+              </div>
 
               <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
                 <select
@@ -290,9 +305,18 @@ export function PortalBillingClient() {
                   onChange={(e) => setPackages(Number(e.target.value))}
                   disabled={actionBusy !== null || !purchaseAvailable}
                 >
-                  <option value={1}>1 package</option>
-                  <option value={2}>2 packages</option>
-                  <option value={4}>4 packages</option>
+                  {([1, 2, 4] as const).map((pkg) => {
+                    const creditsInPkg = creditsPerPackage ? pkg * creditsPerPackage : null;
+                    const usd = creditsInPkg ? creditsInPkg * CREDIT_USD_VALUE : null;
+                    const label = creditsInPkg
+                      ? `${pkg} package${pkg === 1 ? "" : "s"} (${creditsInPkg.toLocaleString()} credits • ${formatUsd(usd ?? 0)})`
+                      : `${pkg} package${pkg === 1 ? "" : "s"}`;
+                    return (
+                      <option key={pkg} value={pkg}>
+                        {label}
+                      </option>
+                    );
+                  })}
                 </select>
                 <button
                   type="button"

@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useToast } from "@/components/ToastProvider";
+import { CREDIT_USD_VALUE, formatUsd } from "@/lib/pricing.shared";
 import { DEFAULT_TAG_COLORS } from "@/lib/tagColors.shared";
 import { RichTextMarkdownEditor } from "@/components/RichTextMarkdownEditor";
 import { PortalMediaPickerModal } from "@/components/PortalMediaPickerModal";
@@ -627,7 +628,7 @@ export function PortalNewsletterClient({ initialAudience }: { initialAudience: A
         <div>
           <h1 className="text-2xl font-bold text-brand-ink sm:text-3xl">Newsletter</h1>
           <p className="mt-2 max-w-2xl text-sm text-zinc-600">
-            AI newsletters cost 1 credit per generation. Send by email and SMS (SMS includes a link to the hosted page).
+            AI newsletters cost 1 credit ({formatUsd(CREDIT_USD_VALUE)}) per generation. Send by email and SMS (SMS includes a link to the hosted page).
           </p>
         </div>
 

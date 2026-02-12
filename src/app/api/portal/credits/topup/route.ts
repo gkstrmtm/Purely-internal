@@ -3,6 +3,8 @@ import { z } from "zod";
 
 import { requireClientSessionForService } from "@/lib/portalAccess";
 import { addCredits } from "@/lib/credits";
+import { isFreeCreditsOwner } from "@/lib/credits";
+import { creditsPerTopUpPackage } from "@/lib/creditsTopup";
 import { getOrCreateStripeCustomerId, isStripeConfigured, stripePost } from "@/lib/stripeFetch";
 
 export const dynamic = "force-dynamic";
@@ -11,12 +13,6 @@ export const revalidate = 0;
 const postSchema = z.object({
   packages: z.number().int().min(1).max(20).default(1),
 });
-
-function creditsPerPackage() {
-  const raw = process.env.CREDITS_TOPUP_PER_PACKAGE;
-  const n = raw ? Number(raw) : 25;
-  return Number.isFinite(n) ? Math.max(1, Math.floor(n)) : 25;
-}
 
 export async function POST(req: Request) {
   const auth = await requireClientSessionForService("billing");
@@ -36,6 +32,11 @@ export async function POST(req: Request) {
   const ownerId = auth.session.user.id;
   const email = auth.session.user.email;
 
+  const free = await isFreeCreditsOwner(ownerId).catch(() => false);
+  if (free) {
+    return NextResponse.json({ ok: true, mode: "free", credited: 0, creditsPerPackage: creditsPerTopUpPackage() });
+  }
+
   const priceId = (process.env.STRIPE_PRICE_CREDITS_TOPUP ?? "").trim();
   const stripeReady = isStripeConfigured() && Boolean(priceId) && Boolean(email);
 
@@ -45,9 +46,9 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: "Purchasing credits is unavailable right now." }, { status: 400 });
     }
 
-    const credited = parsed.data.packages * creditsPerPackage();
+    const credited = parsed.data.packages * creditsPerTopUpPackage();
     const state = await addCredits(ownerId, credited);
-    return NextResponse.json({ ok: true, mode: "test", credited, credits: state.balance });
+    return NextResponse.json({ ok: true, mode: "test", credited, credits: state.balance, creditsPerPackage: creditsPerTopUpPackage() });
   }
 
   const origin =

@@ -156,7 +156,7 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
     return pathname === href || pathname.startsWith(href + "/");
   }
 
-  function serviceUnlocked(service: { entitlementKey?: "blog" | "booking" | "crm"; included?: boolean }) {
+  function serviceUnlocked(service: { entitlementKey?: "blog" | "booking" | "crm" | "leadOutbound"; included?: boolean }) {
     if (isFullDemo) return true;
     if (service.included) return true;
 

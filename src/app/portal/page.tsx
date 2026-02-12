@@ -1,6 +1,7 @@
 import Link from "next/link";
 
 import { PortalOffersCarousel } from "@/app/portal/PortalOffersCarousel";
+import { CREDIT_USD_VALUE, formatUsd } from "@/lib/pricing.shared";
 
 export default async function PortalDashboardPage() {
   return (
@@ -99,43 +100,21 @@ export default async function PortalDashboardPage() {
           <div className="flex flex-col items-start justify-between gap-2 sm:flex-row sm:items-center">
             <div>
               <div className="text-sm font-semibold text-zinc-900">Pricing</div>
-              <div className="mt-1 text-sm text-zinc-600">Start lean, then add services as you grow.</div>
+              <div className="mt-1 text-sm text-zinc-600">Add monthly modules, then scale usage with credits.</div>
             </div>
           </div>
 
-          <div className="mt-6 grid grid-cols-1 gap-4 sm:grid-cols-3">
-            <div className="rounded-3xl border border-zinc-200 bg-zinc-50 p-6">
-              <div className="text-sm font-semibold text-zinc-900">Starter</div>
-              <div className="mt-2 text-3xl font-bold text-brand-ink">$299</div>
-              <div className="text-xs text-zinc-500">/ month</div>
-              <div className="mt-4 text-sm text-zinc-700">Best for getting your first automation live.</div>
+          <div className="mt-6 grid grid-cols-1 gap-4 sm:grid-cols-2">
+            <div className="rounded-3xl border border-zinc-200 bg-white p-6">
+              <div className="text-sm font-semibold text-zinc-900">Monthly modules</div>
+              <div className="mt-2 text-sm text-zinc-600">
+                Turn on the services you want in Billing. Exact monthly pricing is shown once you’re signed in.
+              </div>
               <div className="mt-4 space-y-2 text-sm text-zinc-700">
-                <div>• 1 service included</div>
-                <div>• Billing and access portal</div>
-                <div>• Basic reporting</div>
-              </div>
-              <div className="mt-5">
-                <Link
-                  href="/portal/get-started"
-                  className="inline-flex w-full items-center justify-center rounded-2xl bg-brand-ink px-4 py-3 text-sm font-semibold text-white hover:opacity-95"
-                >
-                  Get started
-                </Link>
-              </div>
-            </div>
-
-            <div className="rounded-3xl border border-[color:rgba(29,78,216,0.25)] bg-white p-6 shadow-sm">
-              <div className="inline-flex items-center rounded-full bg-[color:rgba(29,78,216,0.10)] px-3 py-1 text-xs font-semibold text-[color:var(--color-brand-blue)]">
-                Most popular
-              </div>
-              <div className="mt-3 text-sm font-semibold text-zinc-900">Growth</div>
-              <div className="mt-2 text-3xl font-bold text-brand-ink">$599</div>
-              <div className="text-xs text-zinc-500">/ month</div>
-              <div className="mt-4 text-sm text-zinc-700">For teams that want consistent leads and bookings.</div>
-              <div className="mt-4 space-y-2 text-sm text-zinc-700">
-                <div>• 2 services included</div>
-                <div>• Upgrade anytime</div>
-                <div>• Priority support</div>
+                <div>• Automated Blogs</div>
+                <div>• Booking Automation</div>
+                <div>• Follow-up / CRM automation</div>
+                <div>• AI Outbound Calls</div>
               </div>
               <div className="mt-5">
                 <Link
@@ -148,21 +127,21 @@ export default async function PortalDashboardPage() {
             </div>
 
             <div className="rounded-3xl border border-zinc-200 bg-zinc-50 p-6">
-              <div className="text-sm font-semibold text-zinc-900">Scale</div>
-              <div className="mt-2 text-3xl font-bold text-brand-ink">$999</div>
-              <div className="text-xs text-zinc-500">/ month</div>
-              <div className="mt-4 text-sm text-zinc-700">Full automation stack plus advanced follow-up.</div>
+              <div className="text-sm font-semibold text-zinc-900">Usage credits</div>
+              <div className="mt-2 text-3xl font-bold text-brand-ink">{formatUsd(CREDIT_USD_VALUE)}</div>
+              <div className="text-xs text-zinc-500">per credit</div>
+              <div className="mt-4 text-sm text-zinc-700">Used by AI and other usage-based actions.</div>
               <div className="mt-4 space-y-2 text-sm text-zinc-700">
-                <div>• 3 services included</div>
-                <div>• Advanced reporting</div>
-                <div>• White-glove onboarding</div>
+                <div>• Credits roll over</div>
+                <div>• Top up anytime</div>
+                <div>• See usage in Reporting</div>
               </div>
               <div className="mt-5">
                 <Link
                   href="/portal/get-started"
-                  className="inline-flex w-full items-center justify-center rounded-2xl border border-zinc-200 bg-white px-4 py-3 text-sm font-semibold text-brand-ink hover:bg-zinc-50"
+                  className="inline-flex w-full items-center justify-center rounded-2xl bg-brand-ink px-4 py-3 text-sm font-semibold text-white hover:opacity-95"
                 >
-                  Talk to us
+                  Get started
                 </Link>
               </div>
             </div>

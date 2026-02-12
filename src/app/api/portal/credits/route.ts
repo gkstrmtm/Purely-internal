@@ -3,7 +3,9 @@ import { z } from "zod";
 
 import { requireClientSessionForService } from "@/lib/portalAccess";
 import { prisma } from "@/lib/db";
-import { getCreditsState, setAutoTopUp } from "@/lib/credits";
+import { getCreditsState, isFreeCreditsOwner, setAutoTopUp } from "@/lib/credits";
+import { creditsPerTopUpPackage } from "@/lib/creditsTopup";
+import { CREDIT_USD_VALUE } from "@/lib/pricing.shared";
 import { isStripeConfigured } from "@/lib/stripeFetch";
 
 export const dynamic = "force-dynamic";
@@ -30,6 +32,7 @@ export async function GET() {
 
   const ownerId = auth.session.user.id;
   let state = await getCreditsState(ownerId);
+  const free = await isFreeCreditsOwner(ownerId).catch(() => false);
 
   // Demo safety net: ensure the demo-full account always has credits to test with,
   // even if the seed route wasn't run in this environment.
@@ -67,8 +70,11 @@ export async function GET() {
     ok: true,
     credits: state.balance,
     autoTopUp: state.autoTopUp,
-    purchaseAvailable: purchaseAvailable(),
+    purchaseAvailable: free ? false : purchaseAvailable(),
     billingPath: "/portal/app/billing",
+    creditUsdValue: CREDIT_USD_VALUE,
+    creditsPerPackage: creditsPerTopUpPackage(),
+    freeCredits: free,
   });
 }
 

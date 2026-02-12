@@ -4,21 +4,33 @@ import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 
 import { PORTAL_SERVICES } from "@/app/portal/services/catalog";
+import { CREDIT_USD_VALUE, formatUsd } from "@/lib/pricing.shared";
 
 const DEFAULT_FULL_DEMO_EMAIL = "demo-full@purelyautomation.dev";
 
 type Me = {
   user: { email: string; name: string; role: string };
-  entitlements: { blog: boolean; booking: boolean; crm: boolean };
+  entitlements: { blog: boolean; booking: boolean; crm: boolean; leadOutbound: boolean };
   metrics: { hoursSavedThisWeek: number; hoursSavedAllTime: number };
 };
 
-function formatMoney(amount: number) {
-  return new Intl.NumberFormat("en-US", {
-    style: "currency",
-    currency: "USD",
-    maximumFractionDigits: 0,
-  }).format(amount);
+type PortalPricing = {
+  ok: true;
+  stripeConfigured: boolean;
+  credits: { usdValue: number; rollOver: boolean; topup: { creditsPerPackage: number } };
+  modules: {
+    blog: { monthlyCents: number; currency: string } | null;
+    booking: { monthlyCents: number; currency: string } | null;
+    crm: { monthlyCents: number; currency: string } | null;
+    leadOutbound: { monthlyCents: number; currency: string } | null;
+  };
+};
+
+function formatMonthly(cents: number, currency: string) {
+  const value = typeof cents === "number" && Number.isFinite(cents) ? cents : 0;
+  const curr = (currency || "usd").toUpperCase();
+  const amount = (value / 100).toFixed(2);
+  return `${curr} ${amount}`;
 }
 
 export function PortalServicePageClient({ slug }: { slug: string }) {
@@ -29,20 +41,30 @@ export function PortalServicePageClient({ slug }: { slug: string }) {
 
   const [me, setMe] = useState<Me | null>(null);
   const [loading, setLoading] = useState(true);
+  const [pricing, setPricing] = useState<PortalPricing | null>(null);
 
   useEffect(() => {
     let mounted = true;
     (async () => {
-      const res = await fetch("/api/customer/me", {
-        cache: "no-store",
-        headers: { "x-pa-app": "portal" },
-      });
+      const [res, pricingRes] = await Promise.all([
+        fetch("/api/customer/me", {
+          cache: "no-store",
+          headers: { "x-pa-app": "portal" },
+        }),
+        fetch("/api/portal/pricing", { cache: "no-store" }).catch(() => null as any),
+      ]);
       if (!mounted) return;
       if (!res.ok) {
         setLoading(false);
         return;
       }
       setMe((await res.json()) as Me);
+      if (pricingRes && pricingRes.ok) {
+        const body = (await pricingRes.json().catch(() => null)) as PortalPricing | null;
+        setPricing(body && (body as any).ok === true ? body : null);
+      } else {
+        setPricing(null);
+      }
       setLoading(false);
     })();
 
@@ -56,6 +78,11 @@ export function PortalServicePageClient({ slug }: { slug: string }) {
     isFullDemo ||
     Boolean(service?.included) ||
     (service?.entitlementKey ? Boolean(me?.entitlements?.[service.entitlementKey]) : false);
+
+  const modulePrice =
+    service?.entitlementKey && pricing?.modules
+      ? (pricing.modules as any)[service.entitlementKey as any]
+      : null;
 
   if (!service) {
     return (
@@ -74,10 +101,6 @@ export function PortalServicePageClient({ slug }: { slug: string }) {
   }
 
   if (!unlocked) {
-    // Placeholder pricing model: some flat-rate, some usage/credits.
-    const flatRate = 299;
-    const creditsIncluded = 25000;
-
     return (
       <div className="mx-auto w-full max-w-6xl">
         <div className="rounded-3xl border border-zinc-200 bg-white p-8">
@@ -108,19 +131,23 @@ export function PortalServicePageClient({ slug }: { slug: string }) {
 
           <div className="mt-6 grid grid-cols-1 gap-4 sm:grid-cols-2">
             <div className="rounded-3xl border border-zinc-200 bg-zinc-50 p-6">
-              <div className="text-sm font-semibold text-zinc-900">Flat-rate</div>
-              <div className="mt-2 text-3xl font-bold text-brand-ink">{formatMoney(flatRate)}</div>
-              <div className="text-xs text-zinc-500">/ month</div>
-              <div className="mt-3 text-sm text-zinc-700">Best when you want predictable billing.</div>
+              <div className="text-sm font-semibold text-zinc-900">Monthly add-on</div>
+              <div className="mt-2 text-3xl font-bold text-brand-ink">
+                {modulePrice ? formatMonthly(modulePrice.monthlyCents, modulePrice.currency) : "See Billing"}
+              </div>
+              <div className="text-xs text-zinc-500">
+                {modulePrice ? "/ month" : "Pricing depends on your active modules"}
+              </div>
+              <div className="mt-3 text-sm text-zinc-700">
+                Turn this service on in Billing. You can add or remove modules any time.
+              </div>
             </div>
 
             <div className="rounded-3xl border border-zinc-200 bg-zinc-50 p-6">
-              <div className="text-sm font-semibold text-zinc-900">Usage-based</div>
-              <div className="mt-2 text-3xl font-bold text-brand-ink">Credits</div>
-              <div className="text-xs text-zinc-500">Monthly included: {creditsIncluded.toLocaleString()}</div>
-              <div className="mt-3 text-sm text-zinc-700">
-                For higher volume, add more credits.
-              </div>
+              <div className="text-sm font-semibold text-zinc-900">Usage credits</div>
+              <div className="mt-2 text-3xl font-bold text-brand-ink">{formatUsd(CREDIT_USD_VALUE)}</div>
+              <div className="text-xs text-zinc-500">per credit</div>
+              <div className="mt-3 text-sm text-zinc-700">Credits roll over. Top up any time in Billing.</div>
             </div>
           </div>
 

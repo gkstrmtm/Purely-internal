@@ -5,7 +5,7 @@ import {
   getOwnerProfilePhoneE164,
   upsertAiReceptionistCallEvent,
 } from "@/lib/aiReceptionist";
-import { getCreditsState } from "@/lib/credits";
+import { getCreditsState, isFreeCreditsOwner } from "@/lib/credits";
 import { normalizePhoneStrict } from "@/lib/phone";
 import { webhookUrlFromRequest } from "@/lib/webhookBase";
 
@@ -105,7 +105,8 @@ export async function POST(req: Request, ctx: { params: Promise<{ token: string 
   }
 
   // Credits gate (AI mode): require at least 1 credit to use.
-  const credits = await getCreditsState(ownerId).catch(() => null);
+  const free = await isFreeCreditsOwner(ownerId).catch(() => false);
+  const credits = free ? { balance: 999999 } : await getCreditsState(ownerId).catch(() => null);
   const hasCredit = Boolean(credits && typeof credits.balance === "number" && credits.balance >= 1);
   if (!hasCredit) {
     const profilePhone = await getOwnerProfilePhoneE164(ownerId);
