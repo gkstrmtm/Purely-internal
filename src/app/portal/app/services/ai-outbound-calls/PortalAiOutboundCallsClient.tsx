@@ -52,22 +52,6 @@ function classNames(...xs: Array<string | false | null | undefined>) {
   return xs.filter(Boolean).join(" ");
 }
 
-function normalizeToolIdsCsv(raw: string): string[] {
-  const parts = String(raw || "")
-    .split(",")
-    .map((x) => x.trim())
-    .filter(Boolean);
-  const out: string[] = [];
-  for (const id of parts) {
-    if (!id) continue;
-    if (id.length > 120) continue;
-    if (out.includes(id)) continue;
-    out.push(id);
-    if (out.length >= 50) break;
-  }
-  return out;
-}
-
 export function PortalAiOutboundCallsClient() {
   const toast = useToast();
 
@@ -351,17 +335,38 @@ export function PortalAiOutboundCallsClient() {
     return (selected?.audienceTagIds ?? []).map((id) => map.get(id)).filter(Boolean) as ContactTag[];
   }, [tags, selected]);
 
-  const configuredVoiceTools = useMemo(() => voiceTools.filter((t) => Boolean(t.toolId)), [voiceTools]);
+  const selectedToolKeys = useMemo(() => {
+    const explicit = selected?.voiceAgentConfig?.toolKeys;
+    if (Array.isArray(explicit) && explicit.length) {
+      return explicit.map((k) => String(k || "").trim().toLowerCase()).filter(Boolean);
+    }
 
-  function toolIdsForPreset(preset: "none" | "recommended" | "all"): string[] {
+    // Back-compat: derive selected keys from stored toolIds when possible.
+    const ids = new Set((selected?.voiceAgentConfig?.toolIds ?? []).map((x) => String(x || "").trim()).filter(Boolean));
+    if (!ids.size) return [];
+    return voiceTools
+      .filter((t) => Boolean(t.toolId && ids.has(t.toolId)))
+      .map((t) => t.key)
+      .filter(Boolean);
+  }, [selected, voiceTools]);
+
+  function toolKeysForPreset(preset: "none" | "recommended" | "all"): string[] {
     if (preset === "none") return [];
-    const all = configuredVoiceTools.map((t) => t.toolId as string);
+    const all = voiceTools.map((t) => t.key).filter(Boolean);
     if (preset === "all") return all;
 
-    const recKeys = new Set<string>(["voicemail_detection", "language_detection", "end_call"]);
-    const rec = configuredVoiceTools
-      .filter((t) => recKeys.has(t.key))
-      .map((t) => t.toolId as string);
+    const recKeys = new Set<string>([
+      "voicemail_detection",
+      "language_detection",
+      "end_call",
+      "transfer_to_human",
+      "call_transfer",
+      "transfer_to_number",
+      "transfer_to_agent",
+      "dtmf_tones",
+    ]);
+
+    const rec = all.filter((k) => recKeys.has(k));
     return rec.length ? rec : all;
   }
 
@@ -549,7 +554,7 @@ export function PortalAiOutboundCallsClient() {
                                 | "none"
                                 | "recommended"
                                 | "all";
-                              const next = toolIdsForPreset(preset);
+                              const next = toolKeysForPreset(preset);
                               setCampaigns((prev) =>
                                 prev.map((c) =>
                                   c.id === selected.id
@@ -557,20 +562,20 @@ export function PortalAiOutboundCallsClient() {
                                         ...c,
                                         voiceAgentConfig: {
                                           ...(c.voiceAgentConfig ?? DEFAULT_VOICE_AGENT_CONFIG),
-                                          toolIds: next,
+                                          toolKeys: next,
                                         },
                                       }
                                     : c,
                                 ),
                               );
-                              updateCampaign({ voiceAgentConfig: { toolIds: next } });
+                              updateCampaign({ voiceAgentConfig: { toolKeys: next } });
                             }}
                             disabled={busy}
                             title="Quick presets"
                           >
                             <option value="recommended">Recommended</option>
                             <option value="none">None</option>
-                            <option value="all">All configured</option>
+                            <option value="all">All</option>
                           </select>
                         </div>
                       </div>
@@ -578,19 +583,18 @@ export function PortalAiOutboundCallsClient() {
                       <div className="mt-3 grid grid-cols-1 gap-2">
                         {voiceTools.length === 0 ? (
                           <div className="text-[11px] text-zinc-500">
-                            No tool presets are configured yet. You can still enter tool IDs in Advanced.
+                            No tools are available yet.
                           </div>
                         ) : (
                           voiceTools.map((t) => {
-                            const id = t.toolId;
-                            const enabled = Boolean(id && (selected.voiceAgentConfig?.toolIds ?? []).includes(id));
-                            const configured = Boolean(id);
+                            const enabled = selectedToolKeys.includes(t.key);
+                            const configured = Boolean(t.toolId);
                             return (
                               <label
                                 key={t.key}
                                 className={classNames(
                                   "flex cursor-pointer items-start justify-between gap-3 rounded-xl border px-3 py-2",
-                                  configured ? "border-zinc-200 bg-zinc-50" : "border-zinc-200 bg-white opacity-60",
+                                  "border-zinc-200 bg-zinc-50",
                                 )}
                                 title={t.description || t.label}
                               >
@@ -598,21 +602,19 @@ export function PortalAiOutboundCallsClient() {
                                   <div className="truncate text-xs font-semibold text-zinc-800">{t.label}</div>
                                   <div className="mt-0.5 text-[11px] text-zinc-500">
                                     {t.description || ""}
-                                    {!configured ? " (Not configured)" : ""}
+                                    {!configured ? " (Not configured yet — contact support if this should be enabled.)" : ""}
                                   </div>
                                 </span>
                                 <input
                                   type="checkbox"
                                   className="mt-1"
-                                  disabled={busy || !configured}
+                                  disabled={busy}
                                   checked={enabled}
                                   onChange={(e) => {
-                                    const toolId = id;
-                                    if (!toolId) return;
-                                    const cur = selected.voiceAgentConfig?.toolIds ?? [];
+                                    const cur = selectedToolKeys;
                                     const set = new Set(cur);
-                                    if (e.target.checked) set.add(toolId);
-                                    else set.delete(toolId);
+                                    if (e.target.checked) set.add(t.key);
+                                    else set.delete(t.key);
                                     const next = Array.from(set);
                                     setCampaigns((prev) =>
                                       prev.map((c) =>
@@ -621,13 +623,13 @@ export function PortalAiOutboundCallsClient() {
                                               ...c,
                                               voiceAgentConfig: {
                                                 ...(c.voiceAgentConfig ?? DEFAULT_VOICE_AGENT_CONFIG),
-                                                toolIds: next,
+                                                toolKeys: next,
                                               },
                                             }
                                           : c,
                                       ),
                                     );
-                                    updateCampaign({ voiceAgentConfig: { toolIds: next } });
+                                    updateCampaign({ voiceAgentConfig: { toolKeys: next } });
                                   }}
                                 />
                               </label>
@@ -635,43 +637,6 @@ export function PortalAiOutboundCallsClient() {
                           })
                         )}
                       </div>
-
-                      <details className="mt-3">
-                        <summary className="cursor-pointer text-xs font-semibold text-zinc-700">
-                          Advanced
-                        </summary>
-                        <div className="mt-2">
-                          <div className="text-[11px] text-zinc-500">
-                            Paste tool IDs directly (comma-separated). This overrides the toggles.
-                          </div>
-                          <input
-                            value={(selected.voiceAgentConfig?.toolIds ?? []).join(", ")}
-                            onChange={(e) => {
-                              const toolIds = normalizeToolIdsCsv(e.target.value);
-                              setCampaigns((prev) =>
-                                prev.map((c) =>
-                                  c.id === selected.id
-                                    ? {
-                                        ...c,
-                                        voiceAgentConfig: {
-                                          ...(c.voiceAgentConfig ?? DEFAULT_VOICE_AGENT_CONFIG),
-                                          toolIds,
-                                        },
-                                      }
-                                    : c,
-                                ),
-                              );
-                            }}
-                            onBlur={() =>
-                              updateCampaign({
-                                voiceAgentConfig: { toolIds: selected.voiceAgentConfig?.toolIds ?? [] },
-                              })
-                            }
-                            placeholder="tool_123, tool_abc (optional)"
-                            className="mt-2 w-full rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-sm"
-                          />
-                        </div>
-                      </details>
                     </div>
                   </div>
                 </div>

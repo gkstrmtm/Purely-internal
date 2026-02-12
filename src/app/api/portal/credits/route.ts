@@ -69,7 +69,7 @@ export async function GET() {
     ok: true,
     credits: state.balance,
     autoTopUp: state.autoTopUp,
-    purchaseAvailable: free ? false : purchaseAvailable(),
+    purchaseAvailable: purchaseAvailable(),
     billingPath: "/portal/app/billing",
     creditUsdValue: CREDIT_USD_VALUE,
     creditsPerPackage: creditsPerTopUpPackage(),

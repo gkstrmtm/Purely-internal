@@ -3,7 +3,6 @@ import { z } from "zod";
 
 import { requireClientSessionForService } from "@/lib/portalAccess";
 import { addCredits } from "@/lib/credits";
-import { isFreeCreditsOwner } from "@/lib/credits";
 import { creditsPerTopUpPackage } from "@/lib/creditsTopup";
 import { getOrCreateStripeCustomerId, isStripeConfigured, stripePost } from "@/lib/stripeFetch";
 
@@ -31,11 +30,6 @@ export async function POST(req: Request) {
 
   const ownerId = auth.session.user.id;
   const email = auth.session.user.email;
-
-  const free = await isFreeCreditsOwner(ownerId).catch(() => false);
-  if (free) {
-    return NextResponse.json({ ok: true, mode: "free", credited: 0, creditsPerPackage: creditsPerTopUpPackage() });
-  }
 
   const priceId = (process.env.STRIPE_PRICE_CREDITS_TOPUP ?? "").trim();
   const stripeReady = isStripeConfigured() && Boolean(email);

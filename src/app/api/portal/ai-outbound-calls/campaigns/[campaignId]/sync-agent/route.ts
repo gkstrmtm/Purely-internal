@@ -7,6 +7,7 @@ import { ensurePortalAiOutboundCallsSchema } from "@/lib/portalAiOutboundCallsSc
 import { getAiReceptionistServiceData } from "@/lib/aiReceptionist";
 import { buildElevenLabsAgentPrompt, patchElevenLabsAgent } from "@/lib/elevenLabsConvai";
 import { parseVoiceAgentConfig } from "@/lib/voiceAgentConfig.shared";
+import { resolveToolIdsForKeys } from "@/lib/voiceAgentTools";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -78,12 +79,19 @@ export async function POST(req: Request, ctx: { params: Promise<{ campaignId: st
   const prompt = buildElevenLabsAgentPrompt(config);
   const firstMessage = config.firstMessage.trim();
 
+  const resolvedToolIds =
+    Array.isArray(config.toolIds) && config.toolIds.length
+      ? config.toolIds
+      : Array.isArray(config.toolKeys) && config.toolKeys.length
+        ? resolveToolIdsForKeys(config.toolKeys)
+        : [];
+
   const result = await patchElevenLabsAgent({
     apiKey,
     agentId,
     firstMessage: firstMessage || undefined,
     prompt: prompt || undefined,
-    toolIds: config.toolIds,
+    toolIds: resolvedToolIds,
   });
 
   if (!result.ok) {

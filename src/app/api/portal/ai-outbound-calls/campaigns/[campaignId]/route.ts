@@ -5,7 +5,7 @@ import { prisma } from "@/lib/db";
 import { requireClientSessionForService } from "@/lib/portalAccess";
 import { ensurePortalAiOutboundCallsSchema } from "@/lib/portalAiOutboundCallsSchema";
 import { normalizeTagIdList } from "@/lib/portalAiOutboundCalls";
-import { normalizeToolIdList, parseVoiceAgentConfig } from "@/lib/voiceAgentConfig.shared";
+import { normalizeToolIdList, normalizeToolKeyList, parseVoiceAgentConfig } from "@/lib/voiceAgentConfig.shared";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -21,6 +21,7 @@ const voiceAgentConfigPatchSchema = z
     environment: z.string().trim().max(6000).optional(),
     tone: z.string().trim().max(6000).optional(),
     guardRails: z.string().trim().max(6000).optional(),
+    toolKeys: z.array(z.string().trim().min(1).max(80)).max(50).optional(),
     toolIds: z.array(z.string().trim().min(1).max(120)).max(50).optional(),
   })
   .strict();
@@ -84,6 +85,7 @@ export async function PATCH(req: Request, ctx: { params: Promise<{ campaignId: s
       ...(patch.environment !== undefined ? { environment: patch.environment.trim().slice(0, 6000) } : {}),
       ...(patch.tone !== undefined ? { tone: patch.tone.trim().slice(0, 6000) } : {}),
       ...(patch.guardRails !== undefined ? { guardRails: patch.guardRails.trim().slice(0, 6000) } : {}),
+      ...(patch.toolKeys !== undefined ? { toolKeys: normalizeToolKeyList(patch.toolKeys) } : {}),
       ...(patch.toolIds !== undefined ? { toolIds: normalizeToolIdList(patch.toolIds) } : {}),
     };
 

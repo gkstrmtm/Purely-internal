@@ -5,6 +5,7 @@ export type VoiceAgentConfig = {
   environment: string;
   tone: string;
   guardRails: string;
+  toolKeys: string[];
   toolIds: string[];
 };
 
@@ -15,6 +16,7 @@ export const DEFAULT_VOICE_AGENT_CONFIG: VoiceAgentConfig = {
   environment: "",
   tone: "",
   guardRails: "",
+  toolKeys: [],
   toolIds: [],
 };
 
@@ -40,6 +42,22 @@ export function normalizeToolIdList(raw: unknown): string[] {
   return out;
 }
 
+export function normalizeToolKeyList(raw: unknown): string[] {
+  const xs = Array.isArray(raw) ? raw : [];
+  const out: string[] = [];
+  for (const x of xs) {
+    const key = typeof x === "string" ? x.trim() : "";
+    if (!key) continue;
+    if (key.length > 80) continue;
+    if (!/^[a-z0-9_]+$/i.test(key)) continue;
+    const normalized = key.toLowerCase();
+    if (out.includes(normalized)) continue;
+    out.push(normalized);
+    if (out.length >= 50) break;
+  }
+  return out;
+}
+
 export function parseVoiceAgentConfig(raw: unknown): VoiceAgentConfig {
   if (!raw || typeof raw !== "object" || Array.isArray(raw)) return { ...DEFAULT_VOICE_AGENT_CONFIG };
   const rec = raw as Record<string, unknown>;
@@ -51,6 +69,7 @@ export function parseVoiceAgentConfig(raw: unknown): VoiceAgentConfig {
     environment: normalizeString(rec.environment, MAX_TEXT_LEN),
     tone: normalizeString(rec.tone, MAX_TEXT_LEN),
     guardRails: normalizeString(rec.guardRails, MAX_TEXT_LEN),
+    toolKeys: normalizeToolKeyList(rec.toolKeys),
     toolIds: normalizeToolIdList(rec.toolIds),
   };
 }

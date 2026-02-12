@@ -22,6 +22,9 @@ type BillingSummary =
       configured: true;
       monthlyCents: number;
       currency: string;
+      monthlyBreakdown?: Array<{ subscriptionId: string; title: string; monthlyCents: number; currency: string }>;
+      spentThisMonthCents?: number;
+      spentThisMonthCurrency?: string;
       subscription?: {
         id: string;
         status: string;
@@ -315,6 +318,26 @@ export function PortalBillingClient() {
       ? formatMoney(summary.monthlyCents, summary.currency)
       : "—";
 
+  const summaryCurrency =
+    summary && summary.configured && "currency" in summary && typeof (summary as any).currency === "string"
+      ? String((summary as any).currency || "").trim() || "usd"
+      : "usd";
+
+  const spentThisMonthText =
+    summary && summary.configured && "spentThisMonthCents" in summary && typeof summary.spentThisMonthCents === "number"
+      ? formatMoney(summary.spentThisMonthCents, (summary as any).spentThisMonthCurrency || summaryCurrency)
+      : "—";
+
+  const monthlyBreakdown =
+    summary && summary.configured && "monthlyBreakdown" in summary && Array.isArray((summary as any).monthlyBreakdown)
+      ? (((summary as any).monthlyBreakdown ?? []) as Array<{
+          subscriptionId: string;
+          title: string;
+          monthlyCents: number;
+          currency: string;
+        }>)
+      : [];
+
   const sub = summary && "ok" in summary && summary.ok === true && summary.configured ? summary.subscription : undefined;
   const hasActiveSub = Boolean(sub?.id && ["active", "trialing", "past_due"].includes(String(sub.status)));
 
@@ -391,20 +414,48 @@ export function PortalBillingClient() {
           </div>
 
           <div className="rounded-2xl border border-zinc-200 bg-zinc-50 p-4">
-            <div className="text-xs text-zinc-500">Subscription status</div>
-            <div className="mt-1 flex items-center gap-2">
-              <span className={`h-2.5 w-2.5 rounded-full ${statusDotClass}`} />
-              <div className="text-sm font-semibold text-brand-ink">
-                {hasActiveSub ? "Active" : "Not active"}
-              </div>
-              {sub?.cancelAtPeriodEnd ? (
-                <span className="rounded-full bg-amber-100 px-2 py-0.5 text-xs font-semibold text-amber-900">
-                  Canceling
-                </span>
-              ) : null}
-            </div>
-            {periodEndText ? <div className="mt-1 text-xs text-zinc-500">Renews/ends: {periodEndText}</div> : null}
+            <div className="text-xs text-zinc-500">Spent this month</div>
+            <div className="mt-1 text-lg font-bold text-brand-ink">{spentThisMonthText}</div>
+            <div className="mt-1 text-xs text-zinc-500">Paid invoices + one-time charges (credits, installs, etc.)</div>
           </div>
+        </div>
+
+        <div className="mt-3 rounded-2xl border border-zinc-200 bg-zinc-50 p-4">
+          <div className="flex items-start justify-between gap-3">
+            <div>
+              <div className="text-sm font-semibold text-zinc-900">Monthly breakdown</div>
+              <div className="mt-1 text-sm text-zinc-600">How your monthly total is calculated.</div>
+            </div>
+            <div className="text-right">
+              <div className="text-xs text-zinc-500">Subscription status</div>
+              <div className="mt-1 flex items-center justify-end gap-2">
+                <span className={`h-2.5 w-2.5 rounded-full ${statusDotClass}`} />
+                <div className="text-sm font-semibold text-brand-ink">{hasActiveSub ? "Active" : "Not active"}</div>
+                {sub?.cancelAtPeriodEnd ? (
+                  <span className="rounded-full bg-amber-100 px-2 py-0.5 text-xs font-semibold text-amber-900">
+                    Canceling
+                  </span>
+                ) : null}
+              </div>
+              {periodEndText ? <div className="mt-1 text-xs text-zinc-500">Renews/ends: {periodEndText}</div> : null}
+            </div>
+          </div>
+
+          {monthlyBreakdown.length ? (
+            <div className="mt-3 grid gap-2">
+              {monthlyBreakdown
+                .filter((x) => typeof x.monthlyCents === "number" && x.monthlyCents > 0)
+                .sort((a, b) => b.monthlyCents - a.monthlyCents)
+                .map((x) => (
+                  <div key={x.subscriptionId} className="flex items-center justify-between gap-3 rounded-2xl border border-zinc-200 bg-white px-3 py-2">
+                    <div className="min-w-0 truncate text-sm font-semibold text-brand-ink">{x.title}</div>
+                    <div className="shrink-0 text-sm font-semibold text-zinc-900">{formatMoney(x.monthlyCents, x.currency || summaryCurrency)}/mo</div>
+                  </div>
+                ))}
+            </div>
+          ) : (
+            <div className="mt-3 text-sm text-zinc-600">No monthly subscriptions found.</div>
+          )}
         </div>
 
         <div className="mt-6 rounded-2xl border border-zinc-200 bg-zinc-50 p-4">
@@ -489,7 +540,7 @@ export function PortalBillingClient() {
             <div>
               <div className="text-sm font-semibold text-zinc-900">Auto top-up</div>
               <div className="mt-1 text-xs text-zinc-500">
-                When enabled, we’ll automatically charge your saved card and add credits when you run out (no redirects).
+                When enabled, we’ll automatically charge your saved card and add credits when you run out.
               </div>
             </div>
             <input
