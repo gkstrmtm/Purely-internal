@@ -1,13 +1,12 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { PortalMediaPickerModal } from "@/components/PortalMediaPickerModal";
 import { ContactTagsEditor, type ContactTag } from "@/components/ContactTagsEditor";
 import { PortalVariablePickerModal } from "@/components/PortalVariablePickerModal";
 import { PortalListboxDropdown, type PortalListboxOption } from "@/components/PortalListboxDropdown";
 import { useToast } from "@/components/ToastProvider";
 import { LEAD_OUTBOUND_VARIABLES } from "@/lib/portalTemplateVars";
-import { CREDIT_USD_VALUE, formatUsd } from "@/lib/pricing.shared";
 
 const TAG_COLORS = [
   "#0EA5E9", // sky
@@ -516,15 +515,19 @@ export function PortalLeadScrapingClient() {
     return Math.min(10, base + extra);
   }, [settings?.b2b?.count]);
 
-  const sortedLeads = (rows: LeadRow[]) =>
-    [...rows].sort((a, b) => (Number(b.starred) - Number(a.starred) || b.createdAtIso.localeCompare(a.createdAtIso)));
+  const sortedLeads = useCallback(
+    (rows: LeadRow[]) =>
+      [...rows].sort((a, b) => (Number(b.starred) - Number(a.starred) || b.createdAtIso.localeCompare(a.createdAtIso))),
+    [],
+  );
 
   useEffect(() => {
     const t = window.setTimeout(() => setLeadQueryDebounced(leadQuery.trim()), 250);
     return () => window.clearTimeout(t);
   }, [leadQuery]);
 
-  async function loadLeads(q: string) {
+  const loadLeads = useCallback(
+    async (q: string) => {
     const qs = new URLSearchParams();
     qs.set("take", String(leadsTake));
     if (q) qs.set("q", q);
@@ -544,7 +547,9 @@ export function PortalLeadScrapingClient() {
       setLeadTotalCount(null);
       setLeadMatchedCount(null);
     }
-  }
+    },
+    [leadsTake, sortedLeads, tab],
+  );
   const pickTagTextColor = (hex: string) => {
     if (!isHexColor(hex)) return "text-white";
     const r = parseInt(hex.slice(1, 3), 16);
@@ -554,7 +559,7 @@ export function PortalLeadScrapingClient() {
     return yiq >= 160 ? "text-zinc-900" : "text-white";
   };
 
-  async function load() {
+  const load = useCallback(async () => {
     setLoading(true);
     setError(null);
     setStatus(null);
@@ -584,16 +589,16 @@ export function PortalLeadScrapingClient() {
     await loadLeads(leadQueryDebounced);
 
     setLoading(false);
-  }
+  }, [leadQueryDebounced, loadLeads]);
 
   useEffect(() => {
     void load();
-  }, []);
+  }, [load]);
 
   useEffect(() => {
     if (loading) return;
     void loadLeads(leadQueryDebounced);
-  }, [leadQueryDebounced, tab]);
+  }, [leadQueryDebounced, loadLeads, loading, tab]);
 
   async function save(): Promise<boolean> {
     if (!settings) return false;
@@ -969,7 +974,7 @@ export function PortalLeadScrapingClient() {
     setLeadTagDraft(activeLead.tag ?? "");
     const defaultColor = tagPresets[0]?.color ?? "#111827";
     setLeadTagColorDraft(isHexColor(activeLead.tagColor || "") ? (activeLead.tagColor as string) : defaultColor);
-  }, [activeLead?.id, tagPresets]);
+  }, [activeLead, tagPresets]);
 
   async function patchLead(
     leadId: string,
@@ -1622,8 +1627,7 @@ export function PortalLeadScrapingClient() {
                   </div>
                   <div className="text-right text-xs text-zinc-500">
                     Est. max cost per run:{" "}
-                    <span className="font-semibold text-zinc-900">{estimatedRunCost}</span> credits (
-                    {formatUsd(Number(estimatedRunCost || 0) * CREDIT_USD_VALUE)})
+                    <span className="font-semibold text-zinc-900">{estimatedRunCost}</span> credits
                   </div>
                 </div>
 

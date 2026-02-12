@@ -4,7 +4,6 @@ import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 
 import { PORTAL_SERVICES } from "@/app/portal/services/catalog";
-import { CREDIT_USD_VALUE, formatUsd } from "@/lib/pricing.shared";
 
 const DEFAULT_FULL_DEMO_EMAIL = "demo-full@purelyautomation.dev";
 
@@ -145,8 +144,8 @@ export function PortalServicePageClient({ slug }: { slug: string }) {
 
             <div className="rounded-3xl border border-zinc-200 bg-zinc-50 p-6">
               <div className="text-sm font-semibold text-zinc-900">Usage credits</div>
-              <div className="mt-2 text-3xl font-bold text-brand-ink">{formatUsd(CREDIT_USD_VALUE)}</div>
-              <div className="text-xs text-zinc-500">per credit</div>
+              <div className="mt-2 text-3xl font-bold text-brand-ink">Credits</div>
+              <div className="text-xs text-zinc-500">for usage-based actions</div>
               <div className="mt-3 text-sm text-zinc-700">Credits roll over. Top up any time in Billing.</div>
             </div>
           </div>

@@ -31,6 +31,20 @@ type BillingSummary =
     }
   | { ok: false; configured: boolean; error?: string; details?: string };
 
+type SubscriptionRow = {
+  id: string;
+  title: string;
+  status: string;
+  cancelAtPeriodEnd: boolean;
+  currentPeriodEnd: number | null;
+  currency: string;
+  items: Array<{ quantity: number; priceId: string; unitAmount: number | null; interval: string | null }>;
+};
+
+type SubscriptionsResponse =
+  | { ok: true; configured: boolean; subscriptions: SubscriptionRow[] }
+  | { ok: false; error?: string };
+
 type ServicesStatusResponse =
   | { ok: true; statuses: Record<string, { state: "active" | "needs_setup" | "locked" | "coming_soon"; label: string }> }
   | { ok: false; error?: string };
@@ -53,9 +67,19 @@ export function PortalBillingClient() {
   const [creditsPerPackage, setCreditsPerPackage] = useState<number | null>(null);
   const [packages, setPackages] = useState(1);
   const [services, setServices] = useState<ServicesStatusResponse | null>(null);
+  const [subscriptions, setSubscriptions] = useState<SubscriptionsResponse | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [actionBusy, setActionBusy] = useState<string | null>(null);
+
+  const [cancelModal, setCancelModal] = useState<null | {
+    step: 1 | 2;
+    subscriptionId: string;
+    title: string;
+    immediate: boolean;
+    typed: string;
+    ack: boolean;
+  }>(null);
 
   useEffect(() => {
     if (error) toast.error(error);
@@ -64,12 +88,13 @@ export function PortalBillingClient() {
   useEffect(() => {
     let mounted = true;
     (async () => {
-      const [billingRes, meRes, summaryRes, creditsRes, servicesRes] = await Promise.all([
+      const [billingRes, meRes, summaryRes, creditsRes, servicesRes, subsRes] = await Promise.all([
         fetch("/api/billing/status", { cache: "no-store" }),
         fetch("/api/customer/me", { cache: "no-store", headers: { "x-pa-app": "portal" } }),
         fetch("/api/portal/billing/summary", { cache: "no-store" }),
         fetch("/api/portal/credits", { cache: "no-store" }),
         fetch("/api/portal/services/status", { cache: "no-store" }),
+        fetch("/api/portal/billing/subscriptions", { cache: "no-store" }),
       ]);
       if (!mounted) return;
       if (!billingRes.ok) {
@@ -114,6 +139,12 @@ export function PortalBillingClient() {
         setServices((await servicesRes.json().catch(() => null)) as ServicesStatusResponse | null);
       } else {
         setServices(null);
+      }
+
+      if (subsRes.ok) {
+        setSubscriptions((await subsRes.json().catch(() => null)) as SubscriptionsResponse | null);
+      } else {
+        setSubscriptions(null);
       }
 
       setLoading(false);
@@ -173,6 +204,15 @@ export function PortalBillingClient() {
       return;
     }
     setSummary((await res.json().catch(() => null)) as BillingSummary | null);
+  }
+
+  async function refreshSubscriptions() {
+    const res = await fetch("/api/portal/billing/subscriptions", { cache: "no-store" });
+    if (!res.ok) {
+      setSubscriptions(null);
+      return;
+    }
+    setSubscriptions((await res.json().catch(() => null)) as SubscriptionsResponse | null);
   }
 
   async function refreshCredits() {
@@ -235,13 +275,13 @@ export function PortalBillingClient() {
     await refreshCredits();
   }
 
-  async function cancelSubscription(immediate: boolean) {
+  async function cancelOneSubscription(subscriptionId: string, immediate: boolean) {
     setError(null);
-    setActionBusy(immediate ? "cancel-now" : "cancel");
-    const res = await fetch("/api/portal/billing/cancel", {
+    setActionBusy(immediate ? `cancel-now:${subscriptionId}` : `cancel:${subscriptionId}`);
+    const res = await fetch("/api/portal/billing/cancel-subscription", {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ immediate }),
+      body: JSON.stringify({ subscriptionId, immediate }),
     });
     const body = await res.json().catch(() => ({}));
     if (!res.ok) {
@@ -250,7 +290,7 @@ export function PortalBillingClient() {
       return;
     }
 
-    await refreshSummary();
+    await Promise.all([refreshSummary(), refreshSubscriptions()]);
     setActionBusy(null);
   }
 
@@ -307,10 +347,20 @@ export function PortalBillingClient() {
   const packagePresets = (() => {
     const base = creditsPerPackage ?? 25;
     const options = [10, 20, 40];
-    return options
-      .map((p) => ({ packages: p, credits: p * base }))
-      .filter((x) => x.packages >= 1 && x.packages <= 20);
+    return options.map((p) => ({ packages: p, credits: p * base }));
   })();
+
+  const activeSubs = subscriptions && "ok" in subscriptions && subscriptions.ok ? subscriptions.subscriptions : [];
+
+  const cancelBenefits = (title: string) => {
+    const t = title.toLowerCase();
+    if (t.includes("blogs")) return ["4 posts/month included", "Publishing workflow + scheduling", "Draft generation"]; 
+    if (t.includes("booking")) return ["Calendar confirmations + reminders", "Post-booking follow-ups", "No-show reduction"]; 
+    if (t.includes("follow-up") || t.includes("crm")) return ["Follow-up sequences", "Lead pipeline tools", "Automation actions tied to CRM"]; 
+    if (t.includes("outbound")) return ["AI outbound call campaigns", "Usage-based calling via credits", "Campaign tooling + logging"]; 
+    if (t.includes("nurture")) return ["Nurture sequences keep running", "Multi-step SMS/email sends", "Audience-by-tags enrollments"]; 
+    return ["Ongoing access to this service", "Automations/workflows tied to it", "Reporting and activity for this service"]; 
+  };
 
   return (
     <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
@@ -358,36 +408,64 @@ export function PortalBillingClient() {
         </div>
 
         <div className="mt-6 rounded-2xl border border-zinc-200 bg-zinc-50 p-4">
-          <div className="text-sm font-semibold text-zinc-900">Subscription actions</div>
-          <div className="mt-1 text-sm text-zinc-600">Cancel any time. Changes apply to your account owner.</div>
+          <div className="text-sm font-semibold text-zinc-900">Subscriptions</div>
+          <div className="mt-1 text-sm text-zinc-600">Cancel any service any time.</div>
 
-          {hasActiveSub ? (
-            <div className="mt-4 flex flex-col gap-2 sm:flex-row">
-              <button
-                type="button"
-                className="rounded-2xl bg-brand-ink px-4 py-2 text-sm font-semibold text-white hover:opacity-95 disabled:opacity-60"
-                disabled={!status?.configured || Boolean(sub?.cancelAtPeriodEnd) || actionBusy !== null}
-                onClick={() => cancelSubscription(false)}
-              >
-                {sub?.cancelAtPeriodEnd ? "Cancel scheduled" : "Cancel at period end"}
-              </button>
-              <button
-                type="button"
-                className="rounded-2xl border border-red-200 bg-white px-4 py-2 text-sm font-semibold text-red-700 hover:bg-red-50 disabled:opacity-60"
-                disabled={!status?.configured || actionBusy !== null}
-                onClick={() => {
-                  const ok = window.confirm(
-                    "Cancel immediately? This ends access right away. Click OK to confirm.",
-                  );
-                  if (!ok) return;
-                  void cancelSubscription(true);
-                }}
-              >
-                Cancel now
-              </button>
+          {activeSubs.length ? (
+            <div className="mt-4 grid gap-2">
+              {activeSubs.map((s) => {
+                const endText = s.currentPeriodEnd ? new Date(s.currentPeriodEnd * 1000).toLocaleDateString() : null;
+                const busy = actionBusy === `cancel:${s.id}` || actionBusy === `cancel-now:${s.id}`;
+                return (
+                  <div key={s.id} className="flex flex-col gap-2 rounded-2xl border border-zinc-200 bg-white p-3 sm:flex-row sm:items-center sm:justify-between">
+                    <div className="min-w-0">
+                      <div className="truncate text-sm font-semibold text-brand-ink">{s.title}</div>
+                      <div className="mt-0.5 text-xs text-zinc-500">
+                        Status: {s.status}{s.cancelAtPeriodEnd ? " • Canceling" : ""}{endText ? ` • Renews/ends: ${endText}` : ""}
+                      </div>
+                    </div>
+                    <div className="flex flex-wrap gap-2">
+                      <button
+                        type="button"
+                        className="rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-sm font-semibold text-brand-ink hover:bg-zinc-50 disabled:opacity-60"
+                        disabled={busy}
+                        onClick={() =>
+                          setCancelModal({
+                            step: 1,
+                            subscriptionId: s.id,
+                            title: s.title,
+                            immediate: false,
+                            typed: "",
+                            ack: false,
+                          })
+                        }
+                      >
+                        {s.cancelAtPeriodEnd ? "Cancel scheduled" : "Cancel"}
+                      </button>
+                      <button
+                        type="button"
+                        className="rounded-2xl border border-red-200 bg-white px-3 py-2 text-sm font-semibold text-red-700 hover:bg-red-50 disabled:opacity-60"
+                        disabled={busy}
+                        onClick={() =>
+                          setCancelModal({
+                            step: 1,
+                            subscriptionId: s.id,
+                            title: s.title,
+                            immediate: true,
+                            typed: "",
+                            ack: false,
+                          })
+                        }
+                      >
+                        Cancel now
+                      </button>
+                    </div>
+                  </div>
+                );
+              })}
             </div>
           ) : (
-            <div className="mt-3 text-sm text-zinc-600">No active subscription to manage.</div>
+            <div className="mt-3 text-sm text-zinc-600">No active subscriptions found.</div>
           )}
         </div>
       </div>
@@ -455,7 +533,7 @@ export function PortalBillingClient() {
                   onChange={(e) => setPackages(Number(e.target.value))}
                   disabled={actionBusy !== null}
                 >
-                  {Array.from({ length: 20 }, (_, i) => i + 1).map((pkg) => {
+                  {Array.from({ length: 200 }, (_, i) => i + 1).map((pkg) => {
                     const c = creditsPerPackage ? pkg * creditsPerPackage : null;
                     return (
                       <option key={pkg} value={pkg}>
@@ -493,6 +571,98 @@ export function PortalBillingClient() {
           )}
         </div>
       </div>
+
+      {cancelModal ? (
+        <div
+          className="fixed inset-0 z-[9999] overflow-y-auto bg-black/40 p-4"
+          onMouseDown={() => setCancelModal(null)}
+        >
+          <div className="mx-auto w-full max-w-xl" onMouseDown={(e) => e.stopPropagation()}>
+            <div className="rounded-3xl border border-zinc-200 bg-white p-5 shadow-xl">
+              <div className="text-sm font-semibold text-zinc-900">
+                Cancel {cancelModal.title}
+              </div>
+              <div className="mt-1 text-sm text-zinc-600">
+                {cancelModal.immediate ? "This ends access right away." : "This cancels at the end of the billing period."}
+              </div>
+
+              {cancelModal.step === 1 ? (
+                <div className="mt-4">
+                  <div className="text-sm font-semibold text-zinc-900">You’re about to lose:</div>
+                  <ul className="mt-2 list-disc pl-5 text-sm text-zinc-700">
+                    {cancelBenefits(cancelModal.title).map((b) => (
+                      <li key={b}>{b}</li>
+                    ))}
+                  </ul>
+
+                  <div className="mt-4 flex flex-col gap-2 sm:flex-row sm:justify-end">
+                    <button
+                      type="button"
+                      className="rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm font-semibold text-brand-ink hover:bg-zinc-50"
+                      onClick={() => setCancelModal(null)}
+                    >
+                      Keep it
+                    </button>
+                    <button
+                      type="button"
+                      className="rounded-2xl bg-zinc-900 px-4 py-2 text-sm font-semibold text-white hover:bg-zinc-800"
+                      onClick={() => setCancelModal({ ...cancelModal, step: 2 })}
+                    >
+                      Continue
+                    </button>
+                  </div>
+                </div>
+              ) : (
+                <div className="mt-4">
+                  <div className="rounded-2xl border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900">
+                    This action is hard to undo. If you’re sure, type <span className="font-semibold">CANCEL</span> and confirm.
+                  </div>
+
+                  <div className="mt-3">
+                    <input
+                      value={cancelModal.typed}
+                      onChange={(e) => setCancelModal({ ...cancelModal, typed: e.target.value })}
+                      className="w-full rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-sm outline-none focus:border-zinc-300"
+                      placeholder="Type CANCEL"
+                    />
+                  </div>
+
+                  <label className="mt-3 flex items-start gap-2 text-sm text-zinc-700">
+                    <input
+                      type="checkbox"
+                      checked={cancelModal.ack}
+                      onChange={(e) => setCancelModal({ ...cancelModal, ack: e.target.checked })}
+                    />
+                    <span>I understand what I’m losing and still want to cancel.</span>
+                  </label>
+
+                  <div className="mt-4 flex flex-col gap-2 sm:flex-row sm:justify-end">
+                    <button
+                      type="button"
+                      className="rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm font-semibold text-brand-ink hover:bg-zinc-50"
+                      onClick={() => setCancelModal(null)}
+                    >
+                      Go back
+                    </button>
+                    <button
+                      type="button"
+                      className="rounded-2xl border border-red-200 bg-red-600 px-4 py-2 text-sm font-semibold text-white hover:bg-red-700 disabled:opacity-60"
+                      disabled={cancelModal.typed.trim().toUpperCase() !== "CANCEL" || !cancelModal.ack || actionBusy !== null}
+                      onClick={async () => {
+                        const { subscriptionId, immediate } = cancelModal;
+                        setCancelModal(null);
+                        await cancelOneSubscription(subscriptionId, immediate);
+                      }}
+                    >
+                      Yes, cancel
+                    </button>
+                  </div>
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      ) : null}
 
       <div className="rounded-3xl border border-zinc-200 bg-white p-6 lg:col-span-2">
         <div className="text-sm font-semibold text-zinc-900">Add services</div>

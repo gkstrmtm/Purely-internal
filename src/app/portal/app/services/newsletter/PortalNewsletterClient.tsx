@@ -3,7 +3,6 @@
 import Link from "next/link";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useToast } from "@/components/ToastProvider";
-import { CREDIT_USD_VALUE, formatUsd } from "@/lib/pricing.shared";
 import { DEFAULT_TAG_COLORS } from "@/lib/tagColors.shared";
 import { RichTextMarkdownEditor } from "@/components/RichTextMarkdownEditor";
 import { PortalMediaPickerModal } from "@/components/PortalMediaPickerModal";
@@ -628,7 +627,7 @@ export function PortalNewsletterClient({ initialAudience }: { initialAudience: A
         <div>
           <h1 className="text-2xl font-bold text-brand-ink sm:text-3xl">Newsletter</h1>
           <p className="mt-2 max-w-2xl text-sm text-zinc-600">
-            AI newsletters cost 30 credits ({formatUsd(CREDIT_USD_VALUE * 30)}) per generation. Send by email and SMS (SMS includes a link to the hosted page).
+            AI newsletters cost 30 credits per generation. Send by email and SMS (SMS includes a link to the hosted page).
           </p>
         </div>
 
@@ -1683,9 +1682,9 @@ export function PortalNewsletterClient({ initialAudience }: { initialAudience: A
       </div>
 
       {draftOpen ? (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/30 p-4" onMouseDown={() => setDraftOpen(false)}>
+        <div className="fixed inset-0 z-50 overflow-y-auto bg-black/30 p-4" onMouseDown={() => setDraftOpen(false)}>
           <div
-            className="w-full max-w-5xl rounded-3xl border border-zinc-200 bg-white p-4 shadow-xl"
+            className="mx-auto w-full max-w-5xl max-h-[calc(100vh-2rem)] overflow-y-auto rounded-3xl border border-zinc-200 bg-white p-4 shadow-xl"
             onMouseDown={(e) => e.stopPropagation()}
           >
             <div className="flex items-start justify-between gap-3">

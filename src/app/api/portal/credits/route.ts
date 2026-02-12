@@ -16,9 +16,8 @@ const putSchema = z.object({
 });
 
 function purchaseAvailable() {
-  const price = (process.env.STRIPE_PRICE_CREDITS_TOPUP ?? "").trim();
   if (process.env.NODE_ENV !== "production") return true;
-  return Boolean(isStripeConfigured() && price);
+  return Boolean(isStripeConfigured());
 }
 
 export async function GET() {

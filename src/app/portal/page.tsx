@@ -1,7 +1,6 @@
 import Link from "next/link";
 
 import { PortalOffersCarousel } from "@/app/portal/PortalOffersCarousel";
-import { CREDIT_USD_VALUE, formatUsd } from "@/lib/pricing.shared";
 
 export default async function PortalDashboardPage() {
   return (
@@ -128,8 +127,8 @@ export default async function PortalDashboardPage() {
 
             <div className="rounded-3xl border border-zinc-200 bg-zinc-50 p-6">
               <div className="text-sm font-semibold text-zinc-900">Usage credits</div>
-              <div className="mt-2 text-3xl font-bold text-brand-ink">{formatUsd(CREDIT_USD_VALUE)}</div>
-              <div className="text-xs text-zinc-500">per credit</div>
+              <div className="mt-2 text-3xl font-bold text-brand-ink">Credits</div>
+              <div className="text-xs text-zinc-500">for usage-based actions</div>
               <div className="mt-4 text-sm text-zinc-700">Used by AI and other usage-based actions.</div>
               <div className="mt-4 space-y-2 text-sm text-zinc-700">
                 <div>• Credits roll over</div>

@@ -5,7 +5,6 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { createPortal } from "react-dom";
 import { PortalSettingsSection } from "@/components/PortalSettingsSection";
 import { useToast } from "@/components/ToastProvider";
-import { CREDIT_USD_VALUE, formatUsd } from "@/lib/pricing.shared";
 
 type Me = {
   user: { email: string; name: string; role: string };
@@ -109,13 +108,6 @@ export function PortalBlogsClient() {
     if (!openPostMenu) return null;
     return posts.find((p) => p.id === openPostMenu.postId) ?? null;
   }, [openPostMenu, posts]);
-
-  const publicBlogUrl = useMemo(() => {
-    const handle = site?.slug ?? site?.id;
-    if (!handle) return null;
-    if (typeof window === "undefined") return `/${handle}/blogs`;
-    return `${window.location.origin}/${handle}/blogs`;
-  }, [site?.id, site?.slug]);
 
   const publicBlogUrlPreview = useMemo(() => {
     const handle = siteSlug.trim() || site?.slug || site?.id;
@@ -561,8 +553,6 @@ export function PortalBlogsClient() {
                     </tr>
                   ) : (
                     posts.map((p) => {
-                      const livePath = siteHandle ? `/${siteHandle}/blogs/${p.slug}` : null;
-                      const canViewLive = Boolean(livePath) && p.status === "PUBLISHED" && !p.archivedAt;
                       const statusLabel = p.archivedAt ? "Archived" : p.status === "PUBLISHED" ? "Published" : "Draft";
                       const statusClasses = p.archivedAt
                         ? "bg-zinc-100 text-zinc-700"
@@ -646,8 +636,7 @@ export function PortalBlogsClient() {
               <div className="mt-1 text-xs text-zinc-500">Example: 7 = weekly, 14 = every 2 weeks.</div>
               {Number(autoFrequencyDays) < 7 ? (
                 <div className="mt-2 rounded-2xl border border-amber-200 bg-amber-50 p-3 text-xs text-amber-800">
-                  More often than weekly uses credits. Estimated: {creditsPerWeekEstimate} credit{creditsPerWeekEstimate === 1 ? "" : "s"} / week (
-                  {formatUsd(creditsPerWeekEstimate * CREDIT_USD_VALUE)}).
+                  More often than weekly uses credits. Estimated: {creditsPerWeekEstimate} credit{creditsPerWeekEstimate === 1 ? "" : "s"} / week.
                 </div>
               ) : null}
             </div>

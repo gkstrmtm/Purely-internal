@@ -11,7 +11,7 @@ export const dynamic = "force-dynamic";
 export const revalidate = 0;
 
 const postSchema = z.object({
-  packages: z.number().int().min(1).max(20).default(1),
+  packages: z.number().int().min(1).max(200).default(1),
 });
 
 export async function POST(req: Request) {
@@ -38,7 +38,7 @@ export async function POST(req: Request) {
   }
 
   const priceId = (process.env.STRIPE_PRICE_CREDITS_TOPUP ?? "").trim();
-  const stripeReady = isStripeConfigured() && Boolean(priceId) && Boolean(email);
+  const stripeReady = isStripeConfigured() && Boolean(email);
 
   // Dev/test fallback: allow adding credits without Stripe.
   if (!stripeReady) {
@@ -62,15 +62,33 @@ export async function POST(req: Request) {
   const successUrl = new URL("/portal/app/billing?topup=success", origin).toString();
   const cancelUrl = new URL("/portal/app/billing?topup=cancel", origin).toString();
 
-  const checkout = await stripePost<{ url: string }>("/v1/checkout/sessions", {
+  const creditsPerPackage = creditsPerTopUpPackage();
+  const unitAmountCents = creditsPerPackage * 10;
+
+  const params: Record<string, unknown> = {
     mode: "payment",
     customer,
     success_url: successUrl,
     cancel_url: cancelUrl,
-    "line_items[0][price]": priceId,
-    "line_items[0][quantity]": parsed.data.packages,
     allow_promotion_codes: true,
-  });
+    "metadata[kind]": "credits_topup",
+    "metadata[ownerId]": ownerId,
+    "metadata[packages]": String(parsed.data.packages),
+    "metadata[creditsPerPackage]": String(creditsPerPackage),
+  };
+
+  if (priceId) {
+    params["line_items[0][price]"] = priceId;
+    params["line_items[0][quantity]"] = parsed.data.packages;
+  } else {
+    // Fallback: create an inline price (no STRIPE_PRICE_CREDITS_TOPUP needed).
+    params["line_items[0][price_data][currency]"] = "usd";
+    params["line_items[0][price_data][unit_amount]"] = unitAmountCents;
+    params["line_items[0][price_data][product_data][name]"] = `${creditsPerPackage} credits`;
+    params["line_items[0][quantity]"] = parsed.data.packages;
+  }
+
+  const checkout = await stripePost<{ url: string }>("/v1/checkout/sessions", params);
 
   return NextResponse.json({ ok: true, mode: "stripe", url: checkout.url });
 }
