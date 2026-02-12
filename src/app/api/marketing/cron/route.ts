@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 
 import { prisma } from "@/lib/db";
+import { missingOutboundEmailConfigReason, trySendTransactionalEmail } from "@/lib/emailSender";
 
 type SendResult =
   | { ok: true }
@@ -8,32 +9,16 @@ type SendResult =
   | { ok: false; skipped?: false; reason: string };
 
 async function sendEmail(to: string, body: string): Promise<SendResult> {
-  const apiKey = process.env.SENDGRID_API_KEY;
-  const fromEmail = process.env.SENDGRID_FROM_EMAIL;
-  if (!apiKey || !fromEmail) {
-    return { ok: false, skipped: true, reason: "Missing SENDGRID_API_KEY or SENDGRID_FROM_EMAIL" };
-  }
-
-  const res = await fetch("https://api.sendgrid.com/v3/mail/send", {
-    method: "POST",
-    headers: {
-      authorization: `Bearer ${apiKey}`,
-      "content-type": "application/json",
-    },
-    body: JSON.stringify({
-      personalizations: [{ to: [{ email: to }] }],
-      from: { email: fromEmail, name: "Purely Automation" },
-      subject: "Your Purely Automation demo",
-      content: [{ type: "text/plain", value: body }],
-    }),
+  const r = await trySendTransactionalEmail({
+    to,
+    subject: "Your Purely Automation demo",
+    text: body,
+    fromName: "Purely Automation",
   });
 
-  if (!res.ok) {
-    const text = await res.text().catch(() => "");
-    return { ok: false, reason: `SendGrid failed (${res.status}): ${text.slice(0, 500)}` };
-  }
-
-  return { ok: true };
+  if (r.ok) return { ok: true };
+  if (r.skipped) return { ok: false, skipped: true, reason: missingOutboundEmailConfigReason() };
+  return { ok: false, reason: r.reason };
 }
 
 async function sendSms(to: string, body: string): Promise<SendResult> {

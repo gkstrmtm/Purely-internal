@@ -3,6 +3,7 @@ import { z } from "zod";
 
 import { requireClientSession } from "@/lib/apiAuth";
 import { prisma } from "@/lib/db";
+import { missingOutboundEmailConfigReason, trySendTransactionalEmail } from "@/lib/emailSender";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -87,38 +88,22 @@ async function sendBugReportEmail(opts: {
   subject: string;
   body: string;
 }): Promise<{ ok: true } | { ok: false; skipped: true; reason: string } | { ok: false; skipped?: false; reason: string }> {
-  const apiKey = process.env.SENDGRID_API_KEY;
-  const fromEmail = process.env.SENDGRID_FROM_EMAIL;
-  if (!apiKey || !fromEmail) {
-    return { ok: false, skipped: true, reason: "Missing SENDGRID_API_KEY or SENDGRID_FROM_EMAIL" };
-  }
-
   const recipients = opts.to.filter(Boolean);
   if (!recipients.length) {
     return { ok: false, skipped: true, reason: "Missing bug report recipients" };
   }
 
   try {
-    const res = await fetch("https://api.sendgrid.com/v3/mail/send", {
-      method: "POST",
-      headers: {
-        authorization: `Bearer ${apiKey}`,
-        "content-type": "application/json",
-      },
-      body: JSON.stringify({
-        personalizations: [{ to: recipients.map((email) => ({ email })) }],
-        from: { email: fromEmail, name: "Purely Automation" },
-        subject: opts.subject,
-        content: [{ type: "text/plain", value: opts.body.slice(0, 20000) }],
-      }),
+    const r = await trySendTransactionalEmail({
+      to: recipients,
+      subject: opts.subject,
+      text: opts.body.slice(0, 20000),
+      fromName: "Purely Automation",
     });
 
-    if (!res.ok) {
-      const t = await res.text().catch(() => "");
-      return { ok: false, reason: `SendGrid failed (${res.status}): ${t.slice(0, 500)}` };
-    }
-
-    return { ok: true };
+    if (r.ok) return { ok: true };
+    if (r.skipped) return { ok: false, skipped: true, reason: missingOutboundEmailConfigReason() };
+    return { ok: false, reason: r.reason };
   } catch (err: any) {
     return { ok: false, reason: err?.message ?? "Email send failed" };
   }

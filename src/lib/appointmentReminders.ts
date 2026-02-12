@@ -3,6 +3,7 @@ import { normalizePhoneStrict } from "@/lib/phone";
 import { sendOwnerTwilioSms, getOwnerTwilioSmsConfig } from "@/lib/portalTwilio";
 import { buildPortalTemplateVars } from "@/lib/portalTemplateVars";
 import { renderTextTemplate } from "@/lib/textTemplate";
+import { sendTransactionalEmail } from "@/lib/emailSender";
 
 const SERVICE_SLUG = "appointment-reminders";
 
@@ -238,31 +239,18 @@ function isEmailLike(raw: string) {
 }
 
 async function sendAppointmentReminderEmail(opts: { to: string; subject: string; text: string; fromName?: string }) {
-  const apiKey = process.env.SENDGRID_API_KEY;
-  const fromEmail = process.env.SENDGRID_FROM_EMAIL;
-  if (!apiKey || !fromEmail) throw new Error("Email is not configured yet.");
-
   const to = opts.to.trim();
   if (!isEmailLike(to)) throw new Error("Invalid email address");
 
   const subject = (opts.subject || "Appointment reminder").trim().slice(0, 120) || "Appointment reminder";
   const text = (opts.text || "").trim() || " ";
 
-  const res = await fetch("https://api.sendgrid.com/v3/mail/send", {
-    method: "POST",
-    headers: { authorization: `Bearer ${apiKey}`, "content-type": "application/json" },
-    body: JSON.stringify({
-      personalizations: [{ to: [{ email: to }] }],
-      from: { email: fromEmail, name: opts.fromName ?? "Purely Automation" },
-      subject,
-      content: [{ type: "text/plain", value: text.slice(0, 20000) }],
-    }),
+  await sendTransactionalEmail({
+    to,
+    subject,
+    text: text.slice(0, 20000),
+    fromName: opts.fromName ?? "Purely Automation",
   });
-
-  if (!res.ok) {
-    const t = await res.text().catch(() => "");
-    throw new Error(`SendGrid failed (${res.status}): ${t.slice(0, 400)}`);
-  }
 }
 
 function parseServiceData(raw: unknown): AppointmentRemindersServiceData {

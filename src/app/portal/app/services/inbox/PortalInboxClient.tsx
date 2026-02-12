@@ -52,7 +52,12 @@ type SettingsRes = {
   ok: true;
   settings: { webhookToken: string };
   twilio: { configured: boolean; fromNumberE164: string | null };
-  webhooks: { twilioInboundSmsUrl: string; twilioInboundSmsUrlLegacy?: string; sendgridInboundEmailUrl: string };
+  webhooks: {
+    twilioInboundSmsUrl: string;
+    twilioInboundSmsUrlLegacy?: string;
+    sendgridInboundEmailUrl: string;
+    postmarkInboundEmailUrl?: string;
+  };
 };
 
 type ApiErrorRes = { ok: false; code?: string; error?: string };
@@ -535,7 +540,6 @@ export function PortalInboxClient() {
   useEffect(() => {
     if (!activeThreadId) return;
     loadMessages(activeThreadId);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeThreadId]);
 
   useEffect(() => {
@@ -765,7 +769,7 @@ export function PortalInboxClient() {
         <div className="w-full sm:max-w-[440px]">
           <PortalSettingsSection
             title="Inbound setup"
-            description="Webhook URL for inbound SMS (token-based)."
+            description="Webhook URLs for inbound SMS and email. Copy/paste these into Twilio/Postmark."
             accent="blue"
             dotClassName={
               settings?.twilio?.configured
@@ -804,6 +808,49 @@ export function PortalInboxClient() {
                       Regenerate token
                     </button>
                   </div>
+                </div>
+              </div>
+
+              <div className="rounded-2xl border border-zinc-200 bg-white p-4">
+                <div className="text-xs font-semibold text-zinc-600">Postmark inbound email webhook (recommended)</div>
+                <div className="mt-2 break-all font-mono text-xs text-zinc-800">
+                  {settings?.webhooks.postmarkInboundEmailUrl || "Loading…"}
+                </div>
+                <div className="mt-3 flex items-center justify-end gap-2">
+                  <button
+                    type="button"
+                    className="rounded-xl border border-zinc-200 bg-white px-3 py-2 text-xs font-semibold hover:bg-zinc-50 disabled:opacity-60"
+                    disabled={!settings?.webhooks.postmarkInboundEmailUrl}
+                    onClick={async () => {
+                      const v = settings?.webhooks.postmarkInboundEmailUrl;
+                      if (v) await navigator.clipboard.writeText(v);
+                    }}
+                  >
+                    Copy
+                  </button>
+                </div>
+                <div className="mt-2 text-[11px] text-zinc-500">
+                  Note: this URL includes your account’s webhook token automatically.
+                </div>
+              </div>
+
+              <div className="rounded-2xl border border-zinc-200 bg-white p-4">
+                <div className="text-xs font-semibold text-zinc-600">SendGrid inbound email webhook (legacy)</div>
+                <div className="mt-2 break-all font-mono text-xs text-zinc-800">
+                  {settings?.webhooks.sendgridInboundEmailUrl || "Loading…"}
+                </div>
+                <div className="mt-3 flex items-center justify-end gap-2">
+                  <button
+                    type="button"
+                    className="rounded-xl border border-zinc-200 bg-white px-3 py-2 text-xs font-semibold hover:bg-zinc-50 disabled:opacity-60"
+                    disabled={!settings?.webhooks.sendgridInboundEmailUrl}
+                    onClick={async () => {
+                      const v = settings?.webhooks.sendgridInboundEmailUrl;
+                      if (v) await navigator.clipboard.writeText(v);
+                    }}
+                  >
+                    Copy
+                  </button>
                 </div>
               </div>
             </div>

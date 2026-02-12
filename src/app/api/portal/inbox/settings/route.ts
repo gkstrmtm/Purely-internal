@@ -41,6 +41,10 @@ export async function GET(req: Request) {
         req,
         `/api/public/inbox/${settings.webhookToken}/sendgrid/inbound`,
       ),
+      postmarkInboundEmailUrl: webhookUrlFromRequest(
+        req,
+        `/api/public/inbox/${settings.webhookToken}/postmark/inbound`,
+      ),
     },
   });
 }
@@ -82,6 +86,10 @@ export async function PUT(req: Request) {
       sendgridInboundEmailUrl: webhookUrlFromRequest(
         req,
         `/api/public/inbox/${settings.webhookToken}/sendgrid/inbound`,
+      ),
+      postmarkInboundEmailUrl: webhookUrlFromRequest(
+        req,
+        `/api/public/inbox/${settings.webhookToken}/postmark/inbound`,
       ),
     },
   });

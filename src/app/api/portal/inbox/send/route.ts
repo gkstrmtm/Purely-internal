@@ -5,6 +5,7 @@ import { requireClientSessionForService } from "@/lib/portalAccess";
 import { prisma } from "@/lib/db";
 import { getOwnerTwilioSmsConfig, sendOwnerTwilioSms } from "@/lib/portalTwilio";
 import { baseUrlFromRequest, sendEmail } from "@/lib/leadOutbound";
+import { getOutboundEmailFrom, getOutboundEmailProvider } from "@/lib/emailSender";
 import { runOwnerAutomationsForEvent } from "@/lib/portalAutomationsRunner";
 import { ensurePortalInboxSchema } from "@/lib/portalInboxSchema";
 import { buildPortalTemplateVars } from "@/lib/portalTemplateVars";
@@ -238,7 +239,7 @@ export async function POST(req: Request) {
         bytes: a.bytes as Buffer,
       })),
     });
-  } catch (e) {
+  } catch {
     return NextResponse.json(
       { ok: false, error: "We couldn’t send that email right now. Please try again." },
       { status: 400 },
@@ -258,10 +259,10 @@ export async function POST(req: Request) {
     peerKey,
     subject,
     subjectKey: thread.subjectKey,
-    fromAddress: process.env.SENDGRID_FROM_EMAIL || "purelyautomation@purelyautomation.com",
+    fromAddress: getOutboundEmailFrom().fromEmail || "purelyautomation@purelyautomation.com",
     toAddress: thread.peerKey,
     bodyText: fallbackBodyText,
-    provider: "SENDGRID",
+    provider: getOutboundEmailProvider() || "POSTMARK",
     providerMessageId: null,
   });
 
@@ -277,7 +278,7 @@ export async function POST(req: Request) {
     await runOwnerAutomationsForEvent({
       ownerId,
       triggerKind: "outbound_sent",
-      message: { from: process.env.SENDGRID_FROM_EMAIL || "", to: thread.peerKey, body: body || "" },
+        message: { from: getOutboundEmailFrom().fromEmail || "", to: thread.peerKey, body: body || "" },
       contact: {
         id: contactRow?.id ? String(contactRow.id) : null,
         name: contactRow?.name ? String(contactRow.name) : thread.peerKey,

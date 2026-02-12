@@ -10,6 +10,7 @@ import {
 } from "@/lib/bookingReschedule";
 import { scheduleFollowUpsForBooking } from "@/lib/followUpAutomation";
 import { getOwnerTwilioSmsConfig } from "@/lib/portalTwilio";
+import { trySendTransactionalEmail } from "@/lib/emailSender";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
@@ -42,23 +43,7 @@ async function sendEmail({
   body: string;
   fromName?: string;
 }) {
-  const apiKey = process.env.SENDGRID_API_KEY;
-  const fromEmail = process.env.SENDGRID_FROM_EMAIL;
-  if (!apiKey || !fromEmail) return;
-
-  await fetch("https://api.sendgrid.com/v3/mail/send", {
-    method: "POST",
-    headers: {
-      authorization: `Bearer ${apiKey}`,
-      "content-type": "application/json",
-    },
-    body: JSON.stringify({
-      personalizations: [{ to: [{ email: to }] }],
-      from: { email: fromEmail, name: fromName ?? "Purely Automation" },
-      subject,
-      content: [{ type: "text/plain", value: body }],
-    }),
-  }).catch(() => null);
+  await trySendTransactionalEmail({ to, subject, text: body, fromName }).catch(() => null);
 }
 
 async function sendSms(ownerId: string, to: string, body: string) {

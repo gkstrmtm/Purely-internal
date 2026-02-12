@@ -4,24 +4,14 @@ import { Prisma } from "@prisma/client";
 
 import { prisma } from "@/lib/db";
 import { normalizePhoneForStorage } from "@/lib/phone";
+import { trySendTransactionalEmail } from "@/lib/emailSender";
 
 async function sendInternalEmail(subject: string, body: string) {
-  const apiKey = process.env.SENDGRID_API_KEY;
-  const fromEmail = process.env.SENDGRID_FROM_EMAIL;
-  if (!apiKey || !fromEmail) return;
-
-  await fetch("https://api.sendgrid.com/v3/mail/send", {
-    method: "POST",
-    headers: {
-      authorization: `Bearer ${apiKey}`,
-      "content-type": "application/json",
-    },
-    body: JSON.stringify({
-      personalizations: [{ to: [{ email: "purestayservice@gmail.com" }] }],
-      from: { email: fromEmail, name: "Purely Automation" },
-      subject,
-      content: [{ type: "text/plain", value: body }],
-    }),
+  await trySendTransactionalEmail({
+    to: "purestayservice@gmail.com",
+    subject,
+    text: body,
+    fromName: "Purely Automation",
   }).catch(() => null);
 }
 

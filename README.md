@@ -91,6 +91,15 @@ This requires the database role to allow `CREATE TYPE`, `CREATE TABLE`, `CREATE 
 Twilio Inbox note: configure Twilio’s incoming SMS webhook to point at `POST /api/public/twilio/sms` (routes by the Twilio “To” number → owner).
 MMS media (photos/videos) are downloaded server-side, stored as `PortalInboxAttachment`, and mirrored best-effort into the Media Library “Uploads” folder.
 
+## Email (Postmark or SMTP)
+
+Outbound email is enabled when you set:
+
+- Preferred (Postmark): `POSTMARK_SERVER_TOKEN` + `EMAIL_FROM` (must be verified in Postmark)
+- Fallback (SMTP): `SMTP_HOST`, `SMTP_USER`, `SMTP_PASS` + `EMAIL_FROM`
+
+If Postmark is still under review, use SMTP temporarily (for example, Namecheap Private Email SMTP) so the portal can send immediately.
+
 Manual patches (when Prisma Migrate is unreliable):
 
 - Media Library tables: `node scripts/apply-portal-media-library-db-patch.mjs`
@@ -183,7 +192,9 @@ The public form posts to `POST /api/marketing/demo-request` and stores:
 
 Sending is performed by `GET /api/marketing/cron`:
 
-- If SendGrid/Twilio env vars are missing, messages are marked as `SKIPPED`.
+- If email/SMS env vars are missing, messages are marked as `SKIPPED`.
+	- Email (Postmark): set `POSTMARK_SERVER_TOKEN` and `EMAIL_FROM` (must be a verified Sender Signature in Postmark)
+	- SMS (Twilio): set `TWILIO_ACCOUNT_SID`, `TWILIO_AUTH_TOKEN`, `TWILIO_FROM_NUMBER`
 - If `MARKETING_CRON_SECRET` is set, the cron request must include header `x-marketing-cron-secret`.
 
 ### Public booking

@@ -1,5 +1,6 @@
 import { getOwnerTwilioSmsConfig } from "@/lib/portalTwilio";
 import { makeEmailThreadKey, normalizeSubjectKey, tryUpsertPortalInboxMessage } from "@/lib/portalInbox";
+import { getOutboundEmailFrom, sendTransactionalEmail } from "@/lib/emailSender";
 
 export type LeadTemplateVars = {
   businessName: string;
@@ -57,43 +58,19 @@ export async function sendEmail({
   ownerId?: string;
   attachments?: Array<{ fileName: string; mimeType: string; bytes: Buffer }>;
 }) {
-  const apiKey = process.env.SENDGRID_API_KEY;
-  const fromEmail = process.env.SENDGRID_FROM_EMAIL;
-  if (!apiKey || !fromEmail) throw new Error("Email is not configured yet.");
-
   const safeText = (text || "").trim() || " ";
 
-  const ccEmail = (cc || "").trim();
-  const personalizations: any = {
-    to: [{ email: to }],
-    ...(ccEmail ? { cc: [{ email: ccEmail }] } : {}),
-  };
-
-  const res = await fetch("https://api.sendgrid.com/v3/mail/send", {
-    method: "POST",
-    headers: { authorization: `Bearer ${apiKey}`, "content-type": "application/json" },
-    body: JSON.stringify({
-      personalizations: [personalizations],
-      from: { email: fromEmail, name: fromName ?? "Purely Automation" },
-      subject,
-      content: [{ type: "text/plain", value: safeText }],
-      ...(attachments?.length
-        ? {
-            attachments: attachments.slice(0, 10).map((a) => ({
-              content: Buffer.from(a.bytes).toString("base64"),
-              type: String(a.mimeType || "application/octet-stream"),
-              filename: String(a.fileName || "attachment").slice(0, 200),
-              disposition: "attachment",
-            })),
-          }
-        : {}),
-    }),
+  const sendResult = await sendTransactionalEmail({
+    to,
+    cc,
+    subject,
+    text: safeText,
+    fromName,
+    attachments,
   });
 
-  if (!res.ok) {
-    const t = await res.text().catch(() => "");
-    throw new Error(`SendGrid failed (${res.status}): ${t.slice(0, 400)}`);
-  }
+  const { fromEmail } = getOutboundEmailFrom();
+  if (!fromEmail) throw new Error("Email is not configured yet.");
 
   if (ownerId) {
     const subjectKey = normalizeSubjectKey(subject);
@@ -111,8 +88,8 @@ export async function sendEmail({
         fromAddress: fromEmail,
         toAddress: thread.peerKey,
         bodyText: safeText,
-        provider: "SENDGRID",
-        providerMessageId: null,
+        provider: sendResult.provider,
+        providerMessageId: sendResult.providerMessageId,
       });
     }
   }

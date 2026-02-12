@@ -6,6 +6,7 @@ import { prisma } from "@/lib/db";
 import { buildPortalTemplateVars } from "@/lib/portalTemplateVars";
 import { getOwnerTwilioSmsConfig } from "@/lib/portalTwilio";
 import { renderTextTemplate } from "@/lib/textTemplate";
+import { sendTransactionalEmail } from "@/lib/emailSender";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
@@ -43,30 +44,7 @@ async function sendEmail({
   body: string;
   fromName?: string;
 }) {
-  const apiKey = process.env.SENDGRID_API_KEY;
-  const fromEmail = process.env.SENDGRID_FROM_EMAIL;
-  if (!apiKey || !fromEmail) {
-    throw new Error("Email is not configured yet.");
-  }
-
-  const res = await fetch("https://api.sendgrid.com/v3/mail/send", {
-    method: "POST",
-    headers: {
-      authorization: `Bearer ${apiKey}`,
-      "content-type": "application/json",
-    },
-    body: JSON.stringify({
-      personalizations: [{ to: [{ email: to }] }],
-      from: { email: fromEmail, name: fromName ?? "Purely Automation" },
-      subject,
-      content: [{ type: "text/plain", value: body }],
-    }),
-  });
-
-  if (!res.ok) {
-    const text = await res.text().catch(() => "");
-    throw new Error(`SendGrid failed (${res.status}): ${text.slice(0, 400)}`);
-  }
+  await sendTransactionalEmail({ to, subject, text: body, fromName });
 }
 
 async function sendSms({ ownerId, to, body }: { ownerId: string; to: string; body: string }) {

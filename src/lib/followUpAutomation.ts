@@ -5,6 +5,7 @@ import { getOwnerTwilioSmsConfig } from "@/lib/portalTwilio";
 import { runOwnerAutomationsForEvent } from "@/lib/portalAutomationsRunner";
 import { buildPortalTemplateVars } from "@/lib/portalTemplateVars";
 import { renderTextTemplate } from "@/lib/textTemplate";
+import { getOutboundEmailFrom, isOutboundEmailConfigured, sendTransactionalEmail } from "@/lib/emailSender";
 
 export type FollowUpChannel = "EMAIL" | "SMS";
 
@@ -1125,8 +1126,8 @@ export async function processDueFollowUps(opts: { limit: number }): Promise<{ pr
 
     if (!due.length) continue;
 
-    const apiKey = process.env.SENDGRID_API_KEY;
-    const fromEmail = process.env.SENDGRID_FROM_EMAIL;
+    const emailConfigured = isOutboundEmailConfigured();
+    const fromEmail = getOutboundEmailFrom().fromEmail;
     const twilio = await getOwnerTwilioSmsConfig(row.ownerId);
 
     const profile = await prisma.businessProfile.findUnique({ where: { ownerId: row.ownerId }, select: { businessName: true } }).catch(() => null);
@@ -1146,7 +1147,7 @@ export async function processDueFollowUps(opts: { limit: number }): Promise<{ pr
 
       try {
         if (msg.channel === "EMAIL") {
-          if (!apiKey || !fromEmail) {
+          if (!emailConfigured || !fromEmail) {
             skipped++;
             nextQueue[idx] = { ...nextQueue[idx]!, status: "FAILED", attempts: msg.attempts + 1, lastError: "Email not configured" };
             changed = true;
@@ -1154,28 +1155,20 @@ export async function processDueFollowUps(opts: { limit: number }): Promise<{ pr
           }
 
           const subject = (msg.subject || "Follow-up").slice(0, 120);
-          const res = await fetch("https://api.sendgrid.com/v3/mail/send", {
-            method: "POST",
-            headers: {
-              authorization: `Bearer ${apiKey}`,
-              "content-type": "application/json",
-            },
-            body: JSON.stringify({
-              personalizations: [{ to: [{ email: msg.to }] }],
-              from: { email: fromEmail, name: fromName },
+          try {
+            await sendTransactionalEmail({
+              to: msg.to,
               subject,
-              content: [{ type: "text/plain", value: msg.body }],
-            }),
-          });
-
-          if (!res.ok) {
-            const text = await res.text().catch(() => "");
+              text: msg.body,
+              fromName,
+            });
+          } catch (err: any) {
             failed++;
             nextQueue[idx] = {
               ...nextQueue[idx]!,
               status: "FAILED",
               attempts: msg.attempts + 1,
-              lastError: `Email send failed (${res.status}): ${text.slice(0, 400)}`,
+              lastError: err?.message ? String(err.message).slice(0, 400) : "Email send failed",
             };
             changed = true;
             continue;

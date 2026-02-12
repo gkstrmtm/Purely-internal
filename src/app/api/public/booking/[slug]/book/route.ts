@@ -10,6 +10,7 @@ import { findOrCreatePortalContact } from "@/lib/portalContacts";
 import { ensurePortalContactTagsReady } from "@/lib/portalContactTags";
 import { runOwnerAutomationsForEvent } from "@/lib/portalAutomationsRunner";
 import { normalizePhoneStrict } from "@/lib/phone";
+import { trySendTransactionalEmail } from "@/lib/emailSender";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
@@ -59,24 +60,8 @@ async function sendEmail({
   body: string;
   fromName?: string;
 }) {
-  const apiKey = process.env.SENDGRID_API_KEY;
-  const fromEmail = process.env.SENDGRID_FROM_EMAIL;
-  if (!apiKey || !fromEmail) return;
   if (!to.length) return;
-
-  await fetch("https://api.sendgrid.com/v3/mail/send", {
-    method: "POST",
-    headers: {
-      authorization: `Bearer ${apiKey}`,
-      "content-type": "application/json",
-    },
-    body: JSON.stringify({
-      personalizations: [{ to: to.map((email) => ({ email })) }],
-      from: { email: fromEmail, name: fromName ?? "Purely Automation" },
-      subject,
-      content: [{ type: "text/plain", value: body }],
-    }),
-  }).catch(() => null);
+  await trySendTransactionalEmail({ to, subject, text: body, fromName }).catch(() => null);
 }
 
 export async function POST(
