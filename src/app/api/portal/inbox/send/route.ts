@@ -5,7 +5,12 @@ import { requireClientSessionForService } from "@/lib/portalAccess";
 import { prisma } from "@/lib/db";
 import { getOwnerTwilioSmsConfig, sendOwnerTwilioSms } from "@/lib/portalTwilio";
 import { baseUrlFromRequest, sendEmail } from "@/lib/leadOutbound";
-import { getOutboundEmailFrom, getOutboundEmailProvider } from "@/lib/emailSender";
+import {
+  getOutboundEmailFrom,
+  getOutboundEmailProvider,
+  isOutboundEmailConfigured,
+  missingOutboundEmailConfigReason,
+} from "@/lib/emailSender";
 import { runOwnerAutomationsForEvent } from "@/lib/portalAutomationsRunner";
 import { ensurePortalInboxSchema } from "@/lib/portalInboxSchema";
 import { buildPortalTemplateVars } from "@/lib/portalTemplateVars";
@@ -239,9 +244,31 @@ export async function POST(req: Request) {
         bytes: a.bytes as Buffer,
       })),
     });
-  } catch {
+  } catch (err) {
+    const provider = getOutboundEmailProvider();
+    const configured = isOutboundEmailConfigured();
+
+    const rawMsg =
+      err instanceof Error
+        ? err.message
+        : typeof err === "string"
+          ? err
+          : "We couldn’t send that email right now.";
+
+    const msg =
+      !configured
+        ? `Email is not configured yet. ${missingOutboundEmailConfigReason()}`
+        : rawMsg;
+
+    console.error("/api/portal/inbox/send email failed", {
+      ownerId,
+      provider,
+      to: thread.peerKey,
+      message: String(rawMsg || "").slice(0, 500),
+    });
+
     return NextResponse.json(
-      { ok: false, error: "We couldn’t send that email right now. Please try again." },
+      { ok: false, error: String(msg || "Send failed").slice(0, 500) },
       { status: 400 },
     );
   }
