@@ -1,4 +1,6 @@
 import { prisma } from "@/lib/db";
+import { creditsPerTopUpPackage } from "@/lib/creditsTopup";
+import { getOrCreateStripeCustomerId, isStripeConfigured, stripeGet, stripePost } from "@/lib/stripeFetch";
 
 export type CreditsState = {
   balance: number;
@@ -109,6 +111,68 @@ export async function consumeCredits(
   // Demo accounts should never be blocked or charged.
   if (await isFreeCreditsOwner(ownerId).catch(() => false)) {
     return { ok: true, state: await getCreditsState(ownerId) };
+  }
+
+  const maybeAutoTopUp = async (prev: CreditsState) => {
+    if (!prev.autoTopUp) return { ok: false as const, state: prev };
+
+    const priceId = (process.env.STRIPE_PRICE_CREDITS_TOPUP ?? "").trim();
+    if (!isStripeConfigured() || !priceId) return { ok: false as const, state: prev };
+
+    const user = await prisma.user.findUnique({ where: { id: ownerId }, select: { email: true } }).catch(() => null);
+    const email = normalizeEmail(user?.email);
+    if (!email) return { ok: false as const, state: prev };
+
+    const creditsPerPackage = creditsPerTopUpPackage();
+    const shortfall = Math.max(0, need - prev.balance);
+    const packages = Math.max(1, Math.min(20, Math.ceil(shortfall / creditsPerPackage)));
+
+    try {
+      const customerId = await getOrCreateStripeCustomerId(email);
+      const customer = await stripeGet<any>(`/v1/customers/${customerId}`);
+
+      const paymentMethod =
+        typeof customer?.invoice_settings?.default_payment_method === "string"
+          ? customer.invoice_settings.default_payment_method
+          : typeof customer?.default_source === "string"
+            ? customer.default_source
+            : "";
+      if (!paymentMethod) return { ok: false as const, state: prev };
+
+      const price = await stripeGet<any>(`/v1/prices/${priceId}`);
+      const unitAmount = typeof price?.unit_amount === "number" ? price.unit_amount : NaN;
+      const currency = typeof price?.currency === "string" ? price.currency : "usd";
+      if (!Number.isFinite(unitAmount) || unitAmount <= 0) return { ok: false as const, state: prev };
+
+      const amountCents = Math.floor(unitAmount) * packages;
+      if (!Number.isFinite(amountCents) || amountCents <= 0) return { ok: false as const, state: prev };
+
+      await stripePost<any>("/v1/payment_intents", {
+        amount: amountCents,
+        currency,
+        customer: customerId,
+        payment_method: paymentMethod,
+        off_session: true,
+        confirm: true,
+        description: `Purely Automation credits auto top-up (${packages} package${packages === 1 ? "" : "s"})`,
+        "metadata[kind]": "credits_auto_topup",
+        "metadata[ownerId]": ownerId,
+        "metadata[packages]": String(packages),
+      });
+
+      const credited = packages * creditsPerPackage;
+      const state = await addCredits(ownerId, credited);
+      return { ok: true as const, state };
+    } catch {
+      return { ok: false as const, state: prev };
+    }
+  };
+
+  // If auto top-up is enabled, try topping up once before failing.
+  const current = await getCreditsState(ownerId);
+  if (current.balance < need) {
+    const topped = await maybeAutoTopUp(current);
+    if (!topped.ok) return { ok: false as const, state: topped.state };
   }
 
   return await prisma.$transaction(async (tx) => {

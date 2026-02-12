@@ -3,6 +3,7 @@ import { z } from "zod";
 
 import { requireClientSessionForService } from "@/lib/portalAccess";
 import { prisma } from "@/lib/db";
+import { consumeCredits } from "@/lib/credits";
 import { resolveEntitlements } from "@/lib/entitlements";
 import { baseUrlFromRequest, renderTemplate, sendEmail, sendSms } from "@/lib/leadOutbound";
 import { draftLeadOutboundEmail, draftLeadOutboundSms } from "@/lib/leadOutboundAi";
@@ -402,8 +403,14 @@ export async function POST(req: Request) {
             }
           }
 
-          await sendSms({ ownerId, to: lead.phone, body: smsBody });
-          sent.sms = true;
+          const smsCredits = 1;
+          const consumed = await consumeCredits(ownerId, smsCredits);
+          if (!consumed.ok) {
+            skipped.push("Text skipped: insufficient credits.");
+          } else {
+            await sendSms({ ownerId, to: lead.phone, body: smsBody });
+            sent.sms = true;
+          }
 
           // Best-effort: trigger automations for outbound sends.
           try {

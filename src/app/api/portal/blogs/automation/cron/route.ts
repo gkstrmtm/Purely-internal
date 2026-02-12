@@ -143,7 +143,7 @@ export async function GET(req: Request) {
     const topic = s.topics.length ? s.topics[cursor % s.topics.length] : undefined;
 
     try {
-      const needCredits = 1;
+      const needCredits = s.frequencyDays < 7 ? 50 : 0;
       const consumed = await consumeCredits(setup.ownerId, needCredits);
       if (!consumed.ok) {
         errors.push({ ownerId: setup.ownerId, error: "INSUFFICIENT_CREDITS" });

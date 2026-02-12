@@ -484,7 +484,7 @@ export function PortalAiReceptionistClient() {
               </Link>
             </div>
             <div className="mt-1 text-[11px] text-zinc-500">
-              AI calls are 1 credit ({formatUsd(CREDIT_USD_VALUE)}) / started minute.
+              AI calls are 5 credits ({formatUsd(CREDIT_USD_VALUE * 5)}) / started minute.
             </div>
           </div>
         </div>

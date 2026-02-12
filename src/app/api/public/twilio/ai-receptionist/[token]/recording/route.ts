@@ -24,6 +24,8 @@ function ceilMinutesFromSeconds(seconds: number): number {
   return Math.max(1, Math.ceil(s / 60));
 }
 
+const CREDITS_PER_STARTED_MINUTE = 5;
+
 export async function POST(req: Request, ctx: { params: Promise<{ token: string }> }) {
   const { token } = await ctx.params;
   const lookup = await findOwnerByAiReceptionistWebhookToken(token);
@@ -55,7 +57,8 @@ export async function POST(req: Request, ctx: { params: Promise<{ token: string 
   const toParsed = to ? normalizePhoneStrict(to) : null;
   const toE164 = toParsed && toParsed.ok && toParsed.e164 ? toParsed.e164 : to;
 
-  const needCredits = ceilMinutesFromSeconds(durationSec);
+  const startedMinutes = ceilMinutesFromSeconds(durationSec);
+  const needCredits = startedMinutes * CREDITS_PER_STARTED_MINUTE;
 
   let chargedCredits = 0;
   let chargedPartial = false;

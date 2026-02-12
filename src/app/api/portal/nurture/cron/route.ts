@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 
 import { prisma } from "@/lib/db";
 import { ensurePortalNurtureSchema } from "@/lib/portalNurtureSchema";
+import { ensureNurtureCampaignMonthlyCharge } from "@/lib/portalNurtureMonthlyBilling";
 import { sendOwnerTwilioSms } from "@/lib/portalTwilio";
 import { sendEmail } from "@/lib/leadOutbound";
 import { buildPortalTemplateVars } from "@/lib/portalTemplateVars";
@@ -67,11 +68,52 @@ export async function GET(req: Request) {
   let processed = 0;
   const errors: Array<{ enrollmentId: string; error: string }> = [];
 
+  const billedCampaigns = new Map<string, { ok: boolean; reason?: string }>();
+
   for (const e of due) {
+    if (e.campaign.status === "PAUSED") {
+      const retryAt = new Date(now.getTime() + 60 * 60 * 1000);
+      await prisma.portalNurtureEnrollment.update({
+        where: { id: e.id },
+        data: { lastError: "Campaign is paused.", nextSendAt: retryAt, updatedAt: now },
+      });
+      processed += 1;
+      continue;
+    }
+
     if (e.campaign.status !== "ACTIVE") {
       await prisma.portalNurtureEnrollment.update({
         where: { id: e.id },
         data: { status: "STOPPED", lastError: "Campaign is not active.", nextSendAt: null, updatedAt: now },
+      });
+      processed += 1;
+      continue;
+    }
+
+    const cacheKey = `${e.ownerId}:${e.campaignId}`;
+    const cached = billedCampaigns.get(cacheKey);
+    if (!cached) {
+      const charged = await ensureNurtureCampaignMonthlyCharge({ ownerId: e.ownerId, campaignId: e.campaignId, now });
+      if (!charged.ok) {
+        billedCampaigns.set(cacheKey, { ok: false, reason: charged.reason });
+
+        if (charged.reason === "insufficient_credits") {
+          await prisma.portalNurtureCampaign
+            .updateMany({ where: { id: e.campaignId, ownerId: e.ownerId, status: "ACTIVE" }, data: { status: "PAUSED", updatedAt: now } })
+            .catch(() => null);
+        }
+      } else {
+        billedCampaigns.set(cacheKey, { ok: true });
+      }
+    }
+
+    const billed = billedCampaigns.get(cacheKey);
+    if (!billed?.ok) {
+      const retryAt = new Date(now.getTime() + 60 * 60 * 1000);
+      const msg = billed?.reason === "insufficient_credits" ? "Insufficient credits for monthly campaign billing." : "Billing is processing.";
+      await prisma.portalNurtureEnrollment.update({
+        where: { id: e.id },
+        data: { lastError: msg, nextSendAt: retryAt, updatedAt: now },
       });
       processed += 1;
       continue;

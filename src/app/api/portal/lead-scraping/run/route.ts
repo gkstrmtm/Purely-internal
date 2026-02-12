@@ -1195,8 +1195,12 @@ export async function POST(req: Request) {
               }
             }
 
-            await sendSms({ ownerId, to: lead.phone, body: smsBody });
-            didSend = true;
+            const smsCredits = 1;
+            const consumed = await consumeCredits(ownerId, smsCredits);
+            if (consumed.ok) {
+              await sendSms({ ownerId, to: lead.phone, body: smsBody });
+              didSend = true;
+            }
           }
         }
 

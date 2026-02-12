@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 
 import { requireClientSessionForService } from "@/lib/portalAccess";
+import { consumeCredits } from "@/lib/credits";
 import { generateText } from "@/lib/ai";
 
 export const runtime = "nodejs";
@@ -62,6 +63,16 @@ export async function POST(req: Request) {
 	}
 
 	const { kind, campaignName, prompt, existingSubject, existingBody } = parsed.data;
+
+	const ownerId = auth.session.user.id;
+	const needCredits = 5;
+	const consumed = await consumeCredits(ownerId, needCredits);
+	if (!consumed.ok) {
+		return NextResponse.json(
+			{ ok: false, error: "INSUFFICIENT_CREDITS", code: "INSUFFICIENT_CREDITS", credits: consumed.state.balance },
+			{ status: 402 },
+		);
+	}
 
 	const system =
 		kind === "SMS"

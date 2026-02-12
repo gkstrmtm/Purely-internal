@@ -628,7 +628,7 @@ export function PortalNewsletterClient({ initialAudience }: { initialAudience: A
         <div>
           <h1 className="text-2xl font-bold text-brand-ink sm:text-3xl">Newsletter</h1>
           <p className="mt-2 max-w-2xl text-sm text-zinc-600">
-            AI newsletters cost 1 credit ({formatUsd(CREDIT_USD_VALUE)}) per generation. Send by email and SMS (SMS includes a link to the hosted page).
+            AI newsletters cost 30 credits ({formatUsd(CREDIT_USD_VALUE * 30)}) per generation. Send by email and SMS (SMS includes a link to the hosted page).
           </p>
         </div>
 
@@ -712,7 +712,7 @@ export function PortalNewsletterClient({ initialAudience }: { initialAudience: A
                 disabled={generating}
                 className="rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm font-semibold text-zinc-700 hover:bg-zinc-50 disabled:opacity-50"
               >
-                {generating ? "Generating…" : "Generate now (1 credit)"}
+                {generating ? "Generating…" : "Generate now (30 credits)"}
               </button>
             ) : null}
           </div>

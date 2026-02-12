@@ -92,7 +92,7 @@ export async function POST() {
   const cursor = s.cursor;
   const topic = s.topics.length ? s.topics[cursor % s.topics.length] : undefined;
 
-  const needCredits = 1;
+  const needCredits = 50;
   const consumed = await consumeCredits(ownerId, needCredits);
   if (!consumed.ok) {
     return NextResponse.json(

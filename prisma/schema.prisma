@@ -129,6 +129,7 @@ model User {
   portalNurtureCampaigns  PortalNurtureCampaign[]
   portalNurtureSteps      PortalNurtureStep[]
   portalNurtureEnrollments PortalNurtureEnrollment[]
+  portalNurtureCampaignMonthlyCharges PortalNurtureCampaignMonthlyCharge[]
 
   portalAiOutboundCallCampaigns   PortalAiOutboundCallCampaign[]
   portalAiOutboundCallEnrollments PortalAiOutboundCallEnrollment[]
@@ -603,9 +604,39 @@ model PortalNurtureCampaign {
 
   steps       PortalNurtureStep[]
   enrollments PortalNurtureEnrollment[]
+  monthlyCharges PortalNurtureCampaignMonthlyCharge[]
 
   @@index([ownerId, updatedAt])
   @@index([ownerId, status, updatedAt])
+}
+
+enum PortalNurtureMonthlyChargeStatus {
+  PENDING
+  CHARGED
+  FAILED
+}
+
+model PortalNurtureCampaignMonthlyCharge {
+  id String @id @default(cuid())
+
+  ownerId    String
+  campaignId String
+  periodKey  String
+
+  status PortalNurtureMonthlyChargeStatus @default(PENDING)
+  credits Int @default(29)
+  chargedAt DateTime?
+  lastError String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  owner    User                 @relation(fields: [ownerId], references: [id])
+  campaign PortalNurtureCampaign @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+
+  @@unique([campaignId, periodKey])
+  @@index([ownerId, periodKey])
+  @@index([campaignId, status, updatedAt])
 }
 
 model PortalNurtureStep {

@@ -53,7 +53,7 @@ export async function POST(req: Request, ctx: { params: Promise<{ postId: string
     );
   }
 
-  const needCredits = 1;
+    const needCredits = 50;
   const consumed = await consumeCredits(ownerId, needCredits);
   if (!consumed.ok) {
     return NextResponse.json(

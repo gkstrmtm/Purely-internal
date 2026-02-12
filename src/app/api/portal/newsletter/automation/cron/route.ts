@@ -192,7 +192,7 @@ async function runKind(opts: {
     return { created: 0 };
   }
 
-  const needCredits = 1;
+  const needCredits = 30;
   const consumed = await consumeCredits(opts.ownerId, needCredits);
   if (!consumed.ok) return { created: 0, error: "INSUFFICIENT_CREDITS" };
 

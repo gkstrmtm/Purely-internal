@@ -1,17 +1,62 @@
 import { NextResponse } from "next/server";
 
 import { prisma } from "@/lib/db";
+import { consumeCredits } from "@/lib/credits";
 import { getAiReceptionistServiceData } from "@/lib/aiReceptionist";
 import { normalizePhoneStrict } from "@/lib/phone";
 import { ensurePortalAiOutboundCallsSchema } from "@/lib/portalAiOutboundCallsSchema";
 import { renderCampaignScript } from "@/lib/portalAiOutboundCalls";
 import { placeElevenLabsTwilioOutboundCall, resolveElevenLabsAgentPhoneNumberId } from "@/lib/elevenLabsConvai";
+import { getOwnerTwilioSmsConfig } from "@/lib/portalTwilio";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
 export const runtime = "nodejs";
 
 const PROFILE_EXTRAS_SERVICE_SLUG = "profile";
+
+type TwilioCall = {
+  status: string;
+  durationSec: number | null;
+};
+
+async function fetchTwilioCall(ownerId: string, callSid: string): Promise<{ ok: true; call: TwilioCall } | { ok: false; error: string }> {
+  const sid = String(callSid || "").trim();
+  if (!sid) return { ok: false, error: "Missing callSid" };
+
+  const config = await getOwnerTwilioSmsConfig(ownerId);
+  if (!config) return { ok: false, error: "Twilio is not configured" };
+
+  const url = `https://api.twilio.com/2010-04-01/Accounts/${config.accountSid}/Calls/${encodeURIComponent(sid)}.json`;
+  const basic = Buffer.from(`${config.accountSid}:${config.authToken}`).toString("base64");
+
+  const res = await fetch(url, {
+    method: "GET",
+    headers: { authorization: `Basic ${basic}` },
+  });
+
+  const text = await res.text().catch(() => "");
+  if (!res.ok) {
+    return { ok: false, error: `Twilio failed (${res.status}): ${text.slice(0, 200)}` };
+  }
+
+  try {
+    const json = JSON.parse(text) as any;
+    const status = typeof json?.status === "string" ? json.status : "";
+    const durationRaw = json?.duration;
+    const durationNum = typeof durationRaw === "number" ? durationRaw : typeof durationRaw === "string" ? Number(durationRaw) : NaN;
+    const durationSec = Number.isFinite(durationNum) ? Math.max(0, Math.floor(durationNum)) : null;
+    return { ok: true, call: { status, durationSec } };
+  } catch {
+    return { ok: true, call: { status: "", durationSec: null } };
+  }
+}
+
+function startedMinutesFromSeconds(durationSec: number | null) {
+  const s = typeof durationSec === "number" && Number.isFinite(durationSec) ? Math.max(0, Math.floor(durationSec)) : 0;
+  if (s <= 0) return 0;
+  return Math.ceil(s / 60);
+}
 
 async function getProfileVoiceAgentId(ownerId: string): Promise<string | null> {
   const row = await prisma.portalServiceSetup.findUnique({
@@ -53,6 +98,98 @@ export async function GET(req: Request) {
   await ensurePortalAiOutboundCallsSchema();
 
   const now = new Date();
+
+  // 1) Settle any in-flight calls by checking Twilio for completion + duration.
+  const calling = await prisma.portalAiOutboundCallEnrollment.findMany({
+    where: {
+      status: "CALLING",
+      callSid: { not: null },
+      OR: [{ nextCallAt: null }, { nextCallAt: { lte: now } }],
+    },
+    select: {
+      id: true,
+      ownerId: true,
+      callSid: true,
+    },
+    orderBy: [{ nextCallAt: "asc" }, { id: "asc" }],
+    take: 60,
+  });
+
+  for (const c of calling) {
+    const callSid = String(c.callSid || "").trim();
+    if (!callSid) continue;
+
+    const tw = await fetchTwilioCall(c.ownerId, callSid);
+    if (!tw.ok) {
+      await prisma.portalAiOutboundCallEnrollment.update({
+        where: { id: c.id },
+        data: {
+          lastError: tw.error.slice(0, 500),
+          nextCallAt: new Date(now.getTime() + 10 * 60 * 1000),
+          updatedAt: now,
+        },
+        select: { id: true },
+      });
+      continue;
+    }
+
+    const status = (tw.call.status || "").toLowerCase();
+
+    if (status === "queued" || status === "ringing" || status === "in-progress") {
+      await prisma.portalAiOutboundCallEnrollment.update({
+        where: { id: c.id },
+        data: { nextCallAt: new Date(now.getTime() + 2 * 60 * 1000), updatedAt: now },
+        select: { id: true },
+      });
+      continue;
+    }
+
+    if (status === "completed") {
+      const minutes = startedMinutesFromSeconds(tw.call.durationSec);
+      const durationCredits = minutes * 5;
+      if (durationCredits > 0) {
+        const consumed = await consumeCredits(c.ownerId, durationCredits);
+        if (!consumed.ok) {
+          await prisma.portalAiOutboundCallEnrollment.update({
+            where: { id: c.id },
+            data: {
+              lastError: "Completed, but insufficient credits to bill call minutes.",
+              nextCallAt: new Date(now.getTime() + 30 * 60 * 1000),
+              updatedAt: now,
+            },
+            select: { id: true },
+          });
+          continue;
+        }
+      }
+
+      await prisma.portalAiOutboundCallEnrollment.update({
+        where: { id: c.id },
+        data: {
+          status: "COMPLETED",
+          lastError: null,
+          nextCallAt: null,
+          updatedAt: now,
+          completedAt: now,
+        },
+        select: { id: true },
+      });
+      continue;
+    }
+
+    // Anything else is treated as a terminal failure.
+    await prisma.portalAiOutboundCallEnrollment.update({
+      where: { id: c.id },
+      data: {
+        status: "FAILED",
+        lastError: status ? `Twilio status: ${status}` : "Call failed.",
+        nextCallAt: null,
+        updatedAt: now,
+        completedAt: now,
+      },
+      select: { id: true },
+    });
+  }
 
   const due = await prisma.portalAiOutboundCallEnrollment.findMany({
     where: {
@@ -153,6 +290,24 @@ export async function GET(req: Request) {
         phoneNumberIdCache.set(cacheKey, phoneNumberId);
       }
 
+      const ATTEMPT_CREDITS = 10;
+      const consumed = await consumeCredits(e.ownerId, ATTEMPT_CREDITS);
+      if (!consumed.ok) {
+        await prisma.portalAiOutboundCallEnrollment.update({
+          where: { id: e.id },
+          data: {
+            status: "QUEUED",
+            lastError: "Insufficient credits.",
+            nextCallAt: new Date(now.getTime() + 30 * 60 * 1000),
+            updatedAt: now,
+          },
+          select: { id: true },
+        });
+
+        processed += 1;
+        continue;
+      }
+
       const call = await placeElevenLabsTwilioOutboundCall({
         apiKey,
         agentId,
@@ -185,12 +340,12 @@ export async function GET(req: Request) {
       await prisma.portalAiOutboundCallEnrollment.update({
         where: { id: e.id },
         data: {
-          status: "COMPLETED",
+          status: "CALLING",
           callSid: call.callSid ?? null,
           lastError: null,
-          nextCallAt: null,
+          nextCallAt: new Date(now.getTime() + 2 * 60 * 1000),
           updatedAt: now,
-          completedAt: now,
+          completedAt: null,
           attemptCount: Math.max(0, Number(e.attemptCount) || 0) + 1,
         },
         select: { id: true },

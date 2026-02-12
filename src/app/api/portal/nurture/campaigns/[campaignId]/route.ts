@@ -4,6 +4,7 @@ import { z } from "zod";
 import { prisma } from "@/lib/db";
 import { requireClientSessionForService } from "@/lib/portalAccess";
 import { ensurePortalNurtureSchema } from "@/lib/portalNurtureSchema";
+import { ensureNurtureCampaignMonthlyCharge } from "@/lib/portalNurtureMonthlyBilling";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -99,6 +100,13 @@ export async function PATCH(req: Request, ctx: { params: Promise<{ campaignId: s
 
   await ensurePortalNurtureSchema();
 
+  const existing = await prisma.portalNurtureCampaign.findFirst({
+    where: { ownerId, id: campaignId },
+    select: { status: true },
+  });
+
+  if (!existing) return NextResponse.json({ ok: false, error: "Not found" }, { status: 404 });
+
   const now = new Date();
 
   const data: any = { updatedAt: now };
@@ -108,10 +116,30 @@ export async function PATCH(req: Request, ctx: { params: Promise<{ campaignId: s
   if (parsed.data.smsFooter !== undefined) data.smsFooter = parsed.data.smsFooter;
   if (parsed.data.emailFooter !== undefined) data.emailFooter = parsed.data.emailFooter;
 
-  const updated = await prisma.portalNurtureCampaign.updateMany({
-    where: { ownerId, id: campaignId },
-    data,
-  });
+  const nextStatus = parsed.data.status;
+  const isActivating = nextStatus === "ACTIVE" && existing.status !== "ACTIVE";
+
+  if (isActivating) {
+    const charged = await ensureNurtureCampaignMonthlyCharge({ ownerId, campaignId, now });
+    if (!charged.ok) {
+      if (charged.reason === "insufficient_credits") {
+        return NextResponse.json(
+          {
+            ok: false,
+            error: "Insufficient credits",
+            code: "INSUFFICIENT_CREDITS",
+            neededCredits: 29,
+            balanceCredits: charged.state.balance,
+          },
+          { status: 402 },
+        );
+      }
+
+      return NextResponse.json({ ok: false, error: "Billing is processing" }, { status: 409 });
+    }
+  }
+
+  const updated = await prisma.portalNurtureCampaign.updateMany({ where: { ownerId, id: campaignId }, data });
 
   if (!updated.count) return NextResponse.json({ ok: false, error: "Not found" }, { status: 404 });
 

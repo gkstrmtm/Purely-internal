@@ -196,7 +196,7 @@ export async function POST(req: Request) {
   const stored = parseStored(setup?.dataJson);
   const s = kind === "INTERNAL" ? stored.internal : stored.external;
 
-  const needCredits = 1;
+  const needCredits = 30;
   const consumed = await consumeCredits(ownerId, needCredits);
   if (!consumed.ok) {
     return NextResponse.json({ ok: false, error: "INSUFFICIENT_CREDITS" }, { status: 402 });
