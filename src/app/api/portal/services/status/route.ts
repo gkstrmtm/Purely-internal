@@ -115,7 +115,14 @@ export async function GET() {
     const lifecycle = readObj(setup?.dataJson, "lifecycle");
     const lifecycleState = (readString(lifecycle, "state") || "").toLowerCase().trim();
     if (lifecycleState === "paused" || lifecycleState === "canceled") {
-      statuses[s.slug] = { state: lifecycleState as any, label: lifecycleState === "paused" ? "Paused" : "Canceled" };
+      const reason = (readString(lifecycle, "reason") || "").toLowerCase().trim();
+      const label =
+        lifecycleState === "canceled"
+          ? "Canceled"
+          : reason === "pending_payment"
+            ? "Activate"
+            : "Paused";
+      statuses[s.slug] = { state: lifecycleState as any, label };
       continue;
     }
 

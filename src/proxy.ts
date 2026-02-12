@@ -4,7 +4,7 @@ import { decode, getToken } from "next-auth/jwt";
 
 const PORTAL_SESSION_COOKIE_NAME = "pa.portal.session";
 
-export async function middleware(req: NextRequest) {
+export async function proxy(req: NextRequest) {
   const path = req.nextUrl.pathname;
 
   const secret = process.env.NEXTAUTH_SECRET;
@@ -13,7 +13,10 @@ export async function middleware(req: NextRequest) {
   const portalToken = portalCookie && secret ? await decode({ token: portalCookie, secret }).catch(() => null) : null;
 
   const isPortalMarketingHome = path === "/portal" || path === "/portal/";
-  const isPortalPublicAuth = path === "/portal/login" || path === "/portal/get-started";
+  const isPortalPublicAuth =
+    path === "/portal/login" ||
+    path === "/portal/get-started" ||
+    path.startsWith("/portal/get-started/");
   const isPortalPublicInvite = path === "/portal/invite" || path.startsWith("/portal/invite/");
   const isPortalPublicApiAuth = path === "/portal/api/login" || path === "/portal/api/logout";
 
@@ -31,7 +34,7 @@ export async function middleware(req: NextRequest) {
   function requireClientOrAdmin() {
     if (!portalToken) {
       const url = req.nextUrl.clone();
-      url.pathname = "/login";
+      url.pathname = "/portal/login";
       return url;
     }
     const role = (portalToken as unknown as { role?: string }).role;

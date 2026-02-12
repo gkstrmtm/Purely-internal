@@ -27,7 +27,60 @@ const bodySchema = z.object({
 
   goalIds: z.array(z.string()).max(10).optional(),
   selectedServiceSlugs: z.array(z.string()).max(20).optional(),
+  selectedPlanIds: z.array(z.string()).max(20).optional(),
+  selectedPlanQuantities: z.record(z.string(), z.number()).optional(),
 });
+
+const ONBOARDING_SERVICE_SLUGS_TO_GUARD = [
+  "inbox",
+  "media-library",
+  "tasks",
+  "reporting",
+  "automations",
+  "booking",
+  "reviews",
+  "blogs",
+  "ai-receptionist",
+  "ai-outbound-calls",
+  "lead-scraping",
+  "newsletter",
+  "nurture-campaigns",
+] as const;
+
+function normalizePlanQuantities(value: unknown): Record<string, number> {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return {};
+  const out: Record<string, number> = {};
+  let count = 0;
+
+  for (const [kRaw, vRaw] of Object.entries(value as Record<string, unknown>)) {
+    const k = String(kRaw).trim();
+    if (!k) continue;
+
+    const n = typeof vRaw === "number" ? vRaw : Number(vRaw);
+    if (!Number.isFinite(n)) continue;
+
+    out[k] = Math.max(0, Math.min(50, Math.trunc(n)));
+    count += 1;
+    if (count >= 30) break;
+  }
+
+  return out;
+}
+
+function withLifecycle(dataJson: unknown, lifecycle: { state: string; reason?: string }) {
+  const rec = dataJson && typeof dataJson === "object" && !Array.isArray(dataJson)
+    ? (dataJson as Record<string, unknown>)
+    : {};
+  return {
+    ...rec,
+    lifecycle: {
+      ...(rec.lifecycle && typeof rec.lifecycle === "object" && !Array.isArray(rec.lifecycle) ? (rec.lifecycle as any) : {}),
+      state: lifecycle.state,
+      reason: lifecycle.reason,
+      updatedAt: new Date().toISOString(),
+    },
+  };
+}
 
 export async function POST(req: Request) {
   if (process.env.CLIENT_SIGNUP_ENABLED !== "true") {
@@ -133,6 +186,10 @@ export async function POST(req: Request) {
             targetCustomer: targetCustomer ? targetCustomer : null,
             brandVoice: brandVoice ? brandVoice : null,
             phoneE164,
+            selectedPlanIds: Array.isArray(parsed.data.selectedPlanIds)
+              ? parsed.data.selectedPlanIds.map((x) => (typeof x === "string" ? x.trim() : "")).filter(Boolean).slice(0, 20)
+              : [],
+            selectedPlanQuantities: normalizePlanQuantities(parsed.data.selectedPlanQuantities),
             createdAt: new Date().toISOString(),
           },
         },
@@ -150,11 +207,48 @@ export async function POST(req: Request) {
             targetCustomer: targetCustomer ? targetCustomer : null,
             brandVoice: brandVoice ? brandVoice : null,
             phoneE164,
+            selectedPlanIds: Array.isArray(parsed.data.selectedPlanIds)
+              ? parsed.data.selectedPlanIds.map((x) => (typeof x === "string" ? x.trim() : "")).filter(Boolean).slice(0, 20)
+              : [],
+            selectedPlanQuantities: normalizePlanQuantities(parsed.data.selectedPlanQuantities),
             createdAt: new Date().toISOString(),
           },
         },
         select: { id: true },
       });
+
+      // Keep services gated until checkout completes.
+      await Promise.all(
+        ONBOARDING_SERVICE_SLUGS_TO_GUARD.map(async (serviceSlug) => {
+          const existing = await tx.portalServiceSetup
+            .findUnique({
+              where: { ownerId_serviceSlug: { ownerId: user.id, serviceSlug } },
+              select: { id: true, dataJson: true },
+            })
+            .catch(() => null);
+
+          if (!existing) {
+            await tx.portalServiceSetup.create({
+              data: {
+                ownerId: user.id,
+                serviceSlug,
+                status: "NOT_STARTED",
+                dataJson: withLifecycle({}, { state: "paused", reason: "pending_payment" }) as any,
+              },
+              select: { id: true },
+            });
+            return;
+          }
+
+          await tx.portalServiceSetup.update({
+            where: { ownerId_serviceSlug: { ownerId: user.id, serviceSlug } },
+            data: {
+              dataJson: withLifecycle(existing.dataJson, { state: "paused", reason: "pending_payment" }) as any,
+            },
+            select: { id: true },
+          });
+        }),
+      );
 
       return user;
     });

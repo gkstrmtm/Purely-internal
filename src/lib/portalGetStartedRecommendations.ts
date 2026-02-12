@@ -66,8 +66,7 @@ export function recommendPortalServiceSlugs(goalIds: GetStartedGoalId[]): string
       case "appointments":
         bump("booking", 10);
         bump("ai-receptionist", 6);
-        bump("inbox", 4);
-        bump("automations", 3);
+        bump("automations", 4);
         break;
       case "reviews":
         bump("reviews", 10);
@@ -80,28 +79,26 @@ export function recommendPortalServiceSlugs(goalIds: GetStartedGoalId[]): string
         break;
       case "followup":
         bump("automations", 10);
-        bump("inbox", 2);
         break;
       case "content":
         bump("blogs", 10);
-        bump("media-library", 3);
         break;
       case "inbox":
-        bump("inbox", 10);
-        bump("media-library", 1);
+        // Inbox/Outbox and Media Library are core-included; recommend add-ons that benefit from inbox.
+        bump("automations", 4);
+        bump("ai-receptionist", 2);
         break;
       case "receptionist":
         bump("ai-receptionist", 10);
-        bump("inbox", 2);
+        bump("automations", 2);
         break;
       case "outbound":
         bump("ai-outbound-calls", 10);
         bump("lead-scraping", 2);
         break;
       case "unsure":
-        bump("inbox", 2);
         bump("automations", 2);
-        bump("reporting", 1);
+        bump("booking", 1);
         break;
     }
   }

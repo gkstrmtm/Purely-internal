@@ -120,11 +120,51 @@ export async function PATCH(req: Request, ctx: { params: Promise<{ campaignId: s
   const isActivating = nextStatus === "ACTIVE" && existing.status !== "ACTIVE";
 
   if (isActivating) {
-    const email = auth.session.user.email;
-    const installPriceId = (process.env.STRIPE_PRICE_NURTURE_CAMPAIGN_INSTALL ?? "").trim();
-    const monthlyPriceId = (process.env.STRIPE_PRICE_NURTURE_CAMPAIGN_MONTHLY ?? "").trim();
+    // If the customer purchased N nurture campaign slots during onboarding,
+    // allow activation for up to N active campaigns without additional billing.
+    // (Billing for those slots is handled by the main onboarding subscription.)
+    const intake = await prisma.portalServiceSetup
+      .findUnique({
+        where: { ownerId_serviceSlug: { ownerId, serviceSlug: "onboarding-intake" } },
+        select: { dataJson: true },
+      })
+      .catch(() => null);
 
-    const stripeReady = Boolean(isStripeConfigured() && email && monthlyPriceId);
+    const intakeRec = intake?.dataJson && typeof intake.dataJson === "object" && !Array.isArray(intake.dataJson)
+      ? (intake.dataJson as Record<string, unknown>)
+      : {};
+
+    const selectedPlanIds = Array.isArray((intakeRec as any).selectedPlanIds)
+      ? (intakeRec as any).selectedPlanIds
+          .map((x: any) => (typeof x === "string" ? x.trim() : ""))
+          .filter(Boolean)
+          .slice(0, 50)
+      : [];
+
+    const rawQty = (intakeRec as any).selectedPlanQuantities && typeof (intakeRec as any).selectedPlanQuantities === "object"
+      ? (intakeRec as any).selectedPlanQuantities
+      : {};
+
+    const purchasedSlots = (() => {
+      if (!selectedPlanIds.includes("nurture")) return 0;
+      const n = Number((rawQty as any)?.nurture ?? 1);
+      if (!Number.isFinite(n)) return 1;
+      return Math.max(1, Math.min(10, Math.trunc(n)));
+    })();
+
+    if (purchasedSlots > 0) {
+      const activeCount = await prisma.portalNurtureCampaign.count({ where: { ownerId, status: "ACTIVE" } });
+      const willBeActiveCount = Number(activeCount) + 1;
+      if (willBeActiveCount <= purchasedSlots) {
+        // Treat setup as already paid via onboarding purchase.
+        data.installPaidAt = existing.installPaidAt ?? now;
+        data.stripeSubscriptionId = null;
+      }
+    }
+
+    const email = auth.session.user.email;
+
+    const stripeReady = Boolean(isStripeConfigured() && email);
     if (process.env.NODE_ENV === "production" && !stripeReady) {
       return NextResponse.json({ ok: false, error: "Billing is unavailable right now." }, { status: 503 });
     }
@@ -135,7 +175,11 @@ export async function PATCH(req: Request, ctx: { params: Promise<{ campaignId: s
       process.env.NEXT_PUBLIC_APP_URL ??
       "http://localhost:3000";
 
-    // If we already have a subscription id stored, verify it's active.
+    // If onboarding already covered this activation, skip Stripe entirely.
+    if (data.installPaidAt || data.stripeSubscriptionId === null) {
+      // Proceed to persist the ACTIVE status below.
+    } else {
+      // If we already have a subscription id stored, verify it's active.
     if (stripeReady && existing.stripeSubscriptionId) {
       try {
         const sub = await stripeGet<any>(`/v1/subscriptions/${encodeURIComponent(String(existing.stripeSubscriptionId))}`);
@@ -153,9 +197,6 @@ export async function PATCH(req: Request, ctx: { params: Promise<{ campaignId: s
     // If subscription is missing or inactive, redirect to Stripe Checkout to purchase $29/mo per active campaign.
     if (stripeReady) {
       const includeInstall = !existing.installPaidAt;
-      if (includeInstall && !installPriceId) {
-        return NextResponse.json({ ok: false, error: "That service is not for sale yet" }, { status: 400 });
-      }
 
       const customer = await getOrCreateStripeCustomerId(String(email));
 
@@ -184,13 +225,20 @@ export async function PATCH(req: Request, ctx: { params: Promise<{ campaignId: s
 
       let i = 0;
       if (includeInstall) {
-        params[`line_items[${i}][price]`] = installPriceId;
         params[`line_items[${i}][quantity]`] = 1;
+        params[`line_items[${i}][price_data][currency]`] = "usd";
+        params[`line_items[${i}][price_data][unit_amount]`] = 9900;
+        params[`line_items[${i}][price_data][product_data][name]`] = "Nurture Campaign setup";
+        params[`line_items[${i}][price_data][product_data][description]`] = "One-time install fee for this campaign.";
         i += 1;
       }
 
-      params[`line_items[${i}][price]`] = monthlyPriceId;
       params[`line_items[${i}][quantity]`] = 1;
+      params[`line_items[${i}][price_data][currency]`] = "usd";
+      params[`line_items[${i}][price_data][unit_amount]`] = 2900;
+      params[`line_items[${i}][price_data][recurring][interval]`] = "month";
+      params[`line_items[${i}][price_data][product_data][name]`] = "Nurture Campaign (monthly)";
+      params[`line_items[${i}][price_data][product_data][description]`] = "Monthly subscription for this active campaign.";
 
       const checkout = await stripePost<{ url: string }>("/v1/checkout/sessions", params);
 
@@ -198,6 +246,7 @@ export async function PATCH(req: Request, ctx: { params: Promise<{ campaignId: s
         { ok: false, error: "Billing required", code: "BILLING_REQUIRED", url: checkout.url },
         { status: 402 },
       );
+    }
     }
   }
 

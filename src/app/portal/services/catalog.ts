@@ -84,7 +84,7 @@ export const PORTAL_SERVICES: PortalService[] = [
   {
     slug: "newsletter",
     title: "Newsletter",
-    description: "Send newsletters to your contacts (coming soon).",
+    description: "Send newsletters to your contacts.",
     highlights: [
       "Build segments and send campaigns",
       "Templates and personalization",
@@ -95,13 +95,12 @@ export const PORTAL_SERVICES: PortalService[] = [
   {
     slug: "nurture-campaigns",
     title: "Nurture Campaigns",
-    description: "Longer-running nurture sequences across channels (coming soon).",
+    description: "Longer-running nurture sequences across channels.",
     highlights: [
       "Multi-step sequences",
       "Delays and conditions",
       "Simple reporting",
     ],
-    included: true,
     accent: "coral",
   },
   {
