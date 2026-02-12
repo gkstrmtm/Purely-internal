@@ -12,6 +12,63 @@ export const revalidate = 0;
 
 const PROFILE_EXTRAS_SERVICE_SLUG = "profile";
 
+async function getProfileVoiceAgentApiKey(ownerId: string): Promise<string | null> {
+  const row = await prisma.portalServiceSetup.findUnique({
+    where: { ownerId_serviceSlug: { ownerId, serviceSlug: PROFILE_EXTRAS_SERVICE_SLUG } },
+    select: { dataJson: true },
+  });
+
+  const rec =
+    row?.dataJson && typeof row.dataJson === "object" && !Array.isArray(row.dataJson)
+      ? (row.dataJson as Record<string, unknown>)
+      : null;
+
+  const raw = rec?.voiceAgentApiKey;
+  const key = typeof raw === "string" ? raw.trim().slice(0, 400) : "";
+  return key ? key : null;
+}
+
+async function setProfileVoiceAgentApiKey(ownerId: string, voiceAgentApiKey: string | null): Promise<boolean> {
+  const existing = await prisma.portalServiceSetup.findUnique({
+    where: { ownerId_serviceSlug: { ownerId, serviceSlug: PROFILE_EXTRAS_SERVICE_SLUG } },
+    select: { dataJson: true },
+  });
+
+  const base =
+    existing?.dataJson && typeof existing.dataJson === "object" && !Array.isArray(existing.dataJson)
+      ? (existing.dataJson as Record<string, unknown>)
+      : {};
+
+  const next: any = { ...base, version: 1 };
+  const k = typeof voiceAgentApiKey === "string" ? voiceAgentApiKey.trim().slice(0, 400) : "";
+  if (k) next.voiceAgentApiKey = k;
+  else delete next.voiceAgentApiKey;
+
+  const row = await prisma.portalServiceSetup.upsert({
+    where: { ownerId_serviceSlug: { ownerId, serviceSlug: PROFILE_EXTRAS_SERVICE_SLUG } },
+    create: {
+      ownerId,
+      serviceSlug: PROFILE_EXTRAS_SERVICE_SLUG,
+      status: "COMPLETE",
+      dataJson: next,
+    },
+    update: {
+      status: "COMPLETE",
+      dataJson: next,
+    },
+    select: { dataJson: true },
+  });
+
+  const rec =
+    row.dataJson && typeof row.dataJson === "object" && !Array.isArray(row.dataJson)
+      ? (row.dataJson as Record<string, unknown>)
+      : null;
+
+  const raw = rec?.voiceAgentApiKey;
+  const out = typeof raw === "string" ? raw.trim().slice(0, 400) : "";
+  return Boolean(out);
+}
+
 async function getProfilePhone(ownerId: string): Promise<string | null> {
   const row = await prisma.portalServiceSetup.findUnique({
     where: { ownerId_serviceSlug: { ownerId, serviceSlug: PROFILE_EXTRAS_SERVICE_SLUG } },
@@ -132,9 +189,10 @@ const updateSchema = z
     email: z.string().trim().email().optional(),
     phone: z.string().trim().max(32).optional(),
     voiceAgentId: z.string().trim().max(120).optional(),
+    voiceAgentApiKey: z.string().trim().max(400).optional(),
     currentPassword: z.string().min(6).optional(),
   })
-  .refine((v) => Boolean(v.name || v.email || v.phone || v.voiceAgentId !== undefined), {
+  .refine((v) => Boolean(v.name || v.email || v.phone || v.voiceAgentId !== undefined || v.voiceAgentApiKey !== undefined), {
     message: "Provide at least one field to update",
     path: ["name"],
   })
@@ -158,12 +216,23 @@ export async function GET() {
     select: { id: true, name: true, email: true, role: true, updatedAt: true },
   });
 
-  const [phone, voiceAgentId] = await Promise.all([
+  const [phone, voiceAgentId, voiceAgentApiKey] = await Promise.all([
     getProfilePhone(userId),
     getProfileVoiceAgentId(userId),
+    getProfileVoiceAgentApiKey(userId),
   ]);
 
-  return NextResponse.json({ ok: true, user: user ? { ...user, phone, voiceAgentId } : null });
+  return NextResponse.json({
+    ok: true,
+    user: user
+      ? {
+          ...user,
+          phone,
+          voiceAgentId,
+          voiceAgentApiKeyConfigured: Boolean(voiceAgentApiKey && voiceAgentApiKey.trim()),
+        }
+      : null,
+  });
 }
 
 export async function PUT(req: Request) {
@@ -188,9 +257,12 @@ export async function PUT(req: Request) {
 
   const phoneProvided = parsed.data.phone !== undefined;
   let nextPhone: string | null = null;
-    const voiceAgentProvided = parsed.data.voiceAgentId !== undefined;
-    const nextVoiceAgentId =
-      typeof parsed.data.voiceAgentId === "string" ? parsed.data.voiceAgentId.trim().slice(0, 120) : null;
+  const voiceAgentProvided = parsed.data.voiceAgentId !== undefined;
+  const nextVoiceAgentId =
+    typeof parsed.data.voiceAgentId === "string" ? parsed.data.voiceAgentId.trim().slice(0, 120) : null;
+  const voiceAgentApiKeyProvided = parsed.data.voiceAgentApiKey !== undefined;
+  const nextVoiceAgentApiKey =
+    typeof parsed.data.voiceAgentApiKey === "string" ? parsed.data.voiceAgentApiKey.trim().slice(0, 400) : null;
   if (phoneProvided) {
     const parsedPhone = normalizePhoneStrict(parsed.data.phone ?? "");
     if (!parsedPhone.ok) {
@@ -235,6 +307,10 @@ export async function PUT(req: Request) {
     ? await setProfileVoiceAgentId(userId, nextVoiceAgentId)
     : await getProfileVoiceAgentId(userId);
 
+  const voiceAgentApiKeyConfigured = voiceAgentApiKeyProvided
+    ? await setProfileVoiceAgentApiKey(userId, nextVoiceAgentApiKey)
+    : Boolean((await getProfileVoiceAgentApiKey(userId))?.trim());
+
   const user = await prisma.user.findUnique({
     where: { id: userId },
     select: { id: true, name: true, email: true, role: true, updatedAt: true },
@@ -252,7 +328,7 @@ export async function PUT(req: Request) {
 
   return NextResponse.json({
     ok: true,
-    user: user ? { ...user, phone, voiceAgentId } : null,
+    user: user ? { ...user, phone, voiceAgentId, voiceAgentApiKeyConfigured } : null,
     note: wantsToUpdateNameOrEmail ? "Sign out and back in to refresh your session." : "Saved.",
   });
 }

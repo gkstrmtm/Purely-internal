@@ -25,6 +25,13 @@ type PortalPricing = {
   };
 };
 
+type ServiceStatusRes =
+  | {
+      ok: true;
+      statuses: Record<string, { state: "active" | "needs_setup" | "locked" | "coming_soon" | "paused" | "canceled"; label: string }>;
+    }
+  | { ok: false; error?: string };
+
 function formatMonthly(cents: number, currency: string) {
   const value = typeof cents === "number" && Number.isFinite(cents) ? cents : 0;
   const curr = (currency || "usd").toUpperCase();
@@ -41,16 +48,18 @@ export function PortalServicePageClient({ slug }: { slug: string }) {
   const [me, setMe] = useState<Me | null>(null);
   const [loading, setLoading] = useState(true);
   const [pricing, setPricing] = useState<PortalPricing | null>(null);
+  const [statusRes, setStatusRes] = useState<ServiceStatusRes | null>(null);
 
   useEffect(() => {
     let mounted = true;
     (async () => {
-      const [res, pricingRes] = await Promise.all([
+      const [res, pricingRes, statusRes] = await Promise.all([
         fetch("/api/customer/me", {
           cache: "no-store",
           headers: { "x-pa-app": "portal" },
         }),
         fetch("/api/portal/pricing", { cache: "no-store" }).catch(() => null as any),
+        fetch("/api/portal/services/status", { cache: "no-store" }).catch(() => null as any),
       ]);
       if (!mounted) return;
       if (!res.ok) {
@@ -64,6 +73,13 @@ export function PortalServicePageClient({ slug }: { slug: string }) {
       } else {
         setPricing(null);
       }
+
+      if (statusRes && statusRes.ok) {
+        const body = (await statusRes.json().catch(() => null)) as ServiceStatusRes | null;
+        setStatusRes(body);
+      } else {
+        setStatusRes(null);
+      }
       setLoading(false);
     })();
 
@@ -73,10 +89,16 @@ export function PortalServicePageClient({ slug }: { slug: string }) {
   }, []);
 
   const isFullDemo = (me?.user.email ?? "").toLowerCase().trim() === DEFAULT_FULL_DEMO_EMAIL;
+
+  const serviceStatus = statusRes && statusRes.ok === true ? statusRes.statuses?.[slug] ?? null : null;
+  const isPaused = serviceStatus?.state === "paused";
+  const isCanceled = serviceStatus?.state === "canceled";
+
   const unlocked =
-    isFullDemo ||
-    Boolean(service?.included) ||
-    (service?.entitlementKey ? Boolean(me?.entitlements?.[service.entitlementKey]) : false);
+    !(isPaused || isCanceled) &&
+    (isFullDemo ||
+      Boolean(service?.included) ||
+      (service?.entitlementKey ? Boolean(me?.entitlements?.[service.entitlementKey]) : false));
 
   const modulePrice =
     service?.entitlementKey && pricing?.modules
@@ -105,13 +127,15 @@ export function PortalServicePageClient({ slug }: { slug: string }) {
         <div className="rounded-3xl border border-zinc-200 bg-white p-8">
           <div className="inline-flex items-center gap-2 rounded-full bg-[color:rgba(251,113,133,0.14)] px-3 py-1 text-xs font-semibold text-[color:var(--color-brand-pink)]">
             <span className="inline-flex"><span className="sr-only">Locked</span></span>
-            Locked
+            {isPaused ? "Paused" : isCanceled ? "Canceled" : "Locked"}
           </div>
           <h1 className="mt-2 text-2xl font-bold text-brand-ink sm:text-3xl">
-            Unlock {service.title}
+            {isPaused || isCanceled ? `${service.title} is ${isPaused ? "paused" : "canceled"}` : `Unlock ${service.title}`}
           </h1>
           <p className="mt-3 max-w-2xl text-sm text-zinc-600">
-            This service isn’t included in your current plan. You can add it any time.
+            {isPaused || isCanceled
+              ? "This service is turned off in Billing. Resume it any time to regain access."
+              : "This service isn’t included in your current plan. You can add it any time."}
           </p>
 
           {service.highlights?.length ? (

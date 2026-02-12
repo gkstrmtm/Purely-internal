@@ -49,7 +49,28 @@ type SubscriptionsResponse =
   | { ok: false; error?: string };
 
 type ServicesStatusResponse =
-  | { ok: true; statuses: Record<string, { state: "active" | "needs_setup" | "locked" | "coming_soon"; label: string }> }
+  | {
+      ok: true;
+      ownerId: string;
+      entitlements: Record<string, boolean>;
+      statuses: Record<
+        string,
+        { state: "active" | "needs_setup" | "locked" | "coming_soon" | "paused" | "canceled"; label: string }
+      >;
+    }
+  | { ok: false; error?: string };
+
+type PortalPricing =
+  | {
+      ok: true;
+      stripeConfigured: boolean;
+      modules: {
+        blog: { monthlyCents: number; currency: string } | null;
+        booking: { monthlyCents: number; currency: string } | null;
+        crm: { monthlyCents: number; currency: string } | null;
+        leadOutbound: { monthlyCents: number; currency: string } | null;
+      };
+    }
   | { ok: false; error?: string };
 
 function formatMoney(cents: number, currency: string) {
@@ -64,16 +85,18 @@ export function PortalBillingClient() {
   const [status, setStatus] = useState<BillingStatus | null>(null);
   const [me, setMe] = useState<Me | null>(null);
   const [summary, setSummary] = useState<BillingSummary | null>(null);
+  const [pricing, setPricing] = useState<PortalPricing | null>(null);
   const [credits, setCredits] = useState<number | null>(null);
   const [autoTopUp, setAutoTopUp] = useState(false);
   const [purchaseAvailable, setPurchaseAvailable] = useState(false);
-  const [creditsPerPackage, setCreditsPerPackage] = useState<number | null>(null);
-  const [packages, setPackages] = useState(1);
+  const [creditsToBuy, setCreditsToBuy] = useState(500);
   const [services, setServices] = useState<ServicesStatusResponse | null>(null);
   const [subscriptions, setSubscriptions] = useState<SubscriptionsResponse | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [actionBusy, setActionBusy] = useState<string | null>(null);
+
+  const [serviceMenuSlug, setServiceMenuSlug] = useState<string | null>(null);
 
   const [cancelModal, setCancelModal] = useState<null | {
     step: 1 | 2;
@@ -91,13 +114,14 @@ export function PortalBillingClient() {
   useEffect(() => {
     let mounted = true;
     (async () => {
-      const [billingRes, meRes, summaryRes, creditsRes, servicesRes, subsRes] = await Promise.all([
+      const [billingRes, meRes, summaryRes, creditsRes, servicesRes, subsRes, pricingRes] = await Promise.all([
         fetch("/api/billing/status", { cache: "no-store" }),
         fetch("/api/customer/me", { cache: "no-store", headers: { "x-pa-app": "portal" } }),
         fetch("/api/portal/billing/summary", { cache: "no-store" }),
         fetch("/api/portal/credits", { cache: "no-store" }),
         fetch("/api/portal/services/status", { cache: "no-store" }),
         fetch("/api/portal/billing/subscriptions", { cache: "no-store" }),
+        fetch("/api/portal/pricing", { cache: "no-store" }).catch(() => null as any),
       ]);
       if (!mounted) return;
       if (!billingRes.ok) {
@@ -123,19 +147,14 @@ export function PortalBillingClient() {
           credits?: number;
           autoTopUp?: boolean;
           purchaseAvailable?: boolean;
-          creditsPerPackage?: number;
         };
         setCredits(typeof c.credits === "number" && Number.isFinite(c.credits) ? c.credits : 0);
         setAutoTopUp(Boolean(c.autoTopUp));
         setPurchaseAvailable(Boolean(c.purchaseAvailable));
-        setCreditsPerPackage(
-          typeof c.creditsPerPackage === "number" && Number.isFinite(c.creditsPerPackage) ? c.creditsPerPackage : null,
-        );
       } else {
         setCredits(0);
         setAutoTopUp(false);
         setPurchaseAvailable(false);
-        setCreditsPerPackage(null);
       }
 
       if (servicesRes.ok) {
@@ -150,12 +169,54 @@ export function PortalBillingClient() {
         setSubscriptions(null);
       }
 
+      if (pricingRes && pricingRes.ok) {
+        setPricing((await pricingRes.json().catch(() => null)) as PortalPricing | null);
+      } else {
+        setPricing(null);
+      }
+
       setLoading(false);
     })();
     return () => {
       mounted = false;
     };
   }, []);
+
+  useEffect(() => {
+    try {
+      const qs = new URLSearchParams(window.location.search);
+      const topup = (qs.get("topup") || "").trim();
+      const sessionId = (qs.get("session_id") || "").trim();
+      if (topup !== "success" || !sessionId) return;
+
+      let cancelled = false;
+      (async () => {
+        const res = await fetch("/api/portal/credits/topup/confirm-checkout", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ sessionId }),
+        });
+        const body = await res.json().catch(() => ({}));
+        if (cancelled) return;
+
+        if (res.ok && body?.ok) {
+          toast.success("Credits added.");
+          await refreshCredits();
+        }
+
+        const url = new URL(window.location.href);
+        url.searchParams.delete("topup");
+        url.searchParams.delete("session_id");
+        window.history.replaceState(null, "", url.toString());
+      })();
+
+      return () => {
+        cancelled = true;
+      };
+    } catch {
+      // ignore
+    }
+  }, [toast]);
 
   async function purchaseModule(module: "blog" | "booking" | "crm") {
     setError(null);
@@ -225,14 +286,38 @@ export function PortalBillingClient() {
       credits?: number;
       autoTopUp?: boolean;
       purchaseAvailable?: boolean;
-      creditsPerPackage?: number;
     };
     setCredits(typeof c.credits === "number" && Number.isFinite(c.credits) ? c.credits : 0);
     setAutoTopUp(Boolean(c.autoTopUp));
     setPurchaseAvailable(Boolean(c.purchaseAvailable));
-    setCreditsPerPackage(
-      typeof c.creditsPerPackage === "number" && Number.isFinite(c.creditsPerPackage) ? c.creditsPerPackage : null,
-    );
+  }
+
+  async function refreshServices() {
+    const res = await fetch("/api/portal/services/status", { cache: "no-store" });
+    if (!res.ok) {
+      setServices(null);
+      return;
+    }
+    setServices((await res.json().catch(() => null)) as ServicesStatusResponse | null);
+  }
+
+  async function setServiceLifecycle(serviceSlug: string, action: "pause" | "cancel" | "resume") {
+    setError(null);
+    setServiceMenuSlug(null);
+    setActionBusy(`service:${serviceSlug}:${action}`);
+    const res = await fetch("/api/portal/services/lifecycle", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ serviceSlug, action }),
+    });
+    const body = await res.json().catch(() => ({}));
+    setActionBusy(null);
+    if (!res.ok || !body?.ok) {
+      setError(body?.error ?? "Unable to update service");
+      return;
+    }
+    toast.success("Updated.");
+    await Promise.all([refreshServices(), refreshSummary(), refreshSubscriptions()]);
   }
 
   async function saveAutoTopUp(next: boolean) {
@@ -256,10 +341,11 @@ export function PortalBillingClient() {
   async function topUp() {
     setError(null);
     setActionBusy("topup");
+    const requested = Math.max(1, Math.floor(Number(creditsToBuy) || 0));
     const res = await fetch("/api/portal/credits/topup", {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ packages }),
+      body: JSON.stringify({ credits: requested }),
     });
     const body = await res.json().catch(() => ({}));
     setActionBusy(null);
@@ -313,11 +399,6 @@ export function PortalBillingClient() {
     );
   }
 
-  const monthlyText =
-    summary && summary.configured && "monthlyCents" in summary && "currency" in summary
-      ? formatMoney(summary.monthlyCents, summary.currency)
-      : "—";
-
   const summaryCurrency =
     summary && summary.configured && "currency" in summary && typeof (summary as any).currency === "string"
       ? String((summary as any).currency || "").trim() || "usd"
@@ -338,6 +419,53 @@ export function PortalBillingClient() {
         }>)
       : [];
 
+  const serviceStatuses = services && "ok" in services && services.ok ? services.statuses : null;
+
+  const modulePrices = pricing && "ok" in pricing && pricing.ok === true ? pricing.modules : null;
+  const internalMonthlyBreakdown: Array<{ subscriptionId: string; title: string; monthlyCents: number; currency: string }> = [];
+  if (modulePrices && serviceStatuses) {
+    const activeModules = new Set<string>();
+    for (const s of PORTAL_SERVICES) {
+      if (!s.entitlementKey) continue;
+      const st = serviceStatuses?.[s.slug];
+      if (!st || st.state !== "active") continue;
+      activeModules.add(s.entitlementKey);
+    }
+
+    for (const key of Array.from(activeModules)) {
+      const p = (modulePrices as any)[key] as { monthlyCents: number; currency: string } | null;
+      if (!p || typeof p.monthlyCents !== "number" || p.monthlyCents <= 0) continue;
+      const title =
+        key === "blog"
+          ? "Automated Blogs"
+          : key === "booking"
+            ? "Booking Automation"
+            : key === "crm"
+              ? "CRM / Follow-up"
+              : key === "leadOutbound"
+                ? "AI Outbound Calls"
+                : String(key);
+      internalMonthlyBreakdown.push({
+        subscriptionId: `internal:${key}`,
+        title,
+        monthlyCents: p.monthlyCents,
+        currency: p.currency || summaryCurrency,
+      });
+    }
+  }
+
+  const internalMonthlyCents = internalMonthlyBreakdown.reduce((sum, x) => sum + (x.monthlyCents || 0), 0);
+  const stripeMonthlyCents =
+    summary && summary.configured && "monthlyCents" in summary && typeof summary.monthlyCents === "number" ? summary.monthlyCents : 0;
+  const displayMonthlyCents = Math.max(0, Math.max(stripeMonthlyCents, internalMonthlyCents));
+  const displayCurrency =
+    (summary && summary.configured && "currency" in summary && typeof (summary as any).currency === "string"
+      ? String((summary as any).currency || "").trim().toLowerCase()
+      : "") ||
+    (internalMonthlyBreakdown[0]?.currency || summaryCurrency || "usd");
+
+  const monthlyText = status?.configured ? formatMoney(displayMonthlyCents, displayCurrency) : "—";
+
   const sub = summary && "ok" in summary && summary.ok === true && summary.configured ? summary.subscription : undefined;
   const hasActiveSub = Boolean(sub?.id && ["active", "trialing", "past_due"].includes(String(sub.status)));
 
@@ -347,19 +475,21 @@ export function PortalBillingClient() {
       ? summary.error ?? "Unable to load summary"
       : Boolean(sub?.id && ["active", "trialing", "past_due"].includes(String(sub.status)))
         ? "Your subscription is active."
-        : "No active subscription.";
+        : internalMonthlyCents > 0
+          ? "Based on active services in the portal."
+          : "No active subscription.";
   const periodEndText =
     sub?.currentPeriodEnd && typeof sub.currentPeriodEnd === "number"
       ? new Date(sub.currentPeriodEnd * 1000).toLocaleDateString()
       : null;
 
-  const creditsTotal = creditsPerPackage ? packages * creditsPerPackage : null;
-  const creditsTotalUsd = creditsTotal ? creditsTotal * CREDIT_USD_VALUE : null;
-
-  const serviceStatuses = services && "ok" in services && services.ok ? services.statuses : null;
+  const creditsRequested = Math.max(1, Math.floor(Number(creditsToBuy) || 0));
+  const creditsTotalUsd = creditsRequested * CREDIT_USD_VALUE;
 
   const badgeClass = (state: string) => {
     if (state === "active") return "bg-emerald-100 text-emerald-900";
+    if (state === "paused") return "bg-amber-100 text-amber-900";
+    if (state === "canceled") return "bg-red-100 text-red-900";
     if (state === "needs_setup") return "bg-amber-100 text-amber-900";
     if (state === "locked") return "bg-zinc-100 text-zinc-700";
     return "bg-zinc-100 text-zinc-700";
@@ -367,11 +497,7 @@ export function PortalBillingClient() {
 
   const statusDotClass = hasActiveSub ? "bg-emerald-500" : "bg-zinc-300";
 
-  const packagePresets = (() => {
-    const base = creditsPerPackage ?? 25;
-    const options = [10, 20, 40];
-    return options.map((p) => ({ packages: p, credits: p * base }));
-  })();
+  const creditPresets = [500, 1000, 2500, 5000];
 
   const activeSubs = subscriptions && "ok" in subscriptions && subscriptions.ok ? subscriptions.subscriptions : [];
 
@@ -441,9 +567,11 @@ export function PortalBillingClient() {
             </div>
           </div>
 
-          {monthlyBreakdown.length ? (
+          {(
+            (monthlyBreakdown.length ? monthlyBreakdown : internalMonthlyBreakdown)
+          ).length ? (
             <div className="mt-3 grid gap-2">
-              {monthlyBreakdown
+              {(monthlyBreakdown.length ? monthlyBreakdown : internalMonthlyBreakdown)
                 .filter((x) => typeof x.monthlyCents === "number" && x.monthlyCents > 0)
                 .sort((a, b) => b.monthlyCents - a.monthlyCents)
                 .map((x) => (
@@ -462,7 +590,15 @@ export function PortalBillingClient() {
           <div className="text-sm font-semibold text-zinc-900">Subscriptions</div>
           <div className="mt-1 text-sm text-zinc-600">Cancel any service any time.</div>
 
-          {activeSubs.length ? (
+          {subscriptions && "ok" in subscriptions && subscriptions.ok === false ? (
+            <div className="mt-3 rounded-2xl border border-red-200 bg-red-50 p-4 text-sm text-red-800">
+              {subscriptions.error ?? "Unable to load subscriptions."}
+            </div>
+          ) : subscriptions && "ok" in subscriptions && subscriptions.ok === true && !subscriptions.configured ? (
+            <div className="mt-3 rounded-2xl border border-zinc-200 bg-white p-4 text-sm text-zinc-700">
+              Billing isn’t configured on this environment yet.
+            </div>
+          ) : activeSubs.length ? (
             <div className="mt-4 grid gap-2">
               {activeSubs.map((s) => {
                 const endText = s.currentPeriodEnd ? new Date(s.currentPeriodEnd * 1000).toLocaleDateString() : null;
@@ -561,51 +697,38 @@ export function PortalBillingClient() {
           {purchaseAvailable ? (
             <div className="mt-3 grid gap-2">
               <div className="flex flex-wrap gap-2">
-                {packagePresets.map((p) => (
+                {creditPresets.map((c) => (
                   <button
-                    key={p.packages}
+                    key={c}
                     type="button"
-                    onClick={() => setPackages(p.packages)}
+                    onClick={() => setCreditsToBuy(c)}
                     disabled={actionBusy !== null}
                     className={
                       "rounded-2xl border px-3 py-2 text-sm font-semibold transition disabled:opacity-60 " +
-                      (packages === p.packages
+                      (creditsRequested === c
                         ? "border-zinc-900 bg-zinc-900 text-white"
                         : "border-zinc-200 bg-white text-zinc-700 hover:bg-zinc-50")
                     }
                   >
-                    {p.credits.toLocaleString()} credits
+                    {c.toLocaleString()} credits
                   </button>
                 ))}
 
-                <select
-                  className="rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-sm"
-                  value={packages}
-                  onChange={(e) => setPackages(Number(e.target.value))}
+                <input
+                  className="w-40 rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-sm"
+                  value={creditsToBuy}
+                  type="number"
+                  min={1}
+                  step={1}
+                  onChange={(e) => setCreditsToBuy(Math.max(1, Math.floor(Number(e.target.value) || 0)))}
                   disabled={actionBusy !== null}
-                >
-                  {Array.from({ length: 200 }, (_, i) => i + 1).map((pkg) => {
-                    const c = creditsPerPackage ? pkg * creditsPerPackage : null;
-                    return (
-                      <option key={pkg} value={pkg}>
-                        {pkg} package{pkg === 1 ? "" : "s"}{c ? ` (${c.toLocaleString()} credits)` : ""}
-                      </option>
-                    );
-                  })}
-                </select>
+                  aria-label="Credits to buy"
+                />
               </div>
 
               <div className="text-xs text-zinc-500">
-                {creditsTotal ? (
-                  <>
-                    Total: <span className="font-semibold text-zinc-700">{creditsTotal.toLocaleString()}</span> credits
-                    {creditsTotalUsd ? (
-                      <> • <span className="font-semibold text-zinc-700">{formatUsd(creditsTotalUsd)}</span></>
-                    ) : null}
-                  </>
-                ) : (
-                  ""
-                )}
+                Total: <span className="font-semibold text-zinc-700">{creditsRequested.toLocaleString()}</span> credits •{" "}
+                <span className="font-semibold text-zinc-700">{formatUsd(creditsTotalUsd)}</span>
               </div>
 
               <button
@@ -770,12 +893,78 @@ export function PortalBillingClient() {
             const st = serviceStatuses?.[s.slug];
             const state = st?.state ?? "active";
             const label = st?.label ?? "Ready";
+
+            const modulePrice =
+              pricing && "ok" in pricing && pricing.ok === true && s.entitlementKey
+                ? (pricing.modules as any)[s.entitlementKey]
+                : null;
+            const priceText = s.entitlementKey
+              ? modulePrice
+                ? `${formatMoney(modulePrice.monthlyCents, modulePrice.currency)}/mo`
+                : "See Billing"
+              : s.included
+                ? "Included"
+                : s.slug === "lead-scraping" || s.slug === "ai-outbound-calls"
+                  ? "Usage-based"
+                  : "Included";
+
+            const busy = actionBusy?.startsWith(`service:${s.slug}:`) ?? false;
+
             return (
-              <div key={s.slug} className="flex items-center justify-between gap-3">
-                <span className="min-w-0 truncate">{s.title}</span>
-                <span className={`shrink-0 rounded-full px-2 py-0.5 text-xs font-semibold ${badgeClass(state)}`}>
-                  {label}
-                </span>
+              <div key={s.slug} className="relative flex items-center justify-between gap-3">
+                <div className="min-w-0">
+                  <div className="truncate">{s.title}</div>
+                  <div className="mt-0.5 text-xs text-zinc-500">{priceText}</div>
+                </div>
+
+                <div className="flex items-center gap-2">
+                  <span className={`shrink-0 rounded-full px-2 py-0.5 text-xs font-semibold ${badgeClass(state)}`}>
+                    {label}
+                  </span>
+
+                  <button
+                    type="button"
+                    disabled={actionBusy !== null}
+                    onClick={() => setServiceMenuSlug((prev) => (prev === s.slug ? null : s.slug))}
+                    className="inline-flex h-8 w-8 items-center justify-center rounded-full border border-zinc-200 bg-white text-zinc-700 hover:bg-zinc-50 disabled:opacity-60"
+                    aria-label="Service actions"
+                  >
+                    ⋯
+                  </button>
+
+                  {serviceMenuSlug === s.slug ? (
+                    <div className="absolute right-0 top-9 z-20 w-44 rounded-2xl border border-zinc-200 bg-white p-1 shadow-lg">
+                      {state === "paused" || state === "canceled" ? (
+                        <button
+                          type="button"
+                          disabled={busy || actionBusy !== null}
+                          onClick={() => void setServiceLifecycle(s.slug, "resume")}
+                          className="w-full rounded-xl px-3 py-2 text-left text-sm font-semibold text-zinc-900 hover:bg-zinc-50 disabled:opacity-60"
+                        >
+                          Resume
+                        </button>
+                      ) : (
+                        <button
+                          type="button"
+                          disabled={busy || actionBusy !== null}
+                          onClick={() => void setServiceLifecycle(s.slug, "pause")}
+                          className="w-full rounded-xl px-3 py-2 text-left text-sm font-semibold text-zinc-900 hover:bg-zinc-50 disabled:opacity-60"
+                        >
+                          Pause
+                        </button>
+                      )}
+
+                      <button
+                        type="button"
+                        disabled={busy || actionBusy !== null}
+                        onClick={() => void setServiceLifecycle(s.slug, "cancel")}
+                        className="w-full rounded-xl px-3 py-2 text-left text-sm font-semibold text-red-700 hover:bg-red-50 disabled:opacity-60"
+                      >
+                        Cancel
+                      </button>
+                    </div>
+                  ) : null}
+                </div>
               </div>
             );
           })}

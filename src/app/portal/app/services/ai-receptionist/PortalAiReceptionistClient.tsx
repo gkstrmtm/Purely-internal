@@ -225,8 +225,6 @@ export function PortalAiReceptionistClient() {
   const [webhookUrlLegacy, setWebhookUrlLegacy] = useState<string>("");
   const [twilioConfigured, setTwilioConfigured] = useState<boolean>(false);
 
-  const [voiceAgentApiKey, setVoiceAgentApiKey] = useState<string>("");
-
   const [selectedCallId, setSelectedCallId] = useState<string | null>(null);
 
   function updateEventTags(eventId: string, next: ContactTag[]) {
@@ -337,25 +335,18 @@ export function PortalAiReceptionistClient() {
     if (!settings) return false;
     if (!settings.greeting.trim()) return false;
     if (settings.mode === "FORWARD" && !String(settings.forwardToPhoneE164 || "").trim()) return false;
-    if (settings.mode === "AI" && (!settings.voiceAgentConfigured && !voiceAgentApiKey.trim())) {
-      // Allow saving without a voice agent key.
-      return true;
-    }
     return true;
-  }, [settings, voiceAgentApiKey]);
+  }, [settings]);
 
   async function save(next: Settings) {
     setSaving(true);
     setError(null);
     setNote(null);
 
-    const payload: any = { ...next };
-    if (voiceAgentApiKey.trim()) payload.voiceAgentApiKey = voiceAgentApiKey.trim();
-
     const res = await fetch("/api/portal/ai-receptionist/settings", {
       method: "PUT",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ settings: payload }),
+      body: JSON.stringify({ settings: next }),
     });
 
     const data = (await res.json().catch(() => null)) as ApiPayload | null;
@@ -369,8 +360,6 @@ export function PortalAiReceptionistClient() {
     setEvents(Array.isArray(data.events) ? data.events : []);
     setWebhookUrl(data.webhookUrl || webhookUrl);
     setWebhookUrlLegacy(typeof data.webhookUrlLegacy === "string" ? data.webhookUrlLegacy : webhookUrlLegacy);
-    setVoiceAgentApiKey("");
-
     setSaving(false);
     setNote("Saved.");
     window.setTimeout(() => setNote(null), 1800);
@@ -424,35 +413,6 @@ export function PortalAiReceptionistClient() {
     setWebhookUrlLegacy(typeof data.webhookUrlLegacy === "string" ? data.webhookUrlLegacy : webhookUrlLegacy);
     setSaving(false);
     setNote("Regenerated webhook token.");
-    window.setTimeout(() => setNote(null), 2000);
-  }
-
-  async function clearVoiceAgentKey() {
-    setSaving(true);
-    setError(null);
-    setNote(null);
-
-    const res = await fetch("/api/portal/ai-receptionist/settings", {
-      method: "PUT",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({ clearVoiceAgentKey: true, settings: settings ?? {} }),
-    });
-
-    const data = (await res.json().catch(() => null)) as ApiPayload | null;
-    if (!res.ok || !data?.ok) {
-      setSaving(false);
-      setError(data?.error || "Failed to clear key.");
-      return;
-    }
-
-    setSettings(data.settings);
-    setEvents(Array.isArray(data.events) ? data.events : []);
-    setWebhookUrl(data.webhookUrl || webhookUrl);
-    setWebhookUrlLegacy(typeof data.webhookUrlLegacy === "string" ? data.webhookUrlLegacy : webhookUrlLegacy);
-    setVoiceAgentApiKey("");
-
-    setSaving(false);
-    setNote("Cleared API key.");
     window.setTimeout(() => setNote(null), 2000);
   }
 
@@ -633,29 +593,15 @@ export function PortalAiReceptionistClient() {
                 />
               </label>
 
-              <label className="rounded-2xl border border-zinc-200 bg-zinc-50 px-4 py-3 text-sm">
+              <div className="rounded-2xl border border-zinc-200 bg-zinc-50 px-4 py-3 text-sm">
                 <div className="flex items-center justify-between">
                   <div className="text-xs font-semibold text-zinc-600">API key</div>
-                    <div className="text-xs text-zinc-500">{settings?.voiceAgentConfigured ? "configured" : "not set"}</div>
+                  <div className="text-xs text-zinc-500">Set in Profile</div>
                 </div>
-                <input
-                  type="password"
-                  className="mt-2 w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm"
-                  value={voiceAgentApiKey}
-                  onChange={(e) => setVoiceAgentApiKey(e.target.value)}
-                  placeholder={settings?.voiceAgentConfigured ? "(leave blank to keep)" : "(paste key)"}
-                />
-                <div className="mt-2 flex items-center justify-end">
-                  <button
-                    type="button"
-                    className="rounded-xl border border-zinc-200 bg-white px-3 py-2 text-xs font-semibold hover:bg-zinc-50 disabled:opacity-60"
-                    disabled={saving || !settings?.voiceAgentConfigured}
-                    onClick={() => void clearVoiceAgentKey()}
-                  >
-                    Clear key
-                  </button>
+                <div className="mt-2 text-xs text-zinc-600">
+                  This key is managed in your Profile settings so AI services can share it.
                 </div>
-              </label>
+              </div>
             </div>
 
             <div className="mt-6 flex items-center justify-end gap-2">

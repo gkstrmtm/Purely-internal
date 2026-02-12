@@ -9,9 +9,15 @@ import { getOrCreateStripeCustomerId, isStripeConfigured, stripePost } from "@/l
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
 
-const postSchema = z.object({
-  packages: z.number().int().min(1).max(200).default(1),
-});
+const postSchema = z
+  .object({
+    credits: z.number().int().min(1).max(500_000).optional(),
+    // Backwards compatibility (legacy UI).
+    packages: z.number().int().min(1).max(200).optional(),
+  })
+  .refine((v) => typeof v.credits === "number" || typeof v.packages === "number", {
+    message: "credits is required",
+  });
 
 export async function POST(req: Request) {
   const auth = await requireClientSessionForService("billing");
@@ -34,13 +40,17 @@ export async function POST(req: Request) {
   const priceId = (process.env.STRIPE_PRICE_CREDITS_TOPUP ?? "").trim();
   const stripeReady = isStripeConfigured() && Boolean(email);
 
+  const creditsPerPackage = creditsPerTopUpPackage();
+  const requestedCredits =
+    typeof parsed.data.credits === "number" ? parsed.data.credits : Math.max(1, parsed.data.packages ?? 1) * creditsPerPackage;
+
   // Dev/test fallback: allow adding credits without Stripe.
   if (!stripeReady) {
     if (process.env.NODE_ENV === "production") {
       return NextResponse.json({ error: "Purchasing credits is unavailable right now." }, { status: 400 });
     }
 
-    const credited = parsed.data.packages * creditsPerTopUpPackage();
+    const credited = requestedCredits;
     const state = await addCredits(ownerId, credited);
     return NextResponse.json({ ok: true, mode: "test", credited, credits: state.balance, creditsPerPackage: creditsPerTopUpPackage() });
   }
@@ -53,11 +63,13 @@ export async function POST(req: Request) {
 
   const customer = await getOrCreateStripeCustomerId(String(email));
 
-  const successUrl = new URL("/portal/app/billing?topup=success", origin).toString();
+  const successUrl = new URL(
+    "/portal/app/billing?topup=success&session_id={CHECKOUT_SESSION_ID}",
+    origin,
+  ).toString();
   const cancelUrl = new URL("/portal/app/billing?topup=cancel", origin).toString();
 
-  const creditsPerPackage = creditsPerTopUpPackage();
-  const unitAmountCents = creditsPerPackage * 10;
+  const unitAmountCents = requestedCredits * 10;
 
   const params: Record<string, unknown> = {
     mode: "payment",
@@ -67,20 +79,18 @@ export async function POST(req: Request) {
     allow_promotion_codes: true,
     "metadata[kind]": "credits_topup",
     "metadata[ownerId]": ownerId,
-    "metadata[packages]": String(parsed.data.packages),
+    "metadata[credits]": String(requestedCredits),
+    "metadata[packages]": String(parsed.data.packages ?? ""),
     "metadata[creditsPerPackage]": String(creditsPerPackage),
   };
 
-  if (priceId) {
-    params["line_items[0][price]"] = priceId;
-    params["line_items[0][quantity]"] = parsed.data.packages;
-  } else {
-    // Fallback: create an inline price (no STRIPE_PRICE_CREDITS_TOPUP needed).
-    params["line_items[0][price_data][currency]"] = "usd";
-    params["line_items[0][price_data][unit_amount]"] = unitAmountCents;
-    params["line_items[0][price_data][product_data][name]"] = `${creditsPerPackage} credits`;
-    params["line_items[0][quantity]"] = parsed.data.packages;
-  }
+  // Always create an inline price so Checkout displays the correct credit quantity.
+  // (Using a static Stripe Price with quantity leads to misleading labels like "25 credits".)
+  void priceId; // kept for compatibility with existing env/config
+  params["line_items[0][price_data][currency]"] = "usd";
+  params["line_items[0][price_data][unit_amount]"] = unitAmountCents;
+  params["line_items[0][price_data][product_data][name]"] = `${requestedCredits} credits`;
+  params["line_items[0][quantity]"] = 1;
 
   const checkout = await stripePost<{ url: string }>("/v1/checkout/sessions", params);
 

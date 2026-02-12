@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 
 import { IconServiceGlyph } from "@/app/portal/PortalIcons";
 import { PORTAL_SERVICES } from "@/app/portal/services/catalog";
@@ -17,7 +17,7 @@ type PortalMe =
     }
   | { ok: false; error?: string };
 
-type StatusState = "active" | "needs_setup" | "locked" | "coming_soon";
+type StatusState = "active" | "needs_setup" | "locked" | "coming_soon" | "paused" | "canceled";
 
 type ServiceStatus = {
   state: StatusState;
@@ -41,6 +41,10 @@ function badgeClasses(state: StatusState) {
       return "border-emerald-200 bg-emerald-50 text-emerald-700";
     case "needs_setup":
       return "border-amber-200 bg-amber-50 text-amber-700";
+    case "paused":
+      return "border-amber-200 bg-amber-50 text-amber-800";
+    case "canceled":
+      return "border-red-200 bg-red-50 text-red-700";
     case "locked":
       return "border-zinc-200 bg-zinc-50 text-zinc-600";
     case "coming_soon":
@@ -90,7 +94,7 @@ export function PortalServicesClient() {
 
   const knownServiceKeys = useMemo(() => new Set<string>(PORTAL_SERVICE_KEYS as unknown as string[]), []);
 
-  function canViewServiceSlug(slug: string) {
+  const canViewServiceSlug = useCallback((slug: string) => {
     switch (slug) {
       case "inbox":
         return canViewFromPermissions(portalMe, "inbox") || canViewFromPermissions(portalMe, "outbox");
@@ -112,11 +116,11 @@ export function PortalServicesClient() {
         if (!knownServiceKeys.has(slug)) return true;
         return canViewFromPermissions(portalMe, slug as any);
     }
-  }
+  }, [knownServiceKeys, portalMe]);
 
   const services = useMemo(() => {
     return PORTAL_SERVICES.filter((s) => !s.hidden).filter((s) => canViewServiceSlug(s.slug));
-  }, [portalMe, knownServiceKeys]);
+  }, [canViewServiceSlug]);
 
   const canViewBilling = canViewFromPermissions(portalMe, "billing");
 

@@ -74,6 +74,22 @@ async function getProfileVoiceAgentId(ownerId: string): Promise<string | null> {
   return id ? id : null;
 }
 
+async function getProfileVoiceAgentApiKey(ownerId: string): Promise<string | null> {
+  const row = await prisma.portalServiceSetup.findUnique({
+    where: { ownerId_serviceSlug: { ownerId, serviceSlug: PROFILE_EXTRAS_SERVICE_SLUG } },
+    select: { dataJson: true },
+  });
+
+  const rec =
+    row?.dataJson && typeof row.dataJson === "object" && !Array.isArray(row.dataJson)
+      ? (row.dataJson as Record<string, unknown>)
+      : null;
+
+  const raw = rec?.voiceAgentApiKey;
+  const key = typeof raw === "string" ? raw.trim().slice(0, 400) : "";
+  return key ? key : null;
+}
+
 function checkAuth(req: Request) {
   const isProd = process.env.NODE_ENV === "production";
   const secret = process.env.AI_OUTBOUND_CALLS_CRON_SECRET;
@@ -216,6 +232,7 @@ export async function GET(req: Request) {
   const receptionistCache = new Map<string, { agentId: string; apiKey: string }>();
   const phoneNumberIdCache = new Map<string, string>();
   const profileAgentIdCache = new Map<string, string>();
+  const profileApiKeyCache = new Map<string, string>();
 
   for (const e of due) {
     if (e.campaign.status !== "ACTIVE") {
@@ -272,13 +289,19 @@ export async function GET(req: Request) {
         profileAgentIdCache.set(e.ownerId, profileAgentId);
       }
 
+      let profileApiKey = profileApiKeyCache.get(e.ownerId);
+      if (!profileApiKey) {
+        profileApiKey = (await getProfileVoiceAgentApiKey(e.ownerId)) || "";
+        profileApiKeyCache.set(e.ownerId, profileApiKey);
+      }
+
       const agentId =
         String(e.campaign.voiceAgentId || "").trim() ||
         String(profileAgentId || "").trim() ||
         rec.agentId; // legacy fallback
-      const apiKey = rec.apiKey;
+      const apiKey = String(profileApiKey || "").trim() || rec.apiKey; // legacy fallback
 
-      if (!apiKey) throw new Error("Missing voice agent API key. Set it in AI Receptionist settings.");
+      if (!apiKey) throw new Error("Missing voice agent API key. Set it in Profile.");
       if (!agentId) throw new Error("Missing voice agent ID. Set it in Profile or on the campaign.");
 
       const cacheKey = `${apiKey}:${agentId}`;

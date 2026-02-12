@@ -449,7 +449,7 @@ export function PortalBlogPostClient({ postId }: { postId: string }) {
             const top = await fetch("/api/portal/credits/topup", {
               method: "POST",
               headers: { "content-type": "application/json" },
-              body: JSON.stringify({ packages: 1 }),
+              body: JSON.stringify({ credits: 25 }),
             }).then((r) => (r.ok ? r.json() : null));
             if (top && typeof top === "object" && typeof (top as any).url === "string") {
               window.location.href = String((top as any).url);
@@ -644,7 +644,7 @@ export function PortalBlogPostClient({ postId }: { postId: string }) {
           </a>
           <button
             type="button"
-            onClick={(_e) => {
+            onClick={() => {
               void generateWithAi();
             }}
             disabled={working !== null}

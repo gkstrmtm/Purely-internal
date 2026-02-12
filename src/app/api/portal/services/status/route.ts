@@ -13,7 +13,7 @@ export const revalidate = 0;
 
 const DEFAULT_FULL_DEMO_EMAIL = "demo-full@purelyautomation.dev";
 
-export type PortalServiceStatusState = "active" | "needs_setup" | "locked" | "coming_soon";
+export type PortalServiceStatusState = "active" | "needs_setup" | "locked" | "coming_soon" | "paused" | "canceled";
 
 export type PortalServiceStatus = {
   state: PortalServiceStatusState;
@@ -31,6 +31,12 @@ function readObj(rec: unknown, key: string): Record<string, unknown> | null {
   const v = (rec as any)[key];
   if (!v || typeof v !== "object" || Array.isArray(v)) return null;
   return v as any;
+}
+
+function readString(rec: unknown, key: string): string | null {
+  if (!rec || typeof rec !== "object" || Array.isArray(rec)) return null;
+  const v = (rec as any)[key];
+  return typeof v === "string" ? v : null;
 }
 
 function isComingSoon(service: { title: string; description: string }) {
@@ -76,17 +82,7 @@ export async function GET() {
   const isFullDemo = entitlementsEmail.toLowerCase().trim() === DEFAULT_FULL_DEMO_EMAIL;
   const entitlements = await resolveEntitlements(entitlementsEmail);
 
-  const serviceSlugs = [
-    "inbox",
-    "blogs",
-    "automations",
-    "ai-receptionist",
-    "ai-outbound-calls",
-    "reviews",
-    "lead-scraping",
-    "missed-call-textback",
-    "follow-up",
-  ];
+  const serviceSlugs = PORTAL_SERVICES.map((s) => s.slug);
 
   const [setupRows, bookingSite, blogSite, taskCount, outboundCampaignCount, twilioConfig] = await Promise.all([
     prisma.portalServiceSetup.findMany({
@@ -115,6 +111,14 @@ export async function GET() {
   const statuses: Record<string, PortalServiceStatus> = {};
 
   for (const s of PORTAL_SERVICES) {
+    const setup = setupBySlug.get(s.slug);
+    const lifecycle = readObj(setup?.dataJson, "lifecycle");
+    const lifecycleState = (readString(lifecycle, "state") || "").toLowerCase().trim();
+    if (lifecycleState === "paused" || lifecycleState === "canceled") {
+      statuses[s.slug] = { state: lifecycleState as any, label: lifecycleState === "paused" ? "Paused" : "Canceled" };
+      continue;
+    }
+
     const comingSoon = isComingSoon(s);
     if (comingSoon) {
       if (isFullDemo && forceActiveForFullDemo(s.slug)) {

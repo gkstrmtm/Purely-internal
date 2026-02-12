@@ -11,7 +11,14 @@ import { PortalSettingsSection } from "@/components/PortalSettingsSection";
 type Me = {
   ok?: boolean;
   error?: string;
-  user: { email: string; name: string; role: string; phone?: string | null; voiceAgentId?: string | null } | null;
+  user: {
+    email: string;
+    name: string;
+    role: string;
+    phone?: string | null;
+    voiceAgentId?: string | null;
+    voiceAgentApiKeyConfigured?: boolean;
+  } | null;
 };
 
 type TwilioMasked = {
@@ -92,6 +99,8 @@ export function PortalProfileClient() {
   const [email, setEmail] = useState("");
   const [phone, setPhone] = useState("");
   const [voiceAgentId, setVoiceAgentId] = useState("");
+  const [voiceAgentApiKey, setVoiceAgentApiKey] = useState("");
+  const [voiceAgentApiKeyConfigured, setVoiceAgentApiKeyConfigured] = useState(false);
   const [currentPassword, setCurrentPassword] = useState("");
   const [savingContact, setSavingContact] = useState(false);
 
@@ -138,20 +147,23 @@ export function PortalProfileClient() {
     const curEmail = (me.user?.email ?? "").toLowerCase();
     const curPhone = (me.user?.phone ?? "").trim();
     const curVoiceAgentId = (me.user?.voiceAgentId ?? "").trim();
-
     const wantsNameChange = nextName !== curName;
     const wantsEmailChange = nextEmail !== curEmail;
     const wantsPhoneChange = nextPhone !== curPhone;
     const wantsVoiceAgentIdChange = nextVoiceAgentId !== curVoiceAgentId;
+    const wantsVoiceAgentApiKeyChange = Boolean(voiceAgentApiKey.trim());
 
-    if (!wantsNameChange && !wantsEmailChange && !wantsPhoneChange && !wantsVoiceAgentIdChange) return false;
+    if (!wantsNameChange && !wantsEmailChange && !wantsPhoneChange && !wantsVoiceAgentIdChange && !wantsVoiceAgentApiKeyChange) {
+      return false;
+    }
 
     if (wantsNameChange || wantsEmailChange) {
       return currentPassword.trim().length >= 6 && nextName.length >= 2 && nextEmail.length >= 3;
     }
 
+    // No password required for phone/agent id/api key updates.
     return true;
-  }, [me, name, email, phone, voiceAgentId, currentPassword]);
+  }, [me, name, email, phone, voiceAgentId, voiceAgentApiKey, currentPassword]);
 
   const canSavePassword = useMemo(() => {
     return (
@@ -174,6 +186,7 @@ export function PortalProfileClient() {
         setEmail(json.user?.email ?? "");
         setPhone(formatPhoneForDisplay(json.user?.phone ?? ""));
         setVoiceAgentId(json.user?.voiceAgentId ?? "");
+        setVoiceAgentApiKeyConfigured(Boolean(json.user?.voiceAgentApiKeyConfigured));
       } else {
         const json = (await res.json().catch(() => ({}))) as { error?: string };
         setError(json.error ?? "Unable to load profile");
@@ -321,6 +334,7 @@ export function PortalProfileClient() {
     const curEmail = (me.user.email ?? "").toLowerCase();
     const curPhone = (me.user.phone ?? "").trim();
     const curVoiceAgentId = (me.user.voiceAgentId ?? "").trim();
+    const wantsVoiceAgentApiKeyChange = Boolean(voiceAgentApiKey.trim());
 
     const wantsNameChange = nextName !== curName;
     const wantsEmailChange = nextEmail !== curEmail;
@@ -332,6 +346,7 @@ export function PortalProfileClient() {
     if (wantsEmailChange) payload.email = nextEmail;
     if (wantsPhoneChange) payload.phone = nextPhone;
     if (wantsVoiceAgentIdChange) payload.voiceAgentId = nextVoiceAgentId;
+    if (wantsVoiceAgentApiKeyChange) payload.voiceAgentApiKey = voiceAgentApiKey.trim();
     if (wantsNameChange || wantsEmailChange) payload.currentPassword = currentPassword;
 
     const res = await fetch("/api/portal/profile", {
@@ -344,7 +359,14 @@ export function PortalProfileClient() {
       ok?: boolean;
       error?: string;
       note?: string;
-      user?: { name?: string; email?: string; phone?: string | null; voiceAgentId?: string | null; role?: string } | null;
+      user?: {
+        name?: string;
+        email?: string;
+        phone?: string | null;
+        voiceAgentId?: string | null;
+        voiceAgentApiKeyConfigured?: boolean;
+        role?: string;
+      } | null;
     };
     setSavingContact(false);
 
@@ -361,12 +383,53 @@ export function PortalProfileClient() {
         email: json.user?.email ?? nextEmail,
         phone: json.user?.phone ?? nextPhone,
         voiceAgentId: json.user?.voiceAgentId ?? nextVoiceAgentId,
+        voiceAgentApiKeyConfigured: Boolean(
+          json.user?.voiceAgentApiKeyConfigured ?? (wantsVoiceAgentApiKeyChange ? true : me.user.voiceAgentApiKeyConfigured),
+        ),
         role: json.user?.role ?? me.user.role,
       },
     });
     setCurrentPassword("");
+    setVoiceAgentApiKey("");
     setPhone(formatPhoneForDisplay(json.user?.phone ?? nextPhone));
     setNotice(json.note ?? "Saved. You may need to sign out/in to refresh your session.");
+  }
+
+  async function clearVoiceAgentApiKey() {
+    if (!me?.user) return;
+    setSavingContact(true);
+    setError(null);
+    setNotice(null);
+
+    const res = await fetch("/api/portal/profile", {
+      method: "PUT",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ voiceAgentApiKey: "" }),
+    });
+
+    const json = (await res.json().catch(() => ({}))) as {
+      ok?: boolean;
+      error?: string;
+      note?: string;
+      user?: { voiceAgentApiKeyConfigured?: boolean } | null;
+    };
+    setSavingContact(false);
+
+    if (!res.ok || !json.ok) {
+      setError(json.error ?? "Unable to clear API key");
+      return;
+    }
+
+    setVoiceAgentApiKey("");
+    setVoiceAgentApiKeyConfigured(Boolean(json.user?.voiceAgentApiKeyConfigured));
+    setMe({
+      ok: true,
+      user: {
+        ...me.user,
+        voiceAgentApiKeyConfigured: Boolean(json.user?.voiceAgentApiKeyConfigured),
+      },
+    });
+    setNotice(json.note ?? "Saved.");
   }
 
   async function changePassword() {
@@ -459,6 +522,34 @@ export function PortalProfileClient() {
                       autoComplete="off"
                     />
                     <div className="mt-2 text-xs text-zinc-500">Used by voice/AI calling services when enabled.</div>
+                  </div>
+
+                  <div className="sm:col-span-2">
+                    <div className="flex items-center justify-between">
+                      <label className="text-xs font-semibold text-zinc-600">Voice agent API key (optional)</label>
+                      <div className="text-xs text-zinc-500">{voiceAgentApiKeyConfigured ? "configured" : "not set"}</div>
+                    </div>
+                    <input
+                      value={voiceAgentApiKey}
+                      onChange={(e) => setVoiceAgentApiKey(e.target.value)}
+                      type="password"
+                      className="mt-1 w-full rounded-2xl border border-zinc-200 bg-white px-4 py-3 text-sm outline-none focus:border-zinc-300"
+                      placeholder={voiceAgentApiKeyConfigured ? "(leave blank to keep)" : "(paste key)"}
+                      autoComplete="off"
+                    />
+                    <div className="mt-2 flex items-center justify-between gap-2">
+                      <div className="text-xs text-zinc-500">
+                        Used by AI Outbound Calls when enabled.
+                      </div>
+                      <button
+                        type="button"
+                        className="rounded-xl border border-zinc-200 bg-white px-3 py-2 text-xs font-semibold hover:bg-zinc-50 disabled:opacity-60"
+                        disabled={savingContact || !voiceAgentApiKeyConfigured}
+                        onClick={() => void clearVoiceAgentApiKey()}
+                      >
+                        Clear key
+                      </button>
+                    </div>
                   </div>
                   <div className="sm:col-span-2">
                     <label className="text-xs font-semibold text-zinc-600">Current password (required for name/email changes)</label>

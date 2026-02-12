@@ -33,6 +33,22 @@ async function getProfileVoiceAgentId(ownerId: string): Promise<string | null> {
   return id ? id : null;
 }
 
+async function getProfileVoiceAgentApiKey(ownerId: string): Promise<string | null> {
+  const row = await prisma.portalServiceSetup.findUnique({
+    where: { ownerId_serviceSlug: { ownerId, serviceSlug: PROFILE_EXTRAS_SERVICE_SLUG } },
+    select: { dataJson: true },
+  });
+
+  const rec =
+    row?.dataJson && typeof row.dataJson === "object" && !Array.isArray(row.dataJson)
+      ? (row.dataJson as Record<string, unknown>)
+      : null;
+
+  const raw = rec?.voiceAgentApiKey;
+  const key = typeof raw === "string" ? raw.trim().slice(0, 400) : "";
+  return key ? key : null;
+}
+
 export async function POST(req: Request, ctx: { params: Promise<{ campaignId: string }> }) {
   const auth = await requireClientSessionForService("aiOutboundCalls", "edit");
   if (!auth.ok) {
@@ -56,12 +72,13 @@ export async function POST(req: Request, ctx: { params: Promise<{ campaignId: st
 
   if (!campaign) return NextResponse.json({ ok: false, error: "Not found" }, { status: 404 });
 
-  // API key comes from AI Receptionist settings (same key, different agent ids).
+  const apiKeyFromProfile = (await getProfileVoiceAgentApiKey(ownerId).catch(() => null)) || "";
   const receptionist = await getAiReceptionistServiceData(ownerId).catch(() => null);
-  const apiKey = receptionist?.settings?.voiceAgentApiKey?.trim() || "";
+  const apiKeyLegacy = receptionist?.settings?.voiceAgentApiKey?.trim() || "";
+  const apiKey = apiKeyFromProfile.trim() || apiKeyLegacy.trim();
   if (!apiKey) {
     return NextResponse.json(
-      { ok: false, error: "Missing voice agent API key. Set it in AI Receptionist settings first." },
+      { ok: false, error: "Missing voice agent API key. Set it in Profile first." },
       { status: 400 },
     );
   }

@@ -498,7 +498,7 @@ export function PortalAiOutboundCallsClient() {
                 <div className="mt-3 rounded-2xl border border-zinc-200 bg-zinc-50 p-4 text-sm text-zinc-700">
                   <div className="font-semibold text-zinc-900">How this works</div>
                   <ul className="mt-2 list-disc space-y-1 pl-5 text-xs text-zinc-600">
-                    <li>API key lives in <span className="font-semibold">AI Receptionist</span> settings.</li>
+                    <li>API key lives in <span className="font-semibold">Profile</span> settings.</li>
                     <li>Default Agent ID lives in your <span className="font-semibold">Profile</span>; you can override it per campaign.</li>
                     <li>Leaving behavior fields blank means Purely won’t overwrite your agent’s existing behavior when syncing.</li>
                     <li>The campaign <span className="font-semibold">Call script</span> (if set) overrides the agent’s first message for that call.</li>
