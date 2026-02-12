@@ -1,16 +1,20 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
+import { encode } from "next-auth/jwt";
 
 import { prisma } from "@/lib/db";
 import { hashPassword } from "@/lib/password";
 import { ensureClientRoleAllowed, isClientRoleMissingError } from "@/lib/ensureClientRoleAllowed";
 import { normalizePhoneStrict } from "@/lib/phone";
+import { PORTAL_SESSION_COOKIE_NAME } from "@/lib/portalAuth";
+import { resolvePortalOwnerIdForLogin } from "@/lib/portalAccounts";
 import {
   goalLabelsFromIds,
   normalizeGoalIds,
   normalizeServiceSlugs,
   recommendPortalServiceSlugs,
 } from "@/lib/portalGetStartedRecommendations";
+import { CORE_INCLUDED_SERVICE_SLUGS, planById } from "@/lib/portalOnboardingWizardCatalog";
 
 const bodySchema = z.object({
   name: z.string().trim().min(2).max(120),
@@ -84,6 +88,11 @@ function withLifecycle(dataJson: unknown, lifecycle: { state: string; reason?: s
 }
 
 export async function POST(req: Request) {
+  const secret = process.env.NEXTAUTH_SECRET;
+  if (!secret) {
+    return NextResponse.json({ error: "Server misconfigured" }, { status: 500 });
+  }
+
   // Default to enabled. Set CLIENT_SIGNUP_ENABLED="false" to disable.
   const enabledFlag = String(process.env.CLIENT_SIGNUP_ENABLED ?? "").trim().toLowerCase();
   if (["0", "false", "off", "disabled"].includes(enabledFlag)) {
@@ -225,37 +234,45 @@ export async function POST(req: Request) {
       });
 
       // Keep services gated until checkout completes.
-      await Promise.all(
-        ONBOARDING_SERVICE_SLUGS_TO_GUARD.map(async (serviceSlug) => {
-          const existing = await tx.portalServiceSetup
-            .findUnique({
-              where: { ownerId_serviceSlug: { ownerId: user.id, serviceSlug } },
-              select: { id: true, dataJson: true },
-            })
-            .catch(() => null);
+      const allowed = new Set<string>(ONBOARDING_SERVICE_SLUGS_TO_GUARD as unknown as string[]);
+      const coreIncluded = new Set<string>(CORE_INCLUDED_SERVICE_SLUGS as unknown as string[]);
 
-          if (!existing) {
-            await tx.portalServiceSetup.create({
-              data: {
-                ownerId: user.id,
-                serviceSlug,
-                status: "NOT_STARTED",
-                dataJson: withLifecycle({}, { state: "paused", reason: "pending_payment" }) as any,
-              },
-              select: { id: true },
-            });
-            return;
-          }
+      const planIds = Array.isArray(parsed.data.selectedPlanIds)
+        ? parsed.data.selectedPlanIds.map((x) => (typeof x === "string" ? x.trim() : "")).filter(Boolean).slice(0, 20)
+        : [];
+      const planSlugs = planIds.flatMap((id) => planById(id)?.serviceSlugsToActivate ?? []);
 
-          await tx.portalServiceSetup.update({
-            where: { ownerId_serviceSlug: { ownerId: user.id, serviceSlug } },
+      const pendingPayment = new Set<string>([...selectedServiceSlugs, ...planSlugs]);
+      for (const slug of Array.from(pendingPayment)) {
+        if (!allowed.has(slug)) continue;
+        if (coreIncluded.has(slug)) continue;
+
+        const existing = await tx.portalServiceSetup
+          .findUnique({
+            where: { ownerId_serviceSlug: { ownerId: user.id, serviceSlug: slug } },
+            select: { id: true, dataJson: true },
+          })
+          .catch(() => null);
+
+        if (!existing) {
+          await tx.portalServiceSetup.create({
             data: {
-              dataJson: withLifecycle(existing.dataJson, { state: "paused", reason: "pending_payment" }) as any,
+              ownerId: user.id,
+              serviceSlug: slug,
+              status: "NOT_STARTED",
+              dataJson: withLifecycle({}, { state: "paused", reason: "pending_payment" }) as any,
             },
             select: { id: true },
           });
-        }),
-      );
+          continue;
+        }
+
+        await tx.portalServiceSetup.update({
+          where: { ownerId_serviceSlug: { ownerId: user.id, serviceSlug: slug } },
+          data: { dataJson: withLifecycle(existing.dataJson, { state: "paused", reason: "pending_payment" }) as any },
+          select: { id: true },
+        });
+      }
 
       return user;
     });
@@ -272,5 +289,29 @@ export async function POST(req: Request) {
     }
   }
 
-  return NextResponse.json({ user });
+  // Multi-user portal accounts: session uid is the account ownerId.
+  const ownerId = await resolvePortalOwnerIdForLogin(user.id).catch(() => user.id);
+  const token = await encode({
+    secret,
+    token: {
+      uid: ownerId,
+      memberUid: user.id,
+      email: user.email,
+      name: user.name,
+      role: user.role,
+    },
+    maxAge: 60 * 60 * 24 * 30,
+  });
+
+  const res = NextResponse.json({ ok: true, user, signedIn: true });
+  res.cookies.set({
+    name: PORTAL_SESSION_COOKIE_NAME,
+    value: token,
+    httpOnly: true,
+    sameSite: "lax",
+    secure: process.env.NODE_ENV === "production",
+    path: "/",
+    maxAge: 60 * 60 * 24 * 30,
+  });
+  return res;
 }

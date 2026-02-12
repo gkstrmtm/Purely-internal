@@ -231,17 +231,7 @@ export default function PortalGetStartedPage() {
       return;
     }
 
-    const loginRes = await fetch("/portal/api/login", {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({ email, password }),
-    });
-
-    if (!loginRes.ok) {
-      setLoading(false);
-      router.push("/portal/login");
-      return;
-    }
+    toast.success("Account created");
 
     const checkoutRes = await fetch("/api/portal/billing/onboarding-checkout", {
       method: "POST",
@@ -257,12 +247,32 @@ export default function PortalGetStartedPage() {
     setLoading(false);
 
     if (checkoutJson?.ok && checkoutJson?.bypass) {
-      router.push("/portal/get-started/complete?bypass=1");
+      const confirmRes = await fetch("/api/portal/billing/onboarding-confirm", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ bypass: true }),
+      });
+      const confirmJson = await confirmRes.json().catch(() => null);
+      if (!confirmRes.ok || !confirmJson?.ok) {
+        setError(confirmJson?.error || "Unable to activate services");
+        router.push("/portal/login");
+        return;
+      }
+
+      toast.success("Welcome to your portal");
+      router.push("/portal/app/billing");
       return;
     }
 
     if (!checkoutRes.ok || !checkoutJson?.ok || !checkoutJson?.url) {
-      toast.error(checkoutJson?.error || "Unable to start checkout");
+      const msg = checkoutJson?.error || (checkoutRes.status === 401 ? "Unauthorized" : "Unable to start checkout");
+      toast.error(msg);
+      setError(msg);
+      if (checkoutRes.status === 401 || checkoutRes.status === 403) {
+        router.push("/portal/login");
+        return;
+      }
+
       router.push("/portal/app/billing");
       router.refresh();
       return;

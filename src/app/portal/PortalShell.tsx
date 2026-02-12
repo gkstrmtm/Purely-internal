@@ -49,10 +49,29 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
   const [mobileOpen, setMobileOpen] = useState(false);
   const [me, setMe] = useState<Me | null>(null);
   const [portalMe, setPortalMe] = useState<PortalMe | null>(null);
+  const [serviceStatuses, setServiceStatuses] = useState<Record<string, { state: string; label: string }> | null>(null);
 
   useEffect(() => {
     const saved = window.localStorage.getItem("portalSidebarCollapsed");
     if (saved === "1") setCollapsed(true);
+  }, []);
+
+  useEffect(() => {
+    let mounted = true;
+    (async () => {
+      const res = await fetch("/api/portal/services/status", { cache: "no-store" });
+      if (!mounted) return;
+      if (!res.ok) {
+        setServiceStatuses(null);
+        return;
+      }
+      const json = await res.json().catch(() => null);
+      const statuses = json && (json as any).ok === true ? (json as any).statuses : null;
+      setServiceStatuses(statuses && typeof statuses === "object" ? statuses : null);
+    })();
+    return () => {
+      mounted = false;
+    };
   }, []);
 
   useEffect(() => {
@@ -174,6 +193,15 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
     return Boolean(ent[entitlementKey]);
   }
 
+  function serviceLockedByStatus(slug: string) {
+    const st = serviceStatuses?.[slug];
+    if (!st) return null;
+    const state = String(st.state || "").toLowerCase();
+    if (state === "locked") return { locked: true, label: "Locked" };
+    if (state === "paused" && String(st.label || "").toLowerCase() === "activate") return { locked: true, label: "Activate" };
+    return { locked: false, label: "" };
+  }
+
   return (
     <div className="min-h-screen bg-brand-mist text-brand-ink">
       <div className="flex min-h-screen">
@@ -250,7 +278,8 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
                 <div className="mt-2 space-y-1">
                   {PORTAL_SERVICES.filter((s) => !s.hidden).map((s) => {
                     if (!canViewServiceSlug(s.slug)) return null;
-                    const unlocked = serviceUnlocked(s);
+                    const statusLock = serviceLockedByStatus(s.slug);
+                    const unlocked = statusLock ? !statusLock.locked : serviceUnlocked(s);
                     return (
                       <Link
                         key={s.slug}
@@ -280,7 +309,7 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
                           <span className="truncate">{s.title}</span>
                           {!unlocked ? (
                             <span className="inline-flex items-center gap-1 text-xs font-semibold text-zinc-500">
-                              <IconLock /> Locked
+                              <IconLock /> {statusLock?.label || "Locked"}
                             </span>
                           ) : null}
                         </span>
@@ -377,7 +406,8 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
               <div className="mt-2 space-y-1">
                 {PORTAL_SERVICES.filter((s) => !s.hidden).map((s) => {
                   if (!canViewServiceSlug(s.slug)) return null;
-                  const unlocked = serviceUnlocked(s);
+                  const statusLock = serviceLockedByStatus(s.slug);
+                  const unlocked = statusLock ? !statusLock.locked : serviceUnlocked(s);
                   return (
                     <Link
                       key={s.slug}
@@ -409,7 +439,7 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
                           <span className="truncate">{s.title}</span>
                           {!unlocked ? (
                             <span className="inline-flex items-center gap-1 text-xs font-semibold text-zinc-500">
-                              <IconLock /> Locked
+                              <IconLock /> {statusLock?.label || "Locked"}
                             </span>
                           ) : null}
                         </span>

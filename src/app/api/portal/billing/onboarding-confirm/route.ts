@@ -46,6 +46,32 @@ function withLifecycle(dataJson: unknown, lifecycle: { state: string; reason?: s
   };
 }
 
+function readObj(rec: unknown, key: string): Record<string, unknown> | null {
+  if (!rec || typeof rec !== "object" || Array.isArray(rec)) return null;
+  const v = (rec as any)[key];
+  if (!v || typeof v !== "object" || Array.isArray(v)) return null;
+  return v as any;
+}
+
+function readString(rec: unknown, key: string): string | null {
+  if (!rec || typeof rec !== "object" || Array.isArray(rec)) return null;
+  const v = (rec as any)[key];
+  return typeof v === "string" ? v : null;
+}
+
+function withoutPendingPaymentLifecycle(dataJson: unknown) {
+  const rec = dataJson && typeof dataJson === "object" && !Array.isArray(dataJson)
+    ? (dataJson as Record<string, unknown>)
+    : {};
+
+  const lifecycle = readObj(rec, "lifecycle");
+  const state = (readString(lifecycle, "state") || "").toLowerCase().trim();
+  const reason = (readString(lifecycle, "reason") || "").toLowerCase().trim();
+  if (state !== "paused" || reason !== "pending_payment") return rec;
+
+  return withLifecycle(rec, { state: "inactive" });
+}
+
 const ALL_KNOWN_SERVICE_SLUGS = [
   "inbox",
   "media-library",
@@ -100,7 +126,8 @@ async function activateFromIntake(opts: { ownerId: string; intakeJson: Record<st
   const allKnownServiceSlugs = ALL_KNOWN_SERVICE_SLUGS as unknown as string[];
 
   await prisma.$transaction(async (tx) => {
-    for (const serviceSlug of allKnownServiceSlugs) {
+    // Activate purchased/included services.
+    for (const serviceSlug of Array.from(toActivate)) {
       const existing = await tx.portalServiceSetup
         .findUnique({
           where: { ownerId_serviceSlug: { ownerId: opts.ownerId, serviceSlug } },
@@ -108,16 +135,13 @@ async function activateFromIntake(opts: { ownerId: string; intakeJson: Record<st
         })
         .catch(() => null);
 
-      const state = toActivate.has(serviceSlug) ? "active" : "paused";
-      const reason = toActivate.has(serviceSlug) ? undefined : "pending_payment";
-
       if (!existing) {
         await tx.portalServiceSetup.create({
           data: {
             ownerId: opts.ownerId,
             serviceSlug,
             status: "COMPLETE",
-            dataJson: withLifecycle({}, { state, reason }) as any,
+            dataJson: withLifecycle({}, { state: "active" }) as any,
           },
           select: { id: true },
         });
@@ -126,7 +150,24 @@ async function activateFromIntake(opts: { ownerId: string; intakeJson: Record<st
 
       await tx.portalServiceSetup.update({
         where: { ownerId_serviceSlug: { ownerId: opts.ownerId, serviceSlug } },
-        data: { dataJson: withLifecycle(existing.dataJson, { state, reason }) as any },
+        data: { dataJson: withLifecycle(existing.dataJson, { state: "active" }) as any },
+        select: { id: true },
+      });
+    }
+
+    // Clear stale pending_payment flags for services not activated.
+    const existingRows = await tx.portalServiceSetup.findMany({
+      where: { ownerId: opts.ownerId, serviceSlug: { in: allKnownServiceSlugs } },
+      select: { serviceSlug: true, dataJson: true },
+    });
+
+    for (const row of existingRows) {
+      if (toActivate.has(row.serviceSlug)) continue;
+      const nextJson = withoutPendingPaymentLifecycle(row.dataJson);
+      if (nextJson === row.dataJson) continue;
+      await tx.portalServiceSetup.update({
+        where: { ownerId_serviceSlug: { ownerId: opts.ownerId, serviceSlug: row.serviceSlug } },
+        data: { dataJson: nextJson as any },
         select: { id: true },
       });
     }

@@ -34,13 +34,17 @@ export default function PortalGetStartedCompletePage() {
       if (!mounted) return;
 
       if (!res.ok || !json?.ok) {
+        if (res.status === 401 || res.status === 403) {
+          router.replace("/portal/login");
+          return;
+        }
         toast.error(json?.error || "Unable to activate services");
         setLoading(false);
         return;
       }
 
       toast.success("Services activated");
-      router.replace("/portal/app/services");
+      router.replace(bypass ? "/portal/app/billing" : "/portal/app/services");
       router.refresh();
     })();
 

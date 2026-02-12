@@ -112,20 +112,6 @@ export async function GET() {
 
   for (const s of PORTAL_SERVICES) {
     const setup = setupBySlug.get(s.slug);
-    const lifecycle = readObj(setup?.dataJson, "lifecycle");
-    const lifecycleState = (readString(lifecycle, "state") || "").toLowerCase().trim();
-    if (lifecycleState === "paused" || lifecycleState === "canceled") {
-      const reason = (readString(lifecycle, "reason") || "").toLowerCase().trim();
-      const label =
-        lifecycleState === "canceled"
-          ? "Canceled"
-          : reason === "pending_payment"
-            ? "Activate"
-            : "Paused";
-      statuses[s.slug] = { state: lifecycleState as any, label };
-      continue;
-    }
-
     const comingSoon = isComingSoon(s);
     if (comingSoon) {
       if (isFullDemo && forceActiveForFullDemo(s.slug)) {
@@ -146,6 +132,26 @@ export async function GET() {
     if (!unlocked) {
       statuses[s.slug] = { state: "locked", label: "Locked" };
       continue;
+    }
+
+    const lifecycle = readObj(setup?.dataJson, "lifecycle");
+    const lifecycleState = (readString(lifecycle, "state") || "").toLowerCase().trim();
+    if (lifecycleState === "paused" || lifecycleState === "canceled") {
+      const reason = (readString(lifecycle, "reason") || "").toLowerCase().trim();
+
+      // Core-included services should never show pending-payment activation.
+      if (reason === "pending_payment" && s.included) {
+        // fall through to normal status computation
+      } else {
+        const label =
+          lifecycleState === "canceled"
+            ? "Canceled"
+            : reason === "pending_payment"
+              ? "Activate"
+              : "Paused";
+        statuses[s.slug] = { state: lifecycleState as any, label };
+        continue;
+      }
     }
 
     if (s.slug === "booking") {
