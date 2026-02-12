@@ -1,8 +1,11 @@
 import { NextResponse } from "next/server";
 
 import { prisma } from "@/lib/db";
+import { getAiReceptionistServiceData } from "@/lib/aiReceptionist";
+import { normalizePhoneStrict } from "@/lib/phone";
 import { ensurePortalAiOutboundCallsSchema } from "@/lib/portalAiOutboundCallsSchema";
-import { placeTwilioOutboundCall, renderCampaignScript } from "@/lib/portalAiOutboundCalls";
+import { renderCampaignScript } from "@/lib/portalAiOutboundCalls";
+import { placeElevenLabsTwilioOutboundCall, resolveElevenLabsAgentPhoneNumberId } from "@/lib/elevenLabsConvai";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
@@ -45,7 +48,7 @@ export async function GET(req: Request) {
       campaignId: true,
       contactId: true,
       attemptCount: true,
-      campaign: { select: { id: true, status: true, script: true } },
+      campaign: { select: { id: true, status: true, script: true, voiceAgentId: true } },
       contact: { select: { id: true, name: true, email: true, phone: true } },
     },
     orderBy: [{ nextCallAt: "asc" }, { id: "asc" }],
@@ -54,6 +57,9 @@ export async function GET(req: Request) {
 
   let processed = 0;
   const errors: Array<{ enrollmentId: string; error: string }> = [];
+
+  const receptionistCache = new Map<string, { agentId: string; apiKey: string }>();
+  const phoneNumberIdCache = new Map<string, string>();
 
   for (const e of due) {
     if (e.campaign.status !== "ACTIVE") {
@@ -89,7 +95,57 @@ export async function GET(req: Request) {
         campaign: { script: e.campaign.script },
       });
 
-      const call = await placeTwilioOutboundCall({ ownerId: e.ownerId, toE164: to, script });
+      const parsedTo = normalizePhoneStrict(to);
+      if (!parsedTo.ok) throw new Error("Contact phone number is invalid.");
+      if (!parsedTo.e164) throw new Error("Contact has no phone number.");
+
+      let rec = receptionistCache.get(e.ownerId);
+      if (!rec) {
+        const data = await getAiReceptionistServiceData(e.ownerId);
+        const agentIdFromSettings = String(data.settings.voiceAgentId || "").trim();
+        const apiKeyFromSettings = String(data.settings.voiceAgentApiKey || "").trim();
+        rec = { agentId: agentIdFromSettings, apiKey: apiKeyFromSettings };
+        receptionistCache.set(e.ownerId, rec);
+      }
+
+      const agentId = String(e.campaign.voiceAgentId || "").trim() || rec.agentId;
+      const apiKey = rec.apiKey;
+
+      if (!apiKey) throw new Error("Missing ElevenLabs API key. Set it in AI Receptionist settings.");
+      if (!agentId) throw new Error("Missing ElevenLabs agent id. Set it in AI Receptionist settings or on the campaign.");
+
+      const cacheKey = `${apiKey}:${agentId}`;
+      let phoneNumberId = phoneNumberIdCache.get(cacheKey);
+      if (!phoneNumberId) {
+        const resolved = await resolveElevenLabsAgentPhoneNumberId({ apiKey, agentId });
+        if (!resolved.ok) throw new Error(resolved.error);
+        phoneNumberId = resolved.phoneNumberId;
+        phoneNumberIdCache.set(cacheKey, phoneNumberId);
+      }
+
+      const call = await placeElevenLabsTwilioOutboundCall({
+        apiKey,
+        agentId,
+        agentPhoneNumberId: phoneNumberId,
+        toNumberE164: parsedTo.e164,
+        conversationInitiationClientData: {
+          user_id: e.contactId,
+          dynamic_variables: {
+            owner_id: e.ownerId,
+            campaign_id: e.campaignId,
+            enrollment_id: e.id,
+            contact_id: e.contactId,
+            contact_name: e.contact?.name ? String(e.contact.name).slice(0, 120) : null,
+            contact_email: e.contact?.email ? String(e.contact.email).slice(0, 160) : null,
+            contact_phone: parsedTo.e164,
+          },
+          conversation_config_override: {
+            agent: {
+              first_message: script,
+            },
+          },
+        },
+      });
       if (!call.ok) throw new Error(call.error);
 
       await prisma.portalAiOutboundCallEnrollment.update({
