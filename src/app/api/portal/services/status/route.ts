@@ -180,7 +180,7 @@ export async function GET() {
     }
 
     if (s.slug === "tasks") {
-      statuses[s.slug] = taskCount > 0 ? { state: "active", label: "Active" } : { state: "needs_setup", label: "No tasks" };
+      statuses[s.slug] = taskCount > 0 ? { state: "active", label: "Active" } : { state: "active", label: "No tasks yet" };
       continue;
     }
 
@@ -251,7 +251,7 @@ export async function GET() {
         ? (setup.dataJson as Record<string, unknown>)
         : null;
       const automations = Array.isArray(rec?.automations) ? rec?.automations : [];
-      statuses[s.slug] = automations.length > 0 ? { state: "active", label: "Active" } : { state: "needs_setup", label: "No automations" };
+      statuses[s.slug] = automations.length > 0 ? { state: "active", label: "Active" } : { state: "active", label: "No automations yet" };
       continue;
     }
 
@@ -275,7 +275,7 @@ export async function GET() {
         continue;
       }
 
-      statuses[s.slug] = anyEnabled ? { state: "active", label: "Active" } : { state: "needs_setup", label: "Configured" };
+      statuses[s.slug] = anyEnabled ? { state: "active", label: "Active" } : { state: "needs_setup", label: "Enable schedule" };
       continue;
     }
 

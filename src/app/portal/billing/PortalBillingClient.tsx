@@ -595,8 +595,67 @@ export function PortalBillingClient() {
     }
     if (slug === "newsletter") return "/portal/app/services/newsletter";
     if (slug === "nurture-campaigns") return "/portal/app/services/nurture-campaigns";
+    if (slug === "lead-scraping") return "/portal/app/services/lead-scraping/settings";
     return `/portal/app/services/${encodeURIComponent(slug)}`;
   };
+
+  const setupActionLabelForService = (slug: string, label?: string | null) => {
+    const l = String(label || "").toLowerCase();
+    if (slug === "ai-outbound-calls" && l.includes("twilio")) return "Connect Twilio";
+    if (slug === "lead-scraping") return "Open settings";
+    if (slug === "blogs") return "Open settings";
+    if (slug === "booking") return "Open settings";
+    if (slug === "reviews") return "Open settings";
+    if (slug === "ai-receptionist") return "Open settings";
+    return "Open";
+  };
+
+  const accessBreakdownRows = (() => {
+    if (!serviceStatuses) return [] as Array<{
+      slug: string;
+      title: string;
+      state: string;
+      label: string;
+      currency: string;
+      monthlyCents: number;
+      included: boolean;
+    }>;
+
+    const rows = PORTAL_SERVICES.filter((s) => !s.hidden)
+      .map((s) => {
+        const st = serviceStatuses?.[s.slug];
+        const state = st?.state ?? "active";
+        const label = st?.label ?? "Ready";
+
+        if (state === "locked" || state === "coming_soon") return null;
+
+        // Follow-up is bundled with Booking (access without additional monthly charge).
+        const billingKey = s.slug === "follow-up" ? null : (s.entitlementKey ?? null);
+        const p = billingKey && modulePrices ? (modulePrices as any)[billingKey] : null;
+
+        const monthlyCents = typeof p?.monthlyCents === "number" && Number.isFinite(p.monthlyCents) ? p.monthlyCents : 0;
+        const currency = String(p?.currency || summaryCurrency || "usd");
+
+        const included = Boolean(s.included) || !monthlyCents;
+        return { slug: s.slug, title: s.title, state, label, currency, monthlyCents, included };
+      })
+      .filter(Boolean) as Array<{
+      slug: string;
+      title: string;
+      state: string;
+      label: string;
+      currency: string;
+      monthlyCents: number;
+      included: boolean;
+    }>;
+
+    rows.sort((a, b) => {
+      if (a.included !== b.included) return a.included ? 1 : -1;
+      return a.title.localeCompare(b.title);
+    });
+
+    return rows;
+  })();
 
   const statusDotClass = hasActiveSub ? "bg-emerald-500" : "bg-zinc-300";
 
@@ -731,7 +790,7 @@ export function PortalBillingClient() {
           <div className="flex items-start justify-between gap-3">
             <div>
               <div className="text-sm font-semibold text-zinc-900">Monthly breakdown</div>
-              <div className="mt-1 text-sm text-zinc-600">How your monthly total is calculated.</div>
+              <div className="mt-1 text-sm text-zinc-600">Everything you currently have access to (billed or included).</div>
             </div>
             <div className="text-right">
               <div className="text-xs text-zinc-500">Subscription status</div>
@@ -748,22 +807,25 @@ export function PortalBillingClient() {
             </div>
           </div>
 
-          {(
-            (monthlyBreakdown.length ? monthlyBreakdown : internalMonthlyBreakdown)
-          ).length ? (
+          {accessBreakdownRows.length ? (
             <div className="mt-3 grid gap-2">
-              {(monthlyBreakdown.length ? monthlyBreakdown : internalMonthlyBreakdown)
-                .filter((x) => typeof x.monthlyCents === "number" && x.monthlyCents > 0)
-                .sort((a, b) => b.monthlyCents - a.monthlyCents)
-                .map((x) => (
-                  <div key={x.subscriptionId} className="flex items-center justify-between gap-3 rounded-2xl border border-zinc-200 bg-white px-3 py-2">
-                    <div className="min-w-0 truncate text-sm font-semibold text-brand-ink">{x.title}</div>
-                    <div className="shrink-0 text-sm font-semibold text-zinc-900">{formatMoney(x.monthlyCents, x.currency || summaryCurrency)}/mo</div>
+              {accessBreakdownRows.map((x) => (
+                <div key={x.slug} className="flex items-center justify-between gap-3 rounded-2xl border border-zinc-200 bg-white px-3 py-2">
+                  <div className="min-w-0">
+                    <div className="truncate text-sm font-semibold text-brand-ink">{x.title}</div>
+                    <div className="mt-0.5 flex items-center gap-2">
+                      <span className={`rounded-full px-2 py-0.5 text-[11px] font-semibold ${badgeClass(x.state)}`}>{x.label}</span>
+                      <span className="text-xs text-zinc-500">{x.included ? "Included" : "Billed"}</span>
+                    </div>
                   </div>
-                ))}
+                  <div className="shrink-0 text-sm font-semibold text-zinc-900">
+                    {x.included ? "Included" : `${formatMoney(x.monthlyCents, x.currency)}/mo`}
+                  </div>
+                </div>
+              ))}
             </div>
           ) : (
-            <div className="mt-3 text-sm text-zinc-600">No monthly subscriptions found.</div>
+            <div className="mt-3 text-sm text-zinc-600">No services found.</div>
           )}
         </div>
 
@@ -1062,10 +1124,6 @@ export function PortalBillingClient() {
             ));
           })()}
         </div>
-
-        <div className="mt-4 rounded-2xl border border-zinc-200 bg-white p-4 text-sm text-zinc-700">
-          <span className="font-semibold text-zinc-900">Follow-up Automation</span> is included with <span className="font-semibold text-zinc-900">Booking Automation</span> (no extra charge).
-        </div>
       </div>
 
       <div className="rounded-3xl border border-zinc-200 bg-white p-6">
@@ -1146,15 +1204,6 @@ export function PortalBillingClient() {
                       ) : (
                         <span className="hidden text-xs font-semibold text-zinc-400 sm:inline-flex">Not available</span>
                       )
-                    ) : state === "needs_setup" ? (
-                      <button
-                        type="button"
-                        disabled={actionBusy !== null}
-                        onClick={() => router.push(setupHrefForService(s.slug, label))}
-                        className="hidden rounded-2xl bg-amber-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-amber-700 disabled:opacity-60 sm:inline-flex"
-                      >
-                        Finish setup
-                      </button>
                     ) : state === "paused" || state === "canceled" ? (
                       <button
                         type="button"
@@ -1200,7 +1249,7 @@ export function PortalBillingClient() {
                             className="w-full rounded-xl px-3 py-2 text-left text-sm font-semibold text-zinc-900 hover:bg-zinc-50"
                             onClick={() => router.push(setupHrefForService(s.slug, label))}
                           >
-                            Finish setup
+                            {setupActionLabelForService(s.slug, label)}…
                           </button>
                         ) : state === "coming_soon" ? (
                           <div className="w-full rounded-xl px-3 py-2 text-left text-sm font-semibold text-zinc-500">Coming soon</div>

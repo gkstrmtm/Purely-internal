@@ -88,7 +88,7 @@ export const PORTAL_MODULE_CATALOG: Record<PortalModuleKey, PortalModuleCatalogI
   crm: {
     key: "crm",
     title: "Follow-up Automation",
-    description: "Included with Booking Automation (no extra monthly charge).",
+    description: "Automated follow-ups and pipeline tracking.",
     monthlyUsd: 0,
     setupUsd: 0,
     usageBased: false,

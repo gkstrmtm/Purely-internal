@@ -684,7 +684,6 @@ export function PortalFollowUpClient({ embedded }: { embedded?: boolean } = {}) 
             Locked
           </div>
           <h1 className="mt-2 text-2xl font-bold text-brand-ink sm:text-3xl">Unlock {service.title}</h1>
-          <p className="mt-3 max-w-2xl text-sm text-zinc-600">Follow-up Automation is included with Booking Automation at no extra cost.</p>
 
           <div className="mt-6 rounded-3xl border border-zinc-200 bg-zinc-50 p-6">
             <div className="text-sm font-semibold text-zinc-900">What you get</div>

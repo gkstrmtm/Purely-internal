@@ -35,6 +35,11 @@ function serviceSlugForKey(key: PortalServiceKey): string | null {
 async function isServiceLifecycleDisabled(ownerId: string, serviceKey: PortalServiceKey): Promise<boolean> {
   const slug = serviceSlugForKey(serviceKey);
   if (!slug) return false;
+
+  // Only module-backed services can be paused/canceled.
+  const svc = PORTAL_SERVICES.find((s) => s.slug === slug) ?? null;
+  if (!svc) return false;
+
   const row = await prisma.portalServiceSetup
     .findUnique({
       where: { ownerId_serviceSlug: { ownerId, serviceSlug: slug } },
@@ -79,6 +84,9 @@ async function isServiceUnlockedForOwner(opts: {
   if (!slug) return true;
 
   const svc = PORTAL_SERVICES.find((s) => s.slug === slug) ?? null;
+  // Core/utility routes (profile, businessProfile, people, etc.) are not part of the service catalog.
+  // They should not be gated by module ownership.
+  if (!svc) return true;
   if (svc?.included) return true;
 
   // Entitlements must be computed from the portal account owner identity.
