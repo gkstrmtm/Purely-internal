@@ -1017,7 +1017,7 @@ export function PortalBillingClient() {
       </div>
 
       <div className="rounded-3xl border border-zinc-200 bg-white p-6">
-        <div className="text-sm font-semibold text-zinc-900">Services included</div>
+        <div className="text-sm font-semibold text-zinc-900">Services & status</div>
         <div className="mt-2 text-sm text-zinc-600">Live status from your account.</div>
 
         <div className="mt-4 space-y-2 text-sm text-zinc-700">
@@ -1030,18 +1030,18 @@ export function PortalBillingClient() {
               pricing && "ok" in pricing && pricing.ok === true && s.entitlementKey
                 ? (pricing.modules as any)[s.entitlementKey]
                 : null;
-            const priceText =
-              s.slug === "lead-scraping" || s.slug === "ai-outbound-calls"
-                ? "Usage-based"
-                : s.entitlementKey
-                  ? modulePrice
-                    ? modulePrice.monthlyCents
-                      ? `${formatMoney(modulePrice.monthlyCents, modulePrice.currency)}/mo`
-                      : "Included"
-                    : "See Billing"
-                  : s.included
-                    ? "Included"
-                    : "Included";
+            const priceText = (() => {
+              if (s.included) return "Included";
+
+              // Some services have usage-based components; still show monthly when we know it.
+              if (s.entitlementKey) {
+                if (!modulePrice) return "Add-on";
+                if (modulePrice.monthlyCents) return `${formatMoney(modulePrice.monthlyCents, modulePrice.currency)}/mo`;
+                return "Included";
+              }
+
+              return "Add-on";
+            })();
 
             const busy = actionBusy?.startsWith(`service:${s.slug}:`) ?? false;
 

@@ -183,6 +183,7 @@ export const PORTAL_SERVICES: PortalService[] = [
       "Service activity summaries",
       "Export-ready reporting",
     ],
+    included: true,
     accent: "blue",
   },
 ];

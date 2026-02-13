@@ -50,12 +50,16 @@ function forceActiveForFullDemo(serviceSlug: string) {
 
 function isUnlocked(opts: {
   isFullDemo: boolean;
+  hasSetup: boolean;
   included?: boolean;
   entitlementKey?: "blog" | "booking" | "crm" | "leadOutbound";
   entitlements: Record<string, boolean>;
 }) {
   if (opts.isFullDemo) return true;
   if (opts.included) return true;
+  // If the service has already been provisioned for this account (e.g., via onboarding activation),
+  // treat it as unlocked even if it doesn't map to a Stripe entitlement key.
+  if (opts.hasSetup) return true;
   if (!opts.entitlementKey) return false;
   return Boolean(opts.entitlements[opts.entitlementKey]);
 }
@@ -124,6 +128,7 @@ export async function GET() {
 
     const unlocked = isUnlocked({
       isFullDemo,
+      hasSetup: Boolean(setup),
       included: s.included,
       entitlementKey: s.entitlementKey,
       entitlements,
