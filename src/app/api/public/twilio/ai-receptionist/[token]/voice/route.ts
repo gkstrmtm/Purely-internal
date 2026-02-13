@@ -144,9 +144,28 @@ export async function POST(req: Request, ctx: { params: Promise<{ token: string 
     const forwardTo = settings.forwardToPhoneE164 || profilePhone;
 
     if (!forwardTo) {
+      await upsertAiReceptionistCallEvent(ownerId, {
+        id: `call_${callSid}`,
+        callSid,
+        from: fromE164,
+        to: toE164,
+        createdAtIso: new Date().toISOString(),
+        status: "COMPLETED",
+        notes: "Forward mode: no forward-to number configured (missing profile phone and forwardToPhoneE164).",
+      });
       const xml = `<?xml version="1.0" encoding="UTF-8"?>\n<Response>\n  <Say>We are unable to take your call right now.</Say>\n  <Hangup/>\n</Response>`;
       return xmlResponse(xml);
     }
+
+    await upsertAiReceptionistCallEvent(ownerId, {
+      id: `call_${callSid}`,
+      callSid,
+      from: fromE164,
+      to: toE164,
+      createdAtIso: new Date().toISOString(),
+      status: "IN_PROGRESS",
+      notes: `Forwarding call to ${forwardTo}.`,
+    });
 
     // Record forwarded calls (dual-channel when supported) so call recording works in FORWARD mode too.
     const recordingCallback = webhookUrlFromRequest(
@@ -176,7 +195,7 @@ export async function POST(req: Request, ctx: { params: Promise<{ token: string 
       to: toE164,
       createdAtIso: new Date().toISOString(),
       status: "COMPLETED",
-      notes: "Insufficient credits",
+      notes: forwardTo ? "Insufficient credits — fell back to forwarding." : "Insufficient credits",
     });
 
     if (forwardTo) {
@@ -212,6 +231,15 @@ export async function POST(req: Request, ctx: { params: Promise<{ token: string 
 
   // If no voice agent configured, fall back to voicemail-style capture.
   if (!agentId || !apiKey) {
+    await upsertAiReceptionistCallEvent(ownerId, {
+      id: `call_${callSid}`,
+      callSid,
+      from: fromE164,
+      to: toE164,
+      createdAtIso: new Date().toISOString(),
+      status: "IN_PROGRESS",
+      notes: "Fell back to voicemail (ElevenLabs agent not configured: missing Agent ID and/or API key).",
+    });
     const transcriptionCallback = webhookUrlFromRequest(
       req,
       `/api/public/twilio/ai-receptionist/${encodeURIComponent(token)}/transcription`,
@@ -271,14 +299,19 @@ export async function POST(req: Request, ctx: { params: Promise<{ token: string 
     const profilePhone = await getOwnerProfilePhoneE164(ownerId);
     const forwardTo = settings.forwardToPhoneE164 || profilePhone;
 
+    const errMsg = register.ok ? "Voice agent returned empty TwiML." : register.error;
+    const fallbackNote = forwardTo
+      ? `Fell back to forwarding (ElevenLabs live connect failed: ${errMsg})`
+      : `Fell back to voicemail (ElevenLabs live connect failed: ${errMsg})`;
+
     await upsertAiReceptionistCallEvent(ownerId, {
       id: `call_${callSid}`,
       callSid,
       from: fromE164,
       to: toE164,
       createdAtIso: new Date().toISOString(),
-      status: "COMPLETED",
-      notes: register.ok ? "Voice agent returned empty TwiML." : register.error,
+      status: "IN_PROGRESS",
+      notes: fallbackNote,
     });
 
     if (forwardTo) {
@@ -306,6 +339,16 @@ export async function POST(req: Request, ctx: { params: Promise<{ token: string 
 </Response>`;
     return xmlResponse(xml);
   }
+
+  await upsertAiReceptionistCallEvent(ownerId, {
+    id: `call_${callSid}`,
+    callSid,
+    from: fromE164,
+    to: toE164,
+    createdAtIso: new Date().toISOString(),
+    status: "IN_PROGRESS",
+    notes: "Live agent connected (ElevenLabs).",
+  });
 
   // ElevenLabs TwiML already connects the call to the agent.
   return xmlResponse(register.twiml);

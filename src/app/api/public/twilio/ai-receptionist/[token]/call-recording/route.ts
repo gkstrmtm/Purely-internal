@@ -32,6 +32,15 @@ function ceilMinutesFromSeconds(seconds: number): number {
 
 const CREDITS_PER_STARTED_MINUTE = 5;
 
+function appendNotes(existing: unknown, extra: string): string {
+  const a = typeof existing === "string" ? existing.trim() : "";
+  const b = String(extra || "").trim();
+  if (!a) return b;
+  if (!b) return a;
+  if (a.includes(b)) return a;
+  return `${a}\n${b}`;
+}
+
 async function requestTranscription(opts: {
   ownerId: string;
   recordingSid: string;
@@ -95,11 +104,17 @@ export async function POST(req: Request, ctx: { params: Promise<{ token: string 
   // Twilio recording callbacks may omit From/To. Reuse existing event details if present.
   let fromFinal = from;
   let toFinal = to;
+  let existingNotes: string | undefined;
   if (!fromFinal) {
     const existing = await getAiReceptionistServiceData(ownerId).catch(() => null);
     const match = existing?.events?.find((e: any) => String(e?.callSid || "") === callSid) as any;
     fromFinal = typeof match?.from === "string" && match.from.trim() ? match.from.trim() : "Unknown";
     toFinal = typeof match?.to === "string" && match.to.trim() ? match.to.trim() : toFinal;
+    existingNotes = typeof match?.notes === "string" && match.notes.trim() ? match.notes.trim() : undefined;
+  } else {
+    const existing = await getAiReceptionistServiceData(ownerId).catch(() => null);
+    const match = existing?.events?.find((e: any) => String(e?.callSid || "") === callSid) as any;
+    existingNotes = typeof match?.notes === "string" && match.notes.trim() ? match.notes.trim() : undefined;
   }
 
   const fromParsed = normalizePhoneStrict(fromFinal);
@@ -129,6 +144,15 @@ export async function POST(req: Request, ctx: { params: Promise<{ token: string 
     }
   }
 
+  const chargeNote =
+    needCredits > 0
+      ? (chargedCredits > 0
+          ? (chargedPartial
+              ? `Charged ${chargedCredits} credit(s) (partial, ${needCredits} needed).`
+              : `Charged ${chargedCredits} credit(s).`)
+          : "No credits charged.")
+      : "No recording duration reported.";
+
   await upsertAiReceptionistCallEvent(ownerId, {
     id: `call_${callSid}`,
     callSid,
@@ -136,14 +160,7 @@ export async function POST(req: Request, ctx: { params: Promise<{ token: string 
     to: toE164,
     createdAtIso: new Date().toISOString(),
     status: "COMPLETED",
-    notes:
-      needCredits > 0
-        ? (chargedCredits > 0
-            ? (chargedPartial
-                ? `Charged ${chargedCredits} credit(s) (partial, ${needCredits} needed).`
-                : `Charged ${chargedCredits} credit(s).`)
-            : "No credits charged.")
-        : "No recording duration reported.",
+    notes: appendNotes(existingNotes, chargeNote),
     ...(recordingSid ? { recordingSid } : {}),
     ...(Number.isFinite(durationSec) ? { recordingDurationSec: Math.max(0, Math.floor(durationSec)) } : {}),
     ...(chargedCredits > 0 ? { chargedCredits } : {}),
