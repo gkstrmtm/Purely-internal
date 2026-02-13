@@ -3,32 +3,22 @@ import { NextResponse } from "next/server";
 import { requireClientSessionForService } from "@/lib/portalAccess";
 import { creditsPerTopUpPackage } from "@/lib/creditsTopup";
 import { CREDIT_USD_VALUE } from "@/lib/pricing.shared";
-import { isStripeConfigured, stripeGet } from "@/lib/stripeFetch";
+import { isStripeConfigured } from "@/lib/stripeFetch";
+import { moduleByKey, usdToCents } from "@/lib/portalModulesCatalog";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
 
-type StripePrice = {
-  unit_amount?: number | null;
-  currency?: string | null;
-  recurring?: { interval?: string | null } | null;
-};
-
-async function loadMonthlyPrice(priceId: string | null) {
-  if (!priceId) return null;
-  if (!isStripeConfigured()) return null;
-
-  try {
-    const p = await stripeGet<StripePrice>(`/v1/prices/${encodeURIComponent(priceId)}`);
-    const unit = typeof p.unit_amount === "number" ? p.unit_amount : null;
-    const currency = typeof p.currency === "string" && p.currency ? p.currency.toLowerCase() : "usd";
-    const interval = p.recurring?.interval ?? null;
-    if (!unit) return null;
-    if (interval && interval !== "month") return null;
-    return { monthlyCents: unit, currency };
-  } catch {
-    return null;
-  }
+function modulePricing(key: "blog" | "booking" | "crm" | "leadOutbound") {
+  const m = moduleByKey(key);
+  return {
+    monthlyCents: usdToCents(m.monthlyUsd),
+    setupCents: usdToCents(m.setupUsd),
+    currency: "usd",
+    usageBased: Boolean(m.usageBased),
+    title: m.title,
+    description: m.description,
+  };
 }
 
 export async function GET() {
@@ -40,10 +30,10 @@ export async function GET() {
     );
   }
 
-  const blog = await loadMonthlyPrice((process.env.STRIPE_PRICE_BLOG_AUTOMATION ?? "").trim() || null);
-  const booking = await loadMonthlyPrice((process.env.STRIPE_PRICE_BOOKING_AUTOMATION ?? "").trim() || null);
-  const crm = await loadMonthlyPrice((process.env.STRIPE_PRICE_CRM_AUTOMATION ?? "").trim() || null);
-  const leadOutbound = await loadMonthlyPrice((process.env.STRIPE_PRICE_LEAD_OUTBOUND ?? "").trim() || null);
+  const blog = modulePricing("blog");
+  const booking = modulePricing("booking");
+  const crm = modulePricing("crm");
+  const leadOutbound = modulePricing("leadOutbound");
 
   return NextResponse.json({
     ok: true,

@@ -65,10 +65,10 @@ type PortalPricing =
       ok: true;
       stripeConfigured: boolean;
       modules: {
-        blog: { monthlyCents: number; currency: string } | null;
-        booking: { monthlyCents: number; currency: string } | null;
-        crm: { monthlyCents: number; currency: string } | null;
-        leadOutbound: { monthlyCents: number; currency: string } | null;
+        blog: { monthlyCents: number; setupCents?: number; currency: string; usageBased?: boolean; title?: string } | null;
+        booking: { monthlyCents: number; setupCents?: number; currency: string; usageBased?: boolean; title?: string } | null;
+        crm: { monthlyCents: number; setupCents?: number; currency: string; usageBased?: boolean; title?: string } | null;
+        leadOutbound: { monthlyCents: number; setupCents?: number; currency: string; usageBased?: boolean; title?: string } | null;
       };
     }
   | { ok: false; error?: string };
@@ -95,7 +95,12 @@ export function PortalBillingClient() {
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [actionBusy, setActionBusy] = useState<string | null>(null);
-  const [autoStartedCheckout, setAutoStartedCheckout] = useState(false);
+
+  const [purchaseModal, setPurchaseModal] = useState<null | {
+    module: "blog" | "booking" | "crm" | "leadOutbound";
+    serviceTitle: string;
+  }>(null);
+
 
   const [serviceMenuSlug, setServiceMenuSlug] = useState<string | null>(null);
 
@@ -219,6 +224,55 @@ export function PortalBillingClient() {
     }
   }, [toast]);
 
+  useEffect(() => {
+    if (loading) return;
+
+    try {
+      const qs = new URLSearchParams(window.location.search);
+      const buyRaw = (qs.get("buy") || "").trim();
+      if (!buyRaw) return;
+      if (!(["blog", "booking", "crm", "leadOutbound"] as const).includes(buyRaw as any)) return;
+
+      const mod = buyRaw as "blog" | "booking" | "crm" | "leadOutbound";
+      setPurchaseModal({ module: mod, serviceTitle: "Service" });
+
+      const url = new URL(window.location.href);
+      url.searchParams.delete("buy");
+      url.searchParams.delete("autostart");
+      window.history.replaceState(null, "", url.toString());
+    } catch {
+      // ignore
+    }
+  }, [loading]);
+
+  useEffect(() => {
+    if (!serviceMenuSlug) return;
+    const onDown = (e: MouseEvent) => {
+      const el = (e.target as HTMLElement | null) ?? null;
+      const ref = (document.querySelector(`[data-service-menu-root="${serviceMenuSlug}"]`) as HTMLElement | null);
+      if (!ref) {
+        setServiceMenuSlug(null);
+        return;
+      }
+      if (el && ref.contains(el)) return;
+      setServiceMenuSlug(null);
+    };
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setServiceMenuSlug(null);
+    };
+    document.addEventListener("mousedown", onDown);
+    document.addEventListener("keydown", onKey);
+    return () => {
+      document.removeEventListener("mousedown", onDown);
+      document.removeEventListener("keydown", onKey);
+    };
+  }, [serviceMenuSlug]);
+
+  function openPurchaseModal(module: "blog" | "booking" | "crm" | "leadOutbound", serviceTitle: string) {
+    setServiceMenuSlug(null);
+    setPurchaseModal({ module, serviceTitle });
+  }
+
   async function purchaseModule(module: "blog" | "booking" | "crm" | "leadOutbound") {
     setError(null);
     setActionBusy(`module:${module}`);
@@ -244,42 +298,6 @@ export function PortalBillingClient() {
     setError("Unable to start checkout");
   }
 
-  useEffect(() => {
-    if (loading) return;
-    if (!me) return;
-    if (autoStartedCheckout) return;
-
-    try {
-      const qs = new URLSearchParams(window.location.search);
-      const buyRaw = (qs.get("buy") || "").trim();
-      const autostart = (qs.get("autostart") || "").trim() === "1";
-      if (!buyRaw || !autostart) return;
-
-      if (!(["blog", "booking", "crm", "leadOutbound"] as const).includes(buyRaw as any)) return;
-      const buy = buyRaw as "blog" | "booking" | "crm" | "leadOutbound";
-
-      // Don't kick off checkout if it's already enabled.
-      if (Boolean((me as any)?.entitlements?.[buy])) {
-        const url = new URL(window.location.href);
-        url.searchParams.delete("buy");
-        url.searchParams.delete("autostart");
-        window.history.replaceState(null, "", url.toString());
-        setAutoStartedCheckout(true);
-        return;
-      }
-
-      setAutoStartedCheckout(true);
-      toast.success("Opening checkout…");
-      void purchaseModule(buy);
-
-      const url = new URL(window.location.href);
-      url.searchParams.delete("buy");
-      url.searchParams.delete("autostart");
-      window.history.replaceState(null, "", url.toString());
-    } catch {
-      // ignore
-    }
-  }, [loading, me, autoStartedCheckout, toast]);
 
   async function manage() {
     setError(null);
@@ -551,6 +569,84 @@ export function PortalBillingClient() {
 
   return (
     <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
+      {purchaseModal ? (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
+          <div className="w-full max-w-xl rounded-3xl border border-zinc-200 bg-white p-6 shadow-xl">
+            <div className="flex items-start justify-between gap-3">
+              <div>
+                <div className="text-sm font-semibold text-zinc-900">Enable service</div>
+                <div className="mt-1 text-xl font-bold text-brand-ink">
+                  {purchaseModal.serviceTitle !== "Service" ? purchaseModal.serviceTitle : (pricing && (pricing as any).ok ? ((pricing as any).modules?.[purchaseModal.module]?.title || "Service") : "Service")}
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setPurchaseModal(null)}
+                className="inline-flex h-10 w-10 items-center justify-center rounded-full border border-zinc-200 bg-white text-zinc-700 hover:bg-zinc-50"
+                aria-label="Close"
+              >
+                ×
+              </button>
+            </div>
+
+            {(() => {
+              const mod = purchaseModal.module;
+              const modPricing = pricing && "ok" in pricing && pricing.ok === true ? (pricing.modules as any)[mod] : null;
+              const monthlyCents = modPricing?.monthlyCents ?? null;
+              const setupCents = modPricing?.setupCents ?? 0;
+              const currency = String(modPricing?.currency ?? "usd");
+              const usageBased = Boolean(modPricing?.usageBased);
+
+              return (
+                <div className="mt-5 grid grid-cols-1 gap-3 sm:grid-cols-3">
+                  <div className="rounded-2xl border border-zinc-200 bg-zinc-50 p-4">
+                    <div className="text-xs font-semibold text-zinc-500">Monthly</div>
+                    <div className="mt-1 text-lg font-bold text-brand-ink">
+                      {typeof monthlyCents === "number" ? formatMoney(monthlyCents, currency) : "—"}
+                      <span className="text-sm font-semibold text-zinc-500">/mo</span>
+                    </div>
+                  </div>
+                  <div className="rounded-2xl border border-zinc-200 bg-zinc-50 p-4">
+                    <div className="text-xs font-semibold text-zinc-500">Setup fee</div>
+                    <div className="mt-1 text-lg font-bold text-brand-ink">
+                      {setupCents ? formatMoney(setupCents, currency) : "USD 0.00"}
+                    </div>
+                  </div>
+                  <div className="rounded-2xl border border-zinc-200 bg-zinc-50 p-4">
+                    <div className="text-xs font-semibold text-zinc-500">Usage-based</div>
+                    <div className="mt-1 text-lg font-bold text-brand-ink">{usageBased ? "Yes" : "No"}</div>
+                  </div>
+                </div>
+              );
+            })()}
+
+            <div className="mt-5 text-sm text-zinc-600">
+              You’ll be taken to a secure Stripe checkout. After payment, this service unlocks automatically.
+            </div>
+
+            <div className="mt-6 flex flex-col gap-3 sm:flex-row sm:justify-end">
+              <button
+                type="button"
+                onClick={() => setPurchaseModal(null)}
+                className="rounded-2xl border border-zinc-200 bg-white px-5 py-3 text-sm font-semibold text-brand-ink hover:bg-zinc-50"
+              >
+                Not now
+              </button>
+              <button
+                type="button"
+                disabled={actionBusy !== null}
+                onClick={async () => {
+                  const mod = purchaseModal.module;
+                  await purchaseModule(mod);
+                }}
+                className="rounded-2xl bg-[color:var(--color-brand-blue)] px-5 py-3 text-sm font-semibold text-white hover:opacity-95 disabled:opacity-60"
+              >
+                {actionBusy?.startsWith("module:") ? "Opening…" : "Buy & enable"}
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
       <div className="rounded-3xl border border-zinc-200 bg-white p-6 lg:col-span-2">
         <div className="flex items-start justify-between gap-3">
           <div>
@@ -949,7 +1045,7 @@ export function PortalBillingClient() {
             const busy = actionBusy?.startsWith(`service:${s.slug}:`) ?? false;
 
             return (
-              <div key={s.slug} className="relative flex items-center justify-between gap-3">
+              <div key={s.slug} className="relative flex items-center justify-between gap-3" data-service-menu-root={serviceMenuSlug === s.slug ? s.slug : undefined}>
                 <div className="min-w-0">
                   <div className="truncate">{s.title}</div>
                   <div className="mt-0.5 text-xs text-zinc-500">{priceText}</div>
@@ -973,16 +1069,19 @@ export function PortalBillingClient() {
                   {serviceMenuSlug === s.slug ? (
                     <div className="absolute right-0 top-9 z-20 w-44 rounded-2xl border border-zinc-200 bg-white p-1 shadow-lg">
                       {state === "locked" ? (
-                        <a
-                          href={
-                            s.entitlementKey
-                              ? `/portal/app/billing?buy=${encodeURIComponent(s.entitlementKey)}&autostart=1`
-                              : "/portal/app/billing"
-                          }
-                          className="block w-full rounded-xl px-3 py-2 text-left text-sm font-semibold text-zinc-900 hover:bg-zinc-50"
-                        >
-                          Unlock in billing
-                        </a>
+                        s.entitlementKey ? (
+                          <button
+                            type="button"
+                            className="w-full rounded-xl px-3 py-2 text-left text-sm font-semibold text-zinc-900 hover:bg-zinc-50"
+                            onClick={() => openPurchaseModal(s.entitlementKey as any, s.title)}
+                          >
+                            Enable…
+                          </button>
+                        ) : (
+                          <div className="w-full rounded-xl px-3 py-2 text-left text-sm font-semibold text-zinc-500">
+                            Not available
+                          </div>
+                        )
                       ) : state === "coming_soon" ? (
                         <div className="w-full rounded-xl px-3 py-2 text-left text-sm font-semibold text-zinc-500">
                           Coming soon

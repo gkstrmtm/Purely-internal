@@ -50,6 +50,7 @@ export async function entitlementsFromStripe(email: string): Promise<Entitlement
   const subs = await stripeGet<{
     data: Array<{
       status: string;
+      metadata?: Record<string, string>;
       items?: { data?: Array<{ price?: { id?: string } }> };
     }>;
   }>("/v1/subscriptions", {
@@ -67,8 +68,24 @@ export async function entitlementsFromStripe(email: string): Promise<Entitlement
       const id = item.price?.id;
       if (id) priceIds.add(id);
     }
+
+    const moduleMeta = String(s.metadata?.module ?? "").trim();
+    if (moduleMeta === "blog") entitlements.blog = true;
+    if (moduleMeta === "booking") entitlements.booking = true;
+    if (moduleMeta === "crm") entitlements.crm = true;
+    if (moduleMeta === "leadOutbound") entitlements.leadOutbound = true;
+
+    const planIdsRaw = String(s.metadata?.planIds ?? "").trim();
+    if (planIdsRaw) {
+      const planIds = new Set(planIdsRaw.split(",").map((x) => x.trim()).filter(Boolean));
+      if (planIds.has("blogs")) entitlements.blog = true;
+      if (planIds.has("booking")) entitlements.booking = true;
+      if (planIds.has("ai-outbound")) entitlements.leadOutbound = true;
+      // Note: CRM isn't currently a get-started planId; handled via module metadata.
+    }
   }
 
+  // Legacy fallback: match fixed Stripe price IDs when present.
   if (blogPrice && priceIds.has(blogPrice)) entitlements.blog = true;
   if (bookingPrice && priceIds.has(bookingPrice)) entitlements.booking = true;
   if (crmPrice && priceIds.has(crmPrice)) entitlements.crm = true;

@@ -3,6 +3,7 @@ import { z } from "zod";
 
 import { requireClientSessionForService } from "@/lib/portalAccess";
 import { getOrCreateStripeCustomerId, isStripeConfigured, stripePost } from "@/lib/stripeFetch";
+import { moduleByKey, usdToCents } from "@/lib/portalModulesCatalog";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -13,13 +14,6 @@ const bodySchema = z.object({
   successPath: z.string().min(1).optional(),
   cancelPath: z.string().min(1).optional(),
 });
-
-function priceIdForModule(module: "blog" | "booking" | "crm" | "leadOutbound") {
-  if (module === "blog") return process.env.STRIPE_PRICE_BLOG_AUTOMATION ?? "";
-  if (module === "booking") return process.env.STRIPE_PRICE_BOOKING_AUTOMATION ?? "";
-  if (module === "crm") return process.env.STRIPE_PRICE_CRM_AUTOMATION ?? "";
-  return process.env.STRIPE_PRICE_LEAD_OUTBOUND ?? "";
-}
 
 function originFromReq(req: Request) {
   return (
@@ -49,9 +43,11 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: "Invalid payload" }, { status: 400 });
   }
 
-  const priceId = priceIdForModule(parsed.data.module).trim();
-  if (!priceId) {
-    return NextResponse.json({ error: "That service is not for sale yet" }, { status: 400 });
+  const moduleItem = moduleByKey(parsed.data.module);
+  const monthlyCents = usdToCents(moduleItem.monthlyUsd);
+  const setupCents = usdToCents(moduleItem.setupUsd);
+  if (!monthlyCents || monthlyCents <= 0) {
+    return NextResponse.json({ error: "Invalid module pricing" }, { status: 400 });
   }
 
   const email = auth.session.user.email;
@@ -66,18 +62,38 @@ export async function POST(req: Request) {
   try {
     const customer = await getOrCreateStripeCustomerId(email);
 
-    const checkout = await stripePost<{ url: string }>("/v1/checkout/sessions", {
+    const params: Record<string, unknown> = {
       mode: "subscription",
       customer,
       success_url: successUrl,
       cancel_url: cancelUrl,
-      "line_items[0][price]": priceId,
-      "line_items[0][quantity]": 1,
       allow_promotion_codes: true,
       "subscription_data[metadata][ownerId]": auth.session.user.id,
       "subscription_data[metadata][source]": "portal_billing_addon",
       "subscription_data[metadata][module]": parsed.data.module,
-    });
+    };
+
+    let idx = 0;
+    if (setupCents && setupCents > 0) {
+      params[`line_items[${idx}][quantity]`] = 1;
+      params[`line_items[${idx}][price_data][currency]`] = "usd";
+      params[`line_items[${idx}][price_data][unit_amount]`] = setupCents;
+      params[`line_items[${idx}][price_data][product_data][name]`] = `${moduleItem.title} setup`;
+      params[`line_items[${idx}][price_data][product_data][description]`] = moduleItem.description.slice(0, 450);
+      params[`line_items[${idx}][price_data][product_data][metadata][module]`] = parsed.data.module;
+      params[`line_items[${idx}][price_data][product_data][metadata][kind]`] = "setup";
+      idx += 1;
+    }
+
+    params[`line_items[${idx}][quantity]`] = 1;
+    params[`line_items[${idx}][price_data][currency]`] = "usd";
+    params[`line_items[${idx}][price_data][unit_amount]`] = monthlyCents;
+    params[`line_items[${idx}][price_data][recurring][interval]`] = "month";
+    params[`line_items[${idx}][price_data][product_data][name]`] = moduleItem.title;
+    params[`line_items[${idx}][price_data][product_data][description]`] = moduleItem.description.slice(0, 450);
+    params[`line_items[${idx}][price_data][product_data][metadata][module]`] = parsed.data.module;
+
+    const checkout = await stripePost<{ url: string }>("/v1/checkout/sessions", params);
 
     return NextResponse.json({ ok: true, url: checkout.url });
   } catch (e) {
