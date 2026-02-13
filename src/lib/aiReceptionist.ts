@@ -298,8 +298,18 @@ export async function upsertAiReceptionistCallEvent(ownerId: string, nextEvent: 
   const data = await getAiReceptionistServiceData(ownerId);
   const events = data.events.slice();
   const idx = events.findIndex((e) => e.callSid === nextEvent.callSid);
-  if (idx >= 0) events[idx] = nextEvent;
-  else events.unshift(nextEvent);
+  if (idx >= 0) {
+    const prev = events[idx];
+    // Merge patches so callbacks (recording/transcription) don't clobber each other.
+    // Preserve the original createdAtIso for stable ordering.
+    events[idx] = {
+      ...prev,
+      ...nextEvent,
+      createdAtIso: prev.createdAtIso || nextEvent.createdAtIso,
+    };
+  } else {
+    events.unshift(nextEvent);
+  }
 
   const payload: AiReceptionistServiceData = {
     version: 1,

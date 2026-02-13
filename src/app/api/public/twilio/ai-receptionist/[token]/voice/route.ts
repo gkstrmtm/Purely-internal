@@ -97,9 +97,15 @@ export async function POST(req: Request, ctx: { params: Promise<{ token: string 
       return xmlResponse(xml);
     }
 
+    // Record forwarded calls (dual-channel when supported) so call recording works in FORWARD mode too.
+    const recordingCallback = webhookUrlFromRequest(
+      req,
+      `/api/public/twilio/ai-receptionist/${encodeURIComponent(token)}/dial-recording`,
+    );
+
     const xml = `<?xml version="1.0" encoding="UTF-8"?>
 <Response>
-  <Dial timeout="20">${xmlEscape(forwardTo)}</Dial>
+  <Dial timeout="20" record="record-from-answer-dual" recordingStatusCallback="${xmlEscape(recordingCallback)}" recordingStatusCallbackMethod="POST" recordingStatusCallbackEvent="completed">${xmlEscape(forwardTo)}</Dial>
 </Response>`;
     return xmlResponse(xml);
   }
@@ -145,12 +151,18 @@ export async function POST(req: Request, ctx: { params: Promise<{ token: string 
     req,
     `/api/public/twilio/ai-receptionist/${encodeURIComponent(token)}/recording`,
   );
+
+  // Best-effort voicemail transcription (Twilio handles transcription asynchronously).
+  const transcriptionCallback = webhookUrlFromRequest(
+    req,
+    `/api/public/twilio/ai-receptionist/${encodeURIComponent(token)}/transcription`,
+  );
   const xml = `<?xml version="1.0" encoding="UTF-8"?>
 <Response>
   <Say voice="Polly.Joanna">${xmlEscape(greeting)}</Say>
   <Pause length="1"/>
   <Say>AI receptionist is not yet fully configured for live conversation. Please leave a message after the beep.</Say>
-  <Record action="${xmlEscape(recordingAction)}" method="POST" maxLength="3600" playBeep="true" />
+  <Record action="${xmlEscape(recordingAction)}" method="POST" maxLength="3600" playBeep="true" transcribe="true" transcribeCallback="${xmlEscape(transcriptionCallback)}" />
 </Response>`;
 
   return xmlResponse(xml);
