@@ -16,6 +16,7 @@ import { enqueueOutboundCallForContact } from "@/lib/portalAiOutboundCalls";
 import { ensurePortalContactsSchema } from "@/lib/portalContactsSchema";
 import { findOrCreatePortalContact } from "@/lib/portalContacts";
 import { sendTransactionalEmail } from "@/lib/emailSender";
+import { getAppBaseUrl, tryNotifyPortalAccountUsers } from "@/lib/portalNotifications";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -810,6 +811,32 @@ export async function POST(req: Request) {
       }),
     ]);
 
+    // Best-effort: notify portal users.
+    try {
+      const baseUrl = getAppBaseUrl();
+      void tryNotifyPortalAccountUsers({
+        ownerId,
+        kind: "lead_scrape_run_completed",
+        subject: error ? `Lead scrape failed (${settings.b2c.source || "B2C"})` : `Lead scrape completed (${settings.b2c.source || "B2C"})`,
+        text: [
+          error ? "Lead scraping failed." : "Lead scraping completed.",
+          "",
+          `Kind: B2C`,
+          `Requested: ${requestedCount}`,
+          `Created: ${createdCount}`,
+          `Credits charged: ${reservedCredits}`,
+          `Credits refunded: ${refundedCredits}`,
+          error ? `Error: ${error}` : null,
+          "",
+          `Open lead scraping: ${baseUrl}/portal/app/services/lead-scraping`,
+        ]
+          .filter(Boolean)
+          .join("\n"),
+      }).catch(() => null);
+    } catch {
+      // ignore
+    }
+
     if (error) {
       return NextResponse.json(
         {
@@ -1239,6 +1266,34 @@ export async function POST(req: Request) {
       select: { id: true },
     }),
   ]);
+
+  // Best-effort: notify portal users.
+  try {
+    const baseUrl = getAppBaseUrl();
+    void tryNotifyPortalAccountUsers({
+      ownerId,
+      kind: "lead_scrape_run_completed",
+      subject: error ? "Lead scrape failed (B2B)" : "Lead scrape completed (B2B)",
+      text: [
+        error ? "Lead scraping failed." : "Lead scraping completed.",
+        "",
+        `Kind: B2B`,
+        niche ? `Niche: ${niche}` : null,
+        location ? `Location: ${location}` : null,
+        `Requested: ${requestedCount}`,
+        `Created: ${createdCount}`,
+        `Credits charged: ${reservedCredits}`,
+        `Credits refunded: ${refundedCredits}`,
+        error ? `Error: ${error}` : null,
+        "",
+        `Open lead scraping: ${baseUrl}/portal/app/services/lead-scraping`,
+      ]
+        .filter(Boolean)
+        .join("\n"),
+    }).catch(() => null);
+  } catch {
+    // ignore
+  }
 
   // Refunds are not implemented (we didn't build a credit refund primitive).
   // We still surface charged vs created in run history so billing can be audited.

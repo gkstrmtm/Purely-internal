@@ -8,6 +8,7 @@ import {
 } from "@/lib/missedCallTextBack";
 import { runOwnerAutomationsForEvent } from "@/lib/portalAutomationsRunner";
 import { normalizePhoneStrict } from "@/lib/phone";
+import { getAppBaseUrl, tryNotifyPortalAccountUsers } from "@/lib/portalNotifications";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
@@ -78,6 +79,29 @@ export async function POST(req: Request, ctx: { params: Promise<{ token: string 
   // If the call was answered or automation is off, do nothing else.
   if (answered || !settings.enabled || !callSid || !fromE164) {
     return xmlResponse("<?xml version=\"1.0\" encoding=\"UTF-8\"?><Response></Response>");
+  }
+
+  // Best-effort: notify portal users about the missed call.
+  try {
+    const baseUrl = getAppBaseUrl();
+    void tryNotifyPortalAccountUsers({
+      ownerId,
+      kind: "missed_call",
+      subject: `Missed call from ${fromE164}`,
+      text: [
+        "A call was missed.",
+        "",
+        `From: ${fromE164}`,
+        toE164 ? `To: ${toE164}` : null,
+        callSid ? `CallSid: ${callSid}` : null,
+        "",
+        `Open receptionist: ${baseUrl}/portal/app/ai-receptionist`,
+      ]
+        .filter(Boolean)
+        .join("\n"),
+    }).catch(() => null);
+  } catch {
+    // ignore
   }
 
   // Best-effort: trigger portal automations for missed calls.

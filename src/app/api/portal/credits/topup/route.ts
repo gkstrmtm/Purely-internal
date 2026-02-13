@@ -5,6 +5,7 @@ import { requireClientSessionForService } from "@/lib/portalAccess";
 import { addCredits } from "@/lib/credits";
 import { creditsPerTopUpPackage } from "@/lib/creditsTopup";
 import { getOrCreateStripeCustomerId, isStripeConfigured, stripePost } from "@/lib/stripeFetch";
+import { getAppBaseUrl, tryNotifyPortalAccountUsers } from "@/lib/portalNotifications";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
@@ -52,6 +53,15 @@ export async function POST(req: Request) {
 
     const credited = requestedCredits;
     const state = await addCredits(ownerId, credited);
+
+    const baseUrl = getAppBaseUrl();
+    void tryNotifyPortalAccountUsers({
+      ownerId,
+      kind: "credits_purchased",
+      subject: `Credits added (test mode): ${credited}`,
+      text: [`Credits were added to your account (test mode).`, "", `Credits: ${credited}`, "", `Open billing: ${baseUrl}/portal/app/billing`].join("\n"),
+    }).catch(() => null);
+
     return NextResponse.json({ ok: true, mode: "test", credited, credits: state.balance, creditsPerPackage: creditsPerTopUpPackage() });
   }
 

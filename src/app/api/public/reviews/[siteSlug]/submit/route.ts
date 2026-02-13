@@ -7,6 +7,7 @@ import { findOwnerIdByStoredBlogSiteSlug } from "@/lib/blogSiteSlug";
 import { getReviewRequestsServiceData } from "@/lib/reviewRequests";
 import { findOrCreatePortalContact } from "@/lib/portalContacts";
 import { runOwnerAutomationsForEvent } from "@/lib/portalAutomationsRunner";
+import { getAppBaseUrl, tryNotifyPortalAccountUsers } from "@/lib/portalNotifications";
 import { normalizePhoneStrict } from "@/lib/phone";
 
 export const dynamic = "force-dynamic";
@@ -239,6 +240,32 @@ export async function POST(req: Request, { params }: { params: Promise<{ siteSlu
     },
     select: { id: true },
   });
+
+  // Best-effort: notify portal users.
+  try {
+    const baseUrl = getAppBaseUrl();
+    void tryNotifyPortalAccountUsers({
+      ownerId,
+      kind: "review_received",
+      subject: `New review received: ${rating}★`,
+      text: [
+        "A new review was received.",
+        "",
+        `Rating: ${rating}★`,
+        `Name: ${name}`,
+        body ? "" : null,
+        body ? `Review: ${String(body).slice(0, 1200)}` : null,
+        email ? `Email: ${email}` : null,
+        phone ? `Phone: ${phone}` : null,
+        "",
+        `Open reviews: ${baseUrl}/portal/app/reviews`,
+      ]
+        .filter(Boolean)
+        .join("\n"),
+    }).catch(() => null);
+  } catch {
+    // ignore
+  }
 
   // Best-effort: trigger portal automations for received reviews.
   try {

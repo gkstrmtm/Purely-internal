@@ -1,5 +1,6 @@
 import { prisma } from "@/lib/db";
 import { runOwnerAutomationByIdForEvent, runOwnerAutomationsForEvent } from "@/lib/portalAutomationsRunner";
+import { getAppBaseUrl, tryNotifyPortalAccountUsers } from "@/lib/portalNotifications";
 
 const SERVICE_SLUG = "automations";
 
@@ -219,6 +220,25 @@ export async function processDueScheduledAutomations(opts: {
         data: { dataJson: nextData as any },
         select: { id: true },
       });
+
+      // Best-effort: notify portal users.
+      try {
+        const baseUrl = getAppBaseUrl();
+        void tryNotifyPortalAccountUsers({
+          ownerId: row.ownerId,
+          kind: "automations_run",
+          subject: `Automations ran: ${firedThisOwner} trigger(s)`,
+          text: [
+            "Scheduled automations ran.",
+            "",
+            `Triggers fired: ${firedThisOwner}`,
+            "",
+            `Open automations: ${baseUrl}/portal/app/automations`,
+          ].join("\n"),
+        }).catch(() => null);
+      } catch {
+        // ignore
+      }
     }
   }
 

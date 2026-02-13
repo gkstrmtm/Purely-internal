@@ -3,6 +3,7 @@ import { NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
 import { requireClientSessionForService } from "@/lib/portalAccess";
 import { sendNewsletterToAudience } from "@/lib/portalNewsletter";
+import { getAppBaseUrl, tryNotifyPortalAccountUsers } from "@/lib/portalNotifications";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -128,6 +129,30 @@ export async function POST(req: Request, ctx: { params: Promise<{ newsletterId: 
       },
       select: { id: true },
     });
+  }
+
+  // Best-effort: notify portal users.
+  try {
+    const baseUrl = getAppBaseUrl();
+    void tryNotifyPortalAccountUsers({
+      ownerId,
+      kind: "newsletter_sent",
+      subject: `Newsletter sent: ${newsletter.title || newsletter.slug || newsletter.id}`,
+      text: [
+        "A newsletter was sent.",
+        "",
+        newsletter.title ? `Title: ${newsletter.title}` : null,
+        `Kind: ${newsletter.kind}`,
+        channels.email ? `Email: ${results.email.sent}/${results.email.requested} sent` : null,
+        channels.sms ? `SMS: ${results.sms.sent}/${results.sms.requested} sent` : null,
+        "",
+        `Open newsletter: ${baseUrl}/portal/app/newsletter`,
+      ]
+        .filter(Boolean)
+        .join("\n"),
+    }).catch(() => null);
+  } catch {
+    // ignore
   }
 
   return NextResponse.json({ ok: true, sentAtIso: sentAt.toISOString(), results });

@@ -11,6 +11,8 @@ import { runOwnerAutomationsForEvent } from "@/lib/portalAutomationsRunner";
 import { enqueueOutboundCallForContact } from "@/lib/portalAiOutboundCalls";
 import { ensurePortalContactsSchema } from "@/lib/portalContactsSchema";
 import { findOrCreatePortalContact } from "@/lib/portalContacts";
+import { tryNotifyPortalAccountUsers } from "@/lib/portalNotifications";
+import { isVercelCronRequest } from "@/lib/cronAuth";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -731,6 +733,33 @@ async function runB2BForOwner(ownerId: string, settingsJson: unknown, baseUrl: s
     }),
   ]);
 
+  // Best-effort: notify portal users.
+  try {
+    void tryNotifyPortalAccountUsers({
+      ownerId,
+      kind: "lead_scrape_run_completed",
+      subject: error ? "Lead scrape failed (scheduled)" : "Lead scrape completed (scheduled)",
+      text: [
+        error ? "Scheduled lead scraping failed." : "Scheduled lead scraping completed.",
+        "",
+        `Kind: B2B`,
+        niche ? `Niche: ${niche}` : null,
+        location ? `Location: ${location}` : null,
+        `Requested: ${requestedCount}`,
+        `Created: ${createdCount}`,
+        `Credits charged: ${reservedCredits}`,
+        `Credits refunded: ${refundedCredits}`,
+        error ? `Error: ${error}` : null,
+        "",
+        `Open lead scraping: ${baseUrl}/portal/app/services/lead-scraping`,
+      ]
+        .filter(Boolean)
+        .join("\n"),
+    }).catch(() => null);
+  } catch {
+    // ignore
+  }
+
   if (error) {
     return {
       ownerId,
@@ -753,11 +782,12 @@ async function runB2BForOwner(ownerId: string, settingsJson: unknown, baseUrl: s
 }
 
 export async function GET(req: Request) {
+  const isVercelCron = isVercelCronRequest(req);
   const url = new URL(req.url);
   const token = url.searchParams.get("token");
 
   const expected = process.env.CRON_TOKEN;
-  if (!expected || token !== expected) {
+  if (!isVercelCron && (!expected || token !== expected)) {
     return NextResponse.json({ ok: false, error: "Unauthorized" }, { status: 401 });
   }
 

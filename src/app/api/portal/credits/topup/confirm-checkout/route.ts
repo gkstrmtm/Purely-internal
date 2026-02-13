@@ -5,6 +5,7 @@ import { prisma } from "@/lib/db";
 import { requireClientSessionForService } from "@/lib/portalAccess";
 import { addCredits } from "@/lib/credits";
 import { getOrCreateStripeCustomerId, isStripeConfigured, stripeGet } from "@/lib/stripeFetch";
+import { getAppBaseUrl, tryNotifyPortalAccountUsers } from "@/lib/portalNotifications";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -111,6 +112,16 @@ export async function POST(req: Request) {
 
     return { alreadyApplied: false as const };
   });
+
+  if (!result.alreadyApplied) {
+    const baseUrl = getAppBaseUrl();
+    void tryNotifyPortalAccountUsers({
+      ownerId,
+      kind: "credits_purchased",
+      subject: `Credits added: ${credits}`,
+      text: [`Credits were added to your account.`, "", `Credits: ${credits}`, "", `Open billing: ${baseUrl}/portal/app/billing`].join("\n"),
+    }).catch(() => null);
+  }
 
   return NextResponse.json({ ok: true, applied: !result.alreadyApplied, creditsAdded: credits });
 }

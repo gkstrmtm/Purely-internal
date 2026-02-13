@@ -7,22 +7,29 @@ import { sendOwnerTwilioSms } from "@/lib/portalTwilio";
 import { sendEmail } from "@/lib/leadOutbound";
 import { buildPortalTemplateVars } from "@/lib/portalTemplateVars";
 import { renderTextTemplate } from "@/lib/textTemplate";
+import { isVercelCronRequest, readCronAuthValue } from "@/lib/cronAuth";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
 export const runtime = "nodejs";
 
 function checkAuth(req: Request) {
+  const isVercelCron = isVercelCronRequest(req);
   const isProd = process.env.NODE_ENV === "production";
   const secret = process.env.NURTURE_CRON_SECRET;
-  if (isProd && !secret) return { ok: false as const, status: 503 as const, error: "Missing NURTURE_CRON_SECRET" };
+  if (isProd && !secret && !isVercelCron) {
+    return { ok: false as const, status: 503 as const, error: "Missing NURTURE_CRON_SECRET" };
+  }
   if (!secret) return { ok: true as const, status: 200 as const };
 
-  const url = new URL(req.url);
-  const authz = req.headers.get("authorization") ?? "";
-  const bearer = authz.toLowerCase().startsWith("bearer ") ? authz.slice(7).trim() : null;
-  const provided = req.headers.get("x-nurture-cron-secret") ?? bearer ?? url.searchParams.get("secret");
-  if (provided !== secret) return { ok: false as const, status: 401 as const, error: "Unauthorized" };
+  if (!isVercelCron) {
+    const provided = readCronAuthValue(req, {
+      headerNames: ["x-nurture-cron-secret"],
+      queryParamNames: ["secret"],
+      allowBearer: true,
+    });
+    if (provided !== secret) return { ok: false as const, status: 401 as const, error: "Unauthorized" };
+  }
 
   return { ok: true as const, status: 200 as const };
 }

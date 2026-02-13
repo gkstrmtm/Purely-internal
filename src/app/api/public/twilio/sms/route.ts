@@ -8,6 +8,7 @@ import { ensurePortalInboxSchema } from "@/lib/portalInboxSchema";
 import { mirrorUploadToMediaLibrary } from "@/lib/portalMediaUploads";
 import { getOwnerTwilioSmsConfig } from "@/lib/portalTwilio";
 import { runOwnerAutomationsForInboundSms } from "@/lib/portalAutomationsRunner";
+import { getAppBaseUrl, tryNotifyPortalAccountUsers } from "@/lib/portalNotifications";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
@@ -90,6 +91,35 @@ export async function POST(req: Request) {
     provider: "TWILIO",
     providerMessageId: messageSid || null,
   });
+
+  // Best-effort: notify portal users (keep this fast).
+  try {
+    const baseUrl = getAppBaseUrl();
+    await withTimeout(
+      tryNotifyPortalAccountUsers({
+        ownerId,
+        kind: "inbound_sms",
+        subject: `Inbound SMS from ${from}`,
+        text: [
+          "A new inbound SMS was received.",
+          "",
+          `From: ${from}`,
+          `To: ${to}`,
+          "",
+          body ? `Message: ${body.slice(0, 1000)}` : null,
+          numMedia ? `Media: ${numMedia}` : null,
+          "",
+          `Open inbox: ${baseUrl}/portal/app/inbox`,
+          messageId ? `Message ID: ${messageId}` : null,
+        ]
+          .filter(Boolean)
+          .join("\n"),
+      }),
+      2000,
+    );
+  } catch {
+    // ignore
+  }
 
   // Best-effort: trigger automations for inbound SMS.
   // Keep this fast to avoid Twilio webhook timeouts.

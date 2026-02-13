@@ -4,6 +4,7 @@ import { prisma } from "@/lib/db";
 import { hasPublicColumn } from "@/lib/dbSchema";
 import { findOwnerIdByStoredBlogSiteSlug } from "@/lib/blogSiteSlug";
 import { getReviewRequestsServiceData } from "@/lib/reviewRequests";
+import { getAppBaseUrl, tryNotifyPortalAccountUsers } from "@/lib/portalNotifications";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
@@ -69,6 +70,27 @@ export async function POST(req: Request, { params }: { params: Promise<{ siteSlu
     },
     select: { id: true },
   });
+
+  // Best-effort: notify portal users.
+  try {
+    const ownerId = String(resolved.ownerId);
+    const baseUrl = getAppBaseUrl();
+    void tryNotifyPortalAccountUsers({
+      ownerId,
+      kind: "review_question_received",
+      subject: `New question: ${name}`,
+      text: [
+        "A new question was submitted on your reviews page.",
+        "",
+        `Name: ${name}`,
+        `Question: ${question}`,
+        "",
+        `Open Q&A: ${baseUrl}/portal/app/reviews`,
+      ].join("\n"),
+    }).catch(() => null);
+  } catch {
+    // ignore
+  }
 
   return NextResponse.json({ ok: true });
 }

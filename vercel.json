@@ -9,6 +9,34 @@
       "schedule": "5 * * * *"
     },
     {
+      "path": "/api/portal/newsletter/automation/cron",
+      "schedule": "7 * * * *"
+    },
+    {
+      "path": "/api/portal/lead-scraping/cron",
+      "schedule": "12 * * * *"
+    },
+    {
+      "path": "/api/portal/automations/cron",
+      "schedule": "*/5 * * * *"
+    },
+    {
+      "path": "/api/portal/follow-up/cron",
+      "schedule": "*/5 * * * *"
+    },
+    {
+      "path": "/api/portal/nurture/cron",
+      "schedule": "*/5 * * * *"
+    },
+    {
+      "path": "/api/portal/ai-outbound-calls/cron",
+      "schedule": "*/5 * * * *"
+    },
+    {
+      "path": "/api/marketing/cron",
+      "schedule": "*/5 * * * *"
+    },
+    {
       "path": "/api/portal/booking/reminders/cron",
       "schedule": "*/5 * * * *"
     },

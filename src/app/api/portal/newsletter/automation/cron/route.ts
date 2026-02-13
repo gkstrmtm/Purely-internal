@@ -4,6 +4,8 @@ import { prisma } from "@/lib/db";
 import { consumeCredits } from "@/lib/credits";
 import { generateClientNewsletterDraft } from "@/lib/clientNewsletterAutomation";
 import { uniqueNewsletterSlug, sendNewsletterToAudience } from "@/lib/portalNewsletter";
+import { getAppBaseUrl, tryNotifyPortalAccountUsers } from "@/lib/portalNotifications";
+import { isVercelCronRequest, readCronAuthValue } from "@/lib/cronAuth";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -233,6 +235,30 @@ async function runKind(opts: {
     select: { id: true },
   });
 
+  if (opts.s.requireApproval) {
+    // Best-effort: notify portal users.
+    try {
+      const baseUrl = getAppBaseUrl();
+      void tryNotifyPortalAccountUsers({
+        ownerId: opts.ownerId,
+        kind: "newsletter_ready",
+        subject: `Newsletter ready for approval: ${draft.title || slug}`,
+        text: [
+          "A newsletter draft was generated and is ready for approval.",
+          "",
+          draft.title ? `Title: ${draft.title}` : null,
+          `Kind: ${opts.kind}`,
+          "",
+          `Open newsletter: ${baseUrl}/portal/app/newsletter`,
+        ]
+          .filter(Boolean)
+          .join("\n"),
+      }).catch(() => null);
+    } catch {
+      // ignore
+    }
+  }
+
   try {
     await prisma.portalNewsletterGenerationEvent.create({
       data: {
@@ -301,6 +327,30 @@ async function runKind(opts: {
         },
       });
     }
+
+    // Best-effort: notify portal users.
+    try {
+      const baseUrl = getAppBaseUrl();
+      void tryNotifyPortalAccountUsers({
+        ownerId: opts.ownerId,
+        kind: "newsletter_sent",
+        subject: `Newsletter sent: ${draft.title || slug}`,
+        text: [
+          "A newsletter was sent.",
+          "",
+          draft.title ? `Title: ${draft.title}` : null,
+          `Kind: ${opts.kind}`,
+          opts.s.channels.email ? `Email: ${sendResults.email.sent}/${sendResults.email.requested} sent` : null,
+          opts.s.channels.sms ? `SMS: ${sendResults.sms.sent}/${sendResults.sms.requested} sent` : null,
+          "",
+          `Open newsletter: ${baseUrl}/portal/app/newsletter`,
+        ]
+          .filter(Boolean)
+          .join("\n"),
+      }).catch(() => null);
+    } catch {
+      // ignore
+    }
   }
 
   const next = { ...opts.storedRaw };
@@ -317,6 +367,7 @@ async function runKind(opts: {
 }
 
 export async function GET(req: Request) {
+  const isVercelCron = isVercelCronRequest(req);
   const aiBaseUrl = (process.env.AI_BASE_URL ?? "").trim();
   const aiApiKey = (process.env.AI_API_KEY ?? "").trim();
   if (!aiBaseUrl || !aiApiKey) {
@@ -328,23 +379,17 @@ export async function GET(req: Request) {
 
   const isProd = process.env.NODE_ENV === "production";
   const secret = process.env.NEWSLETTER_CRON_SECRET ?? process.env.MARKETING_CRON_SECRET;
-  if (isProd && !secret) {
+  if (isProd && !secret && !isVercelCron) {
     return NextResponse.json({ error: "Missing NEWSLETTER_CRON_SECRET" }, { status: 503 });
   }
 
-  if (secret) {
-    const url = new URL(req.url);
-    const authz = req.headers.get("authorization") ?? "";
-    const bearer = authz.toLowerCase().startsWith("bearer ") ? authz.slice(7).trim() : null;
-    const provided =
-      req.headers.get("x-newsletter-cron-secret") ??
-      req.headers.get("x-marketing-cron-secret") ??
-      bearer ??
-      url.searchParams.get("secret");
-
-    if (provided !== secret) {
-      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-    }
+  if (secret && !isVercelCron) {
+    const provided = readCronAuthValue(req, {
+      headerNames: ["x-newsletter-cron-secret", "x-marketing-cron-secret"],
+      queryParamNames: ["secret"],
+      allowBearer: true,
+    });
+    if (provided !== secret) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
   const setups = await prisma.portalServiceSetup.findMany({

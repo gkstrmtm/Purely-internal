@@ -11,6 +11,7 @@ import { ensurePortalContactTagsReady } from "@/lib/portalContactTags";
 import { runOwnerAutomationsForEvent } from "@/lib/portalAutomationsRunner";
 import { normalizePhoneStrict } from "@/lib/phone";
 import { trySendTransactionalEmail } from "@/lib/emailSender";
+import { getAppBaseUrl, tryNotifyPortalAccountUsers } from "@/lib/portalNotifications";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
@@ -279,6 +280,33 @@ export async function POST(
       notes: true,
     },
   });
+
+  // Best-effort: notify portal users (never block a successful booking).
+  try {
+    const baseUrl = getAppBaseUrl();
+    const when = `${formatInTimeZone(startAt, site.timeZone)} (${site.timeZone})`;
+    void tryNotifyPortalAccountUsers({
+      ownerId: String(site.ownerId),
+      kind: "booking_created",
+      subject: `New booking: ${site.title} — ${booking.contactName}`,
+      text: [
+        "A new booking was created.",
+        "",
+        `When: ${when}`,
+        "",
+        `Name: ${booking.contactName}`,
+        `Email: ${booking.contactEmail}`,
+        booking.contactPhone ? `Phone: ${booking.contactPhone}` : null,
+        booking.notes ? `Notes: ${String(booking.notes).slice(0, 1200)}` : null,
+        "",
+        `Open bookings: ${baseUrl}/portal/app/booking`,
+      ]
+        .filter(Boolean)
+        .join("\n"),
+    }).catch(() => null);
+  } catch {
+    // ignore
+  }
 
   // Best-effort follow-up scheduling (never block a successful booking).
   try {

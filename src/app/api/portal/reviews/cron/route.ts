@@ -1,24 +1,25 @@
 import { NextResponse } from "next/server";
 import { processDueReviewRequests } from "@/lib/reviewRequests";
+import { isVercelCronRequest, readCronAuthValue } from "@/lib/cronAuth";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
 
 export async function GET(req: Request) {
+  const isVercelCron = isVercelCronRequest(req);
   const isProd = process.env.NODE_ENV === "production";
   const secret = process.env.REVIEWS_CRON_SECRET;
-  if (isProd && !secret) {
+  if (isProd && !secret && !isVercelCron) {
     return NextResponse.json({ error: "Missing REVIEWS_CRON_SECRET" }, { status: 503 });
   }
 
-  if (secret) {
-    const url = new URL(req.url);
-    const authz = req.headers.get("authorization") ?? "";
-    const bearer = authz.toLowerCase().startsWith("bearer ") ? authz.slice(7).trim() : null;
-    const provided = req.headers.get("x-reviews-cron-secret") ?? bearer ?? url.searchParams.get("secret");
-    if (provided !== secret) {
-      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-    }
+  if (secret && !isVercelCron) {
+    const provided = readCronAuthValue(req, {
+      headerNames: ["x-reviews-cron-secret"],
+      queryParamNames: ["secret"],
+      allowBearer: true,
+    });
+    if (provided !== secret) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
   const url = new URL(req.url);

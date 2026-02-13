@@ -13,6 +13,7 @@ import { prisma } from "@/lib/db";
 import { ensurePortalInboxSchema } from "@/lib/portalInboxSchema";
 import { mirrorUploadToMediaLibrary } from "@/lib/portalMediaUploads";
 import { runOwnerAutomationsForEvent } from "@/lib/portalAutomationsRunner";
+import { getAppBaseUrl, tryNotifyPortalAccountUsers } from "@/lib/portalNotifications";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
@@ -73,6 +74,32 @@ export async function POST(
     provider: "SENDGRID_INBOUND",
     providerMessageId: null,
   });
+
+  // Best-effort: notify portal users.
+  try {
+    const baseUrl = getAppBaseUrl();
+    void tryNotifyPortalAccountUsers({
+      ownerId,
+      kind: "inbound_email",
+      subject: `Inbound email: ${subjectRaw || "(no subject)"}`,
+      text: [
+        "A new inbound email was received.",
+        "",
+        `From: ${fromEmail || fromRaw}`,
+        toEmail || toRaw ? `To: ${toEmail || toRaw}` : null,
+        `Subject: ${subjectRaw || "(no subject)"}`,
+        "",
+        bodyText ? `Preview: ${String(bodyText).slice(0, 500)}` : null,
+        "",
+        `Open inbox: ${baseUrl}/portal/app/inbox`,
+        messageId ? `Message ID: ${messageId}` : null,
+      ]
+        .filter(Boolean)
+        .join("\n"),
+    }).catch(() => null);
+  } catch {
+    // ignore
+  }
 
   // Best-effort: fire inbound email automations.
   try {

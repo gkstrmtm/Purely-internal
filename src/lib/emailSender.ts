@@ -67,6 +67,7 @@ export async function trySendTransactionalEmail({
   subject,
   text,
   html,
+  fromEmail: fromEmailOverride,
   fromName,
   replyTo,
   attachments,
@@ -77,19 +78,23 @@ export async function trySendTransactionalEmail({
   subject: string;
   text: string;
   html?: string | null;
+  fromEmail?: string;
   fromName?: string;
   replyTo?: string | null;
   attachments?: EmailAttachment[];
   messageStream?: string | null;
 }): Promise<TrySendEmailResult> {
   const provider = getOutboundEmailProvider();
-  const { fromEmail, fromName: envFromName } = getOutboundEmailFrom();
+  const { fromEmail: envFromEmail, fromName: envFromName } = getOutboundEmailFrom();
 
-  if (!provider || !fromEmail) {
+  const overrideFromEmail = safeOneLine(fromEmailOverride || "") || null;
+  const resolvedFromEmail = overrideFromEmail || envFromEmail;
+
+  if (!provider || !resolvedFromEmail) {
     return { ok: false, skipped: true, reason: missingOutboundEmailConfigReason() };
   }
 
-  const fromEmailRequired = fromEmail;
+  const fromEmailRequired = resolvedFromEmail;
 
   const safeText = safeOneLine(text || "") || " ";
   const toList = (Array.isArray(to) ? to : [to]).map((x) => safeOneLine(String(x || ""))).filter(Boolean);
@@ -114,7 +119,7 @@ export async function trySendTransactionalEmail({
         "content-type": "application/json",
       },
       body: JSON.stringify({
-        From: formatFromHeader(fromEmail, effectiveFromName),
+        From: formatFromHeader(fromEmailRequired, effectiveFromName),
         To: toHeader,
         ...(ccEmail ? { Cc: ccEmail } : {}),
         ...(replyToEmail ? { ReplyTo: replyToEmail } : {}),
@@ -436,7 +441,7 @@ export async function trySendTransactionalEmail({
     headers: { authorization: `Bearer ${apiKey}`, "content-type": "application/json" },
     body: JSON.stringify({
       personalizations: [personalizations],
-      from: { email: fromEmail, name: effectiveFromName },
+      from: { email: fromEmailRequired, name: effectiveFromName },
       subject: safeOneLine(subject),
       content: [{ type: "text/plain", value: safeText }],
       ...(attachments?.length

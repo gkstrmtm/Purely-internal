@@ -5,6 +5,7 @@ import { requireClientSessionForService } from "@/lib/portalAccess";
 import { generateClientBlogDraft } from "@/lib/clientBlogAutomation";
 import { consumeCredits } from "@/lib/credits";
 import { slugify } from "@/lib/slugify";
+import { getAppBaseUrl, tryNotifyPortalAccountUsers } from "@/lib/portalNotifications";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -151,6 +152,22 @@ export async function POST() {
       },
       select: { id: true },
     });
+
+    if (s.autoPublish) {
+      const baseUrl = getAppBaseUrl();
+      void tryNotifyPortalAccountUsers({
+        ownerId,
+        kind: "blog_published",
+        subject: `Blog published: ${draft.title}`,
+        text: [
+          "A blog post was published.",
+          "",
+          `Title: ${draft.title}`,
+          `Slug: ${slug}`,
+          `Open blogs: ${baseUrl}/portal/app/blogs`,
+        ].join("\n"),
+      }).catch(() => null);
+    }
 
     try {
       await prisma.portalBlogGenerationEvent.create({

@@ -7,6 +7,7 @@ import { prisma } from "@/lib/db";
 import { requireClientSessionForService } from "@/lib/portalAccess";
 import { ensurePortalTasksSchema } from "@/lib/portalTasksSchema";
 import { runOwnerAutomationsForEvent } from "@/lib/portalAutomationsRunner";
+import { getAppBaseUrl, tryNotifyPortalAccountUsers } from "@/lib/portalNotifications";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -146,6 +147,31 @@ export async function POST(req: Request) {
   `;
 
   await prisma.$executeRawUnsafe(sql, id, ownerId, memberId, title, description || null, assignedToUserId, dueAt, now);
+
+  // Best-effort: notify portal users.
+  try {
+    const baseUrl = getAppBaseUrl();
+    void tryNotifyPortalAccountUsers({
+      ownerId,
+      kind: "task_created",
+      subject: `New task: ${title}`,
+      text: [
+        "A new task was created.",
+        "",
+        `Title: ${title}`,
+        description ? "" : null,
+        description ? `Description: ${description.slice(0, 2000)}` : null,
+        assignedToUserId ? `Assigned to userId: ${assignedToUserId}` : "Assigned to: everyone",
+        dueAt ? `Due: ${dueAt.toISOString()}` : null,
+        "",
+        `Open tasks: ${baseUrl}/portal/app/tasks`,
+      ]
+        .filter(Boolean)
+        .join("\n"),
+    }).catch(() => null);
+  } catch {
+    // ignore
+  }
 
   // Best-effort automation trigger.
   try {

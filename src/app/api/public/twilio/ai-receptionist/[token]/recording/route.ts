@@ -3,6 +3,7 @@ import { NextResponse } from "next/server";
 import { findOwnerByAiReceptionistWebhookToken, upsertAiReceptionistCallEvent } from "@/lib/aiReceptionist";
 import { consumeCredits } from "@/lib/credits";
 import { normalizePhoneStrict } from "@/lib/phone";
+import { getAppBaseUrl, tryNotifyPortalAccountUsers } from "@/lib/portalNotifications";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -99,6 +100,33 @@ export async function POST(req: Request, ctx: { params: Promise<{ token: string 
     ...(chargedCredits > 0 ? { chargedCredits } : {}),
     ...(chargedPartial ? { creditsChargedPartial: true } : {}),
   });
+
+  // Best-effort: notify portal users.
+  try {
+    const baseUrl = getAppBaseUrl();
+    const duration = Number.isFinite(durationSec) ? Math.max(0, Math.floor(durationSec)) : null;
+    void tryNotifyPortalAccountUsers({
+      ownerId,
+      kind: "ai_receptionist_call_completed",
+      subject: `AI receptionist call completed${fromE164 ? `: ${fromE164}` : ""}`,
+      text: [
+        "An AI receptionist call completed.",
+        "",
+        `From: ${fromE164}`,
+        toE164 ? `To: ${toE164}` : null,
+        duration !== null ? `Duration (sec): ${duration}` : null,
+        chargedCredits ? `Credits charged: ${chargedCredits}${chargedPartial ? " (partial)" : ""}` : null,
+        recordingSid ? `RecordingSid: ${recordingSid}` : null,
+        callSid ? `CallSid: ${callSid}` : null,
+        "",
+        `Open receptionist: ${baseUrl}/portal/app/ai-receptionist`,
+      ]
+        .filter(Boolean)
+        .join("\n"),
+    }).catch(() => null);
+  } catch {
+    // ignore
+  }
 
   const xml = `<?xml version="1.0" encoding="UTF-8"?>
 <Response>

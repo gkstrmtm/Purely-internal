@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 
 import { prisma } from "@/lib/db";
 import { missingOutboundEmailConfigReason, trySendTransactionalEmail } from "@/lib/emailSender";
+import { isVercelCronRequest, readCronAuthValue } from "@/lib/cronAuth";
 
 type SendResult =
   | { ok: true }
@@ -59,12 +60,15 @@ async function sendSms(to: string, body: string): Promise<SendResult> {
 }
 
 export async function GET(req: Request) {
+  const isVercelCron = isVercelCronRequest(req);
   const secret = process.env.MARKETING_CRON_SECRET;
-  if (secret) {
-    const provided = req.headers.get("x-marketing-cron-secret");
-    if (provided !== secret) {
-      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-    }
+  if (secret && !isVercelCron) {
+    const provided = readCronAuthValue(req, {
+      headerNames: ["x-marketing-cron-secret"],
+      queryParamNames: ["secret"],
+      allowBearer: true,
+    });
+    if (provided !== secret) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
   const now = new Date();

@@ -4,6 +4,8 @@ import { prisma } from "@/lib/db";
 import { generateClientBlogDraft } from "@/lib/clientBlogAutomation";
 import { consumeCredits } from "@/lib/credits";
 import { slugify } from "@/lib/slugify";
+import { getAppBaseUrl, tryNotifyPortalAccountUsers } from "@/lib/portalNotifications";
+import { isVercelCronRequest, readCronAuthValue } from "@/lib/cronAuth";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -63,6 +65,8 @@ function isStaleLastRunAt(lastRunAt: string | undefined, now: Date) {
 }
 
 export async function GET(req: Request) {
+  const isVercelCron = isVercelCronRequest(req);
+
   const aiBaseUrl = (process.env.AI_BASE_URL ?? "").trim();
   const aiApiKey = (process.env.AI_API_KEY ?? "").trim();
   if (!aiBaseUrl || !aiApiKey) {
@@ -74,23 +78,17 @@ export async function GET(req: Request) {
 
   const isProd = process.env.NODE_ENV === "production";
   const secret = process.env.BLOG_CRON_SECRET ?? process.env.MARKETING_CRON_SECRET;
-  if (isProd && !secret) {
+  if (isProd && !secret && !isVercelCron) {
     return NextResponse.json({ error: "Missing BLOG_CRON_SECRET" }, { status: 503 });
   }
 
-  if (secret) {
-    const url = new URL(req.url);
-    const authz = req.headers.get("authorization") ?? "";
-    const bearer = authz.toLowerCase().startsWith("bearer ") ? authz.slice(7).trim() : null;
-    const provided =
-      req.headers.get("x-blog-cron-secret") ??
-      req.headers.get("x-marketing-cron-secret") ??
-      bearer ??
-      url.searchParams.get("secret");
-
-    if (provided !== secret) {
-      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-    }
+  if (secret && !isVercelCron) {
+    const provided = readCronAuthValue(req, {
+      headerNames: ["x-blog-cron-secret", "x-marketing-cron-secret"],
+      queryParamNames: ["secret"],
+      allowBearer: true,
+    });
+    if (provided !== secret) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
   const setups = await prisma.portalServiceSetup.findMany({
@@ -210,6 +208,24 @@ export async function GET(req: Request) {
         },
         select: { id: true },
       });
+
+      if (s.autoPublish) {
+        const baseUrl = getAppBaseUrl();
+        void tryNotifyPortalAccountUsers({
+          ownerId: setup.ownerId,
+          kind: "blog_published",
+          subject: `Blog published: ${draft.title}`,
+          text: [
+            "A blog post was auto-published.",
+            "",
+            `Title: ${draft.title}`,
+            slug ? `Slug: ${slug}` : null,
+            `Open blogs: ${baseUrl}/portal/app/blogs`,
+          ]
+            .filter(Boolean)
+            .join("\n"),
+        }).catch(() => null);
+      }
 
       try {
         await prisma.portalBlogGenerationEvent.create({

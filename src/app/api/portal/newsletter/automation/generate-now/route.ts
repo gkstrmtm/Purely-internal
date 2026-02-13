@@ -6,6 +6,7 @@ import { requireClientSessionForService } from "@/lib/portalAccess";
 import { consumeCredits } from "@/lib/credits";
 import { generateClientNewsletterDraft } from "@/lib/clientNewsletterAutomation";
 import { uniqueNewsletterSlug, sendNewsletterToAudience } from "@/lib/portalNewsletter";
+import { getAppBaseUrl, tryNotifyPortalAccountUsers } from "@/lib/portalNotifications";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -322,6 +323,54 @@ export async function POST(req: Request) {
         },
         select: { id: true },
       });
+    }
+
+    // Best-effort: notify portal users.
+    try {
+      const baseUrl = getAppBaseUrl();
+      void tryNotifyPortalAccountUsers({
+        ownerId,
+        kind: "newsletter_sent",
+        subject: `Newsletter sent: ${draft.title || slug}`,
+        text: [
+          "A newsletter was sent.",
+          "",
+          draft.title ? `Title: ${draft.title}` : null,
+          `Kind: ${kind}`,
+          s.channels.email ? `Email: ${sendResults.email.sent}/${sendResults.email.requested} sent` : null,
+          s.channels.sms ? `SMS: ${sendResults.sms.sent}/${sendResults.sms.requested} sent` : null,
+          "",
+          `Open newsletter: ${baseUrl}/portal/app/newsletter`,
+        ]
+          .filter(Boolean)
+          .join("\n"),
+      }).catch(() => null);
+    } catch {
+      // ignore
+    }
+  }
+
+  if (s.requireApproval) {
+    // Best-effort: notify portal users.
+    try {
+      const baseUrl = getAppBaseUrl();
+      void tryNotifyPortalAccountUsers({
+        ownerId,
+        kind: "newsletter_ready",
+        subject: `Newsletter ready for approval: ${draft.title || slug}`,
+        text: [
+          "A newsletter draft was generated and is ready for approval.",
+          "",
+          draft.title ? `Title: ${draft.title}` : null,
+          `Kind: ${kind}`,
+          "",
+          `Open newsletter: ${baseUrl}/portal/app/newsletter`,
+        ]
+          .filter(Boolean)
+          .join("\n"),
+      }).catch(() => null);
+    } catch {
+      // ignore
     }
   }
 
