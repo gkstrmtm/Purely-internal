@@ -1,4 +1,13 @@
-export type PortalModuleKey = "blog" | "booking" | "crm" | "leadOutbound";
+export type PortalModuleKey =
+  | "blog"
+  | "booking"
+  | "automations"
+  | "reviews"
+  | "newsletter"
+  | "nurture"
+  | "aiReceptionist"
+  | "leadOutbound"
+  | "crm";
 
 export type PortalModuleCatalogItem = {
   key: PortalModuleKey;
@@ -29,6 +38,51 @@ export const PORTAL_MODULE_CATALOG: Record<PortalModuleKey, PortalModuleCatalogI
     monthlyUsd: 29,
     setupUsd: 0,
     usageBased: false,
+    purchasable: true,
+  },
+  automations: {
+    key: "automations",
+    title: "Automation Builder",
+    description: "Build workflows and connect triggers to actions across your enabled services.",
+    monthlyUsd: 79,
+    setupUsd: 0,
+    usageBased: false,
+    purchasable: true,
+  },
+  reviews: {
+    key: "reviews",
+    title: "Review Requests",
+    description: "Verified listing + hosted Q&A page + automated review request flows.",
+    monthlyUsd: 79,
+    setupUsd: 0,
+    usageBased: false,
+    purchasable: true,
+  },
+  newsletter: {
+    key: "newsletter",
+    title: "Newsletter",
+    description: "4 sends per month included. Extra sends are usage-based credits.",
+    monthlyUsd: 139,
+    setupUsd: 0,
+    usageBased: true,
+    purchasable: true,
+  },
+  nurture: {
+    key: "nurture",
+    title: "Nurture Campaigns",
+    description: "One-time install + monthly per active campaign.",
+    monthlyUsd: 29,
+    setupUsd: 99,
+    usageBased: false,
+    purchasable: true,
+  },
+  aiReceptionist: {
+    key: "aiReceptionist",
+    title: "AI Receptionist (Inbound)",
+    description: "Front desk-style inbound Q&A and routing.",
+    monthlyUsd: 79,
+    setupUsd: 0,
+    usageBased: true,
     purchasable: true,
   },
   crm: {

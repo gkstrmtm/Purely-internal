@@ -50,16 +50,23 @@ function forceActiveForFullDemo(serviceSlug: string) {
 
 function isUnlocked(opts: {
   isFullDemo: boolean;
-  hasSetup: boolean;
   included?: boolean;
-  entitlementKey?: "blog" | "booking" | "crm" | "leadOutbound";
+  entitlementKey?:
+    | "blog"
+    | "booking"
+    | "automations"
+    | "reviews"
+    | "newsletter"
+    | "nurture"
+    | "aiReceptionist"
+    | "crm"
+    | "leadOutbound";
+  ownedByLifecycle: boolean;
   entitlements: Record<string, boolean>;
 }) {
   if (opts.isFullDemo) return true;
   if (opts.included) return true;
-  // If the service has already been provisioned for this account (e.g., via onboarding activation),
-  // treat it as unlocked even if it doesn't map to a Stripe entitlement key.
-  if (opts.hasSetup) return true;
+  if (opts.ownedByLifecycle) return true;
   if (!opts.entitlementKey) return false;
   return Boolean(opts.entitlements[opts.entitlementKey]);
 }
@@ -126,35 +133,42 @@ export async function GET() {
       continue;
     }
 
+    const lifecycle = readObj(setup?.dataJson, "lifecycle");
+    const lifecycleState = (readString(lifecycle, "state") || "").toLowerCase().trim();
+    const lifecycleReason = (readString(lifecycle, "reason") || "").toLowerCase().trim();
+
+    const ownedByLifecycle = (() => {
+      if (!setup) return false;
+      if (lifecycleState === "paused" && lifecycleReason === "pending_payment") return false;
+      return lifecycleState === "active" || lifecycleState === "paused" || lifecycleState === "canceled";
+    })();
+
     const unlocked = isUnlocked({
       isFullDemo,
-      hasSetup: Boolean(setup),
       included: s.included,
       entitlementKey: s.entitlementKey,
+      ownedByLifecycle,
       entitlements,
     });
 
     if (!unlocked) {
-      statuses[s.slug] = { state: "locked", label: "Locked" };
+      if (lifecycleState === "paused" && lifecycleReason === "pending_payment") {
+        statuses[s.slug] = { state: "locked", label: "Activate" };
+      } else {
+        statuses[s.slug] = { state: "locked", label: "Locked" };
+      }
       continue;
     }
 
-    const lifecycle = readObj(setup?.dataJson, "lifecycle");
-    const lifecycleState = (readString(lifecycle, "state") || "").toLowerCase().trim();
     if (lifecycleState === "paused" || lifecycleState === "canceled") {
-      const reason = (readString(lifecycle, "reason") || "").toLowerCase().trim();
-
       // Core-included services should never show pending-payment activation.
-      if (reason === "pending_payment" && s.included) {
+      if (lifecycleReason === "pending_payment" && s.included) {
         // fall through to normal status computation
       } else {
-        const label =
-          lifecycleState === "canceled"
-            ? "Canceled"
-            : reason === "pending_payment"
-              ? "Activate"
-              : "Paused";
-        statuses[s.slug] = { state: lifecycleState as any, label };
+        statuses[s.slug] = {
+          state: lifecycleState as any,
+          label: lifecycleState === "canceled" ? "Canceled" : "Paused",
+        };
         continue;
       }
     }

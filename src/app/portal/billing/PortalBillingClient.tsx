@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { useRouter } from "next/navigation";
 
 import { useToast } from "@/components/ToastProvider";
 import { CREDIT_USD_VALUE, formatUsd } from "@/lib/pricing.shared";
@@ -10,7 +11,17 @@ type BillingStatus = { configured: boolean };
 
 type Me = {
   user: { email: string; name: string; role: string };
-  entitlements: { blog: boolean; booking: boolean; crm: boolean };
+  entitlements: {
+    blog: boolean;
+    booking: boolean;
+    automations: boolean;
+    reviews: boolean;
+    newsletter: boolean;
+    nurture: boolean;
+    aiReceptionist: boolean;
+    crm: boolean;
+    leadOutbound: boolean;
+  };
   metrics: { hoursSavedThisWeek: number; hoursSavedAllTime: number };
   billing: { configured: boolean };
 };
@@ -67,6 +78,11 @@ type PortalPricing =
       modules: {
         blog: { monthlyCents: number; setupCents?: number; currency: string; usageBased?: boolean; title?: string } | null;
         booking: { monthlyCents: number; setupCents?: number; currency: string; usageBased?: boolean; title?: string } | null;
+        automations: { monthlyCents: number; setupCents?: number; currency: string; usageBased?: boolean; title?: string } | null;
+        reviews: { monthlyCents: number; setupCents?: number; currency: string; usageBased?: boolean; title?: string } | null;
+        newsletter: { monthlyCents: number; setupCents?: number; currency: string; usageBased?: boolean; title?: string } | null;
+        nurture: { monthlyCents: number; setupCents?: number; currency: string; usageBased?: boolean; title?: string } | null;
+        aiReceptionist: { monthlyCents: number; setupCents?: number; currency: string; usageBased?: boolean; title?: string } | null;
         crm: { monthlyCents: number; setupCents?: number; currency: string; usageBased?: boolean; title?: string } | null;
         leadOutbound: { monthlyCents: number; setupCents?: number; currency: string; usageBased?: boolean; title?: string } | null;
       };
@@ -81,6 +97,7 @@ function formatMoney(cents: number, currency: string) {
 }
 
 export function PortalBillingClient() {
+  const router = useRouter();
   const toast = useToast();
   const [status, setStatus] = useState<BillingStatus | null>(null);
   const [me, setMe] = useState<Me | null>(null);
@@ -97,7 +114,7 @@ export function PortalBillingClient() {
   const [actionBusy, setActionBusy] = useState<string | null>(null);
 
   const [purchaseModal, setPurchaseModal] = useState<null | {
-    module: "blog" | "booking" | "crm" | "leadOutbound";
+    module: "blog" | "booking" | "automations" | "reviews" | "newsletter" | "nurture" | "aiReceptionist" | "crm" | "leadOutbound";
     serviceTitle: string;
   }>(null);
 
@@ -268,12 +285,17 @@ export function PortalBillingClient() {
     };
   }, [serviceMenuSlug]);
 
-  function openPurchaseModal(module: "blog" | "booking" | "crm" | "leadOutbound", serviceTitle: string) {
+  function openPurchaseModal(
+    module: "blog" | "booking" | "automations" | "reviews" | "newsletter" | "nurture" | "aiReceptionist" | "crm" | "leadOutbound",
+    serviceTitle: string,
+  ) {
     setServiceMenuSlug(null);
     setPurchaseModal({ module, serviceTitle });
   }
 
-  async function purchaseModule(module: "blog" | "booking" | "crm" | "leadOutbound") {
+  async function purchaseModule(
+    module: "blog" | "booking" | "automations" | "reviews" | "newsletter" | "nurture" | "aiReceptionist" | "crm" | "leadOutbound",
+  ) {
     setError(null);
     setActionBusy(`module:${module}`);
     const res = await fetch("/api/portal/billing/checkout-module", {
@@ -298,7 +320,9 @@ export function PortalBillingClient() {
     setError("Unable to start checkout");
   }
 
-  function modulePurchasable(module: "blog" | "booking" | "crm" | "leadOutbound") {
+  function modulePurchasable(
+    module: "blog" | "booking" | "automations" | "reviews" | "newsletter" | "nurture" | "aiReceptionist" | "crm" | "leadOutbound",
+  ) {
     if (!pricing || !("ok" in pricing) || pricing.ok !== true) return false;
     const mod = (pricing.modules as any)?.[module] ?? null;
     return Boolean(mod && typeof mod.monthlyCents === "number" && mod.monthlyCents > 0);
@@ -550,11 +574,28 @@ export function PortalBillingClient() {
 
   const badgeClass = (state: string) => {
     if (state === "active") return "bg-emerald-100 text-emerald-900";
-    if (state === "paused") return "bg-amber-100 text-amber-900";
+    if (state === "paused") return "bg-red-100 text-red-900";
     if (state === "canceled") return "bg-red-100 text-red-900";
     if (state === "needs_setup") return "bg-amber-100 text-amber-900";
     if (state === "locked") return "bg-zinc-100 text-zinc-700";
     return "bg-zinc-100 text-zinc-700";
+  };
+
+  const setupHrefForService = (slug: string, label?: string | null) => {
+    const l = String(label || "").toLowerCase();
+    if (slug === "booking") return "/portal/app/services/booking/settings";
+    if (slug === "tasks") return "/portal/app/tasks";
+    if (slug === "automations") return "/portal/app/services/automations";
+    if (slug === "blogs") return "/portal/app/services/blogs";
+    if (slug === "reviews") return "/portal/app/services/reviews/setup";
+    if (slug === "ai-receptionist") return "/portal/app/services/ai-receptionist";
+    if (slug === "ai-outbound-calls") {
+      if (l.includes("twilio")) return "/portal/app/profile";
+      return "/portal/app/services/ai-outbound-calls";
+    }
+    if (slug === "newsletter") return "/portal/app/services/newsletter";
+    if (slug === "nurture-campaigns") return "/portal/app/services/nurture-campaigns";
+    return `/portal/app/services/${encodeURIComponent(slug)}`;
   };
 
   const statusDotClass = hasActiveSub ? "bg-emerald-500" : "bg-zinc-300";
@@ -983,32 +1024,43 @@ export function PortalBillingClient() {
         <div className="mt-2 text-sm text-zinc-600">Enable add-ons right here in the portal.</div>
 
         <div className="mt-4 grid gap-3 sm:grid-cols-2">
-          <div className="rounded-2xl border border-zinc-200 bg-zinc-50 p-4">
-            <div className="text-sm font-semibold text-zinc-900">Automated Blogs</div>
-            <div className="mt-1 text-xs text-zinc-500">Enable blogging automation.</div>
-            <button
-              type="button"
-              className="mt-3 w-full rounded-2xl bg-zinc-900 px-3 py-2 text-sm font-semibold text-white hover:bg-zinc-800 disabled:opacity-60"
-              disabled={Boolean(me?.entitlements?.blog) || actionBusy !== null}
-              onClick={() => void purchaseModule("blog")}
-            >
-              {me?.entitlements?.blog ? "Enabled" : actionBusy === "module:blog" ? "Opening…" : "Enable"}
-            </button>
-          </div>
+          {(() => {
+            const owned = (serviceSlug: string) => {
+              const st = serviceStatuses?.[serviceSlug];
+              const state = st?.state;
+              return state && state !== "locked" && state !== "coming_soon";
+            };
 
-          <div className="rounded-2xl border border-zinc-200 bg-zinc-50 p-4">
-            <div className="text-sm font-semibold text-zinc-900">Booking Automation</div>
-            <div className="mt-1 text-xs text-zinc-500">Enable booking and reminders.</div>
-            <button
-              type="button"
-              className="mt-3 w-full rounded-2xl bg-zinc-900 px-3 py-2 text-sm font-semibold text-white hover:bg-zinc-800 disabled:opacity-60"
-              disabled={Boolean(me?.entitlements?.booking) || actionBusy !== null}
-              onClick={() => void purchaseModule("booking")}
-            >
-              {me?.entitlements?.booking ? "Enabled" : actionBusy === "module:booking" ? "Opening…" : "Enable"}
-            </button>
-          </div>
+            const cards: Array<{
+              module: "blog" | "booking" | "automations" | "reviews" | "newsletter" | "nurture" | "aiReceptionist" | "leadOutbound";
+              serviceSlug: string;
+              title: string;
+              desc: string;
+            }> = [
+              { module: "blog", serviceSlug: "blogs", title: "Automated Blogs", desc: "Enable blogging automation." },
+              { module: "booking", serviceSlug: "booking", title: "Booking Automation", desc: "Enable booking and reminders." },
+              { module: "automations", serviceSlug: "automations", title: "Automation Builder", desc: "Build workflows across your enabled services." },
+              { module: "reviews", serviceSlug: "reviews", title: "Review Requests", desc: "Automate requests and track responses." },
+              { module: "newsletter", serviceSlug: "newsletter", title: "Newsletter", desc: "Send newsletters to your contacts." },
+              { module: "aiReceptionist", serviceSlug: "ai-receptionist", title: "AI Receptionist", desc: "Inbound answers + routing." },
+              { module: "leadOutbound", serviceSlug: "ai-outbound-calls", title: "AI Outbound", desc: "Outbound calls + follow-up messaging." },
+            ];
 
+            return cards.map((c) => (
+              <div key={c.module} className="rounded-2xl border border-zinc-200 bg-zinc-50 p-4">
+                <div className="text-sm font-semibold text-zinc-900">{c.title}</div>
+                <div className="mt-1 text-xs text-zinc-500">{c.desc}</div>
+                <button
+                  type="button"
+                  className="mt-3 w-full rounded-2xl bg-zinc-900 px-3 py-2 text-sm font-semibold text-white hover:bg-zinc-800 disabled:opacity-60"
+                  disabled={Boolean(owned(c.serviceSlug)) || actionBusy !== null}
+                  onClick={() => void purchaseModule(c.module as any)}
+                >
+                  {owned(c.serviceSlug) ? "Enabled" : actionBusy === `module:${c.module}` ? "Opening…" : "Enable"}
+                </button>
+              </div>
+            ));
+          })()}
         </div>
 
         <div className="mt-4 rounded-2xl border border-zinc-200 bg-white p-4 text-sm text-zinc-700">
@@ -1021,108 +1073,191 @@ export function PortalBillingClient() {
         <div className="mt-2 text-sm text-zinc-600">Live status from your account.</div>
 
         <div className="mt-4 space-y-2 text-sm text-zinc-700">
-          {PORTAL_SERVICES.filter((s) => !s.hidden).map((s) => {
-            const st = serviceStatuses?.[s.slug];
-            const state = st?.state ?? "active";
-            const label = st?.label ?? "Ready";
+          {(() => {
+            const servicesList = PORTAL_SERVICES.filter((s) => !s.hidden);
+            const rows = servicesList.map((s) => {
+              const st = serviceStatuses?.[s.slug];
+              const state = st?.state ?? "active";
+              const label = st?.label ?? "Ready";
 
-            const modulePrice =
-              pricing && "ok" in pricing && pricing.ok === true && s.entitlementKey
-                ? (pricing.modules as any)[s.entitlementKey]
-                : null;
-            const priceText = (() => {
-              if (s.included) return "Included";
+              const modulePrice =
+                pricing && "ok" in pricing && pricing.ok === true && s.entitlementKey
+                  ? (pricing.modules as any)[s.entitlementKey]
+                  : null;
 
-              // Some services have usage-based components; still show monthly when we know it.
-              if (s.entitlementKey) {
-                if (!modulePrice) return "Add-on";
-                if (modulePrice.monthlyCents) return `${formatMoney(modulePrice.monthlyCents, modulePrice.currency)}/mo`;
-                return "Included";
-              }
+              const priceText = (() => {
+                if (s.included) return "Included";
+                if (s.entitlementKey && modulePrice) {
+                  if (modulePrice.monthlyCents) return `${formatMoney(modulePrice.monthlyCents, modulePrice.currency)}/mo`;
+                  return "Included";
+                }
+                return "Add-on";
+              })();
 
-              return "Add-on";
-            })();
+              const owned = state !== "locked" && state !== "coming_soon";
+              return { s, st, state, label, priceText, owned };
+            });
 
-            const busy = actionBusy?.startsWith(`service:${s.slug}:`) ?? false;
+            rows.sort((a, b) => {
+              if (a.owned !== b.owned) return a.owned ? -1 : 1;
+              const rank = (state: string) => {
+                if (state === "needs_setup") return 0;
+                if (state === "active") return 1;
+                if (state === "paused" || state === "canceled") return 2;
+                if (state === "locked") return 3;
+                return 4;
+              };
+              const ra = rank(a.state);
+              const rb = rank(b.state);
+              if (ra !== rb) return ra - rb;
+              return a.s.title.localeCompare(b.s.title);
+            });
 
-            return (
-              <div key={s.slug} className="relative flex items-center justify-between gap-3" data-service-menu-root={serviceMenuSlug === s.slug ? s.slug : undefined}>
-                <div className="min-w-0">
-                  <div className="truncate">{s.title}</div>
-                  <div className="mt-0.5 text-xs text-zinc-500">{priceText}</div>
-                </div>
+            const ownedRows = rows.filter((r) => r.owned);
+            const lockedRows = rows.filter((r) => !r.owned);
 
-                <div className="flex items-center gap-2">
-                  <span className={`shrink-0 rounded-full px-2 py-0.5 text-xs font-semibold ${badgeClass(state)}`}>
-                    {label}
-                  </span>
+            const renderRow = (r: typeof rows[number]) => {
+              const { s, state, label, priceText } = r;
+              const busy = actionBusy?.startsWith(`service:${s.slug}:`) ?? false;
+              const canLifecycleManage = !s.included;
 
-                  <button
-                    type="button"
-                    disabled={actionBusy !== null}
-                    onClick={() => setServiceMenuSlug((prev) => (prev === s.slug ? null : s.slug))}
-                    className="inline-flex h-8 w-8 items-center justify-center rounded-full border border-zinc-200 bg-white text-zinc-700 hover:bg-zinc-50 disabled:opacity-60"
-                    aria-label="Service actions"
-                  >
-                    ⋯
-                  </button>
+              return (
+                <div
+                  key={s.slug}
+                  className="relative flex items-center justify-between gap-3"
+                  data-service-menu-root={serviceMenuSlug === s.slug ? s.slug : undefined}
+                >
+                  <div className="min-w-0">
+                    <div className="truncate">{s.title}</div>
+                    <div className="mt-0.5 text-xs text-zinc-500">{priceText}</div>
+                  </div>
 
-                  {serviceMenuSlug === s.slug ? (
-                    <div className="absolute right-0 top-9 z-20 w-44 rounded-2xl border border-zinc-200 bg-white p-1 shadow-lg">
-                      {state === "locked" ? (
-                        s.entitlementKey && modulePurchasable(s.entitlementKey as any) ? (
+                  <div className="flex items-center gap-2">
+                    {state === "locked" ? (
+                      s.entitlementKey && modulePurchasable(s.entitlementKey as any) ? (
+                        <button
+                          type="button"
+                          disabled={actionBusy !== null}
+                          onClick={() => openPurchaseModal(s.entitlementKey as any, s.title)}
+                          className="hidden rounded-2xl bg-zinc-900 px-3 py-1.5 text-xs font-semibold text-white hover:bg-zinc-800 disabled:opacity-60 sm:inline-flex"
+                        >
+                          Enable
+                        </button>
+                      ) : (
+                        <span className="hidden text-xs font-semibold text-zinc-400 sm:inline-flex">Not available</span>
+                      )
+                    ) : state === "needs_setup" ? (
+                      <button
+                        type="button"
+                        disabled={actionBusy !== null}
+                        onClick={() => router.push(setupHrefForService(s.slug, label))}
+                        className="hidden rounded-2xl bg-amber-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-amber-700 disabled:opacity-60 sm:inline-flex"
+                      >
+                        Finish setup
+                      </button>
+                    ) : state === "paused" || state === "canceled" ? (
+                      <button
+                        type="button"
+                        disabled={busy || actionBusy !== null}
+                        onClick={() => void setServiceLifecycle(s.slug, "resume")}
+                        className="hidden rounded-2xl bg-zinc-900 px-3 py-1.5 text-xs font-semibold text-white hover:bg-zinc-800 disabled:opacity-60 sm:inline-flex"
+                      >
+                        Resume
+                      </button>
+                    ) : null}
+
+                    <span className={`shrink-0 rounded-full px-2 py-0.5 text-xs font-semibold ${badgeClass(state)}`}>
+                      {label}
+                    </span>
+
+                    <button
+                      type="button"
+                      disabled={actionBusy !== null}
+                      onClick={() => setServiceMenuSlug((prev) => (prev === s.slug ? null : s.slug))}
+                      className="inline-flex h-8 w-8 items-center justify-center rounded-full border border-zinc-200 bg-white text-zinc-700 hover:bg-zinc-50 disabled:opacity-60"
+                      aria-label="Service actions"
+                    >
+                      ⋯
+                    </button>
+
+                    {serviceMenuSlug === s.slug ? (
+                      <div className="absolute right-0 top-9 z-20 w-48 rounded-2xl border border-zinc-200 bg-white p-1 shadow-lg">
+                        {state === "locked" ? (
+                          s.entitlementKey && modulePurchasable(s.entitlementKey as any) ? (
+                            <button
+                              type="button"
+                              className="w-full rounded-xl px-3 py-2 text-left text-sm font-semibold text-zinc-900 hover:bg-zinc-50"
+                              onClick={() => openPurchaseModal(s.entitlementKey as any, s.title)}
+                            >
+                              Enable…
+                            </button>
+                          ) : (
+                            <div className="w-full rounded-xl px-3 py-2 text-left text-sm font-semibold text-zinc-500">Not available</div>
+                          )
+                        ) : state === "needs_setup" ? (
                           <button
                             type="button"
                             className="w-full rounded-xl px-3 py-2 text-left text-sm font-semibold text-zinc-900 hover:bg-zinc-50"
-                            onClick={() => openPurchaseModal(s.entitlementKey as any, s.title)}
+                            onClick={() => router.push(setupHrefForService(s.slug, label))}
                           >
-                            Enable…
+                            Finish setup
+                          </button>
+                        ) : state === "coming_soon" ? (
+                          <div className="w-full rounded-xl px-3 py-2 text-left text-sm font-semibold text-zinc-500">Coming soon</div>
+                        ) : state === "paused" || state === "canceled" ? (
+                          <button
+                            type="button"
+                            disabled={busy || actionBusy !== null}
+                            onClick={() => void setServiceLifecycle(s.slug, "resume")}
+                            className="w-full rounded-xl px-3 py-2 text-left text-sm font-semibold text-zinc-900 hover:bg-zinc-50 disabled:opacity-60"
+                          >
+                            Resume service
                           </button>
                         ) : (
-                          <div className="w-full rounded-xl px-3 py-2 text-left text-sm font-semibold text-zinc-500">
-                            Not available
-                          </div>
-                        )
-                      ) : state === "coming_soon" ? (
-                        <div className="w-full rounded-xl px-3 py-2 text-left text-sm font-semibold text-zinc-500">
-                          Coming soon
-                        </div>
-                      ) : state === "paused" || state === "canceled" ? (
-                        <button
-                          type="button"
-                          disabled={busy || actionBusy !== null}
-                          onClick={() => void setServiceLifecycle(s.slug, "resume")}
-                          className="w-full rounded-xl px-3 py-2 text-left text-sm font-semibold text-zinc-900 hover:bg-zinc-50 disabled:opacity-60"
-                        >
-                          Resume
-                        </button>
-                      ) : (
-                        <button
-                          type="button"
-                          disabled={busy || actionBusy !== null}
-                          onClick={() => void setServiceLifecycle(s.slug, "pause")}
-                          className="w-full rounded-xl px-3 py-2 text-left text-sm font-semibold text-zinc-900 hover:bg-zinc-50 disabled:opacity-60"
-                        >
-                          Pause
-                        </button>
-                      )}
+                          <button
+                            type="button"
+                            disabled={!canLifecycleManage || busy || actionBusy !== null}
+                            onClick={() => void setServiceLifecycle(s.slug, "pause")}
+                            className="w-full rounded-xl px-3 py-2 text-left text-sm font-semibold text-zinc-900 hover:bg-zinc-50 disabled:opacity-60"
+                          >
+                            Pause service
+                          </button>
+                        )}
 
-                      {state === "locked" || state === "coming_soon" ? null : (
-                        <button
-                          type="button"
-                          disabled={busy || actionBusy !== null}
-                          onClick={() => void setServiceLifecycle(s.slug, "cancel")}
-                          className="w-full rounded-xl px-3 py-2 text-left text-sm font-semibold text-red-700 hover:bg-red-50 disabled:opacity-60"
-                        >
-                          Cancel
-                        </button>
-                      )}
-                    </div>
-                  ) : null}
+                        {state === "active" && canLifecycleManage ? (
+                          <button
+                            type="button"
+                            disabled={busy || actionBusy !== null}
+                            onClick={() => void setServiceLifecycle(s.slug, "cancel")}
+                            className="w-full rounded-xl px-3 py-2 text-left text-sm font-semibold text-red-700 hover:bg-red-50 disabled:opacity-60"
+                          >
+                            Cancel service
+                          </button>
+                        ) : null}
+                      </div>
+                    ) : null}
+                  </div>
                 </div>
-              </div>
+              );
+            };
+
+            return (
+              <>
+                {ownedRows.length ? (
+                  <div className="mb-3 text-xs font-semibold uppercase tracking-wide text-zinc-500">You have access</div>
+                ) : null}
+                {ownedRows.map(renderRow)}
+
+                {lockedRows.length ? (
+                  <>
+                    <div className="my-4 border-t border-zinc-200" />
+                    <div className="mb-3 text-xs font-semibold uppercase tracking-wide text-zinc-500">Add-ons you don’t have yet</div>
+                    {lockedRows.map(renderRow)}
+                  </>
+                ) : null}
+              </>
             );
-          })}
+          })()}
         </div>
 
         <div className="mt-6 rounded-2xl border border-brand-ink/10 bg-gradient-to-br from-[color:var(--color-brand-blue)]/10 to-white p-4 text-sm text-zinc-800">

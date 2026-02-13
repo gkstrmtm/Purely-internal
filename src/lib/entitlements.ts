@@ -1,6 +1,15 @@
 import { getOrCreateStripeCustomerId, isStripeConfigured, stripeGet } from "@/lib/stripeFetch";
 
-export type ModuleKey = "blog" | "booking" | "crm" | "leadOutbound";
+export type ModuleKey =
+  | "blog"
+  | "booking"
+  | "automations"
+  | "reviews"
+  | "newsletter"
+  | "nurture"
+  | "aiReceptionist"
+  | "crm"
+  | "leadOutbound";
 export type Entitlements = Record<ModuleKey, boolean>;
 
 const DEFAULT_DEMO_PORTAL_FULL_EMAIL = "demo-full@purelyautomation.dev";
@@ -16,11 +25,31 @@ export function demoEntitlementsByEmail(email: string): Entitlements | null {
   const normalized = email.toLowerCase().trim();
 
   if (fullEmail && normalized === fullEmail) {
-    return { blog: true, booking: true, crm: true, leadOutbound: true };
+    return {
+      blog: true,
+      booking: true,
+      automations: true,
+      reviews: true,
+      newsletter: true,
+      nurture: true,
+      aiReceptionist: true,
+      crm: true,
+      leadOutbound: true,
+    };
   }
 
   if (limitedEmail && normalized === limitedEmail) {
-    return { blog: true, booking: true, crm: false, leadOutbound: false };
+    return {
+      blog: true,
+      booking: true,
+      automations: true,
+      reviews: false,
+      newsletter: false,
+      nurture: false,
+      aiReceptionist: false,
+      crm: false,
+      leadOutbound: false,
+    };
   }
 
   return null;
@@ -40,6 +69,11 @@ export async function entitlementsFromStripe(email: string): Promise<Entitlement
   const entitlements: Entitlements = {
     blog: false,
     booking: false,
+    automations: false,
+    reviews: false,
+    newsletter: false,
+    nurture: false,
+    aiReceptionist: false,
     crm: false,
     leadOutbound: false,
   };
@@ -72,6 +106,11 @@ export async function entitlementsFromStripe(email: string): Promise<Entitlement
     const moduleMeta = String(s.metadata?.module ?? "").trim();
     if (moduleMeta === "blog") entitlements.blog = true;
     if (moduleMeta === "booking") entitlements.booking = true;
+    if (moduleMeta === "automations") entitlements.automations = true;
+    if (moduleMeta === "reviews") entitlements.reviews = true;
+    if (moduleMeta === "newsletter") entitlements.newsletter = true;
+    if (moduleMeta === "nurture") entitlements.nurture = true;
+    if (moduleMeta === "aiReceptionist") entitlements.aiReceptionist = true;
     if (moduleMeta === "crm") entitlements.crm = true;
     if (moduleMeta === "leadOutbound") entitlements.leadOutbound = true;
 
@@ -80,6 +119,11 @@ export async function entitlementsFromStripe(email: string): Promise<Entitlement
       const planIds = new Set(planIdsRaw.split(",").map((x) => x.trim()).filter(Boolean));
       if (planIds.has("blogs")) entitlements.blog = true;
       if (planIds.has("booking")) entitlements.booking = true;
+      if (planIds.has("automations")) entitlements.automations = true;
+      if (planIds.has("reviews")) entitlements.reviews = true;
+      if (planIds.has("newsletter")) entitlements.newsletter = true;
+      if (planIds.has("nurture")) entitlements.nurture = true;
+      if (planIds.has("ai-receptionist")) entitlements.aiReceptionist = true;
       if (planIds.has("ai-outbound")) entitlements.leadOutbound = true;
       // Note: CRM isn't currently a get-started planId; handled via module metadata.
     }
@@ -98,6 +142,11 @@ export async function resolveEntitlements(email: string | null | undefined): Pro
   const entitlements: Entitlements = {
     blog: false,
     booking: false,
+    automations: false,
+    reviews: false,
+    newsletter: false,
+    nurture: false,
+    aiReceptionist: false,
     crm: false,
     leadOutbound: false,
   };

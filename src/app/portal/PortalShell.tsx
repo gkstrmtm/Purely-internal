@@ -17,7 +17,7 @@ import {
   IconService,
   IconServiceGlyph,
 } from "@/app/portal/PortalIcons";
-import { PORTAL_SERVICES } from "@/app/portal/services/catalog";
+import { PORTAL_SERVICES, type PortalService } from "@/app/portal/services/catalog";
 import { PortalFloatingTools } from "@/app/portal/PortalFloatingTools";
 import { PORTAL_SERVICE_KEYS, type PortalServiceKey } from "@/lib/portalPermissions.shared";
 
@@ -25,7 +25,17 @@ const DEFAULT_FULL_DEMO_EMAIL = "demo-full@purelyautomation.dev";
 
 type Me = {
   user: { email: string; name: string; role: string };
-  entitlements: { blog: boolean; booking: boolean; crm: boolean; leadOutbound: boolean };
+  entitlements: {
+    blog: boolean;
+    booking: boolean;
+    automations: boolean;
+    reviews: boolean;
+    newsletter: boolean;
+    nurture: boolean;
+    aiReceptionist: boolean;
+    crm: boolean;
+    leadOutbound: boolean;
+  };
   metrics: { hoursSavedThisWeek: number; hoursSavedAllTime: number };
 };
 
@@ -175,7 +185,7 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
     return pathname === href || pathname.startsWith(href + "/");
   }
 
-  function serviceUnlocked(service: { entitlementKey?: "blog" | "booking" | "crm" | "leadOutbound"; included?: boolean }) {
+  function serviceUnlocked(service: Pick<PortalService, "entitlementKey" | "included">) {
     if (isFullDemo) return true;
     if (service.included) return true;
 

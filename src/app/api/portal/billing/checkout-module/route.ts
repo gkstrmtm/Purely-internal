@@ -10,7 +10,17 @@ export const dynamic = "force-dynamic";
 export const revalidate = 0;
 
 const bodySchema = z.object({
-  module: z.enum(["blog", "booking", "crm", "leadOutbound"]),
+  module: z.enum([
+    "blog",
+    "booking",
+    "automations",
+    "reviews",
+    "newsletter",
+    "nurture",
+    "aiReceptionist",
+    "crm",
+    "leadOutbound",
+  ]),
   successPath: z.string().min(1).optional(),
   cancelPath: z.string().min(1).optional(),
 });

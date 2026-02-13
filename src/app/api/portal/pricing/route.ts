@@ -9,7 +9,7 @@ import { moduleByKey, usdToCents } from "@/lib/portalModulesCatalog";
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
 
-function modulePricing(key: "blog" | "booking" | "crm" | "leadOutbound") {
+function modulePricing(key: Parameters<typeof moduleByKey>[0]) {
   const m = moduleByKey(key);
   return {
     monthlyCents: usdToCents(m.monthlyUsd),
@@ -32,6 +32,11 @@ export async function GET() {
 
   const blog = modulePricing("blog");
   const booking = modulePricing("booking");
+  const automations = modulePricing("automations");
+  const reviews = modulePricing("reviews");
+  const newsletter = modulePricing("newsletter");
+  const nurture = modulePricing("nurture");
+  const aiReceptionist = modulePricing("aiReceptionist");
   const crm = modulePricing("crm");
   const leadOutbound = modulePricing("leadOutbound");
 
@@ -48,6 +53,11 @@ export async function GET() {
     modules: {
       blog,
       booking,
+      automations,
+      reviews,
+      newsletter,
+      nurture,
+      aiReceptionist,
       crm,
       leadOutbound,
     },

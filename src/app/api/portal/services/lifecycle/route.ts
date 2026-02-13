@@ -27,20 +27,22 @@ function readObj(value: unknown): Record<string, unknown> | null {
   return value as any;
 }
 
-function priceIdForServiceSlug(serviceSlug: string): string {
-  switch (serviceSlug) {
-    case "blogs":
-      return (process.env.STRIPE_PRICE_BLOG_AUTOMATION ?? "").trim();
-    case "booking":
-      return (process.env.STRIPE_PRICE_BOOKING_AUTOMATION ?? "").trim();
-    case "ai-outbound-calls":
-      return (process.env.STRIPE_PRICE_LEAD_OUTBOUND ?? "").trim();
-    case "follow-up":
-    case "lead-scraping":
-      return (process.env.STRIPE_PRICE_CRM_AUTOMATION ?? "").trim();
-    default:
-      return "";
-  }
+function subMatchesService(sub: any, serviceSlug: string) {
+  const moduleMeta = String(sub?.metadata?.module ?? "").trim();
+  const planIdsRaw = String(sub?.metadata?.planIds ?? "").trim();
+  const planIds = new Set(planIdsRaw.split(",").map((x: string) => x.trim()).filter(Boolean));
+
+  if (serviceSlug === "blogs") return moduleMeta === "blog" || planIds.has("blogs");
+  if (serviceSlug === "booking") return moduleMeta === "booking" || planIds.has("booking");
+  if (serviceSlug === "automations") return moduleMeta === "automations" || planIds.has("automations");
+  if (serviceSlug === "reviews") return moduleMeta === "reviews" || planIds.has("reviews");
+  if (serviceSlug === "newsletter") return moduleMeta === "newsletter" || planIds.has("newsletter");
+  if (serviceSlug === "nurture-campaigns") return moduleMeta === "nurture" || planIds.has("nurture");
+  if (serviceSlug === "ai-receptionist") return moduleMeta === "aiReceptionist" || planIds.has("ai-receptionist");
+  if (serviceSlug === "ai-outbound-calls") return moduleMeta === "leadOutbound" || planIds.has("ai-outbound");
+
+  if (serviceSlug === "follow-up" || serviceSlug === "lead-scraping") return moduleMeta === "crm";
+  return false;
 }
 
 export async function POST(req: Request) {
@@ -101,9 +103,8 @@ export async function POST(req: Request) {
   // For paid modules, pause/cancel should stop Stripe charges immediately.
   if (parsed.data.action !== "resume" && isStripeConfigured()) {
     const email = auth.session.user.email;
-    const priceId = priceIdForServiceSlug(serviceSlug);
 
-    if (email && priceId) {
+    if (email) {
       try {
         const customer = await getOrCreateStripeCustomerId(String(email));
         const subs = await stripeGet<{ data: any[] }>("/v1/subscriptions", {
@@ -118,9 +119,7 @@ export async function POST(req: Request) {
         );
 
         for (const sub of active) {
-          const items: any[] = Array.isArray(sub?.items?.data) ? sub.items.data : [];
-          const matches = items.some((it) => String(it?.price?.id || "") === priceId);
-          if (!matches) continue;
+          if (!subMatchesService(sub, serviceSlug)) continue;
           const subId = String(sub?.id || "").trim();
           if (!subId) continue;
           await stripeDelete(`/v1/subscriptions/${subId}`);

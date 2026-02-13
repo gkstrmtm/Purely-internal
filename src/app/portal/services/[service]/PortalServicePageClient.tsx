@@ -9,7 +9,17 @@ const DEFAULT_FULL_DEMO_EMAIL = "demo-full@purelyautomation.dev";
 
 type Me = {
   user: { email: string; name: string; role: string };
-  entitlements: { blog: boolean; booking: boolean; crm: boolean; leadOutbound: boolean };
+  entitlements: {
+    blog: boolean;
+    booking: boolean;
+    automations: boolean;
+    reviews: boolean;
+    newsletter: boolean;
+    nurture: boolean;
+    aiReceptionist: boolean;
+    crm: boolean;
+    leadOutbound: boolean;
+  };
   metrics: { hoursSavedThisWeek: number; hoursSavedAllTime: number };
 };
 
@@ -20,6 +30,11 @@ type PortalPricing = {
   modules: {
     blog: { monthlyCents: number; currency: string } | null;
     booking: { monthlyCents: number; currency: string } | null;
+    automations: { monthlyCents: number; currency: string } | null;
+    reviews: { monthlyCents: number; currency: string } | null;
+    newsletter: { monthlyCents: number; currency: string } | null;
+    nurture: { monthlyCents: number; currency: string } | null;
+    aiReceptionist: { monthlyCents: number; currency: string } | null;
     crm: { monthlyCents: number; currency: string } | null;
     leadOutbound: { monthlyCents: number; currency: string } | null;
   };
@@ -153,12 +168,13 @@ export function PortalServicePageClient({ slug }: { slug: string }) {
   const serviceStatus = statusRes && statusRes.ok === true ? statusRes.statuses?.[slug] ?? null : null;
   const isPaused = serviceStatus?.state === "paused";
   const isCanceled = serviceStatus?.state === "canceled";
+  const isLocked = serviceStatus?.state === "locked";
 
   const unlocked =
-    !(isPaused || isCanceled) &&
+    !(isPaused || isCanceled || isLocked) &&
     (isFullDemo ||
       Boolean(service?.included) ||
-      (service?.entitlementKey ? Boolean(me?.entitlements?.[service.entitlementKey]) : false));
+      (service?.entitlementKey ? Boolean((me?.entitlements as any)?.[service.entitlementKey]) : false));
 
   const modulePrice =
     service?.entitlementKey && pricing?.modules

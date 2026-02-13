@@ -3,7 +3,16 @@ export type PortalService = {
   title: string;
   description: string;
   highlights?: string[];
-  entitlementKey?: "blog" | "booking" | "crm" | "leadOutbound";
+  entitlementKey?:
+    | "blog"
+    | "booking"
+    | "automations"
+    | "reviews"
+    | "newsletter"
+    | "nurture"
+    | "aiReceptionist"
+    | "crm"
+    | "leadOutbound";
   included?: boolean;
   accent: "blue" | "coral" | "ink";
   hidden?: boolean;
@@ -67,6 +76,7 @@ export const PORTAL_SERVICES: PortalService[] = [
       "Connect steps into a flow",
       "Save multiple automations",
     ],
+    entitlementKey: "automations",
     accent: "ink",
   },
   {
@@ -90,6 +100,7 @@ export const PORTAL_SERVICES: PortalService[] = [
       "Templates and personalization",
       "Basic analytics",
     ],
+    entitlementKey: "newsletter",
     accent: "blue",
   },
   {
@@ -101,6 +112,7 @@ export const PORTAL_SERVICES: PortalService[] = [
       "Delays and conditions",
       "Simple reporting",
     ],
+    entitlementKey: "nurture",
     accent: "coral",
   },
   {
@@ -125,6 +137,7 @@ export const PORTAL_SERVICES: PortalService[] = [
       "Route messages to the right person",
       "Collect details before handoff",
     ],
+    entitlementKey: "aiReceptionist",
     accent: "blue",
   },
   {
@@ -160,6 +173,7 @@ export const PORTAL_SERVICES: PortalService[] = [
       "Filter by happy customers",
       "Track requests and responses",
     ],
+    entitlementKey: "reviews",
     accent: "coral",
   },
   {
