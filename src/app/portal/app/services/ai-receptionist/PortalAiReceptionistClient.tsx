@@ -915,7 +915,9 @@ export function PortalAiReceptionistClient() {
                             <div className="whitespace-pre-wrap text-sm text-zinc-800">{selectedCall.transcript}</div>
                           </div>
                         ) : (
-                          <div className="mt-2 text-sm text-zinc-600">No transcript yet.</div>
+                          <div className="mt-2 text-sm text-zinc-600">
+                            No transcript yet. It can take 1–2 minutes to appear after the call ends.
+                          </div>
                         )}
                       </div>
 
