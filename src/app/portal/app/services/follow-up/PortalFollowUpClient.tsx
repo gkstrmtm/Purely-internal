@@ -257,7 +257,7 @@ export function PortalFollowUpClient({ embedded }: { embedded?: boolean } = {}) 
   const unlocked = useMemo(() => {
     const email = (me?.user.email ?? "").toLowerCase().trim();
     if (email === DEFAULT_FULL_DEMO_EMAIL) return true;
-    return Boolean(me?.entitlements?.crm);
+    return Boolean(me?.entitlements?.booking);
   }, [me]);
 
   const canSave = useMemo(() => {
@@ -684,7 +684,7 @@ export function PortalFollowUpClient({ embedded }: { embedded?: boolean } = {}) 
             Locked
           </div>
           <h1 className="mt-2 text-2xl font-bold text-brand-ink sm:text-3xl">Unlock {service.title}</h1>
-          <p className="mt-3 max-w-2xl text-sm text-zinc-600">This service isn’t included in your current plan.</p>
+          <p className="mt-3 max-w-2xl text-sm text-zinc-600">Follow-up Automation is included with Booking Automation at no extra cost.</p>
 
           <div className="mt-6 rounded-3xl border border-zinc-200 bg-zinc-50 p-6">
             <div className="text-sm font-semibold text-zinc-900">What you get</div>
@@ -696,10 +696,10 @@ export function PortalFollowUpClient({ embedded }: { embedded?: boolean } = {}) 
           </div>
           <div className="mt-6 flex flex-col gap-3 sm:flex-row">
             <Link
-              href="/portal/app/billing?buy=crm&autostart=1"
+              href="/portal/app/billing?buy=booking"
               className="inline-flex items-center justify-center rounded-2xl bg-[color:var(--color-brand-blue)] px-5 py-3 text-sm font-semibold text-white hover:opacity-95"
             >
-              Unlock in billing
+              Enable booking to unlock
             </Link>
             <Link
               href={isEmbedded ? "/portal/app/services/booking?tab=follow-up" : "/portal/app/services"}

@@ -298,6 +298,12 @@ export function PortalBillingClient() {
     setError("Unable to start checkout");
   }
 
+  function modulePurchasable(module: "blog" | "booking" | "crm" | "leadOutbound") {
+    if (!pricing || !("ok" in pricing) || pricing.ok !== true) return false;
+    const mod = (pricing.modules as any)?.[module] ?? null;
+    return Boolean(mod && typeof mod.monthlyCents === "number" && mod.monthlyCents > 0);
+  }
+
 
   async function manage() {
     setError(null);
@@ -976,7 +982,7 @@ export function PortalBillingClient() {
         <div className="text-sm font-semibold text-zinc-900">Add services</div>
         <div className="mt-2 text-sm text-zinc-600">Enable add-ons right here in the portal.</div>
 
-        <div className="mt-4 grid gap-3 sm:grid-cols-3">
+        <div className="mt-4 grid gap-3 sm:grid-cols-2">
           <div className="rounded-2xl border border-zinc-200 bg-zinc-50 p-4">
             <div className="text-sm font-semibold text-zinc-900">Automated Blogs</div>
             <div className="mt-1 text-xs text-zinc-500">Enable blogging automation.</div>
@@ -1003,18 +1009,10 @@ export function PortalBillingClient() {
             </button>
           </div>
 
-          <div className="rounded-2xl border border-zinc-200 bg-zinc-50 p-4">
-            <div className="text-sm font-semibold text-zinc-900">Follow-up Automation</div>
-            <div className="mt-1 text-xs text-zinc-500">Enable CRM and follow-up automation.</div>
-            <button
-              type="button"
-              className="mt-3 w-full rounded-2xl bg-zinc-900 px-3 py-2 text-sm font-semibold text-white hover:bg-zinc-800 disabled:opacity-60"
-              disabled={Boolean(me?.entitlements?.crm) || actionBusy !== null}
-              onClick={() => void purchaseModule("crm")}
-            >
-              {me?.entitlements?.crm ? "Enabled" : actionBusy === "module:crm" ? "Opening…" : "Enable"}
-            </button>
-          </div>
+        </div>
+
+        <div className="mt-4 rounded-2xl border border-zinc-200 bg-white p-4 text-sm text-zinc-700">
+          <span className="font-semibold text-zinc-900">Follow-up Automation</span> is included with <span className="font-semibold text-zinc-900">Booking Automation</span> (no extra charge).
         </div>
       </div>
 
@@ -1032,15 +1030,18 @@ export function PortalBillingClient() {
               pricing && "ok" in pricing && pricing.ok === true && s.entitlementKey
                 ? (pricing.modules as any)[s.entitlementKey]
                 : null;
-            const priceText = s.entitlementKey
-              ? modulePrice
-                ? `${formatMoney(modulePrice.monthlyCents, modulePrice.currency)}/mo`
-                : "See Billing"
-              : s.included
-                ? "Included"
-                : s.slug === "lead-scraping" || s.slug === "ai-outbound-calls"
-                  ? "Usage-based"
-                  : "Included";
+            const priceText =
+              s.slug === "lead-scraping" || s.slug === "ai-outbound-calls"
+                ? "Usage-based"
+                : s.entitlementKey
+                  ? modulePrice
+                    ? modulePrice.monthlyCents
+                      ? `${formatMoney(modulePrice.monthlyCents, modulePrice.currency)}/mo`
+                      : "Included"
+                    : "See Billing"
+                  : s.included
+                    ? "Included"
+                    : "Included";
 
             const busy = actionBusy?.startsWith(`service:${s.slug}:`) ?? false;
 
@@ -1069,7 +1070,7 @@ export function PortalBillingClient() {
                   {serviceMenuSlug === s.slug ? (
                     <div className="absolute right-0 top-9 z-20 w-44 rounded-2xl border border-zinc-200 bg-white p-1 shadow-lg">
                       {state === "locked" ? (
-                        s.entitlementKey ? (
+                        s.entitlementKey && modulePurchasable(s.entitlementKey as any) ? (
                           <button
                             type="button"
                             className="w-full rounded-xl px-3 py-2 text-left text-sm font-semibold text-zinc-900 hover:bg-zinc-50"

@@ -112,7 +112,7 @@ export const PORTAL_SERVICES: PortalService[] = [
       "Pipeline stage-based triggers",
       "Human handoff when needed",
     ],
-    entitlementKey: "crm",
+    entitlementKey: "booking",
     accent: "ink",
     hidden: true,
   },

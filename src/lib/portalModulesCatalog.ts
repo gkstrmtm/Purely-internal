@@ -7,6 +7,7 @@ export type PortalModuleCatalogItem = {
   monthlyUsd: number;
   setupUsd: number;
   usageBased: boolean;
+  purchasable: boolean;
 };
 
 // Canonical in-code pricing for portal modules (used for Billing popups + Stripe inline price_data).
@@ -19,6 +20,7 @@ export const PORTAL_MODULE_CATALOG: Record<PortalModuleKey, PortalModuleCatalogI
     monthlyUsd: 149,
     setupUsd: 0,
     usageBased: true,
+    purchasable: true,
   },
   booking: {
     key: "booking",
@@ -27,14 +29,16 @@ export const PORTAL_MODULE_CATALOG: Record<PortalModuleKey, PortalModuleCatalogI
     monthlyUsd: 29,
     setupUsd: 0,
     usageBased: false,
+    purchasable: true,
   },
   crm: {
     key: "crm",
     title: "Follow-up Automation",
-    description: "CRM + follow-up automation.",
-    monthlyUsd: 79,
+    description: "Included with Booking Automation (no extra monthly charge).",
+    monthlyUsd: 0,
     setupUsd: 0,
     usageBased: false,
+    purchasable: false,
   },
   leadOutbound: {
     key: "leadOutbound",
@@ -43,6 +47,7 @@ export const PORTAL_MODULE_CATALOG: Record<PortalModuleKey, PortalModuleCatalogI
     monthlyUsd: 99,
     setupUsd: 0,
     usageBased: true,
+    purchasable: true,
   },
 };
 
