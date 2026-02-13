@@ -5,6 +5,7 @@ import { hasPortalServiceCapability, type PortalServiceCapability } from "@/lib/
 import type { PortalServiceKey } from "@/lib/portalPermissions.shared";
 import { PORTAL_SERVICES } from "@/app/portal/services/catalog";
 import { resolveEntitlements } from "@/lib/entitlements";
+import { isStripeConfigured } from "@/lib/stripeFetch";
 
 function serviceSlugForKey(key: PortalServiceKey): string | null {
   switch (key) {
@@ -97,6 +98,10 @@ async function isServiceUnlockedForOwner(opts: {
   const entitlements = await resolveEntitlements(entitlementsEmail);
 
   if (svc?.entitlementKey && Boolean((entitlements as any)?.[svc.entitlementKey])) return true;
+
+  // If Stripe is configured, the paid-service ownership source of truth is Stripe.
+  // Lifecycle should not grant access on its own (it only controls paused/canceled UX).
+  if (isStripeConfigured()) return false;
 
   const setup = await prisma.portalServiceSetup
     .findUnique({ where: { ownerId_serviceSlug: { ownerId: opts.ownerId, serviceSlug: slug } }, select: { dataJson: true } })

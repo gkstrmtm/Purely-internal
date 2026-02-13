@@ -85,22 +85,80 @@ export async function entitlementsFromStripe(email: string): Promise<Entitlement
     data: Array<{
       status: string;
       metadata?: Record<string, string>;
-      items?: { data?: Array<{ price?: { id?: string } }> };
+      items?: {
+        data?: Array<{
+          price?: {
+            id?: string;
+            nickname?: string | null;
+            product?: { name?: string | null } | null;
+          };
+        }>;
+      };
     }>;
   }>("/v1/subscriptions", {
     customer,
     status: "all",
     limit: 100,
-    "expand[]": "data.items.data.price",
+    "expand[]": ["data.items.data.price", "data.items.data.price.product"],
   });
 
   const active = subs.data.filter((s) => ["active", "trialing", "past_due"].includes(String(s.status)));
 
   const priceIds = new Set<string>();
+
+  const normalizeText = (s: string) => s.toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
+
+  const inferFromText = (textRaw: string) => {
+    const text = normalizeText(textRaw);
+    if (!text) return;
+
+    // Keep these broad and user-friendly: Stripe product names vary.
+    if (text.includes("automated blog") || text.includes("blog automation") || (text.includes("blog") && text.includes("automation"))) {
+      entitlements.blog = true;
+    }
+
+    if (text.includes("booking") && (text.includes("automation") || text.includes("reminder") || text.includes("calendar") || text.includes("appointments"))) {
+      entitlements.booking = true;
+    }
+
+    if (text.includes("automation builder") || (text.includes("automations") && text.includes("builder")) || text.includes("workflow") || text.includes("zap")) {
+      entitlements.automations = true;
+    }
+
+    if (text.includes("review") || text.includes("reputation")) {
+      entitlements.reviews = true;
+    }
+
+    if (text.includes("newsletter")) {
+      entitlements.newsletter = true;
+    }
+
+    if (text.includes("nurture") || text.includes("campaign")) {
+      // Nurture product names often contain “campaign”.
+      entitlements.nurture = true;
+    }
+
+    if (text.includes("ai receptionist") || (text.includes("receptionist") && text.includes("ai")) || text.includes("voice agent")) {
+      entitlements.aiReceptionist = true;
+    }
+
+    if (text.includes("follow up") || text.includes("followup") || text.includes("crm") || text.includes("lead scraping") || text.includes("lead-scraping")) {
+      entitlements.crm = true;
+    }
+
+    if (text.includes("ai outbound") || (text.includes("outbound") && text.includes("ai")) || text.includes("outbound calls")) {
+      entitlements.leadOutbound = true;
+    }
+  };
   for (const s of active) {
     for (const item of s.items?.data ?? []) {
       const id = item.price?.id;
       if (id) priceIds.add(id);
+
+      const nickname = typeof item.price?.nickname === "string" ? item.price.nickname : "";
+      const productName = typeof item.price?.product?.name === "string" ? item.price.product.name : "";
+      if (nickname) inferFromText(nickname);
+      if (productName) inferFromText(productName);
     }
 
     const moduleMeta = String(s.metadata?.module ?? "").trim();

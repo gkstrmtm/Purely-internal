@@ -3,6 +3,7 @@ import { resolveEntitlements } from "@/lib/entitlements";
 import { PORTAL_SERVICES } from "@/app/portal/services/catalog";
 import { ensurePortalAiOutboundCallsSchema } from "@/lib/portalAiOutboundCallsSchema";
 import { getOwnerTwilioSmsConfig } from "@/lib/portalTwilio";
+import { isStripeConfigured } from "@/lib/stripeFetch";
 
 const DEFAULT_FULL_DEMO_EMAIL = "demo-full@purelyautomation.dev";
 
@@ -56,10 +57,13 @@ function isUnlocked(opts: {
     | "leadOutbound";
   ownedByLifecycle: boolean;
   entitlements: Record<string, boolean>;
+  stripeConfigured: boolean;
 }) {
   if (opts.isFullDemo) return true;
   if (opts.included) return true;
-  if (opts.ownedByLifecycle) return true;
+  // When Stripe is configured, Stripe subscriptions (monthly breakdown) are the source of truth.
+  // Lifecycle state is still used to show paused/canceled, but not to grant ownership.
+  if (!opts.stripeConfigured && opts.ownedByLifecycle) return true;
   if (!opts.entitlementKey) return false;
   return Boolean(opts.entitlements[opts.entitlementKey]);
 }
@@ -75,6 +79,7 @@ export async function getPortalServiceStatusesForOwner(opts: {
 
   const isFullDemo = entitlementsEmail.toLowerCase().trim() === DEFAULT_FULL_DEMO_EMAIL;
   const entitlements = await resolveEntitlements(entitlementsEmail);
+  const stripeConfigured = isStripeConfigured();
 
   const serviceSlugs = PORTAL_SERVICES.map((s) => s.slug);
 
@@ -132,6 +137,7 @@ export async function getPortalServiceStatusesForOwner(opts: {
       entitlementKey: s.entitlementKey,
       ownedByLifecycle,
       entitlements,
+      stripeConfigured,
     });
 
     if (!unlocked) {
