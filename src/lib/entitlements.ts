@@ -1,19 +1,29 @@
 import { getOrCreateStripeCustomerId, isStripeConfigured, stripeGet } from "@/lib/stripeFetch";
+import { prisma } from "@/lib/db";
 
-export type ModuleKey =
-  | "blog"
-  | "booking"
-  | "automations"
-  | "reviews"
-  | "newsletter"
-  | "nurture"
-  | "aiReceptionist"
-  | "crm"
-  | "leadOutbound";
-export type Entitlements = Record<ModuleKey, boolean>;
+import { MODULE_KEYS } from "@/lib/entitlements.shared";
+import type { Entitlements } from "@/lib/entitlements.shared";
+
+export type { Entitlements, ModuleKey } from "@/lib/entitlements.shared";
 
 const DEFAULT_DEMO_PORTAL_FULL_EMAIL = "demo-full@purelyautomation.dev";
 const DEFAULT_DEMO_PORTAL_LIMITED_EMAIL = "demo-limited@purelyautomation.dev";
+
+function blankEntitlements(): Entitlements {
+  return {
+    blog: false,
+    booking: false,
+    automations: false,
+    reviews: false,
+    newsletter: false,
+    nurture: false,
+    aiReceptionist: false,
+    crm: false,
+    leadOutbound: false,
+  };
+}
+
+const OVERRIDES_SETUP_SLUG = "__portal_entitlement_overrides";
 
 export function demoEntitlementsByEmail(email: string): Entitlements | null {
   const fullEmail = (process.env.DEMO_PORTAL_FULL_EMAIL ?? DEFAULT_DEMO_PORTAL_FULL_EMAIL)
@@ -196,30 +206,74 @@ export async function entitlementsFromStripe(email: string): Promise<Entitlement
   return entitlements;
 }
 
-export async function resolveEntitlements(email: string | null | undefined): Promise<Entitlements> {
-  const entitlements: Entitlements = {
-    blog: false,
-    booking: false,
-    automations: false,
-    reviews: false,
-    newsletter: false,
-    nurture: false,
-    aiReceptionist: false,
-    crm: false,
-    leadOutbound: false,
-  };
+async function entitlementsFromOverrides(ownerId: string): Promise<Partial<Entitlements>> {
+  const row = await prisma.portalServiceSetup
+    .findUnique({
+      where: { ownerId_serviceSlug: { ownerId, serviceSlug: OVERRIDES_SETUP_SLUG } },
+      select: { dataJson: true },
+    })
+    .catch(() => null);
 
-  const e = typeof email === "string" ? email.trim() : "";
-  if (!e) return entitlements;
+  const rec = row?.dataJson && typeof row.dataJson === "object" && !Array.isArray(row.dataJson)
+    ? (row.dataJson as Record<string, unknown>)
+    : null;
+  const overridesRaw = rec?.overrides && typeof rec.overrides === "object" && !Array.isArray(rec.overrides)
+    ? (rec.overrides as Record<string, unknown>)
+    : null;
 
-  const demo = demoEntitlementsByEmail(e);
+  if (!overridesRaw) return {};
+
+  const overrides: Partial<Entitlements> = {};
+  for (const key of MODULE_KEYS) {
+    if (overridesRaw[key] === true) overrides[key] = true;
+  }
+  return overrides;
+}
+
+async function baseEntitlementsFromEmail(email: string): Promise<Entitlements> {
+  const demo = demoEntitlementsByEmail(email);
   if (demo) return demo;
 
-  if (!isStripeConfigured()) return entitlements;
+  if (!isStripeConfigured()) return blankEntitlements();
 
   try {
-    return await entitlementsFromStripe(e);
+    return await entitlementsFromStripe(email);
   } catch {
-    return entitlements;
+    return blankEntitlements();
   }
+}
+
+export async function resolveEntitlementsForOwnerId(ownerId: string, fallbackEmail?: string | null): Promise<Entitlements> {
+  const owner = await prisma.user
+    .findUnique({ where: { id: ownerId }, select: { email: true } })
+    .catch(() => null);
+  const entitlementsEmail = String(owner?.email || fallbackEmail || "");
+  return resolveEntitlements(entitlementsEmail, { ownerId });
+}
+
+export async function resolveEntitlements(
+  email: string | null | undefined,
+  opts?: { ownerId?: string | null },
+): Promise<Entitlements> {
+  const e = typeof email === "string" ? email.trim() : "";
+  if (!e) return blankEntitlements();
+
+  const base = await baseEntitlementsFromEmail(e);
+
+  const ownerId = (() => {
+    const id = opts?.ownerId;
+    return typeof id === "string" && id.trim().length > 0 ? id.trim() : null;
+  })();
+
+  const resolvedOwnerId =
+    ownerId ??
+    (await prisma.user
+      .findUnique({ where: { email: e }, select: { id: true } })
+      .then((u) => u?.id ?? null)
+      .catch(() => null));
+
+  if (!resolvedOwnerId) return base;
+
+  const overrides = await entitlementsFromOverrides(resolvedOwnerId);
+  return { ...base, ...overrides };
 }

@@ -39,16 +39,18 @@ export async function GET(req: Request) {
   }
 
   let entitlementsEmail = user.email;
+  let ownerIdForEntitlements: string | null = null;
   if (app === "portal") {
     const portalUser = await getPortalUser().catch(() => null);
     const ownerId = portalUser?.id ? String(portalUser.id) : null;
+    ownerIdForEntitlements = ownerId;
     if (ownerId) {
       const owner = await prisma.user.findUnique({ where: { id: ownerId }, select: { email: true } }).catch(() => null);
       if (owner?.email) entitlementsEmail = String(owner.email);
     }
   }
 
-  const entitlements: Entitlements = await resolveEntitlements(entitlementsEmail);
+  const entitlements: Entitlements = await resolveEntitlements(entitlementsEmail, { ownerId: ownerIdForEntitlements });
 
   return NextResponse.json({
     user: {

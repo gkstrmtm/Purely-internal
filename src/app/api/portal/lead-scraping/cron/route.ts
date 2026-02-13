@@ -371,7 +371,7 @@ async function runB2BForOwner(ownerId: string, settingsJson: unknown, baseUrl: s
     prisma.user.findUnique({ where: { id: ownerId }, select: { email: true } }),
     prisma.businessProfile.findUnique({ where: { ownerId }, select: { businessName: true } }),
   ]);
-  const entitlements = await resolveEntitlements(owner?.email);
+  const entitlements = await resolveEntitlements(owner?.email, { ownerId });
   const outboundUnlocked = Boolean(entitlements.leadOutbound);
   const fromName = profile?.businessName?.trim() || "Purely Automation";
 

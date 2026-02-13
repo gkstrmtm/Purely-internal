@@ -113,6 +113,7 @@ export function AppTopNav({ role }: { role?: string }) {
     { href: "/app/manager/leads", label: "Leads" },
     { href: "/app/manager/calls", label: "Calls" },
     { href: "/app/manager/appointments", label: "Appointments" },
+    { href: "/app/manager/portal-overrides", label: "Portal overrides" },
   ];
 
 

@@ -6,7 +6,7 @@ import { requireClientSessionForService } from "@/lib/portalAccess";
 import { prisma } from "@/lib/db";
 import { addCredits, consumeCredits } from "@/lib/credits";
 import { hasPlacesKey, placeDetails, placesTextSearch } from "@/lib/googlePlaces";
-import { resolveEntitlements } from "@/lib/entitlements";
+import { resolveEntitlementsForOwnerId } from "@/lib/entitlements";
 import { getOwnerTwilioSmsConfig } from "@/lib/portalTwilio";
 import { createPortalLeadCompat } from "@/lib/portalLeadCompat";
 import { isB2cLeadPullUnlocked } from "@/lib/leadScrapingAccess";
@@ -637,7 +637,7 @@ export async function POST(req: Request) {
   }
 
   const ownerId = auth.session.user.id;
-  const entitlements = await resolveEntitlements(auth.session.user.email);
+  const entitlements = await resolveEntitlementsForOwnerId(ownerId, auth.session.user.email);
   const outboundUnlocked = Boolean(entitlements.leadOutbound);
   const aiCallsUnlocked = (await requireClientSessionForService("aiOutboundCalls")).ok;
   const profile = await prisma.businessProfile.findUnique({

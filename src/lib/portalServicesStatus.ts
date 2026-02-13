@@ -78,7 +78,7 @@ export async function getPortalServiceStatusesForOwner(opts: {
   const entitlementsEmail = String(owner?.email || opts.fallbackEmail || "");
 
   const isFullDemo = entitlementsEmail.toLowerCase().trim() === DEFAULT_FULL_DEMO_EMAIL;
-  const entitlements = await resolveEntitlements(entitlementsEmail);
+  const entitlements = await resolveEntitlements(entitlementsEmail, { ownerId: opts.ownerId });
   const stripeConfigured = isStripeConfigured();
 
   const serviceSlugs = PORTAL_SERVICES.map((s) => s.slug);
@@ -150,7 +150,9 @@ export async function getPortalServiceStatusesForOwner(opts: {
     }
 
     if (lifecycleState === "paused" || lifecycleState === "canceled") {
-      if (lifecycleReason === "pending_payment" && s.included) {
+      // If the service is entitled (Stripe paid or manager override), don't let a stale
+      // pending_payment lifecycle state block usage.
+      if (lifecycleReason === "pending_payment" && unlocked) {
         // fall through to normal status computation
       } else {
         statuses[s.slug] = {

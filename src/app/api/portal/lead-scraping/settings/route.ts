@@ -4,7 +4,7 @@ import { z } from "zod";
 import { requireClientSessionForService } from "@/lib/portalAccess";
 import { prisma } from "@/lib/db";
 import { getCreditsState } from "@/lib/credits";
-import { resolveEntitlements } from "@/lib/entitlements";
+import { resolveEntitlementsForOwnerId } from "@/lib/entitlements";
 import { hasPlacesKey } from "@/lib/googlePlaces";
 import { isB2cLeadPullUnlocked } from "@/lib/leadScrapingAccess";
 
@@ -410,7 +410,7 @@ export async function GET() {
   }
 
   const ownerId = auth.session.user.id;
-  const entitlements = await resolveEntitlements(auth.session.user.email);
+  const entitlements = await resolveEntitlementsForOwnerId(ownerId, auth.session.user.email);
   const b2cUnlocked = isB2cLeadPullUnlocked({ email: auth.session.user.email, role: auth.session.user.role });
   const aiCallsUnlocked = (await requireClientSessionForService("aiOutboundCalls")).ok;
 
@@ -482,7 +482,7 @@ export async function PUT(req: Request) {
   }
 
   const ownerId = auth.session.user.id;
-  const entitlements = await resolveEntitlements(auth.session.user.email);
+  const entitlements = await resolveEntitlementsForOwnerId(ownerId, auth.session.user.email);
   const b2cUnlocked = isB2cLeadPullUnlocked({ email: auth.session.user.email, role: auth.session.user.role });
   const aiCallsUnlocked = (await requireClientSessionForService("aiOutboundCalls")).ok;
 

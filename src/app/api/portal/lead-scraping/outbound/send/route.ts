@@ -4,7 +4,7 @@ import { z } from "zod";
 import { requireClientSessionForService } from "@/lib/portalAccess";
 import { prisma } from "@/lib/db";
 import { consumeCredits } from "@/lib/credits";
-import { resolveEntitlements } from "@/lib/entitlements";
+import { resolveEntitlementsForOwnerId } from "@/lib/entitlements";
 import { baseUrlFromRequest, renderTemplate, sendEmail, sendSms } from "@/lib/leadOutbound";
 import { draftLeadOutboundEmail, draftLeadOutboundSms } from "@/lib/leadOutboundAi";
 import { runOwnerAutomationsForEvent } from "@/lib/portalAutomationsRunner";
@@ -246,7 +246,7 @@ export async function POST(req: Request) {
   const ownerId = auth.session.user.id;
   const aiCallsUnlocked = (await requireClientSessionForService("aiOutboundCalls")).ok;
 
-  const entitlements = await resolveEntitlements(auth.session.user.email);
+  const entitlements = await resolveEntitlementsForOwnerId(ownerId, auth.session.user.email);
   if (!entitlements.leadOutbound) {
     return NextResponse.json({ error: "Outbound is not enabled on your account." }, { status: 403 });
   }

@@ -55,7 +55,13 @@ async function isServiceLifecycleDisabled(ownerId: string, serviceKey: PortalSer
     ? (rec.lifecycle as Record<string, unknown>)
     : null;
   const state = typeof lifecycle?.state === "string" ? lifecycle.state.toLowerCase().trim() : "";
-  return state === "paused" || state === "canceled";
+  const reason = typeof lifecycle?.reason === "string" ? lifecycle.reason.toLowerCase().trim() : "";
+
+  if (state !== "paused" && state !== "canceled") return false;
+  // Treat pending_payment as a billing hold only. Ownership gating handles whether the
+  // service is actually unlocked (Stripe paid or manager override).
+  if (reason === "pending_payment") return false;
+  return true;
 }
 
 function readLifecycleState(row: { dataJson: unknown } | null): { state: string; reason: string } {
@@ -95,7 +101,7 @@ async function isServiceUnlockedForOwner(opts: {
     .findUnique({ where: { id: opts.ownerId }, select: { email: true } })
     .catch(() => null);
   const entitlementsEmail = String(owner?.email || opts.sessionEmail || "");
-  const entitlements = await resolveEntitlements(entitlementsEmail);
+  const entitlements = await resolveEntitlements(entitlementsEmail, { ownerId: opts.ownerId });
 
   if (svc?.entitlementKey && Boolean((entitlements as any)?.[svc.entitlementKey])) return true;
 
