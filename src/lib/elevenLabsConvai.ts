@@ -8,6 +8,111 @@ type ElevenLabsPhoneNumber = {
   assigned_agent?: { agent_id?: string; name?: string } | null;
 };
 
+type ElevenLabsConvaiTool = {
+  id?: string;
+  tool_id?: string;
+  name?: string;
+  key?: string;
+  slug?: string;
+  type?: string;
+  description?: string;
+};
+
+function normalizeToolKey(raw: unknown): string {
+  const s = typeof raw === "string" ? raw.trim() : "";
+  return s.toLowerCase();
+}
+
+function toolIdFromTool(t: ElevenLabsConvaiTool): string {
+  const a = typeof t.tool_id === "string" ? t.tool_id.trim() : "";
+  if (a) return a;
+  const b = typeof t.id === "string" ? t.id.trim() : "";
+  return b;
+}
+
+async function fetchToolsFromUrl(apiKey: string, url: string): Promise<ElevenLabsConvaiTool[] | null> {
+  const res = await fetch(url, {
+    method: "GET",
+    headers: {
+      "xi-api-key": apiKey,
+      accept: "application/json",
+    },
+  }).catch(() => null as any);
+
+  if (!res?.ok) return null;
+  const text = await res.text().catch(() => "");
+  if (!text.trim()) return [];
+
+  try {
+    const json = JSON.parse(text) as any;
+    if (Array.isArray(json)) return json as ElevenLabsConvaiTool[];
+    if (json && typeof json === "object") {
+      if (Array.isArray((json as any).tools)) return (json as any).tools as ElevenLabsConvaiTool[];
+      if (Array.isArray((json as any).data)) return (json as any).data as ElevenLabsConvaiTool[];
+      if (Array.isArray((json as any).items)) return (json as any).items as ElevenLabsConvaiTool[];
+    }
+    return [];
+  } catch {
+    return [];
+  }
+}
+
+export async function listElevenLabsConvaiTools(opts: {
+  apiKey: string;
+}): Promise<{ ok: true; tools: ElevenLabsConvaiTool[] } | { ok: false; error: string; status?: number }> {
+  const apiKey = String(opts.apiKey || "").trim();
+  if (!apiKey) return { ok: false, error: "Missing voice agent API key" };
+
+  // Endpoint naming has varied across doc generations; try a couple common ones.
+  const urls = [
+    "https://api.elevenlabs.io/v1/convai/tools",
+    "https://api.elevenlabs.io/v1/convai/tool",
+  ];
+
+  for (const url of urls) {
+    const tools = await fetchToolsFromUrl(apiKey, url);
+    if (tools) return { ok: true, tools };
+  }
+
+  return { ok: false, error: "Unable to list voice agent tools. Check API key permissions." };
+}
+
+export async function resolveElevenLabsConvaiToolIdsByKeys(opts: {
+  apiKey: string;
+  toolKeys: string[];
+}): Promise<{ ok: true; toolIds: Record<string, string[]> } | { ok: false; error: string }> {
+  const apiKey = String(opts.apiKey || "").trim();
+  const wanted = Array.isArray(opts.toolKeys) ? opts.toolKeys.map((k) => normalizeToolKey(k)).filter(Boolean) : [];
+  if (!apiKey) return { ok: false, error: "Missing voice agent API key" };
+  if (!wanted.length) return { ok: true, toolIds: {} };
+
+  const list = await listElevenLabsConvaiTools({ apiKey });
+  if (!list.ok) return { ok: false, error: list.error };
+
+  const out: Record<string, string[]> = {};
+
+  for (const w of wanted) out[w] = [];
+
+  for (const t of list.tools || []) {
+    const id = toolIdFromTool(t);
+    if (!id) continue;
+
+    const candidates = [t.key, t.name, t.slug].map(normalizeToolKey).filter(Boolean);
+    for (const w of wanted) {
+      if (!candidates.includes(w)) continue;
+      if (!out[w].includes(id)) out[w].push(id);
+    }
+  }
+
+  // Trim to a sane limit.
+  for (const k of Object.keys(out)) {
+    out[k] = out[k].slice(0, 10);
+    if (!out[k].length) delete out[k];
+  }
+
+  return { ok: true, toolIds: out };
+}
+
 export async function listElevenLabsConvaiPhoneNumbers(opts: {
   apiKey: string;
 }): Promise<{ ok: true; phoneNumbers: ElevenLabsPhoneNumber[] } | { ok: false; error: string; status?: number }> {

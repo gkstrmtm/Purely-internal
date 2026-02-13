@@ -35,6 +35,29 @@ async function getProfileVoiceAgentApiKey(ownerId: string): Promise<string | nul
   return key ? key : null;
 }
 
+async function getProfileVoiceAgentToolIds(ownerId: string, toolKey: string): Promise<string[]> {
+  const row = await prisma.portalServiceSetup.findUnique({
+    where: { ownerId_serviceSlug: { ownerId, serviceSlug: PROFILE_EXTRAS_SERVICE_SLUG } },
+    select: { dataJson: true },
+  });
+
+  const rec =
+    row?.dataJson && typeof row.dataJson === "object" && !Array.isArray(row.dataJson)
+      ? (row.dataJson as Record<string, unknown>)
+      : null;
+
+  const toolIds = rec?.voiceAgentToolIds;
+  if (!toolIds || typeof toolIds !== "object" || Array.isArray(toolIds)) return [];
+
+  const k = String(toolKey || "").trim().toLowerCase();
+  const raw = (toolIds as any)[k];
+  const xs = Array.isArray(raw) ? raw : [];
+  return xs
+    .map((x) => (typeof x === "string" ? x.trim() : ""))
+    .filter(Boolean)
+    .slice(0, 10);
+}
+
 async function startTwilioCallRecording(opts: {
   ownerId: string;
   callSid: string;
@@ -266,7 +289,23 @@ export async function POST(req: Request, ctx: { params: Promise<{ token: string 
   const profilePhone = await getOwnerProfilePhoneE164(ownerId).catch(() => null);
   const transferTo = (settings.aiCanTransferToHuman ? (settings.forwardToPhoneE164 || profilePhone) : null) || null;
   const transferToolIds = settings.aiCanTransferToHuman
-    ? resolveToolIdsForKeys(["transfer_to_human", "transfer_to_number", "call_transfer"])
+    ? (
+        // Prefer per-account IDs (resolved from API key and cached in Profile).
+        (
+          [
+            ...(await getProfileVoiceAgentToolIds(ownerId, "transfer_to_number")),
+            ...(await getProfileVoiceAgentToolIds(ownerId, "transfer_to_human")),
+            ...(await getProfileVoiceAgentToolIds(ownerId, "call_transfer")),
+            ...(await getProfileVoiceAgentToolIds(ownerId, "end_call")),
+          ]
+            .map((x) => x.trim())
+            .filter(Boolean)
+        )
+          // Back-compat: env-configured tool IDs.
+          .concat(resolveToolIdsForKeys(["transfer_to_human", "transfer_to_number", "call_transfer", "end_call"]))
+          .filter((v, i, a) => a.indexOf(v) === i)
+          .slice(0, 50)
+      )
     : [];
 
   const transferNote = settings.aiCanTransferToHuman
