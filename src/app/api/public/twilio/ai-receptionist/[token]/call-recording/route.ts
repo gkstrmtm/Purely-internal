@@ -1,6 +1,11 @@
 import { NextResponse } from "next/server";
 
-import { findOwnerByAiReceptionistWebhookToken, getAiReceptionistServiceData, upsertAiReceptionistCallEvent } from "@/lib/aiReceptionist";
+import {
+  findOwnerByAiReceptionistWebhookToken,
+  getAiReceptionistServiceData,
+  upsertAiReceptionistCallEvent,
+} from "@/lib/aiReceptionist";
+import { consumeCredits } from "@/lib/credits";
 import { normalizePhoneStrict } from "@/lib/phone";
 import { getOwnerTwilioSmsConfig } from "@/lib/portalTwilio";
 import { webhookUrlFromRequest } from "@/lib/webhookBase";
@@ -25,6 +30,42 @@ function ceilMinutesFromSeconds(seconds: number): number {
   return Math.max(1, Math.ceil(s / 60));
 }
 
+const CREDITS_PER_STARTED_MINUTE = 5;
+
+async function requestTranscription(opts: {
+  ownerId: string;
+  recordingSid: string;
+  token: string;
+  req: Request;
+}): Promise<void> {
+  const recordingSid = String(opts.recordingSid || "").trim();
+  if (!recordingSid) return;
+
+  const twilio = await getOwnerTwilioSmsConfig(opts.ownerId);
+  if (!twilio) return;
+
+  const callbackUrl = webhookUrlFromRequest(
+    opts.req,
+    `/api/public/twilio/ai-receptionist/${encodeURIComponent(opts.token)}/transcription`,
+  );
+
+  const url = `https://api.twilio.com/2010-04-01/Accounts/${encodeURIComponent(twilio.accountSid)}/Recordings/${encodeURIComponent(recordingSid)}/Transcriptions.json`;
+  const basic = Buffer.from(`${twilio.accountSid}:${twilio.authToken}`).toString("base64");
+
+  const form = new URLSearchParams();
+  form.set("TranscriptionCallback", callbackUrl);
+  form.set("TranscriptionCallbackMethod", "POST");
+
+  await fetch(url, {
+    method: "POST",
+    headers: {
+      authorization: `Basic ${basic}`,
+      "content-type": "application/x-www-form-urlencoded",
+    },
+    body: form.toString(),
+  }).catch(() => null);
+}
+
 export async function POST(req: Request, ctx: { params: Promise<{ token: string }> }) {
   const { token } = await ctx.params;
   const lookup = await findOwnerByAiReceptionistWebhookToken(token);
@@ -45,18 +86,13 @@ export async function POST(req: Request, ctx: { params: Promise<{ token: string 
   const from = typeof fromRaw === "string" ? fromRaw : "";
   const to = typeof toRaw === "string" ? toRaw : null;
   const recordingSid = typeof recordingSidRaw === "string" ? recordingSidRaw : "";
-  const durationSec =
-    typeof durationRaw === "string"
-      ? Number(durationRaw)
-      : typeof durationRaw === "number"
-        ? durationRaw
-        : NaN;
+  const durationSec = typeof durationRaw === "string" ? Number(durationRaw) : typeof durationRaw === "number" ? durationRaw : NaN;
 
   if (!callSid) {
     return xmlResponse("<?xml version=\"1.0\" encoding=\"UTF-8\"?><Response><Hangup/></Response>");
   }
 
-  // Twilio callbacks may omit From/To. Reuse existing event details if present.
+  // Twilio recording callbacks may omit From/To. Reuse existing event details if present.
   let fromFinal = from;
   let toFinal = to;
   if (!fromFinal) {
@@ -72,6 +108,26 @@ export async function POST(req: Request, ctx: { params: Promise<{ token: string 
   const toE164 = toParsed && toParsed.ok && toParsed.e164 ? toParsed.e164 : toFinal;
 
   const startedMinutes = ceilMinutesFromSeconds(durationSec);
+  const needCredits = startedMinutes * CREDITS_PER_STARTED_MINUTE;
+
+  let chargedCredits = 0;
+  let chargedPartial = false;
+
+  if (needCredits > 0) {
+    const consumed = await consumeCredits(ownerId, needCredits);
+    if (consumed.ok) {
+      chargedCredits = needCredits;
+    } else {
+      const available = Math.max(0, Math.floor(consumed.state.balance));
+      if (available > 0) {
+        const partial = await consumeCredits(ownerId, available);
+        if (partial.ok) {
+          chargedCredits = available;
+          chargedPartial = true;
+        }
+      }
+    }
+  }
 
   await upsertAiReceptionistCallEvent(ownerId, {
     id: `call_${callSid}`,
@@ -80,41 +136,28 @@ export async function POST(req: Request, ctx: { params: Promise<{ token: string 
     to: toE164,
     createdAtIso: new Date().toISOString(),
     status: "COMPLETED",
-    notes: startedMinutes > 0 ? `Call recorded (${startedMinutes} started minute(s)).` : "Call recorded.",
+    notes:
+      needCredits > 0
+        ? (chargedCredits > 0
+            ? (chargedPartial
+                ? `Charged ${chargedCredits} credit(s) (partial, ${needCredits} needed).`
+                : `Charged ${chargedCredits} credit(s).`)
+            : "No credits charged.")
+        : "No recording duration reported.",
     ...(recordingSid ? { recordingSid } : {}),
     ...(Number.isFinite(durationSec) ? { recordingDurationSec: Math.max(0, Math.floor(durationSec)) } : {}),
+    ...(chargedCredits > 0 ? { chargedCredits } : {}),
+    ...(chargedPartial ? { creditsChargedPartial: true } : {}),
   });
 
-  // Best-effort transcription for forwarded calls.
+  // Best-effort transcription for live calls (may take 1–2 minutes).
   if (recordingSid) {
-    const twilio = await getOwnerTwilioSmsConfig(ownerId).catch(() => null);
-    if (twilio) {
-      const callbackUrl = webhookUrlFromRequest(
-        req,
-        `/api/public/twilio/ai-receptionist/${encodeURIComponent(token)}/transcription`,
-      );
-
-      const url = `https://api.twilio.com/2010-04-01/Accounts/${encodeURIComponent(twilio.accountSid)}/Recordings/${encodeURIComponent(recordingSid)}/Transcriptions.json`;
-      const basic = Buffer.from(`${twilio.accountSid}:${twilio.authToken}`).toString("base64");
-      const form = new URLSearchParams();
-      form.set("TranscriptionCallback", callbackUrl);
-      form.set("TranscriptionCallbackMethod", "POST");
-
-      await fetch(url, {
-        method: "POST",
-        headers: {
-          authorization: `Basic ${basic}`,
-          "content-type": "application/x-www-form-urlencoded",
-        },
-        body: form.toString(),
-      }).catch(() => null);
-    }
+    await requestTranscription({ ownerId, recordingSid, token, req });
   }
 
   const xml = `<?xml version="1.0" encoding="UTF-8"?>
 <Response>
   <Hangup/>
 </Response>`;
-
   return xmlResponse(xml);
 }

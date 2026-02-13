@@ -6,12 +6,63 @@ import {
   upsertAiReceptionistCallEvent,
 } from "@/lib/aiReceptionist";
 import { getCreditsState, isFreeCreditsOwner } from "@/lib/credits";
+import { prisma } from "@/lib/db";
+import { registerElevenLabsTwilioCall } from "@/lib/elevenLabsConvai";
 import { normalizePhoneStrict } from "@/lib/phone";
+import { getOwnerTwilioSmsConfig } from "@/lib/portalTwilio";
 import { webhookUrlFromRequest } from "@/lib/webhookBase";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
+
+const PROFILE_EXTRAS_SERVICE_SLUG = "profile";
+
+async function getProfileVoiceAgentApiKey(ownerId: string): Promise<string | null> {
+  const row = await prisma.portalServiceSetup.findUnique({
+    where: { ownerId_serviceSlug: { ownerId, serviceSlug: PROFILE_EXTRAS_SERVICE_SLUG } },
+    select: { dataJson: true },
+  });
+
+  const rec =
+    row?.dataJson && typeof row.dataJson === "object" && !Array.isArray(row.dataJson)
+      ? (row.dataJson as Record<string, unknown>)
+      : null;
+
+  const raw = rec?.voiceAgentApiKey;
+  const key = typeof raw === "string" ? raw.trim().slice(0, 400) : "";
+  return key ? key : null;
+}
+
+async function startTwilioCallRecording(opts: {
+  ownerId: string;
+  callSid: string;
+  recordingStatusCallbackUrl: string;
+}): Promise<void> {
+  const sid = String(opts.callSid || "").trim();
+  if (!sid) return;
+
+  const twilio = await getOwnerTwilioSmsConfig(opts.ownerId);
+  if (!twilio) return;
+
+  const url = `https://api.twilio.com/2010-04-01/Accounts/${encodeURIComponent(twilio.accountSid)}/Calls/${encodeURIComponent(sid)}/Recordings.json`;
+  const basic = Buffer.from(`${twilio.accountSid}:${twilio.authToken}`).toString("base64");
+
+  const form = new URLSearchParams();
+  form.set("RecordingChannels", "dual");
+  form.set("RecordingStatusCallback", opts.recordingStatusCallbackUrl);
+  form.set("RecordingStatusCallbackMethod", "POST");
+  form.set("RecordingStatusCallbackEvent", "completed");
+
+  await fetch(url, {
+    method: "POST",
+    headers: {
+      authorization: `Basic ${basic}`,
+      "content-type": "application/x-www-form-urlencoded",
+    },
+    body: form.toString(),
+  }).catch(() => null);
+}
 
 function xmlEscape(s: string) {
   return s
@@ -144,27 +195,119 @@ export async function POST(req: Request, ctx: { params: Promise<{ token: string 
     return xmlResponse(xml);
   }
 
-  const greeting = settings.greeting || "Thanks for calling — how can I help?";
-
-  // Charge credits per started minute using Twilio's RecordingDuration callback.
+  // Voicemail recording action endpoint (used as a fallback when a live agent isn't configured).
   const recordingAction = webhookUrlFromRequest(
     req,
     `/api/public/twilio/ai-receptionist/${encodeURIComponent(token)}/recording`,
   );
 
-  // Best-effort voicemail transcription (Twilio handles transcription asynchronously).
-  const transcriptionCallback = webhookUrlFromRequest(
-    req,
-    `/api/public/twilio/ai-receptionist/${encodeURIComponent(token)}/transcription`,
-  );
-  const xml = `<?xml version="1.0" encoding="UTF-8"?>
+  const greeting = settings.greeting || "Thanks for calling — how can I help?";
+  const systemPrompt = settings.systemPrompt || "";
+
+  const agentId = String(settings.voiceAgentId || "").trim();
+  const apiKeyFromProfile = (await getProfileVoiceAgentApiKey(ownerId).catch(() => null)) || "";
+  const apiKeyLegacyRaw = (settings as any)?.voiceAgentApiKey;
+  const apiKeyLegacy = typeof apiKeyLegacyRaw === "string" ? apiKeyLegacyRaw.trim() : "";
+  const apiKey = apiKeyFromProfile.trim() || apiKeyLegacy.trim();
+
+  // If no voice agent configured, fall back to voicemail-style capture.
+  if (!agentId || !apiKey) {
+    const transcriptionCallback = webhookUrlFromRequest(
+      req,
+      `/api/public/twilio/ai-receptionist/${encodeURIComponent(token)}/transcription`,
+    );
+    const xml = `<?xml version="1.0" encoding="UTF-8"?>
 <Response>
   <Say voice="Polly.Joanna">${xmlEscape(greeting)}</Say>
   <Pause length="1"/>
-  <Say>AI receptionist is not yet fully configured for live conversation. Please leave a message after the beep.</Say>
+  <Say>Please leave a message after the beep.</Say>
   <Record action="${xmlEscape(recordingAction)}" method="POST" maxLength="3600" playBeep="true" transcribe="true" transcribeCallback="${xmlEscape(transcriptionCallback)}" />
 </Response>`;
+    return xmlResponse(xml);
+  }
 
-  return xmlResponse(xml);
+  // Start Twilio call recording for the *live* call, with callback to charge credits + request transcription.
+  const liveRecordingCallback = webhookUrlFromRequest(
+    req,
+    `/api/public/twilio/ai-receptionist/${encodeURIComponent(token)}/call-recording`,
+  );
+  await startTwilioCallRecording({ ownerId, callSid, recordingStatusCallbackUrl: liveRecordingCallback });
+
+  // Register inbound call with ElevenLabs ConvAI and return their TwiML.
+  const profilePhone = await getOwnerProfilePhoneE164(ownerId).catch(() => null);
+  const toNumberForAgent = toE164 || settings.forwardToPhoneE164 || profilePhone || fromE164;
+  const register = await registerElevenLabsTwilioCall({
+    apiKey,
+    agentId,
+    fromNumberE164: fromE164,
+    toNumberE164: toNumberForAgent,
+    direction: "inbound",
+    conversationInitiationClientData: {
+      user_id: null,
+      dynamic_variables: {
+        owner_id: ownerId,
+        business_name: settings.businessName || "",
+        caller_number: fromE164,
+        called_number: toE164 || "",
+      },
+      conversation_config_override: {
+        agent: {
+          ...(greeting.trim() ? { first_message: greeting.trim().slice(0, 360) } : {}),
+          ...(systemPrompt.trim()
+            ? {
+                prompt: {
+                  prompt: systemPrompt.trim().slice(0, 6000),
+                },
+              }
+            : {}),
+        },
+      },
+      source_info: { source: "portal_ai_receptionist_inbound" },
+    },
+  });
+
+  if (!register.ok || !register.twiml.trim()) {
+    // Fall back to forward if possible, else voicemail.
+    const profilePhone = await getOwnerProfilePhoneE164(ownerId);
+    const forwardTo = settings.forwardToPhoneE164 || profilePhone;
+
+    await upsertAiReceptionistCallEvent(ownerId, {
+      id: `call_${callSid}`,
+      callSid,
+      from: fromE164,
+      to: toE164,
+      createdAtIso: new Date().toISOString(),
+      status: "COMPLETED",
+      notes: register.ok ? "Voice agent returned empty TwiML." : register.error,
+    });
+
+    if (forwardTo) {
+      const recordingCallback = webhookUrlFromRequest(
+        req,
+        `/api/public/twilio/ai-receptionist/${encodeURIComponent(token)}/dial-recording`,
+      );
+      const xml = `<?xml version="1.0" encoding="UTF-8"?>
+<Response>
+  <Dial timeout="20" record="record-from-answer-dual" recordingStatusCallback="${xmlEscape(recordingCallback)}" recordingStatusCallbackMethod="POST" recordingStatusCallbackEvent="completed">${xmlEscape(forwardTo)}</Dial>
+</Response>`;
+      return xmlResponse(xml);
+    }
+
+    const transcriptionCallback = webhookUrlFromRequest(
+      req,
+      `/api/public/twilio/ai-receptionist/${encodeURIComponent(token)}/transcription`,
+    );
+    const xml = `<?xml version="1.0" encoding="UTF-8"?>
+<Response>
+  <Say voice="Polly.Joanna">${xmlEscape(greeting)}</Say>
+  <Pause length="1"/>
+  <Say>Please leave a message after the beep.</Say>
+  <Record action="${xmlEscape(recordingAction)}" method="POST" maxLength="3600" playBeep="true" transcribe="true" transcribeCallback="${xmlEscape(transcriptionCallback)}" />
+</Response>`;
+    return xmlResponse(xml);
+  }
+
+  // ElevenLabs TwiML already connects the call to the agent.
+  return xmlResponse(register.twiml);
 }
 

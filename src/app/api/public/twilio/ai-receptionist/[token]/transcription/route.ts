@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 
-import { findOwnerByAiReceptionistWebhookToken, upsertAiReceptionistCallEvent } from "@/lib/aiReceptionist";
+import { findOwnerByAiReceptionistWebhookToken, getAiReceptionistServiceData, upsertAiReceptionistCallEvent } from "@/lib/aiReceptionist";
 import { normalizePhoneStrict } from "@/lib/phone";
 
 export const runtime = "nodejs";
@@ -40,7 +40,7 @@ export async function POST(req: Request, ctx: { params: Promise<{ token: string 
   const recordingSidRaw = form?.get("RecordingSid");
 
   // Twilio transcription callback commonly includes TranscriptionText/TranscriptionStatus.
-  const transcriptionTextRaw = form?.get("TranscriptionText");
+  const transcriptionTextRaw = form?.get("TranscriptionText") ?? form?.get("transcription_text") ?? form?.get("Text");
   const transcriptionStatusRaw = form?.get("TranscriptionStatus");
 
   const callSid = typeof callSidRaw === "string" ? callSidRaw : "";
@@ -50,20 +50,30 @@ export async function POST(req: Request, ctx: { params: Promise<{ token: string 
   const transcriptionText = safeTranscript(transcriptionTextRaw);
   const transcriptionStatus = typeof transcriptionStatusRaw === "string" ? transcriptionStatusRaw.trim() : "";
 
-  if (!callSid || !from) {
+  if (!callSid) {
     return xmlResponse("<?xml version=\"1.0\" encoding=\"UTF-8\"?><Response><Hangup/></Response>");
   }
 
-  const fromParsed = normalizePhoneStrict(from);
-  const fromE164 = fromParsed.ok && fromParsed.e164 ? fromParsed.e164 : from;
-  const toParsed = to ? normalizePhoneStrict(to) : null;
-  const toE164 = toParsed && toParsed.ok && toParsed.e164 ? toParsed.e164 : to;
+  // Some Twilio transcription callbacks omit From/To. Reuse the stored call event.
+  let fromFinal = from;
+  let toFinal = to;
+  if (!fromFinal) {
+    const existing = await getAiReceptionistServiceData(ownerId).catch(() => null);
+    const match = existing?.events?.find((e: any) => String(e?.callSid || "") === callSid) as any;
+    fromFinal = typeof match?.from === "string" && match.from.trim() ? match.from.trim() : "Unknown";
+    toFinal = typeof match?.to === "string" && match.to.trim() ? match.to.trim() : toFinal;
+  }
 
-  const notes = transcriptionText
-    ? "Transcript received."
-    : transcriptionStatus
-      ? `Transcript status: ${transcriptionStatus}`
-      : "Transcript callback received.";
+  const fromParsed = normalizePhoneStrict(fromFinal);
+  const fromE164 = fromParsed.ok && fromParsed.e164 ? fromParsed.e164 : fromFinal;
+  const toParsed = toFinal ? normalizePhoneStrict(toFinal) : null;
+  const toE164 = toParsed && toParsed.ok && toParsed.e164 ? toParsed.e164 : toFinal;
+
+  const notes = !transcriptionText
+    ? (transcriptionStatus
+        ? `Transcript status: ${transcriptionStatus}`
+        : "Transcript callback received.")
+    : "";
 
   await upsertAiReceptionistCallEvent(ownerId, {
     id: `call_${callSid}`,
@@ -72,7 +82,7 @@ export async function POST(req: Request, ctx: { params: Promise<{ token: string 
     to: toE164,
     createdAtIso: new Date().toISOString(),
     status: "COMPLETED",
-    notes,
+    ...(notes ? { notes } : {}),
     ...(recordingSid ? { recordingSid } : {}),
     ...(transcriptionText ? { transcript: transcriptionText } : {}),
   });

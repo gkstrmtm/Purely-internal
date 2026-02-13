@@ -152,6 +152,76 @@ export async function placeElevenLabsTwilioOutboundCall(opts: {
   }
 }
 
+export async function registerElevenLabsTwilioCall(opts: {
+  apiKey: string;
+  agentId: string;
+  fromNumberE164: string;
+  toNumberE164: string;
+  direction?: "inbound" | "outbound";
+  conversationInitiationClientData?: {
+    user_id?: string | null;
+    dynamic_variables?: Record<string, string | number | boolean | null>;
+    conversation_config_override?: any;
+    custom_llm_extra_body?: Record<string, any>;
+    source_info?: any;
+  };
+}): Promise<{ ok: true; twiml: string } | { ok: false; error: string; status?: number }> {
+  const apiKey = String(opts.apiKey || "").trim();
+  const agentId = String(opts.agentId || "").trim();
+  const fromNumber = String(opts.fromNumberE164 || "").trim();
+  const toNumber = String(opts.toNumberE164 || "").trim();
+
+  if (!apiKey) return { ok: false, error: "Missing voice agent API key" };
+  if (!agentId) return { ok: false, error: "Missing voice agent ID" };
+  if (!fromNumber) return { ok: false, error: "Missing from number" };
+  if (!toNumber) return { ok: false, error: "Missing to number" };
+
+  const body: any = {
+    agent_id: agentId,
+    from_number: fromNumber,
+    to_number: toNumber,
+    direction: opts.direction || "inbound",
+  };
+
+  if (opts.conversationInitiationClientData && typeof opts.conversationInitiationClientData === "object") {
+    body.conversation_initiation_client_data = opts.conversationInitiationClientData;
+  }
+
+  const url = `https://api.elevenlabs.io/v1/convai/twilio/register-call`;
+  const res = await fetch(url, {
+    method: "POST",
+    headers: {
+      "content-type": "application/json",
+      "xi-api-key": apiKey,
+      accept: "text/xml, application/xml, application/json, text/plain",
+    },
+    body: JSON.stringify(body),
+  });
+
+  const text = await res.text().catch(() => "");
+  if (!res.ok) {
+    return {
+      ok: false,
+      error: `Voice agent request failed (${res.status}): ${text.slice(0, 400)}`,
+      status: res.status,
+    };
+  }
+
+  const trimmed = text.trim();
+  if (trimmed.startsWith("<?xml") || trimmed.startsWith("<Response") || trimmed.startsWith("<")) {
+    return { ok: true, twiml: trimmed };
+  }
+
+  try {
+    const json = JSON.parse(text) as any;
+    const twiml = typeof json?.twiml === "string" ? json.twiml : typeof json?.TwiML === "string" ? json.TwiML : "";
+    if (twiml.trim()) return { ok: true, twiml: twiml.trim() };
+    return { ok: false, error: "Voice agent register-call returned an unexpected response." };
+  } catch {
+    return { ok: false, error: "Voice agent register-call returned an unexpected response." };
+  }
+}
+
 export function buildElevenLabsAgentPrompt(config: VoiceAgentConfig): string {
   const parts: string[] = [];
 
