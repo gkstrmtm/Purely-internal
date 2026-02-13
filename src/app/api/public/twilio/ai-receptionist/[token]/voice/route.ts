@@ -10,6 +10,7 @@ import { prisma } from "@/lib/db";
 import { registerElevenLabsTwilioCall } from "@/lib/elevenLabsConvai";
 import { normalizePhoneStrict } from "@/lib/phone";
 import { getOwnerTwilioSmsConfig } from "@/lib/portalTwilio";
+import { resolveToolIdsForKeys } from "@/lib/voiceAgentTools";
 import { webhookUrlFromRequest } from "@/lib/webhookBase";
 
 export const runtime = "nodejs";
@@ -263,6 +264,31 @@ export async function POST(req: Request, ctx: { params: Promise<{ token: string 
 
   // Register inbound call with ElevenLabs ConvAI and return their TwiML.
   const profilePhone = await getOwnerProfilePhoneE164(ownerId).catch(() => null);
+  const transferTo = (settings.aiCanTransferToHuman ? (settings.forwardToPhoneE164 || profilePhone) : null) || null;
+  const transferToolIds = settings.aiCanTransferToHuman
+    ? resolveToolIdsForKeys(["transfer_to_human", "transfer_to_number", "call_transfer"])
+    : [];
+
+  const transferNote = settings.aiCanTransferToHuman
+    ? (transferTo
+        ? (transferToolIds.length
+            ? `AI transfer enabled → ${transferTo}.`
+            : "AI transfer enabled, but transfer tool IDs are not configured on the server.")
+        : "AI transfer enabled, but no transfer number is configured.")
+    : "";
+
+  let promptOverride = systemPrompt.trim();
+  if (settings.aiCanTransferToHuman) {
+    if (transferTo) {
+      const extra = `\n\nIf the caller asks for a human or the situation requires it, transfer the call to ${transferTo}. Use the call transfer tool when appropriate.`;
+      promptOverride = `${promptOverride}${extra}`.trim();
+    } else {
+      const extra = "\n\nIf the caller asks for a human, explain that call transfer isn’t configured and offer to take a message.";
+      promptOverride = `${promptOverride}${extra}`.trim();
+    }
+  }
+  promptOverride = promptOverride.slice(0, 6000);
+
   const toNumberForAgent = toE164 || settings.forwardToPhoneE164 || profilePhone || fromE164;
   const register = await registerElevenLabsTwilioCall({
     apiKey,
@@ -277,14 +303,17 @@ export async function POST(req: Request, ctx: { params: Promise<{ token: string 
         business_name: settings.businessName || "",
         caller_number: fromE164,
         called_number: toE164 || "",
+        transfer_number: transferTo || "",
+        ai_transfer_enabled: settings.aiCanTransferToHuman ? true : false,
       },
       conversation_config_override: {
         agent: {
           ...(greeting.trim() ? { first_message: greeting.trim().slice(0, 360) } : {}),
-          ...(systemPrompt.trim()
+          ...(promptOverride.trim()
             ? {
                 prompt: {
-                  prompt: systemPrompt.trim().slice(0, 6000),
+                  prompt: promptOverride.trim().slice(0, 6000),
+                  ...(transferToolIds.length ? { tool_ids: transferToolIds } : {}),
                 },
               }
             : {}),
@@ -347,7 +376,7 @@ export async function POST(req: Request, ctx: { params: Promise<{ token: string 
     to: toE164,
     createdAtIso: new Date().toISOString(),
     status: "IN_PROGRESS",
-    notes: "Live agent connected (ElevenLabs).",
+    notes: transferNote ? `Live agent connected (ElevenLabs).\n${transferNote}` : "Live agent connected (ElevenLabs).",
   });
 
   // ElevenLabs TwiML already connects the call to the agent.

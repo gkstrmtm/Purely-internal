@@ -16,6 +16,7 @@ type Settings = {
   businessName: string;
   greeting: string;
   systemPrompt: string;
+  aiCanTransferToHuman: boolean;
   forwardToPhoneE164: string | null;
   voiceAgentId: string;
   voiceAgentConfigured: boolean;
@@ -367,6 +368,7 @@ export function PortalAiReceptionistClient() {
     if (!settings) return false;
     if (!settings.greeting.trim()) return false;
     if (settings.mode === "FORWARD" && !String(settings.forwardToPhoneE164 || "").trim()) return false;
+    if (settings.mode === "AI" && settings.aiCanTransferToHuman && !String(settings.forwardToPhoneE164 || "").trim()) return false;
     return true;
   }, [settings]);
 
@@ -619,16 +621,39 @@ export function PortalAiReceptionistClient() {
                 <div className="mt-2 text-xs text-zinc-600">This guides how your receptionist responds.</div>
               </label>
 
-              {settings?.mode === "FORWARD" ? (
+              {settings?.mode === "AI" ? (
+                <label className="inline-flex items-center gap-3 rounded-2xl border border-zinc-200 bg-zinc-50 px-4 py-3 text-sm sm:col-span-2">
+                  <input
+                    type="checkbox"
+                    checked={Boolean(settings?.aiCanTransferToHuman)}
+                    disabled={saving || savingEnabled || !settings}
+                    onChange={(e) => settings && setSettings({ ...settings, aiCanTransferToHuman: e.target.checked })}
+                  />
+                  <div>
+                    <div className="text-sm font-semibold text-zinc-900">Allow AI to transfer to a human</div>
+                    <div className="mt-0.5 text-xs text-zinc-600">
+                      If enabled, your AI receptionist can choose to forward the call when needed.
+                    </div>
+                  </div>
+                </label>
+              ) : null}
+
+              {settings?.mode === "FORWARD" || (settings?.mode === "AI" && settings?.aiCanTransferToHuman) ? (
                 <label className="rounded-2xl border border-zinc-200 bg-zinc-50 px-4 py-3 text-sm sm:col-span-2">
-                  <div className="text-xs font-semibold text-zinc-600">Forward to (E.164)</div>
+                  <div className="text-xs font-semibold text-zinc-600">
+                    {settings?.mode === "AI" ? "Transfer/forward to (E.164)" : "Forward to (E.164)"}
+                  </div>
                   <input
                     className="mt-2 w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm"
                     value={settings?.forwardToPhoneE164 ?? ""}
                     onChange={(e) => settings && setSettings({ ...settings, forwardToPhoneE164: e.target.value || null })}
                     placeholder="+15551234567"
                   />
-                  <div className="mt-2 text-xs text-zinc-600">If blank, we’ll try your Portal profile phone.</div>
+                  <div className="mt-2 text-xs text-zinc-600">
+                    {settings?.mode === "AI"
+                      ? "Required for AI transfer. Use E.164 format like +15551234567."
+                      : "If blank, we’ll try your Portal profile phone."}
+                  </div>
                 </label>
               ) : null}
             </div>

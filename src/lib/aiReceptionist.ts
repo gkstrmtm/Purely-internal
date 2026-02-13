@@ -32,6 +32,10 @@ export type AiReceptionistSettings = {
   greeting: string;
   systemPrompt: string;
 
+  // If enabled, the voice agent is allowed to decide to transfer the call to a human.
+  // (Requires a forward/transfer phone number and compatible voice-agent tools.)
+  aiCanTransferToHuman: boolean;
+
   forwardToPhoneE164: string | null;
 
   voiceAgentId: string;
@@ -85,7 +89,9 @@ export function parseAiReceptionistSettings(
     businessName: "",
     greeting: "Thanks for calling — how can I help?",
     systemPrompt:
-      "You are a helpful AI receptionist. Your goal is to answer questions, capture lead details, and help book appointments. Be concise.",
+      "You are a helpful receptionist. Answer questions casually and clearly, and keep a friendly tone. If appropriate, capture lead details (name, email, phone) and help book an appointment. Be concise.",
+
+    aiCanTransferToHuman: false,
 
     forwardToPhoneE164: null,
 
@@ -102,6 +108,8 @@ export function parseAiReceptionistSettings(
   const businessName = typeof rec.businessName === "string" ? rec.businessName.trim().slice(0, 120) : base.businessName;
   const greeting = typeof rec.greeting === "string" ? rec.greeting.trim().slice(0, MAX_GREETING_LEN) : base.greeting;
   const systemPrompt = typeof rec.systemPrompt === "string" ? rec.systemPrompt.trim().slice(0, MAX_PROMPT_LEN) : base.systemPrompt;
+  const aiCanTransferToHuman =
+    typeof rec.aiCanTransferToHuman === "boolean" ? rec.aiCanTransferToHuman : base.aiCanTransferToHuman;
 
   let forwardToPhoneE164: string | null = null;
   if (typeof rec.forwardToPhoneE164 === "string" && rec.forwardToPhoneE164.trim()) {
@@ -138,6 +146,7 @@ export function parseAiReceptionistSettings(
     businessName,
     greeting: greeting || base.greeting,
     systemPrompt: systemPrompt || base.systemPrompt,
+    aiCanTransferToHuman,
     forwardToPhoneE164,
     voiceAgentId,
     voiceAgentApiKey,

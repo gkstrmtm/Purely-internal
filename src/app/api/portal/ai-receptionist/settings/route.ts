@@ -100,7 +100,24 @@ export async function GET(req: Request) {
   }
 
   const ownerId = auth.session.user.id;
-  const data = await getAiReceptionistServiceData(ownerId);
+  let data = await getAiReceptionistServiceData(ownerId);
+
+  // Best-effort: if the receptionist business name is blank, initialize it from the Business Profile.
+  // This keeps onboarding/profile flows from requiring a second manual entry.
+  if (!String(data.settings.businessName || "").trim()) {
+    const profile = await prisma.businessProfile
+      .findUnique({ where: { ownerId }, select: { businessName: true } })
+      .catch(() => null);
+    const profileName = typeof profile?.businessName === "string" ? profile.businessName.trim() : "";
+    if (profileName) {
+      try {
+        const next = await setAiReceptionistSettings(ownerId, { ...data.settings, businessName: profileName });
+        data = { ...data, settings: next };
+      } catch {
+        // ignore
+      }
+    }
+  }
   const events = await listAiReceptionistEvents(ownerId, 80);
 
   await ensurePortalContactsSchema().catch(() => null);

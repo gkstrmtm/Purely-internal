@@ -5,6 +5,7 @@ import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/db";
 import { requireClientSessionForService } from "@/lib/portalAccess";
 import { hasPublicColumn } from "@/lib/dbSchema";
+import { getAiReceptionistServiceData, setAiReceptionistSettings } from "@/lib/aiReceptionist";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
@@ -175,6 +176,11 @@ export async function PUT(req: Request) {
 
   const ownerId = auth.session.user.id;
 
+  const prevProfile = await prisma.businessProfile
+    .findUnique({ where: { ownerId }, select: { businessName: true } })
+    .catch(() => null);
+  const prevBusinessName = typeof prevProfile?.businessName === "string" ? prevProfile.businessName.trim() : "";
+
   const flags = await getProfileColumnFlags();
 
   const baseData: Record<string, unknown> = {
@@ -217,6 +223,22 @@ export async function PUT(req: Request) {
     update: updateData as any,
     select: profileSelect(flags),
   });
+
+  // Best-effort: keep AI Receptionist business name in sync with Business Profile.
+  // Only overwrite if the receptionist name is empty, or it previously matched the old profile name.
+  try {
+    const nextBusinessName = typeof (row as any)?.businessName === "string" ? String((row as any).businessName).trim() : "";
+    if (nextBusinessName) {
+      const ai = await getAiReceptionistServiceData(ownerId).catch(() => null);
+      const currentAiName = typeof ai?.settings?.businessName === "string" ? ai.settings.businessName.trim() : "";
+      const shouldSync = !currentAiName || (prevBusinessName && currentAiName === prevBusinessName);
+      if (ai && shouldSync) {
+        await setAiReceptionistSettings(ownerId, { ...ai.settings, businessName: nextBusinessName });
+      }
+    }
+  } catch {
+    // ignore
+  }
 
   return NextResponse.json({ ok: true, profile: normalizeProfile(row as any, flags) });
 }
