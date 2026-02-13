@@ -24,6 +24,10 @@ CREATE TABLE IF NOT EXISTS "PortalMailboxAddress" (
     // Align with Prisma behavior (@updatedAt is written by Prisma).
     `ALTER TABLE "PortalMailboxAddress" ALTER COLUMN "updatedAt" DROP DEFAULT;`,
 
+    // Allow a one-time user customization of their alias.
+    `ALTER TABLE "PortalMailboxAddress" ADD COLUMN IF NOT EXISTS "customizeCount" INTEGER;`,
+    `ALTER TABLE "PortalMailboxAddress" ADD COLUMN IF NOT EXISTS "customizedAt" TIMESTAMP(3);`,
+
     `CREATE UNIQUE INDEX IF NOT EXISTS "PortalMailboxAddress_ownerId_key" ON "PortalMailboxAddress"("ownerId");`,
     `CREATE UNIQUE INDEX IF NOT EXISTS "PortalMailboxAddress_emailKey_key" ON "PortalMailboxAddress"("emailKey");`,
     `CREATE INDEX IF NOT EXISTS "PortalMailboxAddress_ownerId_idx" ON "PortalMailboxAddress"("ownerId");`,

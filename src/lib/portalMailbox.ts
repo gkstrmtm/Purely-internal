@@ -54,6 +54,17 @@ function isReservedLocalPart(localPart: string) {
   return reserved.has(String(localPart || "").toLowerCase());
 }
 
+function normalizeDesiredLocalPart(raw: string): string {
+  const base = safeOneLine(raw).toLowerCase();
+  const cleaned = base
+    .replace(/&/g, " and ")
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/-+/g, "-")
+    .replace(/^-|-$/g, "")
+    .slice(0, 48);
+  return cleaned;
+}
+
 function makeEmailAddress(localPart: string) {
   const domain = getMailboxDomain();
   const lp = String(localPart || "").toLowerCase();
@@ -115,8 +126,8 @@ export async function getOrCreateOwnerMailboxAddress(ownerIdRaw: string): Promis
   await ensurePortalMailboxSchema().catch(() => null);
 
   const existingRows = await prisma
-    .$queryRaw<Array<{ localPart: string; emailAddress: string }>>`
-      select "localPart", "emailAddress"
+    .$queryRaw<Array<{ localPart: string; emailAddress: string; canChange: boolean }>>`
+      select "localPart", "emailAddress", (coalesce("customizeCount", 0) = 0) as "canChange"
       from "PortalMailboxAddress"
       where "ownerId" = ${ownerId}
       limit 1;
@@ -150,9 +161,9 @@ export async function getOrCreateOwnerMailboxAddress(ownerIdRaw: string): Promis
 
       const inserted = await prisma.$queryRaw<Array<{ localPart: string; emailAddress: string }>>`
         insert into "PortalMailboxAddress" (
-          "id", "ownerId", "localPart", "emailAddress", "emailKey", "createdAt", "updatedAt"
+          "id", "ownerId", "localPart", "emailAddress", "emailKey", "customizeCount", "customizedAt", "createdAt", "updatedAt"
         ) values (
-          ${id}, ${ownerId}, ${candidate}, ${emailAddress}, ${emailKey}, current_timestamp, current_timestamp
+          ${id}, ${ownerId}, ${candidate}, ${emailAddress}, ${emailKey}, 0, null, current_timestamp, current_timestamp
         )
         on conflict do nothing
         returning "localPart", "emailAddress";
@@ -201,4 +212,86 @@ export async function getOrCreateOwnerMailboxAddress(ownerIdRaw: string): Promis
   }
 
   throw new Error("Unable to provision mailbox alias");
+}
+
+export async function getOwnerMailboxAddressForUi(ownerIdRaw: string): Promise<{
+  ownerId: string;
+  localPart: string;
+  emailAddress: string;
+  canChange: boolean;
+}> {
+  const ownerId = safeOneLine(ownerIdRaw);
+  if (!ownerId) throw new Error("Missing ownerId");
+
+  await ensurePortalMailboxSchema().catch(() => null);
+  await getOrCreateOwnerMailboxAddress(ownerId);
+
+  const rows = await prisma
+    .$queryRaw<Array<{ localPart: string; emailAddress: string; canChange: boolean }>>`
+      select "localPart", "emailAddress", (coalesce("customizeCount", 0) = 0) as "canChange"
+      from "PortalMailboxAddress"
+      where "ownerId" = ${ownerId}
+      limit 1;
+    `
+    .catch(() => []);
+
+  const row = rows?.[0];
+  if (!row?.localPart || !row?.emailAddress) {
+    const created = await getOrCreateOwnerMailboxAddress(ownerId);
+    return { ownerId, localPart: created.localPart, emailAddress: created.emailAddress, canChange: true };
+  }
+
+  return {
+    ownerId,
+    localPart: String(row.localPart),
+    emailAddress: String(row.emailAddress),
+    canChange: Boolean(row.canChange),
+  };
+}
+
+export async function updateOwnerMailboxLocalPartOnce(opts: {
+  ownerId: string;
+  desiredLocalPart: string;
+}): Promise<{ ok: true; emailAddress: string; localPart: string } | { ok: false; error: string }> {
+  const ownerId = safeOneLine(opts.ownerId);
+  const desired = normalizeDesiredLocalPart(opts.desiredLocalPart);
+
+  if (!ownerId) return { ok: false, error: "Unauthorized" };
+  if (!desired || desired.length < 2) return { ok: false, error: "Email name must be at least 2 characters." };
+  if (isReservedLocalPart(desired)) return { ok: false, error: "That email name is reserved. Please choose another." };
+
+  await ensurePortalMailboxSchema().catch(() => null);
+  await getOrCreateOwnerMailboxAddress(ownerId).catch(() => null);
+
+  const nextEmailAddress = makeEmailAddress(desired);
+  const nextEmailKey = nextEmailAddress.toLowerCase();
+
+  try {
+    const updated = await prisma.$queryRaw<Array<{ localPart: string; emailAddress: string }>>`
+      update "PortalMailboxAddress"
+      set
+        "localPart" = ${desired},
+        "emailAddress" = ${nextEmailAddress},
+        "emailKey" = ${nextEmailKey},
+        "customizeCount" = coalesce("customizeCount", 0) + 1,
+        "customizedAt" = coalesce("customizedAt", current_timestamp),
+        "updatedAt" = current_timestamp
+      where
+        "ownerId" = ${ownerId}
+        and coalesce("customizeCount", 0) = 0
+      returning "localPart", "emailAddress";
+    `;
+
+    if (updated?.[0]?.emailAddress && updated?.[0]?.localPart) {
+      return { ok: true, emailAddress: String(updated[0].emailAddress), localPart: String(updated[0].localPart) };
+    }
+
+    return { ok: false, error: "You can only change your business email once." };
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err || "");
+    if (msg.toLowerCase().includes("unique") || msg.toLowerCase().includes("duplicate")) {
+      return { ok: false, error: "That email is already taken. Please choose another." };
+    }
+    return { ok: false, error: "Unable to update email right now. Please try again." };
+  }
 }

@@ -57,6 +57,23 @@ type PortalMe =
     }
   | { ok: false; error?: string };
 
+type MailboxRes =
+  | {
+      ok: true;
+      mailbox: {
+        emailAddress: string;
+        localPart: string;
+        canChange: boolean;
+      } | null;
+    }
+  | { ok: false; error?: string };
+
+type Mailbox = {
+  emailAddress: string;
+  localPart: string;
+  canChange: boolean;
+};
+
 function CopyRow({ label, value }: { label: string; value: string | null | undefined }) {
   const v = value && value.trim() ? value : null;
   return (
@@ -86,6 +103,13 @@ export function PortalProfileClient() {
   const [notice, setNotice] = useState<string | null>(null);
 
   const [webhooks, setWebhooks] = useState<WebhooksRes | null>(null);
+
+  const [mailbox, setMailbox] = useState<Mailbox | null>(null);
+  const [mailboxLoading, setMailboxLoading] = useState(false);
+  const [mailboxSaving, setMailboxSaving] = useState(false);
+  const [mailboxError, setMailboxError] = useState<string | null>(null);
+  const [mailboxNote, setMailboxNote] = useState<string | null>(null);
+  const [mailboxLocalPart, setMailboxLocalPart] = useState<string>("");
 
   const [twilioMasked, setTwilioMasked] = useState<TwilioMasked | null>(null);
   const [twilioAccountSid, setTwilioAccountSid] = useState<string>("");
@@ -122,6 +146,10 @@ export function PortalProfileClient() {
   useEffect(() => {
     if (twilioError) toast.error(twilioError);
   }, [twilioError, toast]);
+
+  useEffect(() => {
+    if (mailboxError) toast.error(mailboxError);
+  }, [mailboxError, toast]);
 
   useEffect(() => {
     if (!phoneValidation.ok) toast.error(phoneValidation.error);
@@ -240,10 +268,74 @@ export function PortalProfileClient() {
       }
     })();
 
+    (async () => {
+      setMailboxLoading(true);
+      setMailboxError(null);
+      const res = await fetch("/api/portal/mailbox", { cache: "no-store" }).catch(() => null as any);
+      if (!mounted) return;
+
+      if (!res?.ok) {
+        const json = (await res?.json().catch(() => ({}))) as { error?: string };
+        setMailbox(null);
+        setMailboxError(json.error ?? "Unable to load business email");
+        setMailboxLoading(false);
+        return;
+      }
+
+      const json = ((await res.json().catch(() => null)) as MailboxRes | null) ?? null;
+      if (json?.ok) {
+        setMailbox(json.mailbox ?? null);
+        setMailboxLocalPart(json.mailbox?.localPart ?? "");
+      } else {
+        setMailbox(null);
+        setMailboxError((json as any)?.error ?? "Unable to load business email");
+      }
+      setMailboxLoading(false);
+    })();
+
     return () => {
       mounted = false;
     };
   }, [portalMe, canViewWebhooks, canViewTwilio]);
+
+  const canSaveMailbox = useMemo(() => {
+    if (!mailbox || !mailbox.canChange) return false;
+    const next = mailboxLocalPart.trim();
+    if (next.length < 2) return false;
+    if (next.toLowerCase() === String(mailbox.localPart || "").toLowerCase()) return false;
+    return true;
+  }, [mailbox, mailboxLocalPart]);
+
+  async function saveMailboxOnce() {
+    if (!mailbox?.canChange) {
+      setMailboxError("This business email is locked.");
+      return;
+    }
+
+    setMailboxSaving(true);
+    setMailboxError(null);
+    setMailboxNote(null);
+
+    const res = await fetch("/api/portal/mailbox", {
+      method: "PUT",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ localPart: mailboxLocalPart }),
+    });
+
+    const json = (await res.json().catch(() => ({}))) as any;
+    setMailboxSaving(false);
+
+    if (!res.ok || !json?.ok) {
+      setMailboxError(json?.error ?? "Unable to update business email");
+      return;
+    }
+
+    if (json?.mailbox) {
+      setMailbox(json.mailbox);
+      setMailboxLocalPart(json.mailbox.localPart ?? "");
+    }
+    setMailboxNote("Business email updated.");
+  }
 
   async function saveTwilio() {
     if (!canEditTwilio) {
@@ -748,6 +840,75 @@ export function PortalProfileClient() {
                       Clear
                     </button>
                   </div>
+                ) : null}
+              </div>
+            </PortalSettingsSection>
+          ) : null}
+
+          {portalMe?.ok === true ? (
+            <PortalSettingsSection
+              title="Business email"
+              description="Your managed @purelyautomation.com email address (used for inbox sending + receiving)."
+              accent="pink"
+            >
+              <div className="space-y-3">
+                {mailboxNote ? (
+                  <div className="rounded-2xl border border-emerald-200 bg-emerald-50 p-4 text-sm text-emerald-800">{mailboxNote}</div>
+                ) : null}
+
+                {mailboxError ? (
+                  <div className="rounded-2xl border border-red-200 bg-red-50 p-4 text-sm text-red-800">{mailboxError}</div>
+                ) : null}
+
+                {mailboxLoading ? (
+                  <div className="rounded-2xl border border-zinc-200 bg-zinc-50 p-4 text-sm text-zinc-600">Loading…</div>
+                ) : null}
+
+                {mailbox ? (
+                  <CopyRow label="Business email" value={mailbox.emailAddress} />
+                ) : mailboxLoading ? null : (
+                  <div className="rounded-2xl border border-zinc-200 bg-zinc-50 p-4 text-sm text-zinc-600">Business email unavailable.</div>
+                )}
+
+                {mailbox ? (
+                  mailbox.canChange ? (
+                    <div className="rounded-2xl border border-zinc-200 bg-white p-4">
+                      <div className="text-sm font-semibold text-zinc-900">Change email name (one time)</div>
+                      <div className="mt-1 text-sm text-zinc-600">
+                        Pick the part before <span className="font-mono">@purelyautomation.com</span>. We’ll normalize spaces/symbols.
+                      </div>
+
+                      <div className="mt-4 grid grid-cols-1 gap-3 sm:grid-cols-3">
+                        <div className="sm:col-span-2">
+                          <label className="text-xs font-semibold text-zinc-600">Email name</label>
+                          <input
+                            value={mailboxLocalPart}
+                            onChange={(e) => setMailboxLocalPart(e.target.value)}
+                            className="mt-1 w-full rounded-2xl border border-zinc-200 bg-white px-4 py-3 font-mono text-sm outline-none focus:border-zinc-300"
+                            placeholder="your-business"
+                            autoComplete="off"
+                          />
+                        </div>
+                        <div className="sm:col-span-1 sm:flex sm:items-end">
+                          <button
+                            type="button"
+                            onClick={() => void saveMailboxOnce()}
+                            disabled={!canSaveMailbox || mailboxSaving}
+                            className="w-full rounded-2xl bg-brand-ink px-5 py-3 text-sm font-semibold text-white hover:opacity-95 disabled:opacity-60"
+                          >
+                            {mailboxSaving ? "Saving…" : "Save"}
+                          </button>
+                        </div>
+                      </div>
+                      <div className="mt-3 text-xs text-zinc-500">After saving, this will be locked.</div>
+                    </div>
+                  ) : (
+                    <div className="rounded-2xl border border-zinc-200 bg-zinc-50 p-4 text-sm text-zinc-600">
+                      {portalMe.role !== "OWNER"
+                        ? "Only the account owner can change this."
+                        : "This business email is locked (one-time change already used)."}
+                    </div>
+                  )
                 ) : null}
               </div>
             </PortalSettingsSection>
