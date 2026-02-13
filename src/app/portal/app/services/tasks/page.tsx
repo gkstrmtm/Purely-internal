@@ -1,8 +1,10 @@
-import { requirePortalUser } from "@/lib/portalAuth";
+import { PortalServiceGate } from "@/app/portal/app/services/PortalServiceGate";
 import { PortalTasksClient } from "@/app/portal/app/tasks/PortalTasksClient";
 
 export default async function PortalServiceTasksPage() {
-  await requirePortalUser();
-
-  return <PortalTasksClient />;
+  return (
+    <PortalServiceGate slug="tasks">
+      <PortalTasksClient />
+    </PortalServiceGate>
+  );
 }

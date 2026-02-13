@@ -1,4 +1,4 @@
-import { requirePortalUser } from "@/lib/portalAuth";
+import { PortalServiceGate } from "@/app/portal/app/services/PortalServiceGate";
 import { PortalNewsletterClient } from "@/app/portal/app/services/newsletter/PortalNewsletterClient";
 
 export default async function PortalServiceNewsletterPage({
@@ -6,8 +6,6 @@ export default async function PortalServiceNewsletterPage({
 }: {
   searchParams?: Record<string, string | string[] | undefined>;
 }) {
-  await requirePortalUser();
-
   const audienceRaw =
     typeof searchParams?.audience === "string"
       ? searchParams?.audience
@@ -16,5 +14,9 @@ export default async function PortalServiceNewsletterPage({
         : "external";
   const audience = String(audienceRaw || "external").toLowerCase() === "internal" ? "internal" : "external";
 
-  return <PortalNewsletterClient initialAudience={audience} />;
+  return (
+    <PortalServiceGate slug="newsletter">
+      <PortalNewsletterClient initialAudience={audience} />
+    </PortalServiceGate>
+  );
 }

@@ -1,7 +1,7 @@
 "use client";
 
 import { createPortal } from "react-dom";
-import { type MouseEvent, useEffect, useMemo, useRef, useState } from "react";
+import { type MouseEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { useToast } from "@/components/ToastProvider";
 
@@ -122,7 +122,7 @@ export function PortalMediaLibraryClient() {
     return items.find((i) => i.id === selected.id) || null;
   }, [selected, items]);
 
-  async function load(nextFolderId: string | null) {
+  const load = useCallback(async (nextFolderId: string | null) => {
     setLoading(true);
     setError(null);
 
@@ -142,12 +142,11 @@ export function PortalMediaLibraryClient() {
     setFolders(Array.isArray(json.folders) ? json.folders : []);
     setItems(Array.isArray(json.items) ? json.items : []);
     setLoading(false);
-  }
+  }, []);
 
   useEffect(() => {
     void load(folderId);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [folderId]);
+  }, [folderId, load]);
 
   const filteredFolders = useMemo(() => {
     const q = search.trim().toLowerCase();
@@ -608,6 +607,7 @@ export function PortalMediaLibraryClient() {
                           >
                             <div className="flex min-w-0 items-center gap-3">
                               {isImg && it.previewUrl ? (
+                                /* eslint-disable-next-line @next/next/no-img-element */
                                 <img src={it.previewUrl} alt={it.fileName} className="h-10 w-10 rounded-2xl object-cover" />
                               ) : (
                                 <div className="flex h-10 w-10 items-center justify-center rounded-2xl bg-zinc-100 text-[10px] font-semibold text-zinc-700">
@@ -666,6 +666,7 @@ export function PortalMediaLibraryClient() {
 
                 {selectedItem.previewUrl && selectedItem.mimeType.startsWith("image/") ? (
                   <div className="mt-4 overflow-hidden rounded-2xl border border-zinc-200 bg-white">
+                    {/* eslint-disable-next-line @next/next/no-img-element */}
                     <img src={selectedItem.previewUrl} alt={selectedItem.fileName} className="w-full object-cover" />
                   </div>
                 ) : (

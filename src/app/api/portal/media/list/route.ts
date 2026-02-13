@@ -49,7 +49,6 @@ export async function GET(req: Request) {
     breadcrumbs.unshift(cur);
 
     while (cur?.parentId) {
-      // eslint-disable-next-line no-await-in-loop
       const parent = await (prisma as any).portalMediaFolder.findFirst({
         where: { id: cur.parentId, ownerId },
         select: { id: true, name: true, parentId: true, tag: true, publicToken: true, color: true, createdAt: true },

@@ -4,8 +4,6 @@ import Image from "next/image";
 import Link from "next/link";
 import { useEffect, useMemo, useRef, useState } from "react";
 
-const OPERATING_TIME_ZONE = "America/New_York";
-
 type SuggestedSlot = { startAt: string; endAt: string; closerCount: number };
 
 type DemoRequestPayload = {
@@ -427,47 +425,6 @@ function getTimeZoneLabel() {
   }
 }
 
-function formatPartsInTimeZone(d: Date, timeZone: string) {
-  const parts = new Intl.DateTimeFormat("en-US", {
-    timeZone,
-    year: "numeric",
-    month: "2-digit",
-    day: "2-digit",
-    hour: "2-digit",
-    minute: "2-digit",
-    second: "2-digit",
-    hour12: false,
-  }).formatToParts(d);
-
-  const map = new Map(parts.map((p) => [p.type, p.value] as const));
-  return {
-    year: Number(map.get("year")),
-    month: Number(map.get("month")),
-    day: Number(map.get("day")),
-    hour: Number(map.get("hour")),
-    minute: Number(map.get("minute")),
-    second: Number(map.get("second")),
-  };
-}
-
-function zonedTimeToUtc(
-  input: { year: number; month: number; day: number; hour: number; minute: number },
-  timeZone: string,
-) {
-  // Two-pass conversion for DST correctness.
-  const desiredUtcAsIf = Date.UTC(input.year, input.month - 1, input.day, input.hour, input.minute, 0);
-
-  let guess = new Date(desiredUtcAsIf);
-  for (let i = 0; i < 2; i++) {
-    const p = formatPartsInTimeZone(guess, timeZone);
-    const guessUtcAsIf = Date.UTC(p.year, p.month - 1, p.day, p.hour, p.minute, p.second);
-    const diff = desiredUtcAsIf - guessUtcAsIf;
-    guess = new Date(guess.getTime() + diff);
-  }
-
-  return guess;
-}
-
 function AutomationGraphic() {
   return (
     <div className="relative h-full w-full overflow-hidden rounded-3xl bg-transparent">
@@ -703,14 +660,6 @@ function BookingWidget({
     if (!phone.trim() && prefill?.phone) setPhone(prefill.phone);
     if (!goals.trim() && prefill?.goals) setGoals(prefill.goals);
   }, [step, prefill, name, company, email, phone, goals]);
-
-  function pickFirstAvailableDay(start: Date) {
-    for (let i = 0; i < 7; i++) {
-      const d = addDays(start, i);
-      if (dayIsSelectable(d)) return d;
-    }
-    return start;
-  }
 
   const days = useMemo(() => {
     return Array.from({ length: 7 }, (_, i) => addDays(weekStart, i));

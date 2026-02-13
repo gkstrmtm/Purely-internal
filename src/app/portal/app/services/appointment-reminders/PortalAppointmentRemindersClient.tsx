@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { PortalSettingsSection } from "@/components/PortalSettingsSection";
 import { PortalMediaPickerModal, type PortalMediaPickItem } from "@/components/PortalMediaPickerModal";
@@ -101,6 +101,11 @@ export function PortalAppointmentRemindersClient() {
 
   const [calendars, setCalendars] = useState<BookingCalendar[]>([]);
   const [selectedCalendarId, setSelectedCalendarId] = useState<string | null>(null);
+  const selectedCalendarIdRef = useRef<string | null>(null);
+
+  useEffect(() => {
+    selectedCalendarIdRef.current = selectedCalendarId;
+  }, [selectedCalendarId]);
 
   const [twilio, setTwilio] = useState<TwilioMasked | null>(null);
   const [settings, setSettings] = useState<AppointmentReminderSettings | null>(null);
@@ -154,12 +159,13 @@ export function PortalAppointmentRemindersClient() {
     return unit === "minutes" ? 5 : 1;
   }
 
-  function remindersUrl(calendarId: string | null) {
+  const remindersUrl = useCallback((calendarId: string | null) => {
     const q = calendarId ? `?calendarId=${encodeURIComponent(calendarId)}` : "";
     return `/api/portal/booking/reminders/settings${q}`;
-  }
+  }, []);
 
-  async function fetchReminders(calendarId: string | null) {
+  const fetchReminders = useCallback(
+    async (calendarId: string | null) => {
     const remindersRes = await fetch(remindersUrl(calendarId), { cache: "no-store" });
     const remJson = await remindersRes.json().catch(() => ({}));
     if (remindersRes.ok) {
@@ -171,9 +177,11 @@ export function PortalAppointmentRemindersClient() {
       return { ok: true as const };
     }
     return { ok: false as const, error: getApiError(remJson) ?? "Failed to load appointment reminders" };
-  }
+    },
+    [remindersUrl]
+  );
 
-  async function refresh() {
+  const refresh = useCallback(async () => {
     setError(null);
 
     const [meRes, calendarsRes] = await Promise.all([
@@ -188,18 +196,18 @@ export function PortalAppointmentRemindersClient() {
     if (calendarsRes.ok) {
       const list = (((calJson as any)?.config?.calendars as BookingCalendar[]) ?? []).filter((c) => c && c.id);
       setCalendars(list);
-      if (!selectedCalendarId) {
+      if (!selectedCalendarIdRef.current) {
         const firstEnabled = list.find((c) => c.enabled) ?? list[0];
         if (firstEnabled?.id) setSelectedCalendarId(firstEnabled.id);
       }
     }
 
-    const targetCalendar = selectedCalendarId;
+    const targetCalendar = selectedCalendarIdRef.current;
     const remindersResult = await fetchReminders(targetCalendar);
     if (!meRes.ok || !calendarsRes.ok || !remindersResult.ok) {
       setError(getApiError(meJson) ?? getApiError(calJson) ?? ("error" in remindersResult ? remindersResult.error : null) ?? "Failed to load appointment reminders");
     }
-  }
+  }, [fetchReminders]);
 
   useEffect(() => {
     let mounted = true;
@@ -212,7 +220,7 @@ export function PortalAppointmentRemindersClient() {
     return () => {
       mounted = false;
     };
-  }, []);
+  }, [refresh]);
 
   useEffect(() => {
     if (!selectedCalendarId) return;
@@ -221,7 +229,7 @@ export function PortalAppointmentRemindersClient() {
       const res = await fetchReminders(selectedCalendarId);
       if (!res.ok) setError((res as any).error ?? "Failed to load appointment reminders");
     })();
-  }, [selectedCalendarId]);
+  }, [fetchReminders, selectedCalendarId]);
 
   async function save(next: AppointmentReminderSettings) {
     setSaving(true);
@@ -377,7 +385,7 @@ export function PortalAppointmentRemindersClient() {
               href="/portal/app/billing?buy=booking&autostart=1"
               className="inline-flex items-center justify-center rounded-2xl bg-[color:var(--color-brand-blue)] px-5 py-3 text-sm font-semibold text-white hover:opacity-95"
             >
-              Unlock in billing
+              Unlock in Billing
             </Link>
             <Link
               href="/portal/app/services"

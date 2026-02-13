@@ -418,7 +418,7 @@ export function PortalBlogsClient() {
               href="/portal/app/billing?buy=blog&autostart=1"
               className="inline-flex items-center justify-center rounded-2xl bg-[color:var(--color-brand-blue)] px-5 py-3 text-sm font-semibold text-white hover:opacity-95"
             >
-              Unlock in billing
+              Unlock in Billing
             </Link>
             <Link
               href="/portal/app/services"

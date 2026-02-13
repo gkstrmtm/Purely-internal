@@ -28,8 +28,6 @@ async function wouldCreateCycle(ownerId: string, folderId: string, nextParentId:
   for (let i = 0; i < 64; i++) {
     if (!curId) return false;
     if (curId === folderId) return true;
-
-    // eslint-disable-next-line no-await-in-loop
     const row: { parentId: string | null } | null = await (prisma as any).portalMediaFolder.findFirst({
       where: { id: curId, ownerId },
       select: { parentId: true },

@@ -992,7 +992,6 @@ export async function scheduleFollowUpsForBooking(
     const q = nextQueue[i]!;
     if (q.bookingId !== bookingRow.id) continue;
     if (q.status !== "PENDING") continue;
-    const key = `${q.bookingId}:${q.stepId}:${q.channel}:${String(q.to || "").trim().toLowerCase()}`;
     // We'll keep it for now; after scheduling we cancel anything not in desiredKeys.
     // (No-op here.)
   }

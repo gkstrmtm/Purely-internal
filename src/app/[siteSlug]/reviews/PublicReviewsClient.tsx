@@ -524,7 +524,6 @@ export function PublicReviewsClient({
             {photoPreviews.length ? (
               <div className="mt-3 flex flex-wrap gap-2">
                 {photoPreviews.map((p) => (
-                  // eslint-disable-next-line @next/next/no-img-element
                   <button
                     key={p.url}
                     type="button"
@@ -532,6 +531,7 @@ export function PublicReviewsClient({
                     onClick={() => openLightbox(photoPreviews.map((x) => x.url), photoPreviews.findIndex((x) => x.url === p.url))}
                     aria-label="Open photo"
                   >
+                    {/* eslint-disable-next-line @next/next/no-img-element */}
                     <img src={p.url} alt="" className="h-full w-full object-cover" />
                   </button>
                 ))}
@@ -705,7 +705,6 @@ export function PublicReviewsClient({
                   {urls.length ? (
                     <div className="mt-3 flex flex-wrap gap-2">
                       {urls.slice(0, 6).map((u) => (
-                        // eslint-disable-next-line @next/next/no-img-element
                         <button
                           key={u}
                           type="button"
@@ -713,6 +712,7 @@ export function PublicReviewsClient({
                           onClick={() => openLightbox(urls, urls.indexOf(u))}
                           aria-label="Open photo"
                         >
+                          {/* eslint-disable-next-line @next/next/no-img-element */}
                           <img src={u} alt="" className="h-full w-full object-cover" />
                         </button>
                       ))}

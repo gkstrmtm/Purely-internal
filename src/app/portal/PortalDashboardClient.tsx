@@ -127,18 +127,6 @@ type MediaStatsPayload =
   | { ok: true; itemsCount: number; foldersCount: number }
   | { ok: false; error?: string };
 
-function Card({ title, children, showHandle }: { title: string; children: React.ReactNode; showHandle: boolean }) {
-  return (
-    <div className="h-full overflow-hidden rounded-3xl border border-zinc-200 bg-white p-6 shadow-sm">
-      <div className="flex items-start justify-between gap-3">
-        <div className="text-sm font-semibold text-zinc-900">{title}</div>
-        {showHandle ? <div className="drag-handle cursor-grab select-none text-zinc-400">⋮⋮</div> : null}
-      </div>
-      <div className="mt-3 text-sm text-zinc-700">{children}</div>
-    </div>
-  );
-}
-
 function classNames(...xs: Array<string | false | null | undefined>) {
   return xs.filter(Boolean).join(" ");
 }
@@ -341,7 +329,7 @@ export function PortalDashboardClient() {
           const stats = (await statsRes.json().catch(() => null)) as MediaStatsPayload | null;
           if (stats) setMediaStats(stats);
         }
-      } catch (err) {
+      } catch {
         if (!mounted) return;
         setError("Unable to load dashboard");
       } finally {

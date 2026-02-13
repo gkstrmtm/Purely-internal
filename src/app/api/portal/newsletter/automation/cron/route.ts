@@ -11,27 +11,6 @@ export const revalidate = 0;
 
 type NewsletterKind = "EXTERNAL" | "INTERNAL";
 
-type StoredKindSettings = {
-  enabled?: boolean;
-  frequencyDays?: number;
-  cursor?: number;
-  requireApproval?: boolean;
-  channels?: { email?: boolean; sms?: boolean };
-  topics?: string[];
-  promptAnswers?: Record<string, string>;
-  deliveryEmailHint?: string;
-  deliverySmsHint?: string;
-  includeImages?: boolean;
-  includeImagesWhereNeeded?: boolean;
-  audience?: { tagIds?: string[]; contactIds?: string[]; emails?: string[]; userIds?: string[] };
-  lastRunAt?: string;
-};
-
-type StoredSettings = {
-  external?: StoredKindSettings;
-  internal?: StoredKindSettings;
-};
-
 function normalizeStrings(items: unknown, max: number) {
   if (!Array.isArray(items)) return [];
   const out: string[] = [];

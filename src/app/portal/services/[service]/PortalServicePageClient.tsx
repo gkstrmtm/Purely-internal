@@ -5,24 +5,6 @@ import { useEffect, useMemo, useState } from "react";
 
 import { PORTAL_SERVICES } from "@/app/portal/services/catalog";
 
-const DEFAULT_FULL_DEMO_EMAIL = "demo-full@purelyautomation.dev";
-
-type Me = {
-  user: { email: string; name: string; role: string };
-  entitlements: {
-    blog: boolean;
-    booking: boolean;
-    automations: boolean;
-    reviews: boolean;
-    newsletter: boolean;
-    nurture: boolean;
-    aiReceptionist: boolean;
-    crm: boolean;
-    leadOutbound: boolean;
-  };
-  metrics: { hoursSavedThisWeek: number; hoursSavedAllTime: number };
-};
-
 type PortalPricing = {
   ok: true;
   stripeConfigured: boolean;
@@ -120,7 +102,6 @@ export function PortalServicePageClient({ slug }: { slug: string }) {
     [slug],
   );
 
-  const [me, setMe] = useState<Me | null>(null);
   const [loading, setLoading] = useState(true);
   const [pricing, setPricing] = useState<PortalPricing | null>(null);
   const [statusRes, setStatusRes] = useState<ServiceStatusRes | null>(null);
@@ -128,20 +109,11 @@ export function PortalServicePageClient({ slug }: { slug: string }) {
   useEffect(() => {
     let mounted = true;
     (async () => {
-      const [res, pricingRes, statusRes] = await Promise.all([
-        fetch("/api/customer/me", {
-          cache: "no-store",
-          headers: { "x-pa-app": "portal" },
-        }),
+      const [pricingRes, statusRes] = await Promise.all([
         fetch("/api/portal/pricing", { cache: "no-store" }).catch(() => null as any),
         fetch("/api/portal/services/status", { cache: "no-store" }).catch(() => null as any),
       ]);
       if (!mounted) return;
-      if (!res.ok) {
-        setLoading(false);
-        return;
-      }
-      setMe((await res.json()) as Me);
       if (pricingRes && pricingRes.ok) {
         const body = (await pricingRes.json().catch(() => null)) as PortalPricing | null;
         setPricing(body && (body as any).ok === true ? body : null);
@@ -163,18 +135,18 @@ export function PortalServicePageClient({ slug }: { slug: string }) {
     };
   }, []);
 
-  const isFullDemo = (me?.user.email ?? "").toLowerCase().trim() === DEFAULT_FULL_DEMO_EMAIL;
-
   const serviceStatus = statusRes && statusRes.ok === true ? statusRes.statuses?.[slug] ?? null : null;
-  const isPaused = serviceStatus?.state === "paused";
-  const isCanceled = serviceStatus?.state === "canceled";
-  const isLocked = serviceStatus?.state === "locked";
+  const state = String(serviceStatus?.state || "").toLowerCase();
+  const isPaused = state === "paused";
+  const isCanceled = state === "canceled";
+  const isLocked = state === "locked";
+  const isComingSoon = state === "coming_soon";
 
-  const unlocked =
-    !(isPaused || isCanceled || isLocked) &&
-    (isFullDemo ||
-      Boolean(service?.included) ||
-      (service?.entitlementKey ? Boolean((me?.entitlements as any)?.[service.entitlementKey]) : false));
+  // Canonical ownership lives in `/api/portal/services/status` (computed for the owner).
+  // If we can't load status, default to safe behavior: only included services render as unlocked.
+  const unlocked = serviceStatus
+    ? !(isPaused || isCanceled || isLocked || isComingSoon)
+    : Boolean(service?.included);
 
   const modulePrice =
     service?.entitlementKey && pricing?.modules
@@ -277,7 +249,7 @@ export function PortalServicePageClient({ slug }: { slug: string }) {
               href={billingUnlockHref}
               className="inline-flex items-center justify-center rounded-2xl bg-[color:var(--color-brand-blue)] px-5 py-3 text-sm font-semibold text-white hover:opacity-95"
             >
-              Unlock in billing
+              Unlock in Billing
             </Link>
             <Link
               href="/portal/app/services"
@@ -455,13 +427,13 @@ export function PortalServicePageClient({ slug }: { slug: string }) {
             <div className="rounded-2xl border border-zinc-200 bg-zinc-50 p-4">
               <div className="text-xs text-zinc-500">Hours saved (week)</div>
               <div className="mt-1 text-lg font-bold text-brand-ink">
-                {me?.metrics?.hoursSavedThisWeek ?? 0}
+                0
               </div>
             </div>
             <div className="rounded-2xl border border-zinc-200 bg-zinc-50 p-4">
               <div className="text-xs text-zinc-500">Hours saved (all time)</div>
               <div className="mt-1 text-lg font-bold text-brand-ink">
-                {me?.metrics?.hoursSavedAllTime ?? 0}
+                0
               </div>
             </div>
           </div>

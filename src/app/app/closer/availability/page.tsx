@@ -1,7 +1,5 @@
 "use client";
 
-/* eslint-disable react-hooks/set-state-in-effect */
-
 import { useEffect, useMemo, useRef, useState } from "react";
 
 import { useToast } from "@/components/ToastProvider";

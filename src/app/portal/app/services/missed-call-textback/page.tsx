@@ -1,9 +1,10 @@
-import { redirect } from "next/navigation";
-
-import { requirePortalUser } from "@/lib/portalAuth";
+import { PortalServiceGate } from "@/app/portal/app/services/PortalServiceGate";
+import { PortalMissedCallTextBackClient } from "@/app/portal/app/services/missed-call-textback/PortalMissedCallTextBackClient";
 
 export default async function PortalMissedCallTextBackServicePage() {
-  await requirePortalUser();
-
-  redirect("/portal/app/services/ai-receptionist?tab=missed-call-textback");
+  return (
+    <PortalServiceGate slug="missed-call-textback">
+      <PortalMissedCallTextBackClient />
+    </PortalServiceGate>
+  );
 }

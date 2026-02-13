@@ -1,5 +1,5 @@
 "use client";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { PortalListboxDropdown } from "@/components/PortalListboxDropdown";
 import { PortalVariablePickerModal } from "@/components/PortalVariablePickerModal";
@@ -715,11 +715,14 @@ export function PortalAutomationsClient() {
     }
   }
 
-  function updateSelectedAutomation(mutator: (a: Automation) => Automation) {
-    setAutomations((prev) =>
-      prev.map((a) => (a.id === selectedAutomationId ? mutator(a) : a)),
-    );
-  }
+  const updateSelectedAutomation = useCallback(
+    (mutator: (a: Automation) => Automation) => {
+      setAutomations((prev) =>
+        prev.map((a) => (a.id === selectedAutomationId ? mutator(a) : a)),
+      );
+    },
+    [selectedAutomationId]
+  );
 
   function insertAtCursor(
     current: string,
@@ -1083,7 +1086,7 @@ export function PortalAutomationsClient() {
     });
   }
 
-  async function saveAll(next?: Automation[]) {
+  const saveAll = useCallback(async (next?: Automation[]) => {
     if (autosaveTimerRef.current) {
       window.clearTimeout(autosaveTimerRef.current);
       autosaveTimerRef.current = null;
@@ -1126,7 +1129,7 @@ export function PortalAutomationsClient() {
       lastSavedToastAtRef.current = now;
       toast.success("Saved");
     }
-  }
+  }, [automations, toast]);
 
   // Autosave: when automations change, debounce a save.
   useEffect(() => {
@@ -1156,7 +1159,7 @@ export function PortalAutomationsClient() {
       if (autosaveTimerRef.current) window.clearTimeout(autosaveTimerRef.current);
       autosaveTimerRef.current = null;
     };
-  }, [automations, loading, saving]);
+  }, [automations, loading, saveAll, saving]);
 
   useEffect(() => {
     void load();
@@ -1394,7 +1397,7 @@ export function PortalAutomationsClient() {
       window.removeEventListener("pointermove", onMove);
       window.removeEventListener("pointerup", onUp);
     };
-  }, [dragging, connecting, selectedAutomationId, view.zoom, view.panX, view.panY, panning]);
+  }, [dragging, connecting, selectedAutomationId, updateSelectedAutomation, view.zoom, view.panX, view.panY, panning]);
 
   function onCanvasDrop(ev: React.DragEvent) {
     ev.preventDefault();

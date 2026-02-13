@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import {
   defaultPortalPermissionsForRole,
@@ -121,7 +121,7 @@ export function PortalPeopleUsersClient() {
     });
   }
 
-  async function load() {
+  const load = useCallback(async () => {
     setLoading(true);
     try {
       const res = await fetch("/api/portal/people/users", { cache: "no-store" });
@@ -133,11 +133,11 @@ export function PortalPeopleUsersClient() {
     } finally {
       setLoading(false);
     }
-  }
+  }, [toast]);
 
   useEffect(() => {
     void load();
-  }, []);
+  }, [load]);
 
   const canInvite = useMemo(() => {
     const r = data?.myRole;

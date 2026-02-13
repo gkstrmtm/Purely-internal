@@ -1,8 +1,10 @@
-import { requirePortalUser } from "@/lib/portalAuth";
+import { PortalServiceGate } from "@/app/portal/app/services/PortalServiceGate";
 import { PortalReportingClient } from "@/app/portal/app/services/reporting/PortalReportingClient";
 
 export default async function PortalReportingServicePage() {
-  await requirePortalUser();
-
-  return <PortalReportingClient />;
+  return (
+    <PortalServiceGate slug="reporting">
+      <PortalReportingClient />
+    </PortalServiceGate>
+  );
 }

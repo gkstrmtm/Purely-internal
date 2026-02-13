@@ -31,8 +31,8 @@ type StoredKindSettings = {
 };
 
 type StoredSettings = {
-  external?: StoredKindSettings;
-  internal?: StoredKindSettings;
+  external: StoredKindSettings;
+  internal: StoredKindSettings;
 };
 
 function clampKind(raw: string | null): NewsletterKind {

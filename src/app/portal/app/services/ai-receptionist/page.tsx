@@ -1,8 +1,10 @@
-import { requirePortalUser } from "@/lib/portalAuth";
+import { PortalServiceGate } from "@/app/portal/app/services/PortalServiceGate";
 import { PortalAiReceptionistClient } from "@/app/portal/app/services/ai-receptionist/PortalAiReceptionistClient";
 
 export default async function PortalAiReceptionistServicePage() {
-  await requirePortalUser();
-
-  return <PortalAiReceptionistClient />;
+  return (
+    <PortalServiceGate slug="ai-receptionist">
+      <PortalAiReceptionistClient />
+    </PortalServiceGate>
+  );
 }

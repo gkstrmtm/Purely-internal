@@ -9,23 +9,6 @@ import { PORTAL_SERVICES } from "@/app/portal/services/catalog";
 
 type BillingStatus = { configured: boolean };
 
-type Me = {
-  user: { email: string; name: string; role: string };
-  entitlements: {
-    blog: boolean;
-    booking: boolean;
-    automations: boolean;
-    reviews: boolean;
-    newsletter: boolean;
-    nurture: boolean;
-    aiReceptionist: boolean;
-    crm: boolean;
-    leadOutbound: boolean;
-  };
-  metrics: { hoursSavedThisWeek: number; hoursSavedAllTime: number };
-  billing: { configured: boolean };
-};
-
 type BillingSummary =
   | { ok: true; configured: false }
   | {
@@ -100,7 +83,6 @@ export function PortalBillingClient() {
   const router = useRouter();
   const toast = useToast();
   const [status, setStatus] = useState<BillingStatus | null>(null);
-  const [me, setMe] = useState<Me | null>(null);
   const [summary, setSummary] = useState<BillingSummary | null>(null);
   const [pricing, setPricing] = useState<PortalPricing | null>(null);
   const [credits, setCredits] = useState<number | null>(null);
@@ -137,9 +119,8 @@ export function PortalBillingClient() {
   useEffect(() => {
     let mounted = true;
     (async () => {
-      const [billingRes, meRes, summaryRes, creditsRes, servicesRes, subsRes, pricingRes] = await Promise.all([
+      const [billingRes, summaryRes, creditsRes, servicesRes, subsRes, pricingRes] = await Promise.all([
         fetch("/api/billing/status", { cache: "no-store" }),
-        fetch("/api/customer/me", { cache: "no-store", headers: { "x-pa-app": "portal" } }),
         fetch("/api/portal/billing/summary", { cache: "no-store" }),
         fetch("/api/portal/credits", { cache: "no-store" }),
         fetch("/api/portal/services/status", { cache: "no-store" }),
@@ -155,9 +136,6 @@ export function PortalBillingClient() {
       }
 
       setStatus((await billingRes.json()) as BillingStatus);
-      if (meRes.ok) {
-        setMe((await meRes.json()) as Me);
-      }
 
       if (summaryRes.ok) {
         setSummary((await summaryRes.json().catch(() => null)) as BillingSummary | null);
@@ -494,16 +472,6 @@ export function PortalBillingClient() {
     summary && summary.configured && "spentThisMonthCents" in summary && typeof summary.spentThisMonthCents === "number"
       ? formatMoney(summary.spentThisMonthCents, (summary as any).spentThisMonthCurrency || summaryCurrency)
       : "—";
-
-  const monthlyBreakdown =
-    summary && summary.configured && "monthlyBreakdown" in summary && Array.isArray((summary as any).monthlyBreakdown)
-      ? (((summary as any).monthlyBreakdown ?? []) as Array<{
-          subscriptionId: string;
-          title: string;
-          monthlyCents: number;
-          currency: string;
-        }>)
-      : [];
 
   const serviceStatuses = services && "ok" in services && services.ok ? services.statuses : null;
 
@@ -1178,6 +1146,12 @@ export function PortalBillingClient() {
               const { s, state, label, priceText } = r;
               const busy = actionBusy?.startsWith(`service:${s.slug}:`) ?? false;
               const canLifecycleManage = !s.included;
+              const badgeText = (() => {
+                if (state === "locked" || state === "coming_soon") return label;
+                if (state === "paused" || state === "canceled") return label;
+                const access = s.included ? "Included" : "Enabled";
+                return `${access} · ${label}`;
+              })();
 
               return (
                 <div
@@ -1216,7 +1190,7 @@ export function PortalBillingClient() {
                     ) : null}
 
                     <span className={`shrink-0 rounded-full px-2 py-0.5 text-xs font-semibold ${badgeClass(state)}`}>
-                      {label}
+                      {badgeText}
                     </span>
 
                     <button

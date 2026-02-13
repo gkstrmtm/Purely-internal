@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useCallback, useEffect, useMemo, useState } from "react";
 
-import { IconServiceGlyph } from "@/app/portal/PortalIcons";
+import { IconLock, IconServiceGlyph } from "@/app/portal/PortalIcons";
 import { PORTAL_SERVICES } from "@/app/portal/services/catalog";
 import { PORTAL_SERVICE_KEYS, type PortalServiceKey } from "@/lib/portalPermissions.shared";
 
@@ -146,6 +146,13 @@ export function PortalServicesClient() {
       <div className="mt-6 grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
         {services.map((s) => {
           const status = statuses?.[s.slug] ?? null;
+          const badgeText = (() => {
+            if (!status) return "…";
+            if (status.state === "locked" || status.state === "coming_soon") return status.label;
+            if (status.state === "paused" || status.state === "canceled") return status.label;
+            const access = s.included ? "Included" : "Enabled";
+            return `${access} · ${status.label}`;
+          })();
 
           return (
             <Link
@@ -170,11 +177,14 @@ export function PortalServicesClient() {
 
                 <span
                   className={classNames(
-                    "inline-flex items-center rounded-full border px-2.5 py-1 text-xs font-semibold",
+                    "inline-flex items-center gap-1 rounded-full border px-2.5 py-1 text-xs font-semibold",
                     status ? badgeClasses(status.state) : "border-zinc-200 bg-zinc-50 text-zinc-500",
                   )}
                 >
-                  {status ? status.label : "…"}
+                  {status && (status.state === "locked" || status.state === "paused" || status.state === "canceled") ? (
+                    <IconLock />
+                  ) : null}
+                  {badgeText}
                 </span>
               </div>
 

@@ -1,8 +1,10 @@
-import { requirePortalUser } from "@/lib/portalAuth";
+import { PortalServiceGate } from "@/app/portal/app/services/PortalServiceGate";
 import { PortalInboxClient } from "@/app/portal/app/services/inbox/PortalInboxClient";
 
 export default async function PortalInboxServicePage() {
-  await requirePortalUser();
-
-  return <PortalInboxClient />;
+  return (
+    <PortalServiceGate slug="inbox">
+      <PortalInboxClient />
+    </PortalServiceGate>
+  );
 }

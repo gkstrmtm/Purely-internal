@@ -1,8 +1,10 @@
-import { requirePortalUser } from "@/lib/portalAuth";
+import { PortalServiceGate } from "@/app/portal/app/services/PortalServiceGate";
 import { PortalLeadScrapingClient } from "@/app/portal/app/services/lead-scraping/PortalLeadScrapingClient";
 
 export default async function PortalLeadScrapingServicePage() {
-  await requirePortalUser();
-
-  return <PortalLeadScrapingClient />;
+  return (
+    <PortalServiceGate slug="lead-scraping">
+      <PortalLeadScrapingClient />
+    </PortalServiceGate>
+  );
 }

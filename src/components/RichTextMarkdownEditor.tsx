@@ -36,12 +36,10 @@ function markdownToHtmlBasic(markdown: string): string {
   };
 
   let listMode: "ul" | "ol" | null = null;
-  let olIndex = 1;
   const flushList = () => {
     if (!listMode) return;
     html.push(listMode === "ul" ? "</ul>" : "</ol>");
     listMode = null;
-    olIndex = 1;
   };
 
   const flushParagraphIfAny = (buf: string[]) => {
@@ -158,10 +156,8 @@ function markdownToHtmlBasic(markdown: string): string {
       if (listMode !== "ol") {
         flushList();
         listMode = "ol";
-        olIndex = 1;
         html.push("<ol>");
       }
-      olIndex += 1;
       html.push(`<li>${inlineMarkdownToHtml(ol[2])}</li>`);
       continue;
     }

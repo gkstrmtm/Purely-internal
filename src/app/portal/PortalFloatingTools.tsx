@@ -57,7 +57,7 @@ export function PortalFloatingTools() {
   const versionLabel = useMemo(() => {
     const sha = shortSha(version?.buildSha);
     return `v ${sha}`;
-  }, [version?.buildSha, version?.commitRef]);
+  }, [version?.buildSha]);
 
   function persistMinimized(next: boolean) {
     setMinimized(next);

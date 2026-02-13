@@ -1,4 +1,4 @@
-import { requirePortalUser } from "@/lib/portalAuth";
+import { PortalServiceGate } from "@/app/portal/app/services/PortalServiceGate";
 import { PortalBlogPostClient } from "@/app/portal/app/services/blogs/[postId]/PortalBlogPostClient";
 
 export default async function PortalBlogPostPage({
@@ -6,8 +6,11 @@ export default async function PortalBlogPostPage({
 }: {
   params: Promise<{ postId: string }>;
 }) {
-  await requirePortalUser();
-
   const { postId } = await params;
-  return <PortalBlogPostClient postId={postId} />;
+
+  return (
+    <PortalServiceGate slug="blogs">
+      <PortalBlogPostClient postId={postId} />
+    </PortalServiceGate>
+  );
 }

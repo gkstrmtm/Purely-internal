@@ -1,9 +1,10 @@
-import { redirect } from "next/navigation";
-
-import { requirePortalUser } from "@/lib/portalAuth";
+import { PortalServiceGate } from "@/app/portal/app/services/PortalServiceGate";
+import PortalReviewsClient from "./setup/PortalReviewsClient";
 
 export default async function PortalReviewsServicePage() {
-  await requirePortalUser();
-
-  redirect("/portal/app/services/reviews/setup");
+  return (
+    <PortalServiceGate slug="reviews">
+      <PortalReviewsClient />
+    </PortalServiceGate>
+  );
 }

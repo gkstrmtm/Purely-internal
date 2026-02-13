@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 
 import { useToast } from "@/components/ToastProvider";
 import { PortalListboxDropdown, type PortalListboxOption } from "@/components/PortalListboxDropdown";
@@ -77,7 +77,7 @@ export function PortalTasksClient() {
   }, [tasks]);
   const doneTasks = useMemo(() => tasks.filter((t) => String(t.status) === "DONE"), [tasks]);
 
-  async function load() {
+  const load = useCallback(async () => {
     setLoading(true);
     try {
       const [tasksRes, assigneesRes] = await Promise.all([
@@ -101,11 +101,11 @@ export function PortalTasksClient() {
     } finally {
       setLoading(false);
     }
-  }
+  }, [toast]);
 
   useEffect(() => {
     void load();
-  }, []);
+  }, [load]);
 
   async function createTask() {
     const t = title.trim();

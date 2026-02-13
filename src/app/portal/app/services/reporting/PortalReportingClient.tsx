@@ -70,12 +70,6 @@ type DashboardData = {
   layout: Array<any>;
 };
 
-type MeResponse = {
-  user?: { email?: string; name?: string; role?: string };
-  entitlements?: { blog?: boolean; booking?: boolean; crm?: boolean; leadOutbound?: boolean };
-  metrics?: { hoursSavedThisWeek?: number; hoursSavedAllTime?: number };
-};
-
 type TwilioMasked = {
   configured: boolean;
   accountSidMasked: string | null;
@@ -501,7 +495,6 @@ export function PortalReportingClient() {
   const [data, setData] = useState<ReportingPayload | null>(null);
   const [mediaStats, setMediaStats] = useState<MediaStatsPayload | null>(null);
   const [twilio, setTwilio] = useState<TwilioMasked | null>(null);
-  const [me, setMe] = useState<MeResponse | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [note, setNote] = useState<string | null>(null);
@@ -587,19 +580,9 @@ export function PortalReportingClient() {
     setLoading(false);
   }
 
-  async function loadMe() {
-    const res = await fetch("/api/customer/me", { cache: "no-store", headers: { "x-pa-app": "portal" } }).catch(
-      () => null as any,
-    );
-    if (!res?.ok) return;
-    const body = (await res.json().catch(() => ({}))) as MeResponse;
-    setMe(body ?? null);
-  }
-
   useEffect(() => {
     void load(range);
     void loadDashboardWidgetIds();
-    void loadMe();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 

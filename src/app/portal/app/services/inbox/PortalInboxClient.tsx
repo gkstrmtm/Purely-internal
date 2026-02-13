@@ -1297,6 +1297,7 @@ export function PortalInboxClient() {
                                   if (isImg) {
                                     return (
                                       <a key={a.id} href={a.url} target="_blank" rel="noreferrer" className="block">
+                                        {/* eslint-disable-next-line @next/next/no-img-element */}
                                         <img src={a.url} alt={a.fileName} className="max-h-56 w-full max-w-[240px] rounded-2xl object-cover" />
                                       </a>
                                     );
@@ -1343,6 +1344,7 @@ export function PortalInboxClient() {
                       return (
                         <div key={a.id} className="flex items-center gap-2 rounded-2xl border border-zinc-200 bg-white px-2 py-1">
                           {isImg ? (
+                            /* eslint-disable-next-line @next/next/no-img-element */
                             <img src={a.url} alt={a.fileName} className="h-8 w-8 rounded-xl object-cover" />
                           ) : (
                             <div className="flex h-8 w-8 items-center justify-center rounded-xl bg-zinc-100 text-xs font-semibold text-zinc-700">

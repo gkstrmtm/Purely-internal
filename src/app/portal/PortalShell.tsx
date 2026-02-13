@@ -192,10 +192,6 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
     // While loading portal/me context, avoid showing incorrect paywall-style locks.
     if (portalMe === null) return true;
 
-    // Portal admins should not see paywall-style locks in the portal shell.
-    // Their access is governed by portal permissions, not per-member entitlements.
-    if (portalMe && portalMe.ok === true && (portalMe.role === "ADMIN" || portalMe.role === "OWNER")) return true;
-
     const entitlementKey = service.entitlementKey;
     if (!entitlementKey) return false;
     const ent = me?.entitlements;

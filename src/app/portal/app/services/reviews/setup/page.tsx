@@ -1,8 +1,10 @@
-import { requirePortalUser } from "@/lib/portalAuth";
+import { PortalServiceGate } from "@/app/portal/app/services/PortalServiceGate";
 import PortalReviewsClient from "./PortalReviewsClient";
 
 export default async function PortalReviewsSetupPage() {
-  await requirePortalUser();
-
-  return <PortalReviewsClient />;
+  return (
+    <PortalServiceGate slug="reviews">
+      <PortalReviewsClient />
+    </PortalServiceGate>
+  );
 }

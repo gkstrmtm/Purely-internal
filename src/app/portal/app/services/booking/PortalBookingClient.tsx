@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { PortalFollowUpClient } from "@/app/portal/app/services/follow-up/PortalFollowUpClient";
 import { PortalMediaPickerModal, type PortalMediaPickItem } from "@/components/PortalMediaPickerModal";
@@ -264,6 +264,11 @@ export function PortalBookingClient() {
   const [reminderSaving, setReminderSaving] = useState(false);
 
   const [reminderCalendarId, setReminderCalendarId] = useState<string | null>(null);
+  const reminderCalendarIdRef = useRef<string | null>(null);
+
+  useEffect(() => {
+    reminderCalendarIdRef.current = reminderCalendarId;
+  }, [reminderCalendarId]);
 
   const [reminderMediaPickerStepId, setReminderMediaPickerStepId] = useState<string | null>(null);
   const [reminderUploadBusyStepId, setReminderUploadBusyStepId] = useState<string | null>(null);
@@ -339,10 +344,10 @@ export function PortalBookingClient() {
     return unit === "minutes" ? 5 : 1;
   }
 
-  function remindersUrl(calendarId: string | null) {
+  const remindersUrl = useCallback((calendarId: string | null) => {
     const q = calendarId ? `?calendarId=${encodeURIComponent(calendarId)}` : "";
     return `/api/portal/booking/reminders/settings${q}`;
-  }
+  }, []);
 
   async function loadReminders(calendarId: string | null) {
     const remindersRes = await fetch(remindersUrl(calendarId), { cache: "no-store" });
@@ -370,7 +375,7 @@ export function PortalBookingClient() {
     return `${window.location.origin}/book/${encodeURIComponent(site.slug)}/c`;
   }, [site?.slug]);
 
-  async function refreshAll() {
+  const refreshAll = useCallback(async () => {
     setError(null);
     const [meRes, settingsRes, bookingsRes, formRes, calendarsRes, blocksRes, remindersRes] = await Promise.all([
       fetch("/api/customer/me", { cache: "no-store", headers: { "x-pa-app": "portal" } }),
@@ -379,7 +384,7 @@ export function PortalBookingClient() {
       fetch("/api/portal/booking/form", { cache: "no-store" }),
       fetch("/api/portal/booking/calendars", { cache: "no-store" }),
       fetch("/api/availability", { cache: "no-store" }),
-      fetch(remindersUrl(reminderCalendarId), { cache: "no-store" }),
+      fetch(remindersUrl(reminderCalendarIdRef.current), { cache: "no-store" }),
     ]);
 
     const meJson = await meRes.json().catch(() => ({}));
@@ -435,7 +440,7 @@ export function PortalBookingClient() {
           "Failed to load booking automation",
       );
     }
-  }
+  }, [remindersUrl]);
 
   async function saveCalendars(next: BookingCalendar[]) {
     setCalSaving(true);
@@ -467,7 +472,7 @@ export function PortalBookingClient() {
     return () => {
       mounted = false;
     };
-  }, []);
+  }, [refreshAll]);
 
   useEffect(() => {
     if (topTab !== "appointments") return;
@@ -833,7 +838,7 @@ export function PortalBookingClient() {
               href="/portal/app/billing?buy=booking&autostart=1"
               className="inline-flex items-center justify-center rounded-2xl bg-[color:var(--color-brand-blue)] px-5 py-3 text-sm font-semibold text-white hover:opacity-95"
             >
-              Unlock in billing
+              Unlock in Billing
             </Link>
             <Link
               href="/portal/app/services"
@@ -1019,9 +1024,6 @@ export function PortalBookingClient() {
                   const ymd = toYmd(day);
                   const selected = focusYmd === ymd;
                   const isToday = toYmd(new Date()) === ymd;
-
-                  const dayStart = startOfDay(day);
-                  const dayEnd = addDays(dayStart, 1);
 
                   const dayBookings = upcoming
                     .filter((b) => toYmd(new Date(b.startAt)) === ymd)

@@ -7,7 +7,6 @@ const UPLOADS_NAME_KEY = normalizeNameKey(UPLOADS_FOLDER_NAME);
 async function newUniqueTag(ownerId: string) {
   let tag = newTag();
   for (let i = 0; i < 5; i++) {
-    // eslint-disable-next-line no-await-in-loop
     const exists = await (prisma as any).portalMediaItem.findFirst({ where: { ownerId, tag }, select: { id: true } });
     if (!exists) return tag;
     tag = newTag();
@@ -18,7 +17,6 @@ async function newUniqueTag(ownerId: string) {
 async function newUniqueFolderTag(ownerId: string) {
   let tag = newTag();
   for (let i = 0; i < 5; i++) {
-    // eslint-disable-next-line no-await-in-loop
     const exists = await (prisma as any).portalMediaFolder.findFirst({ where: { ownerId, tag }, select: { id: true } });
     if (!exists) return tag;
     tag = newTag();

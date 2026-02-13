@@ -55,14 +55,6 @@ async function getOwnerPublicSiteHandle(ownerId: string): Promise<string | null>
   return fallback || null;
 }
 
-async function resolveReviewLink(ownerId: string, settings: ReviewRequestsSettings, destination: ReviewDestination) {
-  if (settings.publicPage.enabled) {
-    const handle = await getOwnerPublicSiteHandle(ownerId);
-    if (handle) return { label: "Reviews page", url: `${getBasePublicUrl()}/${handle}/reviews` };
-  }
-  return { label: destination.label, url: destination.url };
-}
-
 async function resolvePrimarySendLink(
   ownerId: string,
   settings: ReviewRequestsSettings,

@@ -1,5 +1,3 @@
-/* eslint-disable no-console */
-
 const { PrismaClient } = require("@prisma/client");
 
 function normalizeEmailKey(emailRaw) {

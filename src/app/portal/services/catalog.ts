@@ -161,6 +161,7 @@ export const PORTAL_SERVICES: PortalService[] = [
       "Qualify intent and capture details",
       "Book or hand off to your team",
     ],
+    entitlementKey: "aiReceptionist",
     accent: "coral",
     hidden: true,
   },

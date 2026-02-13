@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { PortalMediaPickerModal } from "@/components/PortalMediaPickerModal";
 import { Lightbox, type LightboxImage } from "@/components/Lightbox";
 import { PortalSettingsSection } from "@/components/PortalSettingsSection";
@@ -291,7 +291,7 @@ export default function PortalReviewsClient() {
     return 60 * 24 * 14;
   }, [settings.sendAfter.unit]);
 
-  async function readJsonSafe<T>(res: Response): Promise<JsonResult<T>> {
+  const readJsonSafe = useCallback(async <T,>(res: Response): Promise<JsonResult<T>> => {
     const status = res.status;
     const text = await res.text().catch(() => "");
     if (!text) {
@@ -303,9 +303,9 @@ export default function PortalReviewsClient() {
     } catch {
       return { ok: false, error: `Invalid JSON (HTTP ${status}): ${text.slice(0, 200)}`, status };
     }
-  }
+  }, []);
 
-  async function load() {
+  const load = useCallback(async () => {
     setLoading(true);
     setError(null);
     try {
@@ -377,7 +377,7 @@ export default function PortalReviewsClient() {
     } finally {
       setLoading(false);
     }
-  }
+  }, [readJsonSafe]);
 
   async function saveReviewReply(reviewId: string, nextReplyOverride?: string) {
     setReplySavingId(reviewId);
@@ -482,8 +482,8 @@ export default function PortalReviewsClient() {
   }
 
   useEffect(() => {
-    load();
-  }, []);
+    void load();
+  }, [load]);
 
   useEffect(() => {
     try {

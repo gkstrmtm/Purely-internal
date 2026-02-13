@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { PortalSettingsSection } from "@/components/PortalSettingsSection";
 import { PortalMediaPickerModal, type PortalMediaPickItem } from "@/components/PortalMediaPickerModal";
@@ -79,6 +79,39 @@ export function PortalMissedCallTextBackClient({ embedded }: { embedded?: boolea
   const [error, setError] = useState<string | null>(null);
   const [note, setNote] = useState<string | null>(null);
 
+  const friendlyApiError = useCallback((opts: {
+    status?: number;
+    rawError?: string | null;
+    action: "load" | "save" | "regenerate";
+  }) => {
+    const raw = (opts.rawError || "").trim();
+
+    if (opts.status === 401) {
+      return "Your session expired. Please refresh and sign in again.";
+    }
+
+    if (opts.status === 403) {
+      return embedded
+        ? "Missed-Call Text Back isn’t enabled for this account yet. Enable AI Receptionist in Billing to turn this on."
+        : "Missed-Call Text Back isn’t enabled for this account yet. Open Billing to enable AI Receptionist, then come back here.";
+    }
+
+    if (raw && raw !== "Forbidden" && raw !== "Unauthorized") return raw;
+
+    if (opts.action === "save") return "We couldn’t save your changes. Please try again.";
+    if (opts.action === "regenerate") return "We couldn’t regenerate the webhook token. Please try again.";
+    return "We couldn’t load Missed-Call Text Back settings. Please refresh and try again.";
+  }, [embedded]);
+
+  const readJsonError = useCallback(async (res: Response) => {
+    try {
+      const json = (await res.json()) as any;
+      return typeof json?.error === "string" ? json.error : null;
+    } catch {
+      return null;
+    }
+  }, []);
+
   useEffect(() => {
     if (error) toast.error(error);
   }, [error, toast]);
@@ -91,7 +124,6 @@ export function PortalMissedCallTextBackClient({ embedded }: { embedded?: boolea
   const [profilePhone, setProfilePhone] = useState<string | null>(null);
   const [twilioConfigured, setTwilioConfigured] = useState<boolean>(false);
   const [twilioReason, setTwilioReason] = useState<string | undefined>(undefined);
-  const [webhookUrl, setWebhookUrl] = useState<string>("");
   const [webhookUrlLegacy, setWebhookUrlLegacy] = useState<string>("");
 
   const [varPickerOpen, setVarPickerOpen] = useState(false);
@@ -104,34 +136,39 @@ export function PortalMissedCallTextBackClient({ embedded }: { embedded?: boolea
     return { next, cursor: start + insert.length };
   }
 
-  async function load() {
+  const load = useCallback(async () => {
     setLoading(true);
     setError(null);
     setNote(null);
 
-    const res = await fetch("/api/portal/missed-call-textback/settings", { cache: "no-store" });
+    const res = await fetch("/api/portal/missed-call-textback/settings", { cache: "no-store" }).catch(() => null as any);
 
-    if (!res.ok) {
+    if (!res?.ok) {
+      const rawError = res ? await readJsonError(res) : null;
       setLoading(false);
-      setError("Failed to load.");
+      setError(friendlyApiError({ status: res?.status, rawError, action: "load" }));
       return;
     }
 
-    const data = (await res.json()) as ApiPayload;
+    const data = (await res.json().catch(() => null)) as ApiPayload | null;
+    if (!data?.ok || !data.settings) {
+      setLoading(false);
+      setError(friendlyApiError({ status: res.status, rawError: (data as any)?.error ?? null, action: "load" }));
+      return;
+    }
     setSettings(data.settings);
     setEvents(Array.isArray(data.events) ? data.events : []);
     setProfilePhone(data.profilePhone ?? null);
     setTwilioConfigured(Boolean(data.twilioConfigured));
     setTwilioReason(data.twilioReason);
-    setWebhookUrl(data.webhookUrl || "");
     setWebhookUrlLegacy(data.webhookUrlLegacy || "");
 
     setLoading(false);
-  }
+  }, [friendlyApiError, readJsonError]);
 
   useEffect(() => {
     void load();
-  }, []);
+  }, [load]);
 
   const missedCalls = useMemo(
     () => events.filter((e) => e.finalStatus === "MISSED"),
@@ -193,19 +230,23 @@ export function PortalMissedCallTextBackClient({ embedded }: { embedded?: boolea
     });
 
     if (!res.ok) {
-      const text = await res.text().catch(() => "");
+      const rawError = await readJsonError(res);
       setSaving(false);
-      setError(text || "Save failed.");
+      setError(friendlyApiError({ status: res.status, rawError, action: "save" }));
       return;
     }
 
-    const data = (await res.json()) as ApiPayload;
+    const data = (await res.json().catch(() => null)) as ApiPayload | null;
+    if (!data?.ok || !data.settings) {
+      setSaving(false);
+      setError(friendlyApiError({ status: res.status, rawError: (data as any)?.error ?? null, action: "save" }));
+      return;
+    }
     setSettings(data.settings);
     setEvents(Array.isArray(data.events) ? data.events : []);
     setProfilePhone(data.profilePhone ?? null);
     setTwilioConfigured(Boolean(data.twilioConfigured));
     setTwilioReason(data.twilioReason);
-    setWebhookUrl(data.webhookUrl || "");
     setWebhookUrlLegacy(data.webhookUrlLegacy || "");
     setSaving(false);
     setNote("Saved.");
@@ -226,18 +267,23 @@ export function PortalMissedCallTextBackClient({ embedded }: { embedded?: boolea
     });
 
     if (!res.ok) {
+      const rawError = await readJsonError(res);
       setSaving(false);
-      setError("Failed to regenerate.");
+      setError(friendlyApiError({ status: res.status, rawError, action: "regenerate" }));
       return;
     }
 
-    const data = (await res.json()) as ApiPayload;
+    const data = (await res.json().catch(() => null)) as ApiPayload | null;
+    if (!data?.ok || !data.settings) {
+      setSaving(false);
+      setError(friendlyApiError({ status: res.status, rawError: (data as any)?.error ?? null, action: "regenerate" }));
+      return;
+    }
     setSettings(data.settings);
     setEvents(Array.isArray(data.events) ? data.events : []);
     setProfilePhone(data.profilePhone ?? null);
     setTwilioConfigured(Boolean(data.twilioConfigured));
     setTwilioReason(data.twilioReason);
-    setWebhookUrl(data.webhookUrl || "");
     setWebhookUrlLegacy(data.webhookUrlLegacy || "");
     setSaving(false);
     setNote("Webhook token regenerated.");

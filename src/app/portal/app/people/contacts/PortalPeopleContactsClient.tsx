@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { PortalPeopleTabs } from "@/app/portal/app/people/PortalPeopleTabs";
 import { useToast } from "@/components/ToastProvider";
@@ -129,6 +129,77 @@ export function PortalPeopleContactsClient() {
   const [leadLinkContactId, setLeadLinkContactId] = useState<string>("");
   const [savingLead, setSavingLead] = useState(false);
 
+  const contactsCursorRef = useRef<string | null>(null);
+  const leadsCursorRef = useRef<string | null>(null);
+
+  useEffect(() => {
+    contactsCursorRef.current = contactsCursor;
+  }, [contactsCursor]);
+
+  useEffect(() => {
+    leadsCursorRef.current = leadsCursor;
+  }, [leadsCursor]);
+
+  const load = useCallback(
+    async (opts?: { contactsCursor?: string | null; leadsCursor?: string | null }) => {
+      setLoading(true);
+      try {
+        const cCur = opts?.contactsCursor !== undefined ? opts.contactsCursor : contactsCursorRef.current;
+        const lCur = opts?.leadsCursor !== undefined ? opts.leadsCursor : leadsCursorRef.current;
+
+        const sp = new URLSearchParams();
+        sp.set("take", "50");
+        if (cCur) sp.set("contactsCursor", cCur);
+        if (lCur) sp.set("leadsCursor", lCur);
+
+        const res = await fetch(`/api/portal/people/contacts?${sp.toString()}`,
+          { cache: "no-store" },
+        );
+        const json = (await res.json()) as any;
+        if (!res.ok || !json?.ok) throw new Error(String(json?.error || "Failed to load"));
+        setData(json as ContactsPayload);
+        setContactsNextCursor(typeof json?.contactsNextCursor === "string" ? json.contactsNextCursor : null);
+        setLeadsNextCursor(typeof json?.unlinkedLeadsNextCursor === "string" ? json.unlinkedLeadsNextCursor : null);
+
+        if (opts?.contactsCursor !== undefined) {
+          contactsCursorRef.current = opts.contactsCursor;
+          setContactsCursor(opts.contactsCursor);
+        }
+        if (opts?.leadsCursor !== undefined) {
+          leadsCursorRef.current = opts.leadsCursor;
+          setLeadsCursor(opts.leadsCursor);
+        }
+
+        return true;
+      } catch (e: any) {
+        toast.error(String(e?.message || "Failed to load"));
+        return false;
+      } finally {
+        setLoading(false);
+      }
+    },
+    [toast]
+  );
+
+  const loadOwnerTags = useCallback(async () => {
+    try {
+      const res = await fetch("/api/portal/contact-tags", { cache: "no-store" });
+      const json = (await res.json().catch(() => ({}))) as any;
+      if (!res.ok || !json?.ok || !Array.isArray(json?.tags)) return;
+      setOwnerTags(
+        json.tags
+          .map((t: any) => ({
+            id: String(t?.id || ""),
+            name: String(t?.name || "").slice(0, 60),
+            color: typeof t?.color === "string" ? String(t.color) : null,
+          }))
+          .filter((t: ContactTag) => t.id && t.name),
+      );
+    } catch {
+      // ignore
+    }
+  }, []);
+
   useEffect(() => {
     function isTypingTarget(el: Element | null) {
       if (!el) return false;
@@ -206,64 +277,14 @@ export function PortalPeopleContactsClient() {
     leadsCursorStack,
     detailOpen,
     leadModalOpen,
+    load,
     loading,
   ]);
-
-  async function load(opts?: { contactsCursor?: string | null; leadsCursor?: string | null }) {
-    setLoading(true);
-    try {
-      const cCur = opts?.contactsCursor !== undefined ? opts.contactsCursor : contactsCursor;
-      const lCur = opts?.leadsCursor !== undefined ? opts.leadsCursor : leadsCursor;
-
-      const sp = new URLSearchParams();
-      sp.set("take", "50");
-      if (cCur) sp.set("contactsCursor", cCur);
-      if (lCur) sp.set("leadsCursor", lCur);
-
-      const res = await fetch(`/api/portal/people/contacts?${sp.toString()}`,
-        { cache: "no-store" },
-      );
-      const json = (await res.json()) as any;
-      if (!res.ok || !json?.ok) throw new Error(String(json?.error || "Failed to load"));
-      setData(json as ContactsPayload);
-      setContactsNextCursor(typeof json?.contactsNextCursor === "string" ? json.contactsNextCursor : null);
-      setLeadsNextCursor(typeof json?.unlinkedLeadsNextCursor === "string" ? json.unlinkedLeadsNextCursor : null);
-
-      if (opts?.contactsCursor !== undefined) setContactsCursor(opts.contactsCursor);
-      if (opts?.leadsCursor !== undefined) setLeadsCursor(opts.leadsCursor);
-
-      return true;
-    } catch (e: any) {
-      toast.error(String(e?.message || "Failed to load"));
-      return false;
-    } finally {
-      setLoading(false);
-    }
-  }
-
-  async function loadOwnerTags() {
-    try {
-      const res = await fetch("/api/portal/contact-tags", { cache: "no-store" });
-      const json = (await res.json().catch(() => ({}))) as any;
-      if (!res.ok || !json?.ok || !Array.isArray(json?.tags)) return;
-      setOwnerTags(
-        json.tags
-          .map((t: any) => ({
-            id: String(t?.id || ""),
-            name: String(t?.name || "").slice(0, 60),
-            color: typeof t?.color === "string" ? String(t.color) : null,
-          }))
-          .filter((t: ContactTag) => t.id && t.name),
-      );
-    } catch {
-      // ignore
-    }
-  }
 
   useEffect(() => {
     void load();
     void loadOwnerTags();
-  }, []);
+  }, [load, loadOwnerTags]);
 
   async function openContact(contactId: string) {
     setSelectedContactId(contactId);

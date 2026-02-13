@@ -99,13 +99,10 @@ export async function POST(req: Request) {
     // Generate a tag that is unique per owner.
     let tag = newTag();
     for (let i = 0; i < 5; i++) {
-      // eslint-disable-next-line no-await-in-loop
       const exists = await (prisma as any).portalMediaItem.findFirst({ where: { ownerId, tag }, select: { id: true } });
       if (!exists) break;
       tag = newTag();
     }
-
-    // eslint-disable-next-line no-await-in-loop
     const row = await (prisma as any).portalMediaItem.create({
       data: {
         ownerId,

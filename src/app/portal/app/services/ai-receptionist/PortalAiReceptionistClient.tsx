@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { PortalMissedCallTextBackClient } from "@/app/portal/app/services/missed-call-textback/PortalMissedCallTextBackClient";
 import { PortalSettingsSection } from "@/components/PortalSettingsSection";
@@ -210,6 +210,37 @@ export function PortalAiReceptionistClient() {
   const [error, setError] = useState<string | null>(null);
   const [note, setNote] = useState<string | null>(null);
 
+  const friendlyApiError = useCallback((opts: {
+    status?: number;
+    rawError?: string | null;
+    action: "load" | "save" | "regenerate";
+  }) => {
+    const raw = (opts.rawError || "").trim();
+
+    if (opts.status === 401) {
+      return "Your session expired. Please refresh and sign in again.";
+    }
+
+    if (opts.status === 403) {
+      return "AI Receptionist isn’t enabled for this account yet. Open Billing to enable it, then come back here.";
+    }
+
+    if (raw && raw !== "Forbidden" && raw !== "Unauthorized") return raw;
+
+    if (opts.action === "save") return "We couldn’t save your changes. Please try again.";
+    if (opts.action === "regenerate") return "We couldn’t regenerate the webhook token. Please try again.";
+    return "We couldn’t load AI Receptionist settings. Please refresh and try again.";
+  }, []);
+
+  const readJsonError = useCallback(async (res: Response) => {
+    try {
+      const json = (await res.json()) as any;
+      return typeof json?.error === "string" ? json.error : null;
+    } catch {
+      return null;
+    }
+  }, []);
+
   useEffect(() => {
     if (error) toast.error(error);
   }, [error, toast]);
@@ -243,7 +274,7 @@ export function PortalAiReceptionistClient() {
     }
   }
 
-  async function loadCredits() {
+  const loadCredits = useCallback(async () => {
     const res = await fetch("/api/portal/credits", { cache: "no-store" }).catch(() => null as any);
     if (!res?.ok) {
       setCredits(0);
@@ -254,24 +285,25 @@ export function PortalAiReceptionistClient() {
     const data = (await res.json().catch(() => ({}))) as { credits?: number; billingPath?: string };
     setCredits(typeof data.credits === "number" && Number.isFinite(data.credits) ? data.credits : 0);
     setBillingPath(typeof data.billingPath === "string" && data.billingPath.trim() ? data.billingPath : "/portal/app/billing");
-  }
+  }, []);
 
-  async function load() {
+  const load = useCallback(async () => {
     setLoading(true);
     setError(null);
     setNote(null);
 
-    const res = await fetch("/api/portal/ai-receptionist/settings", { cache: "no-store" });
-    if (!res.ok) {
+    const res = await fetch("/api/portal/ai-receptionist/settings", { cache: "no-store" }).catch(() => null as any);
+    if (!res?.ok) {
+      const rawError = res ? await readJsonError(res) : null;
       setLoading(false);
-      setError("Failed to load.");
+      setError(friendlyApiError({ status: res?.status, rawError, action: "load" }));
       return;
     }
 
     const data = (await res.json().catch(() => null)) as ApiPayload | null;
     if (!data?.ok || !data.settings) {
       setLoading(false);
-      setError(data?.error || "Failed to load.");
+      setError(friendlyApiError({ status: res.status, rawError: data?.error ?? null, action: "load" }));
       return;
     }
 
@@ -281,12 +313,12 @@ export function PortalAiReceptionistClient() {
     setWebhookUrlLegacy(typeof data.webhookUrlLegacy === "string" ? data.webhookUrlLegacy : "");
     setTwilioConfigured(Boolean(data.twilioConfigured ?? data.twilio?.configured));
     setLoading(false);
-  }
+  }, [friendlyApiError, readJsonError]);
 
   useEffect(() => {
     void load();
     void loadCredits();
-  }, []);
+  }, [load, loadCredits]);
 
   function setTabWithUrl(nextTab: "settings" | "testing" | "activity" | "missed-call-textback") {
     setTab(nextTab);
@@ -352,7 +384,7 @@ export function PortalAiReceptionistClient() {
     const data = (await res.json().catch(() => null)) as ApiPayload | null;
     if (!res.ok || !data?.ok) {
       setSaving(false);
-      setError(data?.error || "Save failed.");
+      setError(friendlyApiError({ status: res.status, rawError: data?.error ?? null, action: "save" }));
       return;
     }
 
@@ -382,7 +414,13 @@ export function PortalAiReceptionistClient() {
     if (!res?.ok || !data?.ok) {
       setSavingEnabled(false);
       setSettings((cur) => (cur ? { ...cur, enabled: prev } : cur));
-      setError(data?.error || "Save failed.");
+      setError(
+        friendlyApiError({
+          status: res?.status,
+          rawError: (data as any)?.error ?? null,
+          action: "save",
+        }),
+      );
       return;
     }
 
@@ -403,7 +441,7 @@ export function PortalAiReceptionistClient() {
     const data = (await res.json().catch(() => null)) as ApiPayload | null;
     if (!res.ok || !data?.ok) {
       setSaving(false);
-      setError(data?.error || "Failed to regenerate token.");
+      setError(friendlyApiError({ status: res.status, rawError: data?.error ?? null, action: "regenerate" }));
       return;
     }
 
@@ -505,6 +543,20 @@ export function PortalAiReceptionistClient() {
       </div>
 
       {note ? <div className="mt-4 rounded-2xl border border-emerald-200 bg-emerald-50 p-4 text-sm text-emerald-800">{note}</div> : null}
+
+      {!twilioConfigured ? (
+        <div className="mt-4 rounded-2xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900">
+          <div className="font-semibold">Connect Twilio to take calls</div>
+          <div className="mt-1 text-amber-900/80">
+            Add your Twilio details in your Profile, then point your Twilio number’s Voice webhook to the URL in the Twilio tab.
+            <span className="ml-2">
+              <Link href="/portal/profile" className="underline">
+                Open Profile
+              </Link>
+            </span>
+          </div>
+        </div>
+      ) : null}
 
       {tab === "settings" ? (
         <div className="mt-4 grid grid-cols-1 gap-6 lg:grid-cols-3">
@@ -645,6 +697,15 @@ export function PortalAiReceptionistClient() {
               >
                 <div className="text-xs font-semibold text-zinc-600">Webhook URL (token-based)</div>
                 <div className="mt-2 break-all font-mono text-xs text-zinc-800">{webhookUrlLegacy || "—"}</div>
+                {!twilioConfigured ? (
+                  <div className="mt-2 text-xs text-red-700">
+                    Twilio isn’t connected yet. Add your Twilio credentials in{" "}
+                    <Link href="/portal/profile" className="underline">
+                      Profile
+                    </Link>
+                    , then paste this URL into your Twilio number’s Voice webhook.
+                  </div>
+                ) : null}
                 <div className="mt-3 flex items-center justify-between gap-2">
                   <button
                     type="button"

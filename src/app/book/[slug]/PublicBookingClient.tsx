@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 
 import { useToast } from "@/components/ToastProvider";
 
@@ -137,6 +137,12 @@ export function PublicBookingClient({ target }: { target: PublicBookingTarget })
     if (error) toast.error(error);
   }, [error, toast]);
 
+  const bookingBase =
+    target.kind === "slug"
+      ? `/api/public/booking/${encodeURIComponent(target.slug)}`
+      : `/api/public/booking/u/${encodeURIComponent(target.ownerId)}/${encodeURIComponent(target.calendarId)}`;
+  const targetKey = bookingBase;
+
   const canBook = useMemo(() => {
     if (!selected) return false;
     if (!name.trim() || !email.trim()) return false;
@@ -184,14 +190,14 @@ export function PublicBookingClient({ target }: { target: PublicBookingTarget })
     return slotsByDay.get(selectedDate) ?? [];
   }, [selectedDate, slotsByDay]);
 
-  async function loadSettings() {
-    const res = await fetch(`${bookingApiBase(target)}/settings`, {
+  const loadSettings = useCallback(async () => {
+    const res = await fetch(`${bookingBase}/settings`, {
       cache: "no-store",
     });
     const body = await res.json().catch(() => ({}));
     if (!res.ok) throw new Error(getApiError(body) ?? "Booking page not found");
     setSite((body as { site: Site }).site);
-  }
+  }, [bookingBase]);
 
   async function loadSlots(fromIso?: string) {
     setSlotsLoading(true);
@@ -234,7 +240,7 @@ export function PublicBookingClient({ target }: { target: PublicBookingTarget })
     return () => {
       mounted = false;
     };
-  }, [target.kind === "slug" ? target.slug : `${target.ownerId}/${target.calendarId}`]);
+  }, [loadSettings, targetKey]);
 
   useEffect(() => {
     // When changing months, reset selection and load a fresh 30-day window.

@@ -196,6 +196,7 @@ export function PublicMediaFolderClient(props: { folderId: string; token: string
                   >
                     <div className="flex min-w-0 items-center gap-3">
                       {isImg && it.previewUrl ? (
+                        /* eslint-disable-next-line @next/next/no-img-element */
                         <img src={it.previewUrl} alt={it.fileName} className="h-10 w-10 rounded-2xl object-cover" />
                       ) : (
                         <div className="flex h-10 w-10 items-center justify-center rounded-2xl bg-zinc-100 text-[10px] font-semibold text-zinc-700">
