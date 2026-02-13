@@ -6,6 +6,7 @@ import { prisma } from "@/lib/db";
 import { requireClientSessionForService } from "@/lib/portalAccess";
 import { hasPublicColumn } from "@/lib/dbSchema";
 import { getAiReceptionistServiceData, setAiReceptionistSettings } from "@/lib/aiReceptionist";
+import { getOrCreateOwnerMailboxAddress } from "@/lib/portalMailbox";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
@@ -236,6 +237,13 @@ export async function PUT(req: Request) {
         await setAiReceptionistSettings(ownerId, { ...ai.settings, businessName: nextBusinessName });
       }
     }
+  } catch {
+    // ignore
+  }
+
+  // Best-effort: provision the managed business mailbox alias.
+  try {
+    await getOrCreateOwnerMailboxAddress(ownerId);
   } catch {
     // ignore
   }

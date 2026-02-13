@@ -46,6 +46,7 @@ export async function sendEmail({
   cc,
   subject,
   text,
+  fromEmail,
   fromName,
   ownerId,
   attachments,
@@ -54,6 +55,7 @@ export async function sendEmail({
   cc?: string | null;
   subject: string;
   text: string;
+  fromEmail?: string;
   fromName?: string;
   ownerId?: string;
   attachments?: Array<{ fileName: string; mimeType: string; bytes: Buffer }>;
@@ -65,12 +67,14 @@ export async function sendEmail({
     cc,
     subject,
     text: safeText,
+    fromEmail,
     fromName,
     attachments,
   });
 
-  const { fromEmail } = getOutboundEmailFrom();
-  if (!fromEmail) throw new Error("Email is not configured yet.");
+  const envFrom = getOutboundEmailFrom().fromEmail;
+  const resolvedFromEmail = String(fromEmail || "").trim() || envFrom;
+  if (!resolvedFromEmail) throw new Error("Email is not configured yet.");
 
   if (ownerId) {
     const subjectKey = normalizeSubjectKey(subject);
@@ -85,7 +89,7 @@ export async function sendEmail({
         peerKey: thread.peerKey,
         subject,
         subjectKey: thread.subjectKey,
-        fromAddress: fromEmail,
+        fromAddress: resolvedFromEmail,
         toAddress: thread.peerKey,
         bodyText: safeText,
         provider: sendResult.provider,

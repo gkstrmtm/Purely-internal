@@ -8,6 +8,7 @@ import { ensureClientRoleAllowed, isClientRoleMissingError } from "@/lib/ensureC
 import { normalizePhoneStrict } from "@/lib/phone";
 import { PORTAL_SESSION_COOKIE_NAME } from "@/lib/portalAuth";
 import { resolvePortalOwnerIdForLogin } from "@/lib/portalAccounts";
+import { getOrCreateOwnerMailboxAddress } from "@/lib/portalMailbox";
 import {
   goalLabelsFromIds,
   normalizeGoalIds,
@@ -307,6 +308,14 @@ export async function POST(req: Request) {
 
   // Multi-user portal accounts: session uid is the account ownerId.
   const ownerId = await resolvePortalOwnerIdForLogin(user.id).catch(() => user.id);
+
+  // Best-effort: provision the managed business mailbox alias.
+  try {
+    await getOrCreateOwnerMailboxAddress(ownerId);
+  } catch {
+    // ignore
+  }
+
   const token = await encode({
     secret,
     token: {

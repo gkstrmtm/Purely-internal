@@ -96,6 +96,7 @@ model User {
   portalTasks        PortalTask[] @relation("PortalTaskOwner")
   portalTasksAssigned PortalTask[] @relation("PortalTaskAssignee")
   businessProfile     BusinessProfile?
+  portalMailboxAddress PortalMailboxAddress?
   clientBlogSite      ClientBlogSite?
 
   portalBookingSite   PortalBookingSite?
@@ -544,6 +545,26 @@ model PortalInboxAttachment {
 
   @@index([ownerId, createdAt])
   @@index([messageId])
+}
+
+model PortalMailboxAddress {
+  id String @id @default(cuid())
+
+  ownerId String @unique
+
+  // Local-part only, e.g. "acme-co" for acme-co@purelyautomation.com
+  localPart String
+
+  // Full email address for convenience.
+  emailAddress String
+  emailKey     String @unique
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  owner User @relation(fields: [ownerId], references: [id])
+
+  @@index([ownerId])
 }
 
 model MarketingDemoRequest {

@@ -11,6 +11,7 @@ import {
   isOutboundEmailConfigured,
   missingOutboundEmailConfigReason,
 } from "@/lib/emailSender";
+import { getOrCreateOwnerMailboxAddress } from "@/lib/portalMailbox";
 import { runOwnerAutomationsForEvent } from "@/lib/portalAutomationsRunner";
 import { ensurePortalInboxSchema } from "@/lib/portalInboxSchema";
 import { buildPortalTemplateVars } from "@/lib/portalTemplateVars";
@@ -232,11 +233,14 @@ export async function POST(req: Request) {
   const thread = makeEmailThreadKey(toRaw, subjectKey);
   if (!thread) return NextResponse.json({ ok: false, error: "Invalid email" }, { status: 400 });
 
+  const mailbox = await getOrCreateOwnerMailboxAddress(ownerId).catch(() => null);
+
   try {
     await sendEmail({
       to: thread.peerKey,
       subject,
       text: body || " ",
+      fromEmail: mailbox?.emailAddress || undefined,
       fromName: profile?.businessName || "Purely Automation",
       attachments: attachments.map((a: any) => ({
         fileName: String(a.fileName || "attachment").slice(0, 200),
@@ -286,7 +290,7 @@ export async function POST(req: Request) {
     peerKey,
     subject,
     subjectKey: thread.subjectKey,
-    fromAddress: getOutboundEmailFrom().fromEmail || "purelyautomation@purelyautomation.com",
+    fromAddress: mailbox?.emailAddress || getOutboundEmailFrom().fromEmail || "purelyautomation@purelyautomation.com",
     toAddress: thread.peerKey,
     bodyText: fallbackBodyText,
     provider: getOutboundEmailProvider() || "POSTMARK",
