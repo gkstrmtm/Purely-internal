@@ -12,6 +12,7 @@ type UserRow = {
   active: boolean;
   createdAt: string;
   overrides: ModuleKey[];
+  creditsBalance?: number;
 };
 
 type OverridesResponse = {
@@ -39,12 +40,28 @@ async function setOverride(opts: { ownerId: string; module: ModuleKey; enabled: 
   }
 }
 
+async function giftCredits(opts: { ownerId: string; amount: number }) {
+  const res = await fetch("/api/manager/portal/credits/gift", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ ownerId: opts.ownerId, amount: opts.amount }),
+  });
+  const body = await res.json().catch(() => ({}));
+  if (!res.ok) {
+    const msg = typeof body?.error === "string" && body.error ? body.error : `Request failed (HTTP ${res.status})`;
+    throw new Error(msg);
+  }
+  return body as { ok: true; balance: number };
+}
+
 export default function PortalOverridesClient() {
   const toast = useToast();
 
   const [q, setQ] = useState("");
   const [loading, setLoading] = useState(true);
   const [savingKey, setSavingKey] = useState<string | null>(null);
+  const [giftingOwnerId, setGiftingOwnerId] = useState<string | null>(null);
+  const [giftAmountByOwner, setGiftAmountByOwner] = useState<Record<string, string>>({});
   const [error, setError] = useState<string | null>(null);
   const [users, setUsers] = useState<UserRow[]>([]);
 
@@ -96,6 +113,27 @@ export default function PortalOverridesClient() {
     }
   }
 
+  async function onGift(ownerId: string) {
+    const raw = (giftAmountByOwner[ownerId] ?? "").trim();
+    const amount = Number(raw);
+    if (!Number.isFinite(amount) || Math.floor(amount) !== amount || amount <= 0) {
+      toast.error("Enter a positive whole number of credits");
+      return;
+    }
+
+    setGiftingOwnerId(ownerId);
+    try {
+      const res = await giftCredits({ ownerId, amount });
+      setUsers((prev) => prev.map((u) => (u.id === ownerId ? { ...u, creditsBalance: res.balance } : u)));
+      toast.success(`Gifted ${amount} credits`);
+      setGiftAmountByOwner((prev) => ({ ...prev, [ownerId]: "" }));
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Gift failed");
+    } finally {
+      setGiftingOwnerId(null);
+    }
+  }
+
   return (
     <div>
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
@@ -124,6 +162,7 @@ export default function PortalOverridesClient() {
           <thead>
             <tr className="text-left text-xs font-semibold uppercase tracking-wide text-zinc-500">
               <th className="sticky left-0 z-10 bg-white px-4 py-3">User</th>
+              <th className="px-4 py-3">Credits</th>
               {moduleList.map((m) => (
                 <th key={m} className="px-4 py-3">
                   {MODULE_LABELS[m]}
@@ -138,6 +177,27 @@ export default function PortalOverridesClient() {
                   <div className="text-sm font-semibold text-brand-ink">{u.email}</div>
                   <div className="mt-1 text-xs text-zinc-500">
                     {u.name} {u.active ? "" : "• inactive"}
+                  </div>
+                </td>
+                <td className="px-4 py-4">
+                  <div className="text-sm font-semibold text-zinc-900">{Math.max(0, Math.floor(u.creditsBalance ?? 0))}</div>
+                  <div className="mt-2 flex items-center gap-2">
+                    <input
+                      className="w-28 rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm outline-none focus:border-zinc-400"
+                      placeholder="Amount"
+                      inputMode="numeric"
+                      value={giftAmountByOwner[u.id] ?? ""}
+                      onChange={(e) => setGiftAmountByOwner((prev) => ({ ...prev, [u.id]: e.target.value }))}
+                      disabled={giftingOwnerId === u.id}
+                    />
+                    <button
+                      type="button"
+                      className="rounded-xl bg-[color:var(--color-brand-blue)] px-3 py-2 text-sm font-semibold text-white hover:opacity-95 disabled:opacity-60"
+                      onClick={() => onGift(u.id)}
+                      disabled={giftingOwnerId === u.id}
+                    >
+                      {giftingOwnerId === u.id ? "Gifting…" : "Gift"}
+                    </button>
                   </div>
                 </td>
                 {moduleList.map((m) => {

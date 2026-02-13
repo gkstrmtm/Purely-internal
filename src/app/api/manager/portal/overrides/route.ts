@@ -21,6 +21,7 @@ function requireManager(session: any) {
 const moduleSchema = z.enum(MODULE_KEYS);
 
 const OVERRIDES_SETUP_SLUG = "__portal_entitlement_overrides";
+const CREDITS_SETUP_SLUG = "credits";
 
 function parseOverrides(dataJson: unknown): Set<ModuleKey> {
   const rec = dataJson && typeof dataJson === "object" && !Array.isArray(dataJson)
@@ -45,6 +46,16 @@ function encodeOverrides(enabled: Set<ModuleKey>, updatedByUserId: string) {
     updatedAtIso: new Date().toISOString(),
     updatedByUserId,
   };
+}
+
+function parseCreditsBalance(dataJson: unknown): number {
+  const rec = dataJson && typeof dataJson === "object" && !Array.isArray(dataJson)
+    ? (dataJson as Record<string, unknown>)
+    : null;
+  const raw = rec?.balance;
+  const n = typeof raw === "number" ? raw : typeof raw === "string" ? Number(raw) : NaN;
+  if (!Number.isFinite(n)) return 0;
+  return Math.max(0, Math.floor(n));
 }
 
 const upsertSchema = z.object({
@@ -94,15 +105,28 @@ export async function GET(req: Request) {
       })
     : [];
 
+  const creditRows = ownerIds.length
+    ? await prisma.portalServiceSetup.findMany({
+        where: { ownerId: { in: ownerIds }, serviceSlug: CREDITS_SETUP_SLUG },
+        select: { ownerId: true, dataJson: true },
+      })
+    : [];
+
   const byOwner = new Map<string, Set<ModuleKey>>();
   for (const row of rows) {
     byOwner.set(row.ownerId, parseOverrides(row.dataJson));
+  }
+
+  const creditsByOwner = new Map<string, number>();
+  for (const row of creditRows) {
+    creditsByOwner.set(row.ownerId, parseCreditsBalance(row.dataJson));
   }
 
   return NextResponse.json({
     users: users.map((u) => ({
       ...u,
       overrides: Array.from(byOwner.get(u.id) ?? []),
+      creditsBalance: creditsByOwner.get(u.id) ?? 0,
     })),
     modules: MODULE_KEYS,
   });

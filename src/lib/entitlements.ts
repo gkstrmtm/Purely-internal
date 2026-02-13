@@ -18,6 +18,7 @@ function blankEntitlements(): Entitlements {
     newsletter: false,
     nurture: false,
     aiReceptionist: false,
+    leadScraping: false,
     crm: false,
     leadOutbound: false,
   };
@@ -43,6 +44,7 @@ export function demoEntitlementsByEmail(email: string): Entitlements | null {
       newsletter: true,
       nurture: true,
       aiReceptionist: true,
+      leadScraping: true,
       crm: true,
       leadOutbound: true,
     };
@@ -57,6 +59,7 @@ export function demoEntitlementsByEmail(email: string): Entitlements | null {
       newsletter: false,
       nurture: false,
       aiReceptionist: false,
+      leadScraping: false,
       crm: false,
       leadOutbound: false,
     };
@@ -73,6 +76,7 @@ function priceEnv(key: string) {
 export async function entitlementsFromStripe(email: string): Promise<Entitlements> {
   const blogPrice = priceEnv("STRIPE_PRICE_BLOG_AUTOMATION");
   const bookingPrice = priceEnv("STRIPE_PRICE_BOOKING_AUTOMATION");
+  const leadScrapingPrice = priceEnv("STRIPE_PRICE_LEAD_SCRAPING");
   const crmPrice = priceEnv("STRIPE_PRICE_CRM_AUTOMATION");
   const leadOutboundPrice = priceEnv("STRIPE_PRICE_LEAD_OUTBOUND");
 
@@ -84,6 +88,7 @@ export async function entitlementsFromStripe(email: string): Promise<Entitlement
     newsletter: false,
     nurture: false,
     aiReceptionist: false,
+    leadScraping: false,
     crm: false,
     leadOutbound: false,
   };
@@ -152,7 +157,11 @@ export async function entitlementsFromStripe(email: string): Promise<Entitlement
       entitlements.aiReceptionist = true;
     }
 
-    if (text.includes("follow up") || text.includes("followup") || text.includes("crm") || text.includes("lead scraping") || text.includes("lead-scraping")) {
+    if (text.includes("lead scraping") || text.includes("lead-scraping")) {
+      entitlements.leadScraping = true;
+    }
+
+    if (text.includes("follow up") || text.includes("followup") || text.includes("crm")) {
       entitlements.crm = true;
     }
 
@@ -179,6 +188,7 @@ export async function entitlementsFromStripe(email: string): Promise<Entitlement
     if (moduleMeta === "newsletter") entitlements.newsletter = true;
     if (moduleMeta === "nurture") entitlements.nurture = true;
     if (moduleMeta === "aiReceptionist") entitlements.aiReceptionist = true;
+    if (moduleMeta === "leadScraping") entitlements.leadScraping = true;
     if (moduleMeta === "crm") entitlements.crm = true;
     if (moduleMeta === "leadOutbound") entitlements.leadOutbound = true;
 
@@ -193,6 +203,7 @@ export async function entitlementsFromStripe(email: string): Promise<Entitlement
       if (planIds.has("nurture")) entitlements.nurture = true;
       if (planIds.has("ai-receptionist")) entitlements.aiReceptionist = true;
       if (planIds.has("ai-outbound")) entitlements.leadOutbound = true;
+      if (planIds.has("lead-scraping-b2b") || planIds.has("lead-scraping-b2c")) entitlements.leadScraping = true;
       // Note: CRM isn't currently a get-started planId; handled via module metadata.
     }
   }
@@ -200,6 +211,7 @@ export async function entitlementsFromStripe(email: string): Promise<Entitlement
   // Legacy fallback: match fixed Stripe price IDs when present.
   if (blogPrice && priceIds.has(blogPrice)) entitlements.blog = true;
   if (bookingPrice && priceIds.has(bookingPrice)) entitlements.booking = true;
+  if (leadScrapingPrice && priceIds.has(leadScrapingPrice)) entitlements.leadScraping = true;
   if (crmPrice && priceIds.has(crmPrice)) entitlements.crm = true;
   if (leadOutboundPrice && priceIds.has(leadOutboundPrice)) entitlements.leadOutbound = true;
 

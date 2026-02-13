@@ -18,6 +18,7 @@ const bodySchema = z.object({
     "newsletter",
     "nurture",
     "aiReceptionist",
+    "leadScraping",
     "crm",
     "leadOutbound",
   ]),

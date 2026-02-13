@@ -53,6 +53,7 @@ function isUnlocked(opts: {
     | "newsletter"
     | "nurture"
     | "aiReceptionist"
+    | "leadScraping"
     | "crm"
     | "leadOutbound";
   ownedByLifecycle: boolean;

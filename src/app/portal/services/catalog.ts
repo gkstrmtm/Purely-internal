@@ -11,6 +11,7 @@ export type PortalService = {
     | "newsletter"
     | "nurture"
     | "aiReceptionist"
+    | "leadScraping"
     | "crm"
     | "leadOutbound";
   included?: boolean;
@@ -186,7 +187,7 @@ export const PORTAL_SERVICES: PortalService[] = [
       "Exclude lists + de-dupe against past pulls",
       "Schedule recurring pulls",
     ],
-    entitlementKey: "crm",
+    entitlementKey: "leadScraping",
     accent: "ink",
   },
   {

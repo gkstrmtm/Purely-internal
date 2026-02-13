@@ -20,22 +20,13 @@ import {
 import { PORTAL_SERVICES, type PortalService } from "@/app/portal/services/catalog";
 import { PortalFloatingTools } from "@/app/portal/PortalFloatingTools";
 import { PORTAL_SERVICE_KEYS, type PortalServiceKey } from "@/lib/portalPermissions.shared";
+import type { Entitlements } from "@/lib/entitlements.shared";
 
 const DEFAULT_FULL_DEMO_EMAIL = "demo-full@purelyautomation.dev";
 
 type Me = {
   user: { email: string; name: string; role: string };
-  entitlements: {
-    blog: boolean;
-    booking: boolean;
-    automations: boolean;
-    reviews: boolean;
-    newsletter: boolean;
-    nurture: boolean;
-    aiReceptionist: boolean;
-    crm: boolean;
-    leadOutbound: boolean;
-  };
+  entitlements: Entitlements;
   metrics: { hoursSavedThisWeek: number; hoursSavedAllTime: number };
 };
 

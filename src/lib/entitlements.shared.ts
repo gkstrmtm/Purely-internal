@@ -6,6 +6,7 @@ export const MODULE_KEYS = [
   "newsletter",
   "nurture",
   "aiReceptionist",
+  "leadScraping",
   "crm",
   "leadOutbound",
 ] as const;
@@ -21,6 +22,7 @@ export const MODULE_LABELS: Record<ModuleKey, string> = {
   newsletter: "Newsletter",
   nurture: "Nurture",
   aiReceptionist: "AI Receptionist",
+  leadScraping: "Lead Scraping",
   crm: "CRM / Follow-up",
   leadOutbound: "AI Outbound",
 };

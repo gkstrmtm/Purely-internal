@@ -37,6 +37,7 @@ export async function GET() {
   const newsletter = modulePricing("newsletter");
   const nurture = modulePricing("nurture");
   const aiReceptionist = modulePricing("aiReceptionist");
+  const leadScraping = modulePricing("leadScraping");
   const crm = modulePricing("crm");
   const leadOutbound = modulePricing("leadOutbound");
 
@@ -58,6 +59,7 @@ export async function GET() {
       newsletter,
       nurture,
       aiReceptionist,
+      leadScraping,
       crm,
       leadOutbound,
     },

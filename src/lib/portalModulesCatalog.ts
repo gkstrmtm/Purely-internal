@@ -6,6 +6,7 @@ export type PortalModuleKey =
   | "newsletter"
   | "nurture"
   | "aiReceptionist"
+  | "leadScraping"
   | "leadOutbound"
   | "crm";
 
@@ -81,6 +82,15 @@ export const PORTAL_MODULE_CATALOG: Record<PortalModuleKey, PortalModuleCatalogI
     title: "AI Receptionist (Inbound)",
     description: "Front desk-style inbound Q&A and routing.",
     monthlyUsd: 79,
+    setupUsd: 0,
+    usageBased: true,
+    purchasable: true,
+  },
+  leadScraping: {
+    key: "leadScraping",
+    title: "Lead Scraping",
+    description: "Pull fresh leads with exclusions and optional scheduling.",
+    monthlyUsd: 49,
     setupUsd: 0,
     usageBased: true,
     purchasable: true,

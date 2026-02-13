@@ -66,6 +66,7 @@ type PortalPricing =
         newsletter: { monthlyCents: number; setupCents?: number; currency: string; usageBased?: boolean; title?: string } | null;
         nurture: { monthlyCents: number; setupCents?: number; currency: string; usageBased?: boolean; title?: string } | null;
         aiReceptionist: { monthlyCents: number; setupCents?: number; currency: string; usageBased?: boolean; title?: string } | null;
+        leadScraping: { monthlyCents: number; setupCents?: number; currency: string; usageBased?: boolean; title?: string } | null;
         crm: { monthlyCents: number; setupCents?: number; currency: string; usageBased?: boolean; title?: string } | null;
         leadOutbound: { monthlyCents: number; setupCents?: number; currency: string; usageBased?: boolean; title?: string } | null;
       };
@@ -96,7 +97,7 @@ export function PortalBillingClient() {
   const [actionBusy, setActionBusy] = useState<string | null>(null);
 
   const [purchaseModal, setPurchaseModal] = useState<null | {
-    module: "blog" | "booking" | "automations" | "reviews" | "newsletter" | "nurture" | "aiReceptionist" | "crm" | "leadOutbound";
+    module: "blog" | "booking" | "automations" | "reviews" | "newsletter" | "nurture" | "aiReceptionist" | "leadScraping" | "crm" | "leadOutbound";
     serviceTitle: string;
   }>(null);
 
@@ -226,9 +227,9 @@ export function PortalBillingClient() {
       const qs = new URLSearchParams(window.location.search);
       const buyRaw = (qs.get("buy") || "").trim();
       if (!buyRaw) return;
-      if (!(["blog", "booking", "crm", "leadOutbound"] as const).includes(buyRaw as any)) return;
+      if (!(["blog", "booking", "crm", "leadOutbound", "leadScraping"] as const).includes(buyRaw as any)) return;
 
-      const mod = buyRaw as "blog" | "booking" | "crm" | "leadOutbound";
+      const mod = buyRaw as "blog" | "booking" | "crm" | "leadOutbound" | "leadScraping";
       setPurchaseModal({ module: mod, serviceTitle: "Service" });
 
       const url = new URL(window.location.href);
@@ -264,7 +265,7 @@ export function PortalBillingClient() {
   }, [serviceMenuSlug]);
 
   function openPurchaseModal(
-    module: "blog" | "booking" | "automations" | "reviews" | "newsletter" | "nurture" | "aiReceptionist" | "crm" | "leadOutbound",
+    module: "blog" | "booking" | "automations" | "reviews" | "newsletter" | "nurture" | "aiReceptionist" | "leadScraping" | "crm" | "leadOutbound",
     serviceTitle: string,
   ) {
     setServiceMenuSlug(null);
@@ -272,7 +273,7 @@ export function PortalBillingClient() {
   }
 
   async function purchaseModule(
-    module: "blog" | "booking" | "automations" | "reviews" | "newsletter" | "nurture" | "aiReceptionist" | "crm" | "leadOutbound",
+    module: "blog" | "booking" | "automations" | "reviews" | "newsletter" | "nurture" | "aiReceptionist" | "leadScraping" | "crm" | "leadOutbound",
   ) {
     setError(null);
     setActionBusy(`module:${module}`);
@@ -299,7 +300,7 @@ export function PortalBillingClient() {
   }
 
   function modulePurchasable(
-    module: "blog" | "booking" | "automations" | "reviews" | "newsletter" | "nurture" | "aiReceptionist" | "crm" | "leadOutbound",
+    module: "blog" | "booking" | "automations" | "reviews" | "newsletter" | "nurture" | "aiReceptionist" | "leadScraping" | "crm" | "leadOutbound",
   ) {
     if (!pricing || !("ok" in pricing) || pricing.ok !== true) return false;
     const mod = (pricing.modules as any)?.[module] ?? null;
@@ -604,7 +605,7 @@ export function PortalBillingClient() {
         const monthlyCents = typeof p?.monthlyCents === "number" && Number.isFinite(p.monthlyCents) ? p.monthlyCents : 0;
         const currency = String(p?.currency || summaryCurrency || "usd");
 
-        const included = Boolean(s.included) || !monthlyCents;
+        const included = Boolean(s.included) || billingKey === null;
         return { slug: s.slug, title: s.title, state, label, currency, monthlyCents, included };
       })
       .filter(Boolean) as Array<{
