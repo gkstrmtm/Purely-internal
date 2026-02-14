@@ -1,63 +1,8 @@
 import { NextResponse } from "next/server";
 
 import { prisma } from "@/lib/db";
-import { missingOutboundEmailConfigReason, trySendTransactionalEmail } from "@/lib/emailSender";
 import { isVercelCronRequest, readCronAuthValue } from "@/lib/cronAuth";
-
-type SendResult =
-  | { ok: true }
-  | { ok: false; skipped: true; reason: string }
-  | { ok: false; skipped?: false; reason: string };
-
-async function sendEmail(to: string, body: string): Promise<SendResult> {
-  const r = await trySendTransactionalEmail({
-    to,
-    subject: "Your Purely Automation demo",
-    text: body,
-    fromName: "Purely Automation",
-  });
-
-  if (r.ok) return { ok: true };
-  if (r.skipped) return { ok: false, skipped: true, reason: missingOutboundEmailConfigReason() };
-  return { ok: false, reason: r.reason };
-}
-
-async function sendSms(to: string, body: string): Promise<SendResult> {
-  const accountSid = process.env.TWILIO_ACCOUNT_SID;
-  const authToken = process.env.TWILIO_AUTH_TOKEN;
-  const fromNumber = process.env.TWILIO_FROM_NUMBER;
-  if (!accountSid || !authToken || !fromNumber) {
-    return {
-      ok: false,
-      skipped: true,
-      reason: "Missing TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN, or TWILIO_FROM_NUMBER",
-    };
-  }
-
-  const url = `https://api.twilio.com/2010-04-01/Accounts/${accountSid}/Messages.json`;
-  const basic = Buffer.from(`${accountSid}:${authToken}`).toString("base64");
-
-  const form = new URLSearchParams();
-  form.set("To", to);
-  form.set("From", fromNumber);
-  form.set("Body", body);
-
-  const res = await fetch(url, {
-    method: "POST",
-    headers: {
-      authorization: `Basic ${basic}`,
-      "content-type": "application/x-www-form-urlencoded",
-    },
-    body: form.toString(),
-  });
-
-  if (!res.ok) {
-    const text = await res.text().catch(() => "");
-    return { ok: false, reason: `Twilio failed (${res.status}): ${text.slice(0, 500)}` };
-  }
-
-  return { ok: true };
-}
+import { sendMarketingEmail, sendMarketingSms } from "@/lib/marketingMessaging";
 
 export async function GET(req: Request) {
   const isVercelCron = isVercelCronRequest(req);
@@ -95,7 +40,9 @@ export async function GET(req: Request) {
 
     try {
       const result =
-        msg.channel === "EMAIL" ? await sendEmail(msg.to, msg.body) : await sendSms(msg.to, msg.body);
+        msg.channel === "EMAIL"
+          ? await sendMarketingEmail({ to: msg.to, subject: "Your Purely Automation demo", body: msg.body })
+          : await sendMarketingSms({ to: msg.to, body: msg.body });
 
       if (result.ok) {
         sent++;

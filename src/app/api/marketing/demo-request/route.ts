@@ -72,14 +72,51 @@ function buildEmailBody(name: string) {
     "",
     "Thanks for checking out Purely Automation.",
     "",
-    "This demo was triggered automatically a few minutes after you requested it.",
-    "",
-    "If you want, book a call right here and we will get you set up.",
+    "If you want to see it in action, you can book a call here:",
+    "{{BOOK_URL}}",
   ].join("\n");
 }
 
-function buildSmsBody() {
-  return "Purely Automation demo: book a call on the site when you are ready.";
+function buildEmailBodyForStep(opts: { name: string; bookUrl: string; stepIndex: number }) {
+  const base = buildEmailBody(opts.name).replace("{{BOOK_URL}}", opts.bookUrl);
+
+  const extra = (() => {
+    switch (opts.stepIndex) {
+      case 0:
+        return "\n\nPick a time that works for you — we’ll tailor the call to your workflow.";
+      case 1:
+        return "\n\nQuick question: what’s the #1 thing you want automated right now?";
+      case 2:
+        return "\n\nIf you share your current process, we can usually spot a few high-ROI automations immediately.";
+      case 3:
+        return "\n\nStill interested? Book a time and we’ll map out next steps.";
+      case 4:
+        return "\n\nIf timing wasn’t right last week, no worries — here’s the booking link again.";
+      case 5:
+        return "\n\nLast check-in — if you’d like help automating this, grab a time here.";
+      default:
+        return "";
+    }
+  })();
+
+  return base + extra;
+}
+
+function buildSmsBodyForStep(opts: { bookUrl: string; stepIndex: number }) {
+  const prefix =
+    opts.stepIndex === 0
+      ? "Purely Automation: thanks for requesting a demo."
+      : opts.stepIndex === 1
+        ? "Purely Automation: quick follow-up."
+        : opts.stepIndex === 2
+          ? "Purely Automation: want help automating?"
+          : opts.stepIndex === 3
+            ? "Purely Automation: still interested?"
+            : opts.stepIndex === 4
+              ? "Purely Automation: checking back."
+              : "Purely Automation: last check-in.";
+
+  return `${prefix} Book a call: ${opts.bookUrl}`;
 }
 
 function getMissingColumnFromP2022(err: unknown) {
@@ -176,10 +213,10 @@ export async function POST(req: Request) {
     }
 
     const now = new Date();
-    const followUpAt = new Date(now.getTime() + 5 * 60_000);
+    const origin = new URL(req.url).origin;
 
-    const emailBody = buildEmailBody(name);
-    const smsBody = buildSmsBody();
+    // Nurture schedule: now, +5m, +1h, +1d, +1w, +2w
+    const offsetsMinutes = [0, 5, 60, 60 * 24, 60 * 24 * 7, 60 * 24 * 14];
 
     const messages: Array<{
       requestId: string;
@@ -187,20 +224,30 @@ export async function POST(req: Request) {
       to: string;
       body: string;
       sendAt: Date;
-    }> = [
-      { requestId: request.id, channel: "EMAIL", to: email, body: emailBody, sendAt: now },
-      { requestId: request.id, channel: "EMAIL", to: email, body: emailBody, sendAt: followUpAt },
-    ];
+    }> = [];
 
-    if (optedIn) {
-      messages.push({ requestId: request.id, channel: "SMS", to: normalizedPhone, body: smsBody, sendAt: now });
-      messages.push({
-        requestId: request.id,
-        channel: "SMS",
-        to: normalizedPhone,
-        body: smsBody,
-        sendAt: followUpAt,
-      });
+    for (let i = 0; i < offsetsMinutes.length; i++) {
+      const sendAt = new Date(now.getTime() + offsetsMinutes[i] * 60_000);
+
+      const bookUrlEmail = new URL("/book-a-call", origin);
+      bookUrlEmail.searchParams.set("r", request.id);
+      bookUrlEmail.searchParams.set("utm_source", "demo_request");
+      bookUrlEmail.searchParams.set("utm_medium", "email");
+      bookUrlEmail.searchParams.set("utm_campaign", "nurture");
+
+      const emailBody = buildEmailBodyForStep({ name, bookUrl: bookUrlEmail.toString(), stepIndex: i });
+      messages.push({ requestId: request.id, channel: "EMAIL", to: email, body: emailBody, sendAt });
+
+      if (optedIn) {
+        const bookUrlSms = new URL("/book-a-call", origin);
+        bookUrlSms.searchParams.set("r", request.id);
+        bookUrlSms.searchParams.set("utm_source", "demo_request");
+        bookUrlSms.searchParams.set("utm_medium", "sms");
+        bookUrlSms.searchParams.set("utm_campaign", "nurture");
+
+        const smsBody = buildSmsBodyForStep({ bookUrl: bookUrlSms.toString(), stepIndex: i });
+        messages.push({ requestId: request.id, channel: "SMS", to: normalizedPhone, body: smsBody, sendAt });
+      }
     }
 
     // Best-effort: the form submission should succeed even if follow-up scheduling breaks.
