@@ -5,6 +5,7 @@ import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/db";
 import { normalizePhoneForStorage } from "@/lib/phone";
 import { trySendTransactionalEmail } from "@/lib/emailSender";
+import { sendMarketingEmail, sendMarketingSms } from "@/lib/marketingMessaging";
 
 async function sendInternalEmail(subject: string, body: string) {
   await trySendTransactionalEmail({
@@ -215,8 +216,113 @@ export async function POST(req: Request) {
     const now = new Date();
     const origin = new URL(req.url).origin;
 
-    // Nurture schedule: now, +5m, +1h, +1d, +1w, +2w
+    // Nurture schedule: send step 0 immediately (inline), then queue follow-ups.
+    // Follow-ups: +5m, +1h, +1d, +1w, +2w
     const offsetsMinutes = [0, 5, 60, 60 * 24, 60 * 24 * 7, 60 * 24 * 14];
+
+    const immediateResults: Array<{ channel: "EMAIL" | "SMS"; ok: boolean; status: string; reason?: string }> = [];
+
+    // Step 0: send immediately (best-effort), and persist a MarketingMessage row with final status.
+    // This avoids needing the cron job to prove the SMS/email path works.
+    try {
+      const bookUrlEmail = new URL("/book-a-call", origin);
+      bookUrlEmail.searchParams.set("r", request.id);
+      bookUrlEmail.searchParams.set("utm_source", "demo_request");
+      bookUrlEmail.searchParams.set("utm_medium", "email");
+      bookUrlEmail.searchParams.set("utm_campaign", "nurture");
+
+      const emailBody0 = buildEmailBodyForStep({ name, bookUrl: bookUrlEmail.toString(), stepIndex: 0 });
+      const emailMsg = await prisma.marketingMessage.create({
+        data: { requestId: request.id, channel: "EMAIL", to: email, body: emailBody0, sendAt: now },
+      });
+
+      const claimed = await prisma.marketingMessage.updateMany({
+        where: { id: emailMsg.id, status: "PENDING" },
+        data: { status: "PROCESSING" },
+      });
+
+      if (claimed.count > 0) {
+        const r = await sendMarketingEmail({ to: email, subject: "Your Purely Automation demo", body: emailBody0 });
+
+        if (r.ok) {
+          await prisma.marketingMessage.update({
+            where: { id: emailMsg.id },
+            data: { status: "SENT", sentAt: new Date(), error: null },
+          });
+          immediateResults.push({ channel: "EMAIL", ok: true, status: "SENT" });
+        } else if (r.skipped) {
+          await prisma.marketingMessage.update({
+            where: { id: emailMsg.id },
+            data: { status: "SKIPPED", sentAt: new Date(), error: r.reason },
+          });
+          immediateResults.push({ channel: "EMAIL", ok: false, status: "SKIPPED", reason: r.reason });
+        } else {
+          await prisma.marketingMessage.update({
+            where: { id: emailMsg.id },
+            data: { status: "FAILED", error: r.reason },
+          });
+          immediateResults.push({ channel: "EMAIL", ok: false, status: "FAILED", reason: r.reason });
+        }
+      }
+    } catch (e) {
+      immediateResults.push({
+        channel: "EMAIL",
+        ok: false,
+        status: "FAILED",
+        reason: e instanceof Error ? e.message : "Unknown error",
+      });
+    }
+
+    if (optedIn) {
+      try {
+        const bookUrlSms = new URL("/book-a-call", origin);
+        bookUrlSms.searchParams.set("r", request.id);
+        bookUrlSms.searchParams.set("utm_source", "demo_request");
+        bookUrlSms.searchParams.set("utm_medium", "sms");
+        bookUrlSms.searchParams.set("utm_campaign", "nurture");
+
+        const smsBody0 = buildSmsBodyForStep({ bookUrl: bookUrlSms.toString(), stepIndex: 0 });
+        const smsMsg = await prisma.marketingMessage.create({
+          data: { requestId: request.id, channel: "SMS", to: normalizedPhone, body: smsBody0, sendAt: now },
+        });
+
+        const claimed = await prisma.marketingMessage.updateMany({
+          where: { id: smsMsg.id, status: "PENDING" },
+          data: { status: "PROCESSING" },
+        });
+
+        if (claimed.count > 0) {
+          const r = await sendMarketingSms({ to: normalizedPhone, body: smsBody0 });
+
+          if (r.ok) {
+            await prisma.marketingMessage.update({
+              where: { id: smsMsg.id },
+              data: { status: "SENT", sentAt: new Date(), error: null },
+            });
+            immediateResults.push({ channel: "SMS", ok: true, status: "SENT" });
+          } else if (r.skipped) {
+            await prisma.marketingMessage.update({
+              where: { id: smsMsg.id },
+              data: { status: "SKIPPED", sentAt: new Date(), error: r.reason },
+            });
+            immediateResults.push({ channel: "SMS", ok: false, status: "SKIPPED", reason: r.reason });
+          } else {
+            await prisma.marketingMessage.update({
+              where: { id: smsMsg.id },
+              data: { status: "FAILED", error: r.reason },
+            });
+            immediateResults.push({ channel: "SMS", ok: false, status: "FAILED", reason: r.reason });
+          }
+        }
+      } catch (e) {
+        immediateResults.push({
+          channel: "SMS",
+          ok: false,
+          status: "FAILED",
+          reason: e instanceof Error ? e.message : "Unknown error",
+        });
+      }
+    }
 
     const messages: Array<{
       requestId: string;
@@ -226,7 +332,8 @@ export async function POST(req: Request) {
       sendAt: Date;
     }> = [];
 
-    for (let i = 0; i < offsetsMinutes.length; i++) {
+    // Queue steps 1..N for the cron processor.
+    for (let i = 1; i < offsetsMinutes.length; i++) {
       const sendAt = new Date(now.getTime() + offsetsMinutes[i] * 60_000);
 
       const bookUrlEmail = new URL("/book-a-call", origin);
@@ -269,6 +376,13 @@ export async function POST(req: Request) {
         `Phone: ${normalizedPhone}`,
         goals?.trim() ? `Goals: ${goals.trim()}` : null,
         `Opted in: ${optedIn ? "yes" : "no"}`,
+        immediateResults.length
+          ? [
+              "",
+              "Immediate nurture sends:",
+              ...immediateResults.map((r) => `- ${r.channel}: ${r.status}${r.reason ? ` (${r.reason})` : ""}`),
+            ].join("\n")
+          : null,
         "",
         `LeadId: ${lead.id}`,
         `RequestId: ${request.id}`,
