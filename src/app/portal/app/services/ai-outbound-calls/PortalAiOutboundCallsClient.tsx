@@ -241,13 +241,13 @@ export function PortalAiOutboundCallsClient() {
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const selected = useMemo(() => campaigns.find((c) => c.id === selectedId) ?? null, [campaigns, selectedId]);
 
-  const [tab, setTab] = useState<"settings" | "activity">("settings");
+  const [tab, setTab] = useState<"settings" | "activity">("activity");
 
   useEffect(() => {
     setAgentSyncRequired(false);
     setManualCallId(null);
     setManualCall(null);
-    setTab("settings");
+    setTab("activity");
   }, [selectedId]);
 
   async function loadManualCalls(campaignId?: string) {
