@@ -184,7 +184,7 @@ function AutomationHighlights() {
       <div className="mx-auto max-w-5xl rounded-[28px] bg-[#f7f5ef] p-8 shadow-sm">
         <div className="text-center font-brand text-3xl text-brand-blue">what we automate</div>
         <div className="mt-2 text-center text-base text-brand-ink">
-          Automations you can run and monitor from your portal.
+          Systems that keep your business moving while you focus on higher-leveraged work.
         </div>
 
         <div className="mt-8 grid grid-cols-1 gap-4 sm:grid-cols-2">
@@ -1255,9 +1255,9 @@ export function MarketingLanding() {
                     priority
                   />
                   <p className="mt-5 max-w-md font-brand text-xl text-brand-ink md:text-2xl">
-                    let your portal handle the busywork,
+                    let your computer handle the busywork,
                     <br />
-                    so you can focus on growth
+                    so you can focus on moving levers
                   </p>
                 </div>
 

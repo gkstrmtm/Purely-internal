@@ -16,43 +16,58 @@ export function PortalOffersCarousel() {
   const offers = useMemo<Offer[]>(
     () => [
       {
-        title: "Blog automation",
-        description: "Weekly posting that stays on brand and consistent.",
+        title: "Core Portal",
+        description: "Your home base for services, billing, and reporting.",
         tone: "blue",
       },
       {
-        title: "Booking automation",
-        description: "Less back-and-forth. More appointments on the calendar.",
+        title: "Automation Builder",
+        description: "Build workflows for the services you have turned on.",
         tone: "coral",
       },
       {
-        title: "CRM follow-up",
-        description: "Keep leads warm with simple, reliable follow-up.",
+        title: "Booking Automation",
+        description: "Calendar plus confirmations, reminders, and follow-ups.",
         tone: "ink",
       },
       {
-        title: "Billing and access",
-        description: "See what’s active, update payment, and add services fast.",
+        title: "Reviews + Verified Listing + Q&A",
+        description: "Send review requests and build trust with a verified page.",
         tone: "blue",
       },
       {
-        title: "Onboarding help",
-        description: "Get set up fast with a clear path to launch.",
+        title: "Newsletter",
+        description: "Weekly by default. AI-generated and easy to edit.",
         tone: "ink",
       },
       {
-        title: "Content planning",
-        description: "Keep topics organized and publishing steady.",
+        title: "Automated Blogs",
+        description: "SEO posts published for you, on schedule.",
         tone: "coral",
       },
       {
-        title: "Reporting snapshots",
-        description: "Simple visibility into what’s running and saving time.",
+        title: "AI Receptionist",
+        description: "Answer calls, route requests, and log everything.",
         tone: "blue",
       },
       {
-        title: "Add services anytime",
-        description: "Turn on the next piece when you want it.",
+        title: "AI Outbound",
+        description: "Calls, texts, and emails that follow up fast.",
+        tone: "ink",
+      },
+      {
+        title: "Lead Scraping (B2B)",
+        description: "Business leads pulled from Google Maps.",
+        tone: "coral",
+      },
+      {
+        title: "Lead Scraping (B2C)",
+        description: "Consumer leads delivered on demand.",
+        tone: "blue",
+      },
+      {
+        title: "Nurture Campaigns",
+        description: "Install once. Let it keep working in the background.",
         tone: "ink",
       },
     ],
@@ -136,7 +151,7 @@ export function PortalOffersCarousel() {
         <div>
           <div className="text-base font-semibold text-brand-ink">What you can activate</div>
           <div className="mt-1 text-sm text-zinc-600">
-            Add services as you grow. Your portal always shows what’s live.
+            Start with one service or stack a few. Everything lives in one place.
           </div>
         </div>
       </div>
