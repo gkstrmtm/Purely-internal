@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { PortalListboxDropdown } from "@/components/PortalListboxDropdown";
 import { useToast } from "@/components/ToastProvider";
@@ -275,6 +275,7 @@ export function PortalAiOutboundCallsClient() {
   const [manualCallId, setManualCallId] = useState<string | null>(null);
   const [manualCall, setManualCall] = useState<ManualCall | null>(null);
   const [manualCalls, setManualCalls] = useState<ManualCall[]>([]);
+  const manualCallAutoSyncRef = useRef<Record<string, boolean>>({});
 
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const selected = useMemo(() => campaigns.find((c) => c.id === selectedId) ?? null, [campaigns, selectedId]);
@@ -288,14 +289,65 @@ export function PortalAiOutboundCallsClient() {
     setTab("activity");
   }, [selectedId]);
 
-  async function loadManualCalls(campaignId?: string) {
+  const loadManualCalls = useCallback(async (campaignId?: string) => {
     const qs = campaignId ? `?campaignId=${encodeURIComponent(campaignId)}` : "";
     const res = await fetch(`/api/portal/ai-outbound-calls/manual-calls${qs}`, { cache: "no-store" }).catch(() => null as any);
     if (!res || !res.ok) return;
     const json = (await res.json().catch(() => null)) as ApiGetManualCallsResponse | null;
     if (!json || (json as any).ok !== true || !Array.isArray((json as any).manualCalls)) return;
     setManualCalls((json as any).manualCalls);
-  }
+  }, []);
+
+  const syncManualCallArtifacts = useCallback(
+    async (id: string) => {
+      if (manualCallSyncBusy) return;
+      setManualCallSyncBusy(true);
+      try {
+        const res = await fetch(`/api/portal/ai-outbound-calls/manual-calls/${encodeURIComponent(id)}`, {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: "{}",
+        }).catch(() => null as any);
+
+        const json = (await res?.json?.().catch(() => null)) as any;
+        if (!res || !res.ok || !json || json.ok !== true) {
+          throw new Error(json?.error || "Unable to refresh call artifacts");
+        }
+
+        if (json.manualCall) setManualCall(json.manualCall as ManualCall);
+        if (selected?.id) await loadManualCalls(selected.id);
+
+        if (json.usedVoiceTranscript) toast.success("Updated transcript from voice platform");
+        else toast.success(json.requestedTranscription ? "Refreshing… transcript may take a minute" : "Updated");
+      } catch (e) {
+        toast.error(e instanceof Error ? e.message : "Unable to refresh call artifacts");
+      } finally {
+        setManualCallSyncBusy(false);
+      }
+    },
+    [loadManualCalls, manualCallSyncBusy, selected?.id, toast],
+  );
+
+  useEffect(() => {
+    const c = manualCall;
+    if (!c?.id) return;
+
+    const status = String(c.status || "").toUpperCase();
+    const isDone = status === "COMPLETED" || status === "FAILED";
+    const hasAnyArtifactKey = Boolean(String(c.conversationId || "").trim() || String(c.recordingSid || "").trim());
+    const hasTranscript = Boolean(String(c.transcriptText || "").trim());
+
+    if (!isDone || hasTranscript || !hasAnyArtifactKey) return;
+    if (manualCallSyncBusy) return;
+    if (manualCallAutoSyncRef.current[c.id]) return;
+
+    manualCallAutoSyncRef.current[c.id] = true;
+    const t = setTimeout(() => {
+      void syncManualCallArtifacts(c.id);
+    }, 600);
+
+    return () => clearTimeout(t);
+  }, [manualCall, manualCallSyncBusy, syncManualCallArtifacts]);
 
   async function loadManualCall(id: string) {
     const res = await fetch(`/api/portal/ai-outbound-calls/manual-calls/${encodeURIComponent(id)}`, { cache: "no-store" }).catch(() => null as any);
@@ -305,34 +357,9 @@ export function PortalAiOutboundCallsClient() {
     setManualCall((json as any).manualCall as ManualCall);
   }
 
-  async function syncManualCallArtifacts(id: string) {
-    if (manualCallSyncBusy) return;
-    setManualCallSyncBusy(true);
-    try {
-      const res = await fetch(`/api/portal/ai-outbound-calls/manual-calls/${encodeURIComponent(id)}`, {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: "{}",
-      }).catch(() => null as any);
-
-      const json = (await res?.json?.().catch(() => null)) as any;
-      if (!res || !res.ok || !json || json.ok !== true) {
-        throw new Error(json?.error || "Unable to refresh call artifacts");
-      }
-
-      if (json.manualCall) setManualCall(json.manualCall as ManualCall);
-      if (selected?.id) await loadManualCalls(selected.id);
-      toast.success(json.requestedTranscription ? "Refreshing… transcript may take a minute" : "Updated");
-    } catch (e) {
-      toast.error(e instanceof Error ? e.message : "Unable to refresh call artifacts");
-    } finally {
-      setManualCallSyncBusy(false);
-    }
-  }
-
   useEffect(() => {
     loadManualCalls(selected?.id || undefined);
-  }, [selected?.id]);
+  }, [selected?.id, loadManualCalls]);
 
   useEffect(() => {
     if (!manualCallId && manualCalls.length) {
