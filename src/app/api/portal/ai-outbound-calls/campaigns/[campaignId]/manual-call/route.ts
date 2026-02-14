@@ -90,6 +90,7 @@ async function createTwilioOutboundCall(opts: {
   ownerId: string;
   toNumberE164: string;
   voiceUrl: string;
+  statusCallbackUrl?: string;
 }): Promise<{ ok: true; callSid: string } | { ok: false; error: string; status?: number }> {
   const to = String(opts.toNumberE164 || "").trim();
   const voiceUrl = String(opts.voiceUrl || "").trim();
@@ -107,6 +108,16 @@ async function createTwilioOutboundCall(opts: {
   form.set("From", twilio.fromNumberE164);
   form.set("Url", voiceUrl);
   form.set("Method", "POST");
+
+  const statusCallbackUrl = typeof opts.statusCallbackUrl === "string" ? opts.statusCallbackUrl.trim() : "";
+  if (statusCallbackUrl) {
+    form.set("StatusCallback", statusCallbackUrl);
+    form.set("StatusCallbackMethod", "POST");
+    form.append("StatusCallbackEvent", "initiated");
+    form.append("StatusCallbackEvent", "ringing");
+    form.append("StatusCallbackEvent", "answered");
+    form.append("StatusCallbackEvent", "completed");
+  }
 
   const res = await fetch(url, {
     method: "POST",
@@ -189,7 +200,12 @@ export async function POST(req: Request, ctx: { params: Promise<{ campaignId: st
     `/api/public/twilio/ai-outbound-calls/manual-call/${encodeURIComponent(token)}/voice`,
   );
 
-  const started = await createTwilioOutboundCall({ ownerId, toNumberE164: toParsed.e164, voiceUrl });
+  const statusCallbackUrl = webhookUrlFromRequest(
+    req,
+    `/api/public/twilio/ai-outbound-calls/manual-call/${encodeURIComponent(token)}/call-status`,
+  );
+
+  const started = await createTwilioOutboundCall({ ownerId, toNumberE164: toParsed.e164, voiceUrl, statusCallbackUrl });
   if (!started.ok) {
     await prisma.portalAiOutboundCallManualCall.update({
       where: { id: manualCallId },
