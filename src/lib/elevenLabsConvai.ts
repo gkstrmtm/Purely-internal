@@ -35,6 +35,49 @@ function asRecord(value: unknown): Record<string, any> {
 }
 
 function extractTranscriptFromConversationJson(json: unknown): string {
+  if (Array.isArray(json)) {
+    // Many endpoints return the turns/messages array directly.
+    const lines: string[] = [];
+    for (const m of json) {
+      const mr = asRecord(m);
+      const role = typeof mr.role === "string" ? mr.role.trim() : typeof mr.speaker === "string" ? mr.speaker.trim() : "";
+
+      // Support nested content/message shapes.
+      const textFromMessageObj = () => {
+        const msgObj = mr.message && typeof mr.message === "object" ? asRecord(mr.message) : null;
+        if (msgObj) {
+          const t = typeof msgObj.text === "string" ? msgObj.text : typeof msgObj.content === "string" ? msgObj.content : "";
+          if (String(t || "").trim()) return String(t).trim();
+        }
+
+        if (Array.isArray(mr.content)) {
+          const parts = mr.content
+            .map((p: any) => {
+              const pr = asRecord(p);
+              return typeof pr.text === "string" ? pr.text : typeof pr.content === "string" ? pr.content : "";
+            })
+            .map((x: any) => String(x || "").trim())
+            .filter(Boolean);
+          if (parts.length) return parts.join(" ").trim();
+        }
+
+        return "";
+      };
+
+      const text =
+        textFromMessageObj() ||
+        (typeof mr.text === "string" ? mr.text : "") ||
+        (typeof mr.message === "string" ? mr.message : "") ||
+        (typeof mr.content === "string" ? mr.content : "");
+
+      const t = String(text || "").trim();
+      if (!t) continue;
+      lines.push(role ? `${role}: ${t}` : t);
+      if (lines.join("\n").length > 25000) break;
+    }
+    return lines.join("\n").trim();
+  }
+
   const rec = asRecord(json);
 
   // Common envelope shapes
@@ -75,7 +118,28 @@ function extractTranscriptFromConversationJson(json: unknown): string {
     for (const m of messages) {
       const mr = asRecord(m);
       const role = typeof mr.role === "string" ? mr.role.trim() : typeof mr.speaker === "string" ? mr.speaker.trim() : "";
-      const text = typeof mr.text === "string" ? mr.text : typeof mr.message === "string" ? mr.message : typeof mr.content === "string" ? mr.content : "";
+
+      const msgObj = mr.message && typeof mr.message === "object" ? asRecord(mr.message) : null;
+      const nested = msgObj
+        ? (typeof msgObj.text === "string" ? msgObj.text : typeof msgObj.content === "string" ? msgObj.content : "")
+        : "";
+
+      const contentParts = Array.isArray(mr.content)
+        ? mr.content
+            .map((p: any) => {
+              const pr = asRecord(p);
+              return typeof pr.text === "string" ? pr.text : typeof pr.content === "string" ? pr.content : "";
+            })
+            .map((x: any) => String(x || "").trim())
+            .filter(Boolean)
+        : [];
+
+      const text =
+        (typeof nested === "string" ? nested : "") ||
+        (contentParts.length ? contentParts.join(" ") : "") ||
+        (typeof mr.text === "string" ? mr.text : "") ||
+        (typeof mr.message === "string" ? mr.message : "") ||
+        (typeof mr.content === "string" ? mr.content : "");
       const t = String(text || "").trim();
       if (!t) continue;
       lines.push(role ? `${role}: ${t}` : t);

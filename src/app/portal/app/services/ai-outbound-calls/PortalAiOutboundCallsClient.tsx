@@ -108,11 +108,14 @@ function formatTime(sec: number) {
 function MiniAudioPlayer(props: { src: string; durationHintSec?: number | null }) {
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const rafRef = useRef<number | null>(null);
+  const scrubRef = useRef<HTMLDivElement | null>(null);
+  const durationLockedRef = useRef(false);
   const [ready, setReady] = useState(false);
   const [playing, setPlaying] = useState(false);
   const [duration, setDuration] = useState<number>(props.durationHintSec && props.durationHintSec > 0 ? props.durationHintSec : 0);
   const [currentTime, setCurrentTime] = useState(0);
   const [rate, setRate] = useState(1);
+  const [dragging, setDragging] = useState(false);
 
   useEffect(() => {
     // Reset any previous playback state when switching sources.
@@ -120,6 +123,8 @@ function MiniAudioPlayer(props: { src: string; durationHintSec?: number | null }
     setPlaying(false);
     setCurrentTime(0);
     setDuration(props.durationHintSec && props.durationHintSec > 0 ? props.durationHintSec : 0);
+    setDragging(false);
+    durationLockedRef.current = false;
 
     const el = audioRef.current;
     if (!el) return;
@@ -138,14 +143,33 @@ function MiniAudioPlayer(props: { src: string; durationHintSec?: number | null }
 
     const onLoaded = () => {
       setReady(true);
-      if (Number.isFinite(el.duration) && el.duration > 0) setDuration(el.duration);
+      if (Number.isFinite(el.duration) && el.duration > 0) {
+        setDuration((prev) => {
+          if (prev > 0) return prev;
+          durationLockedRef.current = true;
+          return el.duration;
+        });
+      }
     };
     const onDuration = () => {
-      if (Number.isFinite(el.duration) && el.duration > 0) setDuration(el.duration);
+      if (!durationLockedRef.current && Number.isFinite(el.duration) && el.duration > 0) {
+        setDuration((prev) => {
+          if (prev > 0) {
+            durationLockedRef.current = true;
+            return prev;
+          }
+          durationLockedRef.current = true;
+          return el.duration;
+        });
+      }
     };
     const onTime = () => setCurrentTime(el.currentTime || 0);
     const onPlay = () => {
       setPlaying(true);
+      if (!durationLockedRef.current && Number.isFinite(el.duration) && el.duration > 0) {
+        durationLockedRef.current = true;
+        setDuration((prev) => (prev > 0 ? prev : el.duration));
+      }
       stopRaf();
       rafRef.current = requestAnimationFrame(tick);
     };
@@ -184,8 +208,24 @@ function MiniAudioPlayer(props: { src: string; durationHintSec?: number | null }
   }, [rate]);
 
   const hasDuration = ready && duration > 0;
-  const sliderMax = hasDuration ? duration : 1;
-  const sliderValue = hasDuration ? Math.max(0, Math.min(duration, currentTime || 0)) : 0;
+  const safeCurrent = hasDuration ? Math.max(0, Math.min(duration, currentTime || 0)) : 0;
+  const remaining = hasDuration ? Math.max(0, duration - safeCurrent) : 0;
+  const pct = hasDuration && duration > 0 ? Math.max(0, Math.min(1, safeCurrent / duration)) : 0;
+
+  const setTimeFromClientX = useCallback(
+    (clientX: number) => {
+      if (!hasDuration) return;
+      const el = audioRef.current;
+      const track = scrubRef.current;
+      if (!el || !track) return;
+      const r = track.getBoundingClientRect();
+      const x = Math.max(0, Math.min(r.width, clientX - r.left));
+      const next = (x / Math.max(1, r.width)) * duration;
+      el.currentTime = Math.max(0, Math.min(duration, next));
+      setCurrentTime(el.currentTime || 0);
+    },
+    [duration, hasDuration],
+  );
 
   return (
     <div className="mt-2 rounded-2xl border border-zinc-200 bg-zinc-50 p-3">
@@ -212,27 +252,62 @@ function MiniAudioPlayer(props: { src: string; durationHintSec?: number | null }
           {playing ? "Pause" : "Play"}
         </button>
 
-        <div className="min-w-[220px] flex-1">
-          <input
-            type="range"
-            min={0}
-            max={sliderMax}
-            step={0.01}
-            value={sliderValue}
-            disabled={!ready || !hasDuration}
-            onChange={(ev) => {
+        <div className="min-w-[240px] flex-1">
+          <div
+            ref={scrubRef}
+            role="slider"
+            aria-label="Playback position"
+            aria-valuemin={0}
+            aria-valuemax={hasDuration ? duration : 0}
+            aria-valuenow={hasDuration ? safeCurrent : 0}
+            tabIndex={0}
+            onPointerDown={(e) => {
+              if (!hasDuration) return;
+              (e.currentTarget as HTMLDivElement).setPointerCapture(e.pointerId);
+              setDragging(true);
+              setTimeFromClientX(e.clientX);
+            }}
+            onPointerMove={(e) => {
+              if (!dragging) return;
+              setTimeFromClientX(e.clientX);
+            }}
+            onPointerUp={() => setDragging(false)}
+            onPointerCancel={() => setDragging(false)}
+            onKeyDown={(e) => {
+              if (!hasDuration) return;
               const el = audioRef.current;
               if (!el) return;
-              const next = Number(ev.target.value);
-              if (!Number.isFinite(next)) return;
-              el.currentTime = Math.max(0, Math.min(duration || 0, next));
-              setCurrentTime(el.currentTime);
+              const step = e.shiftKey ? 10 : 5;
+              if (e.key === "ArrowLeft") {
+                e.preventDefault();
+                el.currentTime = Math.max(0, (el.currentTime || 0) - step);
+                setCurrentTime(el.currentTime || 0);
+              }
+              if (e.key === "ArrowRight") {
+                e.preventDefault();
+                el.currentTime = Math.min(duration, (el.currentTime || 0) + step);
+                setCurrentTime(el.currentTime || 0);
+              }
             }}
-            className="w-full"
-          />
+            className={
+              "relative h-3 w-full select-none rounded-full " +
+              (hasDuration ? "cursor-pointer" : "cursor-not-allowed opacity-60")
+            }
+          >
+            <div className="absolute inset-0 rounded-full bg-zinc-200" />
+            <div className="absolute inset-y-0 left-0 rounded-full bg-zinc-900" style={{ width: `${pct * 100}%` }} />
+            <div
+              className={
+                "absolute top-1/2 h-4 w-4 -translate-y-1/2 rounded-full bg-white shadow ring-2 ring-zinc-900 transition " +
+                (hasDuration ? "" : "opacity-0")
+              }
+              style={{ left: `calc(${pct * 100}% - 8px)` }}
+            />
+          </div>
+
           <div className="mt-1 flex items-center justify-between text-xs text-zinc-600">
-            <span>{formatTime(currentTime)}</span>
-            <span>{hasDuration ? formatTime(duration) : ""}</span>
+            <span>{formatTime(safeCurrent)}</span>
+            <span>{hasDuration ? `-${formatTime(remaining)}` : ""}</span>
           </div>
         </div>
 
