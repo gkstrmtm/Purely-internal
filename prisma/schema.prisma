@@ -133,6 +133,7 @@ model User {
 
   portalAiOutboundCallCampaigns   PortalAiOutboundCallCampaign[]
   portalAiOutboundCallEnrollments PortalAiOutboundCallEnrollment[]
+  portalAiOutboundCallManualCalls PortalAiOutboundCallManualCall[]
 }
 
 model PortalMediaFolder {
@@ -712,6 +713,7 @@ model PortalAiOutboundCallCampaign {
 
   owner       User                        @relation(fields: [ownerId], references: [id])
   enrollments PortalAiOutboundCallEnrollment[]
+  manualCalls PortalAiOutboundCallManualCall[]
 
   @@index([ownerId, updatedAt])
   @@index([ownerId, status, updatedAt])
@@ -743,6 +745,33 @@ model PortalAiOutboundCallEnrollment {
   @@index([ownerId, status, nextCallAt])
   @@index([campaignId, status, nextCallAt])
   @@index([ownerId, contactId])
+}
+
+model PortalAiOutboundCallManualCall {
+  id String @id @default(cuid())
+
+  ownerId    String
+  campaignId String?
+
+  webhookToken String @unique
+
+  toNumberE164  String
+  status        String @default("CALLING")
+
+  callSid        String?
+  conversationId String?
+  recordingSid   String?
+  transcriptText String?
+  lastError      String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  owner    User                         @relation(fields: [ownerId], references: [id])
+  campaign PortalAiOutboundCallCampaign? @relation(fields: [campaignId], references: [id], onDelete: SetNull)
+
+  @@index([ownerId, createdAt])
+  @@index([ownerId, campaignId, createdAt])
 }
 
 model LeadAssignment {

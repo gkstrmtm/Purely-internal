@@ -49,8 +49,173 @@ type ApiCreateTagResponse =
   | { ok: true; tag: ContactTag }
   | { ok: false; error: string };
 
+type ManualCall = {
+  id: string;
+  campaignId: string | null;
+  toNumberE164: string;
+  status: string;
+  callSid: string | null;
+  conversationId: string | null;
+  recordingSid: string | null;
+  transcriptText: string | null;
+  lastError: string | null;
+  createdAtIso: string;
+  updatedAtIso: string;
+};
+
+type ApiGetManualCallsResponse =
+  | { ok: true; manualCalls: ManualCall[] }
+  | { ok: false; error?: string };
+
+type ApiGetManualCallResponse =
+  | { ok: true; manualCall: ManualCall }
+  | { ok: false; error?: string };
+
 function classNames(...xs: Array<string | false | null | undefined>) {
   return xs.filter(Boolean).join(" ");
+}
+
+function formatWhen(iso: string) {
+  try {
+    return new Date(iso).toLocaleString();
+  } catch {
+    return iso;
+  }
+}
+
+function badgeClass(kind: string) {
+  switch (String(kind || "").toUpperCase()) {
+    case "CALLING":
+    case "IN_PROGRESS":
+      return "bg-sky-50 text-sky-700 border-sky-200";
+    case "COMPLETED":
+      return "bg-emerald-50 text-emerald-700 border-emerald-200";
+    case "FAILED":
+      return "bg-red-50 text-red-700 border-red-200";
+    default:
+      return "bg-zinc-50 text-zinc-700 border-zinc-200";
+  }
+}
+
+function formatTime(sec: number) {
+  if (!Number.isFinite(sec) || sec < 0) return "0:00";
+  const s = Math.floor(sec);
+  const m = Math.floor(s / 60);
+  const r = s % 60;
+  return `${m}:${String(r).padStart(2, "0")}`;
+}
+
+function MiniAudioPlayer(props: { src: string; durationHintSec?: number | null }) {
+  const audioRef = useRef<HTMLAudioElement | null>(null);
+  const [ready, setReady] = useState(false);
+  const [playing, setPlaying] = useState(false);
+  const [duration, setDuration] = useState<number>(props.durationHintSec && props.durationHintSec > 0 ? props.durationHintSec : 0);
+  const [currentTime, setCurrentTime] = useState(0);
+  const [rate, setRate] = useState(1);
+
+  useEffect(() => {
+    const el = audioRef.current;
+    if (!el) return;
+
+    const onLoaded = () => {
+      setReady(true);
+      if (Number.isFinite(el.duration) && el.duration > 0) setDuration(el.duration);
+    };
+    const onTime = () => setCurrentTime(el.currentTime || 0);
+    const onPlay = () => setPlaying(true);
+    const onPause = () => setPlaying(false);
+    const onEnded = () => setPlaying(false);
+
+    el.addEventListener("loadedmetadata", onLoaded);
+    el.addEventListener("timeupdate", onTime);
+    el.addEventListener("play", onPlay);
+    el.addEventListener("pause", onPause);
+    el.addEventListener("ended", onEnded);
+
+    return () => {
+      el.removeEventListener("loadedmetadata", onLoaded);
+      el.removeEventListener("timeupdate", onTime);
+      el.removeEventListener("play", onPlay);
+      el.removeEventListener("pause", onPause);
+      el.removeEventListener("ended", onEnded);
+    };
+  }, [props.src]);
+
+  useEffect(() => {
+    const el = audioRef.current;
+    if (!el) return;
+    el.playbackRate = rate;
+  }, [rate]);
+
+  const remaining = Math.max(0, (duration || 0) - (currentTime || 0));
+  const canScrub = ready && duration > 0;
+
+  return (
+    <div className="mt-2 rounded-2xl border border-zinc-200 bg-zinc-50 p-3">
+      <audio ref={audioRef} preload="metadata" src={props.src} />
+      <div className="flex flex-wrap items-center gap-3">
+        <button
+          type="button"
+          className="rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm font-semibold text-zinc-900 hover:bg-zinc-100 disabled:opacity-60"
+          disabled={!props.src}
+          onClick={async () => {
+            const el = audioRef.current;
+            if (!el) return;
+            if (el.paused) {
+              try {
+                await el.play();
+              } catch {
+                // ignore
+              }
+            } else {
+              el.pause();
+            }
+          }}
+        >
+          {playing ? "Pause" : "Play"}
+        </button>
+
+        <div className="min-w-[220px] flex-1">
+          <input
+            type="range"
+            min={0}
+            max={canScrub ? duration : 1}
+            step={0.01}
+            value={canScrub ? Math.min(duration, currentTime) : 0}
+            disabled={!canScrub}
+            onChange={(ev) => {
+              const el = audioRef.current;
+              if (!el) return;
+              const next = Number(ev.target.value);
+              if (!Number.isFinite(next)) return;
+              el.currentTime = Math.max(0, Math.min(duration, next));
+              setCurrentTime(el.currentTime);
+            }}
+            className="w-full"
+          />
+          <div className="mt-1 flex items-center justify-between text-xs text-zinc-600">
+            <span>{formatTime(currentTime)}</span>
+            <span>-{formatTime(remaining)}</span>
+          </div>
+        </div>
+
+        <div className="flex items-center gap-2">
+          <div className="text-xs font-semibold text-zinc-600">Speed</div>
+          <select
+            className="rounded-xl border border-zinc-200 bg-white px-2 py-2 text-sm font-semibold text-zinc-900"
+            value={String(rate)}
+            onChange={(e) => setRate(Number(e.target.value))}
+          >
+            {[0.75, 1, 1.25, 1.5, 2].map((v) => (
+              <option key={v} value={String(v)}>
+                {v}x
+              </option>
+            ))}
+          </select>
+        </div>
+      </div>
+    </div>
+  );
 }
 
 export function PortalAiOutboundCallsClient() {
@@ -67,12 +232,106 @@ export function PortalAiOutboundCallsClient() {
 
   const [agentSyncRequired, setAgentSyncRequired] = useState(false);
 
+  const [manualCallTo, setManualCallTo] = useState("");
+  const [manualCallBusy, setManualCallBusy] = useState(false);
+  const [manualCallId, setManualCallId] = useState<string | null>(null);
+  const [manualCall, setManualCall] = useState<ManualCall | null>(null);
+  const [manualCalls, setManualCalls] = useState<ManualCall[]>([]);
+
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const selected = useMemo(() => campaigns.find((c) => c.id === selectedId) ?? null, [campaigns, selectedId]);
 
+  const [tab, setTab] = useState<"settings" | "activity">("settings");
+
   useEffect(() => {
     setAgentSyncRequired(false);
+    setManualCallId(null);
+    setManualCall(null);
+    setTab("settings");
   }, [selectedId]);
+
+  async function loadManualCalls(campaignId?: string) {
+    const qs = campaignId ? `?campaignId=${encodeURIComponent(campaignId)}` : "";
+    const res = await fetch(`/api/portal/ai-outbound-calls/manual-calls${qs}`, { cache: "no-store" }).catch(() => null as any);
+    if (!res || !res.ok) return;
+    const json = (await res.json().catch(() => null)) as ApiGetManualCallsResponse | null;
+    if (!json || (json as any).ok !== true || !Array.isArray((json as any).manualCalls)) return;
+    setManualCalls((json as any).manualCalls);
+  }
+
+  async function loadManualCall(id: string) {
+    const res = await fetch(`/api/portal/ai-outbound-calls/manual-calls/${encodeURIComponent(id)}`, { cache: "no-store" }).catch(() => null as any);
+    if (!res || !res.ok) return;
+    const json = (await res.json().catch(() => null)) as ApiGetManualCallResponse | null;
+    if (!json || (json as any).ok !== true || !(json as any).manualCall) return;
+    setManualCall((json as any).manualCall as ManualCall);
+  }
+
+  useEffect(() => {
+    loadManualCalls(selected?.id || undefined);
+  }, [selected?.id]);
+
+  useEffect(() => {
+    if (!manualCallId && manualCalls.length) {
+      setManualCallId(manualCalls[0].id);
+      setManualCall(manualCalls[0]);
+    }
+  }, [manualCalls, manualCallId]);
+
+  useEffect(() => {
+    if (!manualCallId) return;
+    let timer: any;
+    let stopped = false;
+
+    const tick = async () => {
+      if (stopped) return;
+      await loadManualCall(manualCallId);
+      timer = setTimeout(tick, 5000);
+    };
+
+    tick();
+    return () => {
+      stopped = true;
+      if (timer) clearTimeout(timer);
+    };
+  }, [manualCallId]);
+
+  async function startManualCall() {
+    if (!selected) return;
+    if (manualCallBusy || busy) return;
+
+    setManualCallBusy(true);
+    setError(null);
+
+    try {
+      const res = await fetch(
+        `/api/portal/ai-outbound-calls/campaigns/${encodeURIComponent(selected.id)}/manual-call`,
+        {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ toNumber: manualCallTo }),
+        },
+      );
+
+      const json = (await res.json().catch(() => null)) as any;
+      if (!res.ok || !json || json.ok !== true) {
+        throw new Error(json?.error || "Failed to start call");
+      }
+
+      const id = String(json?.id || "").trim();
+      if (id) {
+        setManualCallId(id);
+        await loadManualCall(id);
+        await loadManualCalls(selected.id);
+      }
+
+      toast.success("Calling…");
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Failed to start call");
+    } finally {
+      setManualCallBusy(false);
+    }
+  }
 
   const [createName, setCreateName] = useState("");
   const [addTagValue, setAddTagValue] = useState<string>("");
@@ -490,6 +749,226 @@ export function PortalAiOutboundCallsClient() {
                 </div>
               </div>
 
+              <div className="mt-4 flex w-full flex-wrap gap-2">
+                <button
+                  type="button"
+                  onClick={() => setTab("settings")}
+                  aria-current={tab === "settings" ? "page" : undefined}
+                  className={
+                    "flex-1 min-w-[160px] rounded-2xl border px-4 py-2.5 text-sm font-semibold transition focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-ink/60 " +
+                    (tab === "settings"
+                      ? "border-zinc-900 bg-zinc-900 text-white shadow-sm"
+                      : "border-zinc-200 bg-white text-zinc-700 hover:bg-zinc-50")
+                  }
+                >
+                  Settings
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setTab("activity")}
+                  aria-current={tab === "activity" ? "page" : undefined}
+                  className={
+                    "flex-1 min-w-[160px] rounded-2xl border px-4 py-2.5 text-sm font-semibold transition focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-ink/60 " +
+                    (tab === "activity"
+                      ? "border-zinc-900 bg-zinc-900 text-white shadow-sm"
+                      : "border-zinc-200 bg-white text-zinc-700 hover:bg-zinc-50")
+                  }
+                >
+                  Activity
+                </button>
+              </div>
+
+              {tab === "activity" ? (
+                <div className="mt-4">
+                  <div className="rounded-3xl border border-zinc-200 bg-white p-4">
+                    <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
+                      <div>
+                        <div className="text-sm font-semibold text-zinc-900">Manual calls</div>
+                        <div className="mt-1 text-sm text-zinc-600">
+                          Type a number, press Call, then review the recording + transcript here.
+                        </div>
+                      </div>
+                      <button
+                        type="button"
+                        className="rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm font-semibold hover:bg-zinc-50 disabled:opacity-60"
+                        disabled={busy || manualCallBusy}
+                        onClick={() => {
+                          void loadManualCalls(selected.id);
+                          if (manualCallId) void loadManualCall(manualCallId);
+                        }}
+                      >
+                        Refresh
+                      </button>
+                    </div>
+
+                    <div className="mt-4 grid grid-cols-1 gap-3 sm:grid-cols-[1fr,auto]">
+                      <div>
+                        <div className="text-xs font-semibold text-zinc-600">Phone number (E.164)</div>
+                        <input
+                          value={manualCallTo}
+                          onChange={(e) => setManualCallTo(e.target.value)}
+                          placeholder="+15551234567"
+                          className="mt-2 w-full rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-sm"
+                        />
+                        <div className="mt-2 text-[11px] text-zinc-500">
+                          Recording + transcript usually appear 1–2 minutes after the call ends.
+                        </div>
+                      </div>
+                      <div className="flex items-end">
+                        <button
+                          type="button"
+                          disabled={busy || manualCallBusy || !manualCallTo.trim()}
+                          onClick={() => void startManualCall()}
+                          className={classNames(
+                            "rounded-2xl px-5 py-2.5 text-sm font-semibold",
+                            busy || manualCallBusy
+                              ? "bg-zinc-200 text-zinc-600"
+                              : "bg-brand-ink text-white hover:opacity-95",
+                          )}
+                        >
+                          {manualCallBusy ? "Calling…" : "Call"}
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+
+                  {manualCalls.length === 0 ? (
+                    <div className="mt-4 rounded-2xl border border-dashed border-zinc-200 bg-zinc-50 p-4 text-sm text-zinc-600">
+                      No manual calls yet.
+                    </div>
+                  ) : (
+                    <div className="mt-4 grid grid-cols-1 gap-4 lg:grid-cols-5">
+                      <div className="lg:col-span-2">
+                        <div className="space-y-2">
+                          {manualCalls.slice(0, 80).map((c) => {
+                            const isSelected = c.id === manualCallId;
+                            const hasAudio = Boolean(c.recordingSid && c.recordingSid.trim());
+                            const hasTranscript = Boolean(c.transcriptText && c.transcriptText.trim());
+                            return (
+                              <button
+                                key={c.id}
+                                type="button"
+                                onClick={() => {
+                                  setManualCallId(c.id);
+                                  setManualCall(c);
+                                }}
+                                className={
+                                  "w-full rounded-2xl border px-4 py-3 text-left text-sm transition focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-ink/60 " +
+                                  (isSelected
+                                    ? "border-zinc-900 bg-zinc-900 text-white"
+                                    : "border-zinc-200 bg-zinc-50 hover:bg-zinc-100")
+                                }
+                              >
+                                <div className="flex items-center justify-between gap-3">
+                                  <div className="min-w-0">
+                                    <div className="truncate text-sm font-semibold">{c.toNumberE164}</div>
+                                    <div className={"mt-1 text-xs " + (isSelected ? "text-zinc-200" : "text-zinc-600")}>
+                                      {formatWhen(c.createdAtIso)}
+                                    </div>
+                                  </div>
+                                  <span
+                                    className={
+                                      "shrink-0 rounded-full border px-2 py-0.5 text-[11px] font-semibold " +
+                                      (isSelected ? "border-white/20 bg-white/10 text-white" : badgeClass(c.status))
+                                    }
+                                  >
+                                    {String(c.status || "UNKNOWN").toUpperCase()}
+                                  </span>
+                                </div>
+                                <div className={"mt-2 flex flex-wrap items-center gap-2 text-xs " + (isSelected ? "text-zinc-200" : "text-zinc-600")}>
+                                  {hasAudio ? (
+                                    <>
+                                      <span className={isSelected ? "text-emerald-200" : "text-emerald-700"}>Audio</span>
+                                      <span>•</span>
+                                    </>
+                                  ) : null}
+                                  {hasTranscript ? (
+                                    <span className={isSelected ? "text-sky-200" : "text-sky-700"}>Transcript</span>
+                                  ) : (
+                                    <span className={isSelected ? "text-zinc-300" : "text-zinc-500"}>Transcript pending</span>
+                                  )}
+                                </div>
+                              </button>
+                            );
+                          })}
+                        </div>
+                      </div>
+
+                      <div className="lg:col-span-3">
+                        {manualCall ? (
+                          <div className="rounded-3xl border border-zinc-200 bg-white p-5">
+                            <div className="flex items-start justify-between gap-4">
+                              <div>
+                                <div className="text-lg font-bold text-brand-ink">{manualCall.toNumberE164}</div>
+                                <div className="mt-1 text-xs text-zinc-500">
+                                  {formatWhen(manualCall.createdAtIso)} · Status: {String(manualCall.status || "").toLowerCase()}
+                                </div>
+                              </div>
+                              <div className="text-right text-xs text-zinc-500">
+                                {manualCall.callSid ? <div className="font-mono">CallSid: {manualCall.callSid}</div> : null}
+                              </div>
+                            </div>
+
+                            {manualCall.lastError ? (
+                              <div className="mt-3 rounded-2xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900">
+                                <div className="font-semibold">Call issue</div>
+                                <div className="mt-1 text-amber-900/80">{manualCall.lastError}</div>
+                              </div>
+                            ) : null}
+
+                            <div className="mt-4">
+                              <div className="text-xs font-semibold text-zinc-600">Recording</div>
+                              {(() => {
+                                const src =
+                                  manualCall.recordingSid && manualCall.recordingSid.trim()
+                                    ? `/api/portal/ai-outbound-calls/recordings/${encodeURIComponent(manualCall.recordingSid)}`
+                                    : "";
+                                if (!src) {
+                                  return <div className="mt-2 text-sm text-zinc-600">No recording available for this call yet.</div>;
+                                }
+                                return (
+                                  <>
+                                    <MiniAudioPlayer src={src} />
+                                    <div className="mt-2 text-xs">
+                                      <a
+                                        className="font-semibold text-brand-ink hover:underline"
+                                        href={src}
+                                        target="_blank"
+                                        rel="noreferrer"
+                                      >
+                                        Download recording
+                                      </a>
+                                    </div>
+                                  </>
+                                );
+                              })()}
+                            </div>
+
+                            <div className="mt-5">
+                              <div className="text-xs font-semibold text-zinc-600">Transcript</div>
+                              {manualCall.transcriptText && manualCall.transcriptText.trim() ? (
+                                <div className="mt-2 max-h-[520px] overflow-auto rounded-xl border border-zinc-200 bg-zinc-50 p-4">
+                                  <div className="whitespace-pre-wrap text-sm text-zinc-800">{manualCall.transcriptText}</div>
+                                </div>
+                              ) : (
+                                <div className="mt-2 text-sm text-zinc-600">
+                                  No transcript yet. It can take 1–2 minutes to appear after the call ends.
+                                </div>
+                              )}
+                            </div>
+                          </div>
+                        ) : (
+                          <div className="rounded-3xl border border-zinc-200 bg-white p-5 text-sm text-zinc-600">
+                            Select a call to view details.
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  )}
+                </div>
+              ) : (
+                <>
+
               <div className="mt-5">
                 <div className="text-sm font-semibold text-zinc-800">Call script</div>
                 <p className="mt-1 text-xs text-zinc-500">
@@ -552,6 +1031,20 @@ export function PortalAiOutboundCallsClient() {
                   >
                     {busy ? "Syncing…" : "Sync agent settings"}
                   </button>
+                </div>
+
+                <div className="mt-3 rounded-2xl border border-zinc-200 bg-zinc-50 p-4 text-sm text-zinc-700">
+                  <div className="font-semibold text-zinc-900">Manual calls</div>
+                  <div className="mt-1 text-xs text-zinc-600">
+                    Manual test calls (with recording + transcript) live in the <span className="font-semibold">Activity</span> tab.
+                    <button
+                      type="button"
+                      onClick={() => setTab("activity")}
+                      className="ml-2 inline-flex items-center rounded-lg border border-zinc-200 bg-white px-2 py-1 text-[11px] font-semibold text-zinc-800 hover:bg-zinc-50"
+                    >
+                      Open Activity
+                    </button>
+                  </div>
                 </div>
 
                 <div className="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-2">
@@ -978,6 +1471,8 @@ export function PortalAiOutboundCallsClient() {
                 )}
 
               </div>
+                </>
+              )}
             </div>
           )}
         </div>

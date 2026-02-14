@@ -84,6 +84,29 @@ CREATE TABLE IF NOT EXISTS "PortalAiOutboundCallEnrollment" (
     `CREATE INDEX IF NOT EXISTS "PortalAiOutboundCallEnrollment_ownerId_contactId_idx" ON "PortalAiOutboundCallEnrollment"("ownerId","contactId");`,
 
     `
+CREATE TABLE IF NOT EXISTS "PortalAiOutboundCallManualCall" (
+  "id" TEXT NOT NULL,
+  "ownerId" TEXT NOT NULL,
+  "campaignId" TEXT,
+  "webhookToken" TEXT NOT NULL,
+  "toNumberE164" TEXT NOT NULL,
+  "status" TEXT NOT NULL DEFAULT 'CALLING',
+  "callSid" TEXT,
+  "conversationId" TEXT,
+  "recordingSid" TEXT,
+  "transcriptText" TEXT,
+  "lastError" TEXT,
+  "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  "updatedAt" TIMESTAMP(3) NOT NULL,
+  CONSTRAINT "PortalAiOutboundCallManualCall_pkey" PRIMARY KEY ("id")
+);
+    `.trim(),
+
+    `CREATE UNIQUE INDEX IF NOT EXISTS "PortalAiOutboundCallManualCall_webhookToken_key" ON "PortalAiOutboundCallManualCall"("webhookToken");`,
+    `CREATE INDEX IF NOT EXISTS "PortalAiOutboundCallManualCall_ownerId_createdAt_idx" ON "PortalAiOutboundCallManualCall"("ownerId","createdAt");`,
+    `CREATE INDEX IF NOT EXISTS "PortalAiOutboundCallManualCall_ownerId_campaignId_createdAt_idx" ON "PortalAiOutboundCallManualCall"("ownerId","campaignId","createdAt");`,
+
+    `
 DO $$
 BEGIN
   IF NOT EXISTS (
@@ -120,6 +143,22 @@ BEGIN
         ADD CONSTRAINT "PortalAiOutboundCallEnrollment_contactId_fkey"
         FOREIGN KEY ("contactId") REFERENCES "PortalContact"("id") ON DELETE CASCADE ON UPDATE CASCADE;
     END IF;
+  END IF;
+
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_constraint WHERE conname = 'PortalAiOutboundCallManualCall_ownerId_fkey'
+  ) THEN
+    ALTER TABLE "PortalAiOutboundCallManualCall"
+      ADD CONSTRAINT "PortalAiOutboundCallManualCall_ownerId_fkey"
+      FOREIGN KEY ("ownerId") REFERENCES "User"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
+  END IF;
+
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_constraint WHERE conname = 'PortalAiOutboundCallManualCall_campaignId_fkey'
+  ) THEN
+    ALTER TABLE "PortalAiOutboundCallManualCall"
+      ADD CONSTRAINT "PortalAiOutboundCallManualCall_campaignId_fkey"
+      FOREIGN KEY ("campaignId") REFERENCES "PortalAiOutboundCallCampaign"("id") ON DELETE SET NULL ON UPDATE CASCADE;
   END IF;
 END $$;
     `.trim(),
