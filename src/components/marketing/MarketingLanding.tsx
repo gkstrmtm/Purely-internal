@@ -169,14 +169,14 @@ function FeatureIcon({ name }: { name: "phone" | "message" | "calendar" | "dispa
 
 function AutomationHighlights() {
   const items: Array<{ title: string; desc: string; icon: Parameters<typeof FeatureIcon>[0]["name"] }> = [
-    { title: "Reception on inbound calls, SMS, and email", desc: "Capture requests and route them instantly.", icon: "phone" },
-    { title: "Lead follow up and conversion", desc: "Automate reminders, outreach, and next steps.", icon: "message" },
-    { title: "Dispatching employees and contractors", desc: "Schedule, assign, and notify without manual work.", icon: "dispatch" },
-    { title: "Newsletters, blogs, and announcements", desc: "Publish and distribute content automatically.", icon: "megaphone" },
-    { title: "Dashboard metrics and growth patterns", desc: "Track outcomes and spot opportunities early.", icon: "chart" },
-    { title: "Lead capture and outbound acquisition", desc: "Forms, follow up, and outreach that stays consistent.", icon: "target" },
-    { title: "Outbound calling", desc: "Organize calling and logging so nothing slips.", icon: "dial" },
-    { title: "Social media presence and marketing", desc: "Keep your channels active with less effort.", icon: "social" },
+    { title: "Never miss a lead", desc: "Calls, texts, and emails get captured, tagged, and routed automatically.", icon: "phone" },
+    { title: "Follow up without chasing", desc: "Automated reminders and sequences keep prospects moving to a booked call.", icon: "message" },
+    { title: "Book and dispatch faster", desc: "Scheduling, assignments, and notifications happen without manual handoffs.", icon: "dispatch" },
+    { title: "Stay top of mind", desc: "Simple marketing automations that keep your business visible and consistent.", icon: "megaphone" },
+    { title: "Know what is working", desc: "Clear metrics so you can see volume, speed to lead, and conversion.", icon: "chart" },
+    { title: "Capture leads from anywhere", desc: "Forms and landing pages that feed directly into your workflows.", icon: "target" },
+    { title: "Make outbound reliable", desc: "Calling and logging that makes follow up repeatable and trackable.", icon: "dial" },
+    { title: "One portal to manage it", desc: "A single place to monitor automations, messages, and outcomes.", icon: "social" },
   ];
 
   return (
@@ -184,7 +184,7 @@ function AutomationHighlights() {
       <div className="mx-auto max-w-5xl rounded-[28px] bg-[#f7f5ef] p-8 shadow-sm">
         <div className="text-center font-brand text-3xl text-brand-blue">what we automate</div>
         <div className="mt-2 text-center text-base text-brand-ink">
-          Systems that keep your business moving while you focus on higher leverage work.
+          Automations you can run and monitor from your portal.
         </div>
 
         <div className="mt-8 grid grid-cols-1 gap-4 sm:grid-cols-2">
@@ -211,19 +211,19 @@ function FAQSection() {
   const faqs = [
     {
       q: "What kinds of businesses is this for?",
-      a: "Any business that gets leads, schedules work, or follows up with customers. If you repeat the same steps every day, we can usually automate a big portion of it.",
+      a: "Service businesses, local companies, and teams that rely on leads, scheduling, and follow up.",
     },
     {
       q: "Do you replace our tools or connect to them?",
-      a: "Usually we connect to what you already use. We can also recommend a simpler stack if your current setup is fighting you.",
+      a: "Usually we connect to what you already use. If your stack is messy, we will simplify it.",
     },
     {
       q: "How fast can we ship something useful?",
-      a: "We aim to deliver a first working automation quickly, then expand from there. Speed depends on how many systems we need to integrate and how clean your data is.",
+      a: "Fast. We aim to ship a first working automation quickly, then iterate based on real use.",
     },
     {
       q: "What do you need from us?",
-      a: "A clear definition of the workflow, access to the tools involved, and one person who can answer questions when edge cases pop up.",
+      a: "A quick walkthrough of the workflow, access to the tools, and one person to answer edge-case questions.",
     },
   ];
 
@@ -251,23 +251,23 @@ function FAQSection() {
 function WhyChoosePurely() {
   const items = [
     {
-      title: "Built around your workflow",
-      desc: "We map your exact process and automate the steps that waste time and attention.",
+      title: "Portal-first and practical",
+      desc: "Everything lives in one place so you can see what is happening without chasing tools.",
       icon: "target" as const,
     },
     {
-      title: "Integrations that actually stick",
-      desc: "Connect forms, email, SMS, calendars, CRMs, and internal tools so handoffs stay consistent.",
+      title: "Integrations that stick",
+      desc: "Connect forms, email, SMS, calendars, and CRMs so handoffs do not fall apart.",
       icon: "message" as const,
     },
     {
-      title: "Fast iterations",
-      desc: "Ship a useful automation quickly, then improve it based on real usage and edge cases.",
+      title: "Ship fast, then tighten",
+      desc: "Launch quickly, then improve based on the edge cases you actually see.",
       icon: "dial" as const,
     },
     {
       title: "Clear visibility",
-      desc: "Simple reporting so you can see what is working and where leads are getting stuck.",
+      desc: "Simple reporting so you can see what is working and where leads get stuck.",
       icon: "chart" as const,
     },
   ];
@@ -303,18 +303,18 @@ function WhyChoosePurely() {
 function WhatToExpect() {
   const steps = [
     {
-      title: "We learn your workflow",
-      desc: "A quick call to understand your steps, tools, and what needs to happen automatically.",
+      title: "Quick discovery",
+      desc: "A short call to map your workflow, your tools, and the outcomes you want.",
       icon: "phone" as const,
     },
     {
-      title: "We build the first automation",
-      desc: "We connect the pieces and ship a working version you can use right away.",
+      title: "First automation live",
+      desc: "We connect the pieces and ship a working version you can use immediately.",
       icon: "dispatch" as const,
     },
     {
-      title: "We refine and expand",
-      desc: "We tighten edge cases, add reporting, and scale out to the next workflows.",
+      title: "Iterate and expand",
+      desc: "We tighten edge cases, improve performance, and expand to the next workflows.",
       icon: "chart" as const,
     },
   ];
@@ -719,7 +719,7 @@ function BookingWidget({
     const res = await fetch("/api/public/appointments/book", {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ requestId, startAt: selectedTime, durationMinutes: 30 }),
+      body: JSON.stringify({ requestId, startAt: selectedTime, durationMinutes: 30, timeZone: userTimeZone }),
     });
 
     const json = (await res.json().catch(() => null)) as { error?: string; appointment?: unknown } | null;
@@ -1196,40 +1196,40 @@ export function MarketingLanding() {
             {menuOpen ? (
               <div className="absolute right-0 top-full w-64 overflow-hidden rounded-b-2xl bg-brand-blue/95 shadow-lg ring-1 ring-white/15">
                 <nav className="grid border-t border-white/15">
-                  {[
-                    { href: "#top", label: "top" },
-                    { href: "#demo", label: "see it in action" },
-                    { href: "#automate", label: "what we automate" },
-                    { href: "#why", label: "why choose purely" },
-                    { href: "#book", label: "book a call" },
-                    { href: "#process", label: "what to expect" },
-                    { href: "#faq", label: "faq" },
-                  ].map((item) => (
-                    <a
-                      key={item.href}
-                      href={item.href}
-                      onClick={() => setMenuOpen(false)}
-                      className="px-4 py-3 text-sm font-semibold text-white/95 hover:bg-white/10"
-                    >
-                      {item.label}
-                    </a>
-                  ))}
-
-                  <div className="h-px bg-white/15" />
-
                   <Link
-                    href="/blogs"
+                    href="/"
                     onClick={() => setMenuOpen(false)}
                     className="px-4 py-3 text-sm font-semibold text-white/95 hover:bg-white/10"
                   >
-                    automated blogs
+                    Home
+                  </Link>
+                  <Link
+                    href="/portal"
+                    onClick={() => setMenuOpen(false)}
+                    className="px-4 py-3 text-sm font-semibold text-white/95 hover:bg-white/10"
+                  >
+                    Portal
+                  </Link>
+                  <Link
+                    href="/portal/login"
+                    onClick={() => setMenuOpen(false)}
+                    className="px-4 py-3 text-sm font-semibold text-white/95 hover:bg-white/10"
+                  >
+                    Client Log In
                   </Link>
                   <Link
                     href="/employeelogin"
                     onClick={() => setMenuOpen(false)}
                     className="px-4 py-3 text-sm font-semibold text-white/95 hover:bg-white/10"
                   >
-                    employee login
+                    Employee Login
+                  </Link>
+                  <Link
+                    href="/book-a-call"
+                    onClick={() => setMenuOpen(false)}
+                    className="px-4 py-3 text-sm font-semibold text-white/95 hover:bg-white/10"
+                  >
+                    Book a Call
                   </Link>
                 </nav>
               </div>
@@ -1255,9 +1255,9 @@ export function MarketingLanding() {
                     priority
                   />
                   <p className="mt-5 max-w-md font-brand text-xl text-brand-ink md:text-2xl">
-                    let your computer handle the busywork,
+                    let your portal handle the busywork,
                     <br />
-                    so you can focus on moving levers
+                    so you can focus on growth
                   </p>
                 </div>
 
@@ -1297,9 +1297,9 @@ export function MarketingLanding() {
             >
               <div className="px-8 pb-10 pt-10">
                 <div className="text-center font-brand text-3xl text-brand-blue">
-                  we&apos;re going to send you some stuff
+                  we&apos;ll send you a quick demo
                 </div>
-                <div className="mt-2 text-center text-base text-brand-ink">let us know:</div>
+                <div className="mt-2 text-center text-base text-brand-ink">where should we send it?</div>
 
                 <div className="mt-10">
                   <DemoRequestForm

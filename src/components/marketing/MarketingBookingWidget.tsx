@@ -273,7 +273,7 @@ export function MarketingBookingWidget({
     const res = await fetch("/api/public/appointments/book", {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ requestId, startAt: selectedTime, durationMinutes: 30 }),
+      body: JSON.stringify({ requestId, startAt: selectedTime, durationMinutes: 30, timeZone: userTimeZone }),
     });
 
     const json = (await res.json().catch(() => null)) as { error?: string; appointment?: unknown } | null;

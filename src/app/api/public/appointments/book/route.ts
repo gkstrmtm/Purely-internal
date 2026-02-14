@@ -48,12 +48,14 @@ function buildGoogleCalendarUrl(opts: {
   details: string;
   startAt: Date;
   endAt: Date;
+  timeZone?: string;
 }) {
   const url = new URL("https://calendar.google.com/calendar/render");
   url.searchParams.set("action", "TEMPLATE");
   url.searchParams.set("text", opts.title);
   url.searchParams.set("details", opts.details);
   url.searchParams.set("dates", `${formatIcsUtc(opts.startAt)}/${formatIcsUtc(opts.endAt)}`);
+  if (opts.timeZone) url.searchParams.set("ctz", opts.timeZone);
   return url.toString();
 }
 
@@ -87,6 +89,7 @@ const bodySchema = z.object({
   requestId: z.string().min(1),
   startAt: z.string().min(1),
   durationMinutes: z.number().int().min(10).max(180).default(30),
+  timeZone: z.string().trim().min(1).max(80).optional(),
 });
 
 function overlaps(aStart: Date, aEnd: Date, bStart: Date, bEnd: Date) {
@@ -127,6 +130,8 @@ export async function POST(req: Request) {
 
       return NextResponse.json({ error: message }, { status: 400 });
     }
+
+    const userTimeZone = parsed.data.timeZone || "America/New_York";
 
     const request = await prisma.marketingDemoRequest.findUnique({
       where: { id: parsed.data.requestId },
@@ -369,7 +374,7 @@ export async function POST(req: Request) {
       const confirmResults: Array<{ channel: "EMAIL" | "SMS"; ok: boolean; status: string; reason?: string }> = [];
       if (marketing?.email) {
         const subject = "Your call is booked with Purely Automation";
-        const whenEt = formatInTimeZone(startAt, "America/New_York");
+        const whenLocal = formatInTimeZone(startAt, userTimeZone);
         const title = "Purely Automation demo call";
         const details = [
           "Thanks again for booking a call with Purely Automation.",
@@ -382,9 +387,10 @@ export async function POST(req: Request) {
 
         const googleCalUrl = buildGoogleCalendarUrl({
           title,
-          details: `${details}\n\nBooked time (ET): ${whenEt}`,
+          details: `${details}\n\nBooked time: ${whenLocal} (${userTimeZone})`,
           startAt,
           endAt,
+          timeZone: userTimeZone,
         });
 
         const text = [
@@ -392,7 +398,7 @@ export async function POST(req: Request) {
           "",
           "Your call is booked.",
           "",
-          `When (ET): ${whenEt}`,
+          `When: ${whenLocal} (${userTimeZone})`,
           `Duration: ${parsed.data.durationMinutes} minutes`,
           "",
           "We will send the call link in advance.",
@@ -439,7 +445,7 @@ export async function POST(req: Request) {
         }
 
         if (marketing.optedIn && marketing.phone) {
-          const smsBody = `Purely Automation: your call is booked for ${whenEt} ET. Add to calendar: ${googleCalUrl} Reply STOP to opt out.`;
+          const smsBody = `Purely Automation: your call is booked for ${whenLocal} (${userTimeZone}). Add to calendar: ${googleCalUrl} Reply STOP to opt out.`;
           const sms = await sendTwilioEnvSms({
             to: marketing.phone,
             body: smsBody,
