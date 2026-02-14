@@ -4,6 +4,10 @@ type OpenAIChatResponse = {
   choices?: Array<{ message?: { content?: string } }>;
 };
 
+type OpenAIAudioTranscriptionResponse = {
+  text?: string;
+};
+
 export async function generateText({
   system,
   user,
@@ -59,4 +63,58 @@ export async function generateText({
 
   const data = (await res.json()) as OpenAIChatResponse;
   return data.choices?.[0]?.message?.content ?? "";
+}
+
+export async function transcribeAudio({
+  bytes,
+  filename,
+  mimeType,
+  model,
+}: {
+  bytes: ArrayBuffer | Uint8Array;
+  filename?: string;
+  mimeType?: string;
+  model?: string;
+}): Promise<string> {
+  const baseUrl = process.env.AI_BASE_URL;
+  const apiKey = process.env.AI_API_KEY;
+  const resolvedModel = model ?? process.env.AI_TRANSCRIBE_MODEL ?? "whisper-1";
+
+  if (!baseUrl || !apiKey) {
+    throw new Error("AI not configured — set AI_BASE_URL and AI_API_KEY");
+  }
+
+  const buf = bytes instanceof Uint8Array ? bytes : new Uint8Array(bytes);
+  // Copy into a fresh ArrayBuffer to avoid SharedArrayBuffer typing issues in TS.
+  const ab = new ArrayBuffer(buf.byteLength);
+  new Uint8Array(ab).set(buf);
+  const name = (filename ?? "recording.mp3").trim() || "recording.mp3";
+  const type = (mimeType ?? "audio/mpeg").trim() || "audio/mpeg";
+
+  const form = new FormData();
+  form.set("model", resolvedModel);
+  form.set("response_format", "json");
+  form.set("file", new Blob([ab], { type }), name);
+
+  const res = await fetch(`${baseUrl.replace(/\/$/, "")}/audio/transcriptions`, {
+    method: "POST",
+    headers: {
+      authorization: `Bearer ${apiKey}`,
+    },
+    body: form,
+  });
+
+  const text = await res.text().catch(() => "");
+  if (!res.ok) throw new Error(`AI transcription failed: ${res.status} ${text}`);
+
+  const trimmed = text.trim();
+  if (!trimmed) return "";
+
+  try {
+    const json = JSON.parse(trimmed) as OpenAIAudioTranscriptionResponse;
+    return typeof json?.text === "string" ? json.text : "";
+  } catch {
+    // Some providers return plain text.
+    return trimmed;
+  }
 }

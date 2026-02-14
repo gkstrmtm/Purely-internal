@@ -7,6 +7,7 @@ import { ensurePortalAiOutboundCallsSchema } from "@/lib/portalAiOutboundCallsSc
 import { getOwnerTwilioSmsConfig } from "@/lib/portalTwilio";
 import { webhookUrlFromRequest } from "@/lib/webhookBase";
 import { fetchElevenLabsConversationTranscript } from "@/lib/elevenLabsConvai";
+import { transcribeAudio } from "@/lib/ai";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -154,6 +155,35 @@ async function fetchTranscriptTextForRecording(ownerId: string, recordingSid: st
   } catch {
     return null;
   }
+}
+
+async function fetchTwilioRecordingMp3(ownerId: string, recordingSid: string): Promise<{ ok: true; bytes: ArrayBuffer; mimeType: string } | { ok: false; error: string }> {
+  const rid = String(recordingSid || "").trim();
+  if (!rid) return { ok: false, error: "Missing recording sid" };
+
+  const config = await getOwnerTwilioSmsConfig(ownerId);
+  if (!config) return { ok: false, error: "Twilio is not configured for this account." };
+
+  const url = `https://api.twilio.com/2010-04-01/Accounts/${encodeURIComponent(config.accountSid)}/Recordings/${encodeURIComponent(rid)}.mp3`;
+  const res = await fetch(url, {
+    method: "GET",
+    headers: { authorization: twilioBasicAuthHeader(config) },
+    cache: "no-store",
+  }).catch(() => null as any);
+
+  if (!res) return { ok: false, error: "Failed to fetch recording audio" };
+  if (!res.ok) {
+    const text = await res.text().catch(() => "");
+    return { ok: false, error: `Twilio recording fetch failed (${res.status}): ${text.slice(0, 200)}` };
+  }
+
+  const bytes = await res.arrayBuffer();
+  const size = bytes?.byteLength ?? 0;
+  // OpenAI-compatible transcription endpoints typically cap uploads around 25MB.
+  if (size > 24 * 1024 * 1024) return { ok: false, error: "Recording too large to transcribe automatically." };
+
+  const mimeType = res.headers.get("content-type") || "audio/mpeg";
+  return { ok: true, bytes, mimeType };
 }
 
 async function requestTranscription(ownerId: string, recordingSid: string, req: Request, token: string): Promise<boolean> {
@@ -321,6 +351,32 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
           updates.lastError = "Transcript request failed. Transcription may be disabled for this account.";
         }
       }
+    }
+  }
+
+  // Final fallback: always produce *some* transcript by transcribing the recording audio ourselves.
+  // This avoids depending on ElevenLabs transcript availability and Twilio transcription settings.
+  const stillNoTranscript = !String(updates.transcriptText ?? row.transcriptText ?? "").trim();
+  if (effectiveRecordingSid && stillNoTranscript) {
+    try {
+      const audio = await fetchTwilioRecordingMp3(ownerId, effectiveRecordingSid);
+      if (audio.ok) {
+        const text = await transcribeAudio({
+          bytes: audio.bytes,
+          filename: `${effectiveRecordingSid}.mp3`,
+          mimeType: audio.mimeType,
+        });
+        const cleaned = String(text || "").trim();
+        if (cleaned) {
+          updates.transcriptText = cleaned.slice(0, 25000);
+          updates.lastError = null;
+        }
+      } else if (!String(updates.lastError ?? row.lastError ?? "").trim()) {
+        updates.lastError = `Transcript pending. ${audio.error}`.slice(0, 500);
+      }
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : "Unable to transcribe recording";
+      updates.lastError = `Transcript pending. ${msg}`.slice(0, 500);
     }
   }
 

@@ -291,61 +291,55 @@ function MiniAudioPlayer(props: { src: string; durationHintSec?: number | null }
         </button>
 
         <div className="min-w-[240px] flex-1">
-          <div
-            ref={scrubRef}
-            role="slider"
-            aria-label="Playback position"
-            aria-valuemin={0}
-            aria-valuemax={hasDuration ? effectiveDuration : 0}
-            aria-valuenow={hasDuration ? safeCurrent : 0}
-            tabIndex={0}
-            onPointerDown={(e) => {
-              if (!hasDuration) return;
-              (e.currentTarget as HTMLDivElement).setPointerCapture(e.pointerId);
-              setDragging(true);
-              setTimeFromClientX(e.clientX);
-            }}
-            onPointerMove={(e) => {
-              if (!dragging) return;
-              setTimeFromClientX(e.clientX);
-            }}
-            onPointerUp={() => setDragging(false)}
-            onPointerCancel={() => setDragging(false)}
-            onKeyDown={(e) => {
-              if (!hasDuration) return;
-              const el = audioRef.current;
-              if (!el) return;
-              const step = e.shiftKey ? 10 : 5;
-              if (e.key === "ArrowLeft") {
-                e.preventDefault();
-                el.currentTime = Math.max(0, (el.currentTime || 0) - step);
-                setCurrentTime(el.currentTime || 0);
-              }
-              if (e.key === "ArrowRight") {
-                e.preventDefault();
-                el.currentTime = hasDuration ? Math.min(effectiveDuration, (el.currentTime || 0) + step) : (el.currentTime || 0) + step;
-                setCurrentTime(el.currentTime || 0);
-              }
-            }}
-            className={
-              "relative h-3 w-full select-none rounded-full " +
-              (hasDuration ? "cursor-pointer" : "cursor-not-allowed opacity-60")
-            }
-          >
-            <div className="absolute inset-0 rounded-full bg-zinc-200" />
-            <div className="absolute inset-y-0 left-0 rounded-full bg-zinc-900" style={{ width: `${pct * 100}%` }} />
+          {hasDuration ? (
             <div
-              className={
-                "absolute top-1/2 h-4 w-4 -translate-y-1/2 rounded-full bg-white shadow ring-2 ring-zinc-900 transition " +
-                (hasDuration ? "" : "opacity-0")
-              }
-              style={{ left: `calc(${pct * 100}% - 8px)` }}
-            />
-          </div>
+              ref={scrubRef}
+              role="slider"
+              aria-label="Playback position"
+              aria-valuemin={0}
+              aria-valuemax={effectiveDuration}
+              aria-valuenow={safeCurrent}
+              tabIndex={0}
+              onPointerDown={(e) => {
+                (e.currentTarget as HTMLDivElement).setPointerCapture(e.pointerId);
+                setDragging(true);
+                setTimeFromClientX(e.clientX);
+              }}
+              onPointerMove={(e) => {
+                if (!dragging) return;
+                setTimeFromClientX(e.clientX);
+              }}
+              onPointerUp={() => setDragging(false)}
+              onPointerCancel={() => setDragging(false)}
+              onKeyDown={(e) => {
+                const el = audioRef.current;
+                if (!el) return;
+                const step = e.shiftKey ? 10 : 5;
+                if (e.key === "ArrowLeft") {
+                  e.preventDefault();
+                  el.currentTime = Math.max(0, (el.currentTime || 0) - step);
+                  setCurrentTime(el.currentTime || 0);
+                }
+                if (e.key === "ArrowRight") {
+                  e.preventDefault();
+                  el.currentTime = Math.min(effectiveDuration, (el.currentTime || 0) + step);
+                  setCurrentTime(el.currentTime || 0);
+                }
+              }}
+              className="relative h-3 w-full select-none rounded-full cursor-pointer"
+            >
+              <div className="absolute inset-0 rounded-full bg-zinc-200" />
+              <div className="absolute inset-y-0 left-0 rounded-full bg-zinc-900" style={{ width: `${pct * 100}%` }} />
+              <div
+                className="absolute top-1/2 h-4 w-4 -translate-y-1/2 rounded-full bg-white shadow ring-2 ring-zinc-900 transition"
+                style={{ left: `calc(${pct * 100}% - 8px)` }}
+              />
+            </div>
+          ) : null}
 
           <div className="mt-1 flex items-center justify-between text-xs text-zinc-600">
             <span>{formatTime(safeCurrent)}</span>
-            <span>{hasDuration ? `-${formatTime(remaining)}` : "Loading…"}</span>
+            <span>{hasDuration ? `-${formatTime(remaining)}` : ""}</span>
           </div>
         </div>
 
