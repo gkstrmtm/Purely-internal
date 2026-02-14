@@ -65,8 +65,14 @@ export function PortalAiOutboundCallsClient() {
   const [voiceTools, setVoiceTools] = useState<VoiceTool[]>([]);
   const [voiceToolsApiKeyConfigured, setVoiceToolsApiKeyConfigured] = useState(true);
 
+  const [agentSyncRequired, setAgentSyncRequired] = useState(false);
+
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const selected = useMemo(() => campaigns.find((c) => c.id === selectedId) ?? null, [campaigns, selectedId]);
+
+  useEffect(() => {
+    setAgentSyncRequired(false);
+  }, [selectedId]);
 
   const [createName, setCreateName] = useState("");
   const [addTagValue, setAddTagValue] = useState<string>("");
@@ -242,6 +248,12 @@ export function PortalAiOutboundCallsClient() {
     },
   ) {
     if (!selected) return;
+
+    // Hint UX: when agent-related fields change, users must sync to apply changes to ElevenLabs.
+    if (patch.voiceAgentId !== undefined || patch.voiceAgentConfig !== undefined) {
+      setAgentSyncRequired(true);
+    }
+
     if (busy) return;
     setBusy(true);
     setError(null);
@@ -286,6 +298,7 @@ export function PortalAiOutboundCallsClient() {
       }
 
       toast.success("Synced agent settings");
+      setAgentSyncRequired(false);
     } catch (e) {
       setError(e instanceof Error ? e.message : "Failed to sync agent");
     } finally {
@@ -518,7 +531,15 @@ export function PortalAiOutboundCallsClient() {
                   </ul>
                 </div>
 
-                <div className="mt-3 flex items-center justify-end">
+                <div className="mt-3 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+                  <div className="text-[11px] text-zinc-600">
+                    After changing Agent ID, Tools, or behavior fields, click Sync to apply updates to your live agent.
+                    {agentSyncRequired ? (
+                      <span className="ml-2 inline-flex items-center rounded-full bg-blue-50 px-2 py-0.5 text-[10px] font-semibold text-blue-800 ring-1 ring-blue-200">
+                        Sync required
+                      </span>
+                    ) : null}
+                  </div>
                   <button
                     type="button"
                     disabled={busy}
