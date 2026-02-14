@@ -13,7 +13,7 @@ function jsonError(message: string, status: number) {
   return NextResponse.json({ error: message }, { status });
 }
 
-export async function GET(_req: Request, ctx: { params: Promise<{ recordingSid: string }> }) {
+export async function GET(req: Request, ctx: { params: Promise<{ recordingSid: string }> }) {
   const auth = await requireClientSessionForService("aiOutboundCalls", "view");
   if (!auth.ok) {
     return jsonError(auth.status === 401 ? "Unauthorized" : "Forbidden", auth.status);
@@ -41,10 +41,13 @@ export async function GET(_req: Request, ctx: { params: Promise<{ recordingSid: 
   const url = `https://api.twilio.com/2010-04-01/Accounts/${encodeURIComponent(twilio.accountSid)}/Recordings/${encodeURIComponent(sid)}.mp3`;
   const basic = Buffer.from(`${twilio.accountSid}:${twilio.authToken}`).toString("base64");
 
+  const range = req.headers.get("range") || "";
+
   const res = await fetch(url, {
     method: "GET",
     headers: {
       authorization: `Basic ${basic}`,
+      ...(range ? { range } : {}),
     },
     cache: "no-store",
   }).catch(() => null);
@@ -56,14 +59,20 @@ export async function GET(_req: Request, ctx: { params: Promise<{ recordingSid: 
     return jsonError(`Twilio recording fetch failed (${res.status}): ${text.slice(0, 200)}`, 502);
   }
 
-  const bytes = await res.arrayBuffer();
+  const out = new Headers();
   const contentType = res.headers.get("content-type") || "audio/mpeg";
+  out.set("content-type", contentType);
 
-  return new NextResponse(bytes, {
-    status: 200,
-    headers: {
-      "content-type": contentType,
-      "cache-control": "private, no-store",
-    },
+  // Preserve range/seek headers so the browser can scrub reliably.
+  for (const key of ["content-length", "accept-ranges", "content-range", "etag", "last-modified"]) {
+    const v = res.headers.get(key);
+    if (v) out.set(key, v);
+  }
+
+  out.set("cache-control", "private, no-store");
+
+  return new NextResponse(res.body, {
+    status: res.status,
+    headers: out,
   });
 }

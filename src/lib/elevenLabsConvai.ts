@@ -91,6 +91,8 @@ function extractTranscriptFromConversationJson(json: unknown): string {
 
   const direct =
     (typeof rec.transcript === "string" ? rec.transcript : "") ||
+    (rec.transcript && typeof rec.transcript === "object" && typeof asRecord(rec.transcript).text === "string" ? asRecord(rec.transcript).text : "") ||
+    (rec.transcript && typeof rec.transcript === "object" && typeof asRecord(rec.transcript).transcript === "string" ? asRecord(rec.transcript).transcript : "") ||
     (typeof rec.transcript_text === "string" ? rec.transcript_text : "") ||
     (typeof rec.transcription === "string" ? rec.transcription : "") ||
     (typeof rec.text === "string" ? rec.text : "");
@@ -232,14 +234,10 @@ export async function fetchElevenLabsConversationTranscript(opts: {
   }
 
   if (lastErr) {
-    return {
-      ok: false,
-      status: lastErr.status,
-      error:
-        lastErr.status === 401 || lastErr.status === 403
-          ? "Unable to fetch voice transcript (API key permissions)."
-          : "No transcript available from voice agent platform yet.",
-    };
+    const status = lastErr.status;
+    const base = lastErr.error || (status ? `HTTP ${status}` : "Unable to fetch voice transcript.");
+    const hint = status === 401 || status === 403 ? " Check API key permissions/scopes." : "";
+    return { ok: false, status, error: `${base}${hint}`.trim() };
   }
 
   return { ok: false, error: "No transcript available from voice agent platform yet." };
