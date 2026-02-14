@@ -6,10 +6,6 @@ import { z } from "zod";
 import { prisma } from "@/lib/db";
 import { requireClientSessionForService } from "@/lib/portalAccess";
 import { ensurePortalAiOutboundCallsSchema } from "@/lib/portalAiOutboundCallsSchema";
-import {
-  placeElevenLabsTwilioOutboundCall,
-  resolveElevenLabsAgentPhoneNumberId,
-} from "@/lib/elevenLabsConvai";
 import { normalizePhoneStrict } from "@/lib/phone";
 import { getOwnerTwilioSmsConfig } from "@/lib/portalTwilio";
 import { webhookUrlFromRequest } from "@/lib/webhookBase";
@@ -90,6 +86,52 @@ async function startTwilioCallRecording(opts: {
   }).catch(() => null);
 }
 
+async function createTwilioOutboundCall(opts: {
+  ownerId: string;
+  toNumberE164: string;
+  voiceUrl: string;
+}): Promise<{ ok: true; callSid: string } | { ok: false; error: string; status?: number }> {
+  const to = String(opts.toNumberE164 || "").trim();
+  const voiceUrl = String(opts.voiceUrl || "").trim();
+  if (!to) return { ok: false, error: "Missing destination phone number" };
+  if (!voiceUrl) return { ok: false, error: "Missing voice URL" };
+
+  const twilio = await getOwnerTwilioSmsConfig(opts.ownerId);
+  if (!twilio) return { ok: false, error: "Twilio is not configured for this account" };
+
+  const url = `https://api.twilio.com/2010-04-01/Accounts/${encodeURIComponent(twilio.accountSid)}/Calls.json`;
+  const basic = Buffer.from(`${twilio.accountSid}:${twilio.authToken}`).toString("base64");
+
+  const form = new URLSearchParams();
+  form.set("To", to);
+  form.set("From", twilio.fromNumberE164);
+  form.set("Url", voiceUrl);
+  form.set("Method", "POST");
+
+  const res = await fetch(url, {
+    method: "POST",
+    headers: {
+      authorization: `Basic ${basic}`,
+      "content-type": "application/x-www-form-urlencoded",
+    },
+    body: form.toString(),
+  });
+
+  const text = await res.text().catch(() => "");
+  if (!res.ok) {
+    return { ok: false, error: `Twilio failed (${res.status}): ${text.slice(0, 400)}`, status: res.status };
+  }
+
+  try {
+    const json = JSON.parse(text) as any;
+    const callSid = typeof json?.sid === "string" ? json.sid.trim() : "";
+    if (!callSid) return { ok: false, error: "Twilio returned an unexpected response." };
+    return { ok: true, callSid };
+  } catch {
+    return { ok: false, error: "Twilio returned an unexpected response." };
+  }
+}
+
 export async function POST(req: Request, ctx: { params: Promise<{ campaignId: string }> }) {
   const auth = await requireClientSessionForService("aiOutboundCalls", "edit");
   if (!auth.ok) {
@@ -125,44 +167,8 @@ export async function POST(req: Request, ctx: { params: Promise<{ campaignId: st
   const agentId = String(campaign.voiceAgentId || "").trim() || String(profileAgentId || "").trim();
   if (!agentId) return jsonError("Missing agent id. Set one on this campaign or in Profile.", 400);
 
-  const resolved = await resolveElevenLabsAgentPhoneNumberId({ apiKey, agentId });
-  if (!resolved.ok) return jsonError(resolved.error, resolved.status || 502);
-
   const manualCallId = crypto.randomUUID();
   const token = crypto.randomUUID();
-
-  const call = await placeElevenLabsTwilioOutboundCall({
-    apiKey,
-    agentId,
-    agentPhoneNumberId: resolved.phoneNumberId,
-    toNumberE164: toParsed.e164,
-    conversationInitiationClientData: {
-      dynamic_variables: {
-        purely_source: "portal_manual_call",
-        purely_campaign_id: campaign.id,
-      },
-    },
-  });
-
-  if (!call.ok) {
-    await prisma.portalAiOutboundCallManualCall.create({
-      data: {
-        id: manualCallId,
-        ownerId,
-        campaignId: campaign.id,
-        webhookToken: token,
-        toNumberE164: toParsed.e164,
-        status: "FAILED",
-        lastError: call.error.slice(0, 500),
-      },
-      select: { id: true },
-    });
-
-    return jsonError(call.error, call.status || 502);
-  }
-
-  const callSid = String(call.callSid || "").trim() || null;
-  const conversationId = String(call.conversationId || "").trim() || null;
 
   await prisma.portalAiOutboundCallManualCall.create({
     data: {
@@ -172,25 +178,46 @@ export async function POST(req: Request, ctx: { params: Promise<{ campaignId: st
       webhookToken: token,
       toNumberE164: toParsed.e164,
       status: "CALLING",
-      ...(callSid ? { callSid } : {}),
-      ...(conversationId ? { conversationId } : {}),
+      callSid: null,
+      conversationId: null,
     },
     select: { id: true },
   });
 
-  if (callSid) {
-    const recordingCallback = webhookUrlFromRequest(
-      req,
-      `/api/public/twilio/ai-outbound-calls/manual-call/${encodeURIComponent(token)}/call-recording`,
-    );
+  const voiceUrl = webhookUrlFromRequest(
+    req,
+    `/api/public/twilio/ai-outbound-calls/manual-call/${encodeURIComponent(token)}/voice`,
+  );
 
-    await startTwilioCallRecording({ ownerId, callSid, recordingStatusCallbackUrl: recordingCallback });
+  const started = await createTwilioOutboundCall({ ownerId, toNumberE164: toParsed.e164, voiceUrl });
+  if (!started.ok) {
+    await prisma.portalAiOutboundCallManualCall.update({
+      where: { id: manualCallId },
+      data: { status: "FAILED", lastError: started.error.slice(0, 500) },
+      select: { id: true },
+    });
+    return jsonError(started.error, started.status || 502);
   }
+
+  const callSid = started.callSid;
+
+  await prisma.portalAiOutboundCallManualCall.update({
+    where: { id: manualCallId },
+    data: { callSid },
+    select: { id: true },
+  });
+
+  const recordingCallback = webhookUrlFromRequest(
+    req,
+    `/api/public/twilio/ai-outbound-calls/manual-call/${encodeURIComponent(token)}/call-recording`,
+  );
+
+  await startTwilioCallRecording({ ownerId, callSid, recordingStatusCallbackUrl: recordingCallback });
 
   return NextResponse.json({
     ok: true,
     id: manualCallId,
     callSid,
-    conversationId,
+    conversationId: null,
   });
 }
