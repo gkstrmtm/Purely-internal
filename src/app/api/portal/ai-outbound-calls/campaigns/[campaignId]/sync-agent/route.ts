@@ -6,8 +6,8 @@ import { requireClientSessionForService } from "@/lib/portalAccess";
 import { ensurePortalAiOutboundCallsSchema } from "@/lib/portalAiOutboundCallsSchema";
 import { getAiReceptionistServiceData } from "@/lib/aiReceptionist";
 import { buildElevenLabsAgentPrompt, patchElevenLabsAgent } from "@/lib/elevenLabsConvai";
+import { resolveElevenLabsConvaiToolIdsByKeys } from "@/lib/elevenLabsConvai";
 import { parseVoiceAgentConfig } from "@/lib/voiceAgentConfig.shared";
-import { resolveToolIdsForKeys } from "@/lib/voiceAgentTools";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -96,12 +96,26 @@ export async function POST(req: Request, ctx: { params: Promise<{ campaignId: st
   const prompt = buildElevenLabsAgentPrompt(config);
   const firstMessage = config.firstMessage.trim();
 
-  const resolvedToolIds =
-    Array.isArray(config.toolIds) && config.toolIds.length
-      ? config.toolIds
-      : Array.isArray(config.toolKeys) && config.toolKeys.length
-        ? resolveToolIdsForKeys(config.toolKeys)
-        : [];
+  let resolvedToolIds: string[] = [];
+  if (Array.isArray(config.toolIds) && config.toolIds.length) {
+    resolvedToolIds = config.toolIds;
+  } else if (Array.isArray(config.toolKeys) && config.toolKeys.length) {
+    const resolved = await resolveElevenLabsConvaiToolIdsByKeys({ apiKey, toolKeys: config.toolKeys }).catch(() => null);
+    if (resolved && (resolved as any).ok === true) {
+      const map = (resolved as any).toolIds as Record<string, string[]>;
+      const flat = config.toolKeys
+        .map((k) => String(k || "").trim().toLowerCase())
+        .filter(Boolean)
+        .flatMap((k) => (Array.isArray((map as any)[k]) ? (map as any)[k] : []));
+      resolvedToolIds = flat;
+    }
+  }
+
+  resolvedToolIds = resolvedToolIds
+    .map((x) => (typeof x === "string" ? x.trim() : ""))
+    .filter(Boolean)
+    .filter((v, i, a) => a.indexOf(v) === i)
+    .slice(0, 50);
 
   const result = await patchElevenLabsAgent({
     apiKey,

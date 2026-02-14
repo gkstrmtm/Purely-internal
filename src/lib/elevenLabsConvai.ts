@@ -381,9 +381,9 @@ export async function patchElevenLabsAgent(opts: {
   const agentCfg: any = {};
 
   if (firstMessage) agentCfg.first_message = firstMessage;
-  if (prompt) {
+  if (prompt || toolIds.length) {
     agentCfg.prompt = {
-      prompt,
+      ...(prompt ? { prompt } : {}),
       ...(toolIds.length ? { tool_ids: toolIds } : {}),
     };
   }

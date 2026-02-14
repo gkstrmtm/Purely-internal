@@ -8,9 +8,9 @@ import {
 import { getCreditsState, isFreeCreditsOwner } from "@/lib/credits";
 import { prisma } from "@/lib/db";
 import { registerElevenLabsTwilioCall } from "@/lib/elevenLabsConvai";
+import { resolveElevenLabsConvaiToolIdsByKeys } from "@/lib/elevenLabsConvai";
 import { normalizePhoneStrict } from "@/lib/phone";
 import { getOwnerTwilioSmsConfig } from "@/lib/portalTwilio";
-import { resolveToolIdsForKeys } from "@/lib/voiceAgentTools";
 import { webhookUrlFromRequest } from "@/lib/webhookBase";
 
 export const runtime = "nodejs";
@@ -288,25 +288,36 @@ export async function POST(req: Request, ctx: { params: Promise<{ token: string 
   // Register inbound call with ElevenLabs ConvAI and return their TwiML.
   const profilePhone = await getOwnerProfilePhoneE164(ownerId).catch(() => null);
   const transferTo = (settings.aiCanTransferToHuman ? (settings.forwardToPhoneE164 || profilePhone) : null) || null;
-  const transferToolIds = settings.aiCanTransferToHuman
-    ? (
-        // Prefer per-account IDs (resolved from API key and cached in Profile).
-        (
-          [
-            ...(await getProfileVoiceAgentToolIds(ownerId, "transfer_to_number")),
-            ...(await getProfileVoiceAgentToolIds(ownerId, "transfer_to_human")),
-            ...(await getProfileVoiceAgentToolIds(ownerId, "call_transfer")),
-            ...(await getProfileVoiceAgentToolIds(ownerId, "end_call")),
-          ]
-            .map((x) => x.trim())
-            .filter(Boolean)
-        )
-          // Back-compat: env-configured tool IDs.
-          .concat(resolveToolIdsForKeys(["transfer_to_human", "transfer_to_number", "call_transfer", "end_call"]))
-          .filter((v, i, a) => a.indexOf(v) === i)
-          .slice(0, 50)
-      )
+  let transferToolIds = settings.aiCanTransferToHuman
+    ? [
+        ...(await getProfileVoiceAgentToolIds(ownerId, "transfer_to_number")),
+        ...(await getProfileVoiceAgentToolIds(ownerId, "transfer_to_human")),
+        ...(await getProfileVoiceAgentToolIds(ownerId, "call_transfer")),
+        ...(await getProfileVoiceAgentToolIds(ownerId, "end_call")),
+      ]
+        .map((x) => x.trim())
+        .filter(Boolean)
+        .filter((v, i, a) => a.indexOf(v) === i)
+        .slice(0, 50)
     : [];
+
+  // Fallback: if profile cache is empty, attempt to resolve tool IDs directly from ElevenLabs using the API key.
+  if (settings.aiCanTransferToHuman && !transferToolIds.length) {
+    const resolved = await resolveElevenLabsConvaiToolIdsByKeys({
+      apiKey,
+      toolKeys: ["transfer_to_human", "transfer_to_number", "call_transfer", "end_call"],
+    }).catch(() => null);
+
+    if (resolved && (resolved as any).ok === true) {
+      const map = (resolved as any).toolIds as Record<string, string[]>;
+      transferToolIds = ["transfer_to_human", "transfer_to_number", "call_transfer", "end_call"]
+        .flatMap((k) => (Array.isArray((map as any)[k]) ? (map as any)[k] : []))
+        .map((x) => (typeof x === "string" ? x.trim() : ""))
+        .filter(Boolean)
+        .filter((v, i, a) => a.indexOf(v) === i)
+        .slice(0, 50);
+    }
+  }
 
   const transferNote = settings.aiCanTransferToHuman
     ? (transferTo

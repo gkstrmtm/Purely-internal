@@ -7,6 +7,7 @@ import { verifyPassword } from "@/lib/password";
 import { getOrCreateStripeCustomerId, isStripeConfigured, stripePost } from "@/lib/stripeFetch";
 import { normalizePhoneStrict } from "@/lib/phone";
 import { resolveElevenLabsConvaiToolIdsByKeys } from "@/lib/elevenLabsConvai";
+import { VOICE_TOOL_DEFS } from "@/lib/voiceAgentTools";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
@@ -48,10 +49,7 @@ async function setProfileVoiceAgentApiKey(ownerId: string, voiceAgentApiKey: str
     // Best-effort: resolve tool IDs from the API key so features like call transfer work automatically.
     // This keeps the portal setup simple: users paste API key + agent ID, and we do the rest.
     try {
-      const resolved = await resolveElevenLabsConvaiToolIdsByKeys({
-        apiKey: k,
-        toolKeys: ["transfer_to_number", "end_call"],
-      });
+      const resolved = await resolveElevenLabsConvaiToolIdsByKeys({ apiKey: k, toolKeys: VOICE_TOOL_DEFS.map((d) => d.key) });
       if (resolved.ok) {
         next.voiceAgentToolIds = resolved.toolIds;
         next.voiceAgentToolIdsUpdatedAtIso = new Date().toISOString();

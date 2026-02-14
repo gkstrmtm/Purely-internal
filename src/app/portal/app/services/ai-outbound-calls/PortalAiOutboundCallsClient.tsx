@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useEffect, useMemo, useRef, useState } from "react";
 
 import { PortalListboxDropdown } from "@/components/PortalListboxDropdown";
@@ -33,7 +34,7 @@ type VoiceTool = {
 };
 
 type ApiGetVoiceToolsResponse =
-  | { ok: true; tools: VoiceTool[] }
+  | { ok: true; tools: VoiceTool[]; apiKeyConfigured?: boolean }
   | { ok: false; error?: string };
 
 type ApiGetCampaignsResponse =
@@ -62,6 +63,7 @@ export function PortalAiOutboundCallsClient() {
   const [campaigns, setCampaigns] = useState<Campaign[]>([]);
   const [tags, setTags] = useState<ContactTag[]>([]);
   const [voiceTools, setVoiceTools] = useState<VoiceTool[]>([]);
+  const [voiceToolsApiKeyConfigured, setVoiceToolsApiKeyConfigured] = useState(true);
 
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const selected = useMemo(() => campaigns.find((c) => c.id === selectedId) ?? null, [campaigns, selectedId]);
@@ -133,10 +135,12 @@ export function PortalAiOutboundCallsClient() {
       if (!mounted) return;
       if (!res || !res.ok) {
         setVoiceTools([]);
+        setVoiceToolsApiKeyConfigured(true);
         return;
       }
       const json = (await res.json().catch(() => null)) as ApiGetVoiceToolsResponse | null;
       if (json && typeof json === "object" && (json as any).ok === true && Array.isArray((json as any).tools)) {
+        setVoiceToolsApiKeyConfigured(Boolean((json as any).apiKeyConfigured ?? true));
         setVoiceTools(
           (json as any).tools
             .map((t: any) => ({
@@ -149,6 +153,7 @@ export function PortalAiOutboundCallsClient() {
         );
       } else {
         setVoiceTools([]);
+        setVoiceToolsApiKeyConfigured(true);
       }
     })();
 
@@ -498,7 +503,15 @@ export function PortalAiOutboundCallsClient() {
                 <div className="mt-3 rounded-2xl border border-zinc-200 bg-zinc-50 p-4 text-sm text-zinc-700">
                   <div className="font-semibold text-zinc-900">How this works</div>
                   <ul className="mt-2 list-disc space-y-1 pl-5 text-xs text-zinc-600">
-                    <li>API key lives in <span className="font-semibold">Profile</span> settings.</li>
+                    <li>
+                      API key lives in <span className="font-semibold">Profile</span> settings.
+                      <Link
+                        href="/portal/profile"
+                        className="ml-2 inline-flex items-center rounded-lg border border-zinc-200 bg-white px-2 py-1 text-[11px] font-semibold text-zinc-800 hover:bg-zinc-50"
+                      >
+                        Open Profile
+                      </Link>
+                    </li>
                     <li>Default Agent ID lives in your <span className="font-semibold">Profile</span>; you can override it per campaign.</li>
                     <li>Leaving behavior fields blank means Purely won’t overwrite your agent’s existing behavior when syncing.</li>
                     <li>The campaign <span className="font-semibold">Call script</span> (if set) overrides the agent’s first message for that call.</li>
@@ -514,7 +527,7 @@ export function PortalAiOutboundCallsClient() {
                       "rounded-2xl px-4 py-2 text-xs font-semibold",
                       busy ? "bg-zinc-200 text-zinc-600" : "bg-brand-ink text-white hover:opacity-95",
                     )}
-                    title="Push these settings to your voice agent (requires API key set in AI Receptionist)"
+                    title="Push these settings to your voice agent (requires API key set in Profile)"
                   >
                     {busy ? "Syncing…" : "Sync agent settings"}
                   </button>
@@ -523,6 +536,10 @@ export function PortalAiOutboundCallsClient() {
                 <div className="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-2">
                   <div>
                     <div className="text-xs font-semibold text-zinc-700">Agent ID (campaign override)</div>
+                    <div className="mt-1 text-[11px] text-zinc-500">
+                      Leave blank to use your Profile agent ID. If you just signed up and haven’t received an agent ID yet,
+                      it’s typically issued by Purely support—give it a couple hours, then reach out if needed.
+                    </div>
                     <input
                       value={selected.voiceAgentId ?? ""}
                       onChange={(e) => {
@@ -535,7 +552,6 @@ export function PortalAiOutboundCallsClient() {
                       placeholder="agent_... (optional)"
                       className="mt-1 w-full rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-sm"
                     />
-                    <div className="mt-1 text-[11px] text-zinc-500">Leave blank to use your Profile agent ID.</div>
                   </div>
 
                   <div>
@@ -581,6 +597,14 @@ export function PortalAiOutboundCallsClient() {
                       </div>
 
                       <div className="mt-3 grid grid-cols-1 gap-2">
+                        {!voiceToolsApiKeyConfigured ? (
+                          <div className="rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-[11px] text-amber-800">
+                            Set your ElevenLabs API key in Profile to load tools.
+                            <Link href="/portal/profile" className="ml-2 font-semibold underline underline-offset-2">
+                              Go to Profile
+                            </Link>
+                          </div>
+                        ) : null}
                         {voiceTools.length === 0 ? (
                           <div className="text-[11px] text-zinc-500">
                             No tools are available yet.
@@ -602,13 +626,13 @@ export function PortalAiOutboundCallsClient() {
                                   <div className="truncate text-xs font-semibold text-zinc-800">{t.label}</div>
                                   <div className="mt-0.5 text-[11px] text-zinc-500">
                                     {t.description || ""}
-                                    {!configured ? " (Not configured yet — contact support if this should be enabled.)" : ""}
+                                    {!configured && voiceToolsApiKeyConfigured ? " (Unavailable for this account.)" : ""}
                                   </div>
                                 </span>
                                 <input
                                   type="checkbox"
                                   className="mt-1"
-                                  disabled={busy}
+                                  disabled={busy || (!configured && voiceToolsApiKeyConfigured)}
                                   checked={enabled}
                                   onChange={(e) => {
                                     const cur = selectedToolKeys;
