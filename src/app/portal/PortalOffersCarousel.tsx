@@ -57,7 +57,7 @@ export function PortalOffersCarousel() {
       },
       {
         title: "Lead Scraping (B2B)",
-        description: "Business leads pulled from Google Maps.",
+        description: "Business lead lists for your niche and service area.",
         tone: "coral",
       },
       {

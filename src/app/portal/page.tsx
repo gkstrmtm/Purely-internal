@@ -31,6 +31,16 @@ export default async function PortalDashboardPage() {
                 </Link>
               </div>
 
+              <div className="mt-4 flex flex-wrap items-center gap-x-4 gap-y-2 text-sm text-white/80">
+                <div>Invite as many users as you want to your account.</div>
+                <Link
+                  href="/book-a-call"
+                  className="font-semibold text-white underline decoration-white/40 underline-offset-4 hover:text-white/95"
+                >
+                  Want something custom? Book a call.
+                </Link>
+              </div>
+
               <div className="mt-8 grid grid-cols-1 gap-3 sm:grid-cols-3">
                 <div className="rounded-3xl border border-[color:rgba(255,255,255,0.18)] bg-[color:rgba(255,255,255,0.08)] p-5">
                   <div className="text-sm font-semibold">Clear access</div>
@@ -139,8 +149,8 @@ export default async function PortalDashboardPage() {
 
           <div className="mt-6 grid grid-cols-1 gap-4 sm:grid-cols-3">
             <div className="rounded-3xl border border-zinc-200 bg-white p-6">
-              <div className="text-sm font-semibold text-zinc-900">One login</div>
-              <div className="mt-2 text-sm text-zinc-600">Services, billing, and access live in one place.</div>
+              <div className="text-sm font-semibold text-zinc-900">Invite your team</div>
+              <div className="mt-2 text-sm text-zinc-600">Invite as many users as you want and manage access in one place.</div>
             </div>
             <div className="rounded-3xl border border-zinc-200 bg-white p-6">
               <div className="text-sm font-semibold text-zinc-900">Add when it makes sense</div>

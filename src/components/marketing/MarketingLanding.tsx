@@ -1259,6 +1259,24 @@ export function MarketingLanding() {
                     <br />
                     so you can focus on moving levers
                   </p>
+
+                  <p className="mt-4 max-w-md text-sm text-zinc-700">
+                    Want plug-and-play automations with benefits immediately? Start in the{" "}
+                    <Link
+                      href="/portal"
+                      className="font-semibold text-brand-blue underline decoration-brand-blue/40 underline-offset-4 hover:decoration-brand-blue/70"
+                    >
+                      portal
+                    </Link>
+                    . Need something custom or done-for-you?{" "}
+                    <Link
+                      href="/book-a-call"
+                      className="font-semibold text-brand-blue underline decoration-brand-blue/40 underline-offset-4 hover:decoration-brand-blue/70"
+                    >
+                      Book a call
+                    </Link>
+                    .
+                  </p>
                 </div>
 
                 <div className="flex justify-center md:justify-end">
