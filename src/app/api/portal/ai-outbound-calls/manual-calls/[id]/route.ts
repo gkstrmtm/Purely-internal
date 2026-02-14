@@ -6,6 +6,7 @@ import { requireClientSessionForService } from "@/lib/portalAccess";
 import { ensurePortalAiOutboundCallsSchema } from "@/lib/portalAiOutboundCallsSchema";
 import { getOwnerTwilioSmsConfig } from "@/lib/portalTwilio";
 import { webhookUrlFromRequest } from "@/lib/webhookBase";
+import { fetchElevenLabsConversationTranscript } from "@/lib/elevenLabsConvai";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -49,6 +50,24 @@ function mapTwilioToManualStatus(twilioStatus: string): "CALLING" | "COMPLETED" 
   if (s === "completed") return "COMPLETED";
   if (s === "failed" || s === "busy" || s === "no-answer" || s === "canceled") return "FAILED";
   return "CALLING";
+}
+
+const PROFILE_EXTRAS_SERVICE_SLUG = "profile";
+
+async function getProfileVoiceAgentApiKey(ownerId: string): Promise<string | null> {
+  const row = await prisma.portalServiceSetup.findUnique({
+    where: { ownerId_serviceSlug: { ownerId, serviceSlug: PROFILE_EXTRAS_SERVICE_SLUG } },
+    select: { dataJson: true },
+  });
+
+  const rec =
+    row?.dataJson && typeof row.dataJson === "object" && !Array.isArray(row.dataJson)
+      ? (row.dataJson as Record<string, unknown>)
+      : null;
+
+  const raw = rec?.voiceAgentApiKey;
+  const key = typeof raw === "string" ? raw.trim().slice(0, 400) : "";
+  return key ? key : null;
 }
 
 function twilioBasicAuthHeader(config: { accountSid: string; authToken: string }) {
@@ -256,6 +275,7 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
 
   const updates: Record<string, any> = {};
   let requestedTranscription = false;
+  let usedVoiceTranscript = false;
 
   if (!String(row.recordingSid || "").trim() && String(row.callSid || "").trim()) {
     const rid = await fetchLatestRecordingSidForCall(ownerId, row.callSid || "");
@@ -276,6 +296,24 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
     }
   }
 
+  // Fallback: if Twilio transcription isn't available but the voice platform has it, pull it.
+  const stillNoTranscript = !String(updates.transcriptText ?? row.transcriptText ?? "").trim();
+  const conversationId = String(row.conversationId || "").trim();
+  if (stillNoTranscript && conversationId) {
+    const apiKey = (await getProfileVoiceAgentApiKey(ownerId).catch(() => null)) || "";
+    if (apiKey.trim()) {
+      const conv = await fetchElevenLabsConversationTranscript({ apiKey, conversationId });
+      if (conv.ok && conv.transcript.trim()) {
+        updates.transcriptText = conv.transcript.trim();
+        usedVoiceTranscript = true;
+        // Clear the Twilio warning if we successfully filled it from voice.
+        if (String(updates.lastError || row.lastError || "").includes("Twilio transcription")) {
+          updates.lastError = null;
+        }
+      }
+    }
+  }
+
   if (Object.keys(updates).length) {
     await prisma.portalAiOutboundCallManualCall
       .update({
@@ -292,6 +330,7 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
   return NextResponse.json({
     ok: true,
     requestedTranscription,
+    usedVoiceTranscript,
     manualCall: {
       ...latest,
       createdAtIso: latest.createdAt.toISOString(),

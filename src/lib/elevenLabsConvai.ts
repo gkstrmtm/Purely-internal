@@ -30,6 +30,99 @@ function toolIdFromTool(t: ElevenLabsConvaiTool): string {
   return b;
 }
 
+function asRecord(value: unknown): Record<string, any> {
+  return value && typeof value === "object" && !Array.isArray(value) ? (value as Record<string, any>) : {};
+}
+
+function extractTranscriptFromConversationJson(json: unknown): string {
+  const rec = asRecord(json);
+
+  const direct =
+    (typeof rec.transcript === "string" ? rec.transcript : "") ||
+    (typeof rec.transcript_text === "string" ? rec.transcript_text : "") ||
+    (typeof rec.transcription === "string" ? rec.transcription : "") ||
+    (typeof rec.text === "string" ? rec.text : "");
+  if (direct.trim()) return direct.trim();
+
+  const maybe = rec.conversation ? asRecord(rec.conversation) : null;
+  if (maybe) {
+    const nested =
+      (typeof maybe.transcript === "string" ? maybe.transcript : "") ||
+      (typeof maybe.transcript_text === "string" ? maybe.transcript_text : "") ||
+      (typeof maybe.text === "string" ? maybe.text : "");
+    if (nested.trim()) return nested.trim();
+  }
+
+  const messages =
+    Array.isArray(rec.messages) ? rec.messages :
+    Array.isArray(rec.turns) ? rec.turns :
+    Array.isArray(rec.events) ? rec.events :
+    Array.isArray((rec.conversation && asRecord(rec.conversation).messages)) ? asRecord(rec.conversation).messages :
+    null;
+
+  if (Array.isArray(messages)) {
+    const lines: string[] = [];
+    for (const m of messages) {
+      const mr = asRecord(m);
+      const role = typeof mr.role === "string" ? mr.role.trim() : typeof mr.speaker === "string" ? mr.speaker.trim() : "";
+      const text = typeof mr.text === "string" ? mr.text : typeof mr.message === "string" ? mr.message : typeof mr.content === "string" ? mr.content : "";
+      const t = String(text || "").trim();
+      if (!t) continue;
+      lines.push(role ? `${role}: ${t}` : t);
+      if (lines.join("\n").length > 25000) break;
+    }
+    return lines.join("\n").trim();
+  }
+
+  return "";
+}
+
+async function fetchConversationFromUrl(apiKey: string, url: string): Promise<any | null> {
+  const res = await fetch(url, {
+    method: "GET",
+    headers: {
+      "xi-api-key": apiKey,
+      accept: "application/json",
+    },
+  }).catch(() => null as any);
+
+  if (!res?.ok) return null;
+  const text = await res.text().catch(() => "");
+  if (!text.trim()) return null;
+  try {
+    return JSON.parse(text);
+  } catch {
+    return null;
+  }
+}
+
+export async function fetchElevenLabsConversationTranscript(opts: {
+  apiKey: string;
+  conversationId: string;
+}): Promise<{ ok: true; transcript: string } | { ok: false; error: string; status?: number }> {
+  const apiKey = String(opts.apiKey || "").trim();
+  const conversationId = String(opts.conversationId || "").trim();
+  if (!apiKey) return { ok: false, error: "Missing voice agent API key" };
+  if (!conversationId) return { ok: false, error: "Missing conversation id" };
+
+  const cid = encodeURIComponent(conversationId);
+  const urls = [
+    `https://api.elevenlabs.io/v1/convai/conversations/${cid}`,
+    `https://api.elevenlabs.io/v1/convai/conversation/${cid}`,
+    `https://api.elevenlabs.io/v1/convai/conversations/${cid}/transcript`,
+    `https://api.elevenlabs.io/v1/convai/conversation/${cid}/transcript`,
+  ];
+
+  for (const url of urls) {
+    const json = await fetchConversationFromUrl(apiKey, url);
+    if (!json) continue;
+    const transcript = extractTranscriptFromConversationJson(json);
+    if (transcript.trim()) return { ok: true, transcript: transcript.trim().slice(0, 25000) };
+  }
+
+  return { ok: false, error: "No transcript available from voice agent platform yet." };
+}
+
 async function fetchToolsFromUrl(apiKey: string, url: string): Promise<ElevenLabsConvaiTool[] | null> {
   const res = await fetch(url, {
     method: "GET",

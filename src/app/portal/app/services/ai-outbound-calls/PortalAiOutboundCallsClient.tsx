@@ -148,7 +148,9 @@ function MiniAudioPlayer(props: { src: string; durationHintSec?: number | null }
   }, [rate]);
 
   const remaining = Math.max(0, (duration || 0) - (currentTime || 0));
-  const canScrub = ready && duration > 0;
+  const hasDuration = ready && duration > 0;
+  const sliderMax = hasDuration ? duration : Math.max(1, currentTime + 1);
+  const sliderValue = Math.max(0, Math.min(sliderMax, currentTime || 0));
 
   return (
     <div className="mt-2 rounded-2xl border border-zinc-200 bg-zinc-50 p-3">
@@ -179,23 +181,24 @@ function MiniAudioPlayer(props: { src: string; durationHintSec?: number | null }
           <input
             type="range"
             min={0}
-            max={canScrub ? duration : 1}
+            max={sliderMax}
             step={0.01}
-            value={canScrub ? Math.min(duration, currentTime) : 0}
-            disabled={!canScrub}
+            value={sliderValue}
+            disabled={!ready}
             onChange={(ev) => {
               const el = audioRef.current;
               if (!el) return;
               const next = Number(ev.target.value);
               if (!Number.isFinite(next)) return;
-              el.currentTime = Math.max(0, Math.min(duration, next));
+              const limit = hasDuration ? duration : Math.max(next, currentTime + 0.01);
+              el.currentTime = Math.max(0, Math.min(limit, next));
               setCurrentTime(el.currentTime);
             }}
             className="w-full"
           />
           <div className="mt-1 flex items-center justify-between text-xs text-zinc-600">
             <span>{formatTime(currentTime)}</span>
-            <span>-{formatTime(remaining)}</span>
+            <span>{hasDuration ? `-${formatTime(remaining)}` : ""}</span>
           </div>
         </div>
 

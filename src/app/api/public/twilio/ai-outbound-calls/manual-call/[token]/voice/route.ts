@@ -66,6 +66,13 @@ function fallbackTwiml(message?: string) {
   return `<?xml version="1.0" encoding="UTF-8"?>\n<Response>\n${say}  <Hangup/>\n</Response>`;
 }
 
+function extractConversationIdFromTwiml(twiml: string): string {
+  const s = String(twiml || "");
+  const m = s.match(/conversation_id\"\s+value=\"([^\"]+)\"/i) || s.match(/name=\"conversation_id\"\s+value=\"([^\"]+)\"/i);
+  const id = m?.[1] ? String(m[1]).trim() : "";
+  return id && id.length <= 200 ? id : "";
+}
+
 export async function POST(req: Request, ctx: { params: Promise<{ token: string }> }) {
   const { token } = await ctx.params;
   const t = String(token || "").trim();
@@ -75,7 +82,7 @@ export async function POST(req: Request, ctx: { params: Promise<{ token: string 
 
   const manual = await prisma.portalAiOutboundCallManualCall.findFirst({
     where: { webhookToken: t },
-    select: { id: true, ownerId: true, campaignId: true, toNumberE164: true },
+    select: { id: true, ownerId: true, campaignId: true, toNumberE164: true, conversationId: true },
   });
 
   if (!manual) return xmlResponse(fallbackTwiml(), 200);
@@ -149,6 +156,17 @@ export async function POST(req: Request, ctx: { params: Promise<{ token: string 
       .catch(() => null);
 
     return xmlResponse(fallbackTwiml("Sorry — we couldn't connect this call."), 200);
+  }
+
+  const conversationId = extractConversationIdFromTwiml(register.twiml);
+  if (conversationId && !String(manual.conversationId || "").trim()) {
+    await prisma.portalAiOutboundCallManualCall
+      .update({
+        where: { id: manual.id },
+        data: { conversationId },
+        select: { id: true },
+      })
+      .catch(() => null);
   }
 
   return xmlResponse(register.twiml, 200);
