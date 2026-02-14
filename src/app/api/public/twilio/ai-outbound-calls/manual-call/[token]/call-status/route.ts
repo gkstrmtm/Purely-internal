@@ -163,10 +163,11 @@ export async function POST(req: Request, ctx: { params: Promise<{ token: string 
 
       const ok = await requestTranscription({ ownerId: manual.ownerId, recordingSid, token: t, req });
       if (!ok) {
+        // Don't surface Twilio transcription warnings here; portal will pull transcript from voice platform when configured.
         await prisma.portalAiOutboundCallManualCall
           .update({
             where: { id: manual.id },
-            data: { lastError: "Transcript request failed. Twilio transcription may be disabled for this account." },
+            data: { lastError: null },
             select: { id: true },
           })
           .catch(() => null);

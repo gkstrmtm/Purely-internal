@@ -107,6 +107,7 @@ function formatTime(sec: number) {
 
 function MiniAudioPlayer(props: { src: string; durationHintSec?: number | null }) {
   const audioRef = useRef<HTMLAudioElement | null>(null);
+  const rafRef = useRef<number | null>(null);
   const [ready, setReady] = useState(false);
   const [playing, setPlaying] = useState(false);
   const [duration, setDuration] = useState<number>(props.durationHintSec && props.durationHintSec > 0 ? props.durationHintSec : 0);
@@ -114,32 +115,67 @@ function MiniAudioPlayer(props: { src: string; durationHintSec?: number | null }
   const [rate, setRate] = useState(1);
 
   useEffect(() => {
+    // Reset any previous playback state when switching sources.
+    setReady(false);
+    setPlaying(false);
+    setCurrentTime(0);
+    setDuration(props.durationHintSec && props.durationHintSec > 0 ? props.durationHintSec : 0);
+
     const el = audioRef.current;
     if (!el) return;
+
+    const stopRaf = () => {
+      if (rafRef.current) cancelAnimationFrame(rafRef.current);
+      rafRef.current = null;
+    };
+
+    const tick = () => {
+      const a = audioRef.current;
+      if (!a) return;
+      setCurrentTime(a.currentTime || 0);
+      if (!a.paused && !a.ended) rafRef.current = requestAnimationFrame(tick);
+    };
 
     const onLoaded = () => {
       setReady(true);
       if (Number.isFinite(el.duration) && el.duration > 0) setDuration(el.duration);
     };
+    const onDuration = () => {
+      if (Number.isFinite(el.duration) && el.duration > 0) setDuration(el.duration);
+    };
     const onTime = () => setCurrentTime(el.currentTime || 0);
-    const onPlay = () => setPlaying(true);
-    const onPause = () => setPlaying(false);
-    const onEnded = () => setPlaying(false);
+    const onPlay = () => {
+      setPlaying(true);
+      stopRaf();
+      rafRef.current = requestAnimationFrame(tick);
+    };
+    const onPause = () => {
+      setPlaying(false);
+      stopRaf();
+    };
+    const onEnded = () => {
+      setPlaying(false);
+      stopRaf();
+      setCurrentTime(el.duration && Number.isFinite(el.duration) ? el.duration : el.currentTime || 0);
+    };
 
     el.addEventListener("loadedmetadata", onLoaded);
+    el.addEventListener("durationchange", onDuration);
     el.addEventListener("timeupdate", onTime);
     el.addEventListener("play", onPlay);
     el.addEventListener("pause", onPause);
     el.addEventListener("ended", onEnded);
 
     return () => {
+      stopRaf();
       el.removeEventListener("loadedmetadata", onLoaded);
+      el.removeEventListener("durationchange", onDuration);
       el.removeEventListener("timeupdate", onTime);
       el.removeEventListener("play", onPlay);
       el.removeEventListener("pause", onPause);
       el.removeEventListener("ended", onEnded);
     };
-  }, [props.src]);
+  }, [props.src, props.durationHintSec]);
 
   useEffect(() => {
     const el = audioRef.current;
@@ -147,14 +183,13 @@ function MiniAudioPlayer(props: { src: string; durationHintSec?: number | null }
     el.playbackRate = rate;
   }, [rate]);
 
-  const remaining = Math.max(0, (duration || 0) - (currentTime || 0));
   const hasDuration = ready && duration > 0;
-  const sliderMax = hasDuration ? duration : Math.max(1, currentTime + 1);
-  const sliderValue = Math.max(0, Math.min(sliderMax, currentTime || 0));
+  const sliderMax = hasDuration ? duration : 1;
+  const sliderValue = hasDuration ? Math.max(0, Math.min(duration, currentTime || 0)) : 0;
 
   return (
     <div className="mt-2 rounded-2xl border border-zinc-200 bg-zinc-50 p-3">
-      <audio ref={audioRef} preload="metadata" src={props.src} />
+      <audio ref={audioRef} preload="auto" src={props.src} />
       <div className="flex flex-wrap items-center gap-3">
         <button
           type="button"
@@ -184,21 +219,20 @@ function MiniAudioPlayer(props: { src: string; durationHintSec?: number | null }
             max={sliderMax}
             step={0.01}
             value={sliderValue}
-            disabled={!ready}
+            disabled={!ready || !hasDuration}
             onChange={(ev) => {
               const el = audioRef.current;
               if (!el) return;
               const next = Number(ev.target.value);
               if (!Number.isFinite(next)) return;
-              const limit = hasDuration ? duration : Math.max(next, currentTime + 0.01);
-              el.currentTime = Math.max(0, Math.min(limit, next));
+              el.currentTime = Math.max(0, Math.min(duration || 0, next));
               setCurrentTime(el.currentTime);
             }}
             className="w-full"
           />
           <div className="mt-1 flex items-center justify-between text-xs text-zinc-600">
             <span>{formatTime(currentTime)}</span>
-            <span>{hasDuration ? `-${formatTime(remaining)}` : ""}</span>
+            <span>{hasDuration ? formatTime(duration) : ""}</span>
           </div>
         </div>
 
@@ -935,6 +969,9 @@ export function PortalAiOutboundCallsClient() {
                               </div>
                               <div className="text-right text-xs text-zinc-500">
                                 {manualCall.callSid ? <div className="font-mono">CallSid: {manualCall.callSid}</div> : null}
+                                {manualCall.conversationId ? (
+                                  <div className="font-mono">Conversation: {manualCall.conversationId}</div>
+                                ) : null}
                                 <button
                                   type="button"
                                   disabled={busy || manualCallBusy || manualCallSyncBusy}
@@ -953,12 +990,21 @@ export function PortalAiOutboundCallsClient() {
                               </div>
                             </div>
 
-                            {manualCall.lastError ? (
+                            {(() => {
+                              const err = String(manualCall.lastError || "").trim();
+                              const hideTwilioTranscriptNoise =
+                                Boolean(manualCall.conversationId) &&
+                                /twilio\s+transcription|twilio\s+transcript|transcript request failed\.\s*transcription may be disabled/i.test(err);
+
+                              if (!err || hideTwilioTranscriptNoise) return null;
+
+                              return (
                               <div className="mt-3 rounded-2xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900">
                                 <div className="font-semibold">Call issue</div>
                                 <div className="mt-1 text-amber-900/80">{manualCall.lastError}</div>
                               </div>
-                            ) : null}
+                              );
+                            })()}
 
                             <div className="mt-4">
                               <div className="text-xs font-semibold text-zinc-600">Recording</div>

@@ -37,6 +37,15 @@ function asRecord(value: unknown): Record<string, any> {
 function extractTranscriptFromConversationJson(json: unknown): string {
   const rec = asRecord(json);
 
+  // Common envelope shapes
+  for (const k of ["data", "item", "conversation", "result"]) {
+    const v = (rec as any)[k];
+    if (v && typeof v === "object") {
+      const nested = extractTranscriptFromConversationJson(v);
+      if (nested.trim()) return nested.trim();
+    }
+  }
+
   const direct =
     (typeof rec.transcript === "string" ? rec.transcript : "") ||
     (typeof rec.transcript_text === "string" ? rec.transcript_text : "") ||
@@ -57,6 +66,7 @@ function extractTranscriptFromConversationJson(json: unknown): string {
     Array.isArray(rec.messages) ? rec.messages :
     Array.isArray(rec.turns) ? rec.turns :
     Array.isArray(rec.events) ? rec.events :
+    Array.isArray(rec.items) ? rec.items :
     Array.isArray((rec.conversation && asRecord(rec.conversation).messages)) ? asRecord(rec.conversation).messages :
     null;
 
@@ -77,23 +87,45 @@ function extractTranscriptFromConversationJson(json: unknown): string {
   return "";
 }
 
-async function fetchConversationFromUrl(apiKey: string, url: string): Promise<any | null> {
+async function fetchConversationPayload(
+  apiKey: string,
+  url: string,
+): Promise<
+  | { ok: true; json?: any; text?: string; status: number }
+  | { ok: false; status?: number; error: string; text?: string }
+> {
   const res = await fetch(url, {
     method: "GET",
     headers: {
       "xi-api-key": apiKey,
-      accept: "application/json",
+      Authorization: `Bearer ${apiKey}`,
+      accept: "application/json, text/plain;q=0.9, */*;q=0.8",
     },
   }).catch(() => null as any);
 
-  if (!res?.ok) return null;
-  const text = await res.text().catch(() => "");
-  if (!text.trim()) return null;
-  try {
-    return JSON.parse(text);
-  } catch {
-    return null;
+  if (!res) return { ok: false, error: "Network error" };
+
+  const status = typeof res.status === "number" ? res.status : 0;
+  const contentType = String(res.headers?.get?.("content-type") || "").toLowerCase();
+  const bodyText = await res.text().catch(() => "");
+
+  if (!res.ok) {
+    const short = bodyText.trim().slice(0, 300);
+    return { ok: false, status, error: short ? `HTTP ${status}: ${short}` : `HTTP ${status}`, text: bodyText };
   }
+
+  const trimmed = bodyText.trim();
+  if (!trimmed) return { ok: false, status, error: "Empty response" };
+
+  if (contentType.includes("application/json") || trimmed.startsWith("{") || trimmed.startsWith("[")) {
+    try {
+      return { ok: true, status, json: JSON.parse(trimmed) };
+    } catch {
+      // fall through to treat as plain text
+    }
+  }
+
+  return { ok: true, status, text: trimmed };
 }
 
 export async function fetchElevenLabsConversationTranscript(opts: {
@@ -111,13 +143,39 @@ export async function fetchElevenLabsConversationTranscript(opts: {
     `https://api.elevenlabs.io/v1/convai/conversation/${cid}`,
     `https://api.elevenlabs.io/v1/convai/conversations/${cid}/transcript`,
     `https://api.elevenlabs.io/v1/convai/conversation/${cid}/transcript`,
+    `https://api.elevenlabs.io/v1/convai/conversations/${cid}/messages`,
+    `https://api.elevenlabs.io/v1/convai/conversations/${cid}/events`,
+    `https://api.elevenlabs.io/v1/convai/conversations/${cid}/turns`,
   ];
 
+  let lastErr: { status?: number; error: string } | null = null;
+
   for (const url of urls) {
-    const json = await fetchConversationFromUrl(apiKey, url);
-    if (!json) continue;
-    const transcript = extractTranscriptFromConversationJson(json);
-    if (transcript.trim()) return { ok: true, transcript: transcript.trim().slice(0, 25000) };
+    const payload = await fetchConversationPayload(apiKey, url);
+    if (!payload.ok) {
+      lastErr = { status: payload.status, error: payload.error };
+      continue;
+    }
+
+    if (payload.text && payload.text.trim().length >= 10) {
+      return { ok: true, transcript: payload.text.trim().slice(0, 25000) };
+    }
+
+    if (payload.json) {
+      const transcript = extractTranscriptFromConversationJson(payload.json);
+      if (transcript.trim()) return { ok: true, transcript: transcript.trim().slice(0, 25000) };
+    }
+  }
+
+  if (lastErr) {
+    return {
+      ok: false,
+      status: lastErr.status,
+      error:
+        lastErr.status === 401 || lastErr.status === 403
+          ? "Unable to fetch voice transcript (API key permissions)."
+          : "No transcript available from voice agent platform yet.",
+    };
   }
 
   return { ok: false, error: "No transcript available from voice agent platform yet." };

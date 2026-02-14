@@ -68,7 +68,10 @@ function fallbackTwiml(message?: string) {
 
 function extractConversationIdFromTwiml(twiml: string): string {
   const s = String(twiml || "");
-  const m = s.match(/conversation_id\"\s+value=\"([^\"]+)\"/i) || s.match(/name=\"conversation_id\"\s+value=\"([^\"]+)\"/i);
+  const m =
+    s.match(/<Parameter\b[^>]*\bname=['\"]conversation_id['\"][^>]*\bvalue=['\"]([^'\"]+)['\"][^>]*>/i) ||
+    s.match(/\bname=['\"]conversation_id['\"][^>]*\bvalue=['\"]([^'\"]+)['\"]/i) ||
+    s.match(/\bconversation_id\"\s+value=\"([^\"]+)\"/i);
   const id = m?.[1] ? String(m[1]).trim() : "";
   return id && id.length <= 200 ? id : "";
 }
@@ -159,7 +162,7 @@ export async function POST(req: Request, ctx: { params: Promise<{ token: string 
   }
 
   const conversationId = extractConversationIdFromTwiml(register.twiml);
-  if (conversationId && !String(manual.conversationId || "").trim()) {
+  if (conversationId && String(manual.conversationId || "").trim() !== conversationId) {
     await prisma.portalAiOutboundCallManualCall
       .update({
         where: { id: manual.id },

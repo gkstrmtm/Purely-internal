@@ -277,40 +277,57 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
   let requestedTranscription = false;
   let usedVoiceTranscript = false;
 
+  const conversationId = String(row.conversationId || "").trim();
+  const voiceApiKey = (await getProfileVoiceAgentApiKey(ownerId).catch(() => null)) || "";
+
+  if (conversationId && /twilio\s+transcription/i.test(String(row.lastError || ""))) {
+    updates.lastError = null;
+  }
+
+  // Prefer voice-platform transcript when available (Twilio transcription may be disabled).
+  if (!String(row.transcriptText || "").trim() && conversationId && voiceApiKey.trim()) {
+    const conv = await fetchElevenLabsConversationTranscript({ apiKey: voiceApiKey, conversationId });
+    if (conv.ok && conv.transcript.trim()) {
+      updates.transcriptText = conv.transcript.trim();
+      usedVoiceTranscript = true;
+      updates.lastError = null;
+    } else if (!conv.ok) {
+      // Keep this neutral; the portal should not nag about Twilio transcription when we expect voice transcript.
+      const msg = String(conv.error || "").trim();
+      if (msg && msg.toLowerCase().includes("missing") === false) {
+        updates.lastError = `Transcript pending. ${msg}`.slice(0, 500);
+      }
+    }
+  }
+
   if (!String(row.recordingSid || "").trim() && String(row.callSid || "").trim()) {
     const rid = await fetchLatestRecordingSidForCall(ownerId, row.callSid || "");
     if (rid) updates.recordingSid = rid;
   }
 
   const effectiveRecordingSid = String(updates.recordingSid ?? row.recordingSid ?? "").trim();
-  if (effectiveRecordingSid && !String(row.transcriptText || "").trim()) {
+  const hasTranscriptAlready = Boolean(String(updates.transcriptText ?? row.transcriptText ?? "").trim());
+  if (effectiveRecordingSid && !hasTranscriptAlready) {
     const txt = await fetchTranscriptTextForRecording(ownerId, effectiveRecordingSid);
     if (txt) {
       updates.transcriptText = txt;
+      updates.lastError = null;
     } else if (row.webhookToken) {
       // Kick off transcription if it hasn't completed yet.
       requestedTranscription = await requestTranscription(ownerId, effectiveRecordingSid, req, row.webhookToken);
       if (!requestedTranscription) {
-        updates.lastError = "Transcript request failed. Twilio transcription may be disabled for this account.";
+        // Avoid misleading Twilio messaging if we expect voice transcript.
+        if (!conversationId || !voiceApiKey.trim()) {
+          updates.lastError = "Transcript request failed. Transcription may be disabled for this account.";
+        }
       }
     }
   }
 
-  // Fallback: if Twilio transcription isn't available but the voice platform has it, pull it.
-  const stillNoTranscript = !String(updates.transcriptText ?? row.transcriptText ?? "").trim();
-  const conversationId = String(row.conversationId || "").trim();
-  if (stillNoTranscript && conversationId) {
-    const apiKey = (await getProfileVoiceAgentApiKey(ownerId).catch(() => null)) || "";
-    if (apiKey.trim()) {
-      const conv = await fetchElevenLabsConversationTranscript({ apiKey, conversationId });
-      if (conv.ok && conv.transcript.trim()) {
-        updates.transcriptText = conv.transcript.trim();
-        usedVoiceTranscript = true;
-        // Clear the Twilio warning if we successfully filled it from voice.
-        if (String(updates.lastError || row.lastError || "").includes("Twilio transcription")) {
-          updates.lastError = null;
-        }
-      }
+  // If we ended up with a transcript, clear any old “transcription failed” warnings.
+  if (String(updates.transcriptText ?? row.transcriptText ?? "").trim()) {
+    if (String(updates.lastError ?? row.lastError ?? "").toLowerCase().includes("transcript")) {
+      updates.lastError = null;
     }
   }
 
