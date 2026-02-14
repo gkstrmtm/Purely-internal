@@ -164,60 +164,63 @@ export default async function PortalDashboardPage() {
           </div>
 
           <div className="mt-6 grid grid-cols-1 gap-4 lg:grid-cols-3">
-            <div className="rounded-3xl border border-zinc-200 bg-white p-6">
+            <div className="group flex min-h-[360px] flex-col rounded-3xl border border-zinc-200 bg-white p-6 transition hover:-translate-y-0.5 hover:border-zinc-300 hover:shadow-lg">
               <div className="text-xs font-semibold uppercase tracking-wide text-zinc-500">More reach</div>
               <div className="mt-2 text-lg font-semibold text-zinc-900">Content + SEO</div>
               <div className="mt-2 text-sm text-zinc-600">Best for staying visible and generating inbound over time.</div>
+              <div className="mt-3 text-xs text-zinc-500">Recommended for: businesses that want steady inbound.</div>
               <div className="mt-4 space-y-2 text-sm text-zinc-700">
                 <div>• Automated Blogs</div>
                 <div>• Newsletter</div>
                 <div>• Nurture Campaigns</div>
               </div>
-              <div className="mt-5">
+              <div className="mt-auto pt-6">
                 <Link
                   href="/portal/get-started"
-                  className="inline-flex w-full items-center justify-center rounded-2xl bg-[color:var(--color-brand-blue)] px-4 py-3 text-sm font-semibold text-white hover:opacity-95"
+                  className="inline-flex w-full items-center justify-center rounded-2xl bg-[color:rgba(15,23,42,0.96)] px-4 py-3 text-sm font-semibold text-white transition hover:-translate-y-px hover:bg-[color:rgba(15,23,42,1)] hover:shadow-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/50 focus-visible:ring-offset-2 focus-visible:ring-offset-white"
                 >
                   Get Started
                 </Link>
               </div>
             </div>
 
-            <div className="relative rounded-3xl border-2 border-[color:rgba(251,113,133,0.45)] bg-[color:rgba(251,113,133,0.06)] p-6">
-              <div className="absolute right-5 top-5 inline-flex items-center rounded-full bg-[color:rgba(251,113,133,0.18)] px-3 py-1 text-xs font-semibold text-[color:rgba(24,24,27,0.86)]">
+            <div className="group relative flex min-h-[360px] flex-col rounded-3xl border-2 border-[color:rgba(29,78,216,0.45)] bg-[color:rgba(29,78,216,0.05)] p-6 transition hover:-translate-y-0.5 hover:border-[color:rgba(29,78,216,0.65)] hover:shadow-xl">
+              <div className="absolute right-5 top-5 inline-flex items-center rounded-full bg-[color:rgba(29,78,216,0.12)] px-3 py-1 text-xs font-semibold text-[color:var(--color-brand-blue)]">
                 Most popular
               </div>
-              <div className="text-xs font-semibold uppercase tracking-wide text-zinc-500">Most popular</div>
+              <div className="text-xs font-semibold uppercase tracking-wide text-[color:rgba(29,78,216,0.78)]">Most popular</div>
               <div className="mt-2 text-lg font-semibold text-zinc-900">Appointments + follow-up</div>
               <div className="mt-2 text-sm text-zinc-600">Best for turning leads into booked calls and keeping momentum.</div>
+              <div className="mt-3 text-xs text-zinc-500">Recommended for: teams that want faster response and higher conversion.</div>
               <div className="mt-4 space-y-2 text-sm text-zinc-700">
                 <div>• Booking Automation</div>
                 <div>• AI Receptionist</div>
                 <div>• AI Outbound</div>
               </div>
-              <div className="mt-5">
+              <div className="mt-auto pt-6">
                 <Link
                   href="/portal/get-started"
-                  className="inline-flex w-full items-center justify-center rounded-2xl bg-brand-ink px-4 py-3 text-sm font-semibold text-white hover:opacity-95"
+                  className="inline-flex w-full items-center justify-center rounded-2xl border border-[color:rgba(15,23,42,0.75)] bg-white px-4 py-3 text-sm font-semibold text-[color:rgba(15,23,42,0.96)] transition hover:-translate-y-px hover:border-[color:rgba(15,23,42,0.95)] hover:bg-[color:rgba(15,23,42,0.04)] hover:shadow-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:rgba(29,78,216,0.55)] focus-visible:ring-offset-2 focus-visible:ring-offset-white"
                 >
                   Get Started
                 </Link>
               </div>
             </div>
 
-            <div className="rounded-3xl border border-zinc-200 bg-white p-6">
+            <div className="group flex min-h-[360px] flex-col rounded-3xl border border-zinc-200 bg-white p-6 transition hover:-translate-y-0.5 hover:border-zinc-300 hover:shadow-lg">
               <div className="text-xs font-semibold uppercase tracking-wide text-zinc-500">Build trust</div>
               <div className="mt-2 text-lg font-semibold text-zinc-900">Reputation + trust</div>
               <div className="mt-2 text-sm text-zinc-600">Best for improving conversion and closing more work.</div>
+              <div className="mt-3 text-xs text-zinc-500">Recommended for: businesses that win on reputation and proof.</div>
               <div className="mt-4 space-y-2 text-sm text-zinc-700">
                 <div>• Reviews + Verified Listing + Q&amp;A</div>
                 <div>• Newsletter</div>
                 <div>• Nurture Campaigns</div>
               </div>
-              <div className="mt-5">
+              <div className="mt-auto pt-6">
                 <Link
                   href="/portal/get-started"
-                  className="inline-flex w-full items-center justify-center rounded-2xl bg-[color:var(--color-brand-blue)] px-4 py-3 text-sm font-semibold text-white hover:opacity-95"
+                  className="inline-flex w-full items-center justify-center rounded-2xl bg-[color:rgba(15,23,42,0.96)] px-4 py-3 text-sm font-semibold text-white transition hover:-translate-y-px hover:bg-[color:rgba(15,23,42,1)] hover:shadow-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/50 focus-visible:ring-offset-2 focus-visible:ring-offset-white"
                 >
                   Get Started
                 </Link>
