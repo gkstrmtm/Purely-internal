@@ -215,11 +215,15 @@ export async function fetchElevenLabsConversationTranscript(opts: {
   ];
 
   let lastErr: { status?: number; error: string } | null = null;
+  let saw404 = false;
+  let sawNon404 = false;
 
   for (const url of urls) {
     const payload = await fetchConversationPayload(apiKey, url);
     if (!payload.ok) {
       lastErr = { status: payload.status, error: payload.error };
+      if (payload.status === 404) saw404 = true;
+      else sawNon404 = true;
       continue;
     }
 
@@ -236,7 +240,12 @@ export async function fetchElevenLabsConversationTranscript(opts: {
   if (lastErr) {
     const status = lastErr.status;
     const base = lastErr.error || (status ? `HTTP ${status}` : "Unable to fetch voice transcript.");
-    const hint = status === 401 || status === 403 ? " Check API key permissions/scopes." : "";
+    const hint =
+      status === 401 || status === 403
+        ? " Check API key permissions/scopes."
+        : status === 404 && saw404 && !sawNon404
+          ? " Conversation not found via ElevenLabs ConvAI API. Verify the conversationId is correct and that this API key belongs to the same ElevenLabs workspace that owns the conversation."
+          : "";
     return { ok: false, status, error: `${base}${hint}`.trim() };
   }
 

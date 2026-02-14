@@ -113,6 +113,7 @@ function MiniAudioPlayer(props: { src: string; durationHintSec?: number | null }
   const [ready, setReady] = useState(false);
   const [playing, setPlaying] = useState(false);
   const [duration, setDuration] = useState<number>(props.durationHintSec && props.durationHintSec > 0 ? props.durationHintSec : 0);
+  const [seekableEnd, setSeekableEnd] = useState(0);
   const [currentTime, setCurrentTime] = useState(0);
   const [rate, setRate] = useState(1);
   const [dragging, setDragging] = useState(false);
@@ -123,6 +124,7 @@ function MiniAudioPlayer(props: { src: string; durationHintSec?: number | null }
     setPlaying(false);
     setCurrentTime(0);
     setDuration(props.durationHintSec && props.durationHintSec > 0 ? props.durationHintSec : 0);
+    setSeekableEnd(0);
     setDragging(false);
     durationLockedRef.current = false;
 
@@ -141,8 +143,22 @@ function MiniAudioPlayer(props: { src: string; durationHintSec?: number | null }
       if (!a.paused && !a.ended) rafRef.current = requestAnimationFrame(tick);
     };
 
+    const updateSeekable = () => {
+      const a = audioRef.current;
+      if (!a) return;
+      try {
+        if (a.seekable && a.seekable.length > 0) {
+          const end = a.seekable.end(a.seekable.length - 1);
+          if (Number.isFinite(end) && end > 0) setSeekableEnd(end);
+        }
+      } catch {
+        // ignore
+      }
+    };
+
     const onLoaded = () => {
       setReady(true);
+      updateSeekable();
       if (Number.isFinite(el.duration) && el.duration > 0) {
         setDuration((prev) => {
           if (prev > 0) return prev;
@@ -152,6 +168,7 @@ function MiniAudioPlayer(props: { src: string; durationHintSec?: number | null }
       }
     };
     const onDuration = () => {
+      updateSeekable();
       if (!durationLockedRef.current && Number.isFinite(el.duration) && el.duration > 0) {
         setDuration((prev) => {
           if (prev > 0) {
@@ -163,9 +180,14 @@ function MiniAudioPlayer(props: { src: string; durationHintSec?: number | null }
         });
       }
     };
-    const onTime = () => setCurrentTime(el.currentTime || 0);
+    const onTime = () => {
+      setCurrentTime(el.currentTime || 0);
+      updateSeekable();
+    };
     const onPlay = () => {
       setPlaying(true);
+      setReady(true);
+      updateSeekable();
       if (!durationLockedRef.current && Number.isFinite(el.duration) && el.duration > 0) {
         durationLockedRef.current = true;
         setDuration((prev) => (prev > 0 ? prev : el.duration));
@@ -183,12 +205,25 @@ function MiniAudioPlayer(props: { src: string; durationHintSec?: number | null }
       setCurrentTime(el.duration && Number.isFinite(el.duration) ? el.duration : el.currentTime || 0);
     };
 
+    const onCanPlay = () => {
+      setReady(true);
+      updateSeekable();
+      if (!durationLockedRef.current && Number.isFinite(el.duration) && el.duration > 0) {
+        durationLockedRef.current = true;
+        setDuration((prev) => (prev > 0 ? prev : el.duration));
+      }
+    };
+
+    const onProgress = () => updateSeekable();
+
     el.addEventListener("loadedmetadata", onLoaded);
     el.addEventListener("durationchange", onDuration);
     el.addEventListener("timeupdate", onTime);
     el.addEventListener("play", onPlay);
     el.addEventListener("pause", onPause);
     el.addEventListener("ended", onEnded);
+    el.addEventListener("canplay", onCanPlay);
+    el.addEventListener("progress", onProgress);
 
     return () => {
       stopRaf();
@@ -198,6 +233,8 @@ function MiniAudioPlayer(props: { src: string; durationHintSec?: number | null }
       el.removeEventListener("play", onPlay);
       el.removeEventListener("pause", onPause);
       el.removeEventListener("ended", onEnded);
+      el.removeEventListener("canplay", onCanPlay);
+      el.removeEventListener("progress", onProgress);
     };
   }, [props.src, props.durationHintSec]);
 
@@ -207,10 +244,11 @@ function MiniAudioPlayer(props: { src: string; durationHintSec?: number | null }
     el.playbackRate = rate;
   }, [rate]);
 
-  const hasDuration = ready && duration > 0;
-  const safeCurrent = hasDuration ? Math.max(0, Math.min(duration, currentTime || 0)) : 0;
-  const remaining = hasDuration ? Math.max(0, duration - safeCurrent) : 0;
-  const pct = hasDuration && duration > 0 ? Math.max(0, Math.min(1, safeCurrent / duration)) : 0;
+  const effectiveDuration = Number.isFinite(duration) && duration > 0 ? duration : Number.isFinite(seekableEnd) && seekableEnd > 0 ? seekableEnd : 0;
+  const hasDuration = ready && effectiveDuration > 0;
+  const safeCurrent = hasDuration ? Math.max(0, Math.min(effectiveDuration, currentTime || 0)) : Math.max(0, currentTime || 0);
+  const remaining = hasDuration ? Math.max(0, effectiveDuration - safeCurrent) : 0;
+  const pct = hasDuration && effectiveDuration > 0 ? Math.max(0, Math.min(1, safeCurrent / effectiveDuration)) : 0;
 
   const setTimeFromClientX = useCallback(
     (clientX: number) => {
@@ -220,11 +258,11 @@ function MiniAudioPlayer(props: { src: string; durationHintSec?: number | null }
       if (!el || !track) return;
       const r = track.getBoundingClientRect();
       const x = Math.max(0, Math.min(r.width, clientX - r.left));
-      const next = (x / Math.max(1, r.width)) * duration;
-      el.currentTime = Math.max(0, Math.min(duration, next));
+      const next = (x / Math.max(1, r.width)) * effectiveDuration;
+      el.currentTime = Math.max(0, Math.min(effectiveDuration, next));
       setCurrentTime(el.currentTime || 0);
     },
-    [duration, hasDuration],
+    [effectiveDuration, hasDuration],
   );
 
   return (
@@ -258,7 +296,7 @@ function MiniAudioPlayer(props: { src: string; durationHintSec?: number | null }
             role="slider"
             aria-label="Playback position"
             aria-valuemin={0}
-            aria-valuemax={hasDuration ? duration : 0}
+            aria-valuemax={hasDuration ? effectiveDuration : 0}
             aria-valuenow={hasDuration ? safeCurrent : 0}
             tabIndex={0}
             onPointerDown={(e) => {
@@ -285,7 +323,7 @@ function MiniAudioPlayer(props: { src: string; durationHintSec?: number | null }
               }
               if (e.key === "ArrowRight") {
                 e.preventDefault();
-                el.currentTime = Math.min(duration, (el.currentTime || 0) + step);
+                el.currentTime = hasDuration ? Math.min(effectiveDuration, (el.currentTime || 0) + step) : (el.currentTime || 0) + step;
                 setCurrentTime(el.currentTime || 0);
               }
             }}
@@ -307,7 +345,7 @@ function MiniAudioPlayer(props: { src: string; durationHintSec?: number | null }
 
           <div className="mt-1 flex items-center justify-between text-xs text-zinc-600">
             <span>{formatTime(safeCurrent)}</span>
-            <span>{hasDuration ? `-${formatTime(remaining)}` : ""}</span>
+            <span>{hasDuration ? `-${formatTime(remaining)}` : "Loading…"}</span>
           </div>
         </div>
 
