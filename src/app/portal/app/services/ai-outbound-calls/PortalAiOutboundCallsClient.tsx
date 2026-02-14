@@ -508,7 +508,7 @@ export function PortalAiOutboundCallsClient() {
   ) {
     if (!selected) return;
 
-    // Hint UX: when agent-related fields change, users must sync to apply changes to ElevenLabs.
+    // Hint UX: when agent-related fields change, users must sync to apply changes to their live agent.
     if (patch.voiceAgentId !== undefined || patch.voiceAgentConfig !== undefined) {
       setAgentSyncRequired(true);
     }
@@ -996,7 +996,7 @@ export function PortalAiOutboundCallsClient() {
                   <div className="font-semibold text-zinc-900">How this works</div>
                   <ul className="mt-2 list-disc space-y-1 pl-5 text-xs text-zinc-600">
                     <li>
-                      API key lives in <span className="font-semibold">Profile</span> settings.
+                      Manage voice settings in <span className="font-semibold">Profile</span>.
                       <Link
                         href="/portal/profile"
                         className="ml-2 inline-flex items-center rounded-lg border border-zinc-200 bg-white px-2 py-1 text-[11px] font-semibold text-zinc-800 hover:bg-zinc-50"
@@ -1027,7 +1027,11 @@ export function PortalAiOutboundCallsClient() {
                       "rounded-2xl px-4 py-2 text-xs font-semibold",
                       busy ? "bg-zinc-200 text-zinc-600" : "bg-brand-ink text-white hover:opacity-95",
                     )}
-                    title="Push these settings to your voice agent (requires API key set in Profile)"
+                    title={
+                      voiceToolsApiKeyConfigured
+                        ? "Push these settings to your live agent"
+                        : "Push these settings to your live agent (requires voice API key in Profile)"
+                    }
                   >
                     {busy ? "Syncing…" : "Sync agent settings"}
                   </button>
@@ -1113,7 +1117,7 @@ export function PortalAiOutboundCallsClient() {
                       <div className="mt-3 grid grid-cols-1 gap-2">
                         {!voiceToolsApiKeyConfigured ? (
                           <div className="rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-[11px] text-amber-800">
-                            Set your ElevenLabs API key in Profile to load tools.
+                            Add your voice API key in Profile to load tools.
                             <Link href="/portal/profile" className="ml-2 font-semibold underline underline-offset-2">
                               Go to Profile
                             </Link>

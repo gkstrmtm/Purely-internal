@@ -262,7 +262,7 @@ export async function POST(req: Request, ctx: { params: Promise<{ token: string 
       to: toE164,
       createdAtIso: new Date().toISOString(),
       status: "IN_PROGRESS",
-      notes: "Fell back to voicemail (ElevenLabs agent not configured: missing Agent ID and/or API key).",
+      notes: "Fell back to voicemail (voice agent not configured: missing Agent ID and/or API key).",
     });
     const transcriptionCallback = webhookUrlFromRequest(
       req,
@@ -380,8 +380,8 @@ export async function POST(req: Request, ctx: { params: Promise<{ token: string 
 
     const errMsg = register.ok ? "Voice agent returned empty TwiML." : register.error;
     const fallbackNote = forwardTo
-      ? `Fell back to forwarding (ElevenLabs live connect failed: ${errMsg})`
-      : `Fell back to voicemail (ElevenLabs live connect failed: ${errMsg})`;
+      ? `Fell back to forwarding (live agent connect failed: ${errMsg})`
+      : `Fell back to voicemail (live agent connect failed: ${errMsg})`;
 
     await upsertAiReceptionistCallEvent(ownerId, {
       id: `call_${callSid}`,
@@ -426,7 +426,7 @@ export async function POST(req: Request, ctx: { params: Promise<{ token: string 
     to: toE164,
     createdAtIso: new Date().toISOString(),
     status: "IN_PROGRESS",
-    notes: transferNote ? `Live agent connected (ElevenLabs).\n${transferNote}` : "Live agent connected (ElevenLabs).",
+    notes: transferNote ? `Live agent connected.\n${transferNote}` : "Live agent connected.",
   });
 
   // ElevenLabs TwiML already connects the call to the agent.

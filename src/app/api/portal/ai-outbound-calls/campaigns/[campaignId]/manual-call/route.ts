@@ -119,7 +119,7 @@ export async function POST(req: Request, ctx: { params: Promise<{ campaignId: st
   if (!twilio) return jsonError("Twilio is not configured for this account", 400);
 
   const apiKey = ((await getProfileVoiceAgentApiKey(ownerId).catch(() => null)) || "").trim();
-  if (!apiKey) return jsonError("Missing ElevenLabs API key. Set it in Profile first.", 400);
+  if (!apiKey) return jsonError("Missing voice API key. Set it in Profile first.", 400);
 
   const profileAgentId = await getProfileVoiceAgentId(ownerId);
   const agentId = String(campaign.voiceAgentId || "").trim() || String(profileAgentId || "").trim();
