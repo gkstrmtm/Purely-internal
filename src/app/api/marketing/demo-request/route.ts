@@ -71,9 +71,14 @@ function buildEmailBody(name: string) {
   return [
     `Hi ${name},`,
     "",
-    "Thanks for checking out Purely Automation.",
+    "Thanks for reaching out and requesting a demo on our site.",
     "",
-    "If you want to see it in action, you can book a call here:",
+    "Here is how it works:",
+    "1) Book a quick call so we can learn your workflow.",
+    "2) We will map the best automation opportunities for your business.",
+    "3) If it is a fit, we will help you get set up and launched.",
+    "",
+    "Book a time here:",
     "{{BOOK_URL}}",
   ].join("\n");
 }
@@ -84,17 +89,17 @@ function buildEmailBodyForStep(opts: { name: string; bookUrl: string; stepIndex:
   const extra = (() => {
     switch (opts.stepIndex) {
       case 0:
-        return "\n\nPick a time that works for you — we’ll tailor the call to your workflow.";
+        return "\n\nPick a time that works for you and we will tailor the call to your workflow.";
       case 1:
-        return "\n\nQuick question: what’s the #1 thing you want automated right now?";
+        return "\n\nQuick question: what is the number one thing you want automated right now?";
       case 2:
-        return "\n\nIf you share your current process, we can usually spot a few high-ROI automations immediately.";
+        return "\n\nIf you share your current process, we can usually spot a few high impact automations right away.";
       case 3:
-        return "\n\nStill interested? Book a time and we’ll map out next steps.";
+        return "\n\nIf you still want to see it in action, book a time and we will map out next steps.";
       case 4:
-        return "\n\nIf timing wasn’t right last week, no worries — here’s the booking link again.";
+        return "\n\nIf the timing was not right last week, no worries. Here is the booking link again.";
       case 5:
-        return "\n\nLast check-in — if you’d like help automating this, grab a time here.";
+        return "\n\nLast check in. If you would like help automating this, grab a time here.";
       default:
         return "";
     }
@@ -108,16 +113,17 @@ function buildSmsBodyForStep(opts: { bookUrl: string; stepIndex: number }) {
     opts.stepIndex === 0
       ? "Purely Automation: thanks for requesting a demo."
       : opts.stepIndex === 1
-        ? "Purely Automation: quick follow-up."
+        ? "Purely Automation: quick follow up on your demo request."
         : opts.stepIndex === 2
-          ? "Purely Automation: want help automating?"
+          ? "Purely Automation: want help automating your workflow?"
           : opts.stepIndex === 3
-            ? "Purely Automation: still interested?"
+            ? "Purely Automation: still want to see it in action?"
             : opts.stepIndex === 4
-              ? "Purely Automation: checking back."
-              : "Purely Automation: last check-in.";
+              ? "Purely Automation: checking back in."
+              : "Purely Automation: last check in.";
 
-  return `${prefix} Book a call: ${opts.bookUrl}`;
+  const suffix = "Reply STOP to opt out.";
+  return `${prefix} Book a call here: ${opts.bookUrl} ${suffix}`;
 }
 
 function getMissingColumnFromP2022(err: unknown) {
@@ -242,7 +248,11 @@ export async function POST(req: Request) {
       });
 
       if (claimed.count > 0) {
-        const r = await sendMarketingEmail({ to: email, subject: "Your Purely Automation demo", body: emailBody0 });
+        const r = await sendMarketingEmail({
+          to: email,
+          subject: "Your Purely Automation demo request",
+          body: emailBody0,
+        });
 
         if (r.ok) {
           await prisma.marketingMessage.update({

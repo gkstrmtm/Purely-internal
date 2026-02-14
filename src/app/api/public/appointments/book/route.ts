@@ -6,6 +6,7 @@ import { hasPublicColumn } from "@/lib/dbSchema";
 import { buildPrepPackBase } from "@/lib/prepPack";
 import { deriveInterestedServiceFromNotes } from "@/lib/leadDerived";
 import { trySendTransactionalEmail } from "@/lib/emailSender";
+import { sendTwilioEnvSms } from "@/lib/twilioEnvSms";
 
 async function sendInternalEmail(subject: string, body: string) {
   await trySendTransactionalEmail({
@@ -25,6 +26,61 @@ function formatInTimeZone(date: Date, timeZone: string) {
     hour: "numeric",
     minute: "2-digit",
   }).format(date);
+}
+
+function formatIcsUtc(d: Date) {
+  // YYYYMMDDTHHMMSSZ
+  const pad = (n: number) => String(n).padStart(2, "0");
+  return (
+    d.getUTCFullYear() +
+    pad(d.getUTCMonth() + 1) +
+    pad(d.getUTCDate()) +
+    "T" +
+    pad(d.getUTCHours()) +
+    pad(d.getUTCMinutes()) +
+    pad(d.getUTCSeconds()) +
+    "Z"
+  );
+}
+
+function buildGoogleCalendarUrl(opts: {
+  title: string;
+  details: string;
+  startAt: Date;
+  endAt: Date;
+}) {
+  const url = new URL("https://calendar.google.com/calendar/render");
+  url.searchParams.set("action", "TEMPLATE");
+  url.searchParams.set("text", opts.title);
+  url.searchParams.set("details", opts.details);
+  url.searchParams.set("dates", `${formatIcsUtc(opts.startAt)}/${formatIcsUtc(opts.endAt)}`);
+  return url.toString();
+}
+
+function buildIcsFile(opts: {
+  uid: string;
+  title: string;
+  description: string;
+  startAt: Date;
+  endAt: Date;
+}) {
+  const lines = [
+    "BEGIN:VCALENDAR",
+    "VERSION:2.0",
+    "PRODID:-//Purely Automation//Booking//EN",
+    "CALSCALE:GREGORIAN",
+    "METHOD:PUBLISH",
+    "BEGIN:VEVENT",
+    `UID:${opts.uid}@purelyautomation.com`,
+    `DTSTAMP:${formatIcsUtc(new Date())}`,
+    `DTSTART:${formatIcsUtc(opts.startAt)}`,
+    `DTEND:${formatIcsUtc(opts.endAt)}`,
+    `SUMMARY:${opts.title}`,
+    `DESCRIPTION:${opts.description.replace(/\r?\n/g, "\\n")}`,
+    "END:VEVENT",
+    "END:VCALENDAR",
+  ];
+  return Buffer.from(lines.join("\r\n"), "utf8");
 }
 
 const bodySchema = z.object({
@@ -288,8 +344,112 @@ export async function POST(req: Request) {
     try {
       const marketing = await prisma.marketingDemoRequest.findUnique({
         where: { id: parsed.data.requestId },
-        select: { name: true, company: true, email: true, phone: true },
+        select: { name: true, company: true, email: true, phone: true, optedIn: true },
       });
+
+      // Stop queued nurture messages once the call is booked.
+      try {
+        await prisma.marketingMessage.updateMany({
+          where: {
+            requestId: parsed.data.requestId,
+            status: "PENDING",
+            sendAt: { gt: new Date() },
+          },
+          data: {
+            status: "SKIPPED",
+            sentAt: new Date(),
+            error: "Booked call",
+          },
+        });
+      } catch {
+        // Best-effort.
+      }
+
+      // Confirmation to the person who booked (best-effort).
+      const confirmResults: Array<{ channel: "EMAIL" | "SMS"; ok: boolean; status: string; reason?: string }> = [];
+      if (marketing?.email) {
+        const subject = "Your call is booked with Purely Automation";
+        const whenEt = formatInTimeZone(startAt, "America/New_York");
+        const title = "Purely Automation demo call";
+        const details = [
+          "Thanks again for booking a call with Purely Automation.",
+          "",
+          "We will send the call details and link in advance.",
+          "",
+          `Company: ${marketing.company}`,
+          `Name: ${marketing.name}`,
+        ].join("\n");
+
+        const googleCalUrl = buildGoogleCalendarUrl({
+          title,
+          details: `${details}\n\nBooked time (ET): ${whenEt}`,
+          startAt,
+          endAt,
+        });
+
+        const text = [
+          `Hi ${marketing.name || "there"},`,
+          "",
+          "Your call is booked.",
+          "",
+          `When (ET): ${whenEt}`,
+          `Duration: ${parsed.data.durationMinutes} minutes`,
+          "",
+          "We will send the call link in advance.",
+          "",
+          "Add to Google Calendar:",
+          googleCalUrl,
+        ].join("\n");
+
+        const icsBytes = buildIcsFile({
+          uid: appointment.id,
+          title,
+          description: `${details}\n\nAdd to Google Calendar: ${googleCalUrl}`,
+          startAt,
+          endAt,
+        });
+
+        const r = await trySendTransactionalEmail({
+          to: marketing.email,
+          subject,
+          text,
+          fromName: "Purely Automation",
+          attachments: [
+            {
+              fileName: "purely-automation-call.ics",
+              mimeType: "text/calendar; charset=utf-8",
+              bytes: icsBytes,
+            },
+          ],
+        }).catch((e) => ({
+          ok: false as const,
+          skipped: false as const,
+          reason: e instanceof Error ? e.message : "Unknown error",
+        }));
+
+        if (r.ok) {
+          confirmResults.push({ channel: "EMAIL", ok: true, status: "SENT" });
+        } else {
+          confirmResults.push({
+            channel: "EMAIL",
+            ok: false,
+            status: ("skipped" in r && r.skipped) ? "SKIPPED" : "FAILED",
+            reason: r.reason,
+          });
+        }
+
+        if (marketing.optedIn && marketing.phone) {
+          const smsBody = `Purely Automation: your call is booked for ${whenEt} ET. Add to calendar: ${googleCalUrl} Reply STOP to opt out.`;
+          const sms = await sendTwilioEnvSms({
+            to: marketing.phone,
+            body: smsBody,
+            fromNumberEnvKeys: ["TWILIO_MARKETING_FROM_NUMBER", "TWILIO_FROM_NUMBER"],
+          }).catch((e) => ({ ok: false as const, reason: e instanceof Error ? e.message : "Unknown error" }));
+
+          if (sms.ok) confirmResults.push({ channel: "SMS", ok: true, status: "SENT" });
+          else confirmResults.push({ channel: "SMS", ok: false, status: (sms as any).skipped ? "SKIPPED" : "FAILED", reason: (sms as any).reason });
+        }
+      }
 
       const subject = `New booking: ${formatInTimeZone(startAt, "America/New_York")} ET`;
       const body = [
@@ -309,6 +469,13 @@ export async function POST(req: Request) {
         `LeadId: ${appointment.leadId}`,
         `RequestId: ${parsed.data.requestId}`,
         `AppointmentId: ${appointment.id}`,
+        confirmResults.length
+          ? [
+              "",
+              "Confirmation sends:",
+              ...confirmResults.map((r) => `- ${r.channel}: ${r.status}${r.reason ? ` (${r.reason})` : ""}`),
+            ].join("\n")
+          : null,
       ].join("\n");
 
       await sendInternalEmail(subject, body);

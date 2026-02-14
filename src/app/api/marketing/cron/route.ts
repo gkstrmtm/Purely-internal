@@ -41,7 +41,7 @@ export async function GET(req: Request) {
     try {
       const result =
         msg.channel === "EMAIL"
-          ? await sendMarketingEmail({ to: msg.to, subject: "Your Purely Automation demo", body: msg.body })
+          ? await sendMarketingEmail({ to: msg.to, subject: "Your Purely Automation demo request", body: msg.body })
           : await sendMarketingSms({ to: msg.to, body: msg.body });
 
       if (result.ok) {
