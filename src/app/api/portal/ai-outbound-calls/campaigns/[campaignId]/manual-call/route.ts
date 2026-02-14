@@ -60,6 +60,7 @@ async function startTwilioCallRecording(opts: {
   ownerId: string;
   callSid: string;
   recordingStatusCallbackUrl: string;
+  onError?: (message: string) => Promise<void> | void;
 }): Promise<void> {
   const sid = String(opts.callSid || "").trim();
   if (!sid) return;
@@ -76,7 +77,7 @@ async function startTwilioCallRecording(opts: {
   form.set("RecordingStatusCallbackMethod", "POST");
   form.set("RecordingStatusCallbackEvent", "completed");
 
-  await fetch(url, {
+  const res = await fetch(url, {
     method: "POST",
     headers: {
       authorization: `Basic ${basic}`,
@@ -84,6 +85,19 @@ async function startTwilioCallRecording(opts: {
     },
     body: form.toString(),
   }).catch(() => null);
+
+  if (!res || !res.ok) {
+    const text = res ? await res.text().catch(() => "") : "";
+    try {
+      await Promise.resolve(
+        opts.onError?.(
+          `Twilio did not start recording (${res?.status || "no response"}): ${String(text || "").slice(0, 200)}`,
+        ),
+      );
+    } catch {
+      // ignore
+    }
+  }
 }
 
 async function createTwilioOutboundCall(opts: {
@@ -91,6 +105,7 @@ async function createTwilioOutboundCall(opts: {
   toNumberE164: string;
   voiceUrl: string;
   statusCallbackUrl?: string;
+  recordingStatusCallbackUrl?: string;
 }): Promise<{ ok: true; callSid: string } | { ok: false; error: string; status?: number }> {
   const to = String(opts.toNumberE164 || "").trim();
   const voiceUrl = String(opts.voiceUrl || "").trim();
@@ -108,6 +123,17 @@ async function createTwilioOutboundCall(opts: {
   form.set("From", twilio.fromNumberE164);
   form.set("Url", voiceUrl);
   form.set("Method", "POST");
+
+  // Force call recording at the Twilio level so recordings exist even if the separate
+  // start-recording request is delayed/missed.
+  const recordingCb = typeof opts.recordingStatusCallbackUrl === "string" ? opts.recordingStatusCallbackUrl.trim() : "";
+  if (recordingCb) {
+    form.set("Record", "true");
+    form.set("RecordingChannels", "dual");
+    form.set("RecordingStatusCallback", recordingCb);
+    form.set("RecordingStatusCallbackMethod", "POST");
+    form.set("RecordingStatusCallbackEvent", "completed");
+  }
 
   const statusCallbackUrl = typeof opts.statusCallbackUrl === "string" ? opts.statusCallbackUrl.trim() : "";
   if (statusCallbackUrl) {
@@ -205,7 +231,18 @@ export async function POST(req: Request, ctx: { params: Promise<{ campaignId: st
     `/api/public/twilio/ai-outbound-calls/manual-call/${encodeURIComponent(token)}/call-status`,
   );
 
-  const started = await createTwilioOutboundCall({ ownerId, toNumberE164: toParsed.e164, voiceUrl, statusCallbackUrl });
+  const recordingCallback = webhookUrlFromRequest(
+    req,
+    `/api/public/twilio/ai-outbound-calls/manual-call/${encodeURIComponent(token)}/call-recording`,
+  );
+
+  const started = await createTwilioOutboundCall({
+    ownerId,
+    toNumberE164: toParsed.e164,
+    voiceUrl,
+    statusCallbackUrl,
+    recordingStatusCallbackUrl: recordingCallback,
+  });
   if (!started.ok) {
     await prisma.portalAiOutboundCallManualCall.update({
       where: { id: manualCallId },
@@ -223,12 +260,21 @@ export async function POST(req: Request, ctx: { params: Promise<{ campaignId: st
     select: { id: true },
   });
 
-  const recordingCallback = webhookUrlFromRequest(
-    req,
-    `/api/public/twilio/ai-outbound-calls/manual-call/${encodeURIComponent(token)}/call-recording`,
-  );
-
-  await startTwilioCallRecording({ ownerId, callSid, recordingStatusCallbackUrl: recordingCallback });
+  // Fallback: still attempt starting recording explicitly (best-effort).
+  await startTwilioCallRecording({
+    ownerId,
+    callSid,
+    recordingStatusCallbackUrl: recordingCallback,
+    onError: async (message) => {
+      await prisma.portalAiOutboundCallManualCall
+        .update({
+          where: { id: manualCallId },
+          data: { lastError: message.slice(0, 500) },
+          select: { id: true },
+        })
+        .catch(() => null);
+    },
+  });
 
   return NextResponse.json({
     ok: true,

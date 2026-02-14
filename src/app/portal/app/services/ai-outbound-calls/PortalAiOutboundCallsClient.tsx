@@ -234,6 +234,7 @@ export function PortalAiOutboundCallsClient() {
 
   const [manualCallTo, setManualCallTo] = useState("");
   const [manualCallBusy, setManualCallBusy] = useState(false);
+  const [manualCallSyncBusy, setManualCallSyncBusy] = useState(false);
   const [manualCallId, setManualCallId] = useState<string | null>(null);
   const [manualCall, setManualCall] = useState<ManualCall | null>(null);
   const [manualCalls, setManualCalls] = useState<ManualCall[]>([]);
@@ -265,6 +266,31 @@ export function PortalAiOutboundCallsClient() {
     const json = (await res.json().catch(() => null)) as ApiGetManualCallResponse | null;
     if (!json || (json as any).ok !== true || !(json as any).manualCall) return;
     setManualCall((json as any).manualCall as ManualCall);
+  }
+
+  async function syncManualCallArtifacts(id: string) {
+    if (manualCallSyncBusy) return;
+    setManualCallSyncBusy(true);
+    try {
+      const res = await fetch(`/api/portal/ai-outbound-calls/manual-calls/${encodeURIComponent(id)}`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: "{}",
+      }).catch(() => null as any);
+
+      const json = (await res?.json?.().catch(() => null)) as any;
+      if (!res || !res.ok || !json || json.ok !== true) {
+        throw new Error(json?.error || "Unable to refresh call artifacts");
+      }
+
+      if (json.manualCall) setManualCall(json.manualCall as ManualCall);
+      if (selected?.id) await loadManualCalls(selected.id);
+      toast.success(json.requestedTranscription ? "Refreshing… transcript may take a minute" : "Updated");
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Unable to refresh call artifacts");
+    } finally {
+      setManualCallSyncBusy(false);
+    }
   }
 
   useEffect(() => {
@@ -906,6 +932,21 @@ export function PortalAiOutboundCallsClient() {
                               </div>
                               <div className="text-right text-xs text-zinc-500">
                                 {manualCall.callSid ? <div className="font-mono">CallSid: {manualCall.callSid}</div> : null}
+                                <button
+                                  type="button"
+                                  disabled={busy || manualCallBusy || manualCallSyncBusy}
+                                  onClick={() => {
+                                    if (manualCall.id) void syncManualCallArtifacts(manualCall.id);
+                                  }}
+                                  className={
+                                    "mt-2 inline-flex items-center justify-center rounded-xl border px-2.5 py-1.5 text-[11px] font-semibold " +
+                                    (busy || manualCallBusy || manualCallSyncBusy
+                                      ? "border-zinc-200 bg-zinc-100 text-zinc-500"
+                                      : "border-zinc-200 bg-white text-zinc-800 hover:bg-zinc-50")
+                                  }
+                                >
+                                  {manualCallSyncBusy ? "Refreshing…" : "Refresh recording/transcript"}
+                                </button>
                               </div>
                             </div>
 
