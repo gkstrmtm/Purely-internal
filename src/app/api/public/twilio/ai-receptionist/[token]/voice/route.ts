@@ -20,6 +20,7 @@ export const revalidate = 0;
 const PROFILE_EXTRAS_SERVICE_SLUG = "profile";
 
 const MAX_STREAM_RETRIES = 1;
+const MAX_REGISTER_RETRIES = 1;
 
 async function getProfileVoiceAgentId(ownerId: string): Promise<string | null> {
   const row = await prisma.portalServiceSetup.findUnique({
@@ -220,6 +221,7 @@ async function getTwilioParams(req: Request): Promise<{ callSid: string; from: s
 async function handle(req: Request, token: string) {
   const requestUrl = new URL(req.url);
   const streamAttempt = Math.max(0, Math.min(10, getIntParam(requestUrl, "streamAttempt", 0)));
+  const registerAttempt = Math.max(0, Math.min(10, getIntParam(requestUrl, "registerAttempt", 0)));
 
   const lookup = await findOwnerByAiReceptionistWebhookToken(token);
   if (!lookup) {
@@ -462,12 +464,18 @@ async function handle(req: Request, token: string) {
   }
   promptOverride = promptOverride.slice(0, 6000);
 
-  const toNumberForAgent = toE164 || settings.forwardToPhoneE164 || profilePhone || fromE164;
+  // Match the working outbound integration: ElevenLabs expects `from_number` to be the Twilio number and
+  // `to_number` to be the remote party. For inbound calls, the remote party is the caller.
+  const twilioCfg = await getOwnerTwilioSmsConfig(ownerId).catch(() => null);
+  const twilioFromNumber = typeof (twilioCfg as any)?.fromNumberE164 === "string" ? String((twilioCfg as any).fromNumberE164).trim() : "";
+  const fromNumberForAgent = (twilioFromNumber || (toE164 || "").trim()).trim();
+  const toNumberForAgent = fromE164;
+
   const register = await withTimeout(
     registerElevenLabsTwilioCall({
       apiKey,
       agentId,
-      fromNumberE164: fromE164,
+      fromNumberE164: fromNumberForAgent,
       toNumberE164: toNumberForAgent,
       direction: "inbound",
       conversationInitiationClientData: {
@@ -480,6 +488,7 @@ async function handle(req: Request, token: string) {
           business_name: settings.businessName || "",
           caller_number: fromE164,
           called_number: toE164 || "",
+          twilio_from_number: fromNumberForAgent,
           transfer_number: transferTo || "",
           ai_transfer_enabled: settings.aiCanTransferToHuman ? true : false,
         },
@@ -515,9 +524,37 @@ async function handle(req: Request, token: string) {
       error: errMsg,
     });
 
+    const errLine = safeSingleLine(errMsg, 220);
+
+    // Retry once before giving up. This handles transient ElevenLabs/network issues without immediately dropping callers.
+    if (registerAttempt < MAX_REGISTER_RETRIES) {
+      await upsertAiReceptionistCallEvent(ownerId, {
+        id: `call_${callSid}`,
+        callSid,
+        from: fromE164,
+        to: toE164,
+        createdAtIso: new Date().toISOString(),
+        status: "IN_PROGRESS",
+        notes: `Live agent connect failed — retrying. ${errLine ? `(${errLine})` : ""}`.trim(),
+      });
+
+      const nextRegisterAttempt = registerAttempt + 1;
+      const retryUrl = webhookUrlFromRequest(
+        req,
+        `/api/public/twilio/ai-receptionist/${encodeURIComponent(token)}/voice?registerAttempt=${encodeURIComponent(String(nextRegisterAttempt))}&streamAttempt=${encodeURIComponent(String(streamAttempt))}`,
+      );
+
+      const xml = `<?xml version="1.0" encoding="UTF-8"?>
+<Response>
+  <Say voice="Polly.Joanna">One moment while I connect you.</Say>
+  <Redirect method="POST">${xmlEscape(retryUrl)}</Redirect>
+</Response>`;
+      return xmlResponse(xml);
+    }
+
     const fallbackNote = forwardTo
-      ? "Live agent connect failed — forwarding."
-      : "Live agent connect failed.";
+      ? `Live agent connect failed — forwarding. ${errLine ? `(${errLine})` : ""}`.trim()
+      : `Live agent connect failed. ${errLine ? `(${errLine})` : ""}`.trim();
 
     await upsertAiReceptionistCallEvent(ownerId, {
       id: `call_${callSid}`,
@@ -541,7 +578,8 @@ async function handle(req: Request, token: string) {
       return xmlResponse(xml);
     }
 
-    return xmlResponse(hangupXml("We are unable to take your call right now."));
+    // If there's no forwarding path configured, hang up quietly (avoid confusing caller messaging).
+    return xmlResponse(hangupXml(""));
   }
 
   // If we’ve already retried and the stream still ended, fall back to forwarding rather than dropping the caller.
