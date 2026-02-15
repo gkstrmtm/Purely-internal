@@ -41,6 +41,10 @@
       "schedule": "*/5 * * * *"
     },
     {
+      "path": "/api/appointments/meeting-reminders/cron",
+      "schedule": "*/5 * * * *"
+    },
+    {
       "path": "/api/portal/reviews/cron",
       "schedule": "*/5 * * * *"
     }
