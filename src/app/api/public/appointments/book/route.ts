@@ -160,23 +160,24 @@ export async function POST(req: Request) {
     const endAt = new Date(startAt.getTime() + parsed.data.durationMinutes * 60_000);
 
     // Find available closers:
-    const closers = await prisma.user.findMany({
-      where: { role: "CLOSER", active: true },
-      select: { id: true, name: true },
-    });
+    const eligibleRoles = ["CLOSER", "MANAGER", "ADMIN"] as const;
 
-    // Preload their availability blocks that could contain the slot.
+    // Only consider users who have an availability block that fully covers the slot.
     const blocks = await prisma.availabilityBlock.findMany({
       where: {
-        userId: { in: closers.map((c) => c.id) },
         startAt: { lte: startAt },
         endAt: { gte: endAt },
       },
       select: { userId: true },
     });
 
-    const eligibleCloserIds = new Set(blocks.map((b) => b.userId));
-    const eligible = closers.filter((c) => eligibleCloserIds.has(c.id));
+    const candidateUserIds = Array.from(new Set(blocks.map((b) => b.userId)));
+    const closers = await prisma.user.findMany({
+      where: { id: { in: candidateUserIds }, role: { in: eligibleRoles as any }, active: true },
+      select: { id: true, name: true },
+    });
+
+    const eligible = closers;
 
     if (eligible.length === 0) {
       return NextResponse.json(

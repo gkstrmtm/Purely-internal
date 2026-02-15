@@ -106,6 +106,19 @@ function formatTime(sec: number) {
   return `${m}:${String(r).padStart(2, "0")}`;
 }
 
+function sanitizeClientErrorText(error?: string | null) {
+  const raw = String(error || "").trim();
+  if (!raw) return null;
+  const brace = raw.indexOf("{");
+  const bracket = raw.indexOf("[");
+  const idx = [brace, bracket].filter((n) => n >= 0).sort((a, b) => a - b)[0];
+  const withoutJson = idx !== undefined ? raw.slice(0, idx).trim() : raw;
+  const singleLine = withoutJson.replace(/\s+/g, " ").trim();
+  if (!singleLine) return "We hit an error generating call artifacts.";
+  if (singleLine.length > 240) return `${singleLine.slice(0, 239)}…`;
+  return singleLine;
+}
+
 function MiniAudioPlayer(props: { src: string; durationHintSec?: number | null }) {
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const [ready, setReady] = useState(false);
@@ -1008,7 +1021,7 @@ export function PortalAiOutboundCallsClient() {
                               return (
                               <div className="mt-3 rounded-2xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900">
                                 <div className="font-semibold">Call issue</div>
-                                <div className="mt-1 text-amber-900/80">{manualCall.lastError}</div>
+                                <div className="mt-1 text-amber-900/80">{sanitizeClientErrorText(manualCall.lastError) ?? "We hit an error generating call artifacts."}</div>
                               </div>
                               );
                             })()}

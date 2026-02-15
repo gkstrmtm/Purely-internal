@@ -43,21 +43,29 @@ export async function GET(req: Request) {
   const alignedStart = alignToNextHalfHour(safeStart);
   const rangeEnd = new Date(alignedStart.getTime() + parsed.data.days * 24 * 60 * 60_000);
 
-  const closers = await prisma.user.findMany({
-    where: { role: "CLOSER", active: true },
-    select: { id: true },
-  });
-  const closerIds = closers.map((c) => c.id);
-  if (closerIds.length === 0) return NextResponse.json({ slots: [] });
+  const eligibleRoles = ["CLOSER", "MANAGER", "ADMIN"] as const;
 
-  const blocks = await prisma.availabilityBlock.findMany({
+  // Only consider users who have availability blocks in-range.
+  const candidateBlocks = await prisma.availabilityBlock.findMany({
     where: {
-      userId: { in: closerIds },
       startAt: { lt: rangeEnd },
       endAt: { gt: alignedStart },
     },
     select: { userId: true, startAt: true, endAt: true },
   });
+
+  const candidateUserIds = Array.from(new Set(candidateBlocks.map((b) => b.userId)));
+  if (candidateUserIds.length === 0) return NextResponse.json({ slots: [] });
+
+  const closers = await prisma.user.findMany({
+    where: { id: { in: candidateUserIds }, active: true, role: { in: eligibleRoles as any } },
+    select: { id: true },
+  });
+  const closerIds = closers.map((c) => c.id);
+  if (closerIds.length === 0) return NextResponse.json({ slots: [] });
+
+  const closerIdSet = new Set(closerIds);
+  const blocks = candidateBlocks.filter((b) => closerIdSet.has(b.userId));
 
   const appts = await prisma.appointment.findMany({
     where: {

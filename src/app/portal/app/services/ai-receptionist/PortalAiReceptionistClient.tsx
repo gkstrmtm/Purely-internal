@@ -90,6 +90,22 @@ function formatTime(sec: number) {
   return `${m}:${String(r).padStart(2, "0")}`;
 }
 
+function sanitizeClientNotes(notes?: string | null) {
+  const raw = String(notes || "").trim();
+  if (!raw) return null;
+
+  // Strip obvious JSON payloads/errors while keeping a human message.
+  const brace = raw.indexOf("{");
+  const bracket = raw.indexOf("[");
+  const idx = [brace, bracket].filter((n) => n >= 0).sort((a, b) => a - b)[0];
+  const withoutJson = idx !== undefined ? raw.slice(0, idx).trim() : raw;
+
+  const singleLine = withoutJson.replace(/\s+/g, " ").trim();
+  if (!singleLine) return "Call update recorded.";
+  if (singleLine.length > 240) return `${singleLine.slice(0, 239)}…`;
+  return singleLine;
+}
+
 function MiniAudioPlayer(props: { src: string; durationHintSec?: number | null }) {
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const [ready, setReady] = useState(false);
@@ -901,9 +917,9 @@ export function PortalAiReceptionistClient() {
                             </>
                           ) : null}
                         </div>
-                        {e.notes ? (
+                        {sanitizeClientNotes(e.notes) ? (
                           <div className={"mt-1 line-clamp-2 text-xs " + (isSelected ? "text-zinc-200" : "text-zinc-600")}>
-                            {e.notes}
+                            {sanitizeClientNotes(e.notes)}
                           </div>
                         ) : null}
                       </button>
@@ -998,10 +1014,10 @@ export function PortalAiReceptionistClient() {
                         )}
                       </div>
 
-                      {selectedCall.notes ? (
+                      {sanitizeClientNotes(selectedCall.notes) ? (
                         <div className="mt-5">
                           <div className="text-xs font-semibold text-zinc-600">Notes</div>
-                          <div className="mt-2 whitespace-pre-wrap text-sm text-zinc-700">{selectedCall.notes}</div>
+                          <div className="mt-2 whitespace-pre-wrap text-sm text-zinc-700">{sanitizeClientNotes(selectedCall.notes)}</div>
                         </div>
                       ) : null}
                     </>

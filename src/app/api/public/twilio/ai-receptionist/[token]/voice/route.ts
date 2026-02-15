@@ -123,6 +123,18 @@ function xmlResponse(xml: string, status = 200) {
   });
 }
 
+function safeSingleLine(s: unknown, max = 220) {
+  const text = typeof s === "string" ? s : "";
+  const cleaned = text.replace(/\s+/g, " ").trim();
+  return cleaned.length > max ? `${cleaned.slice(0, max - 1)}…` : cleaned;
+}
+
+function hangupXml(message?: string) {
+  const safe = safeSingleLine(message, 240);
+  const say = safe ? `  <Say voice="Polly.Joanna">${xmlEscape(safe)}</Say>\n` : "";
+  return `<?xml version="1.0" encoding="UTF-8"?>\n<Response>\n${say}  <Hangup/>\n</Response>`;
+}
+
 export async function POST(req: Request, ctx: { params: Promise<{ token: string }> }) {
   const { token } = await ctx.params;
   const lookup = await findOwnerByAiReceptionistWebhookToken(token);
@@ -254,12 +266,6 @@ export async function POST(req: Request, ctx: { params: Promise<{ token: string 
     return xmlResponse(xml);
   }
 
-  // Voicemail recording action endpoint (used as a fallback when a live agent isn't configured).
-  const recordingAction = webhookUrlFromRequest(
-    req,
-    `/api/public/twilio/ai-receptionist/${encodeURIComponent(token)}/recording`,
-  );
-
   const greeting = settings.greeting || "Thanks for calling — how can I help?";
   const systemPrompt = settings.systemPrompt || "";
 
@@ -270,8 +276,12 @@ export async function POST(req: Request, ctx: { params: Promise<{ token: string 
   const apiKeyLegacy = typeof apiKeyLegacyRaw === "string" ? apiKeyLegacyRaw.trim() : "";
   const apiKey = apiKeyFromProfile.trim() || apiKeyLegacy.trim();
 
-  // If no voice agent configured, fall back to voicemail-style capture.
+  // If no voice agent configured, never fall back to voicemail.
+  // Prefer forwarding if a forward-to number exists; otherwise hang up with a generic message.
   if (!agentId || !apiKey) {
+    const profilePhone = await getOwnerProfilePhoneE164(ownerId).catch(() => null);
+    const forwardTo = settings.forwardToPhoneE164 || profilePhone;
+
     await upsertAiReceptionistCallEvent(ownerId, {
       id: `call_${callSid}`,
       callSid,
@@ -279,20 +289,24 @@ export async function POST(req: Request, ctx: { params: Promise<{ token: string 
       to: toE164,
       createdAtIso: new Date().toISOString(),
       status: "IN_PROGRESS",
-      notes: "Fell back to voicemail (voice agent not configured: missing Agent ID and/or API key).",
+      notes: forwardTo
+        ? "AI mode unavailable (missing voice agent config) — forwarding."
+        : "AI mode unavailable (missing voice agent config).",
     });
-    const transcriptionCallback = webhookUrlFromRequest(
-      req,
-      `/api/public/twilio/ai-receptionist/${encodeURIComponent(token)}/transcription`,
-    );
-    const xml = `<?xml version="1.0" encoding="UTF-8"?>
+
+    if (forwardTo) {
+      const recordingCallback = webhookUrlFromRequest(
+        req,
+        `/api/public/twilio/ai-receptionist/${encodeURIComponent(token)}/dial-recording`,
+      );
+      const xml = `<?xml version="1.0" encoding="UTF-8"?>
 <Response>
-  <Say voice="Polly.Joanna">${xmlEscape(greeting)}</Say>
-  <Pause length="1"/>
-  <Say>Please leave a message after the beep.</Say>
-  <Record action="${xmlEscape(recordingAction)}" method="POST" maxLength="3600" playBeep="true" transcribe="true" transcribeCallback="${xmlEscape(transcriptionCallback)}" />
+  <Dial timeout="20" record="record-from-answer-dual" recordingStatusCallback="${xmlEscape(recordingCallback)}" recordingStatusCallbackMethod="POST" recordingStatusCallbackEvent="completed">${xmlEscape(forwardTo)}</Dial>
 </Response>`;
-    return xmlResponse(xml);
+      return xmlResponse(xml);
+    }
+
+    return xmlResponse(hangupXml("We are unable to take your call right now."));
   }
 
   // Start Twilio call recording for the *live* call, with callback to charge credits + request transcription.
@@ -386,19 +400,25 @@ export async function POST(req: Request, ctx: { params: Promise<{ token: string 
             : {}),
         },
       },
-      source_info: { source: "portal_ai_receptionist_inbound" },
     },
   });
 
   if (!register.ok || !register.twiml.trim()) {
-    // Fall back to forward if possible, else voicemail.
+    // Never fall back to voicemail. Prefer forwarding if possible, else hang up.
     const profilePhone = await getOwnerProfilePhoneE164(ownerId);
     const forwardTo = settings.forwardToPhoneE164 || profilePhone;
 
     const errMsg = register.ok ? "Voice agent returned empty TwiML." : register.error;
+    console.error("AI receptionist: live agent connect failed", {
+      ownerId,
+      callSid,
+      status: (register as any)?.status,
+      error: errMsg,
+    });
+
     const fallbackNote = forwardTo
-      ? `Fell back to forwarding (live agent connect failed: ${errMsg})`
-      : `Fell back to voicemail (live agent connect failed: ${errMsg})`;
+      ? "Live agent connect failed — forwarding."
+      : "Live agent connect failed.";
 
     await upsertAiReceptionistCallEvent(ownerId, {
       id: `call_${callSid}`,
@@ -422,18 +442,7 @@ export async function POST(req: Request, ctx: { params: Promise<{ token: string 
       return xmlResponse(xml);
     }
 
-    const transcriptionCallback = webhookUrlFromRequest(
-      req,
-      `/api/public/twilio/ai-receptionist/${encodeURIComponent(token)}/transcription`,
-    );
-    const xml = `<?xml version="1.0" encoding="UTF-8"?>
-<Response>
-  <Say voice="Polly.Joanna">${xmlEscape(greeting)}</Say>
-  <Pause length="1"/>
-  <Say>Please leave a message after the beep.</Say>
-  <Record action="${xmlEscape(recordingAction)}" method="POST" maxLength="3600" playBeep="true" transcribe="true" transcribeCallback="${xmlEscape(transcriptionCallback)}" />
-</Response>`;
-    return xmlResponse(xml);
+    return xmlResponse(hangupXml("We are unable to take your call right now."));
   }
 
   await upsertAiReceptionistCallEvent(ownerId, {
