@@ -116,6 +116,16 @@ function hangupXml(message?: string) {
   return `<?xml version="1.0" encoding="UTF-8"?>\n<Response>\n${say}  <Hangup/>\n</Response>`;
 }
 
+function extractConversationIdFromTwiml(twiml: string): string {
+  const s = String(twiml || "");
+  const m =
+    s.match(/<Parameter\b[^>]*\bname=['\"]conversation_id['\"][^>]*\bvalue=['\"]([^'\"]+)['\"][^>]*>/i) ||
+    s.match(/\bname=['\"]conversation_id['\"][^>]*\bvalue=['\"]([^'\"]+)['\"]/i) ||
+    s.match(/\bconversation_id\"\s+value=\"([^\"]+)\"/i);
+  const id = m?.[1] ? String(m[1]).trim() : "";
+  return id && id.length <= 200 ? id : "";
+}
+
 function getIntParam(u: URL, key: string, def = 0): number {
   const raw = u.searchParams.get(key);
   const n = raw ? Number.parseInt(raw, 10) : Number.NaN;
@@ -497,6 +507,8 @@ async function handle(req: Request, token: string) {
     return xmlResponse(hangupXml(""));
   }
 
+  const conversationId = extractConversationIdFromTwiml(register.twiml);
+
   await upsertAiReceptionistCallEvent(ownerId, {
     id: `call_${callSid}`,
     callSid,
@@ -505,6 +517,7 @@ async function handle(req: Request, token: string) {
     createdAtIso: new Date().toISOString(),
     status: "IN_PROGRESS",
     notes: transferNote ? `Live agent connected.\n${transferNote}` : "Live agent connected.",
+    ...(conversationId ? ({ conversationId } as any) : {}),
   });
 
   // Add Stream status callbacks + retry redirect so we can (a) capture StreamError details and
