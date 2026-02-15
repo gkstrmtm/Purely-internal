@@ -235,7 +235,8 @@ export async function POST(req: Request, ctx: { params: Promise<{ token: string 
   // Credits gate (AI mode): require at least 1 credit to use.
   const free = await isFreeCreditsOwner(ownerId).catch(() => false);
   const credits = free ? { balance: 999999 } : await getCreditsState(ownerId).catch(() => null);
-  const hasCredit = Boolean(credits && typeof credits.balance === "number" && credits.balance >= 1);
+  const hasKnownBalance = Boolean(credits && typeof (credits as any).balance === "number" && Number.isFinite((credits as any).balance));
+  const hasCredit = hasKnownBalance ? Boolean((credits as any).balance >= 1) : true; // fail open if credits lookup fails
   if (!hasCredit) {
     const profilePhone = await getOwnerProfilePhoneE164(ownerId);
     const forwardTo = settings.forwardToPhoneE164 || profilePhone;
@@ -247,7 +248,10 @@ export async function POST(req: Request, ctx: { params: Promise<{ token: string 
       to: toE164,
       createdAtIso: new Date().toISOString(),
       status: "COMPLETED",
-      notes: forwardTo ? "Insufficient credits — fell back to forwarding." : "Insufficient credits",
+      // If we can't forward, don't hard-fail the caller. We'll continue into AI mode below.
+      notes: forwardTo
+        ? "Insufficient credits — fell back to forwarding."
+        : "Insufficient credits (no forward number configured) — continuing in AI mode.",
     });
 
     if (forwardTo) {
@@ -257,13 +261,7 @@ export async function POST(req: Request, ctx: { params: Promise<{ token: string 
 </Response>`;
       return xmlResponse(xml);
     }
-
-    const xml = `<?xml version="1.0" encoding="UTF-8"?>
-<Response>
-  <Say>We are unable to take your call right now.</Say>
-  <Hangup/>
-</Response>`;
-    return xmlResponse(xml);
+    // No forward number available: proceed with AI mode even if credits are insufficient.
   }
 
   const greeting = settings.greeting || "Thanks for calling — how can I help?";
@@ -378,7 +376,10 @@ export async function POST(req: Request, ctx: { params: Promise<{ token: string 
     toNumberE164: toNumberForAgent,
     direction: "inbound",
     conversationInitiationClientData: {
-      user_id: null,
+      // Some ConvAI deployments validate this as a string; use ownerId for stability.
+      user_id: ownerId,
+      // Use a safe, documented enum value (previous custom value caused 422).
+      source_info: { source: "unknown" },
       dynamic_variables: {
         owner_id: ownerId,
         business_name: settings.businessName || "",
