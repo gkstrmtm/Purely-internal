@@ -86,6 +86,50 @@ function terminalStatusFromTwilio(callStatusRaw: unknown): "COMPLETED" | "FAILED
   return null;
 }
 
+async function startTwilioCallRecording(opts: {
+  ownerId: string;
+  callSid: string;
+  recordingStatusCallbackUrl: string;
+}): Promise<{ ok: true; recordingSid: string | null } | { ok: false; error: string }> {
+  const sid = String(opts.callSid || "").trim();
+  if (!sid) return { ok: false, error: "Missing CallSid" };
+
+  const twilio = await getOwnerTwilioSmsConfig(opts.ownerId).catch(() => null);
+  if (!twilio) return { ok: false, error: "Twilio not configured" };
+
+  const url = `https://api.twilio.com/2010-04-01/Accounts/${encodeURIComponent(twilio.accountSid)}/Calls/${encodeURIComponent(sid)}/Recordings.json`;
+  const basic = Buffer.from(`${twilio.accountSid}:${twilio.authToken}`).toString("base64");
+
+  const form = new URLSearchParams();
+  form.set("RecordingChannels", "dual");
+  form.set("RecordingStatusCallback", opts.recordingStatusCallbackUrl);
+  form.set("RecordingStatusCallbackMethod", "POST");
+  form.set("RecordingStatusCallbackEvent", "completed");
+
+  const res = await fetch(url, {
+    method: "POST",
+    headers: {
+      authorization: `Basic ${basic}`,
+      "content-type": "application/x-www-form-urlencoded",
+    },
+    body: form.toString(),
+  }).catch(() => null as any);
+
+  if (!res?.ok) {
+    const text = res ? await res.text().catch(() => "") : "";
+    return { ok: false, error: `Twilio did not start recording (${res?.status || "no response"}): ${String(text || "").slice(0, 200)}` };
+  }
+
+  const text = await res.text().catch(() => "");
+  try {
+    const json = text && text.trim() ? (JSON.parse(text) as any) : null;
+    const recordingSid = typeof json?.sid === "string" ? json.sid.trim() : "";
+    return { ok: true, recordingSid: recordingSid || null };
+  } catch {
+    return { ok: true, recordingSid: null };
+  }
+}
+
 async function fetchTwilioCallStatus(ownerId: string, callSid: string): Promise<string | null> {
   const sid = String(callSid || "").trim();
   if (!sid) return null;
@@ -222,9 +266,66 @@ async function handle(req: Request, token: string) {
 
   await upsertAiReceptionistCallEvent(ownerId, baseEvent);
 
+  // When the media stream starts, the call is definitely in-progress.
+  // This is the most reliable moment to start Twilio call recording for AI mode.
+  const ev = String(streamEvent || "").trim().toLowerCase();
+  if (ev === "stream-started") {
+    const currentEvent = (await listAiReceptionistEvents(ownerId, 200)).find((e) => e.callSid === callSid) || existing;
+    const hasRecording = Boolean(String(currentEvent?.recordingSid || "").trim());
+
+    if (!hasRecording) {
+      const existingRid = await fetchLatestRecordingSidForCall(ownerId, callSid);
+      if (existingRid) {
+        await upsertAiReceptionistCallEvent(ownerId, {
+          id: currentEvent?.id || `call_${callSid}`,
+          callSid,
+          from: currentEvent?.from || "unknown",
+          to: currentEvent?.to ?? null,
+          createdAtIso: currentEvent?.createdAtIso || new Date().toISOString(),
+          status: currentEvent?.status || "IN_PROGRESS",
+          recordingSid: existingRid,
+          notes: mergeNotes(currentEvent?.notes, `Recording detected: ${existingRid}`),
+        } as any);
+      } else {
+        const liveRecordingCallback = webhookUrlFromRequest(
+          req,
+          `/api/public/twilio/ai-receptionist/${encodeURIComponent(token)}/call-recording`,
+        );
+
+        const started = await startTwilioCallRecording({
+          ownerId,
+          callSid,
+          recordingStatusCallbackUrl: liveRecordingCallback,
+        });
+
+        if (started.ok) {
+          await upsertAiReceptionistCallEvent(ownerId, {
+            id: currentEvent?.id || `call_${callSid}`,
+            callSid,
+            from: currentEvent?.from || "unknown",
+            to: currentEvent?.to ?? null,
+            createdAtIso: currentEvent?.createdAtIso || new Date().toISOString(),
+            status: currentEvent?.status || "IN_PROGRESS",
+            ...(started.recordingSid ? { recordingSid: started.recordingSid } : {}),
+            notes: mergeNotes(currentEvent?.notes, started.recordingSid ? `Recording started: ${started.recordingSid}` : "Recording start requested."),
+          } as any);
+        } else {
+          await upsertAiReceptionistCallEvent(ownerId, {
+            id: currentEvent?.id || `call_${callSid}`,
+            callSid,
+            from: currentEvent?.from || "unknown",
+            to: currentEvent?.to ?? null,
+            createdAtIso: currentEvent?.createdAtIso || new Date().toISOString(),
+            status: currentEvent?.status || "IN_PROGRESS",
+            notes: mergeNotes(currentEvent?.notes, started.error),
+          } as any);
+        }
+      }
+    }
+  }
+
   // Best-effort reconciliation: if the media stream ended/errored, the call is often already terminal.
   // Flip events out of IN_PROGRESS so the portal doesn't show them stuck forever.
-  const ev = String(streamEvent || "").trim().toLowerCase();
   const isTerminalStreamEvent = ev === "stream-stopped" || ev === "stream-error";
   const current = String(existing?.status || "").trim().toUpperCase();
   const shouldReconcile = isTerminalStreamEvent && (current === "IN_PROGRESS" || current === "UNKNOWN" || !current);
