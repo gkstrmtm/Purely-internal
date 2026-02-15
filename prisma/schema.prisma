@@ -904,6 +904,13 @@ model Appointment {
   endAt    DateTime
   status   AppointmentStatus @default(SCHEDULED)
 
+  meetingPlatform          String?
+  meetingJoinUrl           String?
+  meetingJoinUrlSetAt      DateTime?
+  meetingJoinUrlSetByUserId String?
+  meetingReminder24hSentAt DateTime?
+  meetingReminder1hSentAt  DateTime?
+
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 

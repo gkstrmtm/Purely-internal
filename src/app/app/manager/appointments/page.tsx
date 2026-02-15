@@ -4,11 +4,14 @@ import ManagerAppointmentsClient from "./ManagerAppointmentsClient";
 import type { ManagerAppointment } from "./ManagerAppointmentsClient";
 
 import { authOptions } from "@/lib/auth";
+import { ensureAppointmentMeetingFieldsReady } from "@/lib/appointmentMeetingSchema";
 import { prisma } from "@/lib/db";
 import { hasPublicColumn } from "@/lib/dbSchema";
 import { deriveInterestedServiceFromNotes } from "@/lib/leadDerived";
 
 export default async function ManagerAppointmentsPage() {
+  await ensureAppointmentMeetingFieldsReady().catch(() => null);
+
   const session = await getServerSession(authOptions);
   const userId = session?.user?.id;
   const role = session?.user?.role;
@@ -48,6 +51,9 @@ export default async function ManagerAppointmentsPage() {
       startAt: true,
       endAt: true,
       status: true,
+      meetingPlatform: true,
+      meetingJoinUrl: true,
+      meetingJoinUrlSetAt: true,
       loomUrl: true,
       lead: {
         select: {

@@ -26,6 +26,9 @@ export type ManagerAppointment = {
   startAt: string;
   endAt: string;
   status: string;
+  meetingPlatform?: string | null;
+  meetingJoinUrl?: string | null;
+  meetingJoinUrlSetAt?: string | null;
   loomUrl?: string | null;
   lead: { id: string; businessName: string; phone: string; interestedService?: string | null };
   setter: { name: string; email: string };
@@ -55,6 +58,11 @@ export default function ManagerAppointmentsClient({
   const [editBusy, setEditBusy] = useState<boolean>(false);
   const [closersBusy, setClosersBusy] = useState<boolean>(false);
   const [editMsg, setEditMsg] = useState<string | null>(null);
+
+  const [meetingEditingId, setMeetingEditingId] = useState<string | null>(null);
+  const [meetingPlatform, setMeetingPlatform] = useState<string>("ZOOM");
+  const [meetingJoinUrl, setMeetingJoinUrl] = useState<string>("");
+  const [meetingBusy, setMeetingBusy] = useState<boolean>(false);
 
   const [overrideAvailability, setOverrideAvailability] = useState<boolean>(false);
   const [suggestBusy, setSuggestBusy] = useState<boolean>(false);
@@ -223,6 +231,39 @@ export default function ManagerAppointmentsClient({
     }
   }
 
+  function beginMeetingEdit(appt: ManagerAppointment) {
+    setError(null);
+    setMeetingEditingId(appt.id);
+    setMeetingPlatform(String(appt.meetingPlatform || "ZOOM"));
+    setMeetingJoinUrl(String(appt.meetingJoinUrl || ""));
+  }
+
+  async function saveMeetingInfo(appt: ManagerAppointment) {
+    setMeetingBusy(true);
+    setError(null);
+    try {
+      const payload = {
+        appointmentId: appt.id,
+        meetingPlatform: (meetingPlatform || "ZOOM") as "ZOOM" | "GOOGLE_MEET" | "OTHER",
+        meetingJoinUrl: meetingJoinUrl || null,
+      };
+      const res = await fetch("/api/appointments/meeting", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+      const body = (await res.json().catch(() => ({}))) as { error?: string };
+      if (!res.ok) {
+        setError(body?.error ?? "Failed to save meeting link");
+        return;
+      }
+      setMeetingEditingId(null);
+      await refresh();
+    } finally {
+      setMeetingBusy(false);
+    }
+  }
+
   return (
     <div className="mx-auto max-w-5xl px-6 py-10">
       <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
@@ -322,6 +363,14 @@ export default function ManagerAppointmentsClient({
                 onClick={() => beginEdit(a)}
               >
                 Reschedule / Reassign closer
+              </button>
+
+              <button
+                className="ml-2 rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm hover:bg-zinc-50"
+                type="button"
+                onClick={() => beginMeetingEdit(a)}
+              >
+                Meeting link
               </button>
 
               {editingId === a.id ? (
@@ -472,6 +521,65 @@ export default function ManagerAppointmentsClient({
                       {editMsg}
                     </div>
                   ) : null}
+                </div>
+              ) : null}
+
+              {meetingEditingId === a.id ? (
+                <div className="mt-3 rounded-2xl border border-zinc-200 bg-zinc-50 p-4">
+                  <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                    <div>
+                      <div className="text-xs font-medium text-zinc-900">Meeting link</div>
+                      <div className="mt-1 text-xs text-zinc-500">Paste the join link for this appointment.</div>
+                      {a.meetingJoinUrlSetAt ? (
+                        <div className="mt-1 text-xs text-zinc-500">
+                          Last set: {new Date(a.meetingJoinUrlSetAt).toLocaleString()}
+                        </div>
+                      ) : null}
+                    </div>
+                    <div className="flex flex-wrap gap-2">
+                      <button
+                        className="rounded-xl bg-zinc-900 px-4 py-2 text-sm font-medium text-white hover:bg-zinc-800 disabled:opacity-60"
+                        type="button"
+                        disabled={meetingBusy}
+                        onClick={() => saveMeetingInfo(a)}
+                      >
+                        {meetingBusy ? "Saving…" : "Save"}
+                      </button>
+                      <button
+                        className="rounded-xl border border-zinc-200 bg-white px-4 py-2 text-sm hover:bg-zinc-50 disabled:opacity-60"
+                        type="button"
+                        disabled={meetingBusy}
+                        onClick={() => setMeetingEditingId(null)}
+                      >
+                        Cancel
+                      </button>
+                    </div>
+                  </div>
+
+                  <div className="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-3">
+                    <div>
+                      <label className="text-xs font-medium text-zinc-700">Platform</label>
+                      <select
+                        className="mt-1 w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm outline-none focus:border-zinc-400"
+                        value={meetingPlatform}
+                        onChange={(e) => setMeetingPlatform(e.target.value)}
+                      >
+                        <option value="ZOOM">Zoom</option>
+                        <option value="GOOGLE_MEET">Google Meet</option>
+                        <option value="OTHER">Other</option>
+                      </select>
+                    </div>
+                    <div className="sm:col-span-2">
+                      <label className="text-xs font-medium text-zinc-700">Join URL</label>
+                      <input
+                        className="mt-1 w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm outline-none focus:border-zinc-400"
+                        value={meetingJoinUrl}
+                        onChange={(e) => setMeetingJoinUrl(e.target.value)}
+                        placeholder="https://..."
+                      />
+                      <div className="mt-1 text-xs text-zinc-500">Leave blank if you don’t have a link yet.</div>
+                    </div>
+                  </div>
                 </div>
               ) : null}
             </div>

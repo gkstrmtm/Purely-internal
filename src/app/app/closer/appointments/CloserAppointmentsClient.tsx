@@ -48,6 +48,9 @@ export type CloserAppointment = {
   startAt: string;
   endAt: string;
   status: string;
+  meetingPlatform?: string | null;
+  meetingJoinUrl?: string | null;
+  meetingJoinUrlSetAt?: string | null;
   loomUrl?: string | null;
   lead: {
     id: string;
@@ -113,6 +116,10 @@ export default function CloserAppointmentsClient({
   const [loomUrl, setLoomUrl] = useState("");
   const [videoBusy, setVideoBusy] = useState<boolean>(false);
 
+  const [meetingPlatform, setMeetingPlatform] = useState<string>("ZOOM");
+  const [meetingJoinUrl, setMeetingJoinUrl] = useState<string>("");
+  const [meetingBusy, setMeetingBusy] = useState<boolean>(false);
+
   const [setupFeeDollars, setSetupFeeDollars] = useState<number>(0);
   const [monthlyFeeDollars, setMonthlyFeeDollars] = useState<number>(0);
   const [termMonths, setTermMonths] = useState<number>(3);
@@ -141,6 +148,43 @@ export default function CloserAppointmentsClient({
 
   const selected = appointments.find((a) => a.id === selectedId) ?? null;
   const selectedPrepContent = selected?.prepDoc?.content ?? "";
+
+  useEffect(() => {
+    if (!selected) return;
+    setMeetingPlatform(String(selected.meetingPlatform || "ZOOM"));
+    setMeetingJoinUrl(String(selected.meetingJoinUrl || ""));
+  }, [selected]);
+
+  async function saveMeetingInfo() {
+    if (!selected) return;
+    setMeetingBusy(true);
+    setError(null);
+    setStatus(null);
+    try {
+      const payload = {
+        appointmentId: selected.id,
+        meetingPlatform: (meetingPlatform || "ZOOM") as "ZOOM" | "GOOGLE_MEET" | "OTHER",
+        meetingJoinUrl: meetingJoinUrl || null,
+      };
+
+      const res = await fetch("/api/appointments/meeting", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+
+      const body = (await res.json().catch(() => ({}))) as unknown;
+      if (!res.ok) {
+        setError(getApiError(body) ?? "Failed to save meeting link");
+        return;
+      }
+
+      setStatus("Saved meeting link.");
+      await refresh();
+    } finally {
+      setMeetingBusy(false);
+    }
+  }
 
   function beginReschedule() {
     if (!selected) return;
@@ -877,6 +921,60 @@ export default function CloserAppointmentsClient({
 
                   </div>
                 ) : null}
+              </div>
+
+              <div className="mt-4 rounded-2xl border border-zinc-200 p-4">
+                <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                  <div>
+                    <div className="text-sm font-semibold">Meeting link</div>
+                    <div className="mt-1 text-xs text-zinc-600">
+                      Paste the join link so the client can receive it by email.
+                    </div>
+                    {selected.meetingJoinUrlSetAt ? (
+                      <div className="mt-1 text-xs text-zinc-500">
+                        Last set: {new Date(selected.meetingJoinUrlSetAt).toLocaleString()}
+                      </div>
+                    ) : null}
+                  </div>
+
+                  <div className="flex flex-wrap gap-2">
+                    <button
+                      className="rounded-xl bg-zinc-900 px-4 py-2 text-sm font-medium text-white hover:bg-zinc-800 disabled:opacity-60"
+                      type="button"
+                      disabled={!selected || meetingBusy}
+                      onClick={saveMeetingInfo}
+                    >
+                      {meetingBusy ? "Saving…" : "Save"}
+                    </button>
+                  </div>
+                </div>
+
+                <div className="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-3">
+                  <div>
+                    <label className="text-xs font-medium text-zinc-700">Platform</label>
+                    <select
+                      className="mt-1 w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm outline-none focus:border-zinc-400"
+                      value={meetingPlatform}
+                      onChange={(e) => setMeetingPlatform(e.target.value)}
+                    >
+                      <option value="ZOOM">Zoom</option>
+                      <option value="GOOGLE_MEET">Google Meet</option>
+                      <option value="OTHER">Other</option>
+                    </select>
+                  </div>
+                  <div className="sm:col-span-2">
+                    <label className="text-xs font-medium text-zinc-700">Join URL</label>
+                    <input
+                      className="mt-1 w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm outline-none focus:border-zinc-400"
+                      value={meetingJoinUrl}
+                      onChange={(e) => setMeetingJoinUrl(e.target.value)}
+                      placeholder="https://..."
+                    />
+                    <div className="mt-1 text-xs text-zinc-500">
+                      Leave blank if you don’t have a link yet.
+                    </div>
+                  </div>
+                </div>
               </div>
 
               <div className="mt-4 rounded-2xl border border-zinc-200 p-4">

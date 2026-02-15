@@ -2,12 +2,15 @@ import { NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
 
 import { authOptions } from "@/lib/auth";
+import { ensureAppointmentMeetingFieldsReady } from "@/lib/appointmentMeetingSchema";
 import { prisma } from "@/lib/db";
 import { hasPublicColumn } from "@/lib/dbSchema";
 import { deriveInterestedServiceFromNotes } from "@/lib/leadDerived";
 
 export async function GET() {
   try {
+    await ensureAppointmentMeetingFieldsReady().catch(() => null);
+
     const session = await getServerSession(authOptions);
     const userId = session?.user?.id;
     const role = session?.user?.role;
@@ -77,6 +80,9 @@ export async function GET() {
       startAt: true,
       endAt: true,
       status: true,
+      meetingPlatform: true,
+      meetingJoinUrl: true,
+      meetingJoinUrlSetAt: true,
       loomUrl: true,
       lead: { select: leadSelect },
       closer: { select: { name: true, email: true } },
