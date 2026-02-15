@@ -19,7 +19,9 @@ export const revalidate = 0;
 
 const PROFILE_EXTRAS_SERVICE_SLUG = "profile";
 
-const MAX_STREAM_RETRIES = 1;
+// Keep retrying stream reconnects rather than hanging up quickly.
+// Twilio calls have natural time limits; this just prevents instant drop-offs.
+const MAX_STREAM_RETRIES = 50;
 const MAX_REGISTER_RETRIES = 1;
 
 async function getProfileVoiceAgentId(ownerId: string): Promise<string | null> {
@@ -159,11 +161,9 @@ function injectStreamStatusCallback(twiml: string, opts: { statusCallbackUrl: st
 
     const hasStatusCallback = /\bstatusCallback\s*=\s*"/i.test(a);
     const hasMethod = /\bstatusCallbackMethod\s*=\s*"/i.test(a);
-    const hasEvent = /\bstatusCallbackEvent\s*=\s*"/i.test(a);
     const extra = [
       hasStatusCallback ? "" : ` statusCallback="${statusCallbackUrl}"`,
       hasMethod ? "" : ` statusCallbackMethod="POST"`,
-      hasEvent ? "" : ` statusCallbackEvent="start end error"`,
     ].join("");
 
     return isSelfClosing ? `<Stream${a}${extra} />` : `<Stream${a}${extra}>`;
@@ -172,13 +172,16 @@ function injectStreamStatusCallback(twiml: string, opts: { statusCallbackUrl: st
   return injected;
 }
 
-function appendRedirectAfterResponse(twiml: string, redirectUrl: string): string {
+function appendPauseAndRedirectAfterResponse(twiml: string, redirectUrl: string, pauseSeconds = 1): string {
   const xml = String(twiml || "").trim();
   if (!xml) return xml;
   if (!/<Response[\s>]/i.test(xml)) return xml;
+
   const safeUrl = xmlEscape(redirectUrl);
+  const pause = Math.max(0, Math.min(30, Math.floor(pauseSeconds)));
+  const pauseXml = pause > 0 ? `  <Pause length="${pause}"/>\n` : "";
   const redirect = `  <Redirect method="POST">${safeUrl}</Redirect>\n`;
-  return xml.replace(/\n?\s*<\/Response>\s*$/i, `\n${redirect}</Response>`);
+  return xml.replace(/\n?\s*<\/Response>\s*$/i, `\n${pauseXml}${redirect}</Response>`);
 }
 
 async function withTimeout<T>(promise: Promise<T>, ms: number, label: string): Promise<T> {
@@ -300,8 +303,7 @@ async function handle(req: Request, token: string) {
         status: "COMPLETED",
         notes: "Forward mode: no forward-to number configured (missing profile phone and forwardToPhoneE164).",
       });
-      const xml = `<?xml version="1.0" encoding="UTF-8"?>\n<Response>\n  <Say>We are unable to take your call right now.</Say>\n  <Hangup/>\n</Response>`;
-      return xmlResponse(xml);
+      return xmlResponse(hangupXml(""));
     }
 
     await upsertAiReceptionistCallEvent(ownerId, {
@@ -399,7 +401,7 @@ async function handle(req: Request, token: string) {
       return xmlResponse(xml);
     }
 
-    return xmlResponse(hangupXml("We are unable to take your call right now."));
+    return xmlResponse(hangupXml(""));
   }
 
   // Start Twilio call recording for the *live* call, with callback to charge credits + request transcription.
@@ -550,7 +552,7 @@ async function handle(req: Request, token: string) {
 
       const xml = `<?xml version="1.0" encoding="UTF-8"?>
 <Response>
-  <Say voice="Polly.Joanna">One moment while I connect you.</Say>
+  <Pause length="1"/>
   <Redirect method="POST">${xmlEscape(retryUrl)}</Redirect>
 </Response>`;
       return xmlResponse(xml);
@@ -586,35 +588,6 @@ async function handle(req: Request, token: string) {
     return xmlResponse(hangupXml(""));
   }
 
-  // If we’ve already retried and the stream still ended, fall back to forwarding rather than dropping the caller.
-  if (streamAttempt >= MAX_STREAM_RETRIES + 1) {
-    const forwardTo = settings.forwardToPhoneE164 || profilePhone;
-    await upsertAiReceptionistCallEvent(ownerId, {
-      id: `call_${callSid}`,
-      callSid,
-      from: fromE164,
-      to: toE164,
-      createdAtIso: new Date().toISOString(),
-      status: "IN_PROGRESS",
-      notes: forwardTo ? "Voice agent stream failed repeatedly — forwarding." : "Voice agent stream failed repeatedly.",
-    });
-
-    if (forwardTo) {
-      const recordingCallback = webhookUrlFromRequest(
-        req,
-        `/api/public/twilio/ai-receptionist/${encodeURIComponent(token)}/dial-recording`,
-      );
-      const xml = `<?xml version="1.0" encoding="UTF-8"?>
-<Response>
-  <Say voice="Polly.Joanna">One moment while I connect you.</Say>
-  <Dial timeout="20" record="record-from-answer-dual" recordingStatusCallback="${xmlEscape(recordingCallback)}" recordingStatusCallbackMethod="POST" recordingStatusCallbackEvent="completed">${xmlEscape(forwardTo)}</Dial>
-</Response>`;
-      return xmlResponse(xml);
-    }
-
-    return xmlResponse(hangupXml("We are unable to take your call right now."));
-  }
-
   await upsertAiReceptionistCallEvent(ownerId, {
     id: `call_${callSid}`,
     callSid,
@@ -639,7 +612,8 @@ async function handle(req: Request, token: string) {
   );
 
   const withCallbacks = injectStreamStatusCallback(register.twiml, { statusCallbackUrl: streamStatusCallback });
-  const withRetry = nextAttempt <= MAX_STREAM_RETRIES + 1 ? appendRedirectAfterResponse(withCallbacks, retryUrl) : withCallbacks;
+  const allowRetry = nextAttempt <= MAX_STREAM_RETRIES + 1;
+  const withRetry = allowRetry ? appendPauseAndRedirectAfterResponse(withCallbacks, retryUrl, 1) : withCallbacks;
 
   return xmlResponse(withRetry);
 }
