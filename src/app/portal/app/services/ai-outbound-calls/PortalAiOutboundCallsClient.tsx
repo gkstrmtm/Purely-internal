@@ -379,6 +379,8 @@ export function PortalAiOutboundCallsClient() {
   const [manualCallTo, setManualCallTo] = useState("");
   const [manualCallBusy, setManualCallBusy] = useState(false);
   const [manualCallSyncBusy, setManualCallSyncBusy] = useState(false);
+  const [manualCallBulkSyncBusy, setManualCallBulkSyncBusy] = useState(false);
+  const [manualCallBulkProgress, setManualCallBulkProgress] = useState<{ done: number; total: number } | null>(null);
   const [manualCallId, setManualCallId] = useState<string | null>(null);
   const [manualCall, setManualCall] = useState<ManualCall | null>(null);
   const [manualCalls, setManualCalls] = useState<ManualCall[]>([]);
@@ -403,6 +405,23 @@ export function PortalAiOutboundCallsClient() {
     const json = (await res.json().catch(() => null)) as ApiGetManualCallsResponse | null;
     if (!json || (json as any).ok !== true || !Array.isArray((json as any).manualCalls)) return;
     setManualCalls((json as any).manualCalls);
+  }, []);
+
+  const fetchManualCallsSnapshot = useCallback(async (campaignId?: string): Promise<ManualCall[]> => {
+    const qs = campaignId ? `?campaignId=${encodeURIComponent(campaignId)}` : "";
+    const res = await fetch(`/api/portal/ai-outbound-calls/manual-calls${qs}`, { cache: "no-store" }).catch(() => null as any);
+    if (!res || !res.ok) return [];
+    const json = (await res.json().catch(() => null)) as ApiGetManualCallsResponse | null;
+    if (!json || (json as any).ok !== true || !Array.isArray((json as any).manualCalls)) return [];
+    return (json as any).manualCalls as ManualCall[];
+  }, []);
+
+  const loadManualCall = useCallback(async (id: string) => {
+    const res = await fetch(`/api/portal/ai-outbound-calls/manual-calls/${encodeURIComponent(id)}`, { cache: "no-store" }).catch(() => null as any);
+    if (!res || !res.ok) return;
+    const json = (await res.json().catch(() => null)) as ApiGetManualCallResponse | null;
+    if (!json || (json as any).ok !== true || !(json as any).manualCall) return;
+    setManualCall((json as any).manualCall as ManualCall);
   }, []);
 
   const syncManualCallArtifacts = useCallback(
@@ -435,6 +454,59 @@ export function PortalAiOutboundCallsClient() {
     [loadManualCalls, manualCallSyncBusy, selected?.id, toast],
   );
 
+  const bulkTranscribeMissing = useCallback(async () => {
+    if (!selected?.id) return;
+    if (manualCallBulkSyncBusy || manualCallSyncBusy) return;
+
+    const snapshot = await fetchManualCallsSnapshot(selected.id);
+    const source = snapshot.length ? snapshot : manualCalls;
+
+    const targets = source
+      .filter((c) => {
+        const status = String(c.status || "").toUpperCase();
+        const done = status === "COMPLETED" || status === "FAILED";
+        const hasTranscript = Boolean(String(c.transcriptText || "").trim());
+        const hasKey = Boolean(String(c.recordingSid || "").trim() || String(c.callSid || "").trim() || String(c.conversationId || "").trim());
+        return done && hasKey && !hasTranscript;
+      })
+      .slice(0, 40);
+
+    if (!targets.length) {
+      toast.success("No missing transcripts to transcribe");
+      return;
+    }
+
+    setManualCallBulkSyncBusy(true);
+    setManualCallBulkProgress({ done: 0, total: targets.length });
+    toast.success(`Transcribing ${targets.length} call${targets.length === 1 ? "" : "s"}…`);
+
+    let okCount = 0;
+    try {
+      for (let i = 0; i < targets.length; i++) {
+        const id = targets[i].id;
+        try {
+          const res = await fetch(`/api/portal/ai-outbound-calls/manual-calls/${encodeURIComponent(id)}`, {
+            method: "POST",
+            headers: { "content-type": "application/json" },
+            body: "{}",
+          }).catch(() => null as any);
+          const json = (await res?.json?.().catch(() => null)) as any;
+          if (res?.ok && json?.ok === true) okCount++;
+        } catch {
+          // ignore per-item failures
+        }
+        setManualCallBulkProgress({ done: i + 1, total: targets.length });
+      }
+    } finally {
+      await loadManualCalls(selected.id);
+      if (manualCallId) await loadManualCall(manualCallId);
+      setManualCallBulkSyncBusy(false);
+      setManualCallBulkProgress(null);
+    }
+
+    toast.success(`Transcription run finished (${okCount}/${targets.length})`);
+  }, [fetchManualCallsSnapshot, loadManualCall, loadManualCalls, manualCallBulkSyncBusy, manualCallId, manualCallSyncBusy, manualCalls, selected?.id, toast]);
+
   useEffect(() => {
     const c = manualCall;
     if (!c?.id) return;
@@ -455,14 +527,6 @@ export function PortalAiOutboundCallsClient() {
 
     return () => clearTimeout(t);
   }, [manualCall, manualCallSyncBusy, syncManualCallArtifacts]);
-
-  async function loadManualCall(id: string) {
-    const res = await fetch(`/api/portal/ai-outbound-calls/manual-calls/${encodeURIComponent(id)}`, { cache: "no-store" }).catch(() => null as any);
-    if (!res || !res.ok) return;
-    const json = (await res.json().catch(() => null)) as ApiGetManualCallResponse | null;
-    if (!json || (json as any).ok !== true || !(json as any).manualCall) return;
-    setManualCall((json as any).manualCall as ManualCall);
-  }
 
   useEffect(() => {
     loadManualCalls(selected?.id || undefined);
@@ -491,7 +555,7 @@ export function PortalAiOutboundCallsClient() {
       stopped = true;
       if (timer) clearTimeout(timer);
     };
-  }, [manualCallId]);
+  }, [manualCallId, loadManualCall]);
 
   async function startManualCall() {
     if (!selected) return;
@@ -988,13 +1052,28 @@ export function PortalAiOutboundCallsClient() {
                       <button
                         type="button"
                         className="rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm font-semibold hover:bg-zinc-50 disabled:opacity-60"
-                        disabled={busy || manualCallBusy}
+                        disabled={busy || manualCallBusy || manualCallBulkSyncBusy}
                         onClick={() => {
-                          void loadManualCalls(selected.id);
-                          if (manualCallId) void loadManualCall(manualCallId);
+                          void (async () => {
+                            await loadManualCalls(selected.id);
+                            if (manualCallId) await loadManualCall(manualCallId);
+                            await bulkTranscribeMissing();
+                          })();
                         }}
                       >
-                        Refresh
+                        Refresh & transcribe
+                      </button>
+
+                      <button
+                        type="button"
+                        className="rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm font-semibold hover:bg-zinc-50 disabled:opacity-60"
+                        disabled={busy || manualCallBusy || manualCallBulkSyncBusy || manualCallSyncBusy}
+                        onClick={() => void bulkTranscribeMissing()}
+                        title="Transcribe any completed calls that already have a recording but are missing a transcript"
+                      >
+                        {manualCallBulkProgress
+                          ? `Transcribing… ${manualCallBulkProgress.done}/${manualCallBulkProgress.total}`
+                          : "Transcribe missing"}
                       </button>
                     </div>
 
