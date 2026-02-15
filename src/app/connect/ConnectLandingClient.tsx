@@ -54,45 +54,48 @@ export function ConnectLandingClient(props: { signedInName?: string | null }) {
 	}
 
 	return (
-		<div className="min-h-[calc(100vh-0px)] bg-gradient-to-b from-zinc-950 via-zinc-950 to-zinc-900 text-white">
-			<div className="mx-auto max-w-3xl px-4 py-10">
-				<div className="flex items-center gap-4">
-					<div className="relative h-12 w-48">
-						<Image src="/brand/Purely_Connect.png" alt="Purely Connect" fill className="object-contain" priority />
+		<div className="min-h-screen bg-brand-mist text-brand-ink">
+			<div className="mx-auto flex min-h-screen max-w-3xl flex-col justify-center px-6 py-12">
+				<div className="rounded-3xl border border-zinc-200 bg-white p-8 shadow-sm sm:p-10">
+					<div className="flex items-center justify-between gap-6">
+						<div className="relative h-12 w-48">
+							<Image src="/brand/Purely_Connect.png" alt="Purely Connect" fill className="object-contain" priority />
+						</div>
+						<div className="hidden text-sm text-zinc-600 sm:block">Video meetings</div>
 					</div>
-				</div>
 
-				<div className="mt-10 rounded-3xl border border-white/10 bg-white/5 p-6 shadow-xl shadow-black/20">
-					<h1 className="text-balance text-3xl font-semibold tracking-tight">Video calls, the simple way.</h1>
-					<p className="mt-2 text-sm text-zinc-300">
-						Start a meeting, share the link, and hop on a call. Works best on Chrome.
+					<h1 className="mt-6 text-balance text-2xl font-semibold text-zinc-900 sm:text-3xl">Video calls, the simple way.</h1>
+					<p className="mt-2 text-base text-zinc-600">
+						Start a meeting, share the link, and hop on a call.
 					</p>
 
 					{props.signedInName ? (
-						<div className="mt-4 text-sm text-zinc-300">Signed in as <span className="font-semibold text-white">{props.signedInName}</span></div>
+						<div className="mt-4 text-base text-zinc-600">
+							Signed in as <span className="font-semibold text-zinc-900">{props.signedInName}</span>
+						</div>
 					) : null}
 
 					<div className="mt-6 grid gap-4 sm:grid-cols-2">
 						<button
 							onClick={onCreateMeeting}
 							disabled={creating}
-							className="rounded-2xl bg-white px-4 py-3 text-sm font-semibold text-zinc-900 shadow hover:bg-zinc-100 disabled:cursor-not-allowed disabled:opacity-70"
+							className="rounded-2xl bg-brand-ink px-5 py-3 text-base font-semibold text-white hover:opacity-95 disabled:cursor-not-allowed disabled:opacity-60"
 						>
 							{creating ? "Starting…" : "Start a meeting"}
 						</button>
 
-						<div className="rounded-2xl border border-white/10 bg-black/30 p-3">
-							<label className="block text-xs font-medium text-zinc-300">Join a meeting</label>
-							<div className="mt-2 flex gap-2">
+						<div className="rounded-2xl border border-zinc-200 bg-zinc-50 p-4">
+							<label className="block text-base font-medium text-zinc-900">Join a meeting</label>
+							<div className="mt-3 flex gap-2">
 								<input
 									value={joinValue}
 									onChange={(e) => setJoinValue(e.target.value)}
 									placeholder="Paste link or room ID"
-									className="w-full rounded-xl border border-white/10 bg-black/40 px-3 py-2 text-sm text-white placeholder:text-zinc-500 outline-none focus:border-white/20"
+									className="w-full rounded-2xl border border-zinc-200 bg-white px-4 py-3 text-base outline-none focus:border-zinc-400"
 								/>
 								<button
 									onClick={onJoin}
-									className="shrink-0 rounded-xl bg-emerald-500 px-3 py-2 text-sm font-semibold text-zinc-950 hover:bg-emerald-400"
+									className="shrink-0 rounded-2xl bg-brand-ink px-4 py-3 text-base font-semibold text-white hover:opacity-95"
 								>
 									Join
 								</button>
@@ -100,10 +103,12 @@ export function ConnectLandingClient(props: { signedInName?: string | null }) {
 						</div>
 					</div>
 
-					{error ? <div className="mt-4 rounded-2xl border border-red-500/30 bg-red-500/10 p-3 text-sm text-red-100">{error}</div> : null}
+					{error ? (
+						<div className="mt-5 rounded-2xl border border-red-200 bg-red-50 px-4 py-3 text-base text-red-700">{error}</div>
+					) : null}
 
-					<div className="mt-6 text-xs text-zinc-400">
-						Note: this MVP uses peer-to-peer WebRTC (no recording). Some corporate networks may block calls without a TURN relay.
+					<div className="mt-6 text-sm text-zinc-500">
+						This MVP uses peer-to-peer WebRTC (no recording). Some corporate networks may block calls without a TURN relay.
 					</div>
 				</div>
 			</div>

@@ -50,6 +50,7 @@ export function ConnectRoomClient(props: { roomId: string; signedInName?: string
 	const [joining, setJoining] = useState(false);
 	const [error, setError] = useState<string | null>(null);
 	const [info, setInfo] = useState<string | null>(null);
+	const [mediaWarning, setMediaWarning] = useState<string | null>(null);
 
 	const [localStreamReady, setLocalStreamReady] = useState(false);
 	const [isMuted, setIsMuted] = useState(false);
@@ -63,6 +64,7 @@ export function ConnectRoomClient(props: { roomId: string; signedInName?: string
 	const screenStreamRef = useRef<MediaStream | null>(null);
 
 	const peerMapRef = useRef<Map<string, RTCPeerConnection>>(new Map());
+	const makingOfferRef = useRef<Map<string, boolean>>(new Map());
 	const pendingIceRef = useRef<Map<string, RTCIceCandidateInit[]>>(new Map());
 	const afterSeqRef = useRef<number>(0);
 	const pollingRef = useRef<boolean>(false);
@@ -111,6 +113,7 @@ export function ConnectRoomClient(props: { roomId: string; signedInName?: string
 
 	async function ensureLocalMedia() {
 		if (localStreamRef.current) return localStreamRef.current;
+		setMediaWarning(null);
 
 		const stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
 		localStreamRef.current = stream;
@@ -124,17 +127,56 @@ export function ConnectRoomClient(props: { roomId: string; signedInName?: string
 		return stream;
 	}
 
+	function attachLocalTracksToPeer(pc: RTCPeerConnection) {
+		const local = getLocalStream();
+		if (!local) {
+			// Allow receiving even if local media isn't ready.
+			try {
+				pc.addTransceiver("audio", { direction: "recvonly" });
+				pc.addTransceiver("video", { direction: "recvonly" });
+			} catch {
+				// ignore
+			}
+			return;
+		}
+
+		for (const track of local.getTracks()) {
+			pc.addTrack(track, local);
+		}
+	}
+
 	function createPeer(remoteParticipantId: string) {
 		const pc = new RTCPeerConnection({
 			iceServers: [{ urls: ["stun:stun.l.google.com:19302", "stun:stun1.l.google.com:19302"] }],
 		});
 
-		const local = getLocalStream();
-		if (local) {
-			for (const track of local.getTracks()) {
-				pc.addTrack(track, local);
-			}
-		}
+		attachLocalTracksToPeer(pc);
+
+		pc.onnegotiationneeded = () => {
+			if (!myCreds) return;
+			if (!isOfferer(myCreds.participantId, remoteParticipantId)) return;
+			if (pc.signalingState !== "stable") return;
+			if (makingOfferRef.current.get(remoteParticipantId)) return;
+
+			makingOfferRef.current.set(remoteParticipantId, true);
+			void (async () => {
+				try {
+					const offer = await pc.createOffer({ offerToReceiveAudio: true, offerToReceiveVideo: true });
+					await pc.setLocalDescription(offer);
+					await apiPost(`/api/connect/rooms/${encodeURIComponent(roomId)}/signal`, {
+						participantId: myCreds.participantId,
+						secret: myCreds.secret,
+						toParticipantId: remoteParticipantId,
+						kind: "offer",
+						payload: pc.localDescription,
+					});
+				} catch {
+					// ignore
+				} finally {
+					makingOfferRef.current.set(remoteParticipantId, false);
+				}
+			})();
+		};
 
 		pc.onicecandidate = (ev) => {
 			if (!ev.candidate) return;
@@ -175,6 +217,7 @@ export function ConnectRoomClient(props: { roomId: string; signedInName?: string
 	async function sendOffer(remoteParticipantId: string) {
 		if (!myCreds) return;
 		const pc = getOrCreatePeer(remoteParticipantId);
+		if (pc.signalingState !== "stable") return;
 		const offer = await pc.createOffer({ offerToReceiveAudio: true, offerToReceiveVideo: true });
 		await pc.setLocalDescription(offer);
 
@@ -191,7 +234,7 @@ export function ConnectRoomClient(props: { roomId: string; signedInName?: string
 		if (!myCreds) return;
 		const pc = getOrCreatePeer(fromParticipantId);
 
-		await pc.setRemoteDescription(payload);
+		await pc.setRemoteDescription(payload as RTCSessionDescriptionInit);
 
 		// Flush queued ICE
 		const queued = pendingIceRef.current.get(fromParticipantId) ?? [];
@@ -216,7 +259,7 @@ export function ConnectRoomClient(props: { roomId: string; signedInName?: string
 		const pc = peerMapRef.current.get(fromParticipantId);
 		if (!pc) return;
 
-		await pc.setRemoteDescription(payload);
+		await pc.setRemoteDescription(payload as RTCSessionDescriptionInit);
 
 		const queued = pendingIceRef.current.get(fromParticipantId) ?? [];
 		pendingIceRef.current.delete(fromParticipantId);
@@ -242,7 +285,7 @@ export function ConnectRoomClient(props: { roomId: string; signedInName?: string
 			return;
 		}
 
-		await pc.addIceCandidate(payload).catch(() => null);
+		await pc.addIceCandidate(payload as RTCIceCandidateInit).catch(() => null);
 	}
 
 	async function pollSignalsOnce() {
@@ -348,6 +391,7 @@ export function ConnectRoomClient(props: { roomId: string; signedInName?: string
 	async function onJoin() {
 		setError(null);
 		setInfo(null);
+		setMediaWarning(null);
 		setJoining(true);
 
 		try {
@@ -372,9 +416,11 @@ export function ConnectRoomClient(props: { roomId: string; signedInName?: string
 
 			localStorage.setItem(storageKey(roomId), JSON.stringify(creds));
 
-			await ensureLocalMedia();
 			startPolling();
 			startParticipantsRefresh();
+			void ensureLocalMedia().catch(() => {
+				setMediaWarning("Camera/mic permissions blocked. You can still connect, but allow permissions to send video/audio.");
+			});
 
 			// If we already see others, offer where appropriate.
 			for (const p of joinRes.others ?? []) {
@@ -523,10 +569,12 @@ export function ConnectRoomClient(props: { roomId: string; signedInName?: string
 		let cancelled = false;
 		void (async () => {
 			try {
-				await ensureLocalMedia();
-				if (cancelled) return;
 				startPolling();
 				startParticipantsRefresh();
+				void ensureLocalMedia().catch(() => {
+					setMediaWarning("Camera/mic permissions blocked. You can still connect, but allow permissions to send video/audio.");
+				});
+				if (cancelled) return;
 				await refreshParticipantsOnce();
 			} catch {
 				// ignore
@@ -550,6 +598,7 @@ export function ConnectRoomClient(props: { roomId: string; signedInName?: string
 	}, []);
 
 	const myName = myCreds?.displayName ?? safeName(joinName);
+	const otherParticipants = myCreds ? participants.filter((p) => p.id !== myCreds.participantId) : [];
 
 	const statusLine = useMemo(() => {
 		if (!myCreds) return "Not joined";
@@ -559,20 +608,20 @@ export function ConnectRoomClient(props: { roomId: string; signedInName?: string
 	}, [participants, myCreds]);
 
 	return (
-		<div className="min-h-screen bg-zinc-950 text-white">
-			<div className="mx-auto max-w-6xl px-4 py-6">
+		<div className="min-h-screen bg-brand-mist text-brand-ink">
+			<div className="mx-auto max-w-6xl px-6 py-10">
 				<div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
 					<div>
-						<div className="text-lg font-semibold">Purely Connect</div>
-						<div className="mt-1 text-xs text-zinc-400">Room: {roomId}</div>
+						<div className="text-lg font-semibold text-zinc-900">Purely Connect</div>
+						<div className="mt-1 text-sm text-zinc-600">Room: {roomId}</div>
 					</div>
 
 					<div className="flex flex-wrap items-center gap-2">
-						<button onClick={copyLink} className="rounded-xl border border-white/10 bg-white/5 px-3 py-2 text-sm hover:bg-white/10">
+						<button onClick={copyLink} className="rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-base hover:bg-zinc-50">
 							Copy link
 						</button>
 						{myCreds ? (
-							<button onClick={onLeave} className="rounded-xl bg-red-500 px-3 py-2 text-sm font-semibold text-white hover:bg-red-400">
+							<button onClick={onLeave} className="rounded-2xl bg-red-600 px-4 py-2 text-base font-semibold text-white hover:bg-red-500">
 								Leave
 							</button>
 						) : null}
@@ -580,83 +629,96 @@ export function ConnectRoomClient(props: { roomId: string; signedInName?: string
 				</div>
 
 				{!myCreds ? (
-					<div className="mt-6 rounded-3xl border border-white/10 bg-white/5 p-6">
-						<h1 className="text-2xl font-semibold">Join this meeting</h1>
-						<p className="mt-2 text-sm text-zinc-300">Enter your name to join.</p>
+					<div className="mt-6 rounded-3xl border border-zinc-200 bg-white p-8 shadow-sm">
+						<h1 className="text-2xl font-semibold text-zinc-900">Join this meeting</h1>
+						<p className="mt-2 text-base text-zinc-600">Enter your name to join.</p>
 
 						<div className="mt-4 flex flex-col gap-3 sm:flex-row">
 							<input
 								value={joinName}
 								onChange={(e) => setJoinName(e.target.value)}
 								placeholder="Your name"
-								className="w-full rounded-2xl border border-white/10 bg-black/30 px-4 py-3 text-sm outline-none focus:border-white/20"
+								className="w-full rounded-2xl border border-zinc-200 bg-white px-4 py-3 text-base outline-none focus:border-zinc-400"
 							/>
 							<button
 								onClick={onJoin}
 								disabled={joining || !safeName(joinName)}
-								className="rounded-2xl bg-emerald-500 px-4 py-3 text-sm font-semibold text-zinc-950 hover:bg-emerald-400 disabled:cursor-not-allowed disabled:opacity-60"
+								className="rounded-2xl bg-brand-ink px-5 py-3 text-base font-semibold text-white hover:opacity-95 disabled:cursor-not-allowed disabled:opacity-60"
 							>
 								{joining ? "Joining…" : "Join"}
 							</button>
 						</div>
 
-						{error ? <div className="mt-4 rounded-2xl border border-red-500/30 bg-red-500/10 p-3 text-sm text-red-100">{error}</div> : null}
-						{info ? <div className="mt-4 rounded-2xl border border-white/10 bg-white/5 p-3 text-sm text-zinc-200">{info}</div> : null}
+						{error ? <div className="mt-4 rounded-2xl border border-red-200 bg-red-50 px-4 py-3 text-base text-red-700">{error}</div> : null}
+						{info ? <div className="mt-4 rounded-2xl border border-zinc-200 bg-zinc-50 px-4 py-3 text-base text-zinc-700">{info}</div> : null}
 					</div>
 				) : (
 					<div className="mt-6">
 						<div className="flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between">
 							<div>
-								<div className="text-sm text-zinc-300">Signed in as</div>
-								<div className="text-xl font-semibold">{myName || "You"}</div>
-								<div className="mt-1 text-sm text-zinc-400">{statusLine}</div>
+								<div className="text-sm text-zinc-600">Signed in as</div>
+								<div className="text-xl font-semibold text-zinc-900">{myName || "You"}</div>
+								<div className="mt-1 text-base text-zinc-600">{statusLine}</div>
 							</div>
 
 							<div className="flex flex-wrap gap-2">
 								<button
 									onClick={toggleMute}
-									className="rounded-xl border border-white/10 bg-white/5 px-3 py-2 text-sm hover:bg-white/10"
+									className="rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-base hover:bg-zinc-50"
 								>
 									{isMuted ? "Unmute" : "Mute"}
 								</button>
 								<button
 									onClick={toggleVideo}
-									className="rounded-xl border border-white/10 bg-white/5 px-3 py-2 text-sm hover:bg-white/10"
+									className="rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-base hover:bg-zinc-50"
 								>
 									{isVideoOff ? "Start video" : "Stop video"}
 								</button>
 								{!isSharing ? (
-									<button onClick={startShare} className="rounded-xl bg-white px-3 py-2 text-sm font-semibold text-zinc-900 hover:bg-zinc-100">
+									<button onClick={startShare} className="rounded-2xl bg-brand-ink px-4 py-2 text-base font-semibold text-white hover:opacity-95">
 										Share screen
 									</button>
 								) : (
-									<button onClick={stopShare} className="rounded-xl bg-white px-3 py-2 text-sm font-semibold text-zinc-900 hover:bg-zinc-100">
+									<button onClick={stopShare} className="rounded-2xl bg-brand-ink px-4 py-2 text-base font-semibold text-white hover:opacity-95">
 										Stop sharing
 									</button>
 								)}
 							</div>
 						</div>
 
-						{error ? <div className="mt-4 rounded-2xl border border-red-500/30 bg-red-500/10 p-3 text-sm text-red-100">{error}</div> : null}
-						{info ? <div className="mt-4 rounded-2xl border border-white/10 bg-white/5 p-3 text-sm text-zinc-200">{info}</div> : null}
+						{mediaWarning ? (
+							<div className="mt-4 rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-base text-amber-800">
+								{mediaWarning}
+							</div>
+						) : null}
+						{error ? <div className="mt-4 rounded-2xl border border-red-200 bg-red-50 px-4 py-3 text-base text-red-700">{error}</div> : null}
+						{info ? <div className="mt-4 rounded-2xl border border-zinc-200 bg-zinc-50 px-4 py-3 text-base text-zinc-700">{info}</div> : null}
 
 						<div className="mt-6 grid gap-4 md:grid-cols-2">
-							<div className="rounded-3xl border border-white/10 bg-black/30 p-3">
-								<div className="text-xs font-medium text-zinc-400">You</div>
+							<div className="rounded-3xl border border-zinc-200 bg-white p-4 shadow-sm">
+								<div className="text-sm font-medium text-zinc-900">You</div>
 								<div className="mt-2 overflow-hidden rounded-2xl bg-black">
-									<video ref={localVideoRef} muted playsInline className="aspect-video w-full object-cover" />
+									<video ref={localVideoRef} muted playsInline autoPlay className="aspect-video w-full object-cover" />
 								</div>
-								<div className="mt-2 text-xs text-zinc-500">{localStreamReady ? "Camera on" : "Getting media…"}</div>
+								<div className="mt-2 text-sm text-zinc-600">{localStreamReady ? "Camera on" : "Connecting…"}</div>
 							</div>
 
 							{remoteTiles.length ? (
 								remoteTiles.map((t) => (
 									<RemoteTile key={t.id} tile={t} />
 								))
+							) : otherParticipants.length ? (
+								<div className="rounded-3xl border border-zinc-200 bg-white p-6 shadow-sm">
+									<div className="text-base font-semibold text-zinc-900">Connecting…</div>
+									<div className="mt-1 text-base text-zinc-600">
+										Trying to connect to {otherParticipants.map((p) => p.displayName).join(", ")}. This can take a few seconds.
+									</div>
+									<div className="mt-3 text-sm text-zinc-500">If it hangs, refresh the page or try Chrome.</div>
+								</div>
 							) : (
-								<div className="rounded-3xl border border-white/10 bg-white/5 p-6">
-									<div className="text-sm font-semibold">Waiting for someone to join</div>
-									<div className="mt-1 text-sm text-zinc-300">Share the link and they’ll appear here.</div>
+								<div className="rounded-3xl border border-zinc-200 bg-white p-6 shadow-sm">
+									<div className="text-base font-semibold text-zinc-900">Waiting for someone to join</div>
+									<div className="mt-1 text-base text-zinc-600">Share the link and they’ll appear here.</div>
 								</div>
 							)}
 						</div>
@@ -677,10 +739,10 @@ function RemoteTile(props: { tile: { id: string; displayName: string; stream: Me
 	}, [props.tile.stream]);
 
 	return (
-		<div className="rounded-3xl border border-white/10 bg-black/30 p-3">
-			<div className="text-xs font-medium text-zinc-400">{props.tile.displayName || "Guest"}</div>
+		<div className="rounded-3xl border border-zinc-200 bg-white p-4 shadow-sm">
+			<div className="text-sm font-medium text-zinc-900">{props.tile.displayName || "Guest"}</div>
 			<div className="mt-2 overflow-hidden rounded-2xl bg-black">
-				<video ref={videoRef} playsInline className="aspect-video w-full object-cover" />
+				<video ref={videoRef} playsInline autoPlay className="aspect-video w-full object-cover" />
 			</div>
 		</div>
 	);
