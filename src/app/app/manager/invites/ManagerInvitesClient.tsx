@@ -35,7 +35,7 @@ export default function ManagerInvitesClient() {
 
     if (!res.ok || !body?.ok) {
       setLoading(false);
-      setError(body?.error ?? "Failed to load invites");
+      setError([body?.error ?? "Failed to load invites", body?.details].filter(Boolean).join(" • "));
       return;
     }
 
@@ -68,7 +68,7 @@ export default function ManagerInvitesClient() {
     setCreating(false);
 
     if (!res.ok || !body?.ok) {
-      setError(body?.error ?? "Failed to create invite");
+      setError([body?.error ?? "Failed to create invite", body?.details].filter(Boolean).join(" • "));
       return;
     }
 

@@ -4,9 +4,11 @@ import { randomBytes } from "crypto";
 
 import { requireManagerSession } from "@/lib/apiAuth";
 import { prisma } from "@/lib/db";
+import { ensureEmployeeInvitesSchema } from "@/lib/employeeInvitesSchema";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
+export const runtime = "nodejs";
 
 function makeInviteCode() {
   const raw = randomBytes(4).toString("hex").toUpperCase();
@@ -27,6 +29,7 @@ export async function GET() {
   }
 
   try {
+    await ensureEmployeeInvitesSchema();
     const invites = await prisma.employeeInvite.findMany({
       orderBy: { createdAt: "desc" },
       take: 100,
@@ -72,6 +75,8 @@ export async function POST(req: Request) {
     : null;
 
   const createdById = auth.session.user.id;
+
+  await ensureEmployeeInvitesSchema();
 
   for (let i = 0; i < 5; i++) {
     const code = makeInviteCode();

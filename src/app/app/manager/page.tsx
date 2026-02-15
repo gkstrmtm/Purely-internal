@@ -4,7 +4,6 @@ import Link from "next/link";
 
 import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/db";
-import PortalDemoSeeder from "./PortalDemoSeeder";
 
 function fmtMoney(cents: number) {
   const dollars = (cents ?? 0) / 100;
@@ -198,14 +197,12 @@ export default async function ManagerHome() {
         <div className="mt-8 rounded-3xl border border-zinc-200 bg-white p-6">
           <div className="text-base font-semibold text-brand-ink">Notes</div>
           <div className="mt-2 text-sm text-zinc-600">
-            Revenue is currently sourced from appointment outcomes (optional) and projected MRR from approved/sent contract drafts.
-          </div>
-          <div className="mt-2 text-sm text-zinc-600">
             Last updated: {now.toLocaleString()} (week range starts {weekAgo.toLocaleDateString()})
           </div>
+          <div className="mt-2 text-sm text-zinc-600">
+            Dev tools moved to <Link className="font-semibold text-[color:var(--color-brand-blue)]" href="/app/manager/admin">Admin</Link>.
+          </div>
         </div>
-
-        <PortalDemoSeeder />
 
         <div className="mt-8 grid grid-cols-1 gap-4 sm:grid-cols-3">
           <div className="rounded-3xl border border-zinc-200 bg-white p-6">

@@ -3,6 +3,7 @@ import { z } from "zod";
 
 import { prisma } from "@/lib/db";
 import { hashPassword } from "@/lib/password";
+import { ensureEmployeeInvitesSchema } from "@/lib/employeeInvitesSchema";
 
 const bodySchema = z.object({
   name: z.string().min(1),
@@ -29,6 +30,20 @@ export async function POST(req: Request) {
   const now = new Date();
 
   const passwordHash = await hashPassword(parsed.data.password);
+
+  if (!allowLegacyEnvCode) {
+    try {
+      await ensureEmployeeInvitesSchema();
+    } catch (e) {
+      return NextResponse.json(
+        {
+          error: "Signup temporarily unavailable",
+          details: e instanceof Error ? e.message : "Unable to initialize invites table",
+        },
+        { status: 500 },
+      );
+    }
+  }
 
   try {
     const user = await prisma.$transaction(async (tx) => {

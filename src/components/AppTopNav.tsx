@@ -202,6 +202,7 @@ export function AppTopNav({ role }: { role?: string }) {
 
   const managerItems: NavItem[] = [
     { href: "/app/manager", label: "Dashboard" },
+    { href: "/app/manager/admin", label: "Admin" },
     { href: "/app/manager/invites", label: "Employee invites" },
     { href: "/app/manager/blogs", label: "Blogs" },
     { href: "/app/manager/leads", label: "Leads" },
@@ -255,6 +256,7 @@ export function AppSidebarNav({
 
   const managerItems: NavItem[] = [
     { href: "/app/manager", label: "Dashboard", shortLabel: "Db" },
+    { href: "/app/manager/admin", label: "Admin", shortLabel: "Ad" },
     { href: "/app/manager/invites", label: "Employee invites", shortLabel: "In" },
     { href: "/app/manager/blogs", label: "Blogs" },
     { href: "/app/manager/leads", label: "Leads" },
