@@ -26,6 +26,7 @@ function ceilMinutesFromSeconds(seconds: number): number {
 }
 
 const CREDITS_PER_STARTED_MINUTE = 5;
+const MIN_BILLABLE_SECONDS = 15;
 
 export async function POST(req: Request, ctx: { params: Promise<{ token: string }> }) {
   const { token } = await ctx.params;
@@ -58,7 +59,9 @@ export async function POST(req: Request, ctx: { params: Promise<{ token: string 
   const toParsed = to ? normalizePhoneStrict(to) : null;
   const toE164 = toParsed && toParsed.ok && toParsed.e164 ? toParsed.e164 : to;
 
-  const startedMinutes = ceilMinutesFromSeconds(durationSec);
+  const durationFloor = Number.isFinite(durationSec) ? Math.max(0, Math.floor(durationSec)) : NaN;
+  const billable = Number.isFinite(durationFloor) ? durationFloor >= MIN_BILLABLE_SECONDS : false;
+  const startedMinutes = billable ? ceilMinutesFromSeconds(durationFloor) : 0;
   const needCredits = startedMinutes * CREDITS_PER_STARTED_MINUTE;
 
   let chargedCredits = 0;
@@ -88,15 +91,19 @@ export async function POST(req: Request, ctx: { params: Promise<{ token: string 
     createdAtIso: new Date().toISOString(),
     status: "COMPLETED",
     notes:
-      needCredits > 0
-        ? (chargedCredits > 0
+      Number.isFinite(durationFloor)
+      ? (billable
+        ? (needCredits > 0
+          ? (chargedCredits > 0
             ? (chargedPartial
-                ? `Charged ${chargedCredits} credit(s) (partial, ${needCredits} needed).`
-                : `Charged ${chargedCredits} credit(s).`)
+              ? `Charged ${chargedCredits} credit(s) (partial, ${needCredits} needed).`
+              : `Charged ${chargedCredits} credit(s).`)
             : "No credits charged.")
-        : "No recording duration reported.",
+          : "No credits charged.")
+        : `No credits charged (call too short: ${durationFloor}s).`)
+      : "No recording duration reported.",
     ...(recordingSid ? { recordingSid } : {}),
-    ...(Number.isFinite(durationSec) ? { recordingDurationSec: Math.max(0, Math.floor(durationSec)) } : {}),
+    ...(Number.isFinite(durationFloor) ? { recordingDurationSec: durationFloor } : {}),
     ...(chargedCredits > 0 ? { chargedCredits } : {}),
     ...(chargedPartial ? { creditsChargedPartial: true } : {}),
   });

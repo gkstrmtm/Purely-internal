@@ -152,8 +152,11 @@ function injectStreamStatusCallback(twiml: string, opts: { statusCallbackUrl: st
   // Inject statusCallback attributes into the first <Stream ...> tag.
   // Don’t overwrite if already present.
   const statusCallbackUrl = xmlEscape(opts.statusCallbackUrl);
-  const injected = xml.replace(/<Stream\b([^>]*)>/i, (full, attrs: string) => {
-    const a = String(attrs || "");
+  const injected = xml.replace(/<Stream\b([^>]*?)(\s*\/)?\s*>/i, (_full, attrs: string, selfClose: string) => {
+    const rawAttrs = String(attrs || "");
+    const isSelfClosing = Boolean(selfClose);
+    const a = rawAttrs.replace(/\/\s*$/g, "");
+
     const hasStatusCallback = /\bstatusCallback\s*=\s*"/i.test(a);
     const hasMethod = /\bstatusCallbackMethod\s*=\s*"/i.test(a);
     const hasEvent = /\bstatusCallbackEvent\s*=\s*"/i.test(a);
@@ -162,7 +165,8 @@ function injectStreamStatusCallback(twiml: string, opts: { statusCallbackUrl: st
       hasMethod ? "" : ` statusCallbackMethod="POST"`,
       hasEvent ? "" : ` statusCallbackEvent="start end error"`,
     ].join("");
-    return `<Stream${a}${extra}>`;
+
+    return isSelfClosing ? `<Stream${a}${extra} />` : `<Stream${a}${extra}>`;
   });
 
   return injected;
