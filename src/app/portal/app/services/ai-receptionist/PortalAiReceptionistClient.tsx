@@ -208,6 +208,7 @@ export function PortalAiReceptionistClient() {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [savingEnabled, setSavingEnabled] = useState(false);
+  const [transcribing, setTranscribing] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [note, setNote] = useState<string | null>(null);
 
@@ -288,7 +289,7 @@ export function PortalAiReceptionistClient() {
     setBillingPath(typeof data.billingPath === "string" && data.billingPath.trim() ? data.billingPath : "/portal/app/billing");
   }, []);
 
-  const load = useCallback(async () => {
+  const load = useCallback(async (): Promise<ApiPayload | null> => {
     setLoading(true);
     setError(null);
     setNote(null);
@@ -298,14 +299,14 @@ export function PortalAiReceptionistClient() {
       const rawError = res ? await readJsonError(res) : null;
       setLoading(false);
       setError(friendlyApiError({ status: res?.status, rawError, action: "load" }));
-      return;
+      return null;
     }
 
     const data = (await res.json().catch(() => null)) as ApiPayload | null;
     if (!data?.ok || !data.settings) {
       setLoading(false);
       setError(friendlyApiError({ status: res.status, rawError: data?.error ?? null, action: "load" }));
-      return;
+      return null;
     }
 
     setSettings(data.settings);
@@ -314,7 +315,51 @@ export function PortalAiReceptionistClient() {
     setWebhookUrlLegacy(typeof data.webhookUrlLegacy === "string" ? data.webhookUrlLegacy : "");
     setTwilioConfigured(Boolean(data.twilioConfigured ?? data.twilio?.configured));
     setLoading(false);
+    return data;
   }, [friendlyApiError, readJsonError]);
+
+  const transcribeMissing = useCallback(
+    async (rows: EventRow[]) => {
+      if (transcribing) return;
+      const candidates = (rows || [])
+        .filter((e) => e.status === "COMPLETED")
+        .filter((e) => Boolean((e.recordingSid || "").trim()))
+        .filter((e) => !String(e.transcript || "").trim())
+        .slice(0, 20);
+
+      if (!candidates.length) return;
+
+      setTranscribing(true);
+      try {
+        for (const e of candidates) {
+          const callSid = String(e.callSid || "").trim();
+          if (!callSid) continue;
+
+          const res = await fetch(`/api/portal/ai-receptionist/events/${encodeURIComponent(callSid)}`, {
+            method: "POST",
+            headers: { "content-type": "application/json" },
+            body: "{}",
+          }).catch(() => null as any);
+
+          if (!res?.ok) continue;
+          const json = (await res.json().catch(() => null)) as any;
+          const transcript = typeof json?.transcript === "string" ? json.transcript : "";
+          if (!transcript.trim()) continue;
+
+          setEvents((prev) => prev.map((x) => (x.callSid === callSid ? { ...x, transcript } : x)));
+        }
+      } finally {
+        setTranscribing(false);
+      }
+    },
+    [transcribing],
+  );
+
+  const refreshAndTranscribe = useCallback(async () => {
+    const data = await load();
+    const rows = Array.isArray(data?.events) ? data!.events : [];
+    await transcribeMissing(rows);
+  }, [load, transcribeMissing]);
 
   useEffect(() => {
     void load();
@@ -803,10 +848,10 @@ export function PortalAiReceptionistClient() {
             <button
               type="button"
               className="rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm font-semibold hover:bg-zinc-50 disabled:opacity-60"
-              disabled={saving}
-              onClick={() => void load()}
+              disabled={saving || transcribing}
+              onClick={() => void refreshAndTranscribe()}
             >
-              Refresh
+              {transcribing ? "Transcribing…" : "Refresh & transcribe"}
             </button>
           </div>
 
@@ -941,7 +986,7 @@ export function PortalAiReceptionistClient() {
                           </div>
                         ) : (
                           <div className="mt-2 text-sm text-zinc-600">
-                            No transcript yet. It can take 1–2 minutes to appear after the call ends.
+                            No transcript yet. Click “Refresh & transcribe” to generate it from the recording.
                           </div>
                         )}
                       </div>

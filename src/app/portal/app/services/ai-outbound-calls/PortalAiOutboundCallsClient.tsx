@@ -107,136 +107,45 @@ function formatTime(sec: number) {
 
 function MiniAudioPlayer(props: { src: string; durationHintSec?: number | null }) {
   const audioRef = useRef<HTMLAudioElement | null>(null);
-  const rafRef = useRef<number | null>(null);
-  const scrubRef = useRef<HTMLDivElement | null>(null);
-  const durationLockedRef = useRef(false);
   const [ready, setReady] = useState(false);
   const [playing, setPlaying] = useState(false);
   const [duration, setDuration] = useState<number>(props.durationHintSec && props.durationHintSec > 0 ? props.durationHintSec : 0);
-  const [seekableEnd, setSeekableEnd] = useState(0);
   const [currentTime, setCurrentTime] = useState(0);
   const [rate, setRate] = useState(1);
-  const [dragging, setDragging] = useState(false);
 
   useEffect(() => {
-    // Reset any previous playback state when switching sources.
-    setReady(false);
-    setPlaying(false);
-    setCurrentTime(0);
-    setDuration(props.durationHintSec && props.durationHintSec > 0 ? props.durationHintSec : 0);
-    setSeekableEnd(0);
-    setDragging(false);
-    durationLockedRef.current = false;
-
     const el = audioRef.current;
     if (!el) return;
 
-    const stopRaf = () => {
-      if (rafRef.current) cancelAnimationFrame(rafRef.current);
-      rafRef.current = null;
-    };
-
-    const tick = () => {
-      const a = audioRef.current;
-      if (!a) return;
-      setCurrentTime(a.currentTime || 0);
-      if (!a.paused && !a.ended) rafRef.current = requestAnimationFrame(tick);
-    };
-
-    const updateSeekable = () => {
-      const a = audioRef.current;
-      if (!a) return;
-      try {
-        if (a.seekable && a.seekable.length > 0) {
-          const end = a.seekable.end(a.seekable.length - 1);
-          if (Number.isFinite(end) && end > 0) setSeekableEnd(end);
-        }
-      } catch {
-        // ignore
-      }
-    };
-
     const onLoaded = () => {
       setReady(true);
-      updateSeekable();
-      if (Number.isFinite(el.duration) && el.duration > 0) {
-        setDuration((prev) => {
-          if (prev > 0) return prev;
-          durationLockedRef.current = true;
-          return el.duration;
-        });
-      }
+      if (Number.isFinite(el.duration) && el.duration > 0) setDuration(el.duration);
     };
-    const onDuration = () => {
-      updateSeekable();
-      if (!durationLockedRef.current && Number.isFinite(el.duration) && el.duration > 0) {
-        setDuration((prev) => {
-          if (prev > 0) {
-            durationLockedRef.current = true;
-            return prev;
-          }
-          durationLockedRef.current = true;
-          return el.duration;
-        });
-      }
-    };
-    const onTime = () => {
-      setCurrentTime(el.currentTime || 0);
-      updateSeekable();
-    };
+    const onTime = () => setCurrentTime(el.currentTime || 0);
     const onPlay = () => {
       setPlaying(true);
-      setReady(true);
-      updateSeekable();
-      if (!durationLockedRef.current && Number.isFinite(el.duration) && el.duration > 0) {
-        durationLockedRef.current = true;
-        setDuration((prev) => (prev > 0 ? prev : el.duration));
-      }
-      stopRaf();
-      rafRef.current = requestAnimationFrame(tick);
     };
     const onPause = () => {
       setPlaying(false);
-      stopRaf();
     };
     const onEnded = () => {
       setPlaying(false);
-      stopRaf();
-      setCurrentTime(el.duration && Number.isFinite(el.duration) ? el.duration : el.currentTime || 0);
     };
-
-    const onCanPlay = () => {
-      setReady(true);
-      updateSeekable();
-      if (!durationLockedRef.current && Number.isFinite(el.duration) && el.duration > 0) {
-        durationLockedRef.current = true;
-        setDuration((prev) => (prev > 0 ? prev : el.duration));
-      }
-    };
-
-    const onProgress = () => updateSeekable();
 
     el.addEventListener("loadedmetadata", onLoaded);
-    el.addEventListener("durationchange", onDuration);
     el.addEventListener("timeupdate", onTime);
     el.addEventListener("play", onPlay);
     el.addEventListener("pause", onPause);
     el.addEventListener("ended", onEnded);
-    el.addEventListener("canplay", onCanPlay);
-    el.addEventListener("progress", onProgress);
 
     return () => {
-      stopRaf();
       el.removeEventListener("loadedmetadata", onLoaded);
-      el.removeEventListener("durationchange", onDuration);
       el.removeEventListener("timeupdate", onTime);
       el.removeEventListener("play", onPlay);
       el.removeEventListener("pause", onPause);
       el.removeEventListener("ended", onEnded);
-      el.removeEventListener("canplay", onCanPlay);
-      el.removeEventListener("progress", onProgress);
     };
-  }, [props.src, props.durationHintSec]);
+  }, [props.src]);
 
   useEffect(() => {
     const el = audioRef.current;
@@ -244,30 +153,12 @@ function MiniAudioPlayer(props: { src: string; durationHintSec?: number | null }
     el.playbackRate = rate;
   }, [rate]);
 
-  const effectiveDuration = Number.isFinite(duration) && duration > 0 ? duration : Number.isFinite(seekableEnd) && seekableEnd > 0 ? seekableEnd : 0;
-  const hasDuration = ready && effectiveDuration > 0;
-  const safeCurrent = hasDuration ? Math.max(0, Math.min(effectiveDuration, currentTime || 0)) : Math.max(0, currentTime || 0);
-  const remaining = hasDuration ? Math.max(0, effectiveDuration - safeCurrent) : 0;
-  const pct = hasDuration && effectiveDuration > 0 ? Math.max(0, Math.min(1, safeCurrent / effectiveDuration)) : 0;
-
-  const setTimeFromClientX = useCallback(
-    (clientX: number) => {
-      if (!hasDuration) return;
-      const el = audioRef.current;
-      const track = scrubRef.current;
-      if (!el || !track) return;
-      const r = track.getBoundingClientRect();
-      const x = Math.max(0, Math.min(r.width, clientX - r.left));
-      const next = (x / Math.max(1, r.width)) * effectiveDuration;
-      el.currentTime = Math.max(0, Math.min(effectiveDuration, next));
-      setCurrentTime(el.currentTime || 0);
-    },
-    [effectiveDuration, hasDuration],
-  );
+  const remaining = Math.max(0, (duration || 0) - (currentTime || 0));
+  const canScrub = ready && duration > 0;
 
   return (
     <div className="mt-2 rounded-2xl border border-zinc-200 bg-zinc-50 p-3">
-      <audio ref={audioRef} preload="auto" src={props.src} />
+      <audio ref={audioRef} preload="metadata" src={props.src} />
       <div className="flex flex-wrap items-center gap-3">
         <button
           type="button"
@@ -290,56 +181,27 @@ function MiniAudioPlayer(props: { src: string; durationHintSec?: number | null }
           {playing ? "Pause" : "Play"}
         </button>
 
-        <div className="min-w-[240px] flex-1">
-          {hasDuration ? (
-            <div
-              ref={scrubRef}
-              role="slider"
-              aria-label="Playback position"
-              aria-valuemin={0}
-              aria-valuemax={effectiveDuration}
-              aria-valuenow={safeCurrent}
-              tabIndex={0}
-              onPointerDown={(e) => {
-                (e.currentTarget as HTMLDivElement).setPointerCapture(e.pointerId);
-                setDragging(true);
-                setTimeFromClientX(e.clientX);
-              }}
-              onPointerMove={(e) => {
-                if (!dragging) return;
-                setTimeFromClientX(e.clientX);
-              }}
-              onPointerUp={() => setDragging(false)}
-              onPointerCancel={() => setDragging(false)}
-              onKeyDown={(e) => {
-                const el = audioRef.current;
-                if (!el) return;
-                const step = e.shiftKey ? 10 : 5;
-                if (e.key === "ArrowLeft") {
-                  e.preventDefault();
-                  el.currentTime = Math.max(0, (el.currentTime || 0) - step);
-                  setCurrentTime(el.currentTime || 0);
-                }
-                if (e.key === "ArrowRight") {
-                  e.preventDefault();
-                  el.currentTime = Math.min(effectiveDuration, (el.currentTime || 0) + step);
-                  setCurrentTime(el.currentTime || 0);
-                }
-              }}
-              className="relative h-3 w-full select-none rounded-full cursor-pointer"
-            >
-              <div className="absolute inset-0 rounded-full bg-zinc-200" />
-              <div className="absolute inset-y-0 left-0 rounded-full bg-zinc-900" style={{ width: `${pct * 100}%` }} />
-              <div
-                className="absolute top-1/2 h-4 w-4 -translate-y-1/2 rounded-full bg-white shadow ring-2 ring-zinc-900 transition"
-                style={{ left: `calc(${pct * 100}% - 8px)` }}
-              />
-            </div>
-          ) : null}
-
+        <div className="min-w-[220px] flex-1">
+          <input
+            type="range"
+            min={0}
+            max={canScrub ? duration : 1}
+            step={0.01}
+            value={canScrub ? Math.min(duration, currentTime) : 0}
+            disabled={!canScrub}
+            onChange={(ev) => {
+              const el = audioRef.current;
+              if (!el) return;
+              const next = Number(ev.target.value);
+              if (!Number.isFinite(next)) return;
+              el.currentTime = Math.max(0, Math.min(duration, next));
+              setCurrentTime(el.currentTime);
+            }}
+            className="w-full"
+          />
           <div className="mt-1 flex items-center justify-between text-xs text-zinc-600">
-            <span>{formatTime(safeCurrent)}</span>
-            <span>{hasDuration ? `-${formatTime(remaining)}` : ""}</span>
+            <span>{formatTime(currentTime)}</span>
+            <span>-{formatTime(remaining)}</span>
           </div>
         </div>
 

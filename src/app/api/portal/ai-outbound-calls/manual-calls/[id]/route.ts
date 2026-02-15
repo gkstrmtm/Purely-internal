@@ -8,6 +8,7 @@ import { getOwnerTwilioSmsConfig } from "@/lib/portalTwilio";
 import { webhookUrlFromRequest } from "@/lib/webhookBase";
 import { fetchElevenLabsConversationTranscript } from "@/lib/elevenLabsConvai";
 import { transcribeAudio, transcribeAudioVerbose } from "@/lib/ai";
+import { buildSpeakerTranscriptAlignedToFull } from "@/lib/dualChannelTranscript";
 import { splitStereoPcmWavToMonoWavs } from "@/lib/wav";
 
 export const runtime = "nodejs";
@@ -191,41 +192,7 @@ async function fetchTwilioRecordingAudio(
   return { ok: true, bytes, mimeType };
 }
 
-function buildSpeakerTranscriptFromSegments(opts: {
-  left: { text: string; segments: Array<{ start: number; end: number; text: string }> };
-  right: { text: string; segments: Array<{ start: number; end: number; text: string }> };
-  leftLabel: string;
-  rightLabel: string;
-}): string {
-  const leftLabel = opts.leftLabel;
-  const rightLabel = opts.rightLabel;
 
-  const leftSegs = Array.isArray(opts.left.segments) ? opts.left.segments : [];
-  const rightSegs = Array.isArray(opts.right.segments) ? opts.right.segments : [];
-
-  if (!leftSegs.length && !rightSegs.length) {
-    const a = String(opts.left.text || "").trim();
-    const b = String(opts.right.text || "").trim();
-    const parts: string[] = [];
-    if (a) parts.push(`${leftLabel}: ${a}`);
-    if (b) parts.push(`${rightLabel}: ${b}`);
-    return parts.join("\n\n").trim();
-  }
-
-  const merged: Array<{ start: number; speaker: string; text: string }> = [];
-  for (const s of leftSegs) merged.push({ start: s.start, speaker: leftLabel, text: s.text });
-  for (const s of rightSegs) merged.push({ start: s.start, speaker: rightLabel, text: s.text });
-  merged.sort((a, b) => a.start - b.start);
-
-  const lines: string[] = [];
-  for (const m of merged) {
-    const t = String(m.text || "").trim();
-    if (!t) continue;
-    lines.push(`${m.speaker}: ${t}`);
-    if (lines.join("\n").length > 25000) break;
-  }
-  return lines.join("\n").trim();
-}
 
 async function requestTranscription(ownerId: string, recordingSid: string, req: Request, token: string): Promise<boolean> {
   const rid = String(recordingSid || "").trim();
@@ -401,20 +368,28 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
   if (effectiveRecordingSid && stillNoTranscript) {
     try {
       // Prefer real channel-separated transcript when Twilio recording is dual-channel.
+      // IMPORTANT: keep the *full* transcript order as source-of-truth, then label segments by matching
+      // against left/right channel transcripts. This prevents speaker lines being out-of-order.
       const wav = await fetchTwilioRecordingAudio(ownerId, effectiveRecordingSid, "wav");
+      const mp3ForOrder = await fetchTwilioRecordingAudio(ownerId, effectiveRecordingSid, "mp3");
       if (wav.ok) {
         const split = splitStereoPcmWavToMonoWavs(wav.bytes);
 
-        const [left, right] = await Promise.all([
+        const [left, right, full] = await Promise.all([
           transcribeAudioVerbose({ bytes: split.leftWav, filename: `${effectiveRecordingSid}-left.wav`, mimeType: "audio/wav" }),
           transcribeAudioVerbose({ bytes: split.rightWav, filename: `${effectiveRecordingSid}-right.wav`, mimeType: "audio/wav" }),
+          mp3ForOrder.ok
+            ? transcribeAudioVerbose({ bytes: mp3ForOrder.bytes, filename: `${effectiveRecordingSid}.mp3`, mimeType: mp3ForOrder.mimeType || "audio/mpeg" })
+            : Promise.resolve({ text: "", segments: [] }),
         ]);
 
-        const combined = buildSpeakerTranscriptFromSegments({
+        const combined = buildSpeakerTranscriptAlignedToFull({
+          full,
           left,
           right,
           leftLabel: "Recipient",
           rightLabel: "Agent",
+          maxChars: 25000,
         });
 
         if (combined.trim()) {
@@ -425,7 +400,7 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
 
       if (!String(updates.transcriptText ?? row.transcriptText ?? "").trim()) {
         // Fallback: single-pass transcription of compressed audio.
-        const audio = await fetchTwilioRecordingAudio(ownerId, effectiveRecordingSid, "mp3");
+        const audio = mp3ForOrder.ok ? mp3ForOrder : await fetchTwilioRecordingAudio(ownerId, effectiveRecordingSid, "mp3");
         if (audio.ok) {
           const text = await transcribeAudio({
             bytes: audio.bytes,
