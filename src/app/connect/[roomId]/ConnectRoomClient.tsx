@@ -1,5 +1,6 @@
 "use client";
 
+import Image from "next/image";
 import { useEffect, useMemo, useRef, useState } from "react";
 
 type ParticipantCreds = {
@@ -29,6 +30,10 @@ function storageKey(roomId: string) {
 	return `pa.connect.${roomId}`;
 }
 
+function lastGuestNameKey() {
+	return "pa.connect.lastGuestName";
+}
+
 function safeName(s: string) {
 	return String(s || "")
 		.replace(/[\r\n\t]+/g, " ")
@@ -51,6 +56,7 @@ export function ConnectRoomClient(props: { roomId: string; signedInName?: string
 	const [error, setError] = useState<string | null>(null);
 	const [info, setInfo] = useState<string | null>(null);
 	const [mediaWarning, setMediaWarning] = useState<string | null>(null);
+	const [mediaDetails, setMediaDetails] = useState<string | null>(null);
 
 	const [localStreamReady, setLocalStreamReady] = useState(false);
 	const [isMuted, setIsMuted] = useState(false);
@@ -75,6 +81,49 @@ export function ConnectRoomClient(props: { roomId: string; signedInName?: string
 
 	function getLocalStream() {
 		return localStreamRef.current;
+	}
+
+	function describeGetUserMediaError(err: unknown) {
+		const e = err as { name?: string; message?: string };
+		const name = String(e?.name || "");
+		const msg = String(e?.message || "");
+
+		if (typeof window !== "undefined" && !window.isSecureContext) {
+			return {
+				warning: "Camera/mic require a secure context. Please use HTTPS (not HTTP).",
+				details: msg || name || null,
+			};
+		}
+
+		if (name === "NotAllowedError" || name === "PermissionDeniedError") {
+			return {
+				warning: "Camera/mic permissions are blocked. Allow permissions in your browser, then click “Retry”.",
+				details: msg || name || null,
+			};
+		}
+		if (name === "NotFoundError" || name === "DevicesNotFoundError") {
+			return {
+				warning: "No camera/microphone found. Plug in a device and click “Retry”.",
+				details: msg || name || null,
+			};
+		}
+		if (name === "NotReadableError" || name === "TrackStartError") {
+			return {
+				warning: "Camera/mic are in use by another app (Zoom/Teams/etc). Close it and click “Retry”.",
+				details: msg || name || null,
+			};
+		}
+		if (name === "OverconstrainedError" || name === "ConstraintNotSatisfiedError") {
+			return {
+				warning: "Your device can’t satisfy the requested camera/mic settings. Try a different device.",
+				details: msg || name || null,
+			};
+		}
+
+		return {
+			warning: "Couldn’t access camera/mic. Click “Retry” or use Chrome.",
+			details: msg || name || null,
+		};
 	}
 
 	function upsertRemoteStream(remoteId: string, displayName: string, stream: MediaStream) {
@@ -114,6 +163,16 @@ export function ConnectRoomClient(props: { roomId: string; signedInName?: string
 	async function ensureLocalMedia() {
 		if (localStreamRef.current) return localStreamRef.current;
 		setMediaWarning(null);
+		setMediaDetails(null);
+
+		if (typeof navigator === "undefined") throw new Error("No navigator");
+		if (!navigator.mediaDevices?.getUserMedia) {
+			const warning = typeof window !== "undefined" && !window.isSecureContext
+				? "Camera/mic require HTTPS. Please use https://purelyautomation.com/connect"
+				: "This browser doesn’t support camera/mic access.";
+			setMediaWarning(warning);
+			throw new Error(warning);
+		}
 
 		const stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
 		localStreamRef.current = stream;
@@ -125,6 +184,47 @@ export function ConnectRoomClient(props: { roomId: string; signedInName?: string
 		}
 
 		return stream;
+	}
+
+	function attachLocalTracksToExistingPeers(stream: MediaStream) {
+		for (const [remoteId, pc] of peerMapRef.current.entries()) {
+			const senders = pc.getSenders();
+			const hasAudio = senders.some((s) => s.track?.kind === "audio");
+			const hasVideo = senders.some((s) => s.track?.kind === "video");
+
+			for (const track of stream.getTracks()) {
+				if (track.kind === "audio" && hasAudio) continue;
+				if (track.kind === "video" && hasVideo) continue;
+				try {
+					pc.addTrack(track, stream);
+				} catch {
+					// ignore
+				}
+			}
+
+			// If we are the offerer for this peer, negotiationneeded will fire.
+			// For extra safety, kick it if stable.
+			if (myCreds && isOfferer(myCreds.participantId, remoteId) && pc.signalingState === "stable") {
+				void sendOffer(remoteId).catch(() => null);
+			}
+		}
+	}
+
+	function buildIceServers(): RTCIceServer[] {
+		const urlsRaw = process.env.NEXT_PUBLIC_CONNECT_TURN_URLS || "";
+		const username = process.env.NEXT_PUBLIC_CONNECT_TURN_USERNAME || "";
+		const credential = process.env.NEXT_PUBLIC_CONNECT_TURN_CREDENTIAL || "";
+
+		const turnUrls = urlsRaw
+			.split(",")
+			.map((s) => s.trim())
+			.filter(Boolean);
+
+		const servers: RTCIceServer[] = [{ urls: ["stun:stun.l.google.com:19302", "stun:stun1.l.google.com:19302"] }];
+		if (turnUrls.length) {
+			servers.push({ urls: turnUrls, username: username || undefined, credential: credential || undefined });
+		}
+		return servers;
 	}
 
 	function attachLocalTracksToPeer(pc: RTCPeerConnection) {
@@ -147,7 +247,7 @@ export function ConnectRoomClient(props: { roomId: string; signedInName?: string
 
 	function createPeer(remoteParticipantId: string) {
 		const pc = new RTCPeerConnection({
-			iceServers: [{ urls: ["stun:stun.l.google.com:19302", "stun:stun1.l.google.com:19302"] }],
+			iceServers: buildIceServers(),
 		});
 
 		attachLocalTracksToPeer(pc);
@@ -189,6 +289,12 @@ export function ConnectRoomClient(props: { roomId: string; signedInName?: string
 				kind: "ice",
 				payload: ev.candidate.toJSON(),
 			}).catch(() => null);
+		};
+
+		pc.oniceconnectionstatechange = () => {
+			if (pc.iceConnectionState === "failed") {
+				setMediaDetails("ICE connection failed. This is often a network/firewall issue. If you have a TURN server configured, it should resolve this.");
+			}
 		};
 
 		pc.ontrack = (ev) => {
@@ -396,6 +502,13 @@ export function ConnectRoomClient(props: { roomId: string; signedInName?: string
 
 		try {
 			const name = safeName(joinName);
+			if (name) {
+				try {
+					localStorage.setItem(lastGuestNameKey(), name);
+				} catch {
+					// ignore
+				}
+			}
 			const joinRes = await apiPost<{
 				ok: boolean;
 				participant: { id: string; secret: string; displayName: string; isGuest: boolean };
@@ -418,9 +531,13 @@ export function ConnectRoomClient(props: { roomId: string; signedInName?: string
 
 			startPolling();
 			startParticipantsRefresh();
-			void ensureLocalMedia().catch(() => {
-				setMediaWarning("Camera/mic permissions blocked. You can still connect, but allow permissions to send video/audio.");
-			});
+			void ensureLocalMedia()
+				.then((stream) => attachLocalTracksToExistingPeers(stream))
+				.catch((err) => {
+					const d = describeGetUserMediaError(err);
+					setMediaWarning(d.warning);
+					setMediaDetails(d.details);
+				});
 
 			// If we already see others, offer where appropriate.
 			for (const p of joinRes.others ?? []) {
@@ -564,6 +681,31 @@ export function ConnectRoomClient(props: { roomId: string; signedInName?: string
 	}, [roomId]);
 
 	useEffect(() => {
+		// If user came from a shared link, prefer auto-fill name.
+		if (myCreds) return;
+		if (safeName(joinName)) return;
+		try {
+			const fromStorage = localStorage.getItem(lastGuestNameKey());
+			if (fromStorage) setJoinName(fromStorage);
+		} catch {
+			// ignore
+		}
+		// eslint-disable-next-line react-hooks/exhaustive-deps
+	}, [roomId, myCreds]);
+
+	const autoJoinAttemptedRef = useRef(false);
+	useEffect(() => {
+		// Auto-join if we already have a name (employee signed-in or stored guest name).
+		if (autoJoinAttemptedRef.current) return;
+		if (myCreds) return;
+		const name = safeName(joinName);
+		if (!name) return;
+		autoJoinAttemptedRef.current = true;
+		void onJoin();
+		// eslint-disable-next-line react-hooks/exhaustive-deps
+	}, [joinName, myCreds]);
+
+	useEffect(() => {
 		if (!myCreds) return;
 
 		let cancelled = false;
@@ -612,7 +754,12 @@ export function ConnectRoomClient(props: { roomId: string; signedInName?: string
 			<div className="mx-auto max-w-6xl px-6 py-10">
 				<div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
 					<div>
-						<div className="text-lg font-semibold text-zinc-900">Purely Connect</div>
+						<div className="flex items-center gap-3">
+							<div className="relative h-8 w-32">
+								<Image src="/brand/Purely_Connect.png" alt="Purely Connect" fill className="object-contain" priority />
+							</div>
+							<div className="text-lg font-semibold text-zinc-900">Meeting</div>
+						</div>
 						<div className="mt-1 text-sm text-zinc-600">Room: {roomId}</div>
 					</div>
 
@@ -689,6 +836,31 @@ export function ConnectRoomClient(props: { roomId: string; signedInName?: string
 						{mediaWarning ? (
 							<div className="mt-4 rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-base text-amber-800">
 								{mediaWarning}
+								<div className="mt-2 flex flex-wrap gap-2">
+									<button
+										onClick={() => {
+											void ensureLocalMedia()
+												.then((stream) => attachLocalTracksToExistingPeers(stream))
+												.catch((err) => {
+													const d = describeGetUserMediaError(err);
+													setMediaWarning(d.warning);
+													setMediaDetails(d.details);
+												});
+										}}
+										className="rounded-2xl bg-brand-ink px-4 py-2 text-base font-semibold text-white hover:opacity-95"
+									>
+										Retry
+									</button>
+									<a
+										href="https://support.google.com/chrome/answer/2693767"
+										target="_blank"
+										rel="noreferrer"
+										className="rounded-2xl border border-amber-200 bg-white px-4 py-2 text-base text-amber-900 hover:bg-amber-100"
+									>
+										Help
+									</a>
+								</div>
+								{mediaDetails ? <div className="mt-2 text-sm text-amber-900/80">{mediaDetails}</div> : null}
 							</div>
 						) : null}
 						{error ? <div className="mt-4 rounded-2xl border border-red-200 bg-red-50 px-4 py-3 text-base text-red-700">{error}</div> : null}
