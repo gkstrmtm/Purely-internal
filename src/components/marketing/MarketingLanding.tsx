@@ -168,11 +168,23 @@ function FeatureIcon({ name }: { name: "phone" | "message" | "calendar" | "dispa
 }
 
 function AutomationHighlights() {
-  const items: Array<{ title: string; desc: string; icon: Parameters<typeof FeatureIcon>[0]["name"] }> = [
+  const items: Array<{
+    title: string;
+    desc: string;
+    icon: Parameters<typeof FeatureIcon>[0]["name"];
+    ctaHref?: string;
+    ctaLabel?: string;
+  }> = [
     { title: "Never miss a lead", desc: "Calls, texts, and emails get captured, tagged, and routed automatically.", icon: "phone" },
     { title: "Follow up without chasing", desc: "Automated reminders and sequences keep prospects moving to a booked call.", icon: "message" },
     { title: "Book and dispatch faster", desc: "Scheduling, assignments, and notifications happen without manual handoffs.", icon: "dispatch" },
-    { title: "Stay top of mind", desc: "Simple marketing automations that keep your business visible and consistent.", icon: "megaphone" },
+    {
+      title: "Stay top of mind",
+      desc: "Simple marketing automations (like automated blogs) that keep your business visible, consistent, and SEO-friendly.",
+      icon: "megaphone",
+      ctaHref: "/blogs",
+      ctaLabel: "See how",
+    },
     { title: "Know what is working", desc: "Clear metrics so you can see volume, speed to lead, and conversion.", icon: "chart" },
     { title: "Capture leads from anywhere", desc: "Forms and landing pages that feed directly into your workflows.", icon: "target" },
     { title: "Make outbound reliable", desc: "Calling and logging that makes follow up repeatable and trackable.", icon: "dial" },
@@ -197,6 +209,16 @@ function AutomationHighlights() {
                 <div>
                   <div className="text-base font-semibold text-zinc-900">{item.title}</div>
                   <div className="mt-1 text-sm text-zinc-700">{item.desc}</div>
+                  {item.ctaHref && item.ctaLabel ? (
+                    <div className="mt-3">
+                      <Link
+                        href={item.ctaHref}
+                        className="inline-flex h-9 items-center justify-center rounded-xl bg-brand-blue px-4 text-sm font-semibold text-white shadow-sm hover:bg-blue-700"
+                      >
+                        {item.ctaLabel}
+                      </Link>
+                    </div>
+                  ) : null}
                 </div>
               </div>
             </div>
@@ -1194,14 +1216,28 @@ export function MarketingLanding() {
             </button>
 
             {menuOpen ? (
-              <div className="absolute right-0 top-full w-64 overflow-hidden rounded-b-2xl bg-brand-blue/95 shadow-lg ring-1 ring-white/15">
-                <nav className="grid border-t border-white/15">
+              <>
+                <button
+                  type="button"
+                  aria-label="Close menu"
+                  onClick={() => setMenuOpen(false)}
+                  className="fixed inset-0 z-40 cursor-default"
+                />
+                <div className="absolute right-0 top-full z-50 w-64 overflow-hidden rounded-b-2xl bg-brand-blue/95 shadow-lg ring-1 ring-white/15">
+                  <nav className="grid border-t border-white/15">
                   <Link
                     href="/"
                     onClick={() => setMenuOpen(false)}
                     className="px-4 py-3 text-sm font-semibold text-white/95 hover:bg-white/10"
                   >
                     Home
+                  </Link>
+                  <Link
+                    href="/blogs"
+                    onClick={() => setMenuOpen(false)}
+                    className="px-4 py-3 text-sm font-semibold text-white/95 hover:bg-white/10"
+                  >
+                    Blogs
                   </Link>
                   <Link
                     href="/portal"
@@ -1231,8 +1267,9 @@ export function MarketingLanding() {
                   >
                     Book a Call
                   </Link>
-                </nav>
-              </div>
+                  </nav>
+                </div>
+              </>
             ) : null}
           </div>
         </div>
