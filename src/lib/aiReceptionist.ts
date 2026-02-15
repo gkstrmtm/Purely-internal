@@ -50,6 +50,8 @@ export type AiReceptionistCallEvent = {
   createdAtIso: string;
   status: "IN_PROGRESS" | "COMPLETED" | "FAILED" | "UNKNOWN";
   notes?: string;
+  // ElevenLabs conversation id (used to fetch transcript).
+  conversationId?: string;
   recordingSid?: string;
   recordingDurationSec?: number;
   // Demo-only recording id (served via an authenticated endpoint). Avoid storing URLs in event data.
@@ -184,6 +186,12 @@ function parseServiceData(raw: unknown): AiReceptionistServiceData {
 
           if (!callSid || !from) return [] as AiReceptionistCallEvent[];
 
+          const conversationIdRaw =
+            typeof (r as any).conversationId === "string"
+              ? String((r as any).conversationId)
+              : (typeof (r as any).conversation_id === "string" ? String((r as any).conversation_id) : "");
+          const conversationId = conversationIdRaw.trim() ? conversationIdRaw.trim().slice(0, 120) : "";
+
           const recordingSid = typeof r.recordingSid === "string" ? r.recordingSid : undefined;
           const recordingDurationSec = typeof r.recordingDurationSec === "number" && Number.isFinite(r.recordingDurationSec)
             ? Math.max(0, Math.floor(r.recordingDurationSec))
@@ -219,6 +227,7 @@ function parseServiceData(raw: unknown): AiReceptionistServiceData {
               createdAtIso,
               status,
               ...(typeof r.notes === "string" && r.notes.trim() ? { notes: r.notes.trim().slice(0, 800) } : {}),
+              ...(conversationId ? { conversationId } : {}),
               ...(recordingSid ? { recordingSid } : {}),
               ...(typeof recordingDurationSec === "number" ? { recordingDurationSec } : {}),
               ...(demoRecordingId ? { demoRecordingId } : {}),

@@ -36,6 +36,40 @@ function twilioBasicAuthHeader(cfg: { accountSid: string; authToken: string }): 
   return `Basic ${basic}`;
 }
 
+function terminalStatusFromTwilio(callStatusRaw: unknown): "COMPLETED" | "FAILED" | null {
+  const s = typeof callStatusRaw === "string" ? callStatusRaw.trim().toLowerCase() : "";
+  if (!s) return null;
+  if (s === "completed") return "COMPLETED";
+  if (s === "failed" || s === "busy" || s === "no-answer" || s === "canceled") return "FAILED";
+  return null;
+}
+
+async function fetchTwilioCallStatus(ownerId: string, callSid: string): Promise<string | null> {
+  const sid = String(callSid || "").trim();
+  if (!sid) return null;
+
+  const config = await getOwnerTwilioSmsConfig(ownerId).catch(() => null);
+  if (!config) return null;
+
+  const url = `https://api.twilio.com/2010-04-01/Accounts/${encodeURIComponent(config.accountSid)}/Calls/${encodeURIComponent(sid)}.json`;
+  const res = await fetch(url, {
+    method: "GET",
+    headers: { authorization: twilioBasicAuthHeader(cfgFromTwilio(config)) },
+  }).catch(() => null as any);
+
+  if (!res?.ok) return null;
+  const text = await res.text().catch(() => "");
+  if (!text.trim()) return null;
+
+  try {
+    const json = JSON.parse(text) as any;
+    const status = typeof json?.status === "string" ? json.status.trim().toLowerCase() : "";
+    return status || null;
+  } catch {
+    return null;
+  }
+}
+
 async function fetchTwilioRecordingAudio(
   ownerId: string,
   recordingSid: string,
@@ -200,6 +234,29 @@ export async function POST(req: Request, ctx: { params: Promise<{ callSid: strin
   const event = (data.events || []).find((e: any) => String(e?.callSid || "").trim() === sid) as any;
   if (!event) return NextResponse.json({ ok: false, error: "Call not found" }, { status: 404 });
 
+  let effectiveStatus: "IN_PROGRESS" | "COMPLETED" | "FAILED" | "UNKNOWN" =
+    event?.status === "IN_PROGRESS" || event?.status === "COMPLETED" || event?.status === "FAILED" || event?.status === "UNKNOWN"
+      ? event.status
+      : "UNKNOWN";
+
+  // Best-effort reconciliation: if the portal is refreshing a call that still looks IN_PROGRESS,
+  // ask Twilio for the real call status and flip it terminal if needed.
+  if (effectiveStatus === "IN_PROGRESS" || effectiveStatus === "UNKNOWN") {
+    const twStatus = await fetchTwilioCallStatus(ownerId, sid);
+    const mapped = terminalStatusFromTwilio(twStatus);
+    if (mapped) {
+      effectiveStatus = mapped;
+      await upsertAiReceptionistCallEvent(ownerId, {
+        id: String(event?.id || `call_${sid}`),
+        callSid: sid,
+        from: String(event?.from || "Unknown"),
+        to: typeof event?.to === "string" ? event.to : null,
+        createdAtIso: String(event?.createdAtIso || new Date().toISOString()),
+        status: mapped,
+      } as any);
+    }
+  }
+
   const existing = String(event?.transcript || "").trim();
   if (existing && !force) return NextResponse.json({ ok: true, transcript: existing });
 
@@ -240,7 +297,7 @@ export async function POST(req: Request, ctx: { params: Promise<{ callSid: strin
         from: String(event?.from || "Unknown"),
         to: typeof event?.to === "string" ? event.to : null,
         createdAtIso: String(event?.createdAtIso || new Date().toISOString()),
-        status: event?.status === "IN_PROGRESS" || event?.status === "FAILED" || event?.status === "UNKNOWN" ? event.status : "COMPLETED",
+        status: effectiveStatus,
         transcript: String(updates.transcript),
       });
       return NextResponse.json({ ok: true, transcript: updates.transcript, requestedTranscription, usedVoiceTranscript });
@@ -302,7 +359,7 @@ export async function POST(req: Request, ctx: { params: Promise<{ callSid: strin
       from: String(event?.from || "Unknown"),
       to: typeof event?.to === "string" ? event.to : null,
       createdAtIso: String(event?.createdAtIso || new Date().toISOString()),
-      status: event?.status === "IN_PROGRESS" || event?.status === "FAILED" || event?.status === "UNKNOWN" ? event.status : "COMPLETED",
+      status: effectiveStatus,
       recordingSid,
       transcript: String(updates.transcript),
     });
