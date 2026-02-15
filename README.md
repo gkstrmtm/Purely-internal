@@ -14,6 +14,10 @@ Implementation notes:
 - This is an MVP peer-to-peer WebRTC flow with database-backed polling for signaling (no external paid video infrastructure).
 - Screen share is supported.
 - Some corporate networks may block P2P calls without a TURN relay.
+- Optional TURN (recommended for corporate networks):
+  - `NEXT_PUBLIC_CONNECT_TURN_URLS` (comma-separated, e.g. `turn:turn.yourdomain.com:3478?transport=udp,turns:turn.yourdomain.com:5349?transport=tcp`)
+  - `NEXT_PUBLIC_CONNECT_TURN_USERNAME`
+  - `NEXT_PUBLIC_CONNECT_TURN_CREDENTIAL`
 - To reduce production breakage when migrations aren’t applied, connect endpoints run an idempotent runtime schema ensure (`ensureConnectSchema()`).
 
 ## Local dev
