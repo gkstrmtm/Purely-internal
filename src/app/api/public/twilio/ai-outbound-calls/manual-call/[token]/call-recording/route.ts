@@ -77,7 +77,9 @@ export async function POST(req: Request, ctx: { params: Promise<{ token: string 
       data: {
         recordingSid,
         status: "COMPLETED",
-        ...(Number.isFinite(durationSec) ? { lastError: null } : {}),
+        ...(Number.isFinite(durationSec)
+          ? { recordingDurationSec: Math.max(0, Math.floor(durationSec)), lastError: null }
+          : {}),
       },
       select: { id: true },
     });

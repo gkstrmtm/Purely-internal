@@ -94,12 +94,18 @@ CREATE TABLE IF NOT EXISTS "PortalAiOutboundCallManualCall" (
   "callSid" TEXT,
   "conversationId" TEXT,
   "recordingSid" TEXT,
+  "recordingDurationSec" INTEGER,
   "transcriptText" TEXT,
   "lastError" TEXT,
   "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
   "updatedAt" TIMESTAMP(3) NOT NULL,
   CONSTRAINT "PortalAiOutboundCallManualCall_pkey" PRIMARY KEY ("id")
 );
+    `.trim(),
+
+    `
+ALTER TABLE "PortalAiOutboundCallManualCall"
+  ADD COLUMN IF NOT EXISTS "recordingDurationSec" INTEGER;
     `.trim(),
 
     `CREATE UNIQUE INDEX IF NOT EXISTS "PortalAiOutboundCallManualCall_webhookToken_key" ON "PortalAiOutboundCallManualCall"("webhookToken");`,

@@ -234,6 +234,7 @@ async function getManualCallRow(ownerId: string, id: string) {
       callSid: true,
       conversationId: true,
       recordingSid: true,
+      recordingDurationSec: true,
       transcriptText: true,
       lastError: true,
       webhookToken: true,

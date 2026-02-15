@@ -99,6 +99,12 @@ function MiniAudioPlayer(props: { src: string; durationHintSec?: number | null }
   const [rate, setRate] = useState(1);
 
   useEffect(() => {
+    // Reset when switching recordings so the scrubber/time display never drift.
+    setReady(false);
+    setPlaying(false);
+    setCurrentTime(0);
+    setDuration(props.durationHintSec && props.durationHintSec > 0 ? props.durationHintSec : 0);
+
     const el = audioRef.current;
     if (!el) return;
 
@@ -124,7 +130,7 @@ function MiniAudioPlayer(props: { src: string; durationHintSec?: number | null }
       el.removeEventListener("pause", onPause);
       el.removeEventListener("ended", onEnded);
     };
-  }, [props.src]);
+  }, [props.src, props.durationHintSec]);
 
   useEffect(() => {
     const el = audioRef.current;
@@ -208,7 +214,7 @@ export function PortalAiReceptionistClient() {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [savingEnabled, setSavingEnabled] = useState(false);
-  const [transcribing, setTranscribing] = useState(false);
+  const [callSyncBusy, setCallSyncBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [note, setNote] = useState<string | null>(null);
 
@@ -318,48 +324,35 @@ export function PortalAiReceptionistClient() {
     return data;
   }, [friendlyApiError, readJsonError]);
 
-  const transcribeMissing = useCallback(
-    async (rows: EventRow[]) => {
-      if (transcribing) return;
-      const candidates = (rows || [])
-        .filter((e) => e.status === "COMPLETED")
-        .filter((e) => Boolean((e.recordingSid || "").trim()))
-        .filter((e) => !String(e.transcript || "").trim())
-        .slice(0, 20);
+  const syncCallArtifacts = useCallback(
+    async (callSid: string) => {
+      const sid = String(callSid || "").trim();
+      if (!sid) return;
+      if (callSyncBusy) return;
 
-      if (!candidates.length) return;
-
-      setTranscribing(true);
+      setCallSyncBusy(true);
       try {
-        for (const e of candidates) {
-          const callSid = String(e.callSid || "").trim();
-          if (!callSid) continue;
+        const res = await fetch(`/api/portal/ai-receptionist/events/${encodeURIComponent(sid)}`, {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: "{}",
+        }).catch(() => null as any);
 
-          const res = await fetch(`/api/portal/ai-receptionist/events/${encodeURIComponent(callSid)}`, {
-            method: "POST",
-            headers: { "content-type": "application/json" },
-            body: "{}",
-          }).catch(() => null as any);
-
-          if (!res?.ok) continue;
-          const json = (await res.json().catch(() => null)) as any;
-          const transcript = typeof json?.transcript === "string" ? json.transcript : "";
-          if (!transcript.trim()) continue;
-
-          setEvents((prev) => prev.map((x) => (x.callSid === callSid ? { ...x, transcript } : x)));
+        const json = (await res?.json?.().catch(() => null)) as any;
+        if (!res || !res.ok || !json || json.ok !== true) {
+          throw new Error(json?.error || "Unable to refresh call artifacts");
         }
+
+        toast.success("Refreshing… transcript may take a minute");
+        await load();
+      } catch (e) {
+        toast.error(e instanceof Error ? e.message : "Unable to refresh call artifacts");
       } finally {
-        setTranscribing(false);
+        setCallSyncBusy(false);
       }
     },
-    [transcribing],
+    [callSyncBusy, load, toast],
   );
-
-  const refreshAndTranscribe = useCallback(async () => {
-    const data = await load();
-    const rows = Array.isArray(data?.events) ? data!.events : [];
-    await transcribeMissing(rows);
-  }, [load, transcribeMissing]);
 
   useEffect(() => {
     void load();
@@ -848,10 +841,10 @@ export function PortalAiReceptionistClient() {
             <button
               type="button"
               className="rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm font-semibold hover:bg-zinc-50 disabled:opacity-60"
-              disabled={saving || transcribing}
-              onClick={() => void refreshAndTranscribe()}
+              disabled={saving || loading}
+              onClick={() => void load()}
             >
-              {transcribing ? "Transcribing…" : "Refresh & transcribe"}
+              Refresh
             </button>
           </div>
 
@@ -943,6 +936,20 @@ export function PortalAiReceptionistClient() {
                           {selectedCall.recordingDurationSec ? (
                             <div>{Math.max(0, Math.floor(selectedCall.recordingDurationSec))}s</div>
                           ) : null}
+
+                          <button
+                            type="button"
+                            disabled={saving || callSyncBusy}
+                            onClick={() => void syncCallArtifacts(selectedCall.callSid)}
+                            className={
+                              "mt-2 inline-flex items-center justify-center rounded-xl border px-2.5 py-1.5 text-[11px] font-semibold " +
+                              (saving || callSyncBusy
+                                ? "border-zinc-200 bg-zinc-100 text-zinc-500"
+                                : "border-zinc-200 bg-white text-zinc-800 hover:bg-zinc-50")
+                            }
+                          >
+                            {callSyncBusy ? "Refreshing…" : "Refresh recording/transcript"}
+                          </button>
                         </div>
                       </div>
 
@@ -986,7 +993,7 @@ export function PortalAiReceptionistClient() {
                           </div>
                         ) : (
                           <div className="mt-2 text-sm text-zinc-600">
-                            No transcript yet. Click “Refresh & transcribe” to generate it from the recording.
+                            No transcript yet. Click “Refresh recording/transcript” to generate it from the recording.
                           </div>
                         )}
                       </div>

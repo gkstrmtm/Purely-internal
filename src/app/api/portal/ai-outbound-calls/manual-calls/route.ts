@@ -72,6 +72,7 @@ export async function GET(req: Request) {
       callSid: true,
       conversationId: true,
       recordingSid: true,
+      recordingDurationSec: true,
       transcriptText: true,
       lastError: true,
       createdAt: true,

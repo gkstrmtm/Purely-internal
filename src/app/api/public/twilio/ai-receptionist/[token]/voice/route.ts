@@ -19,6 +19,22 @@ export const revalidate = 0;
 
 const PROFILE_EXTRAS_SERVICE_SLUG = "profile";
 
+async function getProfileVoiceAgentId(ownerId: string): Promise<string | null> {
+  const row = await prisma.portalServiceSetup.findUnique({
+    where: { ownerId_serviceSlug: { ownerId, serviceSlug: PROFILE_EXTRAS_SERVICE_SLUG } },
+    select: { dataJson: true },
+  });
+
+  const rec =
+    row?.dataJson && typeof row.dataJson === "object" && !Array.isArray(row.dataJson)
+      ? (row.dataJson as Record<string, unknown>)
+      : null;
+
+  const raw = rec?.voiceAgentId;
+  const id = typeof raw === "string" ? raw.trim().slice(0, 120) : "";
+  return id ? id : null;
+}
+
 async function getProfileVoiceAgentApiKey(ownerId: string): Promise<string | null> {
   const row = await prisma.portalServiceSetup.findUnique({
     where: { ownerId_serviceSlug: { ownerId, serviceSlug: PROFILE_EXTRAS_SERVICE_SLUG } },
@@ -247,7 +263,8 @@ export async function POST(req: Request, ctx: { params: Promise<{ token: string 
   const greeting = settings.greeting || "Thanks for calling — how can I help?";
   const systemPrompt = settings.systemPrompt || "";
 
-  const agentId = String(settings.voiceAgentId || "").trim();
+  const profileAgentId = await getProfileVoiceAgentId(ownerId).catch(() => null);
+  const agentId = String(settings.voiceAgentId || "").trim() || String(profileAgentId || "").trim();
   const apiKeyFromProfile = (await getProfileVoiceAgentApiKey(ownerId).catch(() => null)) || "";
   const apiKeyLegacyRaw = (settings as any)?.voiceAgentApiKey;
   const apiKeyLegacy = typeof apiKeyLegacyRaw === "string" ? apiKeyLegacyRaw.trim() : "";

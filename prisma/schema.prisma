@@ -761,6 +761,7 @@ model PortalAiOutboundCallManualCall {
   callSid        String?
   conversationId String?
   recordingSid   String?
+  recordingDurationSec Int?
   transcriptText String?
   lastError      String?
 
