@@ -19,29 +19,76 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: "Invalid payload" }, { status: 400 });
   }
 
+  const rawInviteCode = parsed.data.inviteCode.trim();
+  const inviteCode = rawInviteCode.toUpperCase();
+
   const expected = process.env.SIGNUP_INVITE_CODE;
-  if (!expected || parsed.data.inviteCode !== expected) {
-    return NextResponse.json({ error: "Invalid invite code" }, { status: 403 });
-  }
+  const allowLegacyEnvCode = !!expected && inviteCode === expected.trim().toUpperCase();
 
-  const email = parsed.data.email.toLowerCase();
-
-  const existing = await prisma.user.findUnique({ where: { email } });
-  if (existing) {
-    return NextResponse.json({ error: "Email already in use" }, { status: 409 });
-  }
+  const email = parsed.data.email.toLowerCase().trim();
+  const now = new Date();
 
   const passwordHash = await hashPassword(parsed.data.password);
 
-  const user = await prisma.user.create({
-    data: {
-      email,
-      name: parsed.data.name,
-      passwordHash,
-      role: parsed.data.role ?? "DIALER",
-    },
-    select: { id: true, email: true, name: true, role: true },
-  });
+  try {
+    const user = await prisma.$transaction(async (tx) => {
+      if (!allowLegacyEnvCode) {
+        const invite = await tx.employeeInvite.findUnique({ where: { code: inviteCode } });
+        if (!invite || invite.usedAt) throw new Error("INVITE_INVALID");
+        if (invite.expiresAt && invite.expiresAt.getTime() <= now.getTime()) throw new Error("INVITE_EXPIRED");
+      }
 
-  return NextResponse.json({ user });
+      const existing = await tx.user.findUnique({ where: { email } });
+      if (existing) throw new Error("EMAIL_TAKEN");
+
+      const created = await tx.user.create({
+        data: {
+          email,
+          name: parsed.data.name,
+          passwordHash,
+          role: parsed.data.role ?? "DIALER",
+        },
+        select: { id: true, email: true, name: true, role: true },
+      });
+
+      if (!allowLegacyEnvCode) {
+        const consumed = await tx.employeeInvite.updateMany({
+          where: {
+            code: inviteCode,
+            usedAt: null,
+          },
+          data: {
+            usedAt: now,
+            usedById: created.id,
+          },
+        });
+
+        if (consumed.count !== 1) throw new Error("INVITE_ALREADY_USED");
+      }
+
+      return created;
+    });
+
+    return NextResponse.json({ user });
+  } catch (e) {
+    const message = e instanceof Error ? e.message : "Unknown";
+
+    if (message === "EMAIL_TAKEN") {
+      return NextResponse.json({ error: "Email already in use" }, { status: 409 });
+    }
+    if (message === "INVITE_INVALID" || message === "INVITE_ALREADY_USED") {
+      return NextResponse.json({ error: "Invalid invite code" }, { status: 403 });
+    }
+    if (message === "INVITE_EXPIRED") {
+      return NextResponse.json({ error: "Invite code expired" }, { status: 403 });
+    }
+
+    return NextResponse.json(
+      {
+        error: "Unable to sign up",
+        details: message,
+      },
+      { status: 500 },
+    );
+  }
 }

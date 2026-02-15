@@ -134,6 +134,28 @@ model User {
   portalAiOutboundCallCampaigns   PortalAiOutboundCallCampaign[]
   portalAiOutboundCallEnrollments PortalAiOutboundCallEnrollment[]
   portalAiOutboundCallManualCalls PortalAiOutboundCallManualCall[]
+
+  employeeInvitesCreated EmployeeInvite[] @relation("EmployeeInviteCreatedBy")
+  employeeInvitesUsed    EmployeeInvite[] @relation("EmployeeInviteUsedBy")
+}
+
+model EmployeeInvite {
+  id String @id @default(cuid())
+
+  createdById String
+  usedById    String?
+
+  code      String   @unique
+  expiresAt DateTime?
+  usedAt    DateTime?
+
+  createdAt DateTime @default(now())
+
+  createdBy User  @relation("EmployeeInviteCreatedBy", fields: [createdById], references: [id])
+  usedBy    User? @relation("EmployeeInviteUsedBy", fields: [usedById], references: [id])
+
+  @@index([createdById, createdAt])
+  @@index([usedAt])
 }
 
 model PortalMediaFolder {

@@ -29,6 +29,47 @@ ALTER TABLE "BusinessProfile" ADD COLUMN IF NOT EXISTS "brandPrimaryHex" TEXT;
 ALTER TABLE "BusinessProfile" ADD COLUMN IF NOT EXISTS "brandAccentHex" TEXT;
 ALTER TABLE "BusinessProfile" ADD COLUMN IF NOT EXISTS "brandTextHex" TEXT;
 
+-- NOTE: Some environments historically had ClientBlogSite/ClientBlogPost created outside Prisma.
+-- Prisma uses a shadow database that replays migrations from scratch; ensure these tables exist
+-- so later migrations (blog generation events, newsletters) can add FKs safely.
+CREATE TABLE IF NOT EXISTS "ClientBlogSite" (
+	"id" TEXT NOT NULL PRIMARY KEY,
+	"ownerId" TEXT NOT NULL,
+	"name" TEXT NOT NULL,
+	"slug" TEXT,
+	"primaryDomain" TEXT,
+	"verificationToken" TEXT NOT NULL,
+	"verifiedAt" TIMESTAMP(3),
+	"createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+	"updatedAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+	CONSTRAINT "ClientBlogSite_ownerId_key" UNIQUE ("ownerId"),
+	CONSTRAINT "ClientBlogSite_ownerId_fkey" FOREIGN KEY ("ownerId") REFERENCES "User" ("id") ON DELETE RESTRICT ON UPDATE CASCADE
+);
+
+CREATE TABLE IF NOT EXISTS "ClientBlogPost" (
+	"id" TEXT NOT NULL PRIMARY KEY,
+	"siteId" TEXT NOT NULL,
+	"status" TEXT NOT NULL DEFAULT 'DRAFT',
+	"slug" TEXT NOT NULL,
+	"title" TEXT NOT NULL,
+	"excerpt" TEXT NOT NULL,
+	"content" TEXT NOT NULL,
+	"seoKeywords" JSONB,
+	"publishedAt" TIMESTAMP(3),
+	"archivedAt" TIMESTAMP(3),
+	"createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+	"updatedAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+	CONSTRAINT "ClientBlogPost_siteId_fkey" FOREIGN KEY ("siteId") REFERENCES "ClientBlogSite" ("id") ON DELETE CASCADE ON UPDATE CASCADE
+);
+
+CREATE UNIQUE INDEX IF NOT EXISTS "ClientBlogSite_slug_key" ON "ClientBlogSite"("slug");
+CREATE INDEX IF NOT EXISTS "ClientBlogSite_ownerId_idx" ON "ClientBlogSite"("ownerId");
+CREATE INDEX IF NOT EXISTS "ClientBlogSite_primaryDomain_idx" ON "ClientBlogSite"("primaryDomain");
+
+CREATE UNIQUE INDEX IF NOT EXISTS "ClientBlogPost_siteId_slug_key" ON "ClientBlogPost"("siteId","slug");
+CREATE INDEX IF NOT EXISTS "ClientBlogPost_siteId_status_publishedAt_idx" ON "ClientBlogPost"("siteId","status","publishedAt");
+CREATE INDEX IF NOT EXISTS "ClientBlogPost_siteId_archivedAt_idx" ON "ClientBlogPost"("siteId","archivedAt");
+
 -- ClientBlogSite hosted slug
 ALTER TABLE "ClientBlogSite" ADD COLUMN IF NOT EXISTS "slug" TEXT;
 CREATE UNIQUE INDEX IF NOT EXISTS "ClientBlogSite_slug_key" ON "ClientBlogSite"("slug");

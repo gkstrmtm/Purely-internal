@@ -25,6 +25,17 @@ export default function SignupPage() {
     if (error) toast.error(error);
   }, [error, toast]);
 
+  useEffect(() => {
+    if (inviteCode) return;
+    try {
+      const params = new URLSearchParams(window.location.search);
+      const code = params.get("code")?.trim();
+      if (code) setInviteCode(code);
+    } catch {
+      // ignore
+    }
+  }, [inviteCode]);
+
   async function onSubmit(e: React.FormEvent) {
     e.preventDefault();
     setError(null);
