@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 
 import { requireClientSessionForService } from "@/lib/portalAccess";
-import { getAiReceptionistServiceData, upsertAiReceptionistCallEvent } from "@/lib/aiReceptionist";
+import { deleteAiReceptionistCallEvent, getAiReceptionistServiceData, upsertAiReceptionistCallEvent } from "@/lib/aiReceptionist";
 import { getOwnerTwilioSmsConfig } from "@/lib/portalTwilio";
 import { transcribeAudio, transcribeAudioVerbose } from "@/lib/ai";
 import { buildSpeakerTranscriptAlignedToFull } from "@/lib/dualChannelTranscript";
@@ -128,4 +128,18 @@ export async function POST(req: Request, ctx: { params: Promise<{ callSid: strin
     const msg = e instanceof Error ? e.message : "Unable to generate transcript";
     return NextResponse.json({ ok: false, error: msg }, { status: 500 });
   }
+}
+
+export async function DELETE(_req: Request, ctx: { params: Promise<{ callSid: string }> }) {
+  const auth = await requireClientSessionForService("aiReceptionist");
+  if (!auth.ok) {
+    return NextResponse.json({ ok: false, error: auth.status === 401 ? "Unauthorized" : "Forbidden" }, { status: auth.status });
+  }
+
+  const { callSid } = await ctx.params;
+  const ownerId = auth.session.user.id;
+
+  const res = await deleteAiReceptionistCallEvent(ownerId, callSid);
+  if (!res.ok) return NextResponse.json({ ok: false, error: res.error }, { status: res.error === "Call not found" ? 404 : 400 });
+  return NextResponse.json({ ok: true });
 }

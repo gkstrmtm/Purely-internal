@@ -334,6 +334,31 @@ export async function upsertAiReceptionistCallEvent(ownerId: string, nextEvent: 
   });
 }
 
+export async function deleteAiReceptionistCallEvent(ownerId: string, callSid: string): Promise<{ ok: true } | { ok: false; error: string }> {
+  const sid = String(callSid || "").trim();
+  if (!sid) return { ok: false, error: "Missing call sid" };
+
+  const data = await getAiReceptionistServiceData(ownerId);
+  const before = data.events.length;
+  const events = data.events.filter((e) => String(e.callSid || "").trim() !== sid);
+  if (events.length === before) return { ok: false, error: "Call not found" };
+
+  const payload: AiReceptionistServiceData = {
+    version: 1,
+    settings: data.settings,
+    events: events.slice(0, MAX_EVENTS),
+  };
+
+  await prisma.portalServiceSetup.upsert({
+    where: { ownerId_serviceSlug: { ownerId, serviceSlug: SERVICE_SLUG } },
+    create: { ownerId, serviceSlug: SERVICE_SLUG, status: "COMPLETE", dataJson: payload as any },
+    update: { status: "COMPLETE", dataJson: payload as any },
+    select: { id: true },
+  });
+
+  return { ok: true };
+}
+
 export async function findOwnerByAiReceptionistWebhookToken(
   token: string,
 ): Promise<{ ownerId: string; data: AiReceptionistServiceData } | null> {

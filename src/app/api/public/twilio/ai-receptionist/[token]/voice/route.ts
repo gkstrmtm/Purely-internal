@@ -19,6 +19,8 @@ export const revalidate = 0;
 
 const PROFILE_EXTRAS_SERVICE_SLUG = "profile";
 
+const MAX_STREAM_RETRIES = 1;
+
 async function getProfileVoiceAgentId(ownerId: string): Promise<string | null> {
   const row = await prisma.portalServiceSetup.findUnique({
     where: { ownerId_serviceSlug: { ownerId, serviceSlug: PROFILE_EXTRAS_SERVICE_SLUG } },
@@ -135,8 +137,90 @@ function hangupXml(message?: string) {
   return `<?xml version="1.0" encoding="UTF-8"?>\n<Response>\n${say}  <Hangup/>\n</Response>`;
 }
 
-export async function POST(req: Request, ctx: { params: Promise<{ token: string }> }) {
-  const { token } = await ctx.params;
+function getIntParam(u: URL, key: string, def = 0): number {
+  const raw = u.searchParams.get(key);
+  const n = raw ? Number.parseInt(raw, 10) : Number.NaN;
+  return Number.isFinite(n) ? n : def;
+}
+
+function injectStreamStatusCallback(twiml: string, opts: { statusCallbackUrl: string }): string {
+  const xml = String(twiml || "").trim();
+  if (!xml) return xml;
+  if (!/<Response[\s>]/i.test(xml) || !/<Stream[\s>]/i.test(xml)) return xml;
+
+  // Inject statusCallback attributes into the first <Stream ...> tag.
+  // Don’t overwrite if already present.
+  const statusCallbackUrl = xmlEscape(opts.statusCallbackUrl);
+  const injected = xml.replace(/<Stream\b([^>]*)>/i, (full, attrs: string) => {
+    const a = String(attrs || "");
+    const hasStatusCallback = /\bstatusCallback\s*=\s*"/i.test(a);
+    const hasMethod = /\bstatusCallbackMethod\s*=\s*"/i.test(a);
+    const hasEvent = /\bstatusCallbackEvent\s*=\s*"/i.test(a);
+    const extra = [
+      hasStatusCallback ? "" : ` statusCallback="${statusCallbackUrl}"`,
+      hasMethod ? "" : ` statusCallbackMethod="POST"`,
+      hasEvent ? "" : ` statusCallbackEvent="start end error"`,
+    ].join("");
+    return `<Stream${a}${extra}>`;
+  });
+
+  return injected;
+}
+
+function appendRedirectAfterResponse(twiml: string, redirectUrl: string): string {
+  const xml = String(twiml || "").trim();
+  if (!xml) return xml;
+  if (!/<Response[\s>]/i.test(xml)) return xml;
+  const safeUrl = xmlEscape(redirectUrl);
+  const redirect = `  <Redirect method="POST">${safeUrl}</Redirect>\n`;
+  return xml.replace(/\n?\s*<\/Response>\s*$/i, `\n${redirect}</Response>`);
+}
+
+async function withTimeout<T>(promise: Promise<T>, ms: number, label: string): Promise<T> {
+  const timeoutMs = Math.max(1, Math.floor(ms));
+  let timeout: ReturnType<typeof setTimeout> | null = null;
+
+  try {
+    return await Promise.race([
+      promise,
+      new Promise<T>((_resolve, reject) => {
+        timeout = setTimeout(() => {
+          reject(new Error(`${label} timed out after ${timeoutMs}ms`));
+        }, timeoutMs);
+      }),
+    ]);
+  } finally {
+    if (timeout) clearTimeout(timeout);
+  }
+}
+
+function getTwilioParamText(src: URLSearchParams | FormData | null, key: string): string {
+  if (!src) return "";
+  const v = (src as any).get?.(key);
+  return typeof v === "string" ? v : "";
+}
+
+async function getTwilioParams(req: Request): Promise<{ callSid: string; from: string; to: string | null }> {
+  // Twilio can hit voice webhooks with either GET (query params) or POST (x-www-form-urlencoded).
+  const url = new URL(req.url);
+  if (req.method === "GET") {
+    const callSid = url.searchParams.get("CallSid") || "";
+    const from = url.searchParams.get("From") || "";
+    const to = url.searchParams.get("To");
+    return { callSid, from, to: to && to.trim() ? to : null };
+  }
+
+  const form = await req.formData().catch(() => null);
+  const callSid = getTwilioParamText(form, "CallSid");
+  const from = getTwilioParamText(form, "From");
+  const toRaw = getTwilioParamText(form, "To");
+  return { callSid, from, to: toRaw && toRaw.trim() ? toRaw : null };
+}
+
+async function handle(req: Request, token: string) {
+  const requestUrl = new URL(req.url);
+  const streamAttempt = Math.max(0, Math.min(10, getIntParam(requestUrl, "streamAttempt", 0)));
+
   const lookup = await findOwnerByAiReceptionistWebhookToken(token);
   if (!lookup) {
     return xmlResponse("<?xml version=\"1.0\" encoding=\"UTF-8\"?><Response><Reject/></Response>");
@@ -145,14 +229,7 @@ export async function POST(req: Request, ctx: { params: Promise<{ token: string 
   const ownerId = lookup.ownerId;
   const settings = lookup.data.settings;
 
-  const form = await req.formData().catch(() => null);
-  const callSidRaw = form?.get("CallSid");
-  const fromRaw = form?.get("From");
-  const toRaw = form?.get("To");
-
-  const callSid = typeof callSidRaw === "string" ? callSidRaw : "";
-  const from = typeof fromRaw === "string" ? fromRaw : "";
-  const to = typeof toRaw === "string" ? toRaw : null;
+  const { callSid, from, to } = await getTwilioParams(req);
 
   if (!callSid || !from) {
     return xmlResponse("<?xml version=\"1.0\" encoding=\"UTF-8\"?><Response><Reject/></Response>");
@@ -171,6 +248,18 @@ export async function POST(req: Request, ctx: { params: Promise<{ token: string 
     createdAtIso: new Date().toISOString(),
     status: "IN_PROGRESS",
   });
+
+  if (streamAttempt > 0) {
+    await upsertAiReceptionistCallEvent(ownerId, {
+      id: `call_${callSid}`,
+      callSid,
+      from: fromE164,
+      to: toE164,
+      createdAtIso: new Date().toISOString(),
+      status: "IN_PROGRESS",
+      notes: `Retrying voice agent stream (attempt ${streamAttempt + 1}).`,
+    });
+  }
 
   if (!settings.enabled) {
     await upsertAiReceptionistCallEvent(ownerId, {
@@ -312,7 +401,8 @@ export async function POST(req: Request, ctx: { params: Promise<{ token: string 
     req,
     `/api/public/twilio/ai-receptionist/${encodeURIComponent(token)}/call-recording`,
   );
-  await startTwilioCallRecording({ ownerId, callSid, recordingStatusCallbackUrl: liveRecordingCallback });
+  // Best-effort (don't block TwiML response on Twilio REST latency).
+  void startTwilioCallRecording({ ownerId, callSid, recordingStatusCallbackUrl: liveRecordingCallback });
 
   // Register inbound call with ElevenLabs ConvAI and return their TwiML.
   const profilePhone = await getOwnerProfilePhoneE164(ownerId).catch(() => null);
@@ -332,10 +422,14 @@ export async function POST(req: Request, ctx: { params: Promise<{ token: string 
 
   // Fallback: if profile cache is empty, attempt to resolve tool IDs directly from ElevenLabs using the API key.
   if (settings.aiCanTransferToHuman && !transferToolIds.length) {
-    const resolved = await resolveElevenLabsConvaiToolIdsByKeys({
-      apiKey,
-      toolKeys: ["transfer_to_human", "transfer_to_number", "call_transfer", "end_call"],
-    }).catch(() => null);
+    const resolved = await withTimeout(
+      resolveElevenLabsConvaiToolIdsByKeys({
+        apiKey,
+        toolKeys: ["transfer_to_human", "transfer_to_number", "call_transfer", "end_call"],
+      }),
+      4500,
+      "resolve tool IDs",
+    ).catch(() => null);
 
     if (resolved && (resolved as any).ok === true) {
       const map = (resolved as any).toolIds as Record<string, string[]>;
@@ -369,40 +463,44 @@ export async function POST(req: Request, ctx: { params: Promise<{ token: string 
   promptOverride = promptOverride.slice(0, 6000);
 
   const toNumberForAgent = toE164 || settings.forwardToPhoneE164 || profilePhone || fromE164;
-  const register = await registerElevenLabsTwilioCall({
-    apiKey,
-    agentId,
-    fromNumberE164: fromE164,
-    toNumberE164: toNumberForAgent,
-    direction: "inbound",
-    conversationInitiationClientData: {
-      // Some ConvAI deployments validate this as a string; use ownerId for stability.
-      user_id: ownerId,
-      // Use a safe, documented enum value (previous custom value caused 422).
-      source_info: { source: "unknown" },
-      dynamic_variables: {
-        owner_id: ownerId,
-        business_name: settings.businessName || "",
-        caller_number: fromE164,
-        called_number: toE164 || "",
-        transfer_number: transferTo || "",
-        ai_transfer_enabled: settings.aiCanTransferToHuman ? true : false,
-      },
-      conversation_config_override: {
-        agent: {
-          ...(greeting.trim() ? { first_message: greeting.trim().slice(0, 360) } : {}),
-          ...(promptOverride.trim()
-            ? {
-                prompt: {
-                  prompt: promptOverride.trim().slice(0, 6000),
-                  ...(transferToolIds.length ? { tool_ids: transferToolIds } : {}),
-                },
-              }
-            : {}),
+  const register = await withTimeout(
+    registerElevenLabsTwilioCall({
+      apiKey,
+      agentId,
+      fromNumberE164: fromE164,
+      toNumberE164: toNumberForAgent,
+      direction: "inbound",
+      conversationInitiationClientData: {
+        // Some ConvAI deployments validate this as a string; use ownerId for stability.
+        user_id: ownerId,
+        // Use a safe, documented enum value (previous custom value caused 422).
+        source_info: { source: "unknown" },
+        dynamic_variables: {
+          owner_id: ownerId,
+          business_name: settings.businessName || "",
+          caller_number: fromE164,
+          called_number: toE164 || "",
+          transfer_number: transferTo || "",
+          ai_transfer_enabled: settings.aiCanTransferToHuman ? true : false,
+        },
+        conversation_config_override: {
+          agent: {
+            ...(greeting.trim() ? { first_message: greeting.trim().slice(0, 360) } : {}),
+            ...(promptOverride.trim()
+              ? {
+                  prompt: {
+                    prompt: promptOverride.trim().slice(0, 6000),
+                    ...(transferToolIds.length ? { tool_ids: transferToolIds } : {}),
+                  },
+                }
+              : {}),
+          },
         },
       },
-    },
-  });
+    }),
+    8000,
+    "register call",
+  ).catch((e) => ({ ok: false as const, error: e instanceof Error ? e.message : "register call failed" }));
 
   if (!register.ok || !register.twiml.trim()) {
     // Never fall back to voicemail. Prefer forwarding if possible, else hang up.
@@ -446,6 +544,35 @@ export async function POST(req: Request, ctx: { params: Promise<{ token: string 
     return xmlResponse(hangupXml("We are unable to take your call right now."));
   }
 
+  // If we’ve already retried and the stream still ended, fall back to forwarding rather than dropping the caller.
+  if (streamAttempt >= MAX_STREAM_RETRIES + 1) {
+    const forwardTo = settings.forwardToPhoneE164 || profilePhone;
+    await upsertAiReceptionistCallEvent(ownerId, {
+      id: `call_${callSid}`,
+      callSid,
+      from: fromE164,
+      to: toE164,
+      createdAtIso: new Date().toISOString(),
+      status: "IN_PROGRESS",
+      notes: forwardTo ? "Voice agent stream failed repeatedly — forwarding." : "Voice agent stream failed repeatedly.",
+    });
+
+    if (forwardTo) {
+      const recordingCallback = webhookUrlFromRequest(
+        req,
+        `/api/public/twilio/ai-receptionist/${encodeURIComponent(token)}/dial-recording`,
+      );
+      const xml = `<?xml version="1.0" encoding="UTF-8"?>
+<Response>
+  <Say voice="Polly.Joanna">One moment while I connect you.</Say>
+  <Dial timeout="20" record="record-from-answer-dual" recordingStatusCallback="${xmlEscape(recordingCallback)}" recordingStatusCallbackMethod="POST" recordingStatusCallbackEvent="completed">${xmlEscape(forwardTo)}</Dial>
+</Response>`;
+      return xmlResponse(xml);
+    }
+
+    return xmlResponse(hangupXml("We are unable to take your call right now."));
+  }
+
   await upsertAiReceptionistCallEvent(ownerId, {
     id: `call_${callSid}`,
     callSid,
@@ -456,7 +583,32 @@ export async function POST(req: Request, ctx: { params: Promise<{ token: string 
     notes: transferNote ? `Live agent connected.\n${transferNote}` : "Live agent connected.",
   });
 
-  // ElevenLabs TwiML already connects the call to the agent.
-  return xmlResponse(register.twiml);
+  // Add Stream status callbacks + retry redirect so we can (a) capture StreamError details and
+  // (b) avoid 0-second calls if the remote WebSocket closes immediately.
+  const streamStatusCallback = webhookUrlFromRequest(
+    req,
+    `/api/public/twilio/ai-receptionist/${encodeURIComponent(token)}/stream-status`,
+  );
+
+  const nextAttempt = streamAttempt + 1;
+  const retryUrl = webhookUrlFromRequest(
+    req,
+    `/api/public/twilio/ai-receptionist/${encodeURIComponent(token)}/voice?streamAttempt=${encodeURIComponent(String(nextAttempt))}`,
+  );
+
+  const withCallbacks = injectStreamStatusCallback(register.twiml, { statusCallbackUrl: streamStatusCallback });
+  const withRetry = nextAttempt <= MAX_STREAM_RETRIES + 1 ? appendRedirectAfterResponse(withCallbacks, retryUrl) : withCallbacks;
+
+  return xmlResponse(withRetry);
+}
+
+export async function POST(req: Request, ctx: { params: Promise<{ token: string }> }) {
+  const { token } = await ctx.params;
+  return await handle(req, token);
+}
+
+export async function GET(req: Request, ctx: { params: Promise<{ token: string }> }) {
+  const { token } = await ctx.params;
+  return await handle(req, token);
 }
 

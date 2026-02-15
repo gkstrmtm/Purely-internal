@@ -370,6 +370,38 @@ export function PortalAiReceptionistClient() {
     [callSyncBusy, load, toast],
   );
 
+  const deleteCallEvent = useCallback(
+    async (callSid: string) => {
+      const sid = String(callSid || "").trim();
+      if (!sid) return;
+      if (callSyncBusy) return;
+
+      const ok = window.confirm("Delete this call from Activity? This can’t be undone.");
+      if (!ok) return;
+
+      setCallSyncBusy(true);
+      try {
+        const res = await fetch(`/api/portal/ai-receptionist/events/${encodeURIComponent(sid)}`, {
+          method: "DELETE",
+          cache: "no-store",
+        }).catch(() => null as any);
+
+        const json = (await res?.json?.().catch(() => null)) as any;
+        if (!res || !res.ok || !json || json.ok !== true) {
+          throw new Error(json?.error || "Unable to delete call");
+        }
+
+        toast.success("Deleted call");
+        await load();
+      } catch (e) {
+        toast.error(e instanceof Error ? e.message : "Unable to delete call");
+      } finally {
+        setCallSyncBusy(false);
+      }
+    },
+    [callSyncBusy, load, toast],
+  );
+
   useEffect(() => {
     void load();
     void loadCredits();
@@ -965,6 +997,21 @@ export function PortalAiReceptionistClient() {
                             }
                           >
                             {callSyncBusy ? "Refreshing…" : "Refresh recording/transcript"}
+                          </button>
+
+                          <button
+                            type="button"
+                            disabled={saving || callSyncBusy}
+                            onClick={() => void deleteCallEvent(selectedCall.callSid)}
+                            className={
+                              "mt-2 inline-flex items-center justify-center rounded-xl border px-2.5 py-1.5 text-[11px] font-semibold " +
+                              (saving || callSyncBusy
+                                ? "border-zinc-200 bg-zinc-100 text-zinc-500"
+                                : "border-red-200 bg-red-50 text-red-800 hover:bg-red-100")
+                            }
+                            title="Remove this call from the Activity list"
+                          >
+                            Delete
                           </button>
                         </div>
                       </div>
