@@ -4,6 +4,18 @@ Internal ops dashboard for dialers/closers/managers: leads, calls, appointments,
 
 This repo now also includes a public marketing landing page at `/` with a demo request form and a public booking flow.
 
+## Purely Connect (video meetings)
+
+- Landing: `/connect`
+- Meeting room: `/connect/[roomId]`
+
+Implementation notes:
+
+- This is an MVP peer-to-peer WebRTC flow with database-backed polling for signaling (no external paid video infrastructure).
+- Screen share is supported.
+- Some corporate networks may block P2P calls without a TURN relay.
+- To reduce production breakage when migrations aren’t applied, connect endpoints run an idempotent runtime schema ensure (`ensureConnectSchema()`).
+
 ## Local dev
 
 1) Create `.env` based on `.env.example`.

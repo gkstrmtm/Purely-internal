@@ -137,6 +137,9 @@ model User {
 
   employeeInvitesCreated EmployeeInvite[] @relation("EmployeeInviteCreatedBy")
   employeeInvitesUsed    EmployeeInvite[] @relation("EmployeeInviteUsedBy")
+
+  connectRoomsCreated  ConnectRoom[]
+  connectParticipants  ConnectParticipant[]
 }
 
 model EmployeeInvite {
@@ -156,6 +159,75 @@ model EmployeeInvite {
 
   @@index([createdById, createdAt])
   @@index([usedAt])
+}
+
+model ConnectRoom {
+  id String @id @default(cuid())
+
+  title           String?
+  createdByUserId String?
+
+  createdAt DateTime @default(now())
+  endedAt   DateTime?
+
+  createdByUser User? @relation(fields: [createdByUserId], references: [id], onDelete: SetNull)
+  participants  ConnectParticipant[]
+  signals       ConnectSignal[]
+
+  @@index([createdByUserId, createdAt])
+  @@index([createdAt])
+}
+
+model ConnectParticipant {
+  id String @id @default(cuid())
+
+  roomId String
+  userId String?
+
+  displayName String
+  isGuest     Boolean @default(true)
+  secret      String
+
+  createdAt  DateTime @default(now())
+  lastSeenAt DateTime @default(now())
+  leftAt     DateTime?
+
+  room ConnectRoom @relation(fields: [roomId], references: [id], onDelete: Cascade)
+  user User?       @relation(fields: [userId], references: [id], onDelete: SetNull)
+
+  sentSignals     ConnectSignal[] @relation("ConnectSignalFrom")
+  receivedSignals ConnectSignal[] @relation("ConnectSignalTo")
+
+  @@index([roomId, createdAt])
+  @@index([roomId, leftAt])
+  @@index([userId, createdAt])
+  @@unique([id, secret])
+}
+
+model ConnectSignal {
+  id String @id @default(cuid())
+
+  roomId String
+
+  fromParticipantId String
+  toParticipantId   String?
+
+  kind    String
+  payload Json
+
+  // Monotonic cursor for polling.
+  seq Int @unique @default(autoincrement())
+
+  createdAt DateTime @default(now())
+
+  room ConnectRoom @relation(fields: [roomId], references: [id], onDelete: Cascade)
+
+  fromParticipant ConnectParticipant @relation("ConnectSignalFrom", fields: [fromParticipantId], references: [id], onDelete: Cascade)
+  toParticipant   ConnectParticipant? @relation("ConnectSignalTo", fields: [toParticipantId], references: [id], onDelete: Cascade)
+
+  @@index([roomId, seq])
+  @@index([roomId, createdAt])
+  @@index([toParticipantId, seq])
 }
 
 model PortalMediaFolder {
