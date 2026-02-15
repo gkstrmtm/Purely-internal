@@ -370,14 +370,13 @@ export function PortalAiReceptionistClient() {
     [callSyncBusy, load, toast],
   );
 
-  const deleteCallEvent = useCallback(
+  const [confirmDeleteCallSid, setConfirmDeleteCallSid] = useState<string | null>(null);
+
+  const deleteCallEventNow = useCallback(
     async (callSid: string) => {
       const sid = String(callSid || "").trim();
       if (!sid) return;
       if (callSyncBusy) return;
-
-      const ok = window.confirm("Delete this call from Activity? This can’t be undone.");
-      if (!ok) return;
 
       setCallSyncBusy(true);
       try {
@@ -400,6 +399,16 @@ export function PortalAiReceptionistClient() {
       }
     },
     [callSyncBusy, load, toast],
+  );
+
+  const deleteCallEvent = useCallback(
+    async (callSid: string) => {
+      const sid = String(callSid || "").trim();
+      if (!sid) return;
+      if (callSyncBusy) return;
+      setConfirmDeleteCallSid(sid);
+    },
+    [callSyncBusy],
   );
 
   useEffect(() => {
@@ -449,6 +458,13 @@ export function PortalAiReceptionistClient() {
     if (!selectedCallId) return null;
     return events.find((e) => e.id === selectedCallId) ?? null;
   }, [events, selectedCallId]);
+
+  const confirmDeleteEvent = useMemo(() => {
+    const sid = String(confirmDeleteCallSid || "").trim();
+    if (!sid) return null;
+    const match = events.find((e) => String(e.callSid || "").trim() === sid) || null;
+    return { callSid: sid, label: match ? `${String(match.from || "Unknown").trim()} → ${String(match.to || "").trim() || ""}`.trim() : "" };
+  }, [confirmDeleteCallSid, events]);
 
   const canSave = useMemo(() => {
     if (!settings) return false;
@@ -1073,6 +1089,46 @@ export function PortalAiReceptionistClient() {
               </div>
             </div>
           )}
+        </div>
+      ) : null}
+
+      {confirmDeleteEvent ? (
+        <div
+          className="fixed inset-0 z-50 flex items-start justify-center bg-black/20 px-4 pt-8"
+          role="dialog"
+          aria-modal="true"
+          onMouseDown={() => setConfirmDeleteCallSid(null)}
+        >
+          <div
+            className="w-full max-w-lg rounded-3xl border border-zinc-200 bg-white p-5 shadow-xl"
+            onMouseDown={(e) => e.stopPropagation()}
+          >
+            <div className="text-sm font-semibold text-zinc-900">Delete call from activity?</div>
+            <div className="mt-2 text-sm text-zinc-600">Delete this call from activity. This can’t be undone.</div>
+            {confirmDeleteEvent.label ? <div className="mt-2 text-xs text-zinc-500">{confirmDeleteEvent.label}</div> : null}
+
+            <div className="mt-4 flex flex-col gap-2 sm:flex-row sm:justify-end">
+              <button
+                type="button"
+                className="inline-flex items-center justify-center rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm font-semibold text-brand-ink hover:bg-zinc-50"
+                onClick={() => setConfirmDeleteCallSid(null)}
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                className="inline-flex items-center justify-center rounded-2xl bg-red-600 px-4 py-2 text-sm font-semibold text-white hover:bg-red-700 disabled:opacity-60"
+                disabled={callSyncBusy}
+                onClick={async () => {
+                  const sid = confirmDeleteEvent.callSid;
+                  setConfirmDeleteCallSid(null);
+                  await deleteCallEventNow(sid);
+                }}
+              >
+                {callSyncBusy ? "Deleting…" : "Delete"}
+              </button>
+            </div>
+          </div>
         </div>
       ) : null}
     </div>

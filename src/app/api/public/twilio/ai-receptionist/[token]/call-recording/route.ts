@@ -5,7 +5,7 @@ import {
   getAiReceptionistServiceData,
   upsertAiReceptionistCallEvent,
 } from "@/lib/aiReceptionist";
-import { consumeCredits } from "@/lib/credits";
+import { consumeCreditsOnce } from "@/lib/credits";
 import { normalizePhoneStrict } from "@/lib/phone";
 import { getOwnerTwilioSmsConfig } from "@/lib/portalTwilio";
 import { webhookUrlFromRequest } from "@/lib/webhookBase";
@@ -102,21 +102,22 @@ export async function POST(req: Request, ctx: { params: Promise<{ token: string 
     return xmlResponse("<?xml version=\"1.0\" encoding=\"UTF-8\"?><Response><Hangup/></Response>");
   }
 
+  const existingData = await getAiReceptionistServiceData(ownerId).catch(() => null);
+  const existingEvent = existingData?.events?.find((e: any) => String(e?.callSid || "") === callSid) as any;
+  const existingChargedCredits =
+    typeof existingEvent?.chargedCredits === "number" && Number.isFinite(existingEvent.chargedCredits)
+      ? Math.max(0, Math.floor(existingEvent.chargedCredits))
+      : 0;
+
   // Twilio recording callbacks may omit From/To. Reuse existing event details if present.
   let fromFinal = from;
   let toFinal = to;
   let existingNotes: string | undefined;
   if (!fromFinal) {
-    const existing = await getAiReceptionistServiceData(ownerId).catch(() => null);
-    const match = existing?.events?.find((e: any) => String(e?.callSid || "") === callSid) as any;
-    fromFinal = typeof match?.from === "string" && match.from.trim() ? match.from.trim() : "Unknown";
-    toFinal = typeof match?.to === "string" && match.to.trim() ? match.to.trim() : toFinal;
-    existingNotes = typeof match?.notes === "string" && match.notes.trim() ? match.notes.trim() : undefined;
-  } else {
-    const existing = await getAiReceptionistServiceData(ownerId).catch(() => null);
-    const match = existing?.events?.find((e: any) => String(e?.callSid || "") === callSid) as any;
-    existingNotes = typeof match?.notes === "string" && match.notes.trim() ? match.notes.trim() : undefined;
+    fromFinal = typeof existingEvent?.from === "string" && existingEvent.from.trim() ? existingEvent.from.trim() : "Unknown";
+    toFinal = typeof existingEvent?.to === "string" && String(existingEvent.to || "").trim() ? String(existingEvent.to).trim() : toFinal;
   }
+  existingNotes = typeof existingEvent?.notes === "string" && existingEvent.notes.trim() ? existingEvent.notes.trim() : undefined;
 
   const fromParsed = normalizePhoneStrict(fromFinal);
   const fromE164 = fromParsed.ok && fromParsed.e164 ? fromParsed.e164 : fromFinal;
@@ -128,37 +129,48 @@ export async function POST(req: Request, ctx: { params: Promise<{ token: string 
   const startedMinutes = billable ? ceilMinutesFromSeconds(durationFloor) : 0;
   const needCredits = startedMinutes * CREDITS_PER_STARTED_MINUTE;
 
+  const creditsKey = `ai_receptionist_call:${callSid}`;
+
   let chargedCredits = 0;
   let chargedPartial = false;
+  let alreadyCharged = false;
 
   if (needCredits > 0) {
-    const consumed = await consumeCredits(ownerId, needCredits);
-    if (consumed.ok) {
-      chargedCredits = needCredits;
+    if (existingChargedCredits > 0) {
+      chargedCredits = existingChargedCredits;
+      alreadyCharged = true;
     } else {
-      const available = Math.max(0, Math.floor(consumed.state.balance));
-      if (available > 0) {
-        const partial = await consumeCredits(ownerId, available);
-        if (partial.ok) {
-          chargedCredits = available;
-          chargedPartial = true;
+      const consumed = await consumeCreditsOnce(ownerId, needCredits, creditsKey);
+      if (consumed.ok && consumed.chargedAmount > 0) {
+        chargedCredits = consumed.chargedAmount;
+        alreadyCharged = consumed.alreadyConsumed;
+      } else {
+        const available = Math.max(0, Math.floor(consumed.state.balance));
+        if (available > 0) {
+          const partial = await consumeCreditsOnce(ownerId, available, creditsKey);
+          if (partial.ok && partial.chargedAmount > 0) {
+            chargedCredits = partial.chargedAmount;
+          }
         }
       }
     }
+
+    chargedPartial = chargedCredits > 0 && chargedCredits < needCredits;
   }
 
-    const chargeNote =
-    Number.isFinite(durationFloor)
-      ? (billable
-        ? (needCredits > 0
-          ? (chargedCredits > 0
-            ? (chargedPartial
+  const chargeNote = Number.isFinite(durationFloor)
+    ? (billable
+      ? (needCredits > 0
+        ? (chargedCredits > 0
+          ? (alreadyCharged
+            ? `Credits already charged (${chargedCredits} credit(s)).`
+            : (chargedPartial
               ? `Charged ${chargedCredits} credit(s) (partial, ${needCredits} needed).`
-              : `Charged ${chargedCredits} credit(s).`)
-            : "No credits charged.")
+              : `Charged ${chargedCredits} credit(s).`))
           : "No credits charged.")
-        : `No credits charged (call too short: ${durationFloor}s).`)
-      : "No recording duration reported.";
+        : "No credits charged.")
+      : `No credits charged (call too short: ${durationFloor}s).`)
+    : "No recording duration reported.";
 
   await upsertAiReceptionistCallEvent(ownerId, {
     id: `call_${callSid}`,
@@ -172,6 +184,7 @@ export async function POST(req: Request, ctx: { params: Promise<{ token: string 
     ...(Number.isFinite(durationFloor) ? { recordingDurationSec: durationFloor } : {}),
     ...(chargedCredits > 0 ? { chargedCredits } : {}),
     ...(chargedPartial ? { creditsChargedPartial: true } : {}),
+    ...(needCredits > 0 && chargedCredits > 0 ? { creditsChargeAttempted: true } : {}),
   });
 
   // Best-effort transcription for live calls (may take 1–2 minutes).

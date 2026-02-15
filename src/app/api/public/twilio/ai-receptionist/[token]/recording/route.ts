@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 
 import { findOwnerByAiReceptionistWebhookToken, upsertAiReceptionistCallEvent } from "@/lib/aiReceptionist";
-import { consumeCredits } from "@/lib/credits";
+import { consumeCreditsOnce } from "@/lib/credits";
 import { normalizePhoneStrict } from "@/lib/phone";
 import { getAppBaseUrl, tryNotifyPortalAccountUsers } from "@/lib/portalNotifications";
 
@@ -64,23 +64,28 @@ export async function POST(req: Request, ctx: { params: Promise<{ token: string 
   const startedMinutes = billable ? ceilMinutesFromSeconds(durationFloor) : 0;
   const needCredits = startedMinutes * CREDITS_PER_STARTED_MINUTE;
 
+  const creditsKey = `ai_receptionist_recording:${callSid}`;
+
   let chargedCredits = 0;
   let chargedPartial = false;
+  let alreadyCharged = false;
 
   if (needCredits > 0) {
-    const consumed = await consumeCredits(ownerId, needCredits);
-    if (consumed.ok) {
-      chargedCredits = needCredits;
+    const consumed = await consumeCreditsOnce(ownerId, needCredits, creditsKey);
+    if (consumed.ok && consumed.chargedAmount > 0) {
+      chargedCredits = consumed.chargedAmount;
+      alreadyCharged = consumed.alreadyConsumed;
     } else {
       const available = Math.max(0, Math.floor(consumed.state.balance));
       if (available > 0) {
-        const partial = await consumeCredits(ownerId, available);
-        if (partial.ok) {
-          chargedCredits = available;
-          chargedPartial = true;
+        const partial = await consumeCreditsOnce(ownerId, available, creditsKey);
+        if (partial.ok && partial.chargedAmount > 0) {
+          chargedCredits = partial.chargedAmount;
         }
       }
     }
+
+    chargedPartial = chargedCredits > 0 && chargedCredits < needCredits;
   }
 
   await upsertAiReceptionistCallEvent(ownerId, {
@@ -95,9 +100,11 @@ export async function POST(req: Request, ctx: { params: Promise<{ token: string 
       ? (billable
         ? (needCredits > 0
           ? (chargedCredits > 0
-            ? (chargedPartial
-              ? `Charged ${chargedCredits} credit(s) (partial, ${needCredits} needed).`
-              : `Charged ${chargedCredits} credit(s).`)
+            ? (alreadyCharged
+              ? `Credits already charged (${chargedCredits} credit(s)).`
+              : (chargedPartial
+                ? `Charged ${chargedCredits} credit(s) (partial, ${needCredits} needed).`
+                : `Charged ${chargedCredits} credit(s).`))
             : "No credits charged.")
           : "No credits charged.")
         : `No credits charged (call too short: ${durationFloor}s).`)

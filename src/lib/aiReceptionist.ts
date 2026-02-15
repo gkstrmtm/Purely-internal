@@ -65,6 +65,8 @@ export type AiReceptionistCallEvent = {
   transcript?: string;
   chargedCredits?: number;
   creditsChargedPartial?: boolean;
+  // Idempotency guard: Twilio callbacks may be retried.
+  creditsChargeAttempted?: boolean;
 };
 
 export type AiReceptionistServiceData = {
@@ -217,6 +219,7 @@ function parseServiceData(raw: unknown): AiReceptionistServiceData {
             ? Math.max(0, Math.floor(r.chargedCredits))
             : undefined;
           const creditsChargedPartial = typeof r.creditsChargedPartial === "boolean" ? r.creditsChargedPartial : undefined;
+          const creditsChargeAttempted = typeof (r as any).creditsChargeAttempted === "boolean" ? (r as any).creditsChargeAttempted : undefined;
 
           return [
             {
@@ -237,6 +240,7 @@ function parseServiceData(raw: unknown): AiReceptionistServiceData {
               ...(transcript ? { transcript } : {}),
               ...(typeof chargedCredits === "number" ? { chargedCredits } : {}),
               ...(typeof creditsChargedPartial === "boolean" ? { creditsChargedPartial } : {}),
+              ...(typeof creditsChargeAttempted === "boolean" ? { creditsChargeAttempted } : {}),
             },
           ];
         })
