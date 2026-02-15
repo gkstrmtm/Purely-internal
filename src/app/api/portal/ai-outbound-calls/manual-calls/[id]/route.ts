@@ -7,7 +7,8 @@ import { ensurePortalAiOutboundCallsSchema } from "@/lib/portalAiOutboundCallsSc
 import { getOwnerTwilioSmsConfig } from "@/lib/portalTwilio";
 import { webhookUrlFromRequest } from "@/lib/webhookBase";
 import { fetchElevenLabsConversationTranscript } from "@/lib/elevenLabsConvai";
-import { transcribeAudio } from "@/lib/ai";
+import { transcribeAudio, transcribeAudioVerbose } from "@/lib/ai";
+import { splitStereoPcmWavToMonoWavs } from "@/lib/wav";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -157,14 +158,18 @@ async function fetchTranscriptTextForRecording(ownerId: string, recordingSid: st
   }
 }
 
-async function fetchTwilioRecordingMp3(ownerId: string, recordingSid: string): Promise<{ ok: true; bytes: ArrayBuffer; mimeType: string } | { ok: false; error: string }> {
+async function fetchTwilioRecordingAudio(
+  ownerId: string,
+  recordingSid: string,
+  ext: "mp3" | "wav",
+): Promise<{ ok: true; bytes: ArrayBuffer; mimeType: string } | { ok: false; error: string }> {
   const rid = String(recordingSid || "").trim();
   if (!rid) return { ok: false, error: "Missing recording sid" };
 
   const config = await getOwnerTwilioSmsConfig(ownerId);
   if (!config) return { ok: false, error: "Twilio is not configured for this account." };
 
-  const url = `https://api.twilio.com/2010-04-01/Accounts/${encodeURIComponent(config.accountSid)}/Recordings/${encodeURIComponent(rid)}.mp3`;
+  const url = `https://api.twilio.com/2010-04-01/Accounts/${encodeURIComponent(config.accountSid)}/Recordings/${encodeURIComponent(rid)}.${ext}`;
   const res = await fetch(url, {
     method: "GET",
     headers: { authorization: twilioBasicAuthHeader(config) },
@@ -184,6 +189,42 @@ async function fetchTwilioRecordingMp3(ownerId: string, recordingSid: string): P
 
   const mimeType = res.headers.get("content-type") || "audio/mpeg";
   return { ok: true, bytes, mimeType };
+}
+
+function buildSpeakerTranscriptFromSegments(opts: {
+  left: { text: string; segments: Array<{ start: number; end: number; text: string }> };
+  right: { text: string; segments: Array<{ start: number; end: number; text: string }> };
+  leftLabel: string;
+  rightLabel: string;
+}): string {
+  const leftLabel = opts.leftLabel;
+  const rightLabel = opts.rightLabel;
+
+  const leftSegs = Array.isArray(opts.left.segments) ? opts.left.segments : [];
+  const rightSegs = Array.isArray(opts.right.segments) ? opts.right.segments : [];
+
+  if (!leftSegs.length && !rightSegs.length) {
+    const a = String(opts.left.text || "").trim();
+    const b = String(opts.right.text || "").trim();
+    const parts: string[] = [];
+    if (a) parts.push(`${leftLabel}: ${a}`);
+    if (b) parts.push(`${rightLabel}: ${b}`);
+    return parts.join("\n\n").trim();
+  }
+
+  const merged: Array<{ start: number; speaker: string; text: string }> = [];
+  for (const s of leftSegs) merged.push({ start: s.start, speaker: leftLabel, text: s.text });
+  for (const s of rightSegs) merged.push({ start: s.start, speaker: rightLabel, text: s.text });
+  merged.sort((a, b) => a.start - b.start);
+
+  const lines: string[] = [];
+  for (const m of merged) {
+    const t = String(m.text || "").trim();
+    if (!t) continue;
+    lines.push(`${m.speaker}: ${t}`);
+    if (lines.join("\n").length > 25000) break;
+  }
+  return lines.join("\n").trim();
 }
 
 async function requestTranscription(ownerId: string, recordingSid: string, req: Request, token: string): Promise<boolean> {
@@ -359,20 +400,46 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
   const stillNoTranscript = !String(updates.transcriptText ?? row.transcriptText ?? "").trim();
   if (effectiveRecordingSid && stillNoTranscript) {
     try {
-      const audio = await fetchTwilioRecordingMp3(ownerId, effectiveRecordingSid);
-      if (audio.ok) {
-        const text = await transcribeAudio({
-          bytes: audio.bytes,
-          filename: `${effectiveRecordingSid}.mp3`,
-          mimeType: audio.mimeType,
+      // Prefer real channel-separated transcript when Twilio recording is dual-channel.
+      const wav = await fetchTwilioRecordingAudio(ownerId, effectiveRecordingSid, "wav");
+      if (wav.ok) {
+        const split = splitStereoPcmWavToMonoWavs(wav.bytes);
+
+        const [left, right] = await Promise.all([
+          transcribeAudioVerbose({ bytes: split.leftWav, filename: `${effectiveRecordingSid}-left.wav`, mimeType: "audio/wav" }),
+          transcribeAudioVerbose({ bytes: split.rightWav, filename: `${effectiveRecordingSid}-right.wav`, mimeType: "audio/wav" }),
+        ]);
+
+        const combined = buildSpeakerTranscriptFromSegments({
+          left,
+          right,
+          leftLabel: "Recipient",
+          rightLabel: "Agent",
         });
-        const cleaned = String(text || "").trim();
-        if (cleaned) {
-          updates.transcriptText = cleaned.slice(0, 25000);
+
+        if (combined.trim()) {
+          updates.transcriptText = combined.trim().slice(0, 25000);
           updates.lastError = null;
         }
-      } else if (!String(updates.lastError ?? row.lastError ?? "").trim()) {
-        updates.lastError = `Transcript pending. ${audio.error}`.slice(0, 500);
+      }
+
+      if (!String(updates.transcriptText ?? row.transcriptText ?? "").trim()) {
+        // Fallback: single-pass transcription of compressed audio.
+        const audio = await fetchTwilioRecordingAudio(ownerId, effectiveRecordingSid, "mp3");
+        if (audio.ok) {
+          const text = await transcribeAudio({
+            bytes: audio.bytes,
+            filename: `${effectiveRecordingSid}.mp3`,
+            mimeType: audio.mimeType,
+          });
+          const cleaned = String(text || "").trim();
+          if (cleaned) {
+            updates.transcriptText = cleaned.slice(0, 25000);
+            updates.lastError = null;
+          }
+        } else if (!String(updates.lastError ?? row.lastError ?? "").trim()) {
+          updates.lastError = `Transcript pending. ${audio.error}`.slice(0, 500);
+        }
       }
     } catch (e) {
       const msg = e instanceof Error ? e.message : "Unable to transcribe recording";

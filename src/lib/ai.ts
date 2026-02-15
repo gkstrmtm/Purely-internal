@@ -8,6 +8,11 @@ type OpenAIAudioTranscriptionResponse = {
   text?: string;
 };
 
+type OpenAIAudioTranscriptionVerboseResponse = {
+  text?: string;
+  segments?: Array<{ start?: number; end?: number; text?: string }>;
+};
+
 export async function generateText({
   system,
   user,
@@ -116,5 +121,70 @@ export async function transcribeAudio({
   } catch {
     // Some providers return plain text.
     return trimmed;
+  }
+}
+
+export async function transcribeAudioVerbose({
+  bytes,
+  filename,
+  mimeType,
+  model,
+}: {
+  bytes: ArrayBuffer | Uint8Array;
+  filename?: string;
+  mimeType?: string;
+  model?: string;
+}): Promise<{ text: string; segments: Array<{ start: number; end: number; text: string }> }> {
+  const baseUrl = process.env.AI_BASE_URL;
+  const apiKey = process.env.AI_API_KEY;
+  const resolvedModel = model ?? process.env.AI_TRANSCRIBE_MODEL ?? "whisper-1";
+
+  if (!baseUrl || !apiKey) {
+    throw new Error("AI not configured — set AI_BASE_URL and AI_API_KEY");
+  }
+
+  const buf = bytes instanceof Uint8Array ? bytes : new Uint8Array(bytes);
+  const ab = new ArrayBuffer(buf.byteLength);
+  new Uint8Array(ab).set(buf);
+
+  const name = (filename ?? "recording.wav").trim() || "recording.wav";
+  const type = (mimeType ?? "audio/wav").trim() || "audio/wav";
+
+  const form = new FormData();
+  form.set("model", resolvedModel);
+  form.set("response_format", "verbose_json");
+  form.set("file", new Blob([ab], { type }), name);
+
+  const res = await fetch(`${baseUrl.replace(/\/$/, "")}/audio/transcriptions`, {
+    method: "POST",
+    headers: {
+      authorization: `Bearer ${apiKey}`,
+    },
+    body: form,
+  });
+
+  const text = await res.text().catch(() => "");
+  if (!res.ok) throw new Error(`AI transcription failed: ${res.status} ${text}`);
+
+  const trimmed = text.trim();
+  if (!trimmed) return { text: "", segments: [] };
+
+  try {
+    const json = JSON.parse(trimmed) as OpenAIAudioTranscriptionVerboseResponse;
+    const outText = typeof json?.text === "string" ? json.text : "";
+    const segs = Array.isArray(json?.segments)
+      ? json.segments
+          .map((s) => ({
+            start: Number(s?.start ?? NaN),
+            end: Number(s?.end ?? NaN),
+            text: String(s?.text ?? "").trim(),
+          }))
+          .filter((s) => Number.isFinite(s.start) && Number.isFinite(s.end) && s.text)
+      : [];
+
+    return { text: outText, segments: segs };
+  } catch {
+    // Some providers return plain text even when asked for verbose_json.
+    return { text: trimmed, segments: [] };
   }
 }
