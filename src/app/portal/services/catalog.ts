@@ -42,7 +42,7 @@ export const PORTAL_SERVICES: PortalService[] = [
       "Attach media into SMS and email",
     ],
     included: true,
-    accent: "blue",
+    accent: "coral",
   },
   {
     slug: "tasks",
@@ -78,7 +78,7 @@ export const PORTAL_SERVICES: PortalService[] = [
       "Basic analytics",
     ],
     entitlementKey: "newsletter",
-    accent: "blue",
+    accent: "coral",
   },
   {
     slug: "booking",
@@ -90,7 +90,7 @@ export const PORTAL_SERVICES: PortalService[] = [
       "No-show reduction workflows",
     ],
     entitlementKey: "booking",
-    accent: "coral",
+    accent: "ink",
   },
   {
     slug: "follow-up",
@@ -115,7 +115,7 @@ export const PORTAL_SERVICES: PortalService[] = [
       "Works with automations",
     ],
     entitlementKey: "leadOutbound",
-    accent: "coral",
+    accent: "blue",
   },
   {
     slug: "lead-scraping",
@@ -127,7 +127,7 @@ export const PORTAL_SERVICES: PortalService[] = [
       "Schedule recurring pulls",
     ],
     entitlementKey: "leadScraping",
-    accent: "ink",
+    accent: "coral",
   },
   {
     slug: "automations",
@@ -188,7 +188,7 @@ export const PORTAL_SERVICES: PortalService[] = [
       "Simple reporting",
     ],
     entitlementKey: "nurture",
-    accent: "coral",
+    accent: "ink",
   },
   {
     slug: "reporting",
