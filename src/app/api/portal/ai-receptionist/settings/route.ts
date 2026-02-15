@@ -5,12 +5,14 @@ import { requireClientSessionForService } from "@/lib/portalAccess";
 import { prisma } from "@/lib/db";
 import {
   getAiReceptionistServiceData,
+  getOwnerProfilePhoneE164,
   listAiReceptionistEvents,
   parseAiReceptionistSettings,
   regenerateAiReceptionistWebhookToken,
   setAiReceptionistSettings,
   toPublicSettings,
 } from "@/lib/aiReceptionist";
+import { patchElevenLabsAgent, resolveElevenLabsConvaiToolIdsByKeys } from "@/lib/elevenLabsConvai";
 import { normalizeEmailKey, normalizeNameKey, normalizePhoneKey } from "@/lib/portalContacts";
 import { ensurePortalContactTagsReady, listContactTagsForContact } from "@/lib/portalContactTags";
 import { ensurePortalContactsSchema } from "@/lib/portalContactsSchema";
@@ -19,6 +21,88 @@ import { webhookUrlFromRequest } from "@/lib/webhookBase";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
+
+const PROFILE_EXTRAS_SERVICE_SLUG = "profile";
+
+async function getProfileVoiceAgentId(ownerId: string): Promise<string | null> {
+  const row = await prisma.portalServiceSetup.findUnique({
+    where: { ownerId_serviceSlug: { ownerId, serviceSlug: PROFILE_EXTRAS_SERVICE_SLUG } },
+    select: { dataJson: true },
+  });
+
+  const rec =
+    row?.dataJson && typeof row.dataJson === "object" && !Array.isArray(row.dataJson)
+      ? (row.dataJson as Record<string, unknown>)
+      : null;
+
+  const raw = rec?.voiceAgentId;
+  const id = typeof raw === "string" ? raw.trim().slice(0, 120) : "";
+  return id ? id : null;
+}
+
+async function getProfileVoiceAgentApiKey(ownerId: string): Promise<string | null> {
+  const row = await prisma.portalServiceSetup.findUnique({
+    where: { ownerId_serviceSlug: { ownerId, serviceSlug: PROFILE_EXTRAS_SERVICE_SLUG } },
+    select: { dataJson: true },
+  });
+
+  const rec =
+    row?.dataJson && typeof row.dataJson === "object" && !Array.isArray(row.dataJson)
+      ? (row.dataJson as Record<string, unknown>)
+      : null;
+
+  const raw = rec?.voiceAgentApiKey;
+  const key = typeof raw === "string" ? raw.trim().slice(0, 400) : "";
+  return key ? key : null;
+}
+
+async function getProfileVoiceAgentToolIds(ownerId: string, toolKeys: string[]): Promise<string[]> {
+  const row = await prisma.portalServiceSetup.findUnique({
+    where: { ownerId_serviceSlug: { ownerId, serviceSlug: PROFILE_EXTRAS_SERVICE_SLUG } },
+    select: { dataJson: true },
+  });
+
+  const rec =
+    row?.dataJson && typeof row.dataJson === "object" && !Array.isArray(row.dataJson)
+      ? (row.dataJson as Record<string, unknown>)
+      : null;
+
+  const toolIds = rec?.voiceAgentToolIds;
+  if (!toolIds || typeof toolIds !== "object" || Array.isArray(toolIds)) return [];
+
+  const raw = toolKeys
+    .map((k) => String(k || "").trim().toLowerCase())
+    .filter(Boolean)
+    .flatMap((k) => {
+      const xs = Array.isArray((toolIds as any)[k]) ? (toolIds as any)[k] : [];
+      return xs;
+    });
+
+  return raw
+    .map((x) => (typeof x === "string" ? x.trim() : ""))
+    .filter(Boolean)
+    .filter((v, i, a) => a.indexOf(v) === i)
+    .slice(0, 50);
+}
+
+function buildReceptionistAgentPrompt(opts: {
+  systemPrompt: string;
+  aiCanTransferToHuman: boolean;
+  transferTo: string | null;
+}): string {
+  let prompt = String(opts.systemPrompt || "").trim();
+  if (opts.aiCanTransferToHuman) {
+    if (opts.transferTo) {
+      const extra = `\n\nIf the caller asks for a human or the situation requires it, transfer the call to ${opts.transferTo}. Use the call transfer tool when appropriate.`;
+      prompt = `${prompt}${extra}`.trim();
+    } else {
+      const extra = "\n\nIf the caller asks for a human, explain that call transfer isn’t configured and offer to take a message.";
+      prompt = `${prompt}${extra}`.trim();
+    }
+  }
+
+  return prompt.slice(0, 6000);
+}
 
 async function upsertContactFromEvent(ownerId: string, input: { name: string; email: string | null; phone: string | null }) {
   const owner = String(ownerId);
@@ -217,6 +301,58 @@ export async function PUT(req: Request) {
 
   const normalized = parseAiReceptionistSettings(rawRec, current.settings);
   const next = await setAiReceptionistSettings(ownerId, normalized);
+
+  // Sync agent config (first message + prompt) to ElevenLabs at save-time.
+  // Do not attempt per-call overrides during the Twilio webhook.
+  const profileAgentId = await getProfileVoiceAgentId(ownerId).catch(() => null);
+  const agentId = String(next.voiceAgentId || "").trim() || String(profileAgentId || "").trim();
+  const apiKeyFromProfile = (await getProfileVoiceAgentApiKey(ownerId).catch(() => null)) || "";
+  const apiKeyLegacy = typeof (next as any)?.voiceAgentApiKey === "string" ? String((next as any).voiceAgentApiKey).trim() : "";
+  const apiKey = apiKeyFromProfile.trim() || apiKeyLegacy.trim();
+
+  if (apiKey && agentId) {
+    const profilePhone = await getOwnerProfilePhoneE164(ownerId).catch(() => null);
+    const transferTo = (next.aiCanTransferToHuman ? (next.forwardToPhoneE164 || profilePhone) : null) || null;
+
+    const prompt = buildReceptionistAgentPrompt({
+      systemPrompt: next.systemPrompt,
+      aiCanTransferToHuman: next.aiCanTransferToHuman,
+      transferTo,
+    });
+
+    const firstMessage = String(next.greeting || "").trim().slice(0, 360);
+
+    const transferToolKeys = ["transfer_to_human", "transfer_to_number", "call_transfer", "end_call"];
+    let toolIds: string[] = next.aiCanTransferToHuman
+      ? await getProfileVoiceAgentToolIds(ownerId, transferToolKeys).catch(() => [])
+      : [];
+
+    if (next.aiCanTransferToHuman && !toolIds.length) {
+      const resolved = await resolveElevenLabsConvaiToolIdsByKeys({ apiKey, toolKeys: transferToolKeys }).catch(() => null);
+      if (resolved && (resolved as any).ok === true) {
+        const map = (resolved as any).toolIds as Record<string, string[]>;
+        toolIds = transferToolKeys
+          .flatMap((k) => (Array.isArray((map as any)[k]) ? (map as any)[k] : []))
+          .map((x) => (typeof x === "string" ? x.trim() : ""))
+          .filter(Boolean)
+          .filter((v, i, a) => a.indexOf(v) === i)
+          .slice(0, 50);
+      }
+    }
+
+    const patched = await patchElevenLabsAgent({
+      apiKey,
+      agentId,
+      firstMessage: firstMessage || undefined,
+      prompt: prompt || undefined,
+      toolIds: toolIds.length ? toolIds : undefined,
+    });
+
+    if (!patched.ok) {
+      await setAiReceptionistSettings(ownerId, current.settings).catch(() => null);
+      return NextResponse.json({ ok: false, error: patched.error }, { status: patched.status || 502 });
+    }
+  }
 
   const events = await listAiReceptionistEvents(ownerId, 80);
   const webhookUrl = webhookUrlFromRequest(req, "/api/public/twilio/voice");

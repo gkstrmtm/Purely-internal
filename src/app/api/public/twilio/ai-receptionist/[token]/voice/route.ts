@@ -8,7 +8,6 @@ import {
 import { getCreditsState, isFreeCreditsOwner } from "@/lib/credits";
 import { prisma } from "@/lib/db";
 import { registerElevenLabsTwilioCall } from "@/lib/elevenLabsConvai";
-import { resolveElevenLabsConvaiToolIdsByKeys } from "@/lib/elevenLabsConvai";
 import { normalizePhoneStrict } from "@/lib/phone";
 import { getOwnerTwilioSmsConfig } from "@/lib/portalTwilio";
 import { webhookUrlFromRequest } from "@/lib/webhookBase";
@@ -54,29 +53,6 @@ async function getProfileVoiceAgentApiKey(ownerId: string): Promise<string | nul
   const raw = rec?.voiceAgentApiKey;
   const key = typeof raw === "string" ? raw.trim().slice(0, 400) : "";
   return key ? key : null;
-}
-
-async function getProfileVoiceAgentToolIds(ownerId: string, toolKey: string): Promise<string[]> {
-  const row = await prisma.portalServiceSetup.findUnique({
-    where: { ownerId_serviceSlug: { ownerId, serviceSlug: PROFILE_EXTRAS_SERVICE_SLUG } },
-    select: { dataJson: true },
-  });
-
-  const rec =
-    row?.dataJson && typeof row.dataJson === "object" && !Array.isArray(row.dataJson)
-      ? (row.dataJson as Record<string, unknown>)
-      : null;
-
-  const toolIds = rec?.voiceAgentToolIds;
-  if (!toolIds || typeof toolIds !== "object" || Array.isArray(toolIds)) return [];
-
-  const k = String(toolKey || "").trim().toLowerCase();
-  const raw = (toolIds as any)[k];
-  const xs = Array.isArray(raw) ? raw : [];
-  return xs
-    .map((x) => (typeof x === "string" ? x.trim() : ""))
-    .filter(Boolean)
-    .slice(0, 10);
 }
 
 async function startTwilioCallRecording(opts: {
@@ -361,9 +337,6 @@ async function handle(req: Request, token: string) {
     // No forward number available: proceed with AI mode even if credits are insufficient.
   }
 
-  const greeting = settings.greeting || "Thanks for calling — how can I help?";
-  const systemPrompt = settings.systemPrompt || "";
-
   const profileAgentId = await getProfileVoiceAgentId(ownerId).catch(() => null);
   const agentId = String(settings.voiceAgentId || "").trim() || String(profileAgentId || "").trim();
   const apiKeyFromProfile = (await getProfileVoiceAgentApiKey(ownerId).catch(() => null)) || "";
@@ -415,60 +388,9 @@ async function handle(req: Request, token: string) {
   // Register inbound call with ElevenLabs ConvAI and return their TwiML.
   const profilePhone = await getOwnerProfilePhoneE164(ownerId).catch(() => null);
   const transferTo = (settings.aiCanTransferToHuman ? (settings.forwardToPhoneE164 || profilePhone) : null) || null;
-  let transferToolIds = settings.aiCanTransferToHuman
-    ? [
-        ...(await getProfileVoiceAgentToolIds(ownerId, "transfer_to_number")),
-        ...(await getProfileVoiceAgentToolIds(ownerId, "transfer_to_human")),
-        ...(await getProfileVoiceAgentToolIds(ownerId, "call_transfer")),
-        ...(await getProfileVoiceAgentToolIds(ownerId, "end_call")),
-      ]
-        .map((x) => x.trim())
-        .filter(Boolean)
-        .filter((v, i, a) => a.indexOf(v) === i)
-        .slice(0, 50)
-    : [];
-
-  // Fallback: if profile cache is empty, attempt to resolve tool IDs directly from ElevenLabs using the API key.
-  if (settings.aiCanTransferToHuman && !transferToolIds.length) {
-    const resolved = await withTimeout(
-      resolveElevenLabsConvaiToolIdsByKeys({
-        apiKey,
-        toolKeys: ["transfer_to_human", "transfer_to_number", "call_transfer", "end_call"],
-      }),
-      4500,
-      "resolve tool IDs",
-    ).catch(() => null);
-
-    if (resolved && (resolved as any).ok === true) {
-      const map = (resolved as any).toolIds as Record<string, string[]>;
-      transferToolIds = ["transfer_to_human", "transfer_to_number", "call_transfer", "end_call"]
-        .flatMap((k) => (Array.isArray((map as any)[k]) ? (map as any)[k] : []))
-        .map((x) => (typeof x === "string" ? x.trim() : ""))
-        .filter(Boolean)
-        .filter((v, i, a) => a.indexOf(v) === i)
-        .slice(0, 50);
-    }
-  }
-
   const transferNote = settings.aiCanTransferToHuman
-    ? (transferTo
-        ? (transferToolIds.length
-            ? `AI transfer enabled → ${transferTo}.`
-            : "AI transfer enabled, but transfer tool IDs are not configured on the server.")
-        : "AI transfer enabled, but no transfer number is configured.")
+    ? (transferTo ? `AI transfer enabled → ${transferTo}.` : "AI transfer enabled, but no transfer number is configured.")
     : "";
-
-  let promptOverride = systemPrompt.trim();
-  if (settings.aiCanTransferToHuman) {
-    if (transferTo) {
-      const extra = `\n\nIf the caller asks for a human or the situation requires it, transfer the call to ${transferTo}. Use the call transfer tool when appropriate.`;
-      promptOverride = `${promptOverride}${extra}`.trim();
-    } else {
-      const extra = "\n\nIf the caller asks for a human, explain that call transfer isn’t configured and offer to take a message.";
-      promptOverride = `${promptOverride}${extra}`.trim();
-    }
-  }
-  promptOverride = promptOverride.slice(0, 6000);
 
   // Match the working outbound integration: ElevenLabs expects `from_number` to be the Twilio number and
   // `to_number` to be the remote party. For inbound calls, the remote party is the caller.
@@ -497,19 +419,6 @@ async function handle(req: Request, token: string) {
           twilio_from_number: fromNumberForAgent,
           transfer_number: transferTo || "",
           ai_transfer_enabled: settings.aiCanTransferToHuman ? true : false,
-        },
-        conversation_config_override: {
-          agent: {
-            ...(greeting.trim() ? { first_message: greeting.trim().slice(0, 360) } : {}),
-            ...(promptOverride.trim()
-              ? {
-                  prompt: {
-                    prompt: promptOverride.trim().slice(0, 6000),
-                    ...(transferToolIds.length ? { tool_ids: transferToolIds } : {}),
-                  },
-                }
-              : {}),
-          },
         },
       },
     }),
