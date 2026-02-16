@@ -76,11 +76,16 @@ export function ConnectRoomClient(props: { roomId: string; signedInName?: string
 	const participantsRef = useRef<ParticipantPublic[]>([]);
 	const storedCredsFoundRef = useRef<boolean>(false);
 	const autoJoinAttemptedRef = useRef(false);
+	const myCredsRef = useRef<ParticipantCreds | null>(null);
 	const pollingRef = useRef<boolean>(false);
 	const pollTimerRef = useRef<number | null>(null);
 	const participantsTimerRef = useRef<number | null>(null);
 
 	const shareUrl = useMemo(() => (typeof window === "undefined" ? "" : window.location.href), []);
+
+	useEffect(() => {
+		myCredsRef.current = myCreds;
+	}, [myCreds]);
 
 	function getLocalStream() {
 		return localStreamRef.current;
@@ -207,7 +212,8 @@ export function ConnectRoomClient(props: { roomId: string; signedInName?: string
 
 			// If we are the offerer for this peer, negotiationneeded will fire.
 			// For extra safety, kick it if stable.
-			if (myCreds && isOfferer(myCreds.participantId, remoteId) && pc.signalingState === "stable") {
+			const creds = myCredsRef.current;
+			if (creds && isOfferer(creds.participantId, remoteId) && pc.signalingState === "stable") {
 				void sendOffer(remoteId).catch(() => null);
 			}
 		}
@@ -256,8 +262,9 @@ export function ConnectRoomClient(props: { roomId: string; signedInName?: string
 		attachLocalTracksToPeer(pc);
 
 		pc.onnegotiationneeded = () => {
-			if (!myCreds) return;
-			if (!isOfferer(myCreds.participantId, remoteParticipantId)) return;
+			const creds = myCredsRef.current;
+			if (!creds) return;
+			if (!isOfferer(creds.participantId, remoteParticipantId)) return;
 			if (pc.signalingState !== "stable") return;
 			if (makingOfferRef.current.get(remoteParticipantId)) return;
 
@@ -267,8 +274,8 @@ export function ConnectRoomClient(props: { roomId: string; signedInName?: string
 					const offer = await pc.createOffer({ offerToReceiveAudio: true, offerToReceiveVideo: true });
 					await pc.setLocalDescription(offer);
 					await apiPost(`/api/connect/rooms/${encodeURIComponent(roomId)}/signal`, {
-						participantId: myCreds.participantId,
-						secret: myCreds.secret,
+						participantId: creds.participantId,
+						secret: creds.secret,
 						toParticipantId: remoteParticipantId,
 						kind: "offer",
 						payload: pc.localDescription,
@@ -283,11 +290,12 @@ export function ConnectRoomClient(props: { roomId: string; signedInName?: string
 
 		pc.onicecandidate = (ev) => {
 			if (!ev.candidate) return;
-			if (!myCreds) return;
+			const creds = myCredsRef.current;
+			if (!creds) return;
 
 			void apiPost(`/api/connect/rooms/${encodeURIComponent(roomId)}/signal`, {
-				participantId: myCreds.participantId,
-				secret: myCreds.secret,
+				participantId: creds.participantId,
+				secret: creds.secret,
 				toParticipantId: remoteParticipantId,
 				kind: "ice",
 				payload: ev.candidate.toJSON(),
@@ -324,15 +332,16 @@ export function ConnectRoomClient(props: { roomId: string; signedInName?: string
 	}
 
 	async function sendOffer(remoteParticipantId: string) {
-		if (!myCreds) return;
+		const creds = myCredsRef.current;
+		if (!creds) return;
 		const pc = getOrCreatePeer(remoteParticipantId);
 		if (pc.signalingState !== "stable") return;
 		const offer = await pc.createOffer({ offerToReceiveAudio: true, offerToReceiveVideo: true });
 		await pc.setLocalDescription(offer);
 
 		await apiPost(`/api/connect/rooms/${encodeURIComponent(roomId)}/signal`, {
-			participantId: myCreds.participantId,
-			secret: myCreds.secret,
+			participantId: creds.participantId,
+			secret: creds.secret,
 			toParticipantId: remoteParticipantId,
 			kind: "offer",
 			payload: pc.localDescription,
@@ -340,7 +349,8 @@ export function ConnectRoomClient(props: { roomId: string; signedInName?: string
 	}
 
 	async function handleOffer(fromParticipantId: string, payload: any) {
-		if (!myCreds) return;
+		const creds = myCredsRef.current;
+		if (!creds) return;
 		const pc = getOrCreatePeer(fromParticipantId);
 
 		await pc.setRemoteDescription(payload as RTCSessionDescriptionInit);
@@ -356,8 +366,8 @@ export function ConnectRoomClient(props: { roomId: string; signedInName?: string
 		await pc.setLocalDescription(answer);
 
 		await apiPost(`/api/connect/rooms/${encodeURIComponent(roomId)}/signal`, {
-			participantId: myCreds.participantId,
-			secret: myCreds.secret,
+			participantId: creds.participantId,
+			secret: creds.secret,
 			toParticipantId: fromParticipantId,
 			kind: "answer",
 			payload: pc.localDescription,
@@ -398,11 +408,12 @@ export function ConnectRoomClient(props: { roomId: string; signedInName?: string
 	}
 
 	async function pollSignalsOnce() {
-		if (!myCreds) return;
+		const creds = myCredsRef.current;
+		if (!creds) return;
 
 		const url = new URL(`/api/connect/rooms/${encodeURIComponent(roomId)}/signal`, window.location.origin);
-		url.searchParams.set("participantId", myCreds.participantId);
-		url.searchParams.set("secret", myCreds.secret);
+		url.searchParams.set("participantId", creds.participantId);
+		url.searchParams.set("secret", creds.secret);
 		url.searchParams.set("afterSeq", String(afterSeqRef.current));
 		url.searchParams.set("limit", "50");
 
@@ -451,25 +462,26 @@ export function ConnectRoomClient(props: { roomId: string; signedInName?: string
 	}
 
 	async function refreshParticipantsOnce() {
-		if (!myCreds) return;
+		const creds = myCredsRef.current;
+		if (!creds) return;
 
 		const url = new URL(`/api/connect/rooms/${encodeURIComponent(roomId)}/participants`, window.location.origin);
-		url.searchParams.set("participantId", myCreds.participantId);
-		url.searchParams.set("secret", myCreds.secret);
+		url.searchParams.set("participantId", creds.participantId);
+		url.searchParams.set("secret", creds.secret);
 
 		const res = await apiGet<{ ok: boolean; participants: ParticipantPublic[] }>(url.toString());
 		if (!res.ok) return;
 
 		setParticipants(res.participants ?? []);
 
-		const others = (res.participants ?? []).filter((p) => p.id !== myCreds.participantId);
+		const others = (res.participants ?? []).filter((p) => p.id !== creds.participantId);
 		for (const p of others) {
 			// Ensure peer exists
 			const already = peerMapRef.current.get(p.id);
 			if (!already) getOrCreatePeer(p.id);
 
 			// Deterministic caller: only offerer sends offer
-			if (isOfferer(myCreds.participantId, p.id)) {
+			if (isOfferer(creds.participantId, p.id)) {
 				// If we have no remote description yet, kick off an offer.
 				const pc = peerMapRef.current.get(p.id);
 				if (pc && !pc.currentRemoteDescription && pc.signalingState === "stable") {
@@ -527,6 +539,7 @@ export function ConnectRoomClient(props: { roomId: string; signedInName?: string
 				displayName: joinRes.participant.displayName,
 				isGuest: joinRes.participant.isGuest,
 			};
+			myCredsRef.current = creds;
 
 			setMyCreds(creds);
 			setParticipants([...(joinRes.others ?? []), { id: creds.participantId, displayName: creds.displayName, isGuest: creds.isGuest, createdAt: new Date().toISOString() }]);
@@ -594,6 +607,7 @@ export function ConnectRoomClient(props: { roomId: string; signedInName?: string
 			setIsSharing(false);
 
 			localStorage.removeItem(storageKey(roomId));
+			myCredsRef.current = null;
 			setMyCreds(null);
 			setParticipants([]);
 			setInfo("Left the meeting.");
