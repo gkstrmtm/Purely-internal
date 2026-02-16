@@ -64,21 +64,23 @@ function isOfferer(myId: string, otherId: string) {
 export function ConnectRoomClient(props: { roomId: string; signedInName?: string | null }) {
 	const roomId = props.roomId;
 
+	type ToastKind = "info" | "warn" | "error";
+	type ToastAction = { label: string; onClick: () => void };
+	type ToastItem = { id: string; kind: ToastKind; message: string; details?: string | null; actions?: ToastAction[] };
+
 	const [myCreds, setMyCreds] = useState<ParticipantCreds | null>(null);
 	const [participants, setParticipants] = useState<ParticipantPublic[]>([]);
 	const [joinName, setJoinName] = useState<string>(props.signedInName ?? "");
 	const [joining, setJoining] = useState(false);
-	const [error, setError] = useState<string | null>(null);
-	const [info, setInfo] = useState<string | null>(null);
-	const [mediaWarning, setMediaWarning] = useState<string | null>(null);
-	const [mediaDetails, setMediaDetails] = useState<string | null>(null);
+	const [toasts, setToasts] = useState<ToastItem[]>([]);
 
 	const [localStreamReady, setLocalStreamReady] = useState(false);
 	const [isMuted, setIsMuted] = useState(false);
 	const [isVideoOff, setIsVideoOff] = useState(false);
 	const [isSharing, setIsSharing] = useState(false);
 	const [remoteMediaState, setRemoteMediaState] = useState<Record<string, MediaState>>({});
-	const [hudVisible, setHudVisible] = useState(true);
+	const [chromeVisible, setChromeVisible] = useState(true);
+	const [tileHudVisible, setTileHudVisible] = useState(false);
 	const [mirrorSelf, setMirrorSelf] = useState(true);
 
 	const [remoteTiles, setRemoteTiles] = useState<Array<{ id: string; displayName: string; stream: MediaStream }>>([]);
@@ -98,7 +100,8 @@ export function ConnectRoomClient(props: { roomId: string; signedInName?: string
 	const pollingRef = useRef<boolean>(false);
 	const pollTimerRef = useRef<number | null>(null);
 	const participantsTimerRef = useRef<number | null>(null);
-	const hudTimerRef = useRef<number | null>(null);
+	const chromeTimerRef = useRef<number | null>(null);
+	const toastTimersRef = useRef<Map<string, number>>(new Map());
 
 	const meetingUrl = useMemo(() => {
 		if (typeof window === "undefined") return "";
@@ -115,23 +118,55 @@ export function ConnectRoomClient(props: { roomId: string; signedInName?: string
 		}
 	}, []);
 
-	function showHudTemporarily() {
-		setHudVisible(true);
-		if (hudTimerRef.current) window.clearTimeout(hudTimerRef.current);
-		hudTimerRef.current = window.setTimeout(() => setHudVisible(false), 5000);
+	function clearToastTimer(id: string) {
+		const t = toastTimersRef.current.get(id);
+		if (t) window.clearTimeout(t);
+		toastTimersRef.current.delete(id);
 	}
 
-	function toggleHud() {
-		setHudVisible((prev) => {
-			const next = !prev;
-			if (next) showHudTemporarily();
-			else {
-				if (hudTimerRef.current) window.clearTimeout(hudTimerRef.current);
-				hudTimerRef.current = null;
-			}
-			return next;
-		});
+	function dismissToast(id: string) {
+		clearToastTimer(id);
+		setToasts((prev) => prev.filter((t) => t.id !== id));
 	}
+
+	function showToast(kind: ToastKind, message: string, opts?: { details?: string | null; actions?: ToastAction[]; ttlMs?: number }) {
+		const id = `${Date.now()}_${Math.random().toString(16).slice(2)}`;
+		setToasts((prev) => [{ id, kind, message, details: opts?.details ?? null, actions: opts?.actions }, ...prev].slice(0, 3));
+		const ttlMs =
+			opts?.ttlMs ??
+			(kind === "info" ? 2200 : kind === "warn" ? 4500 : 5500);
+		toastTimersRef.current.set(
+			id,
+			window.setTimeout(() => dismissToast(id), ttlMs),
+		);
+	}
+
+	function showChromeTemporarily() {
+		setChromeVisible(true);
+		if (chromeTimerRef.current) window.clearTimeout(chromeTimerRef.current);
+		const isFinePointer = typeof window !== "undefined" && window.matchMedia?.("(pointer:fine)")?.matches;
+		chromeTimerRef.current = window.setTimeout(() => setChromeVisible(false), isFinePointer ? 1800 : 4500);
+	}
+
+	function toggleTileHud() {
+		setTileHudVisible((prev) => !prev);
+	}
+
+	useEffect(() => {
+		if (typeof window === "undefined") return;
+		const onMove = () => showChromeTemporarily();
+		window.addEventListener("mousemove", onMove, { passive: true });
+		window.addEventListener("touchstart", onMove, { passive: true });
+		showChromeTemporarily();
+		return () => {
+			window.removeEventListener("mousemove", onMove);
+			window.removeEventListener("touchstart", onMove);
+			if (chromeTimerRef.current) window.clearTimeout(chromeTimerRef.current);
+			chromeTimerRef.current = null;
+			for (const id of toastTimersRef.current.keys()) clearToastTimer(id);
+		};
+		// eslint-disable-next-line react-hooks/exhaustive-deps
+	}, []);
 
 	useEffect(() => {
 		myCredsRef.current = myCreds;
@@ -238,15 +273,13 @@ export function ConnectRoomClient(props: { roomId: string; signedInName?: string
 
 	async function ensureLocalMedia() {
 		if (localStreamRef.current) return localStreamRef.current;
-		setMediaWarning(null);
-		setMediaDetails(null);
 
 		if (typeof navigator === "undefined") throw new Error("No navigator");
 		if (!navigator.mediaDevices?.getUserMedia) {
 			const warning = typeof window !== "undefined" && !window.isSecureContext
 				? "Camera/mic require HTTPS. Please use https://purelyautomation.com/connect"
 				: "This browser doesn’t support camera/mic access.";
-			setMediaWarning(warning);
+			showToast("warn", warning);
 			throw new Error(warning);
 		}
 
@@ -265,6 +298,32 @@ export function ConnectRoomClient(props: { roomId: string; signedInName?: string
 		}
 
 		return stream;
+	}
+
+	function toastMediaIssue(err: unknown) {
+		const d = describeGetUserMediaError(err);
+		showToast("warn", d.warning, {
+			details: d.details,
+			actions: [
+				{
+					label: "Retry",
+					onClick: () => {
+						showChromeTemporarily();
+						void ensureLocalMedia()
+							.then((stream) => attachLocalTracksToExistingPeers(stream))
+							.catch(() => null);
+					},
+				},
+				{
+					label: "Help",
+					onClick: () => {
+						showChromeTemporarily();
+						window.open("https://support.google.com/chrome/answer/2693767", "_blank", "noopener,noreferrer");
+					},
+				},
+			],
+			ttlMs: 8000,
+		});
 	}
 
 	async function shouldAutoStartMedia() {
@@ -448,7 +507,11 @@ export function ConnectRoomClient(props: { roomId: string; signedInName?: string
 
 		pc.oniceconnectionstatechange = () => {
 			if (pc.iceConnectionState === "failed") {
-				setMediaDetails("ICE connection failed. This is often a network/firewall issue. If you have a TURN server configured, it should resolve this.");
+				showToast(
+					"warn",
+					"Connection trouble (ICE failed).",
+					{ details: "Often a network/firewall issue. Try a different network or refresh." },
+				);
 			}
 		};
 
@@ -667,9 +730,7 @@ export function ConnectRoomClient(props: { roomId: string; signedInName?: string
 
 	async function onJoin() {
 		if (myCreds) return;
-		setError(null);
-		setInfo(null);
-		setMediaWarning(null);
+		setToasts([]);
 		setJoining(true);
 
 		try {
@@ -705,13 +766,11 @@ export function ConnectRoomClient(props: { roomId: string; signedInName?: string
 			startPolling();
 			startParticipantsRefresh();
 			void broadcastMediaState({ audioEnabled: !isMuted, videoEnabled: !isVideoOff, isSharing }).catch(() => null);
-			showHudTemporarily();
+			showChromeTemporarily();
 			void ensureLocalMedia()
 				.then((stream) => attachLocalTracksToExistingPeers(stream))
 				.catch((err) => {
-					const d = describeGetUserMediaError(err);
-					setMediaWarning(d.warning);
-					setMediaDetails(d.details);
+					toastMediaIssue(err);
 				});
 
 			// If we already see others, offer where appropriate.
@@ -722,15 +781,14 @@ export function ConnectRoomClient(props: { roomId: string; signedInName?: string
 				}
 			}
 		} catch (e) {
-			setError(e instanceof Error ? e.message : "Failed to join");
+			showToast("error", e instanceof Error ? e.message : "Failed to join");
 		} finally {
 			setJoining(false);
 		}
 	}
 
 	async function onLeave() {
-		setInfo(null);
-		setError(null);
+		setToasts([]);
 
 		try {
 			if (myCreds) {
@@ -770,11 +828,12 @@ export function ConnectRoomClient(props: { roomId: string; signedInName?: string
 			setIsMuted(false);
 			setIsVideoOff(false);
 			setIsSharing(false);
-			setHudVisible(true);
-			if (hudTimerRef.current) window.clearTimeout(hudTimerRef.current);
-			hudTimerRef.current = null;
+			setChromeVisible(true);
+			if (chromeTimerRef.current) window.clearTimeout(chromeTimerRef.current);
+			chromeTimerRef.current = null;
+			setTileHudVisible(false);
 			setParticipants([]);
-			setInfo("Left the meeting.");
+			showToast("info", "Left the meeting.");
 		}
 	}
 
@@ -786,9 +845,7 @@ export function ConnectRoomClient(props: { roomId: string; signedInName?: string
 					local = await ensureLocalMedia();
 					attachLocalTracksToExistingPeers(local);
 				} catch (err) {
-					const d = describeGetUserMediaError(err);
-					setMediaWarning(d.warning);
-					setMediaDetails(d.details);
+					toastMediaIssue(err);
 					return;
 				}
 			}
@@ -798,7 +855,7 @@ export function ConnectRoomClient(props: { roomId: string; signedInName?: string
 			for (const t of audioTracks) t.enabled = !nextMuted;
 			setIsMuted(nextMuted);
 			void broadcastMediaState({ audioEnabled: nextMuted ? false : true, videoEnabled: !isVideoOff, isSharing }).catch(() => null);
-			showHudTemporarily();
+			showChromeTemporarily();
 		})();
 	}
 
@@ -810,9 +867,7 @@ export function ConnectRoomClient(props: { roomId: string; signedInName?: string
 					local = await ensureLocalMedia();
 					attachLocalTracksToExistingPeers(local);
 				} catch (err) {
-					const d = describeGetUserMediaError(err);
-					setMediaWarning(d.warning);
-					setMediaDetails(d.details);
+					toastMediaIssue(err);
 					return;
 				}
 			}
@@ -823,7 +878,7 @@ export function ConnectRoomClient(props: { roomId: string; signedInName?: string
 				for (const t of local.getVideoTracks()) t.enabled = false;
 				setIsVideoOff(true);
 				void broadcastMediaState({ audioEnabled: !isMuted, videoEnabled: false, isSharing }).catch(() => null);
-				showHudTemporarily();
+				showChromeTemporarily();
 				return;
 			}
 
@@ -833,20 +888,17 @@ export function ConnectRoomClient(props: { roomId: string; signedInName?: string
 				for (const t of local.getVideoTracks()) t.enabled = true;
 				setIsVideoOff(false);
 				void broadcastMediaState({ audioEnabled: !isMuted, videoEnabled: true, isSharing }).catch(() => null);
-				showHudTemporarily();
+				showChromeTemporarily();
 			} catch (err) {
-				const d = describeGetUserMediaError(err);
-				setMediaWarning(d.warning);
-				setMediaDetails(d.details);
+				toastMediaIssue(err);
 			}
 		})();
 	}
 
 	async function startShare() {
 		if (isSharing) return;
-		setError(null);
 		if (!navigator.mediaDevices?.getDisplayMedia) {
-			setError("Screen share is not currently supported on mobile.");
+			showToast("warn", "Screen share is not currently supported on mobile.");
 			return;
 		}
 
@@ -868,7 +920,7 @@ export function ConnectRoomClient(props: { roomId: string; signedInName?: string
 			}
 			void broadcastMediaState({ audioEnabled: !isMuted, videoEnabled: true, isSharing: true }).catch(() => null);
 		} catch (e) {
-			setError("Screen share is not currently supported on this device.");
+			showToast("warn", "Screen share is not currently supported on this device.");
 		}
 	}
 
@@ -890,13 +942,11 @@ export function ConnectRoomClient(props: { roomId: string; signedInName?: string
 	}
 
 	async function copyLink() {
-		setInfo(null);
-		setError(null);
 		try {
 			await navigator.clipboard.writeText(meetingUrl);
-			setInfo("Copied meeting link.");
+			showToast("info", "Copied meeting link.");
 		} catch {
-			setError("Could not copy link");
+			showToast("error", "Could not copy link");
 		}
 	}
 
@@ -974,11 +1024,11 @@ export function ConnectRoomClient(props: { roomId: string; signedInName?: string
 					try {
 						if (await shouldAutoStartMedia()) await ensureLocalMedia();
 					} catch {
-						setMediaWarning("Tap the screen or press the mic/camera buttons to enable camera and microphone.");
+						showToast("info", "Tap the mic/camera buttons to enable audio/video.");
 					}
 				})();
 				void broadcastMediaState({ audioEnabled: !isMuted, videoEnabled: !isVideoOff, isSharing }).catch(() => null);
-				showHudTemporarily();
+				showChromeTemporarily();
 				if (cancelled) return;
 				await refreshParticipantsOnce();
 			} catch {
@@ -1021,11 +1071,59 @@ export function ConnectRoomClient(props: { roomId: string; signedInName?: string
 
 	return (
 		<div className="min-h-screen bg-brand-mist text-brand-ink">
+			<div className="fixed left-1/2 top-4 z-50 w-[min(560px,calc(100vw-2rem))] -translate-x-1/2 space-y-2 px-2">
+				{toasts.map((t) => (
+					<div
+						key={t.id}
+						role="status"
+						className={
+							"rounded-2xl border px-4 py-3 shadow-lg backdrop-blur " +
+							(t.kind === "error"
+								? "border-red-200 bg-red-50/95 text-red-900"
+								: t.kind === "warn"
+									? "border-amber-200 bg-amber-50/95 text-amber-900"
+									: "border-zinc-200 bg-white/95 text-zinc-900")
+						}
+					>
+						<div className="flex items-start justify-between gap-3">
+							<div className="min-w-0">
+								<div className="text-base font-medium">{t.message}</div>
+								{t.details ? <div className="mt-1 text-sm opacity-80">{t.details}</div> : null}
+								{t.actions?.length ? (
+									<div className="mt-2 flex flex-wrap gap-2">
+										{t.actions.map((a) => (
+											<button
+												key={a.label}
+												onClick={() => {
+													a.onClick();
+													dismissToast(t.id);
+												}}
+												className="rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-sm font-semibold hover:bg-zinc-50"
+											>
+												{a.label}
+											</button>
+										))}
+									</div>
+								) : null}
+							</div>
+							<button
+								onClick={() => dismissToast(t.id)}
+								className="shrink-0 rounded-full border border-zinc-200 bg-white px-3 py-1 text-sm hover:bg-zinc-50"
+								aria-label="Dismiss"
+								title="Dismiss"
+							>
+								×
+							</button>
+						</div>
+					</div>
+				))}
+			</div>
+
 			<div className="mx-auto w-full max-w-none px-4 py-6 sm:px-6 sm:py-8">
 				<div
 					className={
 						"flex flex-col gap-3 transition sm:flex-row sm:items-center sm:justify-between " +
-						(hudVisible ? "opacity-100" : "pointer-events-none opacity-0")
+						(chromeVisible ? "opacity-100" : "pointer-events-none opacity-0")
 					}
 					onClick={(e) => e.stopPropagation()}
 				>
@@ -1075,8 +1173,6 @@ export function ConnectRoomClient(props: { roomId: string; signedInName?: string
 							</button>
 						</div>
 
-						{error ? <div className="mt-4 rounded-2xl border border-red-200 bg-red-50 px-4 py-3 text-base text-red-700">{error}</div> : null}
-						{info ? <div className="mt-4 rounded-2xl border border-zinc-200 bg-zinc-50 px-4 py-3 text-base text-zinc-700">{info}</div> : null}
 					</div>
 				) : (
 					<div className="mt-6">
@@ -1088,44 +1184,14 @@ export function ConnectRoomClient(props: { roomId: string; signedInName?: string
 							</div>
 						) : null}
 
-						{mediaWarning ? (
-							<div className="mt-4 rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-base text-amber-800">
-								{mediaWarning}
-								<div className="mt-2 flex flex-wrap gap-2">
-									<button
-										onClick={() => {
-											void ensureLocalMedia()
-												.then((stream) => attachLocalTracksToExistingPeers(stream))
-												.catch((err) => {
-													const d = describeGetUserMediaError(err);
-													setMediaWarning(d.warning);
-													setMediaDetails(d.details);
-												});
-										}}
-										className="rounded-2xl bg-brand-ink px-4 py-2 text-base font-semibold text-white hover:opacity-95"
-									>
-										Retry
-									</button>
-									<a
-										href="https://support.google.com/chrome/answer/2693767"
-										target="_blank"
-										rel="noreferrer"
-										className="rounded-2xl border border-amber-200 bg-white px-4 py-2 text-base text-amber-900 hover:bg-amber-100"
-									>
-										Help
-									</a>
-								</div>
-								{mediaDetails ? <div className="mt-2 text-sm text-amber-900/80">{mediaDetails}</div> : null}
-							</div>
-						) : null}
-						{error ? <div className="mt-4 rounded-2xl border border-red-200 bg-red-50 px-4 py-3 text-base text-red-700">{error}</div> : null}
-						{info ? <div className="mt-4 rounded-2xl border border-zinc-200 bg-zinc-50 px-4 py-3 text-base text-zinc-700">{info}</div> : null}
-
 						<div
 							className={
 								"mt-4 grid gap-2 sm:gap-3 grid-cols-1 grid-rows-2 sm:grid-cols-2 sm:grid-rows-1 " + stageHeightClass
 							}
-							onClick={toggleHud}
+							onClick={() => {
+								toggleTileHud();
+								showChromeTemporarily();
+							}}
 						>
 							<StageTile
 								label="You"
@@ -1144,7 +1210,7 @@ export function ConnectRoomClient(props: { roomId: string; signedInName?: string
 								audioEnabled={!isMuted}
 								isSharing={isSharing}
 								loading={!localStreamReady}
-								hudVisible={hudVisible}
+								hudVisible={tileHudVisible}
 							/>
 
 							{remoteTiles.length ? (
@@ -1153,7 +1219,7 @@ export function ConnectRoomClient(props: { roomId: string; signedInName?: string
 										key={t.id}
 										tile={t}
 										media={remoteMediaState[t.id]}
-										hudVisible={hudVisible}
+										hudVisible={tileHudVisible}
 									/>
 								))
 							) : otherParticipants.length ? (
@@ -1181,7 +1247,7 @@ export function ConnectRoomClient(props: { roomId: string; signedInName?: string
 						<div
 							className={
 								"fixed inset-x-0 bottom-5 z-10 flex justify-center px-4 transition " +
-								(hudVisible ? "opacity-100" : "pointer-events-none opacity-0")
+								(chromeVisible ? "opacity-100" : "pointer-events-none opacity-0")
 							}
 							onClick={(e) => e.stopPropagation()}
 						>
@@ -1215,12 +1281,12 @@ export function ConnectRoomClient(props: { roomId: string; signedInName?: string
 											} catch {
 												// ignore
 											}
-											showHudTemporarily();
+											showChromeTemporarily();
 											return next;
 										});
 									}}
 									active={true}
-									icon={<FlipCameraIcon />}
+									icon={<RotateIcon />}
 								/>
 								<div className="mx-1 h-8 w-px bg-zinc-200" />
 								<button
@@ -1355,25 +1421,23 @@ function ScreenStopIcon() {
 	);
 }
 
-function FlipCameraIcon() {
+function RotateIcon() {
 	return (
 		<svg width="20" height="20" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" className="text-zinc-900">
 			<path
-				d="M4 7h6a2 2 0 0 1 2 2v8H6a2 2 0 0 1-2-2V7Z"
+				d="M21 12a9 9 0 0 0-15.36-6.36"
 				stroke="currentColor"
 				strokeWidth="2"
-				strokeLinejoin="round"
+				strokeLinecap="round"
 			/>
 			<path
-				d="M14 9l4-2v10l-4-2V9Z"
+				d="M3 12a9 9 0 0 0 15.36 6.36"
 				stroke="currentColor"
 				strokeWidth="2"
-				strokeLinejoin="round"
+				strokeLinecap="round"
 			/>
-			<path d="M7 5h6" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
-			<path d="M16 5h3" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
-			<path d="M19 5l-1.2-1.2" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
-			<path d="M19 5l-1.2 1.2" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
+			<path d="M6 5v4h4" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+			<path d="M18 19v-4h-4" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
 		</svg>
 	);
 }
