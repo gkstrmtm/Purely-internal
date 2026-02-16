@@ -41,6 +41,14 @@ function lastGuestNameKey() {
 	return "pa.connect.lastGuestName";
 }
 
+function mediaGrantedKey() {
+	return "pa.connect.mediaGranted";
+}
+
+function mirrorPrefKey() {
+	return "pa.connect.mirrorSelf";
+}
+
 function safeName(s: string) {
 	return String(s || "")
 		.replace(/[\r\n\t]+/g, " ")
@@ -71,6 +79,7 @@ export function ConnectRoomClient(props: { roomId: string; signedInName?: string
 	const [isSharing, setIsSharing] = useState(false);
 	const [remoteMediaState, setRemoteMediaState] = useState<Record<string, MediaState>>({});
 	const [hudVisible, setHudVisible] = useState(true);
+	const [mirrorSelf, setMirrorSelf] = useState(true);
 
 	const [remoteTiles, setRemoteTiles] = useState<Array<{ id: string; displayName: string; stream: MediaStream }>>([]);
 
@@ -92,6 +101,16 @@ export function ConnectRoomClient(props: { roomId: string; signedInName?: string
 	const hudTimerRef = useRef<number | null>(null);
 
 	const shareUrl = useMemo(() => (typeof window === "undefined" ? "" : window.location.href), []);
+
+	useEffect(() => {
+		try {
+			const raw = localStorage.getItem(mirrorPrefKey());
+			if (raw === "0") setMirrorSelf(false);
+			if (raw === "1") setMirrorSelf(true);
+		} catch {
+			// ignore
+		}
+	}, []);
 
 	function showHudTemporarily() {
 		setHudVisible(true);
@@ -231,6 +250,11 @@ export function ConnectRoomClient(props: { roomId: string; signedInName?: string
 		const stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
 		localStreamRef.current = stream;
 		setLocalStreamReady(true);
+		try {
+			localStorage.setItem(mediaGrantedKey(), "1");
+		} catch {
+			// ignore
+		}
 
 		if (localVideoRef.current) {
 			localVideoRef.current.srcObject = stream;
@@ -238,6 +262,28 @@ export function ConnectRoomClient(props: { roomId: string; signedInName?: string
 		}
 
 		return stream;
+	}
+
+	async function shouldAutoStartMedia() {
+		// Goal: avoid re-prompting on refresh for browsers that require a user gesture.
+		// If Permissions API indicates "granted" OR we previously succeeded, we can auto-start.
+		let previouslyGranted = false;
+		try {
+			previouslyGranted = localStorage.getItem(mediaGrantedKey()) === "1";
+		} catch {
+			// ignore
+		}
+		if (previouslyGranted) return true;
+
+		const perms = (navigator as any)?.permissions;
+		if (!perms?.query) return false;
+		try {
+			const cam = await perms.query({ name: "camera" });
+			const mic = await perms.query({ name: "microphone" });
+			return cam?.state === "granted" && mic?.state === "granted";
+		} catch {
+			return false;
+		}
 	}
 
 	async function ensureCameraTrackOn() {
@@ -921,9 +967,13 @@ export function ConnectRoomClient(props: { roomId: string; signedInName?: string
 			try {
 				startPolling();
 				startParticipantsRefresh();
-				void ensureLocalMedia().catch(() => {
-					setMediaWarning("Camera/mic permissions blocked. You can still connect, but allow permissions to send video/audio.");
-				});
+				void (async () => {
+					try {
+						if (await shouldAutoStartMedia()) await ensureLocalMedia();
+					} catch {
+						setMediaWarning("Tap the screen or press the mic/camera buttons to enable camera and microphone.");
+					}
+				})();
 				void broadcastMediaState({ audioEnabled: !isMuted, videoEnabled: !isVideoOff, isSharing }).catch(() => null);
 				showHudTemporarily();
 				if (cancelled) return;
@@ -959,12 +1009,23 @@ export function ConnectRoomClient(props: { roomId: string; signedInName?: string
 		return `In call with ${others.map((p) => p.displayName).join(", ")}`;
 	}, [participants, myCreds]);
 
-	const stageHeightClass = "h-[calc(100svh-190px)] sm:h-[calc(100svh-170px)]";
+	const othersCount = myCreds ? participants.filter((p) => p.id !== myCreds.participantId).length : 0;
+	const showPreCallInfo = myCreds ? othersCount === 0 : true;
+
+	const stageHeightClass = showPreCallInfo
+		? "h-[calc(100svh-190px)] sm:h-[calc(100svh-170px)]"
+		: "h-[calc(100svh-140px)] sm:h-[calc(100svh-120px)]";
 
 	return (
 		<div className="min-h-screen bg-brand-mist text-brand-ink">
 			<div className="mx-auto w-full max-w-none px-4 py-6 sm:px-6 sm:py-8">
-				<div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+				<div
+					className={
+						"flex flex-col gap-3 transition sm:flex-row sm:items-center sm:justify-between " +
+						(hudVisible ? "opacity-100" : "pointer-events-none opacity-0")
+					}
+					onClick={(e) => e.stopPropagation()}
+				>
 					<div>
 						<div className="flex items-center gap-3">
 							<div className="relative h-8 w-32">
@@ -1016,13 +1077,13 @@ export function ConnectRoomClient(props: { roomId: string; signedInName?: string
 					</div>
 				) : (
 					<div className="mt-6">
-						<div className="flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between">
-							<div>
+						{showPreCallInfo ? (
+							<div className="mb-2">
 								<div className="text-sm text-zinc-600">Signed in as</div>
 								<div className="text-xl font-semibold text-zinc-900">{myName || "You"}</div>
 								<div className="mt-1 text-base text-zinc-600">{statusLine}</div>
 							</div>
-						</div>
+						) : null}
 
 						{mediaWarning ? (
 							<div className="mt-4 rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-base text-amber-800">
@@ -1067,7 +1128,14 @@ export function ConnectRoomClient(props: { roomId: string; signedInName?: string
 								label="You"
 								name={myName || "You"}
 								videoEl={
-									<video ref={localVideoRef} muted playsInline autoPlay className="h-full w-full object-cover" />
+									<video
+										ref={localVideoRef}
+										muted
+										playsInline
+										autoPlay
+										className="h-full w-full object-cover"
+										style={{ transform: mirrorSelf ? "scaleX(-1)" : undefined }}
+									/>
 								}
 								videoEnabled={!isVideoOff}
 								audioEnabled={!isMuted}
@@ -1107,7 +1175,13 @@ export function ConnectRoomClient(props: { roomId: string; signedInName?: string
 							)}
 						</div>
 
-						<div className="fixed inset-x-0 bottom-5 z-10 flex justify-center px-4">
+						<div
+							className={
+								"fixed inset-x-0 bottom-5 z-10 flex justify-center px-4 transition " +
+								(hudVisible ? "opacity-100" : "pointer-events-none opacity-0")
+							}
+							onClick={(e) => e.stopPropagation()}
+						>
 							<div className="flex items-center gap-2 rounded-full border border-zinc-200 bg-white/90 px-2 py-2 shadow-lg backdrop-blur">
 								<IconButton
 									label={isMuted ? "Unmute" : "Mute"}
@@ -1120,6 +1194,23 @@ export function ConnectRoomClient(props: { roomId: string; signedInName?: string
 									onClick={toggleVideo}
 									active={!isVideoOff}
 									icon={isVideoOff ? <VideoOffIcon /> : <VideoIcon />}
+								/>
+								<IconButton
+									label={mirrorSelf ? "Unmirror" : "Mirror"}
+									onClick={() => {
+										setMirrorSelf((prev) => {
+											const next = !prev;
+											try {
+												localStorage.setItem(mirrorPrefKey(), next ? "1" : "0");
+											} catch {
+												// ignore
+											}
+											showHudTemporarily();
+											return next;
+										});
+									}}
+									active={true}
+									icon={<FlipCameraIcon />}
 								/>
 								<IconButton
 									label={!isSharing ? "Share screen" : "Stop sharing"}
@@ -1256,6 +1347,29 @@ function ScreenStopIcon() {
 			<path d="M12 14v6" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
 			<path d="M8 20h8" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
 			<path d="M9 7h6" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
+		</svg>
+	);
+}
+
+function FlipCameraIcon() {
+	return (
+		<svg width="20" height="20" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" className="text-zinc-900">
+			<path
+				d="M4 7h6a2 2 0 0 1 2 2v8H6a2 2 0 0 1-2-2V7Z"
+				stroke="currentColor"
+				strokeWidth="2"
+				strokeLinejoin="round"
+			/>
+			<path
+				d="M14 9l4-2v10l-4-2V9Z"
+				stroke="currentColor"
+				strokeWidth="2"
+				strokeLinejoin="round"
+			/>
+			<path d="M7 5h6" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
+			<path d="M16 5h3" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
+			<path d="M19 5l-1.2-1.2" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
+			<path d="M19 5l-1.2 1.2" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
 		</svg>
 	);
 }
