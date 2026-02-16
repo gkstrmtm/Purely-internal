@@ -1,8 +1,6 @@
 import Link from "next/link";
 import Image from "next/image";
 import type { Metadata } from "next";
-
-import { SignOutButton } from "@/components/SignOutButton";
 import { getPortalUser } from "@/lib/portalAuth";
 import { PortalHeaderCta } from "@/app/portal/PortalHeaderCta";
 
@@ -62,7 +60,12 @@ export default async function PortalLayout({
                   {user.email}
                 </div>
                 <PortalHeaderCta canOpenPortalApp={canOpenPortalApp} />
-                <SignOutButton />
+                <Link
+                  href="/portal/tutorials"
+                  className="rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm text-zinc-900 hover:bg-zinc-50"
+                >
+                  Help
+                </Link>
               </>
             ) : (
               <PortalPublicNav />
