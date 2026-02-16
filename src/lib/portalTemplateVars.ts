@@ -148,6 +148,8 @@ export const PORTAL_BOOKING_VARIABLES: TemplateVariable[] = [
   { key: "endAt", label: "End time (ISO)", group: "Booking", appliesTo: "Booking" },
   { key: "bookingTitle", label: "Booking title", group: "Booking", appliesTo: "Booking" },
   { key: "calendarTitle", label: "Calendar title", group: "Booking", appliesTo: "Booking" },
+  { key: "location", label: "Location / meeting link", group: "Booking", appliesTo: "Booking" },
+  { key: "meetingLink", label: "Meeting link only", group: "Booking", appliesTo: "Booking" },
 ];
 
 export const PORTAL_MISSED_CALL_VARIABLES: TemplateVariable[] = [

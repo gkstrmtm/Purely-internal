@@ -880,7 +880,7 @@ export async function scheduleFollowUpsForBooking(
 ): Promise<{ ok: true; scheduled: number } | { ok: false; reason: string }> {
   const site = await prisma.portalBookingSite.findUnique({
     where: { ownerId },
-    select: { id: true, title: true, timeZone: true, notificationEmails: true },
+    select: { id: true, title: true, timeZone: true, notificationEmails: true, meetingLocation: true, meetingDetails: true },
   });
   if (!site) return { ok: false, reason: "Booking site not found" };
 
@@ -916,6 +916,27 @@ export async function scheduleFollowUpsForBooking(
   const bookingTitle = calendarTitle?.trim() || site.title;
   const when = `${formatInTimeZone(new Date(bookingRow.startAt), site.timeZone)} (${site.timeZone})`;
 
+  // Derive meeting link & location for templates.
+  let meetingLink: string | null = null;
+  let location: string | null = null;
+
+  const rawNotes = typeof (bookingRow as any).notes === "string" ? ((bookingRow as any).notes as string) : "";
+  if (rawNotes.startsWith("[Purely Connect Meeting]")) {
+    const lines = rawNotes.split(/\r?\n/);
+    if (lines.length >= 2) {
+      const urlLine = lines[1].trim();
+      if (urlLine) meetingLink = urlLine;
+    }
+  }
+
+  if (meetingLink) {
+    location = meetingLink;
+  } else {
+    const calendarLocation = calendar?.meetingLocation?.trim();
+    const siteLocation = (site as any).meetingLocation ? String((site as any).meetingLocation).trim() : "";
+    location = calendarLocation || siteLocation || "";
+  }
+
   const siteNotificationEmails = Array.isArray((site as any).notificationEmails)
     ? (((site as any).notificationEmails as unknown) as unknown[])
         .filter((x) => typeof x === "string")
@@ -940,6 +961,8 @@ export async function scheduleFollowUpsForBooking(
     startAt: new Date(bookingRow.startAt).toISOString(),
     endAt: new Date(bookingRow.endAt).toISOString(),
     when,
+    location: location ?? "",
+    meetingLink: meetingLink ?? "",
     ...settings.customVariables,
   };
 
