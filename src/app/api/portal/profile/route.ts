@@ -310,6 +310,23 @@ export async function PUT(req: Request) {
     }
   }
 
+  // If Stripe is configured, keep the billing identity stable by ensuring
+  // the Stripe customer email is updated *before* we update the portal
+  // user's email. This prevents a window where the portal user points to a
+  // new email that Stripe doesn't recognize (which can make the account
+  // look like a "new" one with no services).
+  if (nextEmail && current.email && nextEmail !== current.email.toLowerCase().trim() && isStripeConfigured()) {
+    try {
+      const customerId = await getOrCreateStripeCustomerId(current.email);
+      await stripePost(`/v1/customers/${customerId}`, { email: nextEmail });
+    } catch {
+      return NextResponse.json(
+        { error: "Unable to update email right now. Please try again." },
+        { status: 502 },
+      );
+    }
+  }
+
   if (parsed.data.name || nextEmail) {
     await prisma.user.update({
       where: { id: userId },
@@ -334,16 +351,6 @@ export async function PUT(req: Request) {
     where: { id: userId },
     select: { id: true, name: true, email: true, role: true, updatedAt: true },
   });
-
-  // Keep Stripe customer continuity by updating Stripe's customer email when possible.
-  if (nextEmail && current.email && nextEmail !== current.email.toLowerCase().trim() && isStripeConfigured()) {
-    try {
-      const customerId = await getOrCreateStripeCustomerId(current.email);
-      await stripePost(`/v1/customers/${customerId}`, { email: nextEmail });
-    } catch {
-      // Non-fatal; entitlements will still resolve by the new email once Stripe updates.
-    }
-  }
 
   return NextResponse.json({
     ok: true,

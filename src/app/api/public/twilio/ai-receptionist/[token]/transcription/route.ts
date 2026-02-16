@@ -189,6 +189,10 @@ export async function POST(req: Request, ctx: { params: Promise<{ token: string 
         destinations.add(userProfileData.phone);
       }
 
+      if (destinations.size === 0) {
+        console.info("AI receptionist SMS skipped: no destination phones", { ownerId, callSid });
+      }
+
       await Promise.all(
         [...destinations].map(async (to) => {
           try {

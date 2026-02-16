@@ -124,8 +124,14 @@ function summarizeTranscriptForNotes(transcript?: string | null): string | null 
   if (!raw) return null;
   const cleaned = raw.replace(/\s+/g, " ").trim();
   if (!cleaned) return null;
-  if (cleaned.length <= 240) return cleaned;
-  return `${cleaned.slice(0, 239)}…`;
+
+  // Prefer a very short, first-sentence-style summary so Notes stay
+  // glanceable instead of reading like a full transcript.
+  const sentenceMatch = cleaned.match(/^(.+?[.!?])\s+/);
+  const base = sentenceMatch && sentenceMatch[1] ? sentenceMatch[1].trim() : cleaned;
+
+  if (base.length <= 200) return base;
+  return `${base.slice(0, 199)}…`;
 }
 
 function deriveClientNotesFromEvent(ev: EventRow | null): string | null {
@@ -136,9 +142,10 @@ function deriveClientNotesFromEvent(ev: EventRow | null): string | null {
 
   const rawNotes = (ev.notes || "").trim();
 
-  // If server-side notes already look like a caller summary (our AI format), keep them.
-  if (rawNotes && /^caller:\s*/i.test(rawNotes) && !isTechnicalNotes(rawNotes)) {
-    return sanitizeClientNotes(rawNotes);
+  // Prefer any non-technical server-side notes (LLM summary) and keep them short.
+  if (rawNotes && !isTechnicalNotes(rawNotes)) {
+    const cleaned = sanitizeClientNotes(rawNotes);
+    if (cleaned) return cleaned;
   }
 
   // Otherwise, derive a compact summary from the transcript.

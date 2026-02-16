@@ -123,6 +123,17 @@ type BookingCalendar = {
   durationMinutes?: number;
 };
 
+function getPurelyConnectJoinUrl(notes?: string | null): string | null {
+  if (!notes) return null;
+  const lines = String(notes || "").split(/\r?\n/);
+  if (!lines.length) return null;
+  if (lines[0].trim() !== "[Purely Connect Meeting]") return null;
+  const url = (lines[1] || "").trim();
+  if (!url) return null;
+  if (!/^https?:\/\//i.test(url)) return null;
+  return url;
+}
+
 function pad2(n: number) {
   return String(n).padStart(2, "0");
 }
@@ -132,7 +143,6 @@ function toLocalDateTimeInputValue(d: Date) {
     d.getMinutes(),
   )}`;
 }
-
 function startOfMonth(d: Date) {
   const out = new Date(d);
   out.setDate(1);
@@ -1179,7 +1189,9 @@ export function PortalBookingClient() {
                   No appointments.
                 </div>
               ) : (
-                sidebarBookings.map((b) => (
+                sidebarBookings.map((b) => {
+                  const joinUrl = getPurelyConnectJoinUrl(b.notes);
+                  return (
                   <div key={b.id} className="rounded-2xl border border-zinc-200 p-4">
                     <div className="text-sm font-semibold text-zinc-900">
                       {new Date(b.startAt).toLocaleString()} → {new Date(b.endAt).toLocaleTimeString()}
@@ -1188,6 +1200,18 @@ export function PortalBookingClient() {
                       {b.contactName} · {b.contactEmail}
                       {b.contactPhone ? ` · ${b.contactPhone}` : ""}
                     </div>
+                    {joinUrl ? (
+                      <div className="mt-2 flex justify-start">
+                        <a
+                          href={joinUrl}
+                          target="_blank"
+                          rel="noreferrer"
+                          className="inline-flex items-center justify-center rounded-xl bg-[color:var(--color-brand-blue)] px-3 py-2 text-sm font-semibold text-white hover:opacity-95"
+                        >
+                          Join meeting
+                        </a>
+                      </div>
+                    ) : null}
                     {b.contactId ? (
                       <div className="mt-2">
                         <ContactTagsEditor
@@ -1236,7 +1260,8 @@ export function PortalBookingClient() {
                       </button>
                     </div>
                   </div>
-                ))
+                  );
+                })
               )}
             </div>
 
