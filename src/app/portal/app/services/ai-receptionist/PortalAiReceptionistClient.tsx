@@ -278,6 +278,7 @@ export function PortalAiReceptionistClient() {
   const [saving, setSaving] = useState(false);
   const [savingEnabled, setSavingEnabled] = useState(false);
   const [callSyncBusy, setCallSyncBusy] = useState(false);
+  const autoSyncedCallSidsRef = useRef<Set<string>>(new Set());
   const [error, setError] = useState<string | null>(null);
   const [note, setNote] = useState<string | null>(null);
 
@@ -472,6 +473,27 @@ export function PortalAiReceptionistClient() {
       return inProgress || selectedWithoutTranscript;
     });
 
+    // Also, if a call is completed and has a recording but no transcript yet,
+    // automatically trigger the same sync flow as the "Refresh recording/transcript"
+    // button so the user doesn't have to click it.
+    try {
+      const seen = autoSyncedCallSidsRef.current;
+      for (const e of events) {
+        const needsSync =
+          e.status === "COMPLETED" &&
+          Boolean((e.recordingSid && e.recordingSid.trim()) || (e.demoRecordingId && e.demoRecordingId.trim())) &&
+          !(e.transcript && e.transcript.trim()) &&
+          !seen.has(e.callSid);
+
+        if (needsSync) {
+          seen.add(e.callSid);
+          void syncCallArtifacts(e.callSid);
+        }
+      }
+    } catch {
+      // best-effort only
+    }
+
     if (!hasPending) return;
 
     const id = window.setInterval(() => {
@@ -479,7 +501,7 @@ export function PortalAiReceptionistClient() {
     }, 10000);
 
     return () => window.clearInterval(id);
-  }, [events, selectedCallId, load]);
+  }, [events, selectedCallId, load, syncCallArtifacts]);
 
   function setTabWithUrl(nextTab: "settings" | "testing" | "activity" | "missed-call-textback") {
     setTab(nextTab);

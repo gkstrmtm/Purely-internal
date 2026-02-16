@@ -364,6 +364,34 @@ export async function POST(req: Request, ctx: { params: Promise<{ callSid: strin
       transcript: String(updates.transcript),
     });
 
+    // Reuse the same transcript-handling path as Twilio's transcription
+    // callback so that notes, email, and SMS notifications are generated
+    // even when we transcribe the recording ourselves.
+    if (webhookToken && updates.transcript) {
+      try {
+        const callbackUrl = new URL(req.url);
+        callbackUrl.pathname = `/api/public/twilio/ai-receptionist/${encodeURIComponent(webhookToken)}/transcription`;
+        callbackUrl.search = "";
+
+        const form = new URLSearchParams();
+        form.set("CallSid", sid);
+        form.set("From", String(event?.from || "Unknown"));
+        if (typeof event?.to === "string" && event.to.trim()) form.set("To", event.to.trim());
+        if (recordingSid) form.set("RecordingSid", recordingSid);
+        form.set("TranscriptionText", String(updates.transcript));
+        form.set("TranscriptionStatus", "completed");
+
+        await fetch(callbackUrl.toString(), {
+          method: "POST",
+          headers: { "content-type": "application/x-www-form-urlencoded" },
+          body: form.toString(),
+        }).catch(() => null as any);
+      } catch {
+        // Best-effort only; the portal will still show the transcript even if
+        // notifications fail.
+      }
+    }
+
     return NextResponse.json({ ok: true, transcript: updates.transcript, requestedTranscription, usedVoiceTranscript });
   } catch (e) {
     const msg = e instanceof Error ? e.message : "Unable to generate transcript";

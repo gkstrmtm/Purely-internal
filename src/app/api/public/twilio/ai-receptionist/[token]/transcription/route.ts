@@ -93,12 +93,11 @@ export async function POST(req: Request, ctx: { params: Promise<{ token: string 
     try {
       summary = await generateText({
         system:
-          "You are a helpful receptionist assistant. Summarize the following call transcript concisely for the business owner.\n" +
-          "Focus on:\n" +
-          "1. What was the main issue or reason for calling?\n" +
-          "2. How was it handled or what is the next step?\n" +
-          "3. Extract the caller's name if mentioned (e.g. 'This is John').\n" +
-          "Format as 'Caller: [Name/Unknown]. Summary: [Brief summary]'. Keep it under 300 characters for SMS friendly reading.",
+          "You are a helpful receptionist assistant. Given a full call transcript, write a single clear takeaway for the business owner.\n" +
+          "Focus ONLY on the main reason for the call and what the business needs to do next.\n" +
+          "Ignore greetings, small talk, and repeated details.\n" +
+          "If the caller's name is mentioned (e.g. 'This is John'), include it. If not, use 'Unknown'.\n" +
+          "Return exactly one short sentence under 220 characters, in the format: 'Caller: [Name/Unknown]. Summary: [main takeaway]'.",
         user: `Transcript:\n"${transcriptionText}"`,
       });
 
