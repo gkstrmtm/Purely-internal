@@ -7,6 +7,7 @@ import { buildPrepPackBase } from "@/lib/prepPack";
 import { deriveInterestedServiceFromNotes } from "@/lib/leadDerived";
 import { trySendTransactionalEmail } from "@/lib/emailSender";
 import { sendTwilioEnvSms } from "@/lib/twilioEnvSms";
+import { ensureAppointmentHasConnectMeeting } from "@/lib/appointmentConnectMeeting";
 
 async function sendInternalEmail(subject: string, body: string) {
   await trySendTransactionalEmail({
@@ -248,6 +249,20 @@ export async function POST(req: Request) {
       },
     });
 
+    // Best-effort: auto-generate a Purely Connect meeting link.
+    let purelyConnectJoinUrl: string | null = null;
+    try {
+      const created = await ensureAppointmentHasConnectMeeting({
+        appointmentId: appointment.id,
+        req,
+        createdByUserId: setterId,
+        title: null,
+      });
+      purelyConnectJoinUrl = created?.joinUrl ?? null;
+    } catch {
+      // Best-effort.
+    }
+
     // Ensure the closer has an appointment prep pack doc to work from.
     try {
       const [hasWebsite, hasLocation, hasNiche, hasContactPhone, hasInterestedService, hasNotes] =
@@ -380,8 +395,10 @@ export async function POST(req: Request) {
         const details = [
           "Thanks again for booking a call with Purely Automation.",
           "",
-          "You’ll be sent the link to join the call within an hour before the call.",
-          "(If it’s available earlier, you may also receive it up to 24 hours before.)",
+          purelyConnectJoinUrl
+            ? `Connect link: ${purelyConnectJoinUrl}`
+            : "You’ll be sent the link to join the call within an hour before the call.",
+          purelyConnectJoinUrl ? "" : "(If it’s available earlier, you may also receive it up to 24 hours before.)",
           "",
           `Company: ${marketing.company}`,
           `Name: ${marketing.name}`,
@@ -467,6 +484,7 @@ export async function POST(req: Request) {
         `When (ET): ${formatInTimeZone(startAt, "America/New_York")}`,
         `When (ISO): ${startAt.toISOString()}`,
         `Duration: ${parsed.data.durationMinutes} minutes`,
+        purelyConnectJoinUrl ? `Meeting link: ${purelyConnectJoinUrl}` : null,
         "",
         marketing
           ? `Name: ${marketing.name}\nCompany: ${marketing.company}\nEmail: ${marketing.email}\nPhone: ${marketing.phone ?? ""}`

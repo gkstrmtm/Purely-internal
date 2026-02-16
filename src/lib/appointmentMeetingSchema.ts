@@ -10,6 +10,8 @@ export async function ensureAppointmentMeetingFieldsReady(): Promise<void> {
     `ALTER TABLE "Appointment" ADD COLUMN IF NOT EXISTS "meetingJoinUrlSetByUserId" TEXT;`,
     `ALTER TABLE "Appointment" ADD COLUMN IF NOT EXISTS "meetingReminder24hSentAt" TIMESTAMP(3);`,
     `ALTER TABLE "Appointment" ADD COLUMN IF NOT EXISTS "meetingReminder1hSentAt" TIMESTAMP(3);`,
+    `ALTER TABLE "Appointment" ADD COLUMN IF NOT EXISTS "meetingReminder15mEmailSentAt" TIMESTAMP(3);`,
+    `ALTER TABLE "Appointment" ADD COLUMN IF NOT EXISTS "meetingReminder15mSmsSentAt" TIMESTAMP(3);`,
   ];
 
   for (const sql of stmts) {

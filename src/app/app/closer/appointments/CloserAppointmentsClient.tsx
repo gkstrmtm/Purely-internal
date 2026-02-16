@@ -116,7 +116,7 @@ export default function CloserAppointmentsClient({
   const [loomUrl, setLoomUrl] = useState("");
   const [videoBusy, setVideoBusy] = useState<boolean>(false);
 
-  const [meetingPlatform, setMeetingPlatform] = useState<string>("ZOOM");
+  const [meetingPlatform, setMeetingPlatform] = useState<string>("PURELY_CONNECT");
   const [meetingJoinUrl, setMeetingJoinUrl] = useState<string>("");
   const [meetingBusy, setMeetingBusy] = useState<boolean>(false);
 
@@ -151,7 +151,7 @@ export default function CloserAppointmentsClient({
 
   useEffect(() => {
     if (!selected) return;
-    setMeetingPlatform(String(selected.meetingPlatform || "ZOOM"));
+    setMeetingPlatform(String(selected.meetingPlatform || "PURELY_CONNECT"));
     setMeetingJoinUrl(String(selected.meetingJoinUrl || ""));
   }, [selected]);
 
@@ -163,7 +163,11 @@ export default function CloserAppointmentsClient({
     try {
       const payload = {
         appointmentId: selected.id,
-        meetingPlatform: (meetingPlatform || "ZOOM") as "ZOOM" | "GOOGLE_MEET" | "OTHER",
+        meetingPlatform: (meetingPlatform || "PURELY_CONNECT") as
+          | "PURELY_CONNECT"
+          | "ZOOM"
+          | "GOOGLE_MEET"
+          | "OTHER",
         meetingJoinUrl: meetingJoinUrl || null,
       };
 
@@ -957,6 +961,7 @@ export default function CloserAppointmentsClient({
                       value={meetingPlatform}
                       onChange={(e) => setMeetingPlatform(e.target.value)}
                     >
+                      <option value="PURELY_CONNECT">Purely Connect</option>
                       <option value="ZOOM">Zoom</option>
                       <option value="GOOGLE_MEET">Google Meet</option>
                       <option value="OTHER">Other</option>

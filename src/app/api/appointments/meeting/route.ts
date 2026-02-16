@@ -8,7 +8,7 @@ import { ensureAppointmentMeetingFieldsReady } from "@/lib/appointmentMeetingSch
 
 const bodySchema = z.object({
   appointmentId: z.string().min(1),
-  meetingPlatform: z.enum(["ZOOM", "GOOGLE_MEET", "OTHER"]).optional(),
+  meetingPlatform: z.enum(["PURELY_CONNECT", "ZOOM", "GOOGLE_MEET", "OTHER"]).optional(),
   meetingJoinUrl: z.string().trim().max(2000).optional().nullable(),
 });
 
@@ -63,6 +63,8 @@ export async function POST(req: Request) {
       // If meeting info changes, allow reminders to be re-sent.
       meetingReminder24hSentAt: null,
       meetingReminder1hSentAt: null,
+      meetingReminder15mEmailSentAt: null,
+      meetingReminder15mSmsSentAt: null,
     },
     select: {
       id: true,

@@ -7,6 +7,7 @@ import { prisma } from "@/lib/db";
 import { hasPublicColumn } from "@/lib/dbSchema";
 import { deriveInterestedServiceFromNotes } from "@/lib/leadDerived";
 import { buildPrepPackBase } from "@/lib/prepPack";
+import { ensureAppointmentHasConnectMeeting } from "@/lib/appointmentConnectMeeting";
 
 const bodySchema = z.object({
   leadId: z.string().min(1),
@@ -160,6 +161,18 @@ export async function POST(req: Request) {
         setter: { select: { name: true, email: true } },
       },
     });
+
+    // Best-effort: auto-generate a Purely Connect meeting link.
+    try {
+      await ensureAppointmentHasConnectMeeting({
+        appointmentId: appointment.id,
+        req,
+        createdByUserId: setterId,
+        title: lead.businessName ? `Call – ${lead.businessName}` : null,
+      });
+    } catch {
+      // Best-effort.
+    }
 
     // Ensure closer has a prep pack attached to this appointment.
     try {

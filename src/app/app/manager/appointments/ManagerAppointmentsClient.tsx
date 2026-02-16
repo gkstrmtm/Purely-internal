@@ -60,7 +60,7 @@ export default function ManagerAppointmentsClient({
   const [editMsg, setEditMsg] = useState<string | null>(null);
 
   const [meetingEditingId, setMeetingEditingId] = useState<string | null>(null);
-  const [meetingPlatform, setMeetingPlatform] = useState<string>("ZOOM");
+  const [meetingPlatform, setMeetingPlatform] = useState<string>("PURELY_CONNECT");
   const [meetingJoinUrl, setMeetingJoinUrl] = useState<string>("");
   const [meetingBusy, setMeetingBusy] = useState<boolean>(false);
 
@@ -234,7 +234,7 @@ export default function ManagerAppointmentsClient({
   function beginMeetingEdit(appt: ManagerAppointment) {
     setError(null);
     setMeetingEditingId(appt.id);
-    setMeetingPlatform(String(appt.meetingPlatform || "ZOOM"));
+    setMeetingPlatform(String(appt.meetingPlatform || "PURELY_CONNECT"));
     setMeetingJoinUrl(String(appt.meetingJoinUrl || ""));
   }
 
@@ -244,7 +244,11 @@ export default function ManagerAppointmentsClient({
     try {
       const payload = {
         appointmentId: appt.id,
-        meetingPlatform: (meetingPlatform || "ZOOM") as "ZOOM" | "GOOGLE_MEET" | "OTHER",
+        meetingPlatform: (meetingPlatform || "PURELY_CONNECT") as
+          | "PURELY_CONNECT"
+          | "ZOOM"
+          | "GOOGLE_MEET"
+          | "OTHER",
         meetingJoinUrl: meetingJoinUrl || null,
       };
       const res = await fetch("/api/appointments/meeting", {
@@ -564,6 +568,7 @@ export default function ManagerAppointmentsClient({
                         value={meetingPlatform}
                         onChange={(e) => setMeetingPlatform(e.target.value)}
                       >
+                        <option value="PURELY_CONNECT">Purely Connect</option>
                         <option value="ZOOM">Zoom</option>
                         <option value="GOOGLE_MEET">Google Meet</option>
                         <option value="OTHER">Other</option>

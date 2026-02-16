@@ -1004,6 +1004,8 @@ model Appointment {
   meetingJoinUrlSetByUserId String?
   meetingReminder24hSentAt DateTime?
   meetingReminder1hSentAt  DateTime?
+  meetingReminder15mEmailSentAt DateTime?
+  meetingReminder15mSmsSentAt   DateTime?
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
