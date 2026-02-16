@@ -18,11 +18,11 @@ type TutorialConfig = {
 
 const TUTORIALS: Record<string, TutorialConfig> = {
   inbox: {
-    intro: "Use Inbox / Outbox to keep email and SMS threads in one place so your team does not have to jump between tools.",
+    intro: "Inbox / Outbox keeps email and SMS threads in one place so your team does not have to jump between tools.",
     sections: [
       {
-        title: "Overview",
-        body: "Inbox / Outbox pulls conversations into a single view. You can see who messaged, reply from the portal, and keep context around each contact.",
+        title: "How it should feel",
+        body: "You open Inbox / Outbox and immediately see who needs a reply. Threads include the full history so anyone on your team can jump in without asking for context.",
       },
       {
         title: "Daily workflow",
@@ -31,12 +31,26 @@ const TUTORIALS: Record<string, TutorialConfig> = {
           "Open Inbox / Outbox from Services in the left sidebar.",
           "Filter by unread, assigned, or channel if you need to narrow things down.",
           "Click a thread to see the full history and reply by email or SMS.",
-          "Add quick notes so other teammates know what happened.",
+          "Add quick notes so other teammates know what happened and what is next.",
         ],
       },
       {
-        title: "Tips",
-        body: "Keep all communication inside threads so you can see who said what and when, instead of hunting through multiple inboxes.",
+        title: "Common questions",
+        body: "A few things people usually ask the first week.",
+        steps: [
+          "Messages from the same person are grouped by address or phone. If you see multiple threads for one contact, make sure their details match in your CRM.",
+          "Replies you send from the portal show as normal emails or texts to the contact. They do not have to log in anywhere.",
+          "If you do not see a recent email, check that the connected inbox for this account is the one that received it.",
+        ],
+      },
+      {
+        title: "Troubleshooting",
+        body: "When something feels off, walk through these checks.",
+        steps: [
+          "If new emails are not showing, refresh the page first. If they still do not appear, confirm the email account for this portal account is connected correctly in your profile or integrations.",
+          "If SMS replies are missing, confirm your Twilio number is connected and that the correct inbound webhook URL is set inside Twilio.",
+          "If a teammate cannot see a thread, confirm they have access to the same portal account, not a different workspace.",
+        ],
       },
     ],
   },
@@ -44,58 +58,96 @@ const TUTORIALS: Record<string, TutorialConfig> = {
     intro: "Store photos, videos, and files once, then reuse them across campaigns, automations, and messages.",
     sections: [
       {
+        title: "How it should feel",
+        body: "You should never have to ask someone to resend the same file. Anything used more than once lives in the Media Library.",
+      },
+      {
         title: "Upload and organize",
         body: "Create folders that match how your team works, then drag files in.",
         steps: [
           "Open Media Library from Services.",
-          "Use folders for categories like testimonials, before/after, or promotions.",
-          "Upload files from your computer or phone.",
+          "Create folders for categories like testimonials, before and after photos, offers, or promotion graphics.",
+          "Upload files from your computer or phone. Use short, clear names so they are easy to search.",
         ],
       },
       {
-        title: "Reuse media",
+        title: "Using media in other tools",
         body: "Anywhere you can attach a file or image in the portal, you can pull from the Media Library instead of uploading again.",
+        steps: [
+          "When composing an email, SMS, or campaign, look for the option to attach from the Media Library.",
+          "Pick the file once. The system handles the hosting and links for you.",
+        ],
+      },
+      {
+        title: "Troubleshooting",
+        body: "If something does not show up when you expect it:",
+        steps: [
+          "If a file will not upload, check that it is under the size limit and use a standard format like JPG, PNG, MP4, or PDF.",
+          "If you cannot find a file, try searching by part of the file name. If that fails, confirm it was uploaded into this portal account and not another workspace.",
+          "If attached media does not render inside an email or SMS preview, send a test to yourself to confirm how it appears to contacts.",
+        ],
       },
     ],
   },
   tasks: {
-    intro: "Tasks keep internal to‑dos tied to the work your automations and services are doing.",
+    intro: "Tasks keep internal to dos tied to the work your automations and services are doing.",
     sections: [
       {
-        title: "Create tasks",
-        body: "Use tasks for follow‑ups that need a human touch.",
+        title: "How it should feel",
+        body: "You should be able to open Tasks and see a clean list of what needs a human touch today, without digging through notes or inboxes.",
+      },
+      {
+        title: "Create and assign tasks",
+        body: "Use tasks for follow ups that need a person to decide or do something.",
         steps: [
           "Open Tasks from Services.",
-          "Click to add a new task, give it a clear title, and assign it.",
-          "Set a due date when timing matters.",
+          "Click to add a new task, give it a clear title, and describe the outcome you want.",
+          "Assign it to the right teammate and set a due date when timing matters.",
         ],
       },
       {
-        title: "Work the list",
-        body: "Sort by due date or status, then close tasks as they are finished so reporting stays clean.",
+        title: "Working the list",
+        body: "Keep the list honest so reporting stays useful.",
+        steps: [
+          "Sort by due date or status at the start of the day.",
+          "Close tasks as soon as they are finished so the next person does not double work it.",
+          "If a task is blocked, update the description with what is missing instead of leaving it untouched.",
+        ],
+      },
+      {
+        title: "Troubleshooting",
+        body: "When tasks do not look right:",
+        steps: [
+          "If automations are supposed to create tasks but you see none, open Automation Builder and confirm the step that creates tasks is enabled and saved.",
+          "If a teammate cannot see tasks, check that they are invited to the same portal account and have the correct permissions.",
+        ],
       },
     ],
   },
   "ai-receptionist": {
-    intro: "AI Receptionist answers and routes inbound calls so you only handle the calls that need a human.",
+    intro: "AI Receptionist answers and routes inbound calls so you only handle the calls that truly need a human.",
     sections: [
+      {
+        title: "How it should feel",
+        body: "Callers reach a consistent, friendly receptionist that can answer basic questions, collect details, and either finish the call or pass it to your team.",
+      },
       {
         title: "Set up the receptionist",
         body: "Start by turning the service on and pointing your number at the portal.",
         steps: [
           "Open AI Receptionist in your portal services.",
-          "Turn it on and write a greeting that sounds like your business.",
+          "Turn it on and write a greeting that sounds like your business, including your name and what you offer.",
           "Choose whether calls go to AI only or can be transferred to a human.",
           "If you forward to a person, add the transfer number in E.164 format (for example, +15551234567).",
         ],
       },
       {
         title: "Connect Twilio",
-        body: "Twilio connects your phone number to the AI receptionist.",
+        body: "Twilio connects your phone number to the receptionist.",
         steps: [
-          "In your Profile, add your Twilio credentials.",
+          "In your Profile, add your Twilio credentials so the portal can talk to your account.",
           "Copy the Voice webhook URL from the AI Receptionist settings.",
-          "Paste that URL into your Twilio number's Voice webhook settings.",
+          "In Twilio, open your phone number settings and paste that URL into the Voice webhook field, using HTTP POST.",
         ],
       },
       {
@@ -105,6 +157,17 @@ const TUTORIALS: Record<string, TutorialConfig> = {
           "Open the AI Receptionist activity tab.",
           "Click a call to see the transcript, notes, and recording.",
           "Use the notes as a quick summary and the transcript when you need full detail.",
+          "If something feels off, listen to the recording to hear exactly what the caller said.",
+        ],
+      },
+      {
+        title: "Troubleshooting",
+        body: "If calls or transcripts do not behave how you expect:",
+        steps: [
+          "If calls are hitting voicemail or a different system, double check that your Twilio number is pointing to the AI Receptionist voice webhook URL and not an old URL.",
+          "If calls connect but you do not see them in the activity list, confirm you are viewing the correct portal account and Twilio project.",
+          "If there is no transcript yet, wait a minute. If it still does not appear, click Refresh in the activity view. If nothing changes, confirm that Twilio and your voice agent API key are configured in Profile.",
+          "If SMS or email notifications are missing, open Profile and the AI Receptionist settings to confirm your contact phone and forwarding number are set correctly.",
         ],
       },
     ],
@@ -113,11 +176,15 @@ const TUTORIALS: Record<string, TutorialConfig> = {
     intro: "Newsletter lets you send simple campaigns to your existing contacts without switching tools.",
     sections: [
       {
+        title: "How it should feel",
+        body: "You should be able to draft one clear email, pick who it goes to, and send without exporting lists or importing CSVs.",
+      },
+      {
         title: "Create a campaign",
         body: "Draft an email that explains one idea clearly.",
         steps: [
           "Open Newsletter from Services.",
-          "Create a new campaign and pick the audience list.",
+          "Create a new campaign and pick the audience list or segment.",
           "Write a subject line that sounds like you, not a template.",
           "Add the main content and a clear call to action.",
         ],
@@ -125,23 +192,53 @@ const TUTORIALS: Record<string, TutorialConfig> = {
       {
         title: "Send and review",
         body: "After you send, use basic stats to see what worked.",
+        steps: [
+          "Schedule or send immediately when you are ready.",
+          "After sends go out, review opens and clicks to see which topics land best.",
+        ],
+      },
+      {
+        title: "Troubleshooting",
+        body: "When messages do not appear how you expect:",
+        steps: [
+          "If a campaign will not send, confirm your sending domain or email is verified in your account settings.",
+          "If contacts say they did not receive it, check that they are actually on the list or segment you picked and that they are not unsubscribed.",
+          "Always send a test email to yourself before a big send so you can see how it looks in a real inbox.",
+        ],
       },
     ],
   },
   booking: {
-    intro: "Booking Automation reduces back‑and‑forth so more people end up on your calendar.",
+    intro: "Booking Automation reduces back and forth so more people end up on your calendar.",
     sections: [
+      {
+        title: "How it should feel",
+        body: "Leads click one link, pick a time, and get confirmation without long text or email chains.",
+      },
       {
         title: "Connect your calendar",
         body: "Connect the calendar you actually use so the portal can see your real availability.",
+        steps: [
+          "Open Booking Automation from Services.",
+          "Connect the calendar provider you use every day.",
+          "Confirm your time zone and default availability windows.",
+        ],
       },
       {
         title: "Share your booking link",
         body: "Use one booking link anywhere you currently ask people to call or text.",
         steps: [
-          "Open Booking Automation from Services.",
-          "Copy your public booking link.",
-          "Add it to your website, email signature, and follow‑up messages.",
+          "Copy your public booking link from the Booking Automation page.",
+          "Add it to your website, email signature, SMS follow ups, and ads.",
+        ],
+      },
+      {
+        title: "Troubleshooting",
+        body: "If bookings do not look right:",
+        steps: [
+          "If times show as available when you are already busy, confirm the correct calendar is connected and that busy events are visible to the portal.",
+          "If no times show at all, check your availability window settings and time zone.",
+          "If confirmations are not going out, check that email and SMS notifications are enabled in booking settings.",
         ],
       },
     ],
@@ -150,8 +247,26 @@ const TUTORIALS: Record<string, TutorialConfig> = {
     intro: "AI Outbound Calls automatically place calls based on tags or lists so you do not have to dial one by one.",
     sections: [
       {
+        title: "How it should feel",
+        body: "You define who should be called and what the goal is. The system works that list for you, and you check the results instead of dialing.",
+      },
+      {
         title: "Choose your targets",
         body: "Decide which contacts should receive outbound calls and what the script should cover.",
+        steps: [
+          "Open AI Outbound Calls from Services.",
+          "Pick the tags, list, or segment that defines who you want to call.",
+          "Write a script that clearly states who you are, why you are calling, and what the next step should be if they are interested.",
+        ],
+      },
+      {
+        title: "Troubleshooting",
+        body: "If calls are not going out:",
+        steps: [
+          "Confirm Twilio is connected in your Profile so the system can place calls.",
+          "Check that the campaign you created is set to active and that there are actually contacts in the target list.",
+          "If you see errors or no activity, start with a very small test list so it is easy to confirm behavior.",
+        ],
       },
     ],
   },
@@ -159,12 +274,26 @@ const TUTORIALS: Record<string, TutorialConfig> = {
     intro: "Lead Scraping pulls fresh leads on a schedule so you always have new people to talk to.",
     sections: [
       {
+        title: "How it should feel",
+        body: "You set the search once, then new leads quietly show up on the schedule you choose.",
+      },
+      {
         title: "Run a search",
         body: "Set filters once, then reuse them.",
         steps: [
           "Open Lead Scraping from Services.",
           "Pick the niche and geography you care about.",
           "Exclude any lists you already have so you do not pay for duplicates.",
+          "Choose how many leads you want in each run.",
+        ],
+      },
+      {
+        title: "Troubleshooting",
+        body: "When results do not match what you had in mind:",
+        steps: [
+          "If you see too many past leads, double check your exclusion lists and make sure they include your existing customers.",
+          "If there are very few results, broaden your niche keywords or radius and try again.",
+          "If a scheduled job did not run, confirm the schedule is turned on and that there were enough credits available for that pull.",
         ],
       },
     ],
@@ -173,12 +302,26 @@ const TUTORIALS: Record<string, TutorialConfig> = {
     intro: "Automation Builder lets you connect triggers and steps so the portal can handle repetitive work.",
     sections: [
       {
+        title: "How it should feel",
+        body: "You set simple if this, then that style rules. After that, the system quietly runs them every time without you thinking about it.",
+      },
+      {
         title: "Start a simple flow",
         body: "Always start with one clear trigger and one outcome.",
         steps: [
           "Open Automation Builder from Services.",
-          "Create a new automation and choose a trigger (for example, new lead, booked appointment, or missed call).",
+          "Create a new automation and choose a single trigger, for example new lead, booked appointment, or missed call.",
           "Add one or two steps such as send SMS, send email, or create a task.",
+          "Turn the automation on and save.",
+        ],
+      },
+      {
+        title: "Troubleshooting",
+        body: "If automations do not fire:",
+        steps: [
+          "Confirm the automation is turned on. Draft or paused automations will not run.",
+          "Trigger a small test event that clearly matches the trigger conditions (for example, create a test contact with the right tag).",
+          "Check logs or recent activity on the related service (Tasks, Inbox, AI Receptionist) to see whether any steps ran.",
         ],
       },
     ],
@@ -187,8 +330,20 @@ const TUTORIALS: Record<string, TutorialConfig> = {
     intro: "Automated Blogs keep content going out without a weekly scramble.",
     sections: [
       {
+        title: "How it should feel",
+        body: "You approve topics and guardrails once, then new posts keep showing up on a schedule.",
+      },
+      {
         title: "Set topics",
         body: "Tell the system what topics you want to write about and how often you want posts to go out.",
+      },
+      {
+        title: "Troubleshooting",
+        body: "If you are not seeing drafts:",
+        steps: [
+          "Confirm the blog service is turned on in your Services page.",
+          "Check that you have enough credits for the period when posts should be generated.",
+        ],
       },
     ],
   },
@@ -196,17 +351,41 @@ const TUTORIALS: Record<string, TutorialConfig> = {
     intro: "Review Requests help you ask at the right time and track responses.",
     sections: [
       {
+        title: "How it should feel",
+        body: "Requests go out right after good work is delivered, and you can see who responded and where.",
+      },
+      {
         title: "Send requests",
         body: "Trigger requests after completed jobs so customers can review while the experience is fresh.",
+      },
+      {
+        title: "Troubleshooting",
+        body: "If responses look low:",
+        steps: [
+          "Confirm you are only sending requests to happy customers who are likely to say yes.",
+          "Keep the request short and clear, with one link to the place you care about most.",
+        ],
       },
     ],
   },
   "nurture-campaigns": {
-    intro: "Nurture Campaigns keep leads warm with simple, spaced‑out touch points.",
+    intro: "Nurture Campaigns keep leads warm with simple, spaced out touch points.",
     sections: [
+      {
+        title: "How it should feel",
+        body: "Leads who are not ready yet still hear from you on a calm, regular schedule.",
+      },
       {
         title: "Build a sequence",
         body: "Map out a short sequence of messages that make sense for your buyers.",
+      },
+      {
+        title: "Troubleshooting",
+        body: "If people are dropping out or not engaging:",
+        steps: [
+          "Shorten very long sequences so the main value is clear sooner.",
+          "Make sure each message has one job: educate, remind, or ask for a small next step.",
+        ],
       },
     ],
   },
@@ -214,8 +393,20 @@ const TUTORIALS: Record<string, TutorialConfig> = {
     intro: "Reporting shows what is live and how much time you are saving.",
     sections: [
       {
+        title: "How it should feel",
+        body: "You can open reporting and quickly see which services are doing the most work for you.",
+      },
+      {
         title: "Check your snapshot",
-        body: "Use the hours‑saved and activity summaries to see what is doing the most work for you.",
+        body: "Use the hours saved and activity summaries to see what is doing the most work for you.",
+      },
+      {
+        title: "Troubleshooting",
+        body: "If numbers do not look right:",
+        steps: [
+          "Confirm the underlying services are actually turned on and used. Reporting will be flat if nothing is running.",
+          "Check the date range filters and compare this week to last week to make sure you are not looking at an empty window.",
+        ],
       },
     ],
   },
