@@ -100,7 +100,10 @@ export function ConnectRoomClient(props: { roomId: string; signedInName?: string
 	const participantsTimerRef = useRef<number | null>(null);
 	const hudTimerRef = useRef<number | null>(null);
 
-	const shareUrl = useMemo(() => (typeof window === "undefined" ? "" : window.location.href), []);
+	const meetingUrl = useMemo(() => {
+		if (typeof window === "undefined") return "";
+		return `${window.location.origin}/connect/${encodeURIComponent(roomId)}`;
+	}, [roomId]);
 
 	useEffect(() => {
 		try {
@@ -890,7 +893,7 @@ export function ConnectRoomClient(props: { roomId: string; signedInName?: string
 		setInfo(null);
 		setError(null);
 		try {
-			await navigator.clipboard.writeText(shareUrl);
+			await navigator.clipboard.writeText(meetingUrl);
 			setInfo("Copied meeting link.");
 		} catch {
 			setError("Could not copy link");
@@ -1182,7 +1185,7 @@ export function ConnectRoomClient(props: { roomId: string; signedInName?: string
 							}
 							onClick={(e) => e.stopPropagation()}
 						>
-							<div className="flex items-center gap-2 rounded-full border border-zinc-200 bg-white/90 px-2 py-2 shadow-lg backdrop-blur">
+							<div className="flex max-w-full items-center gap-1 overflow-x-auto rounded-full border border-zinc-200 bg-white/90 px-2 py-2 shadow-lg backdrop-blur sm:gap-2">
 								<IconButton
 									label={isMuted ? "Unmute" : "Mute"}
 									onClick={toggleMute}
@@ -1195,6 +1198,13 @@ export function ConnectRoomClient(props: { roomId: string; signedInName?: string
 									active={!isVideoOff}
 									icon={isVideoOff ? <VideoOffIcon /> : <VideoIcon />}
 								/>
+								<IconButton
+									label={!isSharing ? "Share screen" : "Stop sharing"}
+									onClick={!isSharing ? startShare : stopShare}
+									active={!isSharing}
+									icon={!isSharing ? <ScreenShareIcon /> : <ScreenStopIcon />}
+								/>
+								<div className="mx-1 h-8 w-px bg-zinc-200" />
 								<IconButton
 									label={mirrorSelf ? "Unmirror" : "Mirror"}
 									onClick={() => {
@@ -1212,16 +1222,10 @@ export function ConnectRoomClient(props: { roomId: string; signedInName?: string
 									active={true}
 									icon={<FlipCameraIcon />}
 								/>
-								<IconButton
-									label={!isSharing ? "Share screen" : "Stop sharing"}
-									onClick={!isSharing ? startShare : stopShare}
-									active={!isSharing}
-									icon={!isSharing ? <ScreenShareIcon /> : <ScreenStopIcon />}
-								/>
 								<div className="mx-1 h-8 w-px bg-zinc-200" />
 								<button
 									onClick={onLeave}
-									className="flex h-11 w-11 items-center justify-center rounded-full bg-red-600 text-white hover:bg-red-500"
+									className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-red-600 text-white hover:bg-red-500 sm:h-11 sm:w-11"
 									aria-label="Leave"
 									title="Leave"
 								>
@@ -1241,7 +1245,7 @@ function IconButton(props: { label: string; onClick: () => void; icon: ReactNode
 		<button
 			onClick={props.onClick}
 			className={
-				"flex h-11 w-11 items-center justify-center rounded-full border transition " +
+				"flex h-10 w-10 shrink-0 items-center justify-center rounded-full border transition sm:h-11 sm:w-11 " +
 				(props.active ? "border-zinc-200 bg-white hover:bg-zinc-50" : "border-zinc-200 bg-zinc-100 hover:bg-zinc-200")
 			}
 			aria-label={props.label}
