@@ -26,6 +26,12 @@ type Signal = {
 	createdAt: string;
 };
 
+type MediaState = {
+	audioEnabled: boolean;
+	videoEnabled: boolean;
+	isSharing: boolean;
+};
+
 function storageKey(roomId: string) {
 	return `pa.connect.${roomId}`;
 }
@@ -62,6 +68,7 @@ export function ConnectRoomClient(props: { roomId: string; signedInName?: string
 	const [isMuted, setIsMuted] = useState(false);
 	const [isVideoOff, setIsVideoOff] = useState(false);
 	const [isSharing, setIsSharing] = useState(false);
+	const [remoteMediaState, setRemoteMediaState] = useState<Record<string, MediaState>>({});
 
 	const [remoteTiles, setRemoteTiles] = useState<Array<{ id: string; displayName: string; stream: MediaStream }>>([]);
 
@@ -148,6 +155,12 @@ export function ConnectRoomClient(props: { roomId: string; signedInName?: string
 
 	function removeRemote(remoteId: string) {
 		setRemoteTiles((prev) => prev.filter((t) => t.id !== remoteId));
+		setRemoteMediaState((prev) => {
+			if (!prev[remoteId]) return prev;
+			const next = { ...prev };
+			delete next[remoteId];
+			return next;
+		});
 	}
 
 	async function apiGet<T>(path: string): Promise<T> {
@@ -166,6 +179,18 @@ export function ConnectRoomClient(props: { roomId: string; signedInName?: string
 		const json = (await res.json().catch(() => null)) as T;
 		if (!res.ok) throw new Error((json as any)?.error || "Request failed");
 		return json;
+	}
+
+	async function broadcastMediaState(next: MediaState) {
+		const creds = myCredsRef.current;
+		if (!creds) return;
+		await apiPost(`/api/connect/rooms/${encodeURIComponent(roomId)}/signal`, {
+			participantId: creds.participantId,
+			secret: creds.secret,
+			toParticipantId: null,
+			kind: "media",
+			payload: next,
+		}).catch(() => null);
 	}
 
 	async function ensureLocalMedia() {
@@ -426,6 +451,18 @@ export function ConnectRoomClient(props: { roomId: string; signedInName?: string
 			if (s.kind === "offer") await handleOffer(s.fromParticipantId, s.payload as any);
 			else if (s.kind === "answer") await handleAnswer(s.fromParticipantId, s.payload as any);
 			else if (s.kind === "ice") await handleIce(s.fromParticipantId, s.payload as any);
+			else if (s.kind === "media") {
+				const payload = s.payload as any;
+				if (!payload || typeof payload !== "object") continue;
+				setRemoteMediaState((prev) => ({
+					...prev,
+					[s.fromParticipantId]: {
+						audioEnabled: payload.audioEnabled !== false,
+						videoEnabled: payload.videoEnabled !== false,
+						isSharing: payload.isSharing === true,
+					},
+				}));
+			}
 			else if (s.kind === "leave") {
 				const remoteId = (s.payload as any)?.participantId;
 				if (remoteId) {
@@ -548,6 +585,7 @@ export function ConnectRoomClient(props: { roomId: string; signedInName?: string
 
 			startPolling();
 			startParticipantsRefresh();
+			void broadcastMediaState({ audioEnabled: !isMuted, videoEnabled: !isVideoOff, isSharing }).catch(() => null);
 			void ensureLocalMedia()
 				.then((stream) => attachLocalTracksToExistingPeers(stream))
 				.catch((err) => {
@@ -633,6 +671,7 @@ export function ConnectRoomClient(props: { roomId: string; signedInName?: string
 			const nextMuted = !isMuted;
 			for (const t of audioTracks) t.enabled = !nextMuted;
 			setIsMuted(nextMuted);
+			void broadcastMediaState({ audioEnabled: nextMuted ? false : true, videoEnabled: !isVideoOff, isSharing }).catch(() => null);
 		})();
 	}
 
@@ -655,6 +694,7 @@ export function ConnectRoomClient(props: { roomId: string; signedInName?: string
 			const nextOff = !isVideoOff;
 			for (const t of videoTracks) t.enabled = !nextOff;
 			setIsVideoOff(nextOff);
+			void broadcastMediaState({ audioEnabled: !isMuted, videoEnabled: nextOff ? false : true, isSharing }).catch(() => null);
 		})();
 	}
 
@@ -678,6 +718,7 @@ export function ConnectRoomClient(props: { roomId: string; signedInName?: string
 				const sender = pc.getSenders().find((s) => s.track?.kind === "video");
 				if (sender) await sender.replaceTrack(screenTrack).catch(() => null);
 			}
+			void broadcastMediaState({ audioEnabled: !isMuted, videoEnabled: true, isSharing: true }).catch(() => null);
 		} catch (e) {
 			setError(e instanceof Error ? e.message : "Failed to share screen");
 		}
@@ -697,6 +738,7 @@ export function ConnectRoomClient(props: { roomId: string; signedInName?: string
 			const sender = pc.getSenders().find((s) => s.track?.kind === "video");
 			if (sender) await sender.replaceTrack(cameraTrack).catch(() => null);
 		}
+		void broadcastMediaState({ audioEnabled: !isMuted, videoEnabled: !isVideoOff, isSharing: false }).catch(() => null);
 	}
 
 	async function copyLink() {
@@ -783,6 +825,7 @@ export function ConnectRoomClient(props: { roomId: string; signedInName?: string
 				void ensureLocalMedia().catch(() => {
 					setMediaWarning("Camera/mic permissions blocked. You can still connect, but allow permissions to send video/audio.");
 				});
+				void broadcastMediaState({ audioEnabled: !isMuted, videoEnabled: !isVideoOff, isSharing }).catch(() => null);
 				if (cancelled) return;
 				await refreshParticipantsOnce();
 			} catch {
@@ -816,9 +859,11 @@ export function ConnectRoomClient(props: { roomId: string; signedInName?: string
 		return `In call with ${others.map((p) => p.displayName).join(", ")}`;
 	}, [participants, myCreds]);
 
+	const stageHeightClass = "h-[calc(100svh-220px)] sm:h-[calc(100svh-210px)]";
+
 	return (
 		<div className="min-h-screen bg-brand-mist text-brand-ink">
-			<div className="mx-auto w-full max-w-screen-2xl px-4 py-6 sm:px-6 sm:py-8">
+			<div className="mx-auto w-full max-w-none px-4 py-6 sm:px-6 sm:py-8">
 				<div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
 					<div>
 						<div className="flex items-center gap-3">
@@ -909,36 +954,45 @@ export function ConnectRoomClient(props: { roomId: string; signedInName?: string
 						{error ? <div className="mt-4 rounded-2xl border border-red-200 bg-red-50 px-4 py-3 text-base text-red-700">{error}</div> : null}
 						{info ? <div className="mt-4 rounded-2xl border border-zinc-200 bg-zinc-50 px-4 py-3 text-base text-zinc-700">{info}</div> : null}
 
-						<div className="mt-6 grid gap-4 lg:grid-cols-2">
-							<div className="rounded-3xl border border-zinc-200 bg-white p-3 shadow-sm sm:p-4">
-								<div className="flex items-center justify-between">
-									<div className="text-sm font-medium text-zinc-900">You</div>
-									<div className="text-xs text-zinc-500">
-										{isMuted ? "Muted" : "Mic on"} · {isVideoOff ? "Camera off" : "Camera on"}
-									</div>
-								</div>
-								<div className="mt-2 overflow-hidden rounded-2xl bg-black">
-									<video ref={localVideoRef} muted playsInline autoPlay className="aspect-video w-full object-cover" />
-								</div>
-								<div className="mt-2 text-sm text-zinc-600">{localStreamReady ? "" : "Connecting camera/mic…"}</div>
-							</div>
+						<div className={"mt-4 grid gap-2 sm:gap-3 lg:grid-cols-2 lg:grid-rows-1 grid-rows-2 " + stageHeightClass}>
+							<StageTile
+								label="You"
+								name={myName || "You"}
+								videoEl={
+									<video ref={localVideoRef} muted playsInline autoPlay className="h-full w-full object-cover" />
+								}
+								videoEnabled={!isVideoOff}
+								audioEnabled={!isMuted}
+								isSharing={isSharing}
+								loading={!localStreamReady}
+							/>
 
 							{remoteTiles.length ? (
 								remoteTiles.map((t) => (
-									<RemoteTile key={t.id} tile={t} />
+									<RemoteTile
+										key={t.id}
+										tile={t}
+										media={remoteMediaState[t.id]}
+									/>
 								))
 							) : otherParticipants.length ? (
-								<div className="rounded-3xl border border-zinc-200 bg-white p-6 shadow-sm">
-									<div className="text-base font-semibold text-zinc-900">Connecting…</div>
-									<div className="mt-1 text-base text-zinc-600">
-										Trying to connect to {otherParticipants.map((p) => p.displayName).join(", ")}. This can take a few seconds.
+								<div className="relative overflow-hidden rounded-2xl bg-zinc-950">
+									<div className="absolute inset-0 bg-gradient-to-b from-black/40 to-black/80" />
+									<div className="relative h-full p-6 text-white">
+										<div className="text-lg font-semibold">Connecting…</div>
+										<div className="mt-2 text-base text-white/80">
+											Trying to connect to {otherParticipants.map((p) => p.displayName).join(", ")}. This can take a few seconds.
+										</div>
+										<div className="mt-3 text-sm text-white/60">If it hangs, refresh the page.</div>
 									</div>
-									<div className="mt-3 text-sm text-zinc-500">If it hangs, refresh the page or try Chrome.</div>
 								</div>
 							) : (
-								<div className="rounded-3xl border border-zinc-200 bg-white p-6 shadow-sm">
-									<div className="text-base font-semibold text-zinc-900">Waiting for someone to join</div>
-									<div className="mt-1 text-base text-zinc-600">Share the link and they’ll appear here.</div>
+								<div className="relative overflow-hidden rounded-2xl bg-zinc-950">
+									<div className="absolute inset-0 bg-gradient-to-b from-black/40 to-black/80" />
+									<div className="relative h-full p-6 text-white">
+										<div className="text-lg font-semibold">Waiting for someone to join</div>
+										<div className="mt-2 text-base text-white/80">Share the link and they’ll appear here.</div>
+									</div>
 								</div>
 							)}
 						</div>
@@ -1107,7 +1161,7 @@ function PhoneHangupIcon() {
 	);
 }
 
-function RemoteTile(props: { tile: { id: string; displayName: string; stream: MediaStream } }) {
+function RemoteTile(props: { tile: { id: string; displayName: string; stream: MediaStream }; media?: MediaState }) {
 	const videoRef = useRef<HTMLVideoElement | null>(null);
 
 	useEffect(() => {
@@ -1117,10 +1171,77 @@ function RemoteTile(props: { tile: { id: string; displayName: string; stream: Me
 	}, [props.tile.stream]);
 
 	return (
-		<div className="rounded-3xl border border-zinc-200 bg-white p-4 shadow-sm">
-			<div className="text-sm font-medium text-zinc-900">{props.tile.displayName || "Guest"}</div>
-			<div className="mt-2 overflow-hidden rounded-2xl bg-black">
-				<video ref={videoRef} playsInline autoPlay className="aspect-video w-full object-cover" />
+		<StageTile
+			label=""
+			name={props.tile.displayName || "Guest"}
+			videoEl={<video ref={videoRef} playsInline autoPlay className="h-full w-full object-cover" />}
+			videoEnabled={props.media?.videoEnabled !== false}
+			audioEnabled={props.media?.audioEnabled !== false}
+			isSharing={props.media?.isSharing === true}
+			loading={false}
+		/>
+	);
+}
+
+function StageTile(props: {
+	label: string;
+	name: string;
+	videoEl: ReactNode;
+	videoEnabled: boolean;
+	audioEnabled: boolean;
+	isSharing: boolean;
+	loading: boolean;
+}) {
+	const initials = (props.name || "?")
+		.split(" ")
+		.filter(Boolean)
+		.slice(0, 2)
+		.map((p) => p[0]?.toUpperCase())
+		.join("");
+
+	return (
+		<div className="relative overflow-hidden rounded-2xl bg-zinc-950">
+			<div className="absolute inset-0">
+				<div className={"h-full w-full " + (props.videoEnabled ? "opacity-100" : "opacity-0")}>
+					{props.videoEl}
+				</div>
+				{!props.videoEnabled ? (
+					<div className="absolute inset-0 flex items-center justify-center bg-zinc-950">
+						<div className="flex h-20 w-20 items-center justify-center rounded-full bg-white/10 text-2xl font-semibold text-white">
+							{initials || "?"}
+						</div>
+					</div>
+				) : null}
+				{props.loading ? (
+					<div className="absolute inset-0 flex items-center justify-center bg-black/40 text-white/80">
+						Connecting…
+					</div>
+				) : null}
+			</div>
+
+			<div className="absolute inset-x-0 bottom-0 p-3">
+				<div className="flex items-center justify-between rounded-xl bg-black/45 px-3 py-2 text-white backdrop-blur">
+					<div className="min-w-0">
+						<div className="truncate text-sm font-semibold">{props.label ? `${props.label} · ` : ""}{props.name}</div>
+						<div className="mt-0.5 text-xs text-white/70">
+							{props.isSharing ? "Sharing" : ""}
+							{props.isSharing ? " · " : ""}
+							{props.audioEnabled ? "Mic on" : "Muted"} · {props.videoEnabled ? "Camera on" : "Camera off"}
+						</div>
+					</div>
+					<div className="flex items-center gap-2">
+						{!props.audioEnabled ? (
+							<span className="inline-flex h-8 w-8 items-center justify-center rounded-full bg-white/10" title="Muted">
+								<MicOffIcon />
+							</span>
+						) : null}
+						{!props.videoEnabled ? (
+							<span className="inline-flex h-8 w-8 items-center justify-center rounded-full bg-white/10" title="Camera off">
+								<VideoOffIcon />
+							</span>
+						) : null}
+					</div>
+				</div>
 			</div>
 		</div>
 	);
