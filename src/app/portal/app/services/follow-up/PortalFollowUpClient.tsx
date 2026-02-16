@@ -792,6 +792,10 @@ export function PortalFollowUpClient({ embedded }: { embedded?: boolean } = {}) 
               <div className="mt-2 text-xs text-zinc-600">
                 Use placeholders like <span className="font-mono">{"{contactName}"}</span> inside templates.
               </div>
+              <div className="mt-2 text-xs text-zinc-600">
+                Tip: Use <span className="font-mono">{"{location}"}</span> to insert the meeting location (Purely Connect link when enabled),
+                or <span className="font-mono">{"{meetingLink}"}</span> for just the link.
+              </div>
               <div className="mt-2 text-xs text-zinc-600 break-words whitespace-normal">
                 Available: <span className="font-mono break-words whitespace-normal">{allVariableKeys.map((k) => `{${k}}`).join(" ")}</span>
               </div>
