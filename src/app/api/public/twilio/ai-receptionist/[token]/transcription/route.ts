@@ -1,5 +1,9 @@
 import { NextResponse } from "next/server";
 
+import { generateText } from "@/lib/ai";
+import { trySendTransactionalEmail } from "@/lib/emailSender";
+import { prisma } from "@/lib/db";
+import { getOwnerTwilioSmsConfig, sendOwnerTwilioSms } from "@/lib/portalTwilio";
 import { findOwnerByAiReceptionistWebhookToken, getAiReceptionistServiceData, upsertAiReceptionistCallEvent } from "@/lib/aiReceptionist";
 import { normalizePhoneStrict } from "@/lib/phone";
 
@@ -69,7 +73,39 @@ export async function POST(req: Request, ctx: { params: Promise<{ token: string 
   const toParsed = toFinal ? normalizePhoneStrict(toFinal) : null;
   const toE164 = toParsed && toParsed.ok && toParsed.e164 ? toParsed.e164 : toFinal;
 
-  const notes = !transcriptionText
+  let summary = "";
+  let contactName = fromE164;
+  
+  if (transcriptionText) {
+    try {
+      summary = await generateText({
+        system:
+          "You are a helpful receptionist assistant. Summarize the following call transcript concisely for the business owner.\n" +
+          "Focus on:\n" +
+          "1. What was the main issue or reason for calling?\n" +
+          "2. How was it handled or what is the next step?\n" +
+          "3. Extract the caller's name if mentioned (e.g. 'This is John').\n" +
+          "Format as 'Caller: [Name/Unknown]. Summary: [Brief summary]'. Keep it under 300 characters for SMS friendly reading.",
+        user: `Transcript:\n"${transcriptionText}"`,
+      });
+
+      // Simple extraction if the LLM followed format "Caller: ... Summary: ..."
+      const nameMatch = summary.match(/Caller:\s*([^.]+)/i);
+      if (nameMatch && nameMatch[1]) {
+        const potentialName = nameMatch[1].trim();
+        if (potentialName.toLowerCase() !== "unknown") {
+          contactName = potentialName;
+        }
+      }
+    } catch (e) {
+      console.error("AI summary failed", e);
+      summary = transcriptionText.slice(0, 100) + "...";
+    }
+  }
+
+  const notes = summary
+    ? summary
+    : !transcriptionText
     ? (transcriptionStatus
         ? `Transcript status: ${transcriptionStatus}`
         : "Transcript callback received.")
@@ -85,7 +121,72 @@ export async function POST(req: Request, ctx: { params: Promise<{ token: string 
     ...(notes ? { notes } : {}),
     ...(recordingSid ? { recordingSid } : {}),
     ...(transcriptionText ? { transcript: transcriptionText } : {}),
+    ...(contactName !== fromE164 ? { contactName } : {}),
   });
+
+  // Notifications
+  try {
+    const settingsData = await getAiReceptionistServiceData(ownerId);
+    const settings = settingsData.settings;
+
+    if (settings.enabled) {
+      const user = await prisma.user.findUnique({
+        where: { id: ownerId },
+        select: { email: true, name: true },
+      });
+
+      if (user?.email) {
+        await trySendTransactionalEmail({
+          to: user.email,
+          subject: `New AI Receptionist Call from ${contactName}`,
+          text: [
+            `You received a new call from ${contactName} (${fromE164}).`,
+            "",
+            "Summary & Context:",
+            summary || "(No summary available)",
+            "",
+            "Transcript:",
+            transcriptionText || "(No transcript)",
+            "",
+            "View details in your portal.",
+          ].join("\n"),
+        });
+      }
+
+      // SMS Notification
+      const destinations = new Set<string>();
+
+      // 1. User Profile Phone
+      const userProfile = await prisma.portalServiceSetup.findUnique({
+        where: {
+          ownerId_serviceSlug: {
+            ownerId,
+            serviceSlug: "profile",
+          },
+        },
+        select: { dataJson: true },
+      });
+      const userProfileData = userProfile?.dataJson as any;
+      if (typeof userProfileData?.phone === "string" && userProfileData.phone.length > 5) {
+        destinations.add(userProfileData.phone);
+      }
+
+      // 2. Forwarding Phone
+      if (settings.forwardToPhoneE164) {
+        destinations.add(settings.forwardToPhoneE164);
+      }
+
+      await Promise.all([...destinations].map(to => 
+        sendOwnerTwilioSms({
+          ownerId,
+          to,
+          body: `New call handled from ${contactName}. ${summary}`,
+        }).catch(e => console.error(`Failed to send SMS to ${to}`, e))
+      ));
+    }
+  } catch (err) {
+    console.error("Failed to send receptionist notifications", err);
+  }
 
   const xml = `<?xml version="1.0" encoding="UTF-8"?>
 <Response>
