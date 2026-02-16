@@ -41,6 +41,7 @@ type Site = {
   appointmentPurpose?: string | null;
   toneDirection?: string | null;
   notificationEmails?: string[] | null;
+  meetingPlatform?: string | null;
 };
 
 type Me = {
@@ -1951,16 +1952,52 @@ export function PortalBookingClient() {
           />
 
           <div className="mt-4 grid grid-cols-1 gap-4 sm:grid-cols-2">
-            <label className="rounded-2xl border border-zinc-200 bg-zinc-50 px-4 py-3 text-sm">
-              <div className="font-medium text-zinc-800">Meeting location (optional)</div>
-              <input
-                className="mt-2 w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm"
-                placeholder="Phone call, Zoom link, in-person address…"
-                value={site?.meetingLocation ?? ""}
-                onChange={(e) => setSite((prev) => (prev ? { ...prev, meetingLocation: e.target.value } : prev))}
-                onBlur={() => save({ meetingLocation: site?.meetingLocation?.trim() ? site.meetingLocation.trim() : null })}
-              />
-            </label>
+            <div className="rounded-2xl border border-zinc-200 bg-zinc-50 px-4 py-3 text-sm">
+              <div className="mb-2 font-medium text-zinc-800">Meeting location</div>
+              <div className="flex flex-col gap-2">
+                <label className="flex items-center gap-2">
+                  <input
+                    type="radio"
+                    name="meetingPlatform"
+                    className="accent-brand-ink"
+                    checked={site?.meetingPlatform === "PURELY_CONNECT"}
+                    onChange={() => {
+                       setSite(prev => prev ? { ...prev, meetingPlatform: "PURELY_CONNECT", meetingLocation: "Purely Connect Video" } : prev);
+                       save({ meetingPlatform: "PURELY_CONNECT", meetingLocation: "Purely Connect Video" });
+                    }}
+                  />
+                  <span>Purely Connect Video</span>
+                  <span className="ml-1 rounded bg-brand-lime px-1.5 py-0.5 text-[10px] font-bold text-brand-forest">NEW</span>
+                </label>
+                <label className="flex items-center gap-2">
+                  <input
+                    type="radio"
+                    name="meetingPlatform"
+                    className="accent-brand-ink"
+                    checked={site?.meetingPlatform !== "PURELY_CONNECT"}
+                    onChange={() => {
+                       setSite(prev => prev ? { ...prev, meetingPlatform: "OTHER", meetingLocation: "" } : prev);
+                       save({ meetingPlatform: "OTHER", meetingLocation: "" });
+                    }}
+                  />
+                  <span>Other (Zoom, Phone, In-person)</span>
+                </label>
+              </div>
+
+              {site?.meetingPlatform === "PURELY_CONNECT" ? (
+                <div className="mt-3 text-xs text-zinc-600">
+                  <p>Guests will receive a secure video meeting link automatically. Zero-latency HD video powered by Purely Connect.</p>
+                </div>
+              ) : (
+                <input
+                  className="mt-2 w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm"
+                  placeholder="Phone call, Zoom link, in-person address…"
+                  value={site?.meetingLocation ?? ""}
+                  onChange={(e) => setSite((prev) => (prev ? { ...prev, meetingLocation: e.target.value } : prev))}
+                  onBlur={() => save({ meetingLocation: site?.meetingLocation?.trim() ? site.meetingLocation.trim() : null })}
+                />
+              )}
+            </div>
 
             <label className="rounded-2xl border border-zinc-200 bg-zinc-50 px-4 py-3 text-sm">
               <div className="font-medium text-zinc-800">Meeting details (optional)</div>

@@ -24,6 +24,7 @@ const putSchema = z.object({
   appointmentPurpose: z.string().trim().max(600).optional().nullable(),
   toneDirection: z.string().trim().max(600).optional().nullable(),
   notificationEmails: z.array(z.string().trim().email()).max(20).optional().nullable(),
+  meetingPlatform: z.enum(["PURELY_CONNECT", "ZOOM", "GOOGLE_MEET", "OTHER"]).optional(),
 });
 
 type BookingColumnFlags = {
@@ -119,7 +120,16 @@ export async function GET() {
 
   const ownerId = auth.session.user.id;
   const flags = await getBookingColumnFlags();
-  const site = (await ensureSite(ownerId, flags)) as any;
+
+  const [siteRaw, serviceSetup] = await Promise.all([
+    ensureSite(ownerId, flags),
+    prisma.portalServiceSetup.findUnique({
+      where: { ownerId_serviceSlug: { ownerId, serviceSlug: "booking" } },
+      select: { dataJson: true },
+    }),
+  ]);
+  const site = siteRaw as any;
+  const setupData = (serviceSetup?.dataJson as any) || {};
 
   return NextResponse.json({
     ok: true,
@@ -137,6 +147,7 @@ export async function GET() {
       appointmentPurpose: flags.appointmentPurpose ? (site.appointmentPurpose ?? null) : null,
       toneDirection: flags.toneDirection ? (site.toneDirection ?? null) : null,
       notificationEmails: flags.notificationEmails ? ((site.notificationEmails as unknown) ?? null) : null,
+      meetingPlatform: typeof setupData.meetingPlatform === "string" ? setupData.meetingPlatform : "OTHER",
       updatedAt: site.updatedAt,
     },
   });
@@ -206,11 +217,40 @@ export async function PUT(req: Request) {
           : undefined;
   }
 
-  const updated = await prisma.portalBookingSite.update({
+  // Update PortalServiceSetup for meetingPlatform
+  if (parsed.data.meetingPlatform) {
+    const existing = await prisma.portalServiceSetup.findUnique({
+      where: { ownerId_serviceSlug: { ownerId, serviceSlug: "booking" } },
+      select: { dataJson: true },
+    });
+    const base = (existing?.dataJson as any) || {};
+    await prisma.portalServiceSetup.upsert({
+      where: { ownerId_serviceSlug: { ownerId, serviceSlug: "booking" } },
+      create: {
+        ownerId,
+        serviceSlug: "booking",
+        dataJson: { ...base, meetingPlatform: parsed.data.meetingPlatform },
+        status: "COMPLETE",
+      },
+      update: {
+        dataJson: { ...base, meetingPlatform: parsed.data.meetingPlatform },
+      },
+    });
+  }
+
+  const updatedRaw = await prisma.portalBookingSite.update({
     where: { ownerId },
     data: data as any,
     select: bookingSelect(flags),
   });
+  const updated = updatedRaw as any;
+
+  // Refetch setup
+  const serviceSetup = await prisma.portalServiceSetup.findUnique({
+    where: { ownerId_serviceSlug: { ownerId, serviceSlug: "booking" } },
+    select: { dataJson: true },
+  });
+  const setupData = (serviceSetup?.dataJson as any) || {};
 
   return NextResponse.json({
     ok: true,
@@ -228,6 +268,7 @@ export async function PUT(req: Request) {
       appointmentPurpose: flags.appointmentPurpose ? ((updated as any).appointmentPurpose ?? null) : null,
       toneDirection: flags.toneDirection ? ((updated as any).toneDirection ?? null) : null,
       notificationEmails: flags.notificationEmails ? (((updated as any).notificationEmails as unknown) ?? null) : null,
+      meetingPlatform: typeof setupData.meetingPlatform === "string" ? setupData.meetingPlatform : "OTHER",
       updatedAt: updated.updatedAt,
     },
   });

@@ -12,6 +12,7 @@ import { runOwnerAutomationsForEvent } from "@/lib/portalAutomationsRunner";
 import { normalizePhoneStrict } from "@/lib/phone";
 import { trySendTransactionalEmail } from "@/lib/emailSender";
 import { getAppBaseUrl, tryNotifyPortalAccountUsers } from "@/lib/portalNotifications";
+import { createConnectRoom } from "@/lib/connectRoomCreate";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
@@ -248,6 +249,40 @@ export async function POST(
   const phoneRes = normalizePhoneStrict(phone);
   const phoneE164 = phoneRes.ok ? phoneRes.e164 : null;
 
+  // Purely Connect Meeting Logic
+  let purelyConnectJoinUrl: string | null = null;
+  let effectiveLocation = (site as any).meetingLocation ?? null;
+
+  try {
+    const setup = await prisma.portalServiceSetup.findUnique({
+      where: { ownerId_serviceSlug: { ownerId: site.ownerId, serviceSlug: "booking" } },
+      select: { dataJson: true },
+    });
+    const setupData = (setup?.dataJson as any) || {};
+
+    if (setupData.meetingPlatform === "PURELY_CONNECT") {
+      const room = await createConnectRoom({
+        title: `Booking: ${site.title} - ${parsed.data.contactName}`,
+        createdByUserId: null,
+        idLength: 10,
+        maxAttempts: 12,
+      });
+      purelyConnectJoinUrl = `${getAppBaseUrl()}/connect/${encodeURIComponent(room.roomId)}`;
+      
+      // Override the location with generating a unique meeting link
+      effectiveLocation = purelyConnectJoinUrl;
+    }
+  } catch (err) {
+    console.error("Failed to setup Purely Connect meeting for booking", err);
+  }
+
+  // Prepend meeting link to notes so it's visible in the portal UI for the booking record
+  let finalNotes = combinedNotes;
+  if (purelyConnectJoinUrl) {
+    const prefix = `[Purely Connect Meeting]\n${purelyConnectJoinUrl}\n\n`;
+    finalNotes = finalNotes ? prefix + finalNotes : prefix.trim();
+  }
+
   const contactId =
     canUseContactsTable && canUseBookingContactId
       ? await findOrCreatePortalContact({
@@ -266,7 +301,7 @@ export async function POST(
       contactName: parsed.data.contactName,
       contactEmail: parsed.data.contactEmail,
       contactPhone: phone ? phone : null,
-      notes: combinedNotes ? combinedNotes : null,
+      notes: finalNotes ? finalNotes : null,
       ...(contactId ? { contactId } : {}),
     },
     select: {
@@ -366,7 +401,7 @@ export async function POST(
       booking.contactPhone ? `Phone: ${booking.contactPhone}` : null,
       booking.notes ? `Notes: ${booking.notes}` : null,
       "",
-      (site as any).meetingLocation ? `Location: ${(site as any).meetingLocation}` : null,
+      effectiveLocation ? `Location: ${effectiveLocation}` : (site as any).meetingLocation ? `Location: ${(site as any).meetingLocation}` : null,
       (site as any).meetingDetails ? `Details: ${(site as any).meetingDetails}` : null,
     ]
       .filter(Boolean)
@@ -383,7 +418,7 @@ export async function POST(
       `You're booked: ${site.title}`,
       "",
       `When: ${when}`,
-      (site as any).meetingLocation ? `Location: ${(site as any).meetingLocation}` : null,
+      effectiveLocation ? `Location: ${effectiveLocation}` : (site as any).meetingLocation ? `Location: ${(site as any).meetingLocation}` : null,
       (site as any).meetingDetails ? `Details: ${(site as any).meetingDetails}` : null,
       rescheduleUrl ? "" : null,
       rescheduleUrl ? `Need to reschedule? ${rescheduleUrl}` : null,
