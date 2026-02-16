@@ -1,7 +1,7 @@
 "use client";
 
 import Image from "next/image";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 
 type ParticipantCreds = {
 	participantId: string;
@@ -73,6 +73,9 @@ export function ConnectRoomClient(props: { roomId: string; signedInName?: string
 	const makingOfferRef = useRef<Map<string, boolean>>(new Map());
 	const pendingIceRef = useRef<Map<string, RTCIceCandidateInit[]>>(new Map());
 	const afterSeqRef = useRef<number>(0);
+	const participantsRef = useRef<ParticipantPublic[]>([]);
+	const storedCredsFoundRef = useRef<boolean>(false);
+	const autoJoinAttemptedRef = useRef(false);
 	const pollingRef = useRef<boolean>(false);
 	const pollTimerRef = useRef<number | null>(null);
 	const participantsTimerRef = useRef<number | null>(null);
@@ -301,7 +304,7 @@ export function ConnectRoomClient(props: { roomId: string; signedInName?: string
 			const stream = ev.streams?.[0];
 			if (!stream) return;
 
-			const remoteName = participants.find((p) => p.id === remoteParticipantId)?.displayName || "Participant";
+			const remoteName = participantsRef.current.find((p) => p.id === remoteParticipantId)?.displayName || "Participant";
 			upsertRemoteStream(remoteParticipantId, remoteName, stream);
 		};
 
@@ -495,6 +498,7 @@ export function ConnectRoomClient(props: { roomId: string; signedInName?: string
 	}
 
 	async function onJoin() {
+		if (myCreds) return;
 		setError(null);
 		setInfo(null);
 		setMediaWarning(null);
@@ -597,21 +601,47 @@ export function ConnectRoomClient(props: { roomId: string; signedInName?: string
 	}
 
 	function toggleMute() {
-		const local = localStreamRef.current;
-		if (!local) return;
-		const audioTracks = local.getAudioTracks();
-		const nextMuted = !isMuted;
-		for (const t of audioTracks) t.enabled = !nextMuted;
-		setIsMuted(nextMuted);
+		void (async () => {
+			let local = localStreamRef.current;
+			if (!local) {
+				try {
+					local = await ensureLocalMedia();
+					attachLocalTracksToExistingPeers(local);
+				} catch (err) {
+					const d = describeGetUserMediaError(err);
+					setMediaWarning(d.warning);
+					setMediaDetails(d.details);
+					return;
+				}
+			}
+
+			const audioTracks = local.getAudioTracks();
+			const nextMuted = !isMuted;
+			for (const t of audioTracks) t.enabled = !nextMuted;
+			setIsMuted(nextMuted);
+		})();
 	}
 
 	function toggleVideo() {
-		const local = localStreamRef.current;
-		if (!local) return;
-		const videoTracks = local.getVideoTracks();
-		const nextOff = !isVideoOff;
-		for (const t of videoTracks) t.enabled = !nextOff;
-		setIsVideoOff(nextOff);
+		void (async () => {
+			let local = localStreamRef.current;
+			if (!local) {
+				try {
+					local = await ensureLocalMedia();
+					attachLocalTracksToExistingPeers(local);
+				} catch (err) {
+					const d = describeGetUserMediaError(err);
+					setMediaWarning(d.warning);
+					setMediaDetails(d.details);
+					return;
+				}
+			}
+
+			const videoTracks = local.getVideoTracks();
+			const nextOff = !isVideoOff;
+			for (const t of videoTracks) t.enabled = !nextOff;
+			setIsVideoOff(nextOff);
+		})();
 	}
 
 	async function startShare() {
@@ -667,14 +697,20 @@ export function ConnectRoomClient(props: { roomId: string; signedInName?: string
 	}
 
 	useEffect(() => {
-		// Restore creds if present.
+		// Restore creds if present. This must run before any auto-join to avoid duplicate participants on refresh.
+		storedCredsFoundRef.current = false;
 		try {
 			const raw = localStorage.getItem(storageKey(roomId));
-			if (!raw) return;
-			const parsed = JSON.parse(raw) as ParticipantCreds;
-			if (!parsed?.participantId || !parsed?.secret) return;
-			setMyCreds(parsed);
-			setJoinName(parsed.displayName);
+			if (raw) {
+				const parsed = JSON.parse(raw) as ParticipantCreds;
+				if (parsed?.participantId && parsed?.secret) {
+					storedCredsFoundRef.current = true;
+					setMyCreds(parsed);
+					setJoinName(parsed.displayName);
+					// Prevent the auto-join effect from firing on this mount.
+					autoJoinAttemptedRef.current = true;
+				}
+			}
 		} catch {
 			// ignore
 		}
@@ -693,17 +729,34 @@ export function ConnectRoomClient(props: { roomId: string; signedInName?: string
 		// eslint-disable-next-line react-hooks/exhaustive-deps
 	}, [roomId, myCreds]);
 
-	const autoJoinAttemptedRef = useRef(false);
 	useEffect(() => {
 		// Auto-join if we already have a name (employee signed-in or stored guest name).
 		if (autoJoinAttemptedRef.current) return;
 		if (myCreds) return;
+		if (storedCredsFoundRef.current) return;
 		const name = safeName(joinName);
 		if (!name) return;
 		autoJoinAttemptedRef.current = true;
 		void onJoin();
 		// eslint-disable-next-line react-hooks/exhaustive-deps
 	}, [joinName, myCreds]);
+
+	useEffect(() => {
+		participantsRef.current = participants;
+		// Keep names correct even if tracks arrive before participants refresh.
+		setRemoteTiles((prev) => {
+			let changed = false;
+			const next = prev.map((t) => {
+				const name = participants.find((p) => p.id === t.id)?.displayName;
+				if (name && name !== t.displayName) {
+					changed = true;
+					return { ...t, displayName: name };
+				}
+				return t;
+			});
+			return changed ? next : prev;
+		});
+	}, [participants]);
 
 	useEffect(() => {
 		if (!myCreds) return;
@@ -751,7 +804,7 @@ export function ConnectRoomClient(props: { roomId: string; signedInName?: string
 
 	return (
 		<div className="min-h-screen bg-brand-mist text-brand-ink">
-			<div className="mx-auto max-w-6xl px-6 py-10">
+			<div className="mx-auto w-full max-w-screen-2xl px-4 py-6 sm:px-6 sm:py-8">
 				<div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
 					<div>
 						<div className="flex items-center gap-3">
@@ -807,30 +860,6 @@ export function ConnectRoomClient(props: { roomId: string; signedInName?: string
 								<div className="text-xl font-semibold text-zinc-900">{myName || "You"}</div>
 								<div className="mt-1 text-base text-zinc-600">{statusLine}</div>
 							</div>
-
-							<div className="flex flex-wrap gap-2">
-								<button
-									onClick={toggleMute}
-									className="rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-base hover:bg-zinc-50"
-								>
-									{isMuted ? "Unmute" : "Mute"}
-								</button>
-								<button
-									onClick={toggleVideo}
-									className="rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-base hover:bg-zinc-50"
-								>
-									{isVideoOff ? "Start video" : "Stop video"}
-								</button>
-								{!isSharing ? (
-									<button onClick={startShare} className="rounded-2xl bg-brand-ink px-4 py-2 text-base font-semibold text-white hover:opacity-95">
-										Share screen
-									</button>
-								) : (
-									<button onClick={stopShare} className="rounded-2xl bg-brand-ink px-4 py-2 text-base font-semibold text-white hover:opacity-95">
-										Stop sharing
-									</button>
-								)}
-							</div>
 						</div>
 
 						{mediaWarning ? (
@@ -866,13 +895,18 @@ export function ConnectRoomClient(props: { roomId: string; signedInName?: string
 						{error ? <div className="mt-4 rounded-2xl border border-red-200 bg-red-50 px-4 py-3 text-base text-red-700">{error}</div> : null}
 						{info ? <div className="mt-4 rounded-2xl border border-zinc-200 bg-zinc-50 px-4 py-3 text-base text-zinc-700">{info}</div> : null}
 
-						<div className="mt-6 grid gap-4 md:grid-cols-2">
-							<div className="rounded-3xl border border-zinc-200 bg-white p-4 shadow-sm">
-								<div className="text-sm font-medium text-zinc-900">You</div>
+						<div className="mt-6 grid gap-4 lg:grid-cols-2">
+							<div className="rounded-3xl border border-zinc-200 bg-white p-3 shadow-sm sm:p-4">
+								<div className="flex items-center justify-between">
+									<div className="text-sm font-medium text-zinc-900">You</div>
+									<div className="text-xs text-zinc-500">
+										{isMuted ? "Muted" : "Mic on"} · {isVideoOff ? "Camera off" : "Camera on"}
+									</div>
+								</div>
 								<div className="mt-2 overflow-hidden rounded-2xl bg-black">
 									<video ref={localVideoRef} muted playsInline autoPlay className="aspect-video w-full object-cover" />
 								</div>
-								<div className="mt-2 text-sm text-zinc-600">{localStreamReady ? "Camera on" : "Connecting…"}</div>
+								<div className="mt-2 text-sm text-zinc-600">{localStreamReady ? "" : "Connecting camera/mic…"}</div>
 							</div>
 
 							{remoteTiles.length ? (
@@ -894,10 +928,168 @@ export function ConnectRoomClient(props: { roomId: string; signedInName?: string
 								</div>
 							)}
 						</div>
+
+						<div className="fixed inset-x-0 bottom-5 z-10 flex justify-center px-4">
+							<div className="flex items-center gap-2 rounded-full border border-zinc-200 bg-white/90 px-2 py-2 shadow-lg backdrop-blur">
+								<IconButton
+									label={isMuted ? "Unmute" : "Mute"}
+									onClick={toggleMute}
+									active={!isMuted}
+									icon={isMuted ? <MicOffIcon /> : <MicIcon />}
+								/>
+								<IconButton
+									label={isVideoOff ? "Start video" : "Stop video"}
+									onClick={toggleVideo}
+									active={!isVideoOff}
+									icon={isVideoOff ? <VideoOffIcon /> : <VideoIcon />}
+								/>
+								<IconButton
+									label={!isSharing ? "Share screen" : "Stop sharing"}
+									onClick={!isSharing ? startShare : stopShare}
+									active={!isSharing}
+									icon={!isSharing ? <ScreenShareIcon /> : <ScreenStopIcon />}
+								/>
+								<div className="mx-1 h-8 w-px bg-zinc-200" />
+								<button
+									onClick={onLeave}
+									className="flex h-11 w-11 items-center justify-center rounded-full bg-red-600 text-white hover:bg-red-500"
+									aria-label="Leave"
+									title="Leave"
+								>
+									<PhoneHangupIcon />
+								</button>
+							</div>
+						</div>
 					</div>
 				)}
 			</div>
 		</div>
+	);
+}
+
+function IconButton(props: { label: string; onClick: () => void; icon: ReactNode; active: boolean }) {
+	return (
+		<button
+			onClick={props.onClick}
+			className={
+				"flex h-11 w-11 items-center justify-center rounded-full border transition " +
+				(props.active ? "border-zinc-200 bg-white hover:bg-zinc-50" : "border-zinc-200 bg-zinc-100 hover:bg-zinc-200")
+			}
+			aria-label={props.label}
+			title={props.label}
+		>
+			{props.icon}
+		</button>
+	);
+}
+
+function MicIcon() {
+	return (
+		<svg width="20" height="20" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" className="text-zinc-900">
+			<path
+				d="M12 14a3 3 0 0 0 3-3V6a3 3 0 1 0-6 0v5a3 3 0 0 0 3 3Z"
+				stroke="currentColor"
+				strokeWidth="2"
+				strokeLinecap="round"
+				strokeLinejoin="round"
+			/>
+			<path d="M19 11a7 7 0 0 1-14 0" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
+			<path d="M12 18v3" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
+			<path d="M8 21h8" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
+		</svg>
+	);
+}
+
+function MicOffIcon() {
+	return (
+		<svg width="20" height="20" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" className="text-zinc-900">
+			<path d="M4 4l16 16" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
+			<path
+				d="M9 9v2a3 3 0 0 0 4.2 2.74"
+				stroke="currentColor"
+				strokeWidth="2"
+				strokeLinecap="round"
+				strokeLinejoin="round"
+			/>
+			<path
+				d="M15 9.34V6a3 3 0 0 0-5.1-2.12"
+				stroke="currentColor"
+				strokeWidth="2"
+				strokeLinecap="round"
+				strokeLinejoin="round"
+			/>
+			<path d="M19 11a7 7 0 0 1-7 7c-1.2 0-2.34-.3-3.33-.84" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
+			<path d="M12 18v3" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
+			<path d="M8 21h8" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
+		</svg>
+	);
+}
+
+function VideoIcon() {
+	return (
+		<svg width="20" height="20" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" className="text-zinc-900">
+			<path
+				d="M15 10.5V7a2 2 0 0 0-2-2H6A2 2 0 0 0 4 7v10a2 2 0 0 0 2 2h7a2 2 0 0 0 2-2v-3.5l5 3v-9l-5 3Z"
+				stroke="currentColor"
+				strokeWidth="2"
+				strokeLinejoin="round"
+			/>
+		</svg>
+	);
+}
+
+function VideoOffIcon() {
+	return (
+		<svg width="20" height="20" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" className="text-zinc-900">
+			<path d="M4 4l16 16" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
+			<path
+				d="M14 10.5V7a2 2 0 0 0-2-2H7.5"
+				stroke="currentColor"
+				strokeWidth="2"
+				strokeLinejoin="round"
+			/>
+			<path
+				d="M15 13.5V17a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V9"
+				stroke="currentColor"
+				strokeWidth="2"
+				strokeLinejoin="round"
+			/>
+			<path d="M20 7v10l-4-2.4" stroke="currentColor" strokeWidth="2" strokeLinejoin="round" />
+		</svg>
+	);
+}
+
+function ScreenShareIcon() {
+	return (
+		<svg width="20" height="20" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" className="text-zinc-900">
+			<path d="M4 4h16v10H4V4Z" stroke="currentColor" strokeWidth="2" strokeLinejoin="round" />
+			<path d="M12 14v6" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
+			<path d="M8 20h8" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
+			<path d="M12 7v4" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
+			<path d="M10 9l2-2 2 2" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+		</svg>
+	);
+}
+
+function ScreenStopIcon() {
+	return (
+		<svg width="20" height="20" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" className="text-zinc-900">
+			<path d="M4 4h16v10H4V4Z" stroke="currentColor" strokeWidth="2" strokeLinejoin="round" />
+			<path d="M12 14v6" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
+			<path d="M8 20h8" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
+			<path d="M9 7h6" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
+		</svg>
+	);
+}
+
+function PhoneHangupIcon() {
+	return (
+		<svg width="20" height="20" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" className="text-white">
+			<path
+				d="M21 15.5c-2.5-2-5.5-3-9-3s-6.5 1-9 3V19c0 .6.4 1 1 1h3c.4 0 .8-.3 1-.7l.6-1.7c1.1-.3 2.3-.6 3.4-.6s2.3.2 3.4.6l.6 1.7c.1.4.5.7 1 .7h3c.6 0 1-.4 1-1v-3.5Z"
+				fill="currentColor"
+			/>
+		</svg>
 	);
 }
 
