@@ -106,6 +106,46 @@ function sanitizeClientNotes(notes?: string | null) {
   return singleLine;
 }
 
+function isTechnicalNotes(raw: string): boolean {
+  const text = raw.trim().toLowerCase();
+  if (!text) return false;
+  if (text.startsWith("media stream callback")) return true;
+  if (text.includes("stream-started") || text.includes("stream-stopped") || text.includes("stream-error")) return true;
+  if (text.startsWith("recording detected:") || text.startsWith("recording started:") || text.includes("recording start requested")) return true;
+  if (text.startsWith("live agent connected")) return true;
+  if (text.startsWith("ai mode unavailable")) return true;
+  if (text.startsWith("insufficient credits")) return true;
+  if (text.startsWith("call status:")) return true;
+  return false;
+}
+
+function summarizeTranscriptForNotes(transcript?: string | null): string | null {
+  const raw = String(transcript || "").trim();
+  if (!raw) return null;
+  const cleaned = raw.replace(/\s+/g, " ").trim();
+  if (!cleaned) return null;
+  if (cleaned.length <= 240) return cleaned;
+  return `${cleaned.slice(0, 239)}…`;
+}
+
+function deriveClientNotesFromEvent(ev: EventRow | null): string | null {
+  if (!ev) return null;
+
+  const transcript = (ev.transcript || "").trim();
+  if (!transcript) return null;
+
+  const rawNotes = (ev.notes || "").trim();
+
+  // If server-side notes already look like a caller summary (our AI format), keep them.
+  if (rawNotes && /^caller:\s*/i.test(rawNotes) && !isTechnicalNotes(rawNotes)) {
+    return sanitizeClientNotes(rawNotes);
+  }
+
+  // Otherwise, derive a compact summary from the transcript.
+  const summary = summarizeTranscriptForNotes(transcript);
+  return summary ? summary : null;
+}
+
 function MiniAudioPlayer(props: { src: string; durationHintSec?: number | null }) {
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const [ready, setReady] = useState(false);
@@ -415,6 +455,24 @@ export function PortalAiReceptionistClient() {
     void load();
     void loadCredits();
   }, [load, loadCredits]);
+
+  useEffect(() => {
+    // Auto-refresh activity while calls are in-progress or the selected call lacks a transcript,
+    // so transcripts/notes show up without manual refresh.
+    const hasPending = events.some((e) => {
+      const inProgress = e.status === "IN_PROGRESS" || e.status === "UNKNOWN";
+      const selectedWithoutTranscript = e.id === selectedCallId && !(e.transcript && e.transcript.trim());
+      return inProgress || selectedWithoutTranscript;
+    });
+
+    if (!hasPending) return;
+
+    const id = window.setInterval(() => {
+      void load();
+    }, 10000);
+
+    return () => window.clearInterval(id);
+  }, [events, selectedCallId, load]);
 
   function setTabWithUrl(nextTab: "settings" | "testing" | "activity" | "missed-call-textback") {
     setTab(nextTab);
@@ -965,9 +1023,9 @@ export function PortalAiReceptionistClient() {
                             </>
                           ) : null}
                         </div>
-                        {sanitizeClientNotes(e.notes) ? (
+                        {deriveClientNotesFromEvent(e) ? (
                           <div className={"mt-1 line-clamp-2 text-xs " + (isSelected ? "text-zinc-200" : "text-zinc-600")}>
-                            {sanitizeClientNotes(e.notes)}
+                            {deriveClientNotesFromEvent(e)}
                           </div>
                         ) : null}
                       </button>
@@ -1077,10 +1135,10 @@ export function PortalAiReceptionistClient() {
                         )}
                       </div>
 
-                      {sanitizeClientNotes(selectedCall.notes) ? (
+                      {deriveClientNotesFromEvent(selectedCall) ? (
                         <div className="mt-5">
                           <div className="text-xs font-semibold text-zinc-600">Notes</div>
-                          <div className="mt-2 whitespace-pre-wrap text-sm text-zinc-700">{sanitizeClientNotes(selectedCall.notes)}</div>
+                          <div className="mt-2 whitespace-pre-wrap text-sm text-zinc-700">{deriveClientNotesFromEvent(selectedCall)}</div>
                         </div>
                       ) : null}
                     </>

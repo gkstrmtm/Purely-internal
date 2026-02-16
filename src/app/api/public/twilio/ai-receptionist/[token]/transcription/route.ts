@@ -4,7 +4,7 @@ import { generateText } from "@/lib/ai";
 import { trySendTransactionalEmail } from "@/lib/emailSender";
 import { prisma } from "@/lib/db";
 import { findPortalContactByPhone } from "@/lib/portalContacts";
-import { sendOwnerTwilioSms } from "@/lib/portalTwilio";
+import { sendTwilioEnvSms } from "@/lib/twilioEnvSms";
 import { findOwnerByAiReceptionistWebhookToken, getAiReceptionistServiceData, upsertAiReceptionistCallEvent } from "@/lib/aiReceptionist";
 import { normalizePhoneStrict } from "@/lib/phone";
 
@@ -169,7 +169,12 @@ export async function POST(req: Request, ctx: { params: Promise<{ token: string 
       // SMS Notification
       const destinations = new Set<string>();
 
-      // 1. User Profile Phone
+      // 1. Forwarding Phone (if configured on the AI receptionist)
+      if (settings.forwardToPhoneE164) {
+        destinations.add(settings.forwardToPhoneE164);
+      }
+
+      // 2. User Profile Phone (owner's main contact phone)
       const userProfile = await prisma.portalServiceSetup.findUnique({
         where: {
           ownerId_serviceSlug: {
@@ -184,19 +189,21 @@ export async function POST(req: Request, ctx: { params: Promise<{ token: string 
         destinations.add(userProfileData.phone);
       }
 
-      // 2. Forwarding Phone
-      if (settings.forwardToPhoneE164) {
-        destinations.add(settings.forwardToPhoneE164);
-      }
-
       await Promise.all(
-        [...destinations].map((to) =>
-          sendOwnerTwilioSms({
-            ownerId,
-            to,
-            body: `Your AI receptionist just handled a call from ${contactName}. Check your email for details.`,
-          }).catch((e) => console.error(`Failed to send SMS to ${to}`, e)),
-        ),
+        [...destinations].map(async (to) => {
+          try {
+            const res = await sendTwilioEnvSms({
+              to,
+              body: `Your AI receptionist just handled a call from ${contactName}. Check your email for details.`,
+              fromNumberEnvKeys: ["TWILIO_MARKETING_FROM_NUMBER", "TWILIO_FROM_NUMBER"],
+            });
+            if (!res.ok) {
+              console.error("AI receptionist SMS failed", { ownerId, to, reason: res.reason, skipped: (res as any).skipped });
+            }
+          } catch (e) {
+            console.error(`Failed to send AI receptionist SMS to ${to}`, e);
+          }
+        }),
       );
     }
   } catch (err) {
