@@ -323,23 +323,35 @@ export async function POST(req: Request, ctx: { params: Promise<{ callSid: strin
     let transcript = String(updates.transcript ?? "").trim();
 
     if (!transcript && wav.ok) {
-      const split = splitStereoPcmWavToMonoWavs(wav.bytes);
-      const [left, right, full] = await Promise.all([
-        transcribeAudioVerbose({ bytes: split.leftWav, filename: `${recordingSid}-left.wav`, mimeType: "audio/wav" }),
-        transcribeAudioVerbose({ bytes: split.rightWav, filename: `${recordingSid}-right.wav`, mimeType: "audio/wav" }),
-        mp3.ok
-          ? transcribeAudioVerbose({ bytes: mp3.bytes, filename: `${recordingSid}.mp3`, mimeType: mp3.mimeType || "audio/mpeg" })
-          : Promise.resolve({ text: "", segments: [] }),
-      ]);
+      try {
+        const split = splitStereoPcmWavToMonoWavs(wav.bytes);
+        const [left, right, full] = await Promise.all([
+          transcribeAudioVerbose({ bytes: split.leftWav, filename: `${recordingSid}-left.wav`, mimeType: "audio/wav" }),
+          transcribeAudioVerbose({ bytes: split.rightWav, filename: `${recordingSid}-right.wav`, mimeType: "audio/wav" }),
+          mp3.ok
+            ? transcribeAudioVerbose({ bytes: mp3.bytes, filename: `${recordingSid}.mp3`, mimeType: mp3.mimeType || "audio/mpeg" })
+            : Promise.resolve({ text: "", segments: [] }),
+        ]);
 
-      transcript = buildSpeakerTranscriptAlignedToFull({
-        full,
-        left,
-        right,
-        leftLabel: "Recipient",
-        rightLabel: "Agent",
-        maxChars: 25000,
-      });
+        transcript = buildSpeakerTranscriptAlignedToFull({
+          full,
+          left,
+          right,
+          leftLabel: "Recipient",
+          rightLabel: "Agent",
+          maxChars: 25000,
+        });
+      } catch (err) {
+        // Some recordings are mono-only or otherwise not compatible with the
+        // stereo splitter. In that case, silently fall back to MP3-only
+        // transcription instead of surfacing a noisy error to the portal.
+        console.warn("AI receptionist: unable to split WAV for stereo transcript; falling back to MP3-only", {
+          ownerId,
+          callSid: sid,
+          recordingSid,
+          error: err instanceof Error ? err.message : String(err ?? "unknown"),
+        });
+      }
     }
 
     if (!transcript.trim() && mp3.ok) {
