@@ -68,13 +68,11 @@ export async function POST(req: Request, ctx: { params: Promise<{ token: string 
 
   let chargedCredits = 0;
   let chargedPartial = false;
-  let alreadyCharged = false;
 
   if (needCredits > 0) {
     const consumed = await consumeCreditsOnce(ownerId, needCredits, creditsKey);
     if (consumed.ok && consumed.chargedAmount > 0) {
       chargedCredits = consumed.chargedAmount;
-      alreadyCharged = consumed.alreadyConsumed;
     } else {
       const available = Math.max(0, Math.floor(consumed.state.balance));
       if (available > 0) {
@@ -95,20 +93,6 @@ export async function POST(req: Request, ctx: { params: Promise<{ token: string 
     to: toE164,
     createdAtIso: new Date().toISOString(),
     status: "COMPLETED",
-    notes:
-      Number.isFinite(durationFloor)
-      ? (billable
-        ? (needCredits > 0
-          ? (chargedCredits > 0
-            ? (alreadyCharged
-              ? `Credits already charged (${chargedCredits} credit(s)).`
-              : (chargedPartial
-                ? `Charged ${chargedCredits} credit(s) (partial, ${needCredits} needed).`
-                : `Charged ${chargedCredits} credit(s).`))
-            : "No credits charged.")
-          : "No credits charged.")
-        : `No credits charged (call too short: ${durationFloor}s).`)
-      : "No recording duration reported.",
     ...(recordingSid ? { recordingSid } : {}),
     ...(Number.isFinite(durationFloor) ? { recordingDurationSec: durationFloor } : {}),
     ...(chargedCredits > 0 ? { chargedCredits } : {}),

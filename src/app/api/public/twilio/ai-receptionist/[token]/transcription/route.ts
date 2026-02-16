@@ -3,7 +3,8 @@ import { NextResponse } from "next/server";
 import { generateText } from "@/lib/ai";
 import { trySendTransactionalEmail } from "@/lib/emailSender";
 import { prisma } from "@/lib/db";
-import { getOwnerTwilioSmsConfig, sendOwnerTwilioSms } from "@/lib/portalTwilio";
+import { findPortalContactByPhone } from "@/lib/portalContacts";
+import { sendOwnerTwilioSms } from "@/lib/portalTwilio";
 import { findOwnerByAiReceptionistWebhookToken, getAiReceptionistServiceData, upsertAiReceptionistCallEvent } from "@/lib/aiReceptionist";
 import { normalizePhoneStrict } from "@/lib/phone";
 
@@ -75,6 +76,18 @@ export async function POST(req: Request, ctx: { params: Promise<{ token: string 
 
   let summary = "";
   let contactName = fromE164;
+
+  // Prefer an existing portal contact name if this number matches a saved contact.
+  try {
+    const existingContact = fromE164
+      ? await findPortalContactByPhone({ ownerId, phone: fromE164 })
+      : null;
+    if (existingContact?.name) {
+      contactName = existingContact.name;
+    }
+  } catch {
+    // Best-effort only; fall back to number/LLM name.
+  }
   
   if (transcriptionText) {
     try {
@@ -93,7 +106,7 @@ export async function POST(req: Request, ctx: { params: Promise<{ token: string 
       const nameMatch = summary.match(/Caller:\s*([^.]+)/i);
       if (nameMatch && nameMatch[1]) {
         const potentialName = nameMatch[1].trim();
-        if (potentialName.toLowerCase() !== "unknown") {
+        if (potentialName.toLowerCase() !== "unknown" && contactName === fromE164) {
           contactName = potentialName;
         }
       }
@@ -138,9 +151,9 @@ export async function POST(req: Request, ctx: { params: Promise<{ token: string 
       if (user?.email) {
         await trySendTransactionalEmail({
           to: user.email,
-          subject: `New AI Receptionist Call from ${contactName}`,
+          subject: `AI Receptionist handled a call from ${contactName}`,
           text: [
-            `You received a new call from ${contactName} (${fromE164}).`,
+            `Your AI receptionist just handled a call from ${contactName} (${fromE164}).`,
             "",
             "Summary & Context:",
             summary || "(No summary available)",
@@ -176,13 +189,15 @@ export async function POST(req: Request, ctx: { params: Promise<{ token: string 
         destinations.add(settings.forwardToPhoneE164);
       }
 
-      await Promise.all([...destinations].map(to => 
-        sendOwnerTwilioSms({
-          ownerId,
-          to,
-          body: `New call handled from ${contactName}. ${summary}`,
-        }).catch(e => console.error(`Failed to send SMS to ${to}`, e))
-      ));
+      await Promise.all(
+        [...destinations].map((to) =>
+          sendOwnerTwilioSms({
+            ownerId,
+            to,
+            body: `Your AI receptionist just handled a call from ${contactName}. Check your email for details.`,
+          }).catch((e) => console.error(`Failed to send SMS to ${to}`, e)),
+        ),
+      );
     }
   } catch (err) {
     console.error("Failed to send receptionist notifications", err);

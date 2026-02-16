@@ -49,6 +49,34 @@ function matchCount(
   return matches;
 }
 
+export async function findPortalContactByPhone(input: {
+  ownerId: string;
+  phone: string;
+}): Promise<{ id: string; name: string } | null> {
+  const ownerId = String(input.ownerId || "").trim();
+  const rawPhone = String(input.phone || "").trim();
+  if (!ownerId || !rawPhone) return null;
+
+  const norm = normalizePhoneKey(rawPhone);
+  if (!norm.phoneKey) return null;
+
+  try {
+    await ensurePortalContactsSchema();
+
+    const row = await (prisma as any).portalContact.findFirst({
+      where: { ownerId, phoneKey: norm.phoneKey },
+      orderBy: { updatedAt: "desc" },
+      select: { id: true, name: true },
+    });
+
+    if (!row) return null;
+    const name = typeof row.name === "string" && row.name.trim() ? row.name.trim() : norm.phone;
+    return { id: String(row.id), name };
+  } catch {
+    return null;
+  }
+}
+
 export async function findOrCreatePortalContact(input: {
   ownerId: string;
   name: string;

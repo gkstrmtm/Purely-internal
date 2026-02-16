@@ -33,15 +33,6 @@ function ceilMinutesFromSeconds(seconds: number): number {
 const CREDITS_PER_STARTED_MINUTE = 5;
 const MIN_BILLABLE_SECONDS = 15;
 
-function appendNotes(existing: unknown, extra: string): string {
-  const a = typeof existing === "string" ? existing.trim() : "";
-  const b = String(extra || "").trim();
-  if (!a) return b;
-  if (!b) return a;
-  if (a.includes(b)) return a;
-  return `${a}\n${b}`;
-}
-
 async function requestTranscription(opts: {
   ownerId: string;
   recordingSid: string;
@@ -112,12 +103,10 @@ export async function POST(req: Request, ctx: { params: Promise<{ token: string 
   // Twilio recording callbacks may omit From/To. Reuse existing event details if present.
   let fromFinal = from;
   let toFinal = to;
-  let existingNotes: string | undefined;
   if (!fromFinal) {
     fromFinal = typeof existingEvent?.from === "string" && existingEvent.from.trim() ? existingEvent.from.trim() : "Unknown";
     toFinal = typeof existingEvent?.to === "string" && String(existingEvent.to || "").trim() ? String(existingEvent.to).trim() : toFinal;
   }
-  existingNotes = typeof existingEvent?.notes === "string" && existingEvent.notes.trim() ? existingEvent.notes.trim() : undefined;
 
   const fromParsed = normalizePhoneStrict(fromFinal);
   const fromE164 = fromParsed.ok && fromParsed.e164 ? fromParsed.e164 : fromFinal;
@@ -131,19 +120,16 @@ export async function POST(req: Request, ctx: { params: Promise<{ token: string 
 
   const creditsKey = `ai_receptionist_call:${callSid}`;
 
-  let chargedCredits = 0;
-  let chargedPartial = false;
-  let alreadyCharged = false;
+    let chargedCredits = 0;
+    let chargedPartial = false;
 
   if (needCredits > 0) {
     if (existingChargedCredits > 0) {
       chargedCredits = existingChargedCredits;
-      alreadyCharged = true;
     } else {
       const consumed = await consumeCreditsOnce(ownerId, needCredits, creditsKey);
       if (consumed.ok && consumed.chargedAmount > 0) {
         chargedCredits = consumed.chargedAmount;
-        alreadyCharged = consumed.alreadyConsumed;
       } else {
         const available = Math.max(0, Math.floor(consumed.state.balance));
         if (available > 0) {
@@ -155,22 +141,8 @@ export async function POST(req: Request, ctx: { params: Promise<{ token: string 
       }
     }
 
-    chargedPartial = chargedCredits > 0 && chargedCredits < needCredits;
+      chargedPartial = chargedCredits > 0 && chargedCredits < needCredits;
   }
-
-  const chargeNote = Number.isFinite(durationFloor)
-    ? (billable
-      ? (needCredits > 0
-        ? (chargedCredits > 0
-          ? (alreadyCharged
-            ? `Credits already charged (${chargedCredits} credit(s)).`
-            : (chargedPartial
-              ? `Charged ${chargedCredits} credit(s) (partial, ${needCredits} needed).`
-              : `Charged ${chargedCredits} credit(s).`))
-          : "No credits charged.")
-        : "No credits charged.")
-      : `No credits charged (call too short: ${durationFloor}s).`)
-    : "No recording duration reported.";
 
   await upsertAiReceptionistCallEvent(ownerId, {
     id: `call_${callSid}`,
@@ -179,7 +151,6 @@ export async function POST(req: Request, ctx: { params: Promise<{ token: string 
     to: toE164,
     createdAtIso: new Date().toISOString(),
     status: "COMPLETED",
-    notes: appendNotes(existingNotes, chargeNote),
     ...(recordingSid ? { recordingSid } : {}),
     ...(Number.isFinite(durationFloor) ? { recordingDurationSec: durationFloor } : {}),
     ...(chargedCredits > 0 ? { chargedCredits } : {}),
