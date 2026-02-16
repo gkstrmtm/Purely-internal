@@ -541,6 +541,16 @@ export default function ManagerAppointmentsClient({
                       ) : null}
                     </div>
                     <div className="flex flex-wrap gap-2">
+                      {meetingJoinUrl ? (
+                        <a
+                          className="rounded-xl border border-zinc-200 bg-white px-4 py-2 text-sm hover:bg-zinc-50"
+                          href={meetingJoinUrl}
+                          target="_blank"
+                          rel="noreferrer"
+                        >
+                          Join
+                        </a>
+                      ) : null}
                       <button
                         className="rounded-xl bg-zinc-900 px-4 py-2 text-sm font-medium text-white hover:bg-zinc-800 disabled:opacity-60"
                         type="button"
