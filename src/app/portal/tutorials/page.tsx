@@ -4,6 +4,58 @@ import { PORTAL_SERVICES } from "@/app/portal/services/catalog";
 import { IconServiceGlyph } from "@/app/portal/PortalIcons";
 import { requirePortalUser } from "@/lib/portalAuth";
 
+function getCoreWhatYoullLearn(slug: string): string {
+  switch (slug) {
+    case "getting-started":
+      return "How to use your first session to turn on the right services, wire up the basics, and avoid feeling overwhelmed.";
+    case "dashboard":
+      return "How to read the snapshot of hours saved and activity so you can see which services are actually doing work for you.";
+    case "people":
+      return "How to search, filter, and understand contacts so you always know who you are talking to and what has happened so far.";
+    case "billing":
+      return "How to read your plan, invoices, and usage so there are no surprises on renewals or credit consumption.";
+    case "credits":
+      return "How usage-based credits are consumed, what happens when they run low, and where to see and top them up.";
+    case "profile":
+      return "How to safely update your login, notifications, and integrations without locking yourself out or breaking automations.";
+    default:
+      return "How this page fits into your workflow and what to check if numbers or details do not look right.";
+  }
+}
+
+function getServiceWhatYoullLearn(slug: string): string {
+  switch (slug) {
+    case "inbox":
+      return "How to keep email and SMS threads in one queue, reply from the portal, and leave notes so your team stays in sync.";
+    case "media-library":
+      return "How to organize photos, videos, and files once and reuse them across emails, SMS, and campaigns without re-uploading.";
+    case "tasks":
+      return "How to create, assign, and close tasks so human to dos stay tied to what your automations and services are doing.";
+    case "ai-receptionist":
+      return "How to connect your number, tune the script, and review calls so AI Receptionist reliably answers and routes for you.";
+    case "newsletter":
+      return "How to draft a simple campaign, choose the right audience, and read basic stats after you send.";
+    case "booking":
+      return "How to connect your calendar, share a booking link, and reduce back-and-forth while keeping your schedule accurate.";
+    case "ai-outbound-calls":
+      return "How to define who should be called, set the script, and review outcomes so you do not have to dial one by one.";
+    case "lead-scraping":
+      return "How to set up searches, exclusions, and schedules so fresh leads keep appearing without paying for duplicates.";
+    case "automations":
+      return "How to connect triggers and steps into simple flows so repetitive work runs automatically.";
+    case "blogs":
+      return "How to approve topics and let automated drafts keep blog content going out on a steady schedule.";
+    case "reviews":
+      return "How to send review requests at the right time and track who responded and where.";
+    case "nurture-campaigns":
+      return "How to build simple nurture sequences that keep leads warm without overwhelming their inbox.";
+    case "reporting":
+      return "How to read the hours-saved snapshot and service activity so you know what is working.";
+    default:
+      return "How this service works in your portal, what it automates, and how to read the results it produces.";
+  }
+}
+
 export default async function PortalTutorialsPage() {
   await requirePortalUser();
 
@@ -86,9 +138,7 @@ export default async function PortalTutorialsPage() {
 
               <div className="mt-4 space-y-1 text-sm text-zinc-700">
                 <div className="font-semibold text-zinc-900">What you&apos;ll learn</div>
-                <p className="text-sm text-zinc-600">
-                  How this page fits into your workflow and what to check if numbers or details do not look right.
-                </p>
+                <p className="text-sm text-zinc-600">{getCoreWhatYoullLearn(s.slug)}</p>
               </div>
 
               <div className="mt-5 flex justify-end">
@@ -132,9 +182,7 @@ export default async function PortalTutorialsPage() {
 
               <div className="mt-4 space-y-1 text-sm text-zinc-700">
                 <div className="font-semibold text-zinc-900">What you&apos;ll learn</div>
-                <p className="text-sm text-zinc-600">
-                  How this service works in your portal, what it automates, and how to read the results it produces.
-                </p>
+                <p className="text-sm text-zinc-600">{getServiceWhatYoullLearn(s.slug)}</p>
               </div>
 
               <div className="mt-5 flex justify-end">
