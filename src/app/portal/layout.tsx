@@ -3,6 +3,7 @@ import Image from "next/image";
 import type { Metadata } from "next";
 import { getPortalUser } from "@/lib/portalAuth";
 import { PortalHeaderCta } from "@/app/portal/PortalHeaderCta";
+import { PortalHelpLink } from "@/app/portal/PortalHelpLink";
 
 export const metadata: Metadata = {
   icons: {
@@ -60,14 +61,7 @@ export default async function PortalLayout({
                   {user.email}
                 </div>
                 <PortalHeaderCta canOpenPortalApp={canOpenPortalApp} />
-                <Link
-                  href="/portal/tutorials"
-                  target="_blank"
-                  rel="noreferrer"
-                  className="rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm text-zinc-900 hover:bg-zinc-50"
-                >
-                  Help
-                </Link>
+                <PortalHelpLink />
               </>
             ) : (
               <PortalPublicNav />

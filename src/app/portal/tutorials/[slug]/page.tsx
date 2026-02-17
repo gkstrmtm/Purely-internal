@@ -4,6 +4,7 @@ import { notFound } from "next/navigation";
 import { PORTAL_SERVICES } from "@/app/portal/services/catalog";
 import { IconServiceGlyph } from "@/app/portal/PortalIcons";
 import { requirePortalUser } from "@/lib/portalAuth";
+import { getTutorialVideoUrl } from "@/lib/portalTutorialVideos";
 
 type TutorialSection = {
   title: string;
@@ -14,6 +15,40 @@ type TutorialSection = {
 type TutorialConfig = {
   intro?: string;
   sections: TutorialSection[];
+};
+
+type TutorialUiService = {
+  slug: string;
+  title: string;
+  description: string;
+  accent: "blue" | "coral" | "ink";
+};
+
+const CORE_TUTORIAL_PAGES: Record<string, TutorialUiService> = {
+  dashboard: {
+    slug: "dashboard",
+    title: "Dashboard",
+    description: "Snapshot of what is live and how much time your automations are saving.",
+    accent: "blue",
+  },
+  people: {
+    slug: "people",
+    title: "People",
+    description: "Contacts and basics about who you are talking to.",
+    accent: "coral",
+  },
+  billing: {
+    slug: "billing",
+    title: "Billing",
+    description: "Plan, invoices, and credit balance for this portal account.",
+    accent: "ink",
+  },
+  profile: {
+    slug: "profile",
+    title: "Profile",
+    description: "Account details, notification preferences, and integrations for this login.",
+    accent: "blue",
+  },
 };
 
 const TUTORIALS: Record<string, TutorialConfig> = {
@@ -410,13 +445,129 @@ const TUTORIALS: Record<string, TutorialConfig> = {
       },
     ],
   },
+  dashboard: {
+    intro: "Dashboard is your quick read on what is happening in your account without digging through every service.",
+    sections: [
+      {
+        title: "How it should feel",
+        body: "Opening the dashboard should give you a calm, accurate snapshot: which services are active, how many hours you are saving, and whether anything needs attention.",
+      },
+      {
+        title: "Using the dashboard each week",
+        body: "Treat the dashboard as your check-in, not a detailed report.",
+        steps: [
+          "Open the dashboard at least once a week to see which services are doing the most work.",
+          "Look at hours saved and activity summaries rather than every individual event.",
+          "If a tile looks flat, click through to the related service tutorial to check setup.",
+        ],
+      },
+      {
+        title: "Troubleshooting",
+        body: "If the dashboard does not match what you expect:",
+        steps: [
+          "Confirm the underlying services (Inbox, AI Receptionist, Booking, etc.) are turned on and being used.",
+          "Check any date range filters and make sure you are not looking at an empty window.",
+          "If a number seems frozen, open the matching service page and confirm new activity is actually happening there.",
+        ],
+      },
+    ],
+  },
+  people: {
+    intro: "People is the list of contacts your portal knows about so you can see context in one place.",
+    sections: [
+      {
+        title: "How it should feel",
+        body: "You can quickly search for someone and see the basics: who they are, how to reach them, and any key tags.",
+      },
+      {
+        title: "Daily workflow",
+        body: "Use People when you need a clean list or you are looking someone up.",
+        steps: [
+          "Open People from the left sidebar when you want a list view instead of an individual thread.",
+          "Search by name, email, or phone when you need to pull up a contact.",
+          "Use tags (when available) to group contacts by stage, interest, or segment.",
+        ],
+      },
+      {
+        title: "Troubleshooting",
+        body: "If a person or detail is missing:",
+        steps: [
+          "If you expected someone to be in People, check whether they have interacted with your portal yet (email, SMS, booking, or lead import).",
+          "If a contact appears twice, confirm that their email and phone match; merge or clean up duplicates where needed.",
+          "If tags do not look right, review how automations or imports are assigning them before editing by hand.",
+        ],
+      },
+    ],
+  },
+  billing: {
+    intro: "Billing keeps your plan, invoices, and credit balance in one place for this portal account.",
+    sections: [
+      {
+        title: "How it should feel",
+        body: "You can open Billing and immediately understand what you are paying for, when the next charge is, and how many credits you have.",
+      },
+      {
+        title: "Review charges and plan",
+        body: "Use Billing when you want to confirm money details.",
+        steps: [
+          "Open Billing from the left sidebar.",
+          "Review the current plan and any add-ons or usage-based items like credits.",
+          "Check recent invoices or receipts when you need to reconcile with your accounting system.",
+        ],
+      },
+      {
+        title: "Troubleshooting",
+        body: "If something looks off with billing or credits:",
+        steps: [
+          "Confirm you are viewing the correct portal account if you manage more than one.",
+          "If credits look lower than expected, check recent usage in services that consume credits (for example, AI Receptionist or lead scraping).",
+          "If a payment failed or a renewal did not go through, update your card details and retry from Billing, then refresh the page.",
+        ],
+      },
+    ],
+  },
+  profile: {
+    intro: "Profile is where you manage your own login details, contact info, and key integrations tied to your user account.",
+    sections: [
+      {
+        title: "How it should feel",
+        body: "You can update your email, password, and notification details confidently without breaking access to the portal.",
+      },
+      {
+        title: "Keeping your profile up to date",
+        body: "Use Profile whenever your own details change.",
+        steps: [
+          "Update your name and email when they change so notifications go to the right place.",
+          "Set your phone number if you want SMS notifications or forwarding to your device.",
+          "Add or update integration keys (such as Twilio or voice agent settings) when your provider credentials change.",
+        ],
+      },
+      {
+        title: "Troubleshooting",
+        body: "If updates behave unexpectedly:",
+        steps: [
+          "If changing your email, make sure you enter your current password correctly so the system can verify you.",
+          "If profile updates fail, double check that any integration keys you paste are complete and active in the provider.",
+          "If notifications stop after an email change, log out and back in once so your session fully refreshes, then confirm the email on Profile matches what you expect.",
+        ],
+      },
+    ],
+  },
 };
 
 export default async function PortalTutorialDetailPage(props: { params: Promise<{ slug: string }> }) {
   await requirePortalUser();
   const { slug } = await props.params;
+  const serviceFromCatalog = PORTAL_SERVICES.find((s) => s.slug === slug && !s.hidden);
+  const service: TutorialUiService | null = serviceFromCatalog
+    ? {
+        slug: serviceFromCatalog.slug,
+        title: serviceFromCatalog.title,
+        description: serviceFromCatalog.description,
+        accent: serviceFromCatalog.accent,
+      }
+    : CORE_TUTORIAL_PAGES[slug] ?? null;
 
-  const service = PORTAL_SERVICES.find((s) => s.slug === slug && !s.hidden);
   if (!service) notFound();
 
   const tutorial = TUTORIALS[slug] ?? {
@@ -428,6 +579,8 @@ export default async function PortalTutorialDetailPage(props: { params: Promise<
       },
     ],
   };
+
+  const videoUrl = await getTutorialVideoUrl(slug);
 
   return (
     <div className="w-full bg-white">
@@ -459,6 +612,20 @@ export default async function PortalTutorialDetailPage(props: { params: Promise<
             <p className="mt-1 text-sm text-zinc-600 sm:text-base">{tutorial.intro || service.description}</p>
           </div>
         </div>
+
+        {videoUrl ? (
+          <div className="mt-6 overflow-hidden rounded-3xl border border-zinc-200 bg-black/5">
+            <div className="aspect-video w-full">
+              <iframe
+                src={videoUrl}
+                title={`${service.title} tutorial video`}
+                className="h-full w-full border-0"
+                allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
+                allowFullScreen
+              />
+            </div>
+          </div>
+        ) : null}
 
         <div className="mt-6 space-y-8">
           {tutorial.sections.map((section) => (

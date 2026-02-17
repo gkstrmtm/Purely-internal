@@ -1126,6 +1126,16 @@ model BlogAutomationSettings {
   updatedAt DateTime @updatedAt
 }
 
+model TutorialVideoSettings {
+  id String @id @default("singleton")
+
+  // Map of tutorial slug -> { url: string }
+  videosJson Json?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
 enum PortalServiceSetupStatus {
   NOT_STARTED
   IN_PROGRESS
