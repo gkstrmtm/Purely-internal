@@ -154,6 +154,7 @@ export function ConnectRoomClient(props: { roomId: string; signedInName?: string
 
 	useEffect(() => {
 		if (typeof window === "undefined") return;
+		const toastTimers = toastTimersRef.current;
 		const onMove = () => showChromeTemporarily();
 		window.addEventListener("mousemove", onMove, { passive: true });
 		window.addEventListener("touchstart", onMove, { passive: true });
@@ -163,9 +164,8 @@ export function ConnectRoomClient(props: { roomId: string; signedInName?: string
 			window.removeEventListener("touchstart", onMove);
 			if (chromeTimerRef.current) window.clearTimeout(chromeTimerRef.current);
 			chromeTimerRef.current = null;
-			for (const id of toastTimersRef.current.keys()) clearToastTimer(id);
+			for (const id of toastTimers.keys()) clearToastTimer(id);
 		};
-		// eslint-disable-next-line react-hooks/exhaustive-deps
 	}, []);
 
 	useEffect(() => {
@@ -919,7 +919,7 @@ export function ConnectRoomClient(props: { roomId: string; signedInName?: string
 				if (sender) await sender.replaceTrack(screenTrack).catch(() => null);
 			}
 			void broadcastMediaState({ audioEnabled: !isMuted, videoEnabled: true, isSharing: true }).catch(() => null);
-		} catch (e) {
+		} catch {
 			showToast("warn", "Screen share is not currently supported on this device.");
 		}
 	}
