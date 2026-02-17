@@ -465,6 +465,17 @@ const TUTORIALS: Record<string, TutorialConfig> = {
         body: "Opening the dashboard should give you a calm, accurate snapshot: which services are active, how many hours you are saving, and whether anything needs attention.",
       },
       {
+        title: "Edit and rearrange your dashboard",
+        body: "You can drag, resize, and reset dashboard tiles so the information you care about most is always on top.",
+        steps: [
+          "From Dashboard, click the Edit button in the top right of the dashboard area.",
+          "While Edit is on, use the ⋮⋮ handle on each card to drag it into a new position.",
+          "Resize cards from the bottom-right corner if you want some widgets larger or smaller.",
+          "Use the Remove button on a card to hide widgets you do not care about (you can always re-add them later from Reporting).",
+          "Click Done to save your layout, or Reset to go back to the default layout.",
+        ],
+      },
+      {
         title: "Using the dashboard each week",
         body: "Treat the dashboard as your check-in, not a detailed report.",
         steps: [
@@ -520,11 +531,41 @@ const TUTORIALS: Record<string, TutorialConfig> = {
       },
       {
         title: "Review charges and plan",
-        body: "Use Billing when you want to confirm money details.",
+        body: "Use Billing when you want to confirm money details or see what is currently active.",
         steps: [
           "Open Billing from the left sidebar.",
           "Review the current plan and any add-ons or usage-based items like credits.",
           "Check recent invoices or receipts when you need to reconcile with your accounting system.",
+        ],
+      },
+      {
+        title: "Change or cancel your subscription",
+        body: "Use the built-in billing portal to update payment details or cancel the main subscription.",
+        steps: [
+          "From Billing, click Manage billing at the top. This opens the secure Stripe billing portal in a new tab.",
+          "Inside the billing portal, update your card or payment method as needed.",
+          "When you want to cancel the main subscription, use the Cancel or Cancel plan option in the Stripe portal and confirm.",
+          "Come back to Billing in the portal to confirm the subscription status updates to Canceling or Not active.",
+        ],
+      },
+      {
+        title: "Add or remove individual services",
+        body: "Use the Add services and Services & status sections to turn specific services on or off without canceling everything.",
+        steps: [
+          "Scroll down to the Add services section in Billing to see add-ons you can enable (Blogs, Booking, Automation Builder, etc.).",
+          "Click Enable on a service you want. You will go through a quick checkout, then the service unlocks automatically.",
+          "In the Services & status section, use the ⋯ menu next to a service to Pause or Cancel service when you no longer want it running.",
+          "If a service shows Needs setup, use the Open or Open settings action to finish configuration instead of canceling it by mistake.",
+        ],
+      },
+      {
+        title: "Buy and manage credits",
+        body: "Credits for usage-based features are managed directly inside Billing.",
+        steps: [
+          "In the Credits panel on Billing, confirm your current balance and whether auto top-up is enabled.",
+          "Turn Auto top-up on if you want the system to recharge credits automatically when you run out using your saved card.",
+          "Use the preset buttons (for example 500, 1,000, 2,500) or type a custom number of credits you want to buy.",
+          "Review the Total line to see how many credits and roughly how much in USD you are about to purchase, then click Buy credits to go through checkout.",
         ],
       },
       {
@@ -601,6 +642,16 @@ const TUTORIALS: Record<string, TutorialConfig> = {
           "Open Billing from the left sidebar to see current credits and plan details.",
           "Look at the services you use most (for example AI Receptionist or lead scraping) to understand which ones are consuming the most credits.",
           "If credit usage looks unexpectedly high, walk back through recent campaigns or automation changes to see what increased volume.",
+        ],
+      },
+      {
+        title: "Buy credits step by step",
+        body: "Use the Credits panel in Billing when you actually need to add more.",
+        steps: [
+          "Open Billing and scroll to the Credits section.",
+          "Decide whether you want Auto top-up on (automatic recharges when you run out) or off (you will top up manually).",
+          "Pick a preset like 500 or 1,000 credits, or type your own number in the input field.",
+          "Confirm the total credits and USD amount shown, then click Buy credits to go through the secure checkout.",
         ],
       },
     ],
