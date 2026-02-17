@@ -4,7 +4,6 @@ import Link from "next/link";
 
 import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/db";
-import PortalTutorialVideosAdmin from "./PortalTutorialVideosAdmin";
 
 function fmtMoney(cents: number) {
   const dollars = (cents ?? 0) / 100;
@@ -204,8 +203,6 @@ export default async function ManagerHome() {
             Dev tools moved to <Link className="font-semibold text-[color:var(--color-brand-blue)]" href="/app/manager/admin">Admin</Link>.
           </div>
         </div>
-
-        <PortalTutorialVideosAdmin />
 
         <div className="mt-8 grid grid-cols-1 gap-4 sm:grid-cols-3">
           <div className="rounded-3xl border border-zinc-200 bg-white p-6">

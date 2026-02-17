@@ -18,6 +18,7 @@ function requireManager(session: any) {
 }
 
 const CORE_TUTORIALS: { slug: string; label: string; kind: "core" }[] = [
+  { slug: "getting-started", label: "Getting started", kind: "core" },
   { slug: "dashboard", label: "Dashboard", kind: "core" },
   { slug: "people", label: "People", kind: "core" },
   { slug: "billing", label: "Billing", kind: "core" },

@@ -3,6 +3,7 @@ import { redirect } from "next/navigation";
 
 import { authOptions } from "@/lib/auth";
 import PortalDemoSeeder from "../PortalDemoSeeder";
+import PortalTutorialVideosAdmin from "../PortalTutorialVideosAdmin";
 
 export default async function ManagerAdminPage() {
   const session = await getServerSession(authOptions);
@@ -26,7 +27,19 @@ export default async function ManagerAdminPage() {
           </div>
         </div>
 
-        <PortalDemoSeeder />
+        <div className="mt-8 rounded-3xl border border-zinc-200 bg-white p-6">
+          <div className="text-base font-semibold text-brand-ink">Portal tutorial videos</div>
+          <div className="mt-2 text-sm text-zinc-600">
+            Manage the video links that appear at the top of each help &amp; tutorial page in the client portal.
+          </div>
+          <div className="mt-4">
+            <PortalTutorialVideosAdmin />
+          </div>
+        </div>
+
+        <div className="mt-8">
+          <PortalDemoSeeder />
+        </div>
       </div>
     </div>
   );

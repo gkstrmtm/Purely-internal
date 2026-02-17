@@ -25,6 +25,12 @@ type TutorialUiService = {
 };
 
 const CORE_TUTORIAL_PAGES: Record<string, TutorialUiService> = {
+  "getting-started": {
+    slug: "getting-started",
+    title: "Getting started",
+    description: "Quick tour of how the portal fits together and what to do first.",
+    accent: "blue",
+  },
   dashboard: {
     slug: "dashboard",
     title: "Dashboard",
@@ -549,6 +555,47 @@ const TUTORIALS: Record<string, TutorialConfig> = {
           "If changing your email, make sure you enter your current password correctly so the system can verify you.",
           "If profile updates fail, double check that any integration keys you paste are complete and active in the provider.",
           "If notifications stop after an email change, log out and back in once so your session fully refreshes, then confirm the email on Profile matches what you expect.",
+        ],
+      },
+    ],
+  },
+  "getting-started": {
+    intro: "Getting started walks through the core pieces of the portal so you know what to turn on first and how it all fits together.",
+    sections: [
+      {
+        title: "What to do in your first session",
+        body: "Use this as a quick checklist the first time you log in.",
+        steps: [
+          "Open Dashboard to see the default snapshot and make sure it loads without errors.",
+          "Click Services and skim the list so you know what is available in your plan.",
+          "Turn on one or two core services you care about most right now (for example AI Receptionist, Inbox, or Booking).",
+        ],
+      },
+      {
+        title: "Wire up the essentials",
+        body: "Make sure the foundations are connected so automations can actually run.",
+        steps: [
+          "Visit Profile to confirm your email, phone, and any integrations like Twilio are set correctly.",
+          "If you plan to use phone features, connect your Twilio number and set the correct webhooks from the related tutorial pages.",
+          "If you rely on bookings, connect your calendar and test that you can create a test appointment.",
+        ],
+      },
+      {
+        title: "How it should feel after setup",
+        body: "Once you have the basics in place, the portal should feel calm and predictable rather than noisy.",
+        steps: [
+          "Dashboard shows real activity instead of empty tiles.",
+          "Inbox and AI Receptionist start to collect calls and messages in one place instead of in scattered tools.",
+          "You can explain in one sentence what each turned-on service is doing for you (for example, 'AI Receptionist answers after hours so we do not miss calls').",
+        ],
+      },
+      {
+        title: "Troubleshooting your first week",
+        body: "If something feels off while you are still new, start here.",
+        steps: [
+          "If you do not see any activity, double check that at least one service is turned on and properly connected (phone, calendar, email).",
+          "If you are not sure what to do next, open the Tutorials page and pick the guide that matches the service you care about most.",
+          "If data looks wrong, confirm you are in the right portal account and that test events (like test calls or bookings) are actually happening.",
         ],
       },
     ],

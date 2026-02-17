@@ -10,6 +10,12 @@ export default async function PortalTutorialsPage() {
   const services = PORTAL_SERVICES.filter((s) => !s.hidden);
   const corePages = [
     {
+      slug: "getting-started",
+      title: "Getting started",
+      description: "First-time walkthrough of how the portal fits together and what to do first.",
+      accent: "blue" as const,
+    },
+    {
       slug: "dashboard",
       title: "Dashboard",
       description: "Snapshot of what is live and how much time you are saving.",

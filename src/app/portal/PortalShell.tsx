@@ -51,6 +51,7 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
   const [me, setMe] = useState<Me | null>(null);
   const [portalMe, setPortalMe] = useState<PortalMe | null>(null);
   const [serviceStatuses, setServiceStatuses] = useState<Record<string, { state: string; label: string }> | null>(null);
+  const [showGettingStartedHint, setShowGettingStartedHint] = useState(false);
 
   useEffect(() => {
     const saved = window.localStorage.getItem("portalSidebarCollapsed");
@@ -73,6 +74,18 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
     return () => {
       mounted = false;
     };
+  }, []);
+
+  useEffect(() => {
+    // One-time "Getting started" helper for first-time visitors to the portal.
+    try {
+      const seen = window.localStorage.getItem("portalGettingStartedSeen");
+      if (!seen) {
+        setShowGettingStartedHint(true);
+      }
+    } catch {
+      // If localStorage is unavailable, silently skip the hint.
+    }
   }, []);
 
   useEffect(() => {
@@ -199,8 +212,51 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
     return { locked: false, label: "" };
   }
 
+  function dismissGettingStartedHint() {
+    try {
+      window.localStorage.setItem("portalGettingStartedSeen", "1");
+    } catch {
+      // Ignore storage failures; the hint may reappear in that case.
+    }
+    setShowGettingStartedHint(false);
+  }
+
   return (
     <div className="min-h-screen bg-brand-mist text-brand-ink">
+      {showGettingStartedHint ? (
+        <div className="pointer-events-none fixed inset-0 z-40 flex items-end justify-center px-4 pb-6 sm:items-center sm:pb-0">
+          <button
+            type="button"
+            className="pointer-events-auto absolute inset-0 bg-black/25"
+            aria-label="Dismiss getting started hint"
+            onClick={dismissGettingStartedHint}
+          />
+          <div className="pointer-events-auto relative w-full max-w-md rounded-3xl border border-zinc-200 bg-white p-5 shadow-2xl sm:p-6">
+            <div className="text-xs font-semibold uppercase tracking-wide text-zinc-500">New here?</div>
+            <h2 className="mt-2 text-lg font-semibold text-brand-ink">Watch the getting started tour</h2>
+            <p className="mt-2 text-sm text-zinc-700">
+              See how the portal fits together, what to turn on first, and how to configure the core pieces in a couple of minutes.
+            </p>
+            <div className="mt-4 flex flex-wrap gap-2">
+              <Link
+                href="/portal/tutorials/getting-started"
+                className="inline-flex items-center justify-center rounded-2xl bg-brand-ink px-4 py-2 text-sm font-semibold text-white hover:opacity-95"
+                onClick={dismissGettingStartedHint}
+              >
+                Open getting started
+              </Link>
+              <button
+                type="button"
+                className="inline-flex items-center justify-center rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm font-semibold text-zinc-800 hover:bg-zinc-50"
+                onClick={dismissGettingStartedHint}
+              >
+                Maybe later
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
+
       <div className="flex min-h-screen">
         {/* Mobile drawer */}
         <div
