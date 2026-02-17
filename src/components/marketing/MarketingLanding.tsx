@@ -1240,6 +1240,13 @@ export function MarketingLanding() {
                     Blogs
                   </Link>
                   <Link
+                    href="/services"
+                    onClick={() => setMenuOpen(false)}
+                    className="px-4 py-3 text-sm font-semibold text-white/95 hover:bg-white/10"
+                  >
+                    Services
+                  </Link>
+                  <Link
                     href="/portal"
                     onClick={() => setMenuOpen(false)}
                     className="px-4 py-3 text-sm font-semibold text-white/95 hover:bg-white/10"

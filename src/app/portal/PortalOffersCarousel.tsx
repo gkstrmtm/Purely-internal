@@ -1,11 +1,13 @@
 "use client";
 
+import Link from "next/link";
 import { useEffect, useMemo, useRef, useState } from "react";
 
 type Offer = {
   title: string;
   description: string;
   tone: "blue" | "coral" | "ink";
+  href: string;
 };
 
 export function PortalOffersCarousel() {
@@ -19,56 +21,67 @@ export function PortalOffersCarousel() {
         title: "Core Portal",
         description: "Your home base for services, billing, and reporting.",
         tone: "blue",
+        href: "/services/portal",
       },
       {
         title: "Automation Builder",
         description: "Build workflows for the services you have turned on.",
         tone: "coral",
+        href: "/services/automations",
       },
       {
         title: "Booking Automation",
         description: "Calendar plus confirmations, reminders, and follow-ups.",
         tone: "ink",
+        href: "/services/booking",
       },
       {
         title: "Reviews + Verified Listing + Q&A",
         description: "Send review requests and build trust with a verified page.",
         tone: "blue",
+        href: "/services/reviews",
       },
       {
         title: "Newsletter",
         description: "Weekly by default. AI-generated and easy to edit.",
         tone: "ink",
+        href: "/services/newsletter",
       },
       {
         title: "Automated Blogs",
         description: "SEO posts published for you, on schedule.",
         tone: "coral",
+        href: "/services/blogs",
       },
       {
         title: "AI Receptionist",
         description: "Answer calls, route requests, and log everything.",
         tone: "blue",
+        href: "/services/ai-receptionist",
       },
       {
         title: "AI Outbound",
         description: "Calls, texts, and emails that follow up fast.",
         tone: "ink",
+        href: "/services/ai-outbound-calls",
       },
       {
         title: "Lead Scraping (B2B)",
         description: "Business lead lists for your niche and service area.",
         tone: "coral",
+        href: "/services/lead-scraping",
       },
       {
         title: "Lead Scraping (B2C)",
         description: "Consumer leads delivered on demand.",
         tone: "blue",
+        href: "/services/lead-scraping",
       },
       {
         title: "Nurture Campaigns",
         description: "Install once. Let it keep working in the background.",
         tone: "ink",
+        href: "/services/nurture-campaigns",
       },
     ],
     [],
@@ -154,6 +167,13 @@ export function PortalOffersCarousel() {
             Start with one service or stack a few. Everything lives in one place.
           </div>
         </div>
+
+        <Link
+          href="/services"
+          className="hidden rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm font-semibold text-zinc-900 hover:bg-zinc-50 sm:inline-flex"
+        >
+          View all
+        </Link>
       </div>
 
       <div
@@ -169,15 +189,17 @@ export function PortalOffersCarousel() {
         className="mt-5 flex snap-x snap-mandatory gap-4 overflow-x-auto pb-3 [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
       >
         {loopOffers.map((o, i) => (
-          <div
+          <Link
             key={`${o.title}-${i}`}
             data-carousel-card="true"
-            className={`min-w-[85%] snap-start rounded-3xl border p-6 sm:min-w-[360px] ${toneClasses[o.tone]}`}
+            href={o.href}
+            className={`block min-w-[85%] snap-start rounded-3xl border p-6 sm:min-w-[360px] ${toneClasses[o.tone]}`}
           >
             <div className={`text-lg font-semibold ${toneTitle[o.tone]}`}>{o.title}</div>
             <div className="mt-2 text-sm text-zinc-700">{o.description}</div>
             <div className="mt-5 h-1 w-16 rounded-full bg-[color:var(--color-brand-pink)] opacity-60" />
-          </div>
+            <div className="mt-4 text-sm font-semibold text-[color:var(--color-brand-blue)]">Learn more →</div>
+          </Link>
         ))}
       </div>
 

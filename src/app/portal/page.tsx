@@ -13,7 +13,7 @@ export default async function PortalDashboardPage() {
                 Activate your automations and keep everything in one place.
               </h1>
               <p className="mt-4 text-base text-[color:rgba(255,255,255,0.86)] sm:text-lg">
-                Turn services on, manage billing, and see what’s running. Use credits only when you need more volume like calls, leads, extra sends, or extra content.
+                Stop juggling tools and guessing what happened. Run your lead follow-up, booking, and customer communication from one portal—with clear visibility into what ran and what got done.
               </p>
 
               <div className="mt-7 flex flex-col gap-3 sm:flex-row">
