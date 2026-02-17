@@ -34,6 +34,12 @@ export default async function PortalTutorialsPage() {
       accent: "ink" as const,
     },
     {
+      slug: "credits",
+      title: "Credits",
+      description: "How usage-based credits work, how they are consumed, and what happens when you run low.",
+      accent: "ink" as const,
+    },
+    {
       slug: "profile",
       title: "Profile",
       description: "Your login details, notifications, and integrations.",

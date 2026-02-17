@@ -49,6 +49,12 @@ const CORE_TUTORIAL_PAGES: Record<string, TutorialUiService> = {
     description: "Plan, invoices, and credit balance for this portal account.",
     accent: "ink",
   },
+  credits: {
+    slug: "credits",
+    title: "Credits",
+    description: "How usage-based credits work in your account.",
+    accent: "ink",
+  },
   profile: {
     slug: "profile",
     title: "Profile",
@@ -555,6 +561,46 @@ const TUTORIALS: Record<string, TutorialConfig> = {
           "If changing your email, make sure you enter your current password correctly so the system can verify you.",
           "If profile updates fail, double check that any integration keys you paste are complete and active in the provider.",
           "If notifications stop after an email change, log out and back in once so your session fully refreshes, then confirm the email on Profile matches what you expect.",
+        ],
+      },
+    ],
+  },
+  credits: {
+    intro: "Credits are the usage-based fuel behind some services in your portal, like AI calls or lead scraping.",
+    sections: [
+      {
+        title: "What credits are",
+        body: "Think of credits as a prepaid balance that usage-based services draw from instead of charging you a separate invoice every time.",
+        steps: [
+          "Certain services (for example AI Receptionist minutes, outbound calls, or lead scraping pulls) consume credits when they run.",
+          "Your plan may include a base amount of credits each billing period, with the option to buy more if you need them.",
+        ],
+      },
+      {
+        title: "How credits are used",
+        body: "Each service has its own rules for how many credits it consumes.",
+        steps: [
+          "AI and phone-heavy services usually charge per call, minute, or conversation.",
+          "Data-heavy services like lead scraping usually charge per record, search, or batch.",
+          "You will always see the current balance in Billing, and many services show how much they used recently in their own reporting.",
+        ],
+      },
+      {
+        title: "What happens when you are low on credits",
+        body: "Running out of credits should never silently break your account.",
+        steps: [
+          "When credits get low, you will see warnings in Billing and in the affected services where possible.",
+          "If you fully run out, usage-based actions may pause or throttle instead of failing in the middle of a workflow.",
+          "You can top up credits from Billing. Once the payment succeeds, new activity will resume against the updated balance.",
+        ],
+      },
+      {
+        title: "Where to check your credits",
+        body: "You can always confirm your balance and recent usage.",
+        steps: [
+          "Open Billing from the left sidebar to see current credits and plan details.",
+          "Look at the services you use most (for example AI Receptionist or lead scraping) to understand which ones are consuming the most credits.",
+          "If credit usage looks unexpectedly high, walk back through recent campaigns or automation changes to see what increased volume.",
         ],
       },
     ],
