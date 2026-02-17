@@ -623,9 +623,9 @@ export function PortalPeopleContactsClient() {
               </div>
             </div>
 
-            <div className="mt-4 overflow-hidden rounded-2xl border border-zinc-200">
+            <div className="mt-4 max-h-[60vh] overflow-auto rounded-2xl border border-zinc-200">
               <table className="w-full text-left text-sm">
-                <thead className="bg-zinc-50 text-xs font-semibold uppercase tracking-wide text-zinc-500">
+                <thead className="sticky top-0 z-10 bg-zinc-50 text-xs font-semibold uppercase tracking-wide text-zinc-500">
                   <tr>
                     <th className="px-4 py-3">Name</th>
                     <th className="px-4 py-3">Email</th>
@@ -724,7 +724,7 @@ export function PortalPeopleContactsClient() {
               </div>
             </div>
 
-            <div className="mt-4 space-y-3">
+            <div className="mt-4 max-h-[60vh] overflow-auto space-y-3 pr-1">
               {filteredLeads.length ? (
                 filteredLeads.slice(0, 50).map((l) => (
                   <button

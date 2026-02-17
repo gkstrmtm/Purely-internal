@@ -211,6 +211,57 @@ function daysBetweenIso(startIso: string, endIso: string) {
   return clampInt(days || 1, 1, 3650);
 }
 
+function clampLayoutToCols(items: LayoutItem[], cols: number): LayoutItem[] {
+  return items.map((it) => {
+    const w = clampInt(it.w ?? 1, 1, cols);
+    const x = clampInt(it.x ?? 0, 0, Math.max(0, cols - w));
+    const minW = typeof it.minW === "number" ? clampInt(it.minW, 1, cols) : undefined;
+    const minH = typeof it.minH === "number" ? clampInt(it.minH, 1, 40) : undefined;
+    return {
+      ...it,
+      x,
+      w,
+      ...(typeof minW === "number" ? { minW } : {}),
+      ...(typeof minH === "number" ? { minH } : {}),
+    };
+  });
+}
+
+function stackLayoutToCols(items: LayoutItem[], cols: number): LayoutItem[] {
+  const sorted = items
+    .slice()
+    .sort((a, b) => (a.y ?? 0) - (b.y ?? 0) || (a.x ?? 0) - (b.x ?? 0));
+
+  let y = 0;
+  return sorted.map((it) => {
+    const h = clampInt(it.h ?? 6, 2, 40);
+    const minW = typeof it.minW === "number" ? clampInt(it.minW, 1, cols) : undefined;
+    const minH = typeof it.minH === "number" ? clampInt(it.minH, 1, 40) : undefined;
+    const next: LayoutItem = {
+      ...it,
+      x: 0,
+      y,
+      w: cols,
+      h,
+      ...(typeof minW === "number" ? { minW } : {}),
+      ...(typeof minH === "number" ? { minH } : {}),
+    };
+    y += h;
+    return next;
+  });
+}
+
+function makeResponsiveLayouts(base12Col: LayoutItem[]): ResponsiveLayouts {
+  const lg = clampLayoutToCols(base12Col, 12);
+  return {
+    lg,
+    md: lg,
+    sm: stackLayoutToCols(lg, 6),
+    xs: stackLayoutToCols(lg, 4),
+    xxs: stackLayoutToCols(lg, 2),
+  } as ResponsiveLayouts;
+}
+
 function StatLine({ label, value }: { label: string; value: string }) {
   return (
     <div className="flex items-center justify-between gap-3 text-sm">
@@ -316,7 +367,7 @@ export function PortalDashboardClient() {
               ...(typeof l.minH === "number" ? { minH: l.minH } : {}),
             }));
 
-            setLayouts({ lg: base, md: base, sm: base, xs: base, xxs: base });
+            setLayouts(makeResponsiveLayouts(base));
           }
         }
 
@@ -552,8 +603,16 @@ export function PortalDashboardClient() {
     const body = (await res.json().catch(() => null)) as DashboardPayload | null;
     if (res.ok && body?.ok && body.data) {
       setDashboard(body.data);
-      const base: LayoutItem[] = (body.data.layout ?? []).map((l) => ({ i: l.i, x: l.x, y: l.y, w: l.w, h: l.h }));
-      setLayouts({ lg: base, md: base, sm: base, xs: base, xxs: base });
+      const base: LayoutItem[] = (body.data.layout ?? []).map((l) => ({
+        i: l.i,
+        x: l.x,
+        y: l.y,
+        w: l.w,
+        h: l.h,
+        ...(typeof (l as any).minW === "number" ? { minW: (l as any).minW } : {}),
+        ...(typeof (l as any).minH === "number" ? { minH: (l as any).minH } : {}),
+      }));
+      setLayouts(makeResponsiveLayouts(base));
     }
   }
 
@@ -566,8 +625,16 @@ export function PortalDashboardClient() {
     const body = (await res.json().catch(() => null)) as DashboardPayload | null;
     if (res.ok && body?.ok && body.data) {
       setDashboard(body.data);
-      const base: LayoutItem[] = (body.data.layout ?? []).map((l) => ({ i: l.i, x: l.x, y: l.y, w: l.w, h: l.h }));
-      setLayouts({ lg: base, md: base, sm: base, xs: base, xxs: base });
+      const base: LayoutItem[] = (body.data.layout ?? []).map((l) => ({
+        i: l.i,
+        x: l.x,
+        y: l.y,
+        w: l.w,
+        h: l.h,
+        ...(typeof (l as any).minW === "number" ? { minW: (l as any).minW } : {}),
+        ...(typeof (l as any).minH === "number" ? { minH: (l as any).minH } : {}),
+      }));
+      setLayouts(makeResponsiveLayouts(base));
     }
   }
 
@@ -1139,7 +1206,7 @@ export function PortalDashboardClient() {
             preventCollision={true}
             dragConfig={{ enabled: editMode, handle: ".drag-handle" }}
             resizeConfig={{ enabled: editMode, handles: ["se"] }}
-            onLayoutChange={(current: Layout) => setLayouts({ lg: current, md: current, sm: current, xs: current, xxs: current })}
+            onLayoutChange={(_current: Layout, all: ResponsiveLayouts) => setLayouts(all)}
           >
             {widgetIds.map((id) => (
               <div key={id} className="group relative">

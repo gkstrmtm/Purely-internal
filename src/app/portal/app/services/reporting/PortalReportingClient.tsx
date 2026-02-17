@@ -506,6 +506,7 @@ export function PortalReportingClient() {
   const [openMenuId, setOpenMenuId] = useState<string | null>(null);
   const [search, setSearch] = useState("");
   const [serviceFilter, setServiceFilter] = useState<ServiceKey>("all");
+  const [activeOnly, setActiveOnly] = useState(true);
   const [dashboardWidgetIds, setDashboardWidgetIds] = useState<Set<string>>(() => new Set());
 
   async function addWidget(widgetId: string) {
@@ -602,11 +603,47 @@ export function PortalReportingClient() {
     };
   }, [openMenuId]);
 
+  const activeServiceKeys = useMemo(() => {
+    const keys = new Set<ServiceKey>();
+    keys.add("all");
+    keys.add("reporting");
+    keys.add("billing");
+
+    const statsOk = Boolean((mediaStats as any)?.ok === true);
+    const itemsCount = statsOk ? Number((mediaStats as any)?.itemsCount ?? 0) : 0;
+    const foldersCount = statsOk ? Number((mediaStats as any)?.foldersCount ?? 0) : 0;
+    if (itemsCount > 0 || foldersCount > 0) keys.add("mediaLibrary");
+
+    const k = data?.kpis;
+    if (k) {
+      if ((k.aiCalls ?? 0) > 0) keys.add("aiReceptionist");
+      if ((k.aiOutboundQueuedNow ?? 0) + (k.aiOutboundCompleted ?? 0) + (k.aiOutboundFailed ?? 0) > 0) keys.add("aiOutboundCalls");
+      if ((k.missedCallAttempts ?? 0) + (k.missedCalls ?? 0) + (k.textsSent ?? 0) + (k.textsFailed ?? 0) > 0) keys.add("missedCallTextBack");
+      if ((k.bookingsCreated ?? 0) > 0) keys.add("booking");
+      if ((k.reviewsCollected ?? 0) > 0) keys.add("reviews");
+      if ((k.leadScrapeRuns ?? 0) > 0) keys.add("leadScraping");
+      if ((k.blogGenerations ?? 0) > 0) keys.add("blogs");
+      if ((k.newsletterSendEvents ?? 0) + (k.newsletterSentCount ?? 0) + (k.newsletterFailedCount ?? 0) > 0) keys.add("newsletter");
+      if ((k.nurtureEnrollmentsCreated ?? 0) + (k.nurtureEnrollmentsActiveNow ?? 0) + (k.nurtureEnrollmentsCompleted ?? 0) > 0) keys.add("nurtureCampaigns");
+      if ((k.tasksOpenNow ?? 0) + (k.tasksCompleted ?? 0) > 0) keys.add("tasks");
+      if ((k.inboxMessagesIn ?? 0) + (k.inboxMessagesOut ?? 0) > 0) keys.add("inbox");
+    }
+
+    // If Twilio is configured, keep call/SMS services visible even if the current range is quiet.
+    if (twilio?.configured) {
+      keys.add("aiReceptionist");
+      keys.add("missedCallTextBack");
+    }
+
+    return keys;
+  }, [data, mediaStats, twilio]);
+
   function visible(widgetId: string, serviceKey: ServiceKey, terms: string[]) {
     const service = SERVICE_INFOS.find((s) => s.key === serviceKey);
     const serviceName = service?.name ?? "";
     const serviceOk = serviceFilter === "all" || serviceFilter === serviceKey;
-    return serviceOk && matchTokens(search, [...terms, serviceName]);
+    const activeOk = !activeOnly || serviceFilter !== "all" || activeServiceKeys.has(serviceKey);
+    return serviceOk && activeOk && matchTokens(search, [...terms, serviceName]);
   }
 
   const dailyRows = useMemo(() => {
@@ -716,6 +753,15 @@ export function PortalReportingClient() {
           />
         </div>
         <div className="flex items-center gap-2">
+          <label className="mr-2 inline-flex items-center gap-2 text-xs font-semibold text-zinc-500">
+            <input
+              type="checkbox"
+              checked={activeOnly}
+              onChange={(e) => setActiveOnly(e.target.checked)}
+              className="h-4 w-4 rounded border-zinc-300"
+            />
+            Active only
+          </label>
           <div className="text-xs font-semibold text-zinc-500">Service</div>
           <select
             value={serviceFilter}

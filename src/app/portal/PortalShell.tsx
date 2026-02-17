@@ -18,6 +18,7 @@ import {
   IconServiceGlyph,
 } from "@/app/portal/PortalIcons";
 import { PORTAL_SERVICES, type PortalService } from "@/app/portal/services/catalog";
+import { groupPortalServices } from "@/app/portal/services/categories";
 import { PortalFloatingTools } from "@/app/portal/PortalFloatingTools";
 import { PORTAL_SERVICE_KEYS, type PortalServiceKey } from "@/lib/portalPermissions.shared";
 import type { Entitlements } from "@/lib/entitlements.shared";
@@ -221,6 +222,9 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
     setShowGettingStartedHint(false);
   }
 
+  const visibleSidebarServices = PORTAL_SERVICES.filter((s) => !s.hidden).filter((s) => canViewServiceSlug(s.slug));
+  const sidebarServiceGroups = groupPortalServices(visibleSidebarServices);
+
   return (
     <div className="min-h-screen bg-brand-mist text-brand-ink">
       {showGettingStartedHint ? (
@@ -328,47 +332,53 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
                 <div className="px-3 text-xs font-semibold uppercase tracking-wide text-zinc-500">
                   Services
                 </div>
-                <div className="mt-2 space-y-1">
-                  {PORTAL_SERVICES.filter((s) => !s.hidden).map((s) => {
-                    if (!canViewServiceSlug(s.slug)) return null;
-                    const statusLock = serviceLockedByStatus(s.slug);
-                    const unlocked = statusLock ? !statusLock.locked : serviceUnlocked(s);
-                    return (
-                      <Link
-                        key={s.slug}
-                        href={`/portal/app/services/${s.slug}`}
-                        className={classNames(
-                          "flex items-center gap-3 rounded-2xl px-3 py-2 text-sm font-medium",
-                          pathname.startsWith(`/portal/app/services/${s.slug}`)
-                            ? "bg-zinc-100 text-zinc-900"
-                            : "text-zinc-700 hover:bg-zinc-50",
-                        )}
-                      >
-                        <span className="inline-flex h-9 w-9 items-center justify-center rounded-2xl border border-zinc-200 bg-white">
-                          <span
-                            className={classNames(
-                              s.accent === "blue"
-                                ? "text-[color:var(--color-brand-blue)]"
-                                : s.accent === "coral"
-                                  ? "text-[color:var(--color-brand-pink)]"
-                                  : "text-zinc-700",
-                            )}
-                          >
-                            <IconServiceGlyph slug={s.slug} />
-                          </span>
-                        </span>
+                <div className="mt-2 space-y-4">
+                  {sidebarServiceGroups.map((group) => (
+                    <div key={group.key}>
+                      <div className="px-3 text-[11px] font-semibold uppercase tracking-wide text-zinc-500">{group.title}</div>
+                      <div className="mt-1 space-y-1">
+                        {group.services.map((s) => {
+                          const statusLock = serviceLockedByStatus(s.slug);
+                          const unlocked = statusLock ? !statusLock.locked : serviceUnlocked(s);
+                          return (
+                            <Link
+                              key={s.slug}
+                              href={`/portal/app/services/${s.slug}`}
+                              className={classNames(
+                                "flex items-center gap-3 rounded-2xl px-3 py-2 text-sm font-medium",
+                                pathname.startsWith(`/portal/app/services/${s.slug}`)
+                                  ? "bg-zinc-100 text-zinc-900"
+                                  : "text-zinc-700 hover:bg-zinc-50",
+                              )}
+                            >
+                              <span className="inline-flex h-9 w-9 items-center justify-center rounded-2xl border border-zinc-200 bg-white">
+                                <span
+                                  className={classNames(
+                                    s.accent === "blue"
+                                      ? "text-[color:var(--color-brand-blue)]"
+                                      : s.accent === "coral"
+                                        ? "text-[color:var(--color-brand-pink)]"
+                                        : "text-zinc-700",
+                                  )}
+                                >
+                                  <IconServiceGlyph slug={s.slug} />
+                                </span>
+                              </span>
 
-                        <span className="flex min-w-0 flex-1 items-center justify-between gap-2">
-                          <span className="truncate">{s.title}</span>
-                          {!unlocked ? (
-                            <span className="inline-flex items-center gap-1 text-xs font-semibold text-zinc-500">
-                              <IconLock /> {statusLock?.label || "Locked"}
-                            </span>
-                          ) : null}
-                        </span>
-                      </Link>
-                    );
-                  })}
+                              <span className="flex min-w-0 flex-1 items-center justify-between gap-2">
+                                <span className="truncate">{s.title}</span>
+                                {!unlocked ? (
+                                  <span className="inline-flex items-center gap-1 text-xs font-semibold text-zinc-500">
+                                    <IconLock /> {statusLock?.label || "Locked"}
+                                  </span>
+                                ) : null}
+                              </span>
+                            </Link>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  ))}
                 </div>
               </div>
             </div>
@@ -456,51 +466,90 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
                   Services
                 </div>
               ) : null}
-              <div className="mt-2 space-y-1">
-                {PORTAL_SERVICES.filter((s) => !s.hidden).map((s) => {
-                  if (!canViewServiceSlug(s.slug)) return null;
-                  const statusLock = serviceLockedByStatus(s.slug);
-                  const unlocked = statusLock ? !statusLock.locked : serviceUnlocked(s);
-                  return (
-                    <Link
-                      key={s.slug}
-                      href={`/portal/app/services/${s.slug}`}
-                      className={classNames(
-                        "flex items-center gap-3 rounded-2xl px-3 py-2 text-sm font-medium",
-                        pathname === `/portal/app/services/${s.slug}` || pathname.startsWith(`/portal/app/services/${s.slug}/`)
-                          ? "bg-zinc-100 text-zinc-900"
-                          : "text-zinc-700 hover:bg-zinc-50",
-                        collapsed && "justify-center px-2",
-                      )}
-                    >
-                      <span className="inline-flex h-9 w-9 items-center justify-center rounded-2xl border border-zinc-200 bg-white">
-                        <span
-                          className={classNames(
-                            s.accent === "blue"
-                              ? "text-[color:var(--color-brand-blue)]"
-                              : s.accent === "coral"
-                                ? "text-[color:var(--color-brand-pink)]"
-                                : "text-zinc-700",
-                          )}
-                        >
-                          <IconServiceGlyph slug={s.slug} />
+              {collapsed ? (
+                <div className="mt-2 space-y-1">
+                  {PORTAL_SERVICES.filter((s) => !s.hidden).map((s) => {
+                    if (!canViewServiceSlug(s.slug)) return null;
+                    return (
+                      <Link
+                        key={s.slug}
+                        href={`/portal/app/services/${s.slug}`}
+                        className={classNames(
+                          "flex items-center gap-3 rounded-2xl px-3 py-2 text-sm font-medium",
+                          pathname === `/portal/app/services/${s.slug}` || pathname.startsWith(`/portal/app/services/${s.slug}/`)
+                            ? "bg-zinc-100 text-zinc-900"
+                            : "text-zinc-700 hover:bg-zinc-50",
+                          "justify-center px-2",
+                        )}
+                        title={s.title}
+                      >
+                        <span className="inline-flex h-9 w-9 items-center justify-center rounded-2xl border border-zinc-200 bg-white">
+                          <span
+                            className={classNames(
+                              s.accent === "blue"
+                                ? "text-[color:var(--color-brand-blue)]"
+                                : s.accent === "coral"
+                                  ? "text-[color:var(--color-brand-pink)]"
+                                  : "text-zinc-700",
+                            )}
+                          >
+                            <IconServiceGlyph slug={s.slug} />
+                          </span>
                         </span>
-                      </span>
+                      </Link>
+                    );
+                  })}
+                </div>
+              ) : (
+                <div className="mt-2 space-y-4">
+                  {sidebarServiceGroups.map((group) => (
+                    <div key={group.key}>
+                      <div className="px-3 text-[11px] font-semibold uppercase tracking-wide text-zinc-500">{group.title}</div>
+                      <div className="mt-1 space-y-1">
+                        {group.services.map((s) => {
+                          const statusLock = serviceLockedByStatus(s.slug);
+                          const unlocked = statusLock ? !statusLock.locked : serviceUnlocked(s);
+                          return (
+                            <Link
+                              key={s.slug}
+                              href={`/portal/app/services/${s.slug}`}
+                              className={classNames(
+                                "flex items-center gap-3 rounded-2xl px-3 py-2 text-sm font-medium",
+                                pathname === `/portal/app/services/${s.slug}` || pathname.startsWith(`/portal/app/services/${s.slug}/`)
+                                  ? "bg-zinc-100 text-zinc-900"
+                                  : "text-zinc-700 hover:bg-zinc-50",
+                              )}
+                            >
+                              <span className="inline-flex h-9 w-9 items-center justify-center rounded-2xl border border-zinc-200 bg-white">
+                                <span
+                                  className={classNames(
+                                    s.accent === "blue"
+                                      ? "text-[color:var(--color-brand-blue)]"
+                                      : s.accent === "coral"
+                                        ? "text-[color:var(--color-brand-pink)]"
+                                        : "text-zinc-700",
+                                  )}
+                                >
+                                  <IconServiceGlyph slug={s.slug} />
+                                </span>
+                              </span>
 
-                      {!collapsed ? (
-                        <span className="flex min-w-0 flex-1 items-center justify-between gap-2">
-                          <span className="truncate">{s.title}</span>
-                          {!unlocked ? (
-                            <span className="inline-flex items-center gap-1 text-xs font-semibold text-zinc-500">
-                              <IconLock /> {statusLock?.label || "Locked"}
-                            </span>
-                          ) : null}
-                        </span>
-                      ) : null}
-                    </Link>
-                  );
-                })}
-              </div>
+                              <span className="flex min-w-0 flex-1 items-center justify-between gap-2">
+                                <span className="truncate">{s.title}</span>
+                                {!unlocked ? (
+                                  <span className="inline-flex items-center gap-1 text-xs font-semibold text-zinc-500">
+                                    <IconLock /> {statusLock?.label || "Locked"}
+                                  </span>
+                                ) : null}
+                              </span>
+                            </Link>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
             </div>
           </div>
 

@@ -99,6 +99,8 @@ const ALL_WIDGET_IDS: DashboardWidgetId[] = [
   "perfReviews",
 ];
 
+const REQUIRED_WIDGET_IDS: DashboardWidgetId[] = ["hoursSaved", "billing", "services"];
+
 export function isDashboardWidgetId(value: unknown): value is DashboardWidgetId {
   return typeof value === "string" && (ALL_WIDGET_IDS as string[]).includes(value);
 }
@@ -107,11 +109,27 @@ function defaultDashboard(): PortalDashboardData {
   // 12-column grid. h is arbitrary “row units”.
   return {
     version: 1,
-    widgets: [{ id: "hoursSaved" }, { id: "billing" }, { id: "services" }],
+    widgets: [
+      { id: "hoursSaved" },
+      { id: "billing" },
+      { id: "creditsRemaining" },
+      { id: "creditsRunway" },
+      { id: "successRate" },
+      { id: "failures" },
+      { id: "dailyActivity" },
+      { id: "services" },
+    ],
     layout: [
-      { i: "hoursSaved", x: 0, y: 0, w: 6, h: 6, minW: 3, minH: 4 },
-      { i: "billing", x: 6, y: 0, w: 6, h: 6, minW: 3, minH: 4 },
-      { i: "services", x: 0, y: 6, w: 12, h: 10, minW: 6, minH: 6 },
+      { i: "hoursSaved", x: 0, y: 0, w: 4, h: 7, minW: 3, minH: 5 },
+      { i: "billing", x: 4, y: 0, w: 4, h: 7, minW: 3, minH: 5 },
+      { i: "creditsRemaining", x: 8, y: 0, w: 4, h: 7, minW: 3, minH: 5 },
+
+      { i: "creditsRunway", x: 0, y: 7, w: 4, h: 9, minW: 3, minH: 6 },
+      { i: "successRate", x: 4, y: 7, w: 4, h: 9, minW: 3, minH: 6 },
+      { i: "failures", x: 8, y: 7, w: 4, h: 9, minW: 3, minH: 6 },
+
+      { i: "dailyActivity", x: 0, y: 16, w: 12, h: 14, minW: 6, minH: 10 },
+      { i: "services", x: 0, y: 30, w: 12, h: 10, minW: 6, minH: 8 },
     ],
   };
 }
@@ -147,11 +165,11 @@ function parseDashboardJson(raw: unknown): PortalDashboardData {
     })
     .slice(0, 120);
 
-  // Ensure at least the default widgets exist.
+  // Ensure at least the required widgets exist.
   const widgetIds = new Set(widgets.map((w) => w.id));
-  for (const w of base.widgets) widgetIds.add(w.id);
+  for (const id of REQUIRED_WIDGET_IDS) widgetIds.add(id);
 
-  const normalizedWidgets = Array.from(widgetIds).map((id) => ({ id }));
+  const normalizedWidgets = ALL_WIDGET_IDS.filter((id) => widgetIds.has(id)).map((id) => ({ id }));
 
   const layoutIds = new Set(layout.map((l) => l.i));
   const nextLayout = layout.slice();

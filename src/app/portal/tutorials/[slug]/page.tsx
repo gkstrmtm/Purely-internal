@@ -402,8 +402,41 @@ const TUTORIALS: Record<string, TutorialConfig> = {
         body: "Requests go out right after good work is delivered, and you can see who responded and where.",
       },
       {
-        title: "Send requests",
-        body: "Trigger requests after completed jobs so customers can review while the experience is fresh.",
+        title: "Set up Review Requests (Requests / Settings tab)",
+        body: "Configure the automation, timing, message template, and (optional) public reviews page.",
+        steps: [
+          "Open Services → Review Requests.",
+          "Click the Requests / Settings tab.",
+          "Turn the main toggle to On.",
+          "In Send mode, keep Auto-send after appointments enabled if you want requests to go out automatically.",
+          "If you want to send requests manually, ensure Allow manual sends is enabled.",
+          "In Calendars, leave All calendars on to allow all booking calendars, or turn it off and check only the calendars you want to send from.",
+          "Open Timing and set the delay (for example 30 minutes) so the request sends after the appointment ends.",
+          "Open SMS template, use Insert variable, and include {link} so the customer receives a working review link.",
+          "Optional: add Review destinations (Google/Yelp/etc.) and select a default destination so your hosted reviews page can show multiple links.",
+        ],
+      },
+      {
+        title: "Send a manual request (Reviews tab)",
+        body: "Use manual sends to handle exceptions (VIP customers, resends, or jobs that didn’t come through booking).",
+        steps: [
+          "In Review Requests, click the Reviews tab.",
+          "If you see the message that manual sends are off, go back to Requests / Settings and enable Allow manual sends.",
+          "Use the search box to find a recent booking by name, email, phone, or booking ID.",
+          "Pick the correct booking, confirm the calendar is allowed (if you enabled calendar filtering), then send the request.",
+          "Watch for the status/result message at the top of the page so you know it was queued/sent.",
+        ],
+      },
+      {
+        title: "Host a public reviews page (optional)",
+        body: "Turn on a public page to collect reviews and optionally show a photo gallery.",
+        steps: [
+          "In Requests / Settings, open Hosted reviews page.",
+          "Enable public page.",
+          "Set Hero title, subtitle, and Thank you message.",
+          "Optional: toggle Show photo gallery and upload photos or Choose from media library.",
+          "Use Preview public reviews page to open the live page in a new tab.",
+        ],
       },
       {
         title: "Troubleshooting",
@@ -411,6 +444,8 @@ const TUTORIALS: Record<string, TutorialConfig> = {
         steps: [
           "Confirm you are only sending requests to happy customers who are likely to say yes.",
           "Keep the request short and clear, with one link to the place you care about most.",
+          "If requests are not sending, confirm the service is On, Auto-send is enabled (or manual sends are enabled if you’re trying to send from the Reviews tab), and your delay is not set too far out.",
+          "If nothing shows up to send to, confirm you have recent bookings and that calendar filtering is not blocking the booking’s calendar.",
         ],
       },
     ],
@@ -444,8 +479,34 @@ const TUTORIALS: Record<string, TutorialConfig> = {
         body: "You can open reporting and quickly see which services are doing the most work for you.",
       },
       {
-        title: "Check your snapshot",
-        body: "Use the hours saved and activity summaries to see what is doing the most work for you.",
+        title: "Use the date range + filters",
+        body: "Reporting is designed to answer: what happened, which service caused it, and is anything broken?",
+        steps: [
+          "Open Services → Reporting.",
+          "Use the range buttons (Today / 7d / 30d / 90d / All) to switch the reporting window.",
+          "Use the Search box to find a metric by keyword (for example “credits”, “missed”, “reviews”, “bookings”).",
+          "Use the Service dropdown to filter to one service (AI Receptionist, Lead Scraping, Review Requests, etc.).",
+          "If you only want to see services that are active/configured, keep Active only enabled.",
+        ],
+      },
+      {
+        title: "Add widgets to your dashboard",
+        body: "Anything with a ⋯ menu can be pinned to Dashboard as a widget.",
+        steps: [
+          "On a metric card, click the ⋯ menu in the top-right corner.",
+          "Click Add to dashboard (or confirm it says Already on dashboard).",
+          "Go to Dashboard and click Edit to drag and resize your widgets.",
+          "Use Done to save your layout (or Reset if you want to start over).",
+        ],
+      },
+      {
+        title: "Read the performance section",
+        body: "Use the performance widgets to spot failures before customers feel them.",
+        steps: [
+          "Scroll to Automation performance (by service).",
+          "If Success rate is low or Failures is high, use the ⋯ menu to jump to the related service (Go to AI Receptionist / Missed-Call Text Back / Lead Scraping / Review Requests).",
+          "Use Daily activity to see whether the issue is isolated to a specific day or ongoing.",
+        ],
       },
       {
         title: "Troubleshooting",
@@ -453,6 +514,8 @@ const TUTORIALS: Record<string, TutorialConfig> = {
         steps: [
           "Confirm the underlying services are actually turned on and used. Reporting will be flat if nothing is running.",
           "Check the date range filters and compare this week to last week to make sure you are not looking at an empty window.",
+          "If you have Active only enabled and you can’t find a service, turn it off temporarily to see all available widgets.",
+          "If a specific service looks wrong, open that service and confirm setup/integrations (phone numbers, calendars, credits, etc.).",
         ],
       },
     ],

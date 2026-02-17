@@ -1,6 +1,7 @@
 import Link from "next/link";
 
 import { PORTAL_SERVICES } from "@/app/portal/services/catalog";
+import { groupPortalServices } from "@/app/portal/services/categories";
 import { IconServiceGlyph } from "@/app/portal/PortalIcons";
 import { requirePortalUser } from "@/lib/portalAuth";
 
@@ -60,6 +61,7 @@ export default async function PortalTutorialsPage() {
   await requirePortalUser();
 
   const services = PORTAL_SERVICES.filter((s) => !s.hidden);
+  const serviceGroups = groupPortalServices(services);
   const corePages = [
     {
       slug: "getting-started",
@@ -155,45 +157,52 @@ export default async function PortalTutorialsPage() {
 
         <div className="mt-10 border-t border-zinc-200 pt-8">
           <h2 className="text-sm font-semibold uppercase tracking-wide text-zinc-500">Service tutorials</h2>
-          <div className="mt-4 grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
-            {services.map((s) => (
-            <div key={s.slug} className="flex flex-col rounded-3xl border border-zinc-200 bg-white p-6">
-              <div className="flex items-start gap-3">
-                <div className="inline-flex h-10 w-10 items-center justify-center rounded-2xl border border-zinc-200 bg-zinc-50">
-                  <span
-                    className={
-                      s.accent === "blue"
-                        ? "text-[color:var(--color-brand-blue)]"
-                        : s.accent === "coral"
-                          ? "text-[color:var(--color-brand-pink)]"
-                          : "text-zinc-700"
-                    }
-                  >
-                    <IconServiceGlyph slug={s.slug} />
-                  </span>
+          <div className="mt-4 space-y-10">
+            {serviceGroups.map((group) => (
+              <section key={group.key}>
+                <div className="text-xs font-semibold uppercase tracking-wide text-zinc-500">{group.title}</div>
+                <div className="mt-4 grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
+                  {group.services.map((s) => (
+                    <div key={s.slug} className="flex flex-col rounded-3xl border border-zinc-200 bg-white p-6">
+                      <div className="flex items-start gap-3">
+                        <div className="inline-flex h-10 w-10 items-center justify-center rounded-2xl border border-zinc-200 bg-zinc-50">
+                          <span
+                            className={
+                              s.accent === "blue"
+                                ? "text-[color:var(--color-brand-blue)]"
+                                : s.accent === "coral"
+                                  ? "text-[color:var(--color-brand-pink)]"
+                                  : "text-zinc-700"
+                            }
+                          >
+                            <IconServiceGlyph slug={s.slug} />
+                          </span>
+                        </div>
+                        <div className="min-w-0 flex-1">
+                          <div className="truncate text-base font-semibold text-brand-ink">{s.title}</div>
+                          <div className="mt-1 text-xs uppercase tracking-wide text-zinc-500">Service tutorial</div>
+                        </div>
+                      </div>
+
+                      <div className="mt-3 text-sm text-zinc-600">{s.description}</div>
+
+                      <div className="mt-4 space-y-1 text-sm text-zinc-700">
+                        <div className="font-semibold text-zinc-900">What you&apos;ll learn</div>
+                        <p className="text-sm text-zinc-600">{getServiceWhatYoullLearn(s.slug)}</p>
+                      </div>
+
+                      <div className="mt-5 flex justify-end">
+                        <Link
+                          href={`/portal/tutorials/${s.slug}`}
+                          className="inline-flex items-center justify-center rounded-2xl bg-brand-ink px-4 py-2 text-sm font-semibold text-white hover:opacity-95"
+                        >
+                          Go
+                        </Link>
+                      </div>
+                    </div>
+                  ))}
                 </div>
-                <div className="min-w-0 flex-1">
-                  <div className="truncate text-base font-semibold text-brand-ink">{s.title}</div>
-                  <div className="mt-1 text-xs uppercase tracking-wide text-zinc-500">Service tutorial</div>
-                </div>
-              </div>
-
-              <div className="mt-3 text-sm text-zinc-600">{s.description}</div>
-
-              <div className="mt-4 space-y-1 text-sm text-zinc-700">
-                <div className="font-semibold text-zinc-900">What you&apos;ll learn</div>
-                <p className="text-sm text-zinc-600">{getServiceWhatYoullLearn(s.slug)}</p>
-              </div>
-
-              <div className="mt-5 flex justify-end">
-                <Link
-                  href={`/portal/tutorials/${s.slug}`}
-                  className="inline-flex items-center justify-center rounded-2xl bg-brand-ink px-4 py-2 text-sm font-semibold text-white hover:opacity-95"
-                >
-                  Go
-                </Link>
-              </div>
-            </div>
+              </section>
             ))}
           </div>
         </div>

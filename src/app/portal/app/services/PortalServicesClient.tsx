@@ -5,6 +5,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 
 import { IconLock, IconServiceGlyph } from "@/app/portal/PortalIcons";
 import { PORTAL_SERVICES } from "@/app/portal/services/catalog";
+import { groupPortalServices } from "@/app/portal/services/categories";
 import { PORTAL_SERVICE_KEYS, type PortalServiceKey } from "@/lib/portalPermissions.shared";
 
 type PortalMe =
@@ -122,6 +123,8 @@ export function PortalServicesClient() {
     return PORTAL_SERVICES.filter((s) => !s.hidden).filter((s) => canViewServiceSlug(s.slug));
   }, [canViewServiceSlug]);
 
+  const serviceGroups = useMemo(() => groupPortalServices(services), [services]);
+
   const canViewBilling = canViewFromPermissions(portalMe, "billing");
 
   const statuses = statusRes && statusRes.ok === true ? statusRes.statuses : null;
@@ -143,56 +146,63 @@ export function PortalServicesClient() {
         ) : null}
       </div>
 
-      <div className="mt-6 grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
-        {services.map((s) => {
-          const status = statuses?.[s.slug] ?? null;
-          const badgeText = (() => {
-            if (!status) return "…";
-            if (status.state === "locked" || status.state === "coming_soon") return status.label;
-            if (status.state === "paused" || status.state === "canceled") return status.label;
-            const access = s.included ? "Included" : "Enabled";
-            return `${access} · ${status.label}`;
-          })();
+      <div className="mt-6 space-y-8">
+        {serviceGroups.map((group) => (
+          <section key={group.key}>
+            <div className="text-xs font-semibold uppercase tracking-wide text-zinc-500">{group.title}</div>
+            <div className="mt-3 grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
+              {group.services.map((s) => {
+                const status = statuses?.[s.slug] ?? null;
+                const badgeText = (() => {
+                  if (!status) return "…";
+                  if (status.state === "locked" || status.state === "coming_soon") return status.label;
+                  if (status.state === "paused" || status.state === "canceled") return status.label;
+                  const access = s.included ? "Included" : "Enabled";
+                  return `${access} · ${status.label}`;
+                })();
 
-          return (
-            <Link
-              key={s.slug}
-              href={`/portal/app/services/${s.slug}`}
-              className="group rounded-3xl border border-zinc-200 bg-white p-6 hover:bg-zinc-50"
-            >
-              <div className="flex items-start justify-between gap-3">
-                <div className="mb-4 inline-flex h-10 w-10 items-center justify-center rounded-2xl border border-zinc-200 bg-white">
-                  <span
-                    className={
-                      s.accent === "blue"
-                        ? "text-[color:var(--color-brand-blue)]"
-                        : s.accent === "coral"
-                          ? "text-[color:var(--color-brand-pink)]"
-                          : "text-zinc-700"
-                    }
+                return (
+                  <Link
+                    key={s.slug}
+                    href={`/portal/app/services/${s.slug}`}
+                    className="group rounded-3xl border border-zinc-200 bg-white p-6 hover:bg-zinc-50"
                   >
-                    <IconServiceGlyph slug={s.slug} />
-                  </span>
-                </div>
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="mb-4 inline-flex h-10 w-10 items-center justify-center rounded-2xl border border-zinc-200 bg-white">
+                        <span
+                          className={
+                            s.accent === "blue"
+                              ? "text-[color:var(--color-brand-blue)]"
+                              : s.accent === "coral"
+                                ? "text-[color:var(--color-brand-pink)]"
+                                : "text-zinc-700"
+                          }
+                        >
+                          <IconServiceGlyph slug={s.slug} />
+                        </span>
+                      </div>
 
-                <span
-                  className={classNames(
-                    "inline-flex items-center gap-1 rounded-full border px-2.5 py-1 text-xs font-semibold",
-                    status ? badgeClasses(status.state) : "border-zinc-200 bg-zinc-50 text-zinc-500",
-                  )}
-                >
-                  {status && (status.state === "locked" || status.state === "paused" || status.state === "canceled") ? (
-                    <IconLock />
-                  ) : null}
-                  {badgeText}
-                </span>
-              </div>
+                      <span
+                        className={classNames(
+                          "inline-flex items-center gap-1 rounded-full border px-2.5 py-1 text-xs font-semibold",
+                          status ? badgeClasses(status.state) : "border-zinc-200 bg-zinc-50 text-zinc-500",
+                        )}
+                      >
+                        {status && (status.state === "locked" || status.state === "paused" || status.state === "canceled") ? (
+                          <IconLock />
+                        ) : null}
+                        {badgeText}
+                      </span>
+                    </div>
 
-              <div className="text-base font-semibold text-brand-ink group-hover:text-zinc-900">{s.title}</div>
-              <div className="mt-2 text-sm text-zinc-600">{s.description}</div>
-            </Link>
-          );
-        })}
+                    <div className="text-base font-semibold text-brand-ink group-hover:text-zinc-900">{s.title}</div>
+                    <div className="mt-2 text-sm text-zinc-600">{s.description}</div>
+                  </Link>
+                );
+              })}
+            </div>
+          </section>
+        ))}
       </div>
     </div>
   );

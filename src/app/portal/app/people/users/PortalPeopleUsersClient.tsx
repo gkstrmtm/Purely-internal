@@ -291,9 +291,9 @@ export function PortalPeopleUsersClient() {
               </div>
             </div>
 
-            <div className="mt-4 overflow-hidden rounded-2xl border border-zinc-200">
+            <div className="mt-4 max-h-[60vh] overflow-auto rounded-2xl border border-zinc-200">
               <table className="w-full text-left text-sm">
-                <thead className="bg-zinc-50 text-xs font-semibold uppercase tracking-wide text-zinc-500">
+                <thead className="sticky top-0 z-10 bg-zinc-50 text-xs font-semibold uppercase tracking-wide text-zinc-500">
                   <tr>
                     <th className="px-4 py-3">User</th>
                     <th className="px-4 py-3">Role</th>
@@ -485,9 +485,9 @@ export function PortalPeopleUsersClient() {
               </div>
             ) : null}
 
-            <div className="mt-4 overflow-hidden rounded-2xl border border-zinc-200">
+            <div className="mt-4 max-h-[60vh] overflow-auto rounded-2xl border border-zinc-200">
               <table className="w-full text-left text-sm">
-                <thead className="bg-zinc-50 text-xs font-semibold uppercase tracking-wide text-zinc-500">
+                <thead className="sticky top-0 z-10 bg-zinc-50 text-xs font-semibold uppercase tracking-wide text-zinc-500">
                   <tr>
                     <th className="px-4 py-3">Email</th>
                     <th className="px-4 py-3">Role</th>
