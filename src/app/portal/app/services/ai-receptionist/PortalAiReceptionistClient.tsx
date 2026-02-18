@@ -975,23 +975,6 @@ export function PortalAiReceptionistClient() {
             </div>
           </div>
 
-          <div className="mt-6 text-sm font-semibold text-zinc-900">Phone testing (Twilio)</div>
-          <div className="mt-2 text-sm text-zinc-600">
-            If you want to test real phone calls and see them in Activity, point a Twilio number to the webhook URL below, then call that number.
-          </div>
-
-          <div
-            className={
-              "mt-4 rounded-2xl border p-4 " +
-              (twilioConfigured
-                ? "border-[color:rgba(29,78,216,0.18)] bg-[color:rgba(29,78,216,0.06)]"
-                : "border-red-200 bg-red-50")
-            }
-          >
-            <div className="text-xs font-semibold text-zinc-600">Webhook URL</div>
-            <div className="mt-2 break-all font-mono text-xs text-zinc-800">{webhookUrlLegacy || "N/A"}</div>
-          </div>
-
         </div>
       ) : null}
 
