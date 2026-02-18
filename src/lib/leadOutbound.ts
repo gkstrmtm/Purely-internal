@@ -32,13 +32,38 @@ export function stripHtml(html: string) {
 
 export function baseUrlFromRequest(req?: Request): string {
   const env = process.env.NEXTAUTH_URL || process.env.NEXT_PUBLIC_BASE_URL;
-  if (env && env.startsWith("http")) return env.replace(/\/$/, "");
+  const envClean = env && env.startsWith("http") ? env.replace(/\/$/, "") : null;
 
   const proto = req?.headers.get("x-forwarded-proto") || "http";
-  const host = req?.headers.get("x-forwarded-host") || req?.headers.get("host");
-  if (host) return `${proto}://${host}`.replace(/\/$/, "");
+  // Prefer the actual Host header. On some platforms `x-forwarded-host` can be a Vercel deployment URL
+  // even when the request was made through the custom domain.
+  const host = req?.headers.get("host") || req?.headers.get("x-forwarded-host");
+  const reqBase = host ? `${proto}://${host}`.replace(/\/$/, "") : null;
 
-  return "http://localhost:3000";
+  // If env is a placeholder or Vercel deployment URL, prefer the request host when it's a custom domain.
+  if (reqBase) {
+    try {
+      const reqHost = new URL(reqBase).hostname;
+      const isReqCustom = Boolean(reqHost && !reqHost.endsWith(".vercel.app") && !reqHost.includes("YOUR-VERCEL-DOMAIN"));
+
+      if (isReqCustom) {
+        if (!envClean) return reqBase;
+        if (envClean.includes("YOUR-VERCEL-DOMAIN")) return reqBase;
+        try {
+          const envHost = new URL(envClean).hostname;
+          if (envHost.endsWith(".vercel.app")) return reqBase;
+        } catch {
+          // ignore
+        }
+      }
+    } catch {
+      // ignore
+    }
+  }
+
+  if (envClean) return envClean;
+  if (reqBase) return reqBase;
+  return process.env.NODE_ENV === "production" ? "https://purelyautomation.com" : "http://localhost:3000";
 }
 
 export async function sendEmail({
