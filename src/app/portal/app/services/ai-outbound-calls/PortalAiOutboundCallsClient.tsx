@@ -908,14 +908,7 @@ export function PortalAiOutboundCallsClient() {
                       {selected.voiceAgentId?.trim() ? selected.voiceAgentId.trim() : "N/A"}
                     </div>
                     <div className="mt-3">
-                      <InlineElevenLabsAgentTester
-                        agentId={selected.voiceAgentId}
-                        title="Campaign tester"
-                        description="Inline testing (no floating widget)."
-                      />
-                    </div>
-                    <div className="mt-3 text-xs text-zinc-500">
-                      This is for browser testing and won’t place phone calls.
+                      <InlineElevenLabsAgentTester agentId={selected.voiceAgentId} />
                     </div>
                   </div>
                 </div>

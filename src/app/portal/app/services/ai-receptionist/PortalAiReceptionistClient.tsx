@@ -958,9 +958,6 @@ export function PortalAiReceptionistClient() {
       {tab === "testing" ? (
         <div className="mt-4 rounded-3xl border border-zinc-200 bg-white p-6">
           <div className="text-sm font-semibold text-zinc-900">Testing</div>
-          <div className="mt-2 text-sm text-zinc-600">
-            Test your AI Receptionist agent directly in the browser.
-          </div>
 
           <div className="mt-4 rounded-2xl border border-zinc-200 bg-zinc-50 p-4">
             <div className="text-xs font-semibold text-zinc-600">Agent ID</div>
@@ -968,14 +965,7 @@ export function PortalAiReceptionistClient() {
               {settings?.voiceAgentId?.trim() ? settings.voiceAgentId.trim() : "N/A"}
             </div>
             <div className="mt-3">
-              <InlineElevenLabsAgentTester
-                agentId={settings?.voiceAgentId}
-                title="Receptionist tester"
-                description="Inline testing (no floating widget)."
-              />
-            </div>
-            <div className="mt-3 text-xs text-zinc-500">
-              This is for browser testing and won’t show up in Activity.
+              <InlineElevenLabsAgentTester agentId={settings?.voiceAgentId} />
             </div>
           </div>
 

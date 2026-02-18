@@ -2,15 +2,6 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
-type TesterMessage = {
-  id: string;
-  role: "user" | "agent" | "system";
-  text: string;
-  createdAt: number;
-};
-
-type WsEnvelope = Record<string, any>;
-
 function classNames(...xs: Array<string | false | null | undefined>) {
   return xs.filter(Boolean).join(" ");
 }
@@ -79,48 +70,15 @@ function pcm16leBytesFromFloat32(samples: Float32Array): Uint8Array {
   return out;
 }
 
-function extractEventText(evt: WsEnvelope): { role: TesterMessage["role"]; text: string } | null {
-  const type = typeof evt?.type === "string" ? evt.type : "";
-
-  if (type === "agent_response") {
-    const text =
-      (typeof evt?.agent_response_event?.agent_response === "string" ? evt.agent_response_event.agent_response : "") ||
-      (typeof evt?.agent_response === "string" ? evt.agent_response : "");
-    return text ? { role: "agent", text } : null;
-  }
-
-  if (type === "agent_response_correction") {
-    const text =
-      (typeof evt?.agent_response_correction_event?.agent_response_correction === "string"
-        ? evt.agent_response_correction_event.agent_response_correction
-        : "") ||
-      (typeof evt?.agent_response_correction === "string" ? evt.agent_response_correction : "");
-    return text ? { role: "agent", text: text } : null;
-  }
-
-  if (type === "user_transcript") {
-    const text =
-      (typeof evt?.user_transcription_event?.user_transcript === "string" ? evt.user_transcription_event.user_transcript : "") ||
-      (typeof evt?.user_transcript === "string" ? evt.user_transcript : "");
-    return text ? { role: "user", text } : null;
-  }
-
-  if (type === "client_tool_call") {
-    const toolName = typeof evt?.client_tool_call?.tool_name === "string" ? evt.client_tool_call.tool_name : "";
-    const toolId = typeof evt?.client_tool_call?.tool_call_id === "string" ? evt.client_tool_call.tool_call_id : "";
-    if (!toolName && !toolId) return null;
-    return { role: "system", text: `Tool call: ${toolName || "(unknown)"}${toolId ? ` (${toolId})` : ""}` };
-  }
-
-  if (type === "interruption") return { role: "system", text: "Interrupted" };
-
-  return null;
+function formatDuration(ms: number): string {
+  const s = Math.max(0, Math.floor(ms / 1000));
+  const m = Math.floor(s / 60);
+  const r = s % 60;
+  return `${m}:${String(r).padStart(2, "0")}`;
 }
 
 export function InlineElevenLabsAgentTester(props: {
   agentId: string | null | undefined;
-  title?: string;
-  description?: string;
   className?: string;
 }) {
   const agentId = useMemo(() => (typeof props.agentId === "string" ? props.agentId.trim() : ""), [props.agentId]);
@@ -142,25 +100,23 @@ export function InlineElevenLabsAgentTester(props: {
   const outNextTimeRef = useRef<number>(0);
   const [speakerEnabled, setSpeakerEnabled] = useState(true);
 
-  const [messages, setMessages] = useState<TesterMessage[]>([]);
-  const [value, setValue] = useState("");
+  const [callStartedAt, setCallStartedAt] = useState<number | null>(null);
+  const [now, setNow] = useState<number>(() => Date.now());
 
   const canConnect = Boolean(agentId);
 
-  const pushMessage = useCallback((m: Omit<TesterMessage, "id" | "createdAt"> & { id?: string; createdAt?: number }) => {
-    const id = m.id || `${Date.now()}_${Math.random().toString(16).slice(2)}`;
-    const createdAt = typeof m.createdAt === "number" ? m.createdAt : Date.now();
-    const text = String(m.text || "").trim();
-    if (!text) return;
-
-    setMessages((prev) => [...prev, { id, createdAt, role: m.role, text }]);
-  }, []);
+  useEffect(() => {
+    if (status !== "connected" || !callStartedAt) return;
+    const id = window.setInterval(() => setNow(Date.now()), 500);
+    return () => window.clearInterval(id);
+  }, [callStartedAt, status]);
 
   const disconnect = useCallback(() => {
     setError(null);
     setConversationId(null);
     setAgentOutputFormat(null);
     setUserInputFormat(null);
+    setCallStartedAt(null);
 
     try {
       micProcessorRef.current?.disconnect();
@@ -341,8 +297,7 @@ export function InlineElevenLabsAgentTester(props: {
     processor.connect(ctx.destination);
 
     setMicEnabled(true);
-    pushMessage({ role: "system", text: "Microphone enabled" });
-  }, [micEnabled, pushMessage, userInputFormat]);
+  }, [micEnabled, userInputFormat]);
 
   const disableMic = useCallback(() => {
     try {
@@ -370,8 +325,7 @@ export function InlineElevenLabsAgentTester(props: {
     micStreamRef.current = null;
 
     setMicEnabled(false);
-    pushMessage({ role: "system", text: "Microphone disabled" });
-  }, [pushMessage]);
+  }, []);
 
   const connect = useCallback(async () => {
     if (!canConnect) return;
@@ -401,10 +355,13 @@ export function InlineElevenLabsAgentTester(props: {
 
     ws.onopen = () => {
       setStatus("connected");
-      pushMessage({ role: "system", text: "Connected" });
+      setCallStartedAt(Date.now());
 
       // Kick off the conversation using the server-side agent config.
       ws.send(JSON.stringify({ type: "conversation_initiation_client_data" }));
+
+      // The user clicked Call, so start the mic immediately.
+      void enableMic();
     };
 
     ws.onclose = () => {
@@ -412,7 +369,7 @@ export function InlineElevenLabsAgentTester(props: {
       if (wsRef.current !== ws) return;
       wsRef.current = null;
       setStatus("disconnected");
-      pushMessage({ role: "system", text: "Disconnected" });
+      setCallStartedAt(null);
     };
 
     ws.onerror = () => {
@@ -456,27 +413,8 @@ export function InlineElevenLabsAgentTester(props: {
         if (b64) void playIncomingAudioChunk(b64);
         return;
       }
-
-      const extracted = extractEventText(data);
-      if (extracted) pushMessage({ role: extracted.role, text: extracted.text });
     };
-  }, [agentId, canConnect, playIncomingAudioChunk, pushMessage, status]);
-
-  const send = useCallback(async () => {
-    const text = String(value || "").trim();
-    if (!text) return;
-
-    setValue("");
-
-    const ws = wsRef.current;
-    if (!ws || ws.readyState !== WebSocket.OPEN) {
-      setError("Not connected. Click Connect first.");
-      return;
-    }
-
-    pushMessage({ role: "user", text });
-    ws.send(JSON.stringify({ type: "user_message", text }));
-  }, [pushMessage, value]);
+  }, [agentId, canConnect, enableMic, playIncomingAudioChunk, status]);
 
   useEffect(() => {
     return () => {
@@ -501,157 +439,101 @@ export function InlineElevenLabsAgentTester(props: {
 
   return (
     <div className={props.className ?? ""}>
-      <div className="rounded-2xl border border-zinc-200 bg-zinc-50 p-4">
-        <div className="flex flex-wrap items-start justify-between gap-3">
-          <div>
-            <div className="text-sm font-semibold text-zinc-900">{props.title || "Inline agent tester"}</div>
-            <div className="mt-1 text-xs text-zinc-600">
-              {props.description || "Full voice testing inline (no floating widget)."}
-            </div>
-          </div>
-
+      <div className="rounded-3xl border border-zinc-200 bg-gradient-to-b from-white to-zinc-50 p-5">
+        <div className="flex items-center justify-between gap-3">
           <div className="flex items-center gap-2">
             <div
               className={classNames(
-                "rounded-full border px-2.5 py-1 text-[11px] font-semibold",
-                status === "connected"
-                  ? "border-emerald-200 bg-emerald-50 text-emerald-700"
-                  : status === "connecting"
-                    ? "border-amber-200 bg-amber-50 text-amber-800"
-                    : "border-zinc-200 bg-white text-zinc-700",
+                "h-2.5 w-2.5 rounded-full",
+                status === "connected" ? "bg-emerald-500" : status === "connecting" ? "bg-amber-500" : "bg-zinc-300",
               )}
-            >
-              {status}
-            </div>
-            <button
-              type="button"
-              className="rounded-xl border border-zinc-200 bg-white px-3 py-2 text-xs font-semibold hover:bg-zinc-50 disabled:opacity-60"
-              disabled={!canConnect || status === "connecting"}
-              onClick={() => void connect()}
-            >
-              Connect
-            </button>
-            <button
-              type="button"
-              className="rounded-xl border border-zinc-200 bg-white px-3 py-2 text-xs font-semibold hover:bg-zinc-50 disabled:opacity-60"
-              disabled={status !== "connected"}
-              onClick={() => disconnect()}
-            >
-              Disconnect
-            </button>
+            />
+            <div className="text-sm font-semibold text-zinc-900">Test call</div>
+            {callStartedAt && status === "connected" ? (
+              <div className="text-xs font-semibold text-zinc-500">{formatDuration(now - callStartedAt)}</div>
+            ) : null}
           </div>
+
+          <button
+            type="button"
+            className={classNames(
+              "rounded-xl border px-3 py-2 text-xs font-semibold disabled:opacity-60",
+              speakerEnabled ? "border-zinc-200 bg-white text-zinc-700 hover:bg-zinc-50" : "border-zinc-200 bg-zinc-900 text-white",
+            )}
+            disabled={status !== "connected"}
+            onClick={() => setSpeakerEnabled((v) => !v)}
+            title={speakerEnabled ? "Mute" : "Unmute"}
+          >
+            {speakerEnabled ? "Mute" : "Unmute"}
+          </button>
         </div>
 
-        {conversationId ? (
-          <div className="mt-3 text-[11px] text-zinc-500">
-            Conversation: <span className="font-mono">{conversationId}</span>
-          </div>
-        ) : null}
-
-        {agentOutputFormat || userInputFormat ? (
-          <div className="mt-1 text-[11px] text-zinc-500">
-            Audio: <span className="font-mono">{agentOutputFormat || "?"}</span> out ·{" "}
-            <span className="font-mono">{userInputFormat || "?"}</span> in
-          </div>
-        ) : null}
-
         {error ? (
-          <div className="mt-3 rounded-xl border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-800">{error}</div>
+          <div className="mt-3 rounded-2xl border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-800">{error}</div>
         ) : null}
 
-        <div className="mt-4 grid grid-cols-1 gap-3">
-          <div className="flex flex-wrap items-center gap-2">
+        <div className="mt-5 flex items-center justify-center">
+          {status === "connected" ? (
             <button
               type="button"
-              className={classNames(
-                "rounded-xl border px-3 py-2 text-xs font-semibold disabled:opacity-60",
-                micEnabled ? "border-emerald-200 bg-emerald-50 text-emerald-800" : "border-zinc-200 bg-white text-zinc-900 hover:bg-zinc-50",
-              )}
-              disabled={status !== "connected"}
-              onClick={() => (micEnabled ? disableMic() : void enableMic())}
+              onClick={() => disconnect()}
+              className="group flex h-16 w-16 items-center justify-center rounded-full bg-red-600 text-white shadow-lg shadow-red-600/20 hover:bg-red-500 focus:outline-none focus-visible:ring-2 focus-visible:ring-red-600/50"
+              title="Hang up"
             >
-              {micEnabled ? "Disable mic" : "Enable mic"}
+              <svg viewBox="0 0 24 24" className="h-7 w-7" fill="none" xmlns="http://www.w3.org/2000/svg">
+                <path
+                  d="M4.2 10.8c1.6-1 3.8-1.8 7.8-1.8s6.2.8 7.8 1.8c.9.6 1.2 1.8.6 2.7l-1.1 1.7c-.4.6-1.2.9-1.9.7l-3.1-.9a1.7 1.7 0 0 0-2 .8l-.4.8c-.3.6-1 .9-1.7.9H12c-.7 0-1.4-.3-1.7-.9l-.4-.8a1.7 1.7 0 0 0-2-.8l-3.1.9c-.7.2-1.5-.1-1.9-.7l-1.1-1.7c-.6-.9-.3-2.1.6-2.7Z"
+                  fill="currentColor"
+                />
+              </svg>
             </button>
-
+          ) : (
             <button
               type="button"
+              onClick={() => void connect()}
+              disabled={!canConnect || status === "connecting"}
               className={classNames(
-                "rounded-xl border px-3 py-2 text-xs font-semibold disabled:opacity-60",
-                speakerEnabled ? "border-zinc-200 bg-white text-zinc-900 hover:bg-zinc-50" : "border-amber-200 bg-amber-50 text-amber-900",
+                "group flex h-16 w-16 items-center justify-center rounded-full text-white shadow-lg focus:outline-none focus-visible:ring-2",
+                status === "connecting"
+                  ? "bg-amber-500 shadow-amber-500/20 focus-visible:ring-amber-500/40"
+                  : "bg-emerald-600 shadow-emerald-600/20 hover:bg-emerald-500 focus-visible:ring-emerald-600/40",
               )}
-              disabled={status !== "connected"}
-              onClick={() => setSpeakerEnabled((v) => !v)}
+              title="Call"
             >
-              {speakerEnabled ? "Mute speaker" : "Unmute speaker"}
+              {status === "connecting" ? (
+                <svg viewBox="0 0 24 24" className="h-7 w-7 animate-spin" fill="none" xmlns="http://www.w3.org/2000/svg">
+                  <path d="M12 3a9 9 0 1 0 9 9" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" />
+                </svg>
+              ) : (
+                <svg viewBox="0 0 24 24" className="h-7 w-7" fill="none" xmlns="http://www.w3.org/2000/svg">
+                  <path
+                    d="M6.2 11.7c.8 2.1 2.9 4.2 5 5 .7.3 1.5.1 2-.4l1.1-1.1c.3-.3.7-.4 1.1-.3l2 .7c.7.2 1.1.9.9 1.6l-.4 1.5c-.2.6-.7 1-1.3 1.1-7.1 1-13-4.9-12-12 .1-.6.5-1.1 1.1-1.3l1.5-.4c.7-.2 1.4.2 1.6.9l.7 2c.1.4 0 .8-.3 1.1l-1.1 1.1c-.5.5-.7 1.3-.4 2Z"
+                    fill="currentColor"
+                  />
+                </svg>
+              )}
             </button>
+          )}
+        </div>
 
-            <div className="text-[11px] text-zinc-500">
-              Voice works over WebSocket; mic requires permission.
-            </div>
-          </div>
-
-          <div className="h-[320px] overflow-auto rounded-2xl border border-zinc-200 bg-white p-3">
-            {messages.length === 0 ? (
-              <div className="text-sm text-zinc-500">No messages yet.</div>
-            ) : (
-              <div className="space-y-2">
-                {messages.map((m) => (
-                  <div key={m.id} className={classNames("flex", m.role === "user" ? "justify-end" : "justify-start")}>
-                    <div
-                      className={classNames(
-                        "max-w-[85%] rounded-2xl px-3 py-2 text-sm",
-                        m.role === "user"
-                          ? "bg-zinc-900 text-white"
-                          : m.role === "agent"
-                            ? "bg-zinc-100 text-zinc-900"
-                            : "bg-white text-zinc-600 border border-zinc-200",
-                      )}
-                    >
-                      {m.role === "system" ? (
-                        <div className="text-[11px] font-semibold uppercase tracking-wide">System</div>
-                      ) : null}
-                      <div className={m.role === "system" ? "text-xs" : ""}>{m.text}</div>
-                    </div>
-                  </div>
-                ))}
-              </div>
+        <div className="mt-4 flex items-center justify-center gap-2">
+          <button
+            type="button"
+            className={classNames(
+              "rounded-full border px-3 py-1.5 text-xs font-semibold disabled:opacity-60",
+              micEnabled ? "border-zinc-900 bg-zinc-900 text-white" : "border-zinc-200 bg-white text-zinc-700 hover:bg-zinc-50",
             )}
-          </div>
+            disabled={status !== "connected"}
+            onClick={() => (micEnabled ? disableMic() : void enableMic())}
+            title={micEnabled ? "Mute mic" : "Unmute mic"}
+          >
+            {micEnabled ? "Mic on" : "Mic off"}
+          </button>
+        </div>
 
-          <div className="grid grid-cols-1 gap-2 sm:grid-cols-[1fr,auto]">
-            <input
-              value={value}
-              onChange={(e) => {
-                setValue(e.target.value);
-                const ws = wsRef.current;
-                if (ws && ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify({ type: "user_activity" }));
-              }}
-              onKeyDown={(e) => {
-                if (e.key === "Enter" && !e.shiftKey) {
-                  e.preventDefault();
-                  void send();
-                }
-              }}
-              placeholder={status === "connected" ? "Type a message…" : "Connect to start…"}
-              className="w-full rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-sm"
-              disabled={status !== "connected"}
-            />
-            <button
-              type="button"
-              className={classNames(
-                "rounded-2xl px-4 py-2 text-sm font-semibold",
-                status === "connected" ? "bg-zinc-900 text-white hover:opacity-95" : "bg-zinc-200 text-zinc-700",
-              )}
-              disabled={status !== "connected"}
-              onClick={() => void send()}
-            >
-              Send
-            </button>
-          </div>
-
-          <div className="text-[11px] text-zinc-500">
-            Inline tester using ElevenLabs Agent WebSocket. No floating launcher, no overlap.
-          </div>
+        <div className="sr-only" aria-live="polite">
+          Status {status}. {conversationId ? `Conversation ${conversationId}.` : ""}
+          {agentOutputFormat ? `Out ${agentOutputFormat}.` : ""} {userInputFormat ? `In ${userInputFormat}.` : ""}
         </div>
       </div>
     </div>
