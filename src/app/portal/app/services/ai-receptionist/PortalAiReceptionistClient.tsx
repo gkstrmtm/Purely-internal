@@ -4,7 +4,7 @@ import Link from "next/link";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { PortalMissedCallTextBackClient } from "@/app/portal/app/services/missed-call-textback/PortalMissedCallTextBackClient";
-import { ElevenLabsConvaiWidget } from "@/components/ElevenLabsConvaiWidget";
+import { InlineElevenLabsAgentTester } from "@/components/InlineElevenLabsAgentTester";
 import { PortalSettingsSection } from "@/components/PortalSettingsSection";
 import { ContactTagsEditor, type ContactTag } from "@/components/ContactTagsEditor";
 import { useToast } from "@/components/ToastProvider";
@@ -959,7 +959,7 @@ export function PortalAiReceptionistClient() {
         <div className="mt-4 rounded-3xl border border-zinc-200 bg-white p-6">
           <div className="text-sm font-semibold text-zinc-900">Testing</div>
           <div className="mt-2 text-sm text-zinc-600">
-            Use this widget to test your AI Receptionist agent directly in the browser.
+            Test your AI Receptionist agent directly in the browser.
           </div>
 
           <div className="mt-4 rounded-2xl border border-zinc-200 bg-zinc-50 p-4">
@@ -968,10 +968,14 @@ export function PortalAiReceptionistClient() {
               {settings?.voiceAgentId?.trim() ? settings.voiceAgentId.trim() : "N/A"}
             </div>
             <div className="mt-3">
-              <ElevenLabsConvaiWidget agentId={settings?.voiceAgentId} />
+              <InlineElevenLabsAgentTester
+                agentId={settings?.voiceAgentId}
+                title="Receptionist tester"
+                description="Inline testing (no floating widget)."
+              />
             </div>
             <div className="mt-3 text-xs text-zinc-500">
-              This widget is for browser testing and won’t show up in Activity.
+              This is for browser testing and won’t show up in Activity.
             </div>
           </div>
 

@@ -4,7 +4,7 @@ import Link from "next/link";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { PortalListboxDropdown } from "@/components/PortalListboxDropdown";
-import { ElevenLabsConvaiWidget } from "@/components/ElevenLabsConvaiWidget";
+import { InlineElevenLabsAgentTester } from "@/components/InlineElevenLabsAgentTester";
 import { useToast } from "@/components/ToastProvider";
 import { DEFAULT_TAG_COLORS } from "@/lib/tagColors.shared";
 import { DEFAULT_VOICE_AGENT_CONFIG, type VoiceAgentConfig } from "@/lib/voiceAgentConfig.shared";
@@ -908,10 +908,14 @@ export function PortalAiOutboundCallsClient() {
                       {selected.voiceAgentId?.trim() ? selected.voiceAgentId.trim() : "N/A"}
                     </div>
                     <div className="mt-3">
-                      <ElevenLabsConvaiWidget agentId={selected.voiceAgentId} />
+                      <InlineElevenLabsAgentTester
+                        agentId={selected.voiceAgentId}
+                        title="Campaign tester"
+                        description="Inline testing (no floating widget)."
+                      />
                     </div>
                     <div className="mt-3 text-xs text-zinc-500">
-                      This widget is for browser testing and won’t place phone calls.
+                      This is for browser testing and won’t place phone calls.
                     </div>
                   </div>
                 </div>
