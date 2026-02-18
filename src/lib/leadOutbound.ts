@@ -34,36 +34,48 @@ export function baseUrlFromRequest(req?: Request): string {
   const env = process.env.NEXTAUTH_URL || process.env.NEXT_PUBLIC_BASE_URL;
   const envClean = env && env.startsWith("http") ? env.replace(/\/$/, "") : null;
 
-  const proto = req?.headers.get("x-forwarded-proto") || "http";
-  // Prefer the actual Host header. On some platforms `x-forwarded-host` can be a Vercel deployment URL
-  // even when the request was made through the custom domain.
-  const host = req?.headers.get("host") || req?.headers.get("x-forwarded-host");
-  const reqBase = host ? `${proto}://${host}`.replace(/\/$/, "") : null;
+  const proto = req?.headers.get("x-forwarded-proto") || (process.env.NODE_ENV === "production" ? "https" : "http");
 
-  // If env is a placeholder or Vercel deployment URL, prefer the request host when it's a custom domain.
-  if (reqBase) {
+  const hostHeader = req?.headers.get("host")?.trim() || null;
+  const forwardedHost = req?.headers
+    .get("x-forwarded-host")
+    ?.split(",")[0]
+    ?.trim()
+    ?.toLowerCase() || null;
+
+  const isBadHostname = (hostname: string) => {
+    const h = hostname.toLowerCase();
+    return h.endsWith(".vercel.app") || h.includes("your-vercel-domain");
+  };
+
+  const isCustomHostname = (hostname: string) => Boolean(hostname) && !isBadHostname(hostname);
+
+  const safeEnvBase = (() => {
+    if (!envClean) return null;
     try {
-      const reqHost = new URL(reqBase).hostname;
-      const isReqCustom = Boolean(reqHost && !reqHost.endsWith(".vercel.app") && !reqHost.includes("YOUR-VERCEL-DOMAIN"));
+      const envHost = new URL(envClean).hostname;
+      return isCustomHostname(envHost) ? envClean : null;
+    } catch {
+      return null;
+    }
+  })();
 
-      if (isReqCustom) {
-        if (!envClean) return reqBase;
-        if (envClean.includes("YOUR-VERCEL-DOMAIN")) return reqBase;
-        try {
-          const envHost = new URL(envClean).hostname;
-          if (envHost.endsWith(".vercel.app")) return reqBase;
-        } catch {
-          // ignore
-        }
-      }
+  const reqBases = [forwardedHost, hostHeader]
+    .filter(Boolean)
+    .map((h) => `${proto}://${h}`.replace(/\/$/, ""));
+
+  for (const candidate of reqBases) {
+    try {
+      const candidateHost = new URL(candidate).hostname;
+      if (isCustomHostname(candidateHost)) return candidate;
     } catch {
       // ignore
     }
   }
 
-  if (envClean) return envClean;
-  if (reqBase) return reqBase;
-  return process.env.NODE_ENV === "production" ? "https://purelyautomation.com" : "http://localhost:3000";
+  if (safeEnvBase) return safeEnvBase;
+  if (process.env.NODE_ENV === "production") return "https://purelyautomation.com";
+  return reqBases[0] || "http://localhost:3000";
 }
 
 export async function sendEmail({
