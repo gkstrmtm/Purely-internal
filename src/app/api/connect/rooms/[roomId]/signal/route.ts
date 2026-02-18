@@ -26,7 +26,7 @@ const pollSchema = z.object({
 async function requireParticipant(opts: { roomId: string; participantId: string; secret: string }) {
 	const participant = await prisma.connectParticipant.findFirst({
 		where: { id: opts.participantId, secret: opts.secret, roomId: opts.roomId },
-		select: { id: true, roomId: true },
+		select: { id: true, roomId: true, status: true },
 	});
 	return participant;
 }
@@ -42,6 +42,7 @@ export async function POST(req: Request, ctx: { params: Promise<{ roomId: string
 
 		const me = await requireParticipant({ roomId, participantId: parsed.data.participantId, secret: parsed.data.secret });
 		if (!me) return NextResponse.json({ ok: false, error: "Unauthorized" }, { status: 401 });
+		if (me.status !== "approved") return NextResponse.json({ ok: false, error: "Waiting for host approval" }, { status: 403 });
 
 		const signal = await prisma.connectSignal.create({
 			data: {

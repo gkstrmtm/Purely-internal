@@ -33,6 +33,43 @@ type MediaState = {
 	isSharing: boolean;
 };
 
+type RoomSettings = {
+	waitingRoomEnabled: boolean;
+	locked: boolean;
+	muteOnJoin: boolean;
+	cameraOffOnJoin: boolean;
+	allowScreenShare: boolean;
+};
+
+type RoomJoinResponse = {
+	ok: boolean;
+	pending: boolean;
+	room: {
+		id: string;
+		hostParticipantId: string | null;
+		settings: RoomSettings;
+	};
+	participant: { id: string; secret: string; displayName: string; isGuest: boolean; status?: string };
+	others: ParticipantPublic[];
+};
+
+type RoomSettingsResponse = {
+	ok: boolean;
+	room: { id: string; hostParticipantId: string | null; settings: RoomSettings };
+	me: { id: string; isHost: boolean; status?: string };
+};
+
+type RoomSettingsUpdateResponse = {
+	ok: boolean;
+	room: { id: string; hostParticipantId: string | null; settings: RoomSettings };
+};
+
+type WaitingRoomResponse = {
+	ok: boolean;
+	roomId: string;
+	waiting: ParticipantPublic[];
+};
+
 function storageKey(roomId: string) {
 	return `pa.connect.${roomId}`;
 }
@@ -70,6 +107,11 @@ export function ConnectRoomClient(props: { roomId: string; signedInName?: string
 
 	const [myCreds, setMyCreds] = useState<ParticipantCreds | null>(null);
 	const [participants, setParticipants] = useState<ParticipantPublic[]>([]);
+	const [roomSettings, setRoomSettings] = useState<RoomSettings | null>(null);
+	const [isHost, setIsHost] = useState(false);
+	const [pendingAdmission, setPendingAdmission] = useState(false);
+	const [waitingRoom, setWaitingRoom] = useState<ParticipantPublic[]>([]);
+	const [savingSettings, setSavingSettings] = useState(false);
 	const [joinName, setJoinName] = useState<string>(props.signedInName ?? "");
 	const [joining, setJoining] = useState(false);
 	const [toasts, setToasts] = useState<ToastItem[]>([]);
@@ -97,9 +139,13 @@ export function ConnectRoomClient(props: { roomId: string; signedInName?: string
 	const storedCredsFoundRef = useRef<boolean>(false);
 	const autoJoinAttemptedRef = useRef(false);
 	const myCredsRef = useRef<ParticipantCreds | null>(null);
+	const roomSettingsRef = useRef<RoomSettings | null>(null);
+	const isHostRef = useRef<boolean>(false);
+	const pendingAdmissionRef = useRef<boolean>(false);
 	const pollingRef = useRef<boolean>(false);
 	const pollTimerRef = useRef<number | null>(null);
 	const participantsTimerRef = useRef<number | null>(null);
+	const waitingRoomTimerRef = useRef<number | null>(null);
 	const chromeTimerRef = useRef<number | null>(null);
 	const toastTimersRef = useRef<Map<string, number>>(new Map());
 
@@ -171,6 +217,12 @@ export function ConnectRoomClient(props: { roomId: string; signedInName?: string
 	useEffect(() => {
 		myCredsRef.current = myCreds;
 	}, [myCreds]);
+
+	useEffect(() => {
+		roomSettingsRef.current = roomSettings;
+		isHostRef.current = isHost;
+		pendingAdmissionRef.current = pendingAdmission;
+	}, [roomSettings, isHost, pendingAdmission]);
 
 	function getLocalStream() {
 		return localStreamRef.current;
@@ -257,6 +309,104 @@ export function ConnectRoomClient(props: { roomId: string; signedInName?: string
 		const json = (await res.json().catch(() => null)) as T;
 		if (!res.ok) throw new Error((json as any)?.error || "Request failed");
 		return json;
+	}
+
+	async function fetchRoomSettingsOnce() {
+		const creds = myCredsRef.current;
+		if (!creds) return;
+
+		const url = new URL(`/api/connect/rooms/${encodeURIComponent(roomId)}/settings`, window.location.origin);
+		url.searchParams.set("participantId", creds.participantId);
+		url.searchParams.set("secret", creds.secret);
+		const res = await apiGet<RoomSettingsResponse>(url.toString());
+		if (!res.ok) return;
+		setRoomSettings(res.room.settings);
+		setIsHost(res.me?.isHost === true);
+		setPendingAdmission(res.me?.status ? res.me.status !== "approved" : false);
+	}
+
+	async function saveRoomSettings(next: Partial<RoomSettings>) {
+		const creds = myCredsRef.current;
+		if (!creds) return;
+		if (!isHostRef.current) {
+			showToast("warn", "Only the host can change settings.");
+			return;
+		}
+		setSavingSettings(true);
+		try {
+			const res = await apiPost<RoomSettingsUpdateResponse>(`/api/connect/rooms/${encodeURIComponent(roomId)}/settings`, {
+				participantId: creds.participantId,
+				secret: creds.secret,
+				...next,
+			});
+			if (!res.ok) return;
+			setRoomSettings(res.room.settings);
+			setIsHost(res.room.hostParticipantId === creds.participantId);
+			showToast("info", "Saved.", { ttlMs: 1400 });
+		} catch (e) {
+			showToast("error", e instanceof Error ? e.message : "Failed to save settings");
+		} finally {
+			setSavingSettings(false);
+		}
+	}
+
+	async function pollWaitingRoomOnce() {
+		const creds = myCredsRef.current;
+		if (!creds) return;
+		if (!isHostRef.current) return;
+		if (!roomSettingsRef.current?.waitingRoomEnabled) {
+			setWaitingRoom([]);
+			return;
+		}
+
+		const url = new URL(`/api/connect/rooms/${encodeURIComponent(roomId)}/waiting`, window.location.origin);
+		url.searchParams.set("participantId", creds.participantId);
+		url.searchParams.set("secret", creds.secret);
+		const res = await apiGet<WaitingRoomResponse>(url.toString());
+		if (!res.ok) return;
+		setWaitingRoom(res.waiting ?? []);
+	}
+
+	function startWaitingRoomPolling() {
+		if (waitingRoomTimerRef.current) return;
+		const tick = async () => {
+			try {
+				await pollWaitingRoomOnce();
+			} catch {
+				// ignore
+			}
+			waitingRoomTimerRef.current = window.setTimeout(tick, 1500);
+		};
+		waitingRoomTimerRef.current = window.setTimeout(tick, 250);
+	}
+
+	function stopWaitingRoomPolling() {
+		if (waitingRoomTimerRef.current) window.clearTimeout(waitingRoomTimerRef.current);
+		waitingRoomTimerRef.current = null;
+		setWaitingRoom([]);
+	}
+
+	async function admitWaitingParticipant(targetParticipantId: string) {
+		const creds = myCredsRef.current;
+		if (!creds) return;
+		await apiPost(`/api/connect/rooms/${encodeURIComponent(roomId)}/waiting/admit`, {
+			participantId: creds.participantId,
+			secret: creds.secret,
+			targetParticipantId,
+		});
+		void pollWaitingRoomOnce().catch(() => null);
+		void refreshParticipantsOnce().catch(() => null);
+	}
+
+	async function denyWaitingParticipant(targetParticipantId: string) {
+		const creds = myCredsRef.current;
+		if (!creds) return;
+		await apiPost(`/api/connect/rooms/${encodeURIComponent(roomId)}/waiting/deny`, {
+			participantId: creds.participantId,
+			secret: creds.secret,
+			targetParticipantId,
+		});
+		void pollWaitingRoomOnce().catch(() => null);
 	}
 
 	async function broadcastMediaState(next: MediaState) {
@@ -628,8 +778,41 @@ export function ConnectRoomClient(props: { roomId: string; signedInName?: string
 		if (!res.ok) return;
 
 		if (typeof res.nextAfterSeq === "number") afterSeqRef.current = res.nextAfterSeq;
+		const isPending = pendingAdmissionRef.current;
 
 		for (const s of res.signals ?? []) {
+			if (s.kind === "admit") {
+				const pid = (s.payload as any)?.participantId;
+				if (pid && pid === creds.participantId) {
+					setPendingAdmission(false);
+					showToast("info", "You’ve been admitted.");
+					void fetchRoomSettingsOnce().catch(() => null);
+					void refreshParticipantsOnce().catch(() => null);
+					void broadcastMediaState({ audioEnabled: !isMuted, videoEnabled: !isVideoOff, isSharing }).catch(() => null);
+				}
+				continue;
+			}
+			if (s.kind === "deny") {
+				const pid = (s.payload as any)?.participantId;
+				if (pid && pid === creds.participantId) {
+					setPendingAdmission(false);
+					await performLeave({ infoToast: null });
+					showToast("error", "The host denied your request to join.", {
+						actions: [
+							{
+								label: "Back",
+								onClick: () => {
+									window.location.href = "/connect";
+								},
+							},
+						],
+						ttlMs: 8000,
+					});
+				}
+				continue;
+			}
+			if (isPending) continue;
+
 			if (s.kind === "offer") await handleOffer(s.fromParticipantId, s.payload as any);
 			else if (s.kind === "answer") await handleAnswer(s.fromParticipantId, s.payload as any);
 			else if (s.kind === "ice") await handleIce(s.fromParticipantId, s.payload as any);
@@ -688,8 +871,18 @@ export function ConnectRoomClient(props: { roomId: string; signedInName?: string
 		url.searchParams.set("participantId", creds.participantId);
 		url.searchParams.set("secret", creds.secret);
 
-		const res = await apiGet<{ ok: boolean; participants: ParticipantPublic[] }>(url.toString());
+		const res = await apiGet<{ ok: boolean; pending?: boolean; participants: ParticipantPublic[] }>(url.toString());
 		if (!res.ok) return;
+
+		if (res.pending) {
+			setPendingAdmission(true);
+			setParticipants([
+				{ id: creds.participantId, displayName: creds.displayName, isGuest: creds.isGuest, createdAt: new Date().toISOString() },
+			]);
+			return;
+		}
+
+		setPendingAdmission(false);
 
 		setParticipants(res.participants ?? []);
 
@@ -742,11 +935,9 @@ export function ConnectRoomClient(props: { roomId: string; signedInName?: string
 					// ignore
 				}
 			}
-			const joinRes = await apiPost<{
-				ok: boolean;
-				participant: { id: string; secret: string; displayName: string; isGuest: boolean };
-				others: ParticipantPublic[];
-			}>(`/api/connect/rooms/${encodeURIComponent(roomId)}/join`, { displayName: name || undefined });
+			const joinRes = await apiPost<RoomJoinResponse>(`/api/connect/rooms/${encodeURIComponent(roomId)}/join`, {
+				displayName: name || undefined,
+			});
 
 			if (!joinRes.ok) throw new Error("Failed to join");
 
@@ -757,27 +948,48 @@ export function ConnectRoomClient(props: { roomId: string; signedInName?: string
 				isGuest: joinRes.participant.isGuest,
 			};
 			myCredsRef.current = creds;
+			afterSeqRef.current = 0;
+
+			setRoomSettings(joinRes.room?.settings ?? null);
+			setIsHost(joinRes.room?.hostParticipantId === creds.participantId);
+			setPendingAdmission(joinRes.pending === true);
+
+			const defaultsMuted = joinRes.room?.settings?.muteOnJoin === true;
+			const defaultsCamOff = joinRes.room?.settings?.cameraOffOnJoin === true;
+			setIsMuted(defaultsMuted);
+			setIsVideoOff(defaultsCamOff);
 
 			setMyCreds(creds);
-			setParticipants([...(joinRes.others ?? []), { id: creds.participantId, displayName: creds.displayName, isGuest: creds.isGuest, createdAt: new Date().toISOString() }]);
+			setParticipants([
+				...(joinRes.others ?? []),
+				{ id: creds.participantId, displayName: creds.displayName, isGuest: creds.isGuest, createdAt: new Date().toISOString() },
+			]);
 
 			localStorage.setItem(storageKey(roomId), JSON.stringify(creds));
 
 			startPolling();
 			startParticipantsRefresh();
-			void broadcastMediaState({ audioEnabled: !isMuted, videoEnabled: !isVideoOff, isSharing }).catch(() => null);
+			void fetchRoomSettingsOnce().catch(() => null);
+			void broadcastMediaState({ audioEnabled: !defaultsMuted, videoEnabled: !defaultsCamOff, isSharing }).catch(() => null);
 			showChromeTemporarily();
 			void ensureLocalMedia()
-				.then((stream) => attachLocalTracksToExistingPeers(stream))
+				.then((stream) => {
+					// Apply meeting defaults
+					for (const t of stream.getAudioTracks()) t.enabled = !defaultsMuted;
+					for (const t of stream.getVideoTracks()) t.enabled = !defaultsCamOff;
+					attachLocalTracksToExistingPeers(stream);
+				})
 				.catch((err) => {
 					toastMediaIssue(err);
 				});
 
 			// If we already see others, offer where appropriate.
-			for (const p of joinRes.others ?? []) {
-				getOrCreatePeer(p.id);
-				if (isOfferer(creds.participantId, p.id)) {
-					await sendOffer(p.id);
+			if (!joinRes.pending) {
+				for (const p of joinRes.others ?? []) {
+					getOrCreatePeer(p.id);
+					if (isOfferer(creds.participantId, p.id)) {
+						await sendOffer(p.id);
+					}
 				}
 			}
 		} catch (e) {
@@ -787,7 +999,54 @@ export function ConnectRoomClient(props: { roomId: string; signedInName?: string
 		}
 	}
 
-	async function onLeave() {
+	function cleanupLocalState() {
+		stopPolling();
+		stopParticipantsRefresh();
+		stopWaitingRoomPolling();
+		afterSeqRef.current = 0;
+
+		for (const pc of peerMapRef.current.values()) pc.close();
+		peerMapRef.current.clear();
+		pendingIceRef.current.clear();
+
+		for (const t of remoteTiles) {
+			t.stream.getTracks().forEach((tr) => tr.stop());
+		}
+		setRemoteTiles([]);
+
+		const local = localStreamRef.current;
+		if (local) local.getTracks().forEach((tr) => tr.stop());
+		localStreamRef.current = null;
+		setLocalStreamReady(false);
+
+		const screen = screenStreamRef.current;
+		if (screen) screen.getTracks().forEach((tr) => tr.stop());
+		screenStreamRef.current = null;
+		setIsSharing(false);
+
+		try {
+			localStorage.removeItem(storageKey(roomId));
+		} catch {
+			// ignore
+		}
+		myCredsRef.current = null;
+		setMyCreds(null);
+		setIsMuted(false);
+		setIsVideoOff(false);
+		setIsSharing(false);
+		setChromeVisible(true);
+		if (chromeTimerRef.current) window.clearTimeout(chromeTimerRef.current);
+		chromeTimerRef.current = null;
+		setTileHudVisible(false);
+		setParticipants([]);
+		setRoomSettings(null);
+		setIsHost(false);
+		setPendingAdmission(false);
+		setWaitingRoom([]);
+		setSavingSettings(false);
+	}
+
+	async function performLeave(opts?: { infoToast?: string | null }) {
 		setToasts([]);
 
 		try {
@@ -800,41 +1059,14 @@ export function ConnectRoomClient(props: { roomId: string; signedInName?: string
 		} catch {
 			// ignore
 		} finally {
-			stopPolling();
-			stopParticipantsRefresh();
-
-			for (const pc of peerMapRef.current.values()) pc.close();
-			peerMapRef.current.clear();
-			pendingIceRef.current.clear();
-
-			for (const t of remoteTiles) {
-				t.stream.getTracks().forEach((tr) => tr.stop());
-			}
-			setRemoteTiles([]);
-
-			const local = localStreamRef.current;
-			if (local) local.getTracks().forEach((tr) => tr.stop());
-			localStreamRef.current = null;
-			setLocalStreamReady(false);
-
-			const screen = screenStreamRef.current;
-			if (screen) screen.getTracks().forEach((tr) => tr.stop());
-			screenStreamRef.current = null;
-			setIsSharing(false);
-
-			localStorage.removeItem(storageKey(roomId));
-			myCredsRef.current = null;
-			setMyCreds(null);
-			setIsMuted(false);
-			setIsVideoOff(false);
-			setIsSharing(false);
-			setChromeVisible(true);
-			if (chromeTimerRef.current) window.clearTimeout(chromeTimerRef.current);
-			chromeTimerRef.current = null;
-			setTileHudVisible(false);
-			setParticipants([]);
-			showToast("info", "Left the meeting.");
+			cleanupLocalState();
+			const infoToast = opts?.infoToast ?? "Left the meeting.";
+			if (infoToast) showToast("info", infoToast);
 		}
+	}
+
+	async function onLeave() {
+		await performLeave();
 	}
 
 	function toggleMute() {
@@ -897,6 +1129,14 @@ export function ConnectRoomClient(props: { roomId: string; signedInName?: string
 
 	async function startShare() {
 		if (isSharing) return;
+		if (pendingAdmissionRef.current) {
+			showToast("warn", "Waiting for host approval.");
+			return;
+		}
+		if (roomSettings && roomSettings.allowScreenShare === false) {
+			showToast("warn", "Screen sharing is disabled for this meeting.");
+			return;
+		}
 		if (!navigator.mediaDevices?.getDisplayMedia) {
 			showToast("warn", "Screen share is not currently supported on mobile.");
 			return;
@@ -1020,6 +1260,7 @@ export function ConnectRoomClient(props: { roomId: string; signedInName?: string
 			try {
 				startPolling();
 				startParticipantsRefresh();
+				void fetchRoomSettingsOnce().catch(() => null);
 				void (async () => {
 					try {
 						if (await shouldAutoStartMedia()) await ensureLocalMedia();
@@ -1027,7 +1268,9 @@ export function ConnectRoomClient(props: { roomId: string; signedInName?: string
 						showToast("info", "Tap the mic/camera buttons to enable audio/video.");
 					}
 				})();
-				void broadcastMediaState({ audioEnabled: !isMuted, videoEnabled: !isVideoOff, isSharing }).catch(() => null);
+				if (!pendingAdmissionRef.current) {
+					void broadcastMediaState({ audioEnabled: !isMuted, videoEnabled: !isVideoOff, isSharing }).catch(() => null);
+				}
 				showChromeTemporarily();
 				if (cancelled) return;
 				await refreshParticipantsOnce();
@@ -1047,20 +1290,45 @@ export function ConnectRoomClient(props: { roomId: string; signedInName?: string
 		return () => {
 			stopPolling();
 			stopParticipantsRefresh();
+			stopWaitingRoomPolling();
 			for (const pc of peers.values()) pc.close();
 			peers.clear();
 		};
 	}, []);
+
+	useEffect(() => {
+		if (!myCreds) return;
+		void fetchRoomSettingsOnce().catch(() => null);
+		// eslint-disable-next-line react-hooks/exhaustive-deps
+	}, [myCreds?.participantId]);
+
+	useEffect(() => {
+		if (!myCreds) return;
+		if (!isHost) {
+			stopWaitingRoomPolling();
+			return;
+		}
+		if (!roomSettings?.waitingRoomEnabled) {
+			stopWaitingRoomPolling();
+			return;
+		}
+		startWaitingRoomPolling();
+		return () => {
+			stopWaitingRoomPolling();
+		};
+		// eslint-disable-next-line react-hooks/exhaustive-deps
+	}, [myCreds?.participantId, isHost, roomSettings?.waitingRoomEnabled]);
 
 	const myName = myCreds?.displayName ?? safeName(joinName);
 	const otherParticipants = myCreds ? participants.filter((p) => p.id !== myCreds.participantId) : [];
 
 	const statusLine = useMemo(() => {
 		if (!myCreds) return "Not joined";
+		if (pendingAdmission) return "Waiting for host approval…";
 		const others = participants.filter((p) => p.id !== myCreds.participantId);
 		if (!others.length) return "Waiting for someone to join…";
 		return `In call with ${others.map((p) => p.displayName).join(", ")}`;
-	}, [participants, myCreds]);
+	}, [participants, myCreds, pendingAdmission]);
 
 	const othersCount = myCreds ? participants.filter((p) => p.id !== myCreds.participantId).length : 0;
 	const showPreCallInfo = myCreds ? othersCount === 0 : true;
@@ -1222,6 +1490,135 @@ export function ConnectRoomClient(props: { roomId: string; signedInName?: string
 										hudVisible={tileHudVisible}
 									/>
 								))
+							) : pendingAdmission ? (
+								<div className="relative overflow-hidden rounded-2xl bg-zinc-950" onClick={(e) => e.stopPropagation()}>
+									<div className="absolute inset-0 bg-gradient-to-b from-black/40 to-black/80" />
+									<div className="relative h-full p-6 text-white">
+										<div className="text-lg font-semibold">Request to join sent</div>
+										<div className="mt-2 text-base text-white/80">Waiting for the host to approve you.</div>
+										<div className="mt-4 flex flex-wrap gap-2">
+											<button
+												onClick={() => void performLeave({ infoToast: null })}
+												className="rounded-2xl border border-white/20 bg-white/10 px-4 py-2 text-sm font-semibold text-white hover:bg-white/15"
+											>
+												Cancel
+											</button>
+										</div>
+									</div>
+								</div>
+							) : showPreCallInfo && isHost && roomSettings ? (
+								<div className="relative h-full overflow-auto rounded-2xl border border-zinc-200 bg-white p-6 shadow-sm" onClick={(e) => e.stopPropagation()}>
+									<div className="flex items-start justify-between gap-3">
+										<div>
+											<div className="text-lg font-semibold text-zinc-900">Meeting settings</div>
+											<div className="mt-1 text-sm text-zinc-600">You’re the host. Changes apply immediately.</div>
+										</div>
+										{savingSettings ? (
+											<div className="text-sm font-semibold text-zinc-600">Saving…</div>
+										) : null}
+									</div>
+
+									<div className="mt-4 grid gap-3">
+										<label className="flex items-center justify-between gap-3 rounded-2xl border border-zinc-200 bg-zinc-50 px-4 py-3">
+											<span className="text-sm font-semibold text-zinc-900">Waiting room</span>
+											<input
+												type="checkbox"
+												checked={roomSettings.waitingRoomEnabled}
+												disabled={savingSettings}
+												onChange={(e) => void saveRoomSettings({ waitingRoomEnabled: e.target.checked })}
+												className="h-5 w-5"
+											/>
+										</label>
+
+										<label className="flex items-center justify-between gap-3 rounded-2xl border border-zinc-200 bg-zinc-50 px-4 py-3">
+											<span className="text-sm font-semibold text-zinc-900">Lock meeting</span>
+											<input
+												type="checkbox"
+												checked={roomSettings.locked}
+												disabled={savingSettings}
+												onChange={(e) => void saveRoomSettings({ locked: e.target.checked })}
+												className="h-5 w-5"
+											/>
+										</label>
+
+										<label className="flex items-center justify-between gap-3 rounded-2xl border border-zinc-200 bg-zinc-50 px-4 py-3">
+											<span className="text-sm font-semibold text-zinc-900">Mute on join</span>
+											<input
+												type="checkbox"
+												checked={roomSettings.muteOnJoin}
+												disabled={savingSettings}
+												onChange={(e) => void saveRoomSettings({ muteOnJoin: e.target.checked })}
+												className="h-5 w-5"
+											/>
+										</label>
+
+										<label className="flex items-center justify-between gap-3 rounded-2xl border border-zinc-200 bg-zinc-50 px-4 py-3">
+											<span className="text-sm font-semibold text-zinc-900">Camera off on join</span>
+											<input
+												type="checkbox"
+												checked={roomSettings.cameraOffOnJoin}
+												disabled={savingSettings}
+												onChange={(e) => void saveRoomSettings({ cameraOffOnJoin: e.target.checked })}
+												className="h-5 w-5"
+											/>
+										</label>
+
+										<label className="flex items-center justify-between gap-3 rounded-2xl border border-zinc-200 bg-zinc-50 px-4 py-3">
+											<span className="text-sm font-semibold text-zinc-900">Allow screen share</span>
+											<input
+												type="checkbox"
+												checked={roomSettings.allowScreenShare}
+												disabled={savingSettings}
+												onChange={(e) => void saveRoomSettings({ allowScreenShare: e.target.checked })}
+												className="h-5 w-5"
+											/>
+										</label>
+									</div>
+
+									{roomSettings.waitingRoomEnabled ? (
+										<div className="mt-5">
+											<div className="flex items-center justify-between">
+												<div className="text-sm font-semibold text-zinc-900">Waiting room</div>
+												<button
+													onClick={() => void pollWaitingRoomOnce()}
+													className="rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-sm font-semibold hover:bg-zinc-50"
+												>
+													Refresh
+												</button>
+											</div>
+											{waitingRoom.length ? (
+												<div className="mt-3 space-y-2">
+													{waitingRoom.map((p) => (
+														<div key={p.id} className="flex items-center justify-between gap-3 rounded-2xl border border-zinc-200 bg-white px-4 py-3">
+															<div className="min-w-0">
+																<div className="truncate text-sm font-semibold text-zinc-900">{p.displayName}</div>
+																<div className="mt-0.5 text-xs text-zinc-500">Requesting to join</div>
+															</div>
+															<div className="flex shrink-0 items-center gap-2">
+																<button
+																	onClick={() => void admitWaitingParticipant(p.id)}
+																	className="rounded-2xl bg-brand-ink px-3 py-2 text-sm font-semibold text-white hover:opacity-95"
+																>
+																	Admit
+																</button>
+																<button
+																	onClick={() => void denyWaitingParticipant(p.id)}
+																	className="rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-sm font-semibold hover:bg-zinc-50"
+																>
+																	Deny
+																</button>
+															</div>
+														</div>
+													))}
+												</div>
+											) : (
+												<div className="mt-3 rounded-2xl border border-zinc-200 bg-zinc-50 px-4 py-3 text-sm text-zinc-600">
+													No one is waiting right now.
+												</div>
+											)}
+										</div>
+									) : null}
+								</div>
 							) : otherParticipants.length ? (
 								<div className="relative overflow-hidden rounded-2xl bg-zinc-950">
 									<div className="absolute inset-0 bg-gradient-to-b from-black/40 to-black/80" />

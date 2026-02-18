@@ -167,6 +167,15 @@ model ConnectRoom {
   title           String?
   createdByUserId String?
 
+  // Host + meeting controls (Google Meet style).
+  // Host is the first participant to join the room.
+  hostParticipantId String?
+  waitingRoomEnabled Boolean @default(false)
+  locked             Boolean @default(false)
+  muteOnJoin         Boolean @default(false)
+  cameraOffOnJoin    Boolean @default(false)
+  allowScreenShare   Boolean @default(true)
+
   createdAt DateTime @default(now())
   endedAt   DateTime?
 
@@ -176,6 +185,7 @@ model ConnectRoom {
 
   @@index([createdByUserId, createdAt])
   @@index([createdAt])
+  @@index([hostParticipantId])
 }
 
 model ConnectParticipant {
@@ -187,6 +197,11 @@ model ConnectParticipant {
   displayName String
   isGuest     Boolean @default(true)
   secret      String
+
+  // Waiting room support.
+  status     String   @default("approved")
+  admittedAt DateTime?
+  deniedAt   DateTime?
 
   createdAt  DateTime @default(now())
   lastSeenAt DateTime @default(now())
@@ -200,6 +215,7 @@ model ConnectParticipant {
 
   @@index([roomId, createdAt])
   @@index([roomId, leftAt])
+  @@index([roomId, status])
   @@index([userId, createdAt])
   @@unique([id, secret])
 }

@@ -12,6 +12,12 @@ export async function ensureConnectSchema(db: DbLike = prisma) {
 			"id" TEXT PRIMARY KEY,
 			"title" TEXT,
 			"createdByUserId" TEXT,
+			"hostParticipantId" TEXT,
+			"waitingRoomEnabled" BOOLEAN NOT NULL DEFAULT FALSE,
+			"locked" BOOLEAN NOT NULL DEFAULT FALSE,
+			"muteOnJoin" BOOLEAN NOT NULL DEFAULT FALSE,
+			"cameraOffOnJoin" BOOLEAN NOT NULL DEFAULT FALSE,
+			"allowScreenShare" BOOLEAN NOT NULL DEFAULT TRUE,
 			"createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
 			"endedAt" TIMESTAMP(3)
 		);`,
@@ -23,6 +29,9 @@ export async function ensureConnectSchema(db: DbLike = prisma) {
 			"displayName" TEXT NOT NULL,
 			"isGuest" BOOLEAN NOT NULL DEFAULT TRUE,
 			"secret" TEXT NOT NULL,
+			"status" TEXT NOT NULL DEFAULT 'approved',
+			"admittedAt" TIMESTAMP(3),
+			"deniedAt" TIMESTAMP(3),
 			"createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
 			"lastSeenAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
 			"leftAt" TIMESTAMP(3)
@@ -42,13 +51,27 @@ export async function ensureConnectSchema(db: DbLike = prisma) {
 		`CREATE UNIQUE INDEX IF NOT EXISTS "ConnectSignal_seq_key" ON "ConnectSignal"("seq");`,
 		`CREATE INDEX IF NOT EXISTS "ConnectRoom_createdByUserId_createdAt_idx" ON "ConnectRoom"("createdByUserId","createdAt");`,
 		`CREATE INDEX IF NOT EXISTS "ConnectRoom_createdAt_idx" ON "ConnectRoom"("createdAt");`,
+		`CREATE INDEX IF NOT EXISTS "ConnectRoom_hostParticipantId_idx" ON "ConnectRoom"("hostParticipantId");`,
 		`CREATE INDEX IF NOT EXISTS "ConnectParticipant_roomId_createdAt_idx" ON "ConnectParticipant"("roomId","createdAt");`,
 		`CREATE INDEX IF NOT EXISTS "ConnectParticipant_roomId_leftAt_idx" ON "ConnectParticipant"("roomId","leftAt");`,
+		`CREATE INDEX IF NOT EXISTS "ConnectParticipant_roomId_status_idx" ON "ConnectParticipant"("roomId","status");`,
 		`CREATE INDEX IF NOT EXISTS "ConnectParticipant_userId_createdAt_idx" ON "ConnectParticipant"("userId","createdAt");`,
 		`CREATE UNIQUE INDEX IF NOT EXISTS "ConnectParticipant_id_secret_key" ON "ConnectParticipant"("id","secret");`,
 		`CREATE INDEX IF NOT EXISTS "ConnectSignal_roomId_seq_idx" ON "ConnectSignal"("roomId","seq");`,
 		`CREATE INDEX IF NOT EXISTS "ConnectSignal_roomId_createdAt_idx" ON "ConnectSignal"("roomId","createdAt");`,
 		`CREATE INDEX IF NOT EXISTS "ConnectSignal_toParticipantId_seq_idx" ON "ConnectSignal"("toParticipantId","seq");`,
+
+		// Drift-hardening: older deployments may have created the base tables already.
+		`ALTER TABLE "ConnectRoom" ADD COLUMN IF NOT EXISTS "hostParticipantId" TEXT;`,
+		`ALTER TABLE "ConnectRoom" ADD COLUMN IF NOT EXISTS "waitingRoomEnabled" BOOLEAN NOT NULL DEFAULT FALSE;`,
+		`ALTER TABLE "ConnectRoom" ADD COLUMN IF NOT EXISTS "locked" BOOLEAN NOT NULL DEFAULT FALSE;`,
+		`ALTER TABLE "ConnectRoom" ADD COLUMN IF NOT EXISTS "muteOnJoin" BOOLEAN NOT NULL DEFAULT FALSE;`,
+		`ALTER TABLE "ConnectRoom" ADD COLUMN IF NOT EXISTS "cameraOffOnJoin" BOOLEAN NOT NULL DEFAULT FALSE;`,
+		`ALTER TABLE "ConnectRoom" ADD COLUMN IF NOT EXISTS "allowScreenShare" BOOLEAN NOT NULL DEFAULT TRUE;`,
+
+		`ALTER TABLE "ConnectParticipant" ADD COLUMN IF NOT EXISTS "status" TEXT NOT NULL DEFAULT 'approved';`,
+		`ALTER TABLE "ConnectParticipant" ADD COLUMN IF NOT EXISTS "admittedAt" TIMESTAMP(3);`,
+		`ALTER TABLE "ConnectParticipant" ADD COLUMN IF NOT EXISTS "deniedAt" TIMESTAMP(3);`,
 
 		`DO $$ BEGIN
 			ALTER TABLE "ConnectRoom" ADD CONSTRAINT "ConnectRoom_createdByUserId_fkey" FOREIGN KEY ("createdByUserId") REFERENCES "User"("id") ON DELETE SET NULL ON UPDATE CASCADE;

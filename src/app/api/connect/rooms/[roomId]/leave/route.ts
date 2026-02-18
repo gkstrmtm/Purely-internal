@@ -28,9 +28,30 @@ export async function POST(req: Request, ctx: { params: Promise<{ roomId: string
 		});
 		if (!me) return NextResponse.json({ ok: false, error: "Unauthorized" }, { status: 401 });
 
-		await prisma.connectParticipant.update({
-			where: { id: parsed.data.participantId },
-			data: { leftAt: new Date() },
+		await prisma.$transaction(async (tx) => {
+			await tx.connectParticipant.update({
+				where: { id: parsed.data.participantId },
+				data: { leftAt: new Date() },
+			});
+
+			const room = await tx.connectRoom.findUnique({
+				where: { id: roomId },
+				select: { id: true, hostParticipantId: true },
+			});
+			if (!room) return;
+
+			if (room.hostParticipantId === parsed.data.participantId) {
+				const nextHost = await tx.connectParticipant.findFirst({
+					where: { roomId, leftAt: null, status: "approved" },
+					orderBy: { createdAt: "asc" },
+					select: { id: true },
+				});
+				await tx.connectRoom.update({
+					where: { id: roomId },
+					data: { hostParticipantId: nextHost?.id ?? null },
+					select: { id: true },
+				});
+			}
 		});
 
 		await prisma.connectSignal.create({

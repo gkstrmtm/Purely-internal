@@ -43,33 +43,77 @@ export async function POST(req: Request, ctx: { params: Promise<{ roomId: string
 
 		const room = await prisma.connectRoom.findUnique({
 			where: { id: roomId },
-			select: { id: true, endedAt: true },
+			select: {
+				id: true,
+				endedAt: true,
+				hostParticipantId: true,
+				waitingRoomEnabled: true,
+				locked: true,
+				muteOnJoin: true,
+				cameraOffOnJoin: true,
+				allowScreenShare: true,
+			},
 		});
 		if (!room) return NextResponse.json({ ok: false, error: "Room not found" }, { status: 404 });
 		if (room.endedAt) return NextResponse.json({ ok: false, error: "Room ended" }, { status: 410 });
+		if (room.locked) return NextResponse.json({ ok: false, error: "Room is locked" }, { status: 423 });
 
 		const secret = crypto.randomUUID();
-		const participant = await prisma.connectParticipant.create({
-			data: {
-				roomId: room.id,
-				userId,
-				displayName,
-				isGuest: !userId,
-				secret,
-			},
-			select: { id: true, displayName: true, isGuest: true, createdAt: true },
+
+		// First joiner becomes host, regardless of who created the room.
+		const isHostJoin = !room.hostParticipantId;
+		const pending = !isHostJoin && room.waitingRoomEnabled;
+
+		const result = await prisma.$transaction(async (tx) => {
+			const participant = await tx.connectParticipant.create({
+				data: {
+					roomId: room.id,
+					userId,
+					displayName,
+					isGuest: !userId,
+					secret,
+					status: pending ? "waiting" : "approved",
+					admittedAt: pending ? null : new Date(),
+				},
+				select: { id: true, displayName: true, isGuest: true, createdAt: true, status: true },
+			});
+
+			let hostParticipantId = room.hostParticipantId;
+			if (!hostParticipantId) {
+				hostParticipantId = participant.id;
+				await tx.connectRoom.update({
+					where: { id: room.id },
+					data: { hostParticipantId },
+					select: { id: true },
+				});
+			}
+
+			return { participant, hostParticipantId };
 		});
 
-		const others = await prisma.connectParticipant.findMany({
-			where: { roomId: room.id, leftAt: null, NOT: { id: participant.id } },
-			orderBy: { createdAt: "asc" },
-			select: { id: true, displayName: true, isGuest: true, createdAt: true },
-		});
+		const others = pending
+			? []
+			: await prisma.connectParticipant.findMany({
+				where: { roomId: room.id, leftAt: null, status: "approved", NOT: { id: result.participant.id } },
+				orderBy: { createdAt: "asc" },
+				select: { id: true, displayName: true, isGuest: true, createdAt: true },
+			});
 
 		return NextResponse.json({
 			ok: true,
-			room: { id: room.id },
-			participant: { ...participant, secret },
+			pending,
+			room: {
+				id: room.id,
+				hostParticipantId: result.hostParticipantId,
+				settings: {
+					waitingRoomEnabled: room.waitingRoomEnabled,
+					locked: room.locked,
+					muteOnJoin: room.muteOnJoin,
+					cameraOffOnJoin: room.cameraOffOnJoin,
+					allowScreenShare: room.allowScreenShare,
+				},
+			},
+			participant: { ...result.participant, secret },
 			others,
 		});
 	} catch (e) {
