@@ -40,9 +40,9 @@ export default async function PortalLayout({
   const canOpenPortalApp = user?.role === "CLIENT" || user?.role === "ADMIN";
 
   return (
-    <div className="min-h-screen bg-brand-mist text-brand-ink">
+    <div className="min-h-[100dvh] bg-brand-mist text-brand-ink">
       <header className="sticky top-0 z-10 border-b border-zinc-200 bg-white/80 backdrop-blur">
-        <div className="mx-auto flex max-w-6xl items-center justify-between gap-6 px-6 py-4">
+        <div className="mx-auto flex max-w-6xl items-center justify-between gap-4 px-4 py-4 sm:gap-6 sm:px-6">
           <Link href="/portal" className="flex shrink-0 items-center gap-3">
             <Image
               src="/brand/purity-5.png"
@@ -54,7 +54,7 @@ export default async function PortalLayout({
             />
           </Link>
 
-          <div className="flex items-center gap-3">
+          <div className="flex flex-wrap items-center justify-end gap-2 sm:flex-nowrap sm:gap-3">
             {user ? (
               <>
                 <div className="hidden text-sm text-zinc-600 sm:block">

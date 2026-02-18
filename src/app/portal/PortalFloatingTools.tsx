@@ -191,7 +191,7 @@ export function PortalFloatingTools() {
             </span>
           </button>
         ) : (
-          <div className="w-[320px] rounded-3xl border border-zinc-200 bg-white p-4 shadow-2xl">
+          <div className="w-[min(320px,calc(100vw-2rem))] rounded-3xl border border-zinc-200 bg-white p-4 shadow-2xl">
             <div className="mb-3 h-1.5 w-14 rounded-full bg-[linear-gradient(90deg,rgba(29,78,216,0.9),rgba(29,78,216,0.25))]" />
             <div className="flex items-start justify-between gap-3">
               <div className="min-w-0">
