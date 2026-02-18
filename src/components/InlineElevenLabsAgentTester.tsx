@@ -16,10 +16,30 @@ function safeJsonParse(text: string): any {
 
 function parsePcmSampleRate(format: string | null | undefined): number | null {
   const raw = typeof format === "string" ? format.trim().toLowerCase() : "";
-  const m = raw.match(/^pcm_(\d{4,6})$/);
+  const m = raw.match(/^(?:pcm|pcm16|pcm_s16le)_(\d{4,6})$/);
   if (!m) return null;
   const n = Number(m[1]);
   return Number.isFinite(n) && n > 0 ? n : null;
+}
+
+function parseMulawSampleRate(format: string | null | undefined): number | null {
+  const raw = typeof format === "string" ? format.trim().toLowerCase() : "";
+  const m = raw.match(/^(?:ulaw|mulaw)_(\d{4,6})$/);
+  if (!m) return null;
+  const n = Number(m[1]);
+  return Number.isFinite(n) && n > 0 ? n : null;
+}
+
+function mulawToPcm16(u: number): number {
+  // ITU-T G.711 mu-law (8-bit) to 16-bit PCM.
+  const x = (~u) & 0xff;
+  const sign = x & 0x80;
+  const exponent = (x >> 4) & 0x07;
+  const mantissa = x & 0x0f;
+  let magnitude = ((mantissa << 1) + 1) << (exponent + 2);
+  magnitude -= 33;
+  const pcm = sign ? -magnitude : magnitude;
+  return Math.max(-32768, Math.min(32767, pcm));
 }
 
 function base64FromBytes(bytes: Uint8Array): string {
@@ -95,6 +115,7 @@ export function InlineElevenLabsAgentTester(props: {
   const micProcessorRef = useRef<ScriptProcessorNode | null>(null);
   const micSourceRef = useRef<MediaStreamAudioSourceNode | null>(null);
   const [micEnabled, setMicEnabled] = useState(false);
+  const micCompatSendCountRef = useRef<number>(0);
 
   const outCtxRef = useRef<AudioContext | null>(null);
   const outNextTimeRef = useRef<number>(0);
@@ -186,6 +207,7 @@ export function InlineElevenLabsAgentTester(props: {
 
       const fmt = agentOutputFormat;
       const pcmRate = parsePcmSampleRate(fmt);
+      const mulawRate = parseMulawSampleRate(fmt);
       const bytes = bytesFromBase64(b64);
 
       if (pcmRate) {
@@ -209,6 +231,25 @@ export function InlineElevenLabsAgentTester(props: {
         return;
       }
 
+      if (mulawRate) {
+        // 8-bit mu-law
+        const sampleCount = bytes.byteLength;
+        const buffer = ctx.createBuffer(1, sampleCount, mulawRate);
+        const ch = buffer.getChannelData(0);
+        for (let i = 0; i < sampleCount; i++) {
+          const pcm16 = mulawToPcm16(bytes[i] ?? 255);
+          ch[i] = pcm16 / 0x8000;
+        }
+
+        const source = ctx.createBufferSource();
+        source.buffer = buffer;
+        source.connect(ctx.destination);
+        const startAt = Math.max(ctx.currentTime, outNextTimeRef.current);
+        source.start(startAt);
+        outNextTimeRef.current = startAt + buffer.duration;
+        return;
+      }
+
       // Fallback: try letting the browser decode (e.g., mp3/wav)
       try {
         const ab = bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength);
@@ -221,7 +262,23 @@ export function InlineElevenLabsAgentTester(props: {
         source.start(startAt);
         outNextTimeRef.current = startAt + decoded.duration;
       } catch {
-        // ignore
+        // Last-resort: treat as raw PCM16 @ 16k.
+        try {
+          const assumedRate = 16000;
+          const dv = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+          const sampleCount = Math.floor(bytes.byteLength / 2);
+          const buffer = ctx.createBuffer(1, sampleCount, assumedRate);
+          const ch = buffer.getChannelData(0);
+          for (let i = 0; i < sampleCount; i++) ch[i] = dv.getInt16(i * 2, true) / 0x8000;
+          const source = ctx.createBufferSource();
+          source.buffer = buffer;
+          source.connect(ctx.destination);
+          const startAt = Math.max(ctx.currentTime, outNextTimeRef.current);
+          source.start(startAt);
+          outNextTimeRef.current = startAt + buffer.duration;
+        } catch {
+          // ignore
+        }
       }
     },
     [agentOutputFormat, ensureOutputAudioContext, speakerEnabled],
@@ -230,12 +287,6 @@ export function InlineElevenLabsAgentTester(props: {
   const enableMic = useCallback(async () => {
     if (micEnabled) return;
     setError(null);
-
-    const ws = wsRef.current;
-    if (!ws || ws.readyState !== WebSocket.OPEN) {
-      setError("Not connected. Click Connect first.");
-      return;
-    }
 
     // Default input PCM format is typically pcm_16000. If server reports otherwise, honor it.
     const inRate = parsePcmSampleRate(userInputFormat) ?? 16000;
@@ -284,17 +335,28 @@ export function InlineElevenLabsAgentTester(props: {
       const pcmBytes = pcm16leBytesFromFloat32(resampled);
       const b64 = base64FromBytes(pcmBytes);
 
-      // API reference example sends `{"user_audio_chunk":"..."}` without an explicit `type`.
       try {
-        wsNow.send(JSON.stringify({ user_audio_chunk: b64 }));
+        // Compatibility: for the first few chunks, send both common variants.
+        // (Some servers expect the bare key; others expect a `type`.)
+        const n = micCompatSendCountRef.current;
+        micCompatSendCountRef.current = n + 1;
+        if (n < 20) {
+          wsNow.send(JSON.stringify({ user_audio_chunk: b64 }));
+          wsNow.send(JSON.stringify({ type: "user_audio_chunk", user_audio_chunk: b64 }));
+        } else {
+          wsNow.send(JSON.stringify({ user_audio_chunk: b64 }));
+        }
       } catch {
         // ignore
       }
     };
 
-    // Keep processor alive (some browsers require connecting to destination).
+    // Keep processor alive (some browsers require connecting to destination) without routing mic audio.
     source.connect(processor);
-    processor.connect(ctx.destination);
+    const zero = ctx.createGain();
+    zero.gain.value = 0;
+    processor.connect(zero);
+    zero.connect(ctx.destination);
 
     setMicEnabled(true);
   }, [micEnabled, userInputFormat]);
@@ -331,8 +393,21 @@ export function InlineElevenLabsAgentTester(props: {
     if (!canConnect) return;
     if (status === "connecting" || status === "connected") return;
 
+    // Prime audio + mic permissions from the click gesture. This avoids autoplay/mic-policy issues
+    // (especially on iOS Safari) when we otherwise start these in WebSocket callbacks.
+    try {
+      const ctx = await ensureOutputAudioContext();
+      if (ctx.state === "suspended") await ctx.resume();
+    } catch {
+      // ignore
+    }
+
+    // Start mic capture immediately; audio chunks will begin sending once WS is open.
+    void enableMic();
+
     setError(null);
     setConversationId(null);
+    micCompatSendCountRef.current = 0;
     setStatus("connecting");
 
     const signedUrlRes = await fetch("/api/portal/elevenlabs/convai/signed-url", {
@@ -359,9 +434,6 @@ export function InlineElevenLabsAgentTester(props: {
 
       // Kick off the conversation using the server-side agent config.
       ws.send(JSON.stringify({ type: "conversation_initiation_client_data" }));
-
-      // The user clicked Call, so start the mic immediately.
-      void enableMic();
     };
 
     ws.onclose = () => {
@@ -378,7 +450,22 @@ export function InlineElevenLabsAgentTester(props: {
     };
 
     ws.onmessage = (ev) => {
-      const data = typeof ev.data === "string" ? safeJsonParse(ev.data) : null;
+      if (typeof ev.data !== "string") {
+        // Some transports may send binary audio. Try decoding it as audio data.
+        if (ev.data instanceof Blob) {
+          void ev.data
+            .arrayBuffer()
+            .then((ab) => {
+              const bytes = new Uint8Array(ab);
+              const b64 = base64FromBytes(bytes);
+              void playIncomingAudioChunk(b64);
+            })
+            .catch(() => null);
+        }
+        return;
+      }
+
+      const data = safeJsonParse(ev.data);
       if (!data) return;
 
       const type = typeof data?.type === "string" ? data.type : "";
@@ -386,6 +473,16 @@ export function InlineElevenLabsAgentTester(props: {
       if (type === "ping") {
         const eventId = data?.ping_event?.event_id;
         ws.send(JSON.stringify({ type: "pong", event_id: eventId }));
+        return;
+      }
+
+      if (type === "error") {
+        const msg =
+          (typeof data?.error_event?.message === "string" ? data.error_event.message : "") ||
+          (typeof data?.message === "string" ? data.message : "") ||
+          (typeof data?.error === "string" ? data.error : "") ||
+          "Session error";
+        setError(msg);
         return;
       }
 
@@ -409,12 +506,25 @@ export function InlineElevenLabsAgentTester(props: {
       if (type === "audio") {
         const b64 =
           (typeof data?.audio_event?.audio_base_64 === "string" ? data.audio_event.audio_base_64 : "") ||
-          (typeof data?.audio_base_64 === "string" ? data.audio_base_64 : "");
+          (typeof data?.audio_event?.audio_base64 === "string" ? data.audio_event.audio_base64 : "") ||
+          (typeof data?.audio_base_64 === "string" ? data.audio_base_64 : "") ||
+          (typeof data?.audio_base64 === "string" ? data.audio_base64 : "");
+        if (b64) void playIncomingAudioChunk(b64);
+        return;
+      }
+
+      // Other servers may send audio chunks under different event names.
+      if (type === "audio_chunk" || type === "agent_audio" || type === "agent_audio_chunk") {
+        const b64 =
+          (typeof data?.audio_chunk_event?.audio_base_64 === "string" ? data.audio_chunk_event.audio_base_64 : "") ||
+          (typeof data?.audio_chunk_event?.audio_base64 === "string" ? data.audio_chunk_event.audio_base64 : "") ||
+          (typeof data?.audio_base_64 === "string" ? data.audio_base_64 : "") ||
+          (typeof data?.audio_base64 === "string" ? data.audio_base64 : "");
         if (b64) void playIncomingAudioChunk(b64);
         return;
       }
     };
-  }, [agentId, canConnect, enableMic, playIncomingAudioChunk, status]);
+  }, [agentId, canConnect, enableMic, ensureOutputAudioContext, playIncomingAudioChunk, status]);
 
   useEffect(() => {
     return () => {
@@ -482,8 +592,13 @@ export function InlineElevenLabsAgentTester(props: {
             >
               <svg viewBox="0 0 24 24" className="h-7 w-7" fill="none" xmlns="http://www.w3.org/2000/svg">
                 <path
-                  d="M4.2 10.8c1.6-1 3.8-1.8 7.8-1.8s6.2.8 7.8 1.8c.9.6 1.2 1.8.6 2.7l-1.1 1.7c-.4.6-1.2.9-1.9.7l-3.1-.9a1.7 1.7 0 0 0-2 .8l-.4.8c-.3.6-1 .9-1.7.9H12c-.7 0-1.4-.3-1.7-.9l-.4-.8a1.7 1.7 0 0 0-2-.8l-3.1.9c-.7.2-1.5-.1-1.9-.7l-1.1-1.7c-.6-.9-.3-2.1.6-2.7Z"
+                  d="M8.7 10.4c1.1-.5 2.3-.7 3.3-.7s2.2.2 3.3.7l.9.4c.9.4 1.2 1.5.6 2.3l-1.1 1.5c-.4.5-1 .7-1.6.5l-1.9-.6a1.5 1.5 0 0 0-1.8.7l-.3.6c-.3.6-.9.9-1.6.9H9.3c-.7 0-1.3-.3-1.6-.9l-.3-.6a1.5 1.5 0 0 0-1.8-.7l-1.9.6c-.6.2-1.2 0-1.6-.5l-1.1-1.5c-.6-.8-.3-1.9.6-2.3l.9-.4c1.1-.5 2.3-.7 3.3-.7s2.2.2 3.3.7Z"
                   fill="currentColor"
+                />
+                <path
+                  d="M4.6 9.2C6.7 8.2 9 7.8 12 7.8s5.3.4 7.4 1.4c.7.3 1 .2 1.3-.4.2-.6 0-1.2-.6-1.5C17.8 6.2 15.1 5.8 12 5.8S6.2 6.2 3.9 7.3c-.6.3-.8.9-.6 1.5.3.6.6.7 1.3.4Z"
+                  fill="currentColor"
+                  opacity="0.35"
                 />
               </svg>
             </button>
