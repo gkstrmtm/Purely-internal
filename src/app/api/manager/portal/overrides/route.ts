@@ -25,6 +25,7 @@ const OVERRIDES_SETUP_SLUG = "__portal_entitlement_overrides";
 const CREDITS_SETUP_SLUG = "credits";
 const PROFILE_SETUP_SLUG = "profile";
 const INTEGRATIONS_SETUP_SLUG = "integrations";
+const AI_RECEPTIONIST_SETUP_SLUG = "ai-receptionist";
 
 function parseOverrides(dataJson: unknown): Set<ModuleKey> {
   const rec = dataJson && typeof dataJson === "object" && !Array.isArray(dataJson)
@@ -69,6 +70,24 @@ function parseProfilePhoneE164(dataJson: unknown): string | null {
   if (typeof raw !== "string") return null;
   const parsed = normalizePhoneStrict(raw);
   return parsed.ok && parsed.e164 ? parsed.e164 : null;
+}
+
+function parseProfileVoiceAgentId(dataJson: unknown): string | null {
+  const rec = dataJson && typeof dataJson === "object" && !Array.isArray(dataJson)
+    ? (dataJson as Record<string, unknown>)
+    : null;
+  const raw = rec?.voiceAgentId;
+  const id = typeof raw === "string" ? raw.trim().slice(0, 120) : "";
+  return id ? id : null;
+}
+
+function parseAiReceptionistVoiceAgentId(dataJson: unknown): string | null {
+  const rec = dataJson && typeof dataJson === "object" && !Array.isArray(dataJson)
+    ? (dataJson as Record<string, unknown>)
+    : null;
+  const raw = typeof rec?.voiceAgentId === "string" ? rec.voiceAgentId : (typeof rec?.elevenLabsAgentId === "string" ? rec.elevenLabsAgentId : "");
+  const id = typeof raw === "string" ? raw.trim().slice(0, 120) : "";
+  return id ? id : null;
 }
 
 function parseTwilioFromNumberE164(dataJson: unknown): string | null {
@@ -176,6 +195,23 @@ export async function GET(req: Request) {
     phoneByOwner.set(row.ownerId, parseProfilePhoneE164(row.dataJson));
   }
 
+  const profileVoiceAgentByOwner = new Map<string, string | null>();
+  for (const row of profileRows) {
+    profileVoiceAgentByOwner.set(row.ownerId, parseProfileVoiceAgentId(row.dataJson));
+  }
+
+  const receptionistRows = ownerIds.length
+    ? await prisma.portalServiceSetup.findMany({
+        where: { ownerId: { in: ownerIds }, serviceSlug: AI_RECEPTIONIST_SETUP_SLUG },
+        select: { ownerId: true, dataJson: true },
+      })
+    : [];
+
+  const receptionistVoiceAgentByOwner = new Map<string, string | null>();
+  for (const row of receptionistRows) {
+    receptionistVoiceAgentByOwner.set(row.ownerId, parseAiReceptionistVoiceAgentId(row.dataJson));
+  }
+
   const twilioFromByOwner = new Map<string, string | null>();
   for (const row of integrationsRows) {
     twilioFromByOwner.set(row.ownerId, parseTwilioFromNumberE164(row.dataJson));
@@ -196,6 +232,10 @@ export async function GET(req: Request) {
       twilio: {
         configured: Boolean(twilioFromByOwner.get(u.id)),
         fromNumberE164: twilioFromByOwner.get(u.id) ?? null,
+      },
+      voiceAgentIds: {
+        profile: profileVoiceAgentByOwner.get(u.id) ?? null,
+        aiReceptionist: receptionistVoiceAgentByOwner.get(u.id) ?? null,
       },
     })),
     modules: MODULE_KEYS,

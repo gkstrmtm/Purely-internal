@@ -777,21 +777,23 @@ export function PortalBillingClient() {
           </div>
 
           {accessBreakdownRows.length ? (
-            <div className="mt-3 grid gap-2">
-              {accessBreakdownRows.map((x) => (
-                <div key={x.slug} className="flex items-center justify-between gap-3 rounded-2xl border border-zinc-200 bg-white px-3 py-2">
-                  <div className="min-w-0">
-                    <div className="truncate text-sm font-semibold text-brand-ink">{x.title}</div>
-                    <div className="mt-0.5 flex items-center gap-2">
-                      <span className={`rounded-full px-2 py-0.5 text-[11px] font-semibold ${badgeClass(x.state)}`}>{x.label}</span>
-                      <span className="text-xs text-zinc-500">{x.included ? "Included" : "Billed"}</span>
+            <div className="mt-3 max-h-[260px] overflow-auto pr-1 sm:max-h-[320px]">
+              <div className="grid gap-2">
+                {accessBreakdownRows.map((x) => (
+                  <div key={x.slug} className="flex items-center justify-between gap-3 rounded-2xl border border-zinc-200 bg-white px-3 py-2">
+                    <div className="min-w-0">
+                      <div className="truncate text-sm font-semibold text-brand-ink">{x.title}</div>
+                      <div className="mt-0.5 flex items-center gap-2">
+                        <span className={`rounded-full px-2 py-0.5 text-[11px] font-semibold ${badgeClass(x.state)}`}>{x.label}</span>
+                        <span className="text-xs text-zinc-500">{x.included ? "Included" : "Billed"}</span>
+                      </div>
+                    </div>
+                    <div className="shrink-0 text-sm font-semibold text-zinc-900">
+                      {x.included ? "Included" : `${formatMoney(x.monthlyCents, x.currency)}/mo`}
                     </div>
                   </div>
-                  <div className="shrink-0 text-sm font-semibold text-zinc-900">
-                    {x.included ? "Included" : `${formatMoney(x.monthlyCents, x.currency)}/mo`}
-                  </div>
-                </div>
-              ))}
+                ))}
+              </div>
             </div>
           ) : (
             <div className="mt-3 text-sm text-zinc-600">No services found.</div>

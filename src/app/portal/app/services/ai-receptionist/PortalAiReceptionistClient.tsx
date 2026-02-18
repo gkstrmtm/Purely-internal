@@ -1006,60 +1006,62 @@ export function PortalAiReceptionistClient() {
           ) : (
             <div className="mt-4 grid grid-cols-1 gap-4 lg:grid-cols-5">
               <div className="lg:col-span-2">
-                <div className="space-y-2">
-                  {events.slice(0, 80).map((e) => {
-                    const isSelected = e.id === selectedCallId;
-                    const nameLine = (e.contactName || "").trim() || e.from;
-                    const hasAudio = Boolean((e.recordingSid && e.recordingSid.trim()) || (e.demoRecordingId && e.demoRecordingId.trim()));
-                    const hasTranscript = Boolean(e.transcript && e.transcript.trim());
-                    return (
-                      <button
-                        key={e.id}
-                        type="button"
-                        onClick={() => setSelectedCallWithUrl(e.id)}
-                        className={
-                          "w-full rounded-2xl border px-4 py-3 text-left text-sm transition focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-ink/60 " +
-                          (isSelected ? "border-zinc-900 bg-zinc-900 text-white" : "border-zinc-200 bg-zinc-50 hover:bg-zinc-100")
-                        }
-                      >
-                        <div className="flex items-center justify-between gap-3">
-                          <div className={"min-w-0 font-medium " + (isSelected ? "text-white" : "text-zinc-800")}>
-                            <div className="truncate">{nameLine}</div>
-                            {e.contactEmail ? (
-                              <div className={"mt-0.5 truncate text-xs " + (isSelected ? "text-zinc-200" : "text-zinc-600")}>
-                                {e.contactEmail}
-                              </div>
+                <div className="max-h-[520px] overflow-auto pr-2 sm:max-h-[60vh] lg:max-h-[calc(100vh-320px)]">
+                  <div className="space-y-2">
+                    {events.slice(0, 80).map((e) => {
+                      const isSelected = e.id === selectedCallId;
+                      const nameLine = (e.contactName || "").trim() || e.from;
+                      const hasAudio = Boolean((e.recordingSid && e.recordingSid.trim()) || (e.demoRecordingId && e.demoRecordingId.trim()));
+                      const hasTranscript = Boolean(e.transcript && e.transcript.trim());
+                      return (
+                        <button
+                          key={e.id}
+                          type="button"
+                          onClick={() => setSelectedCallWithUrl(e.id)}
+                          className={
+                            "w-full rounded-2xl border px-4 py-3 text-left text-sm transition focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-ink/60 " +
+                            (isSelected ? "border-zinc-900 bg-zinc-900 text-white" : "border-zinc-200 bg-zinc-50 hover:bg-zinc-100")
+                          }
+                        >
+                          <div className="flex items-center justify-between gap-3">
+                            <div className={"min-w-0 font-medium " + (isSelected ? "text-white" : "text-zinc-800")}>
+                              <div className="truncate">{nameLine}</div>
+                              {e.contactEmail ? (
+                                <div className={"mt-0.5 truncate text-xs " + (isSelected ? "text-zinc-200" : "text-zinc-600")}>
+                                  {e.contactEmail}
+                                </div>
+                              ) : null}
+                            </div>
+                            <div className={`shrink-0 rounded-full border px-2 py-0.5 text-xs font-semibold ${badgeClass(e.status)}`}>
+                              {e.status.toLowerCase()}
+                            </div>
+                          </div>
+                          <div className={"mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs " + (isSelected ? "text-zinc-200" : "text-zinc-600")}>
+                            <span>{formatWhen(e.createdAtIso)}</span>
+                            <span>•</span>
+                            <span className="truncate">To: {e.to ?? "N/A"}</span>
+                            {hasAudio ? (
+                              <>
+                                <span>•</span>
+                                <span className={isSelected ? "text-emerald-200" : "text-emerald-700"}>Audio</span>
+                              </>
+                            ) : null}
+                            {hasTranscript ? (
+                              <>
+                                <span>•</span>
+                                <span className={isSelected ? "text-sky-200" : "text-sky-700"}>Transcript</span>
+                              </>
                             ) : null}
                           </div>
-                          <div className={`shrink-0 rounded-full border px-2 py-0.5 text-xs font-semibold ${badgeClass(e.status)}`}>
-                            {e.status.toLowerCase()}
-                          </div>
-                        </div>
-                        <div className={"mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs " + (isSelected ? "text-zinc-200" : "text-zinc-600")}>
-                          <span>{formatWhen(e.createdAtIso)}</span>
-                          <span>•</span>
-                          <span className="truncate">To: {e.to ?? "N/A"}</span>
-                          {hasAudio ? (
-                            <>
-                              <span>•</span>
-                              <span className={isSelected ? "text-emerald-200" : "text-emerald-700"}>Audio</span>
-                            </>
+                          {deriveClientNotesFromEvent(e) ? (
+                            <div className={"mt-1 line-clamp-2 text-xs " + (isSelected ? "text-zinc-200" : "text-zinc-600")}>
+                              {deriveClientNotesFromEvent(e)}
+                            </div>
                           ) : null}
-                          {hasTranscript ? (
-                            <>
-                              <span>•</span>
-                              <span className={isSelected ? "text-sky-200" : "text-sky-700"}>Transcript</span>
-                            </>
-                          ) : null}
-                        </div>
-                        {deriveClientNotesFromEvent(e) ? (
-                          <div className={"mt-1 line-clamp-2 text-xs " + (isSelected ? "text-zinc-200" : "text-zinc-600")}>
-                            {deriveClientNotesFromEvent(e)}
-                          </div>
-                        ) : null}
-                      </button>
-                    );
-                  })}
+                        </button>
+                      );
+                    })}
+                  </div>
                 </div>
               </div>
 

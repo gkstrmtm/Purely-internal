@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 
 import { useToast } from "@/components/ToastProvider";
+import { ElevenLabsConvaiWidget } from "@/components/ElevenLabsConvaiWidget";
 import { MODULE_KEYS, MODULE_LABELS, type ModuleKey } from "@/lib/entitlements.shared";
 
 type UserRow = {
@@ -17,6 +18,7 @@ type UserRow = {
   businessName?: string | null;
   businessEmail?: string | null;
   twilio?: { configured: boolean; fromNumberE164: string | null };
+  voiceAgentIds?: { profile: string | null; aiReceptionist: string | null };
 };
 
 type OverridesResponse = {
@@ -68,6 +70,18 @@ export default function PortalOverridesClient() {
   const [giftAmountByOwner, setGiftAmountByOwner] = useState<Record<string, string>>({});
   const [error, setError] = useState<string | null>(null);
   const [users, setUsers] = useState<UserRow[]>([]);
+
+  const [testingOwnerId, setTestingOwnerId] = useState<string | null>(null);
+
+  const testingUser = useMemo(() => {
+    const id = (testingOwnerId || "").trim();
+    if (!id) return null;
+    return users.find((u) => u.id === id) ?? null;
+  }, [testingOwnerId, users]);
+
+  const testingAiReceptionistAgentId =
+    testingUser?.voiceAgentIds?.aiReceptionist ?? testingUser?.voiceAgentIds?.profile ?? null;
+  const testingOutboundAgentId = testingUser?.voiceAgentIds?.profile ?? null;
 
   const moduleList = useMemo(() => MODULE_KEYS, []);
 
@@ -213,6 +227,16 @@ export default function PortalOverridesClient() {
                       ) : null}
                     </div>
                   </div>
+
+                  <div className="mt-3">
+                    <button
+                      type="button"
+                      className="rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm font-semibold text-zinc-800 hover:bg-zinc-50"
+                      onClick={() => setTestingOwnerId(u.id)}
+                    >
+                      Testing
+                    </button>
+                  </div>
                 </td>
                 <td className="px-4 py-4">
                   <div className="text-sm font-semibold text-zinc-900">{Math.max(0, Math.floor(u.creditsBalance ?? 0))}</div>
@@ -273,6 +297,56 @@ export default function PortalOverridesClient() {
       <div className="mt-4 text-xs text-zinc-500">
         Tip: Turning a module on here will unlock the matching service in `/portal` (and portal APIs) as if Stripe was paid.
       </div>
+
+      {testingUser ? (
+        <div className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-black/40 p-4 sm:items-center">
+          <div className="w-full max-w-3xl overflow-hidden rounded-3xl border border-zinc-200 bg-white shadow-xl">
+            <div className="flex items-start justify-between gap-3 border-b border-zinc-200 p-5">
+              <div className="min-w-0">
+                <div className="text-sm font-semibold text-zinc-900">AI testing</div>
+                <div className="mt-1 truncate text-sm text-zinc-600">
+                  {testingUser.businessName ? `${testingUser.businessName} · ` : ""}{testingUser.email}
+                </div>
+              </div>
+              <button
+                type="button"
+                className="rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm font-semibold text-zinc-800 hover:bg-zinc-50"
+                onClick={() => setTestingOwnerId(null)}
+              >
+                Close
+              </button>
+            </div>
+
+            <div className="grid gap-5 p-5 lg:grid-cols-2">
+              <div>
+                <div className="text-sm font-semibold text-zinc-900">AI Receptionist widget</div>
+                <div className="mt-1 text-xs text-zinc-500">Uses the account’s AI Receptionist agent ID (falls back to Profile if missing).</div>
+                <div className="mt-3 rounded-2xl border border-zinc-200 bg-zinc-50 p-3">
+                  <div className="text-xs text-zinc-600">
+                    Agent ID: <span className="font-mono text-zinc-800">{testingAiReceptionistAgentId ?? "N/A"}</span>
+                  </div>
+                  <div className="mt-3">
+                    <ElevenLabsConvaiWidget agentId={testingAiReceptionistAgentId} />
+                  </div>
+                </div>
+              </div>
+
+              <div>
+                <div className="text-sm font-semibold text-zinc-900">AI Outbound widget</div>
+                <div className="mt-1 text-xs text-zinc-500">Uses the account’s Profile voice agent ID.</div>
+                <div className="mt-3 rounded-2xl border border-zinc-200 bg-zinc-50 p-3">
+                  <div className="text-xs text-zinc-600">
+                    Agent ID: <span className="font-mono text-zinc-800">{testingOutboundAgentId ?? "N/A"}</span>
+                  </div>
+                  <div className="mt-3">
+                    <ElevenLabsConvaiWidget agentId={testingOutboundAgentId} />
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      ) : null}
     </div>
   );
 }
