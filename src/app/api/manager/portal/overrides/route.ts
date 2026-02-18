@@ -5,6 +5,7 @@ import { z } from "zod";
 import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/db";
 import { MODULE_KEYS, type ModuleKey } from "@/lib/entitlements.shared";
+import { normalizePhoneStrict } from "@/lib/phone";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -22,6 +23,8 @@ const moduleSchema = z.enum(MODULE_KEYS);
 
 const OVERRIDES_SETUP_SLUG = "__portal_entitlement_overrides";
 const CREDITS_SETUP_SLUG = "credits";
+const PROFILE_SETUP_SLUG = "profile";
+const INTEGRATIONS_SETUP_SLUG = "integrations";
 
 function parseOverrides(dataJson: unknown): Set<ModuleKey> {
   const rec = dataJson && typeof dataJson === "object" && !Array.isArray(dataJson)
@@ -58,6 +61,35 @@ function parseCreditsBalance(dataJson: unknown): number {
   return Math.max(0, Math.floor(n));
 }
 
+function parseProfilePhoneE164(dataJson: unknown): string | null {
+  const rec = dataJson && typeof dataJson === "object" && !Array.isArray(dataJson)
+    ? (dataJson as Record<string, unknown>)
+    : null;
+  const raw = rec?.phone;
+  if (typeof raw !== "string") return null;
+  const parsed = normalizePhoneStrict(raw);
+  return parsed.ok && parsed.e164 ? parsed.e164 : null;
+}
+
+function parseTwilioFromNumberE164(dataJson: unknown): string | null {
+  const rec = dataJson && typeof dataJson === "object" && !Array.isArray(dataJson)
+    ? (dataJson as Record<string, unknown>)
+    : null;
+  const twilio = rec?.twilio && typeof rec.twilio === "object" && !Array.isArray(rec.twilio)
+    ? (rec.twilio as Record<string, unknown>)
+    : null;
+  if (!twilio) return null;
+
+  const accountSid = typeof twilio.accountSid === "string" ? twilio.accountSid.trim() : "";
+  const authToken = typeof twilio.authToken === "string" ? twilio.authToken.trim() : "";
+  const fromRaw = typeof twilio.fromNumberE164 === "string" ? twilio.fromNumberE164.trim() : "";
+  const parsedFrom = normalizePhoneStrict(fromRaw);
+  const fromNumberE164 = parsedFrom.ok && parsedFrom.e164 ? parsedFrom.e164 : "";
+
+  if (!accountSid || !authToken || !fromNumberE164) return null;
+  return fromNumberE164;
+}
+
 const upsertSchema = z.object({
   ownerId: z.string().trim().min(1).max(64),
   module: moduleSchema,
@@ -82,6 +114,7 @@ export async function GET(req: Request) {
             OR: [
               { email: { contains: q, mode: "insensitive" } },
               { name: { contains: q, mode: "insensitive" } },
+              { businessProfile: { businessName: { contains: q, mode: "insensitive" } } },
             ],
           }
         : {}),
@@ -94,6 +127,8 @@ export async function GET(req: Request) {
       name: true,
       active: true,
       createdAt: true,
+      businessProfile: { select: { businessName: true } },
+      portalMailboxAddress: { select: { emailAddress: true } },
     },
   });
 
@@ -112,6 +147,20 @@ export async function GET(req: Request) {
       })
     : [];
 
+  const profileRows = ownerIds.length
+    ? await prisma.portalServiceSetup.findMany({
+        where: { ownerId: { in: ownerIds }, serviceSlug: PROFILE_SETUP_SLUG },
+        select: { ownerId: true, dataJson: true },
+      })
+    : [];
+
+  const integrationsRows = ownerIds.length
+    ? await prisma.portalServiceSetup.findMany({
+        where: { ownerId: { in: ownerIds }, serviceSlug: INTEGRATIONS_SETUP_SLUG },
+        select: { ownerId: true, dataJson: true },
+      })
+    : [];
+
   const byOwner = new Map<string, Set<ModuleKey>>();
   for (const row of rows) {
     byOwner.set(row.ownerId, parseOverrides(row.dataJson));
@@ -122,11 +171,32 @@ export async function GET(req: Request) {
     creditsByOwner.set(row.ownerId, parseCreditsBalance(row.dataJson));
   }
 
+  const phoneByOwner = new Map<string, string | null>();
+  for (const row of profileRows) {
+    phoneByOwner.set(row.ownerId, parseProfilePhoneE164(row.dataJson));
+  }
+
+  const twilioFromByOwner = new Map<string, string | null>();
+  for (const row of integrationsRows) {
+    twilioFromByOwner.set(row.ownerId, parseTwilioFromNumberE164(row.dataJson));
+  }
+
   return NextResponse.json({
     users: users.map((u) => ({
-      ...u,
+      id: u.id,
+      email: u.email,
+      name: u.name,
+      active: u.active,
+      createdAt: u.createdAt,
       overrides: Array.from(byOwner.get(u.id) ?? []),
       creditsBalance: creditsByOwner.get(u.id) ?? 0,
+      phone: phoneByOwner.get(u.id) ?? null,
+      businessName: u.businessProfile?.businessName ?? null,
+      businessEmail: u.portalMailboxAddress?.emailAddress ?? null,
+      twilio: {
+        configured: Boolean(twilioFromByOwner.get(u.id)),
+        fromNumberE164: twilioFromByOwner.get(u.id) ?? null,
+      },
     })),
     modules: MODULE_KEYS,
   });

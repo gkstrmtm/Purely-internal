@@ -13,6 +13,10 @@ type UserRow = {
   createdAt: string;
   overrides: ModuleKey[];
   creditsBalance?: number;
+  phone?: string | null;
+  businessName?: string | null;
+  businessEmail?: string | null;
+  twilio?: { configured: boolean; fromNumberE164: string | null };
 };
 
 type OverridesResponse = {
@@ -177,6 +181,37 @@ export default function PortalOverridesClient() {
                   <div className="text-sm font-semibold text-brand-ink">{u.email}</div>
                   <div className="mt-1 text-xs text-zinc-500">
                     {u.name} {u.active ? "" : "• inactive"}
+                  </div>
+                  <div className="mt-2 space-y-1 text-xs text-zinc-600">
+                    {u.businessName ? (
+                      <div>
+                        Business: <span className="font-semibold text-zinc-800">{u.businessName}</span>
+                      </div>
+                    ) : null}
+                    {u.businessEmail ? (
+                      <div>
+                        Mailbox: <span className="font-mono text-zinc-800">{u.businessEmail}</span>
+                      </div>
+                    ) : null}
+                    {u.phone ? (
+                      <div>
+                        Phone: <span className="font-mono text-zinc-800">{u.phone}</span>
+                      </div>
+                    ) : null}
+                    <div className="flex items-center gap-2">
+                      <span
+                        className={
+                          u.twilio?.configured
+                            ? "inline-flex items-center rounded-full bg-emerald-50 px-2 py-0.5 font-semibold text-emerald-700"
+                            : "inline-flex items-center rounded-full bg-zinc-100 px-2 py-0.5 font-semibold text-zinc-600"
+                        }
+                      >
+                        Twilio: {u.twilio?.configured ? "On" : "Off"}
+                      </span>
+                      {u.twilio?.configured && u.twilio.fromNumberE164 ? (
+                        <span className="font-mono text-zinc-700">{u.twilio.fromNumberE164}</span>
+                      ) : null}
+                    </div>
                   </div>
                 </td>
                 <td className="px-4 py-4">
