@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { PortalListboxDropdown } from "@/components/PortalListboxDropdown";
+import { ElevenLabsConvaiWidget } from "@/components/ElevenLabsConvaiWidget";
 import { useToast } from "@/components/ToastProvider";
 import { DEFAULT_TAG_COLORS } from "@/lib/tagColors.shared";
 import { DEFAULT_VOICE_AGENT_CONFIG, type VoiceAgentConfig } from "@/lib/voiceAgentConfig.shared";
@@ -269,7 +270,7 @@ export function PortalAiOutboundCallsClient() {
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const selected = useMemo(() => campaigns.find((c) => c.id === selectedId) ?? null, [campaigns, selectedId]);
 
-  const [tab, setTab] = useState<"settings" | "activity">("activity");
+  const [tab, setTab] = useState<"settings" | "testing" | "activity">("activity");
 
   useEffect(() => {
     setAgentSyncRequired(false);
@@ -846,6 +847,19 @@ export function PortalAiOutboundCallsClient() {
                 </button>
                 <button
                   type="button"
+                  onClick={() => setTab("testing")}
+                  aria-current={tab === "testing" ? "page" : undefined}
+                  className={
+                    "flex-1 min-w-[160px] rounded-2xl border px-4 py-2.5 text-sm font-semibold transition focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-ink/60 " +
+                    (tab === "testing"
+                      ? "border-zinc-900 bg-zinc-900 text-white shadow-sm"
+                      : "border-zinc-200 bg-white text-zinc-700 hover:bg-zinc-50")
+                  }
+                >
+                  Testing
+                </button>
+                <button
+                  type="button"
                   onClick={() => setTab("activity")}
                   aria-current={tab === "activity" ? "page" : undefined}
                   className={
@@ -858,6 +872,50 @@ export function PortalAiOutboundCallsClient() {
                   Activity
                 </button>
               </div>
+
+              {tab === "testing" ? (
+                <div className="mt-4 rounded-3xl border border-zinc-200 bg-white p-4">
+                  <div className="text-sm font-semibold text-zinc-900">Testing</div>
+                  <div className="mt-1 text-sm text-zinc-600">
+                    Use this widget to test your campaign’s voice agent directly in the browser.
+                  </div>
+
+                  {agentSyncRequired ? (
+                    <div className="mt-4 rounded-2xl border border-amber-200 bg-amber-50 p-4">
+                      <div className="text-sm font-semibold text-amber-900">Sync required</div>
+                      <div className="mt-1 text-sm text-amber-800">
+                        You’ve changed agent settings. Sync the agent to apply updates before testing.
+                      </div>
+                      <div className="mt-3">
+                        <button
+                          type="button"
+                          disabled={busy}
+                          onClick={() => void syncVoiceAgent()}
+                          className={classNames(
+                            "rounded-2xl px-4 py-2 text-sm font-semibold",
+                            busy ? "bg-amber-200 text-amber-900/60" : "bg-amber-600 text-white hover:opacity-95",
+                          )}
+                        >
+                          {busy ? "Syncing…" : "Sync agent now"}
+                        </button>
+                      </div>
+                    </div>
+                  ) : null}
+
+                  <div className="mt-4 rounded-2xl border border-zinc-200 bg-zinc-50 p-4">
+                    <div className="text-xs font-semibold text-zinc-600">Agent ID</div>
+                    <div className="mt-2 break-all font-mono text-xs text-zinc-800">
+                      {selected.voiceAgentId?.trim() ? selected.voiceAgentId.trim() : "N/A"}
+                    </div>
+                    <div className="mt-3">
+                      <ElevenLabsConvaiWidget agentId={selected.voiceAgentId} />
+                    </div>
+                    <div className="mt-3 text-xs text-zinc-500">
+                      This widget is for browser testing and won’t place phone calls.
+                    </div>
+                  </div>
+                </div>
+              ) : null}
 
               {tab === "activity" ? (
                 <div className="mt-4">

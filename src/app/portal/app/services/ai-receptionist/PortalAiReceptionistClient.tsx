@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { PortalMissedCallTextBackClient } from "@/app/portal/app/services/missed-call-textback/PortalMissedCallTextBackClient";
+import { ElevenLabsConvaiWidget } from "@/components/ElevenLabsConvaiWidget";
 import { PortalSettingsSection } from "@/components/PortalSettingsSection";
 import { ContactTagsEditor, type ContactTag } from "@/components/ContactTagsEditor";
 import { useToast } from "@/components/ToastProvider";
@@ -958,7 +959,25 @@ export function PortalAiReceptionistClient() {
         <div className="mt-4 rounded-3xl border border-zinc-200 bg-white p-6">
           <div className="text-sm font-semibold text-zinc-900">Testing</div>
           <div className="mt-2 text-sm text-zinc-600">
-            Point a Twilio number to the webhook URL, then call that number. You’ll see recent calls in Activity.
+            Use this widget to test your AI Receptionist agent directly in the browser.
+          </div>
+
+          <div className="mt-4 rounded-2xl border border-zinc-200 bg-zinc-50 p-4">
+            <div className="text-xs font-semibold text-zinc-600">Agent ID</div>
+            <div className="mt-2 break-all font-mono text-xs text-zinc-800">
+              {settings?.voiceAgentId?.trim() ? settings.voiceAgentId.trim() : "N/A"}
+            </div>
+            <div className="mt-3">
+              <ElevenLabsConvaiWidget agentId={settings?.voiceAgentId} />
+            </div>
+            <div className="mt-3 text-xs text-zinc-500">
+              This widget is for browser testing and won’t show up in Activity.
+            </div>
+          </div>
+
+          <div className="mt-6 text-sm font-semibold text-zinc-900">Phone testing (Twilio)</div>
+          <div className="mt-2 text-sm text-zinc-600">
+            If you want to test real phone calls and see them in Activity, point a Twilio number to the webhook URL below, then call that number.
           </div>
 
           <div
