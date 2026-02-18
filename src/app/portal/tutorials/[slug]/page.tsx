@@ -189,6 +189,20 @@ const TUTORIALS: Record<string, TutorialConfig> = {
         ],
       },
       {
+        title: "Best practices for great call outcomes",
+        body: "The receptionist works best when your Greeting and System prompt clearly define what you want it to do and what information it should collect.",
+        steps: [
+          "Business name: use the name callers expect to hear. This is used throughout the conversation.",
+          "Greeting: keep it short and natural. Include your business name, ask what they need, then offer the next step.",
+          "Greeting example: Hi, thanks for calling Acme Heating and Air. How can I help you today?",
+          "System prompt: write the rules of the job. Tell it which services you offer, what area you serve, and what you want captured on every call.",
+          "Prompt example (collect the basics): Always collect name, callback number, and the reason for the call. If it is a new lead, also ask city and preferred time window.",
+          "Prompt example (existing customer): If they mention an open job, ask for the address and a short description, then offer to transfer to a human.",
+          "Transfer: only enable AI transfer if you have a reliable forwarding number and you want live handoffs. Use E.164 format like +15551234567.",
+          "Guard rails: tell it what not to do (for example do not quote exact pricing if you do not want it to, and do not make promises).",
+        ],
+      },
+      {
         title: "Connect Twilio",
         body: "Twilio connects your phone number to the receptionist.",
         steps: [
@@ -304,6 +318,25 @@ const TUTORIALS: Record<string, TutorialConfig> = {
           "Open AI Outbound Calls from Services.",
           "Pick the tags, list, or segment that defines who you want to call.",
           "Write a script that clearly states who you are, why you are calling, and what the next step should be if they are interested.",
+        ],
+      },
+      {
+        title: "Best practices for higher quality conversations",
+        body: "Outbound results mostly come down to targeting plus clear, specific wording in the call script and agent behavior fields.",
+        steps: [
+          "Audience tags: make them specific to intent (for example New lead, Quote requested, No-show, Past due). Avoid overly broad tags like Prospects unless you truly mean everyone.",
+          "Campaign status: set to Active only when tags are correct. Keep new campaigns in Draft while you test.",
+          "Call script: treat this as the opening line. One sentence of who you are, one sentence of why, then a question.",
+          "Sales script example: Hi {contact.name}, this is {business.name}. You recently asked about {service}. Do you have 30 seconds so I can see what you need and help with next steps?",
+          "Appointment reminder example: Hi {contact.name}, this is {business.name}. I am calling to confirm your appointment and answer any last questions. Does that still work for you?",
+          "If you leave Call script blank, the agent will use its own configured first message. Use one or the other to avoid conflicting openings.",
+          "First message (agent behavior): keep it conversational and short. Use it when you want a consistent opener across campaigns.",
+          "Goal: be explicit about success (for example book an appointment, confirm details, qualify the lead). Include what to do if the person is not interested.",
+          "Personality and tone: pick one clear style (helpful, calm, direct). Avoid asking it to be clever or overly casual.",
+          "Environment: include the context the agent needs to sound informed (services offered, service area, business hours, common objections, and what the next step should be).",
+          "Guard rails: write what it must not do (for example do not claim guarantees, do not discuss sensitive topics, do not pressure, and end the call politely if asked).",
+          "Tools: start with Recommended until you know what you need. Add more only if you are sure the agent should use them.",
+          "Always run a few Manual calls first and read the transcript so you can tighten the script and goal before activating tags at scale.",
         ],
       },
       {
