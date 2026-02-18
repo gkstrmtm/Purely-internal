@@ -4,6 +4,8 @@ import Image from "next/image";
 import Link from "next/link";
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 
+import { ConnectAuthPanel } from "../ConnectAuthPanel";
+
 type ParticipantCreds = {
 	participantId: string;
 	secret: string;
@@ -1224,6 +1226,17 @@ export function ConnectRoomClient(props: { roomId: string; signedInName?: string
 	}, [roomId, myCreds]);
 
 	useEffect(() => {
+		// If user signs in (employee or portal) while on this page, don't require a manual refresh.
+		// Only populate the join name if the user hasn't typed something already.
+		if (myCreds) return;
+		const next = safeName(props.signedInName ?? "");
+		if (!next) return;
+		if (safeName(joinName)) return;
+		setJoinName(next);
+		// eslint-disable-next-line react-hooks/exhaustive-deps
+	}, [props.signedInName, myCreds]);
+
+	useEffect(() => {
 		// Auto-join if we already have a name (employee signed-in or stored guest name).
 		if (autoJoinAttemptedRef.current) return;
 		if (myCreds) return;
@@ -1332,6 +1345,7 @@ export function ConnectRoomClient(props: { roomId: string; signedInName?: string
 
 	const othersCount = myCreds ? participants.filter((p) => p.id !== myCreds.participantId).length : 0;
 	const showPreCallInfo = myCreds ? othersCount === 0 : true;
+	const inActiveCall = Boolean(myCreds && !pendingAdmission && othersCount > 0);
 
 	const stageHeightClass = showPreCallInfo
 		? "h-[calc(100svh-190px)] sm:h-[calc(100svh-170px)]"
@@ -1425,6 +1439,10 @@ export function ConnectRoomClient(props: { roomId: string; signedInName?: string
 						<h1 className="text-2xl font-semibold text-zinc-900">Join this meeting</h1>
 						<p className="mt-2 text-base text-zinc-600">Enter your name to join.</p>
 
+						<div className="mt-5">
+							<ConnectAuthPanel defaultOpen={false} />
+						</div>
+
 						<div className="mt-4 flex flex-col gap-3 sm:flex-row">
 							<input
 								value={joinName}
@@ -1449,6 +1467,11 @@ export function ConnectRoomClient(props: { roomId: string; signedInName?: string
 								<div className="text-sm text-zinc-600">Signed in as</div>
 								<div className="text-xl font-semibold text-zinc-900">{myName || "You"}</div>
 								<div className="mt-1 text-base text-zinc-600">{statusLine}</div>
+								{!inActiveCall ? (
+									<div className="mt-4" onClick={(e) => e.stopPropagation()}>
+										<ConnectAuthPanel defaultOpen={false} hideWhenSignedIn />
+									</div>
+								) : null}
 							</div>
 						) : null}
 

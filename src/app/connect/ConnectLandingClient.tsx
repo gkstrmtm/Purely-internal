@@ -4,6 +4,8 @@ import Image from "next/image";
 import { useRouter } from "next/navigation";
 import { useMemo, useState } from "react";
 
+import { ConnectAuthPanel } from "./ConnectAuthPanel";
+
 export function ConnectLandingClient(props: { signedInName?: string | null }) {
 	const router = useRouter();
 	const [creating, setCreating] = useState(false);
@@ -69,11 +71,9 @@ export function ConnectLandingClient(props: { signedInName?: string | null }) {
 						Start a meeting, share the link, and hop on a call.
 					</p>
 
-					{props.signedInName ? (
-						<div className="mt-4 text-base text-zinc-600">
-							Signed in as <span className="font-semibold text-zinc-900">{props.signedInName}</span>
-						</div>
-					) : null}
+					<div className="mt-5">
+						<ConnectAuthPanel />
+					</div>
 
 					<div className="mt-6 grid gap-4 sm:grid-cols-2">
 						<button
@@ -106,10 +106,6 @@ export function ConnectLandingClient(props: { signedInName?: string | null }) {
 					{error ? (
 						<div className="mt-5 rounded-2xl border border-red-200 bg-red-50 px-4 py-3 text-base text-red-700">{error}</div>
 					) : null}
-
-					<div className="mt-6 text-sm text-zinc-500">
-						This MVP uses peer-to-peer WebRTC (no recording). Some corporate networks may block calls without a TURN relay.
-					</div>
 				</div>
 			</div>
 		</div>

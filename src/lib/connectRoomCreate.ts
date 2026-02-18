@@ -19,7 +19,13 @@ export async function createConnectRoom(opts?: {
   idLength?: number;
   maxAttempts?: number;
 }): Promise<{ roomId: string }> {
-  await ensureConnectSchema();
+  // Ensure schema once per server process.
+  // Running DDL on every request can cause lock contention or fail under restricted DB roles.
+  const g = globalThis as unknown as { __pa_connect_schema_ok?: boolean };
+  if (!g.__pa_connect_schema_ok) {
+    await ensureConnectSchema();
+    g.__pa_connect_schema_ok = true;
+  }
 
   const title = opts?.title?.trim() ? opts?.title!.trim() : null;
   const createdByUserId = opts?.createdByUserId ?? null;
