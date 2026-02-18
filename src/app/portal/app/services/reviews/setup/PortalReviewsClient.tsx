@@ -111,14 +111,14 @@ const DEFAULT_SETTINGS: ReviewRequestsSettings = {
   automation: { autoSend: true, manualSend: true, calendarIds: [] },
   sendAfter: { value: 30, unit: "minutes" },
   destinations: [],
-  messageTemplate: "Hi {name} — thanks again! If you have 30 seconds, would you leave us a review? {link}",
+  messageTemplate: "Hi {name}, thanks again! If you have 30 seconds, would you leave us a review? {link}",
   calendarMessageTemplates: {},
   publicPage: {
     enabled: true,
     galleryEnabled: true,
     title: "Reviews",
     description: "We’d love to hear about your experience.",
-    thankYouMessage: "Thanks — your review was submitted.",
+    thankYouMessage: "Thanks! Your review was submitted.",
     form: {
       version: 1,
       email: { enabled: false, required: false },
@@ -1607,14 +1607,14 @@ export default function PortalReviewsClient() {
                 <div key={e.id} className="rounded-lg border border-zinc-200 bg-white p-3">
                   <div className="flex flex-wrap items-center justify-between gap-2">
                     <div className="text-sm font-medium">
-                      {e.status} — {e.contactName || "(no name)"}
+                      {e.status} - {e.contactName || "(no name)"}
                     </div>
                     <div className="text-xs text-neutral-500">{new Date(e.createdAtIso).toLocaleString()}</div>
                   </div>
                   <div className="mt-1 text-xs text-neutral-600">
                     Booking: <span className="font-mono">{e.bookingId}</span>
                   </div>
-                  <div className="mt-1 text-xs text-neutral-600">To: {e.smsTo || "—"}</div>
+                  <div className="mt-1 text-xs text-neutral-600">To: {e.smsTo || "N/A"}</div>
                   <div className="mt-1 text-xs text-neutral-600">
                     Link: <a className="underline" href={e.destinationUrl} target="_blank" rel="noreferrer">
                       {e.destinationLabel}

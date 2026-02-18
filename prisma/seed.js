@@ -196,14 +196,14 @@ async function main() {
           title: "Default cold-call opener",
           isTemplate: true,
           content:
-            "Hey {{name}}, this is {{your_name}} — quick question.\n\nWe help {{niche}} businesses book more qualified appointments without extra admin work.\n\nAre you the person who handles growth / new customers?",
+            "Hey {{name}}, this is {{your_name}}, quick question.\n\nWe help {{niche}} businesses book more qualified appointments without extra admin work.\n\nAre you the person who handles growth / new customers?",
         },
         {
           ownerId: dialer.id,
           title: "Follow-up text template",
           isTemplate: true,
           content:
-            "Hey {{name}}, it’s {{your_name}} — we spoke earlier.\n\nIf I could show you how we can add 10–15 qualified appointments/month for {{business_name}}, would you be open to a quick 15-minute chat this week?",
+            "Hey {{name}}, it’s {{your_name}}, we spoke earlier.\n\nIf I could show you how we can add 10–15 qualified appointments/month for {{business_name}}, would you be open to a quick 15-minute chat this week?",
         },
       ],
     });
@@ -391,7 +391,7 @@ async function main() {
           title: `Prep Pack – ${lead.businessName}`,
           kind: "CLOSER_PREP_PACK",
           content:
-            `Business Snapshot\n- Name: ${lead.businessName}\n- Niche: ${lead.niche ?? "(unknown)"}\n- Location: ${lead.location ?? "(unknown)"}\n- Website: ${lead.website ?? "(none)"}\n- Phone: ${lead.phone}\n\nSetter Context\n- Setter: ${appt.setter?.name ?? "(unknown)"} (${appt.setter?.email ?? ""})\n- Meeting time: ${new Date(appt.startAt).toLocaleString()}\n\nDiscovery Prompts\n- What are you doing today to generate leads?\n- What’s your close rate on booked appointments?\n- What’s your average ticket & capacity?\n\nSuggested Frame\n- Confirm outcomes + timeline\n- Diagnose bottleneck (leadflow vs show rate vs close rate)\n- Present next-step offer\n\n(Seeded demo prep pack — editable later)`,
+            `Business Snapshot\n- Name: ${lead.businessName}\n- Niche: ${lead.niche ?? "(unknown)"}\n- Location: ${lead.location ?? "(unknown)"}\n- Website: ${lead.website ?? "(none)"}\n- Phone: ${lead.phone}\n\nSetter Context\n- Setter: ${appt.setter?.name ?? "(unknown)"} (${appt.setter?.email ?? ""})\n- Meeting time: ${new Date(appt.startAt).toLocaleString()}\n\nDiscovery Prompts\n- What are you doing today to generate leads?\n- What’s your close rate on booked appointments?\n- What’s your average ticket & capacity?\n\nSuggested Frame\n- Confirm outcomes + timeline\n- Diagnose bottleneck (leadflow vs show rate vs close rate)\n- Present next-step offer\n\n(Seeded demo prep pack. Editable later)`,
         },
       });
 

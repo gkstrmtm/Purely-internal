@@ -104,7 +104,7 @@ export async function POST(req: Request) {
         demoRecordingId: "1",
         recordingDurationSec: 12,
         transcript:
-          "Sarah: Hi, I’m calling to ask about pricing and whether you guys do same-day installs.\n\nAI Receptionist: Absolutely. What city are you in and what kind of system are you looking for?\n\nSarah: Tampa. It’s a replacement — my AC is struggling.\n\nAI Receptionist: Got it. What’s the best email to send options and next steps?\n\nSarah: sarah@example.com",
+          "Sarah: Hi, I’m calling to ask about pricing and whether you guys do same-day installs.\n\nAI Receptionist: Absolutely. What city are you in and what kind of system are you looking for?\n\nSarah: Tampa. It’s a replacement. My AC is struggling.\n\nAI Receptionist: Got it. What’s the best email to send options and next steps?\n\nSarah: sarah@example.com",
         notes: "Captured lead details. Requested pricing + availability.",
       },
       {
@@ -119,7 +119,7 @@ export async function POST(req: Request) {
         demoRecordingId: "2",
         recordingDurationSec: 12,
         transcript:
-          "Mike: Hey — do you have anything open this Thursday afternoon?\n\nAI Receptionist: Yes. Can I grab your name and a good callback number?\n\nMike: Mike. This number is fine.\n\nAI Receptionist: Perfect — I’ll send available times via text shortly.",
+          "Mike: Hey, do you have anything open this Thursday afternoon?\n\nAI Receptionist: Yes. Can I grab your name and a good callback number?\n\nMike: Mike. This number is fine.\n\nAI Receptionist: Perfect. I’ll send available times via text shortly.",
         notes: "Scheduling question. No email provided.",
       },
       {
@@ -134,7 +134,7 @@ export async function POST(req: Request) {
         demoRecordingId: "3",
         recordingDurationSec: 12,
         transcript:
-          "Caller: Hi — I’m returning a missed call.\n\nAI Receptionist: Sorry about that. What’s the best way to reach you and what are you calling about?\n\nCaller: Just wanted to check on my appointment.",
+          "Caller: Hi, I’m returning a missed call.\n\nAI Receptionist: Sorry about that. What’s the best way to reach you and what are you calling about?\n\nCaller: Just wanted to check on my appointment.",
         notes: "General inquiry.",
       },
     ];
@@ -151,7 +151,7 @@ export async function POST(req: Request) {
             mode: "AI",
             webhookToken: "demo_ai_receptionist_token_123456",
             businessName: "Purely Automation",
-            greeting: "Thanks for calling — how can I help?",
+            greeting: "Thanks for calling. How can I help?",
             systemPrompt: "You are a helpful AI receptionist.",
             forwardToPhoneE164: null,
             voiceAgentId: "",

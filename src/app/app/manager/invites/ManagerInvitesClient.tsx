@@ -13,7 +13,7 @@ type InviteRow = {
 };
 
 function fmtDate(value: string | null | undefined) {
-  if (!value) return "—";
+  if (!value) return "N/A";
   const d = new Date(value);
   if (Number.isNaN(d.getTime())) return value;
   return d.toLocaleString();
@@ -186,7 +186,7 @@ export default function ManagerInvitesClient() {
                   <td className="hidden border-b border-zinc-100 px-3 py-3 md:table-cell">{fmtDate(i.createdAt)}</td>
                   <td className="hidden border-b border-zinc-100 px-3 py-3 md:table-cell">{fmtDate(i.expiresAt)}</td>
                   <td className="hidden border-b border-zinc-100 px-3 py-3 md:table-cell">{fmtDate(i.usedAt)}</td>
-                  <td className="hidden border-b border-zinc-100 px-3 py-3 md:table-cell">{i.usedBy?.email ?? "—"}</td>
+                  <td className="hidden border-b border-zinc-100 px-3 py-3 md:table-cell">{i.usedBy?.email ?? "N/A"}</td>
                   <td className="border-b border-zinc-100 px-3 py-3">
                     <div className="flex flex-wrap gap-2">
                       <button

@@ -2140,7 +2140,7 @@ export function PortalBookingClient() {
               <div className="font-medium text-zinc-800">Thank-you message</div>
               <textarea
                 className="mt-2 min-h-[90px] w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm"
-                placeholder="Thanks — you’re booked! We'll see you soon."
+                placeholder="Thanks! You're booked. We'll see you soon."
                 value={form.thankYouMessage ?? ""}
                 disabled={formSaving}
                 onChange={(e) => setForm({ ...form, thankYouMessage: e.target.value })}

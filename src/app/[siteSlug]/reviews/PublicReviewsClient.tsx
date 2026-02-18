@@ -239,7 +239,7 @@ export function PublicReviewsClient({
       const rec = json && typeof json === "object" && !Array.isArray(json) ? (json as Record<string, unknown>) : null;
       if (!res.ok || !rec?.ok) throw new Error((typeof rec?.error === "string" ? rec.error : null) || `Failed to submit (HTTP ${res.status})`);
 
-      setStatus((thankYouMessage || "Thanks — your review was submitted.").trim());
+      setStatus((thankYouMessage || "Thanks! Your review was submitted.").trim());
       setName("");
       setRating(5);
       setBody("");
@@ -280,7 +280,7 @@ export function PublicReviewsClient({
       const rec = json && typeof json === "object" && !Array.isArray(json) ? (json as Record<string, unknown>) : null;
       if (!res.ok || !rec?.ok) throw new Error((typeof rec?.error === "string" ? rec.error : null) || `Failed (HTTP ${res.status})`);
 
-      setQStatus("Thanks — your question was sent.");
+      setQStatus("Thanks! Your question was sent.");
       setQName("");
       setQText("");
       return true;

@@ -236,12 +236,12 @@ export async function POST(req: Request) {
         {
           dir: "IN",
           atMinAgo: 720,
-          body: "Hi! Quick question — does your quote include installation and removal of the old unit?",
+          body: "Hi! Quick question: does your quote include installation and removal of the old unit?",
         },
         {
           dir: "OUT",
           atMinAgo: 700,
-          body: "Yes — installation is included, and we can remove the old unit as well. Want me to send over a couple available time slots?",
+          body: "Yes, installation is included, and we can remove the old unit as well. Want me to send over a couple available time slots?",
         },
         { dir: "IN", atMinAgo: 680, body: "That works. Do you have anything Thursday afternoon?" },
         {
@@ -255,7 +255,7 @@ export async function POST(req: Request) {
         {
           dir: "IN",
           atMinAgo: 2880,
-          body: "Hello — attached is Invoice #10492. Let us know if you need anything.",
+          body: "Hello, attached is Invoice #10492. Let us know if you need anything.",
         },
         { dir: "OUT", atMinAgo: 2870, body: "Thanks! We received it and will process payment today." },
       ]);
@@ -264,7 +264,7 @@ export async function POST(req: Request) {
         {
           dir: "IN",
           atMinAgo: 10080,
-          body: "Hey there — I’d love to explore a partnership. Are you open to a quick call next week?",
+          body: "Hey there, I’d love to explore a partnership. Are you open to a quick call next week?",
         },
         { dir: "OUT", atMinAgo: 10060, body: "Yes, open to it. What days/times work best for you?" },
         { dir: "IN", atMinAgo: 10020, body: "Tuesday at 11am ET would be great." },
@@ -272,14 +272,14 @@ export async function POST(req: Request) {
 
       await seedSmsThread("+15555550123", [
         { dir: "IN", atMinAgo: 95, body: "Hey! Are you still able to come by today?" },
-        { dir: "OUT", atMinAgo: 92, body: "Yep — on the way now. ETA ~20 min." },
+        { dir: "OUT", atMinAgo: 92, body: "Yep, on the way now. ETA ~20 min." },
         { dir: "IN", atMinAgo: 70, body: "Perfect. Gate code is 1942." },
-        { dir: "OUT", atMinAgo: 68, body: "Got it — thanks!" },
+        { dir: "OUT", atMinAgo: 68, body: "Got it, thanks!" },
       ]);
 
       await seedSmsThread("+15555550987", [
         { dir: "IN", atMinAgo: 1440, body: "Can I reschedule tomorrow’s appointment?" },
-        { dir: "OUT", atMinAgo: 1435, body: "Absolutely — what time works better?" },
+        { dir: "OUT", atMinAgo: 1435, body: "Absolutely. What time works better?" },
         { dir: "IN", atMinAgo: 1420, body: "Anytime after 3pm." },
         { dir: "OUT", atMinAgo: 1418, body: "We can do 3:30pm. Want me to confirm it?" },
         { dir: "IN", atMinAgo: 1415, body: "Yes please." },
@@ -338,7 +338,7 @@ export async function POST(req: Request) {
         contactPhone: "+15555550111",
         demoRecordingId: "1",
         transcript:
-          "Sarah: Hi, I’m calling to ask about pricing and whether you guys do same-day installs.\n\nAI Receptionist: Absolutely. What city are you in and what kind of system are you looking for?\n\nSarah: Tampa. It’s a replacement — my AC is struggling.\n\nAI Receptionist: Got it. What’s the best email to send options and next steps?\n\nSarah: sarah@example.com",
+          "Sarah: Hi, I’m calling to ask about pricing and whether you guys do same-day installs.\n\nAI Receptionist: Absolutely. What city are you in and what kind of system are you looking for?\n\nSarah: Tampa. It’s a replacement. My AC is struggling.\n\nAI Receptionist: Got it. What’s the best email to send options and next steps?\n\nSarah: sarah@example.com",
         notes: "Captured lead details. Requested pricing + availability.",
       },
       {
@@ -352,7 +352,7 @@ export async function POST(req: Request) {
         contactPhone: "+15555550222",
         demoRecordingId: "2",
         transcript:
-          "Mike: Hey — do you have anything open this Thursday afternoon?\n\nAI Receptionist: Yes. Can I grab your name and a good callback number?\n\nMike: Mike. This number is fine.\n\nAI Receptionist: Perfect — I’ll send available times via text shortly.",
+          "Mike: Hey, do you have anything open this Thursday afternoon?\n\nAI Receptionist: Yes. Can I grab your name and a good callback number?\n\nMike: Mike. This number is fine.\n\nAI Receptionist: Perfect. I’ll send available times via text shortly.",
         notes: "Scheduling question. No email provided.",
       },
       {
@@ -366,7 +366,7 @@ export async function POST(req: Request) {
         contactPhone: "+15555550333",
         demoRecordingId: "3",
         transcript:
-          "Caller: Hi — I’m returning a missed call.\n\nAI Receptionist: Sorry about that. What’s the best way to reach you and what are you calling about?\n\nCaller: Just wanted to check on my appointment.",
+          "Caller: Hi, I’m returning a missed call.\n\nAI Receptionist: Sorry about that. What’s the best way to reach you and what are you calling about?\n\nCaller: Just wanted to check on my appointment.",
         notes: "General inquiry.",
       },
     ];
@@ -383,7 +383,7 @@ export async function POST(req: Request) {
             mode: "AI",
             webhookToken: "demo_ai_receptionist_token_123456",
             businessName: "Purely Automation",
-            greeting: "Thanks for calling — how can I help?",
+            greeting: "Thanks for calling. How can I help?",
             systemPrompt: "You are a helpful AI receptionist.",
             forwardToPhoneE164: null,
             voiceAgentId: "",

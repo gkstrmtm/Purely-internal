@@ -333,8 +333,8 @@ async function handle(req: Request, token: string) {
       status: "COMPLETED",
       // If we can't forward, don't hard-fail the caller. We'll continue into AI mode below.
       notes: forwardTo
-        ? "Insufficient credits — fell back to forwarding."
-        : "Insufficient credits (no forward number configured) — continuing in AI mode.",
+        ? "Insufficient credits. Fell back to forwarding."
+        : "Insufficient credits (no forward number configured). Continuing in AI mode.",
     });
 
     if (forwardTo) {
@@ -368,7 +368,7 @@ async function handle(req: Request, token: string) {
       createdAtIso: new Date().toISOString(),
       status: "IN_PROGRESS",
       notes: forwardTo
-        ? "AI mode unavailable (missing voice agent config) — forwarding."
+        ? "AI mode unavailable (missing voice agent config). Forwarding."
         : "AI mode unavailable (missing voice agent config).",
     });
 
@@ -460,7 +460,7 @@ async function handle(req: Request, token: string) {
         to: toE164,
         createdAtIso: new Date().toISOString(),
         status: "IN_PROGRESS",
-        notes: `Live agent connect failed — retrying. ${errLine ? `(${errLine})` : ""}`.trim(),
+        notes: `Live agent connect failed. Retrying. ${errLine ? `(${errLine})` : ""}`.trim(),
       });
 
       const nextRegisterAttempt = registerAttempt + 1;
@@ -478,7 +478,7 @@ async function handle(req: Request, token: string) {
     }
 
     const fallbackNote = forwardTo
-      ? `Live agent connect failed — forwarding. ${errLine ? `(${errLine})` : ""}`.trim()
+      ? `Live agent connect failed. Forwarding. ${errLine ? `(${errLine})` : ""}`.trim()
       : `Live agent connect failed. ${errLine ? `(${errLine})` : ""}`.trim();
 
     await upsertAiReceptionistCallEvent(ownerId, {

@@ -90,7 +90,7 @@ export async function POST(req: Request) {
 
   const userPrompt = [
     "Write a discovery / closer call script for a sales meeting.",
-    "This is NOT a cold outbound opener — assume the meeting is booked and you are the closer.",
+    "This is NOT a cold outbound opener. Assume the meeting is booked and you are the closer.",
     "You are calling FROM: Purely Automation. Always say the company name exactly as 'Purely Automation'.",
     "If a contact person's name is provided, use it naturally in the script.",
     "",

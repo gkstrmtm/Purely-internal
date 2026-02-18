@@ -126,7 +126,7 @@ export async function POST(req: Request) {
       ord: 0,
       kind: "SMS",
       delayMinutes: 0,
-      body: "Hey {contact.name}, just checking in — any questions I can help with?",
+      body: "Hey {contact.name}, just checking in. Any questions I can help with?",
       createdAt: now,
       updatedAt: now,
     },

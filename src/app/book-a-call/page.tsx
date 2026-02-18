@@ -41,7 +41,7 @@ export default async function BookACallPage({
 
             {!requestId ? (
               <div className="mt-6 text-sm text-zinc-700">
-                If you haven’t requested a demo yet, you can still book — we’ll ask for your details after you select a time.
+                If you haven’t requested a demo yet, you can still book. We’ll ask for your details after you select a time.
               </div>
             ) : null}
           </section>

@@ -564,7 +564,7 @@ export default function ManagerBlogsClient() {
           <div>
             <div className="text-sm font-semibold text-brand-ink">Status</div>
             <div className="mt-1 text-xs text-zinc-600">
-              Total posts: {stats?.totalPosts ?? "—"}
+              Total posts: {stats?.totalPosts ?? "N/A"}
               {stats?.latest?.slug ? ` • Latest: ${stats.latest.slug}` : ""}
               {buildSha ? ` • Build: ${buildSha.slice(0, 8)}` : ""}
             </div>
@@ -914,7 +914,7 @@ export default function ManagerBlogsClient() {
 
           <div className="text-xs text-zinc-600">
             Tip: after each run, offset auto-advances to nextOffset.
-            {backfillAtEnd ? " (Offset is at end — set offset to 0 to run again.)" : ""}
+            {backfillAtEnd ? " (Offset is at end. Set offset to 0 to run again.)" : ""}
           </div>
         </div>
       </div>

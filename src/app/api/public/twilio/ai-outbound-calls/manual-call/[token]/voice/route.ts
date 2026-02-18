@@ -101,7 +101,7 @@ export async function POST(req: Request, ctx: { params: Promise<{ token: string 
       })
       .catch(() => null);
 
-    return xmlResponse(fallbackTwiml("Sorry — we couldn't connect this call."), 200);
+    return xmlResponse(fallbackTwiml("Sorry. We couldn't connect this call."), 200);
   }
 
   const campaignId = typeof manual.campaignId === "string" ? manual.campaignId : null;
@@ -128,7 +128,7 @@ export async function POST(req: Request, ctx: { params: Promise<{ token: string 
       })
       .catch(() => null);
 
-    return xmlResponse(fallbackTwiml("Sorry — we couldn't connect this call."), 200);
+    return xmlResponse(fallbackTwiml("Sorry. We couldn't connect this call."), 200);
   }
 
   const register = await registerElevenLabsTwilioCall({
@@ -158,7 +158,7 @@ export async function POST(req: Request, ctx: { params: Promise<{ token: string 
       })
       .catch(() => null);
 
-    return xmlResponse(fallbackTwiml("Sorry — we couldn't connect this call."), 200);
+    return xmlResponse(fallbackTwiml("Sorry. We couldn't connect this call."), 200);
   }
 
   const conversationId = extractConversationIdFromTwiml(register.twiml);

@@ -16,7 +16,7 @@ export function buildNewsletterEmailText(opts: {
   excerpt: string;
   link: string;
 }) {
-  return [opts.excerpt, "", `Read online: ${opts.link}`, "", "—", "Sent via Purely Automation"].join("\n");
+  return [opts.excerpt, "", `Read online: ${opts.link}`, "", "-", "Sent via Purely Automation"].join("\n");
 }
 
 export function buildNewsletterSmsText(opts: {

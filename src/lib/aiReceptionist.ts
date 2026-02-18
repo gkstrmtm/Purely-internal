@@ -91,7 +91,7 @@ export function parseAiReceptionistSettings(
     webhookToken: prev?.webhookToken ?? newToken(),
 
     businessName: "",
-    greeting: "Thanks for calling — how can I help?",
+    greeting: "Thanks for calling. How can I help?",
     systemPrompt:
       "You are a helpful receptionist. Answer questions casually and clearly, and keep a friendly tone. If appropriate, capture lead details (name, email, phone) and help book an appointment. Be concise.",
 

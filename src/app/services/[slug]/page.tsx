@@ -497,6 +497,29 @@ export default async function ServiceFunnelPage({ params }: { params: Promise<{ 
                 ))}
               </div>
 
+              {slug === "blogs" ? (
+                <div className="mt-8 rounded-3xl border border-zinc-200 bg-gradient-to-br from-white to-[color:rgba(29,78,216,0.06)] p-6">
+                  <div className="flex items-start gap-3">
+                    <Icon path={ICONS.chart} title="Demo" />
+                    <div>
+                      <div className="text-sm font-semibold text-zinc-900">See what it looks like</div>
+                      <div className="mt-1 text-sm text-zinc-700">
+                        Visit our live demo blog to see real posts, formatting, and the structure we publish with.
+                      </div>
+                      <div className="mt-4 flex flex-col gap-2 sm:flex-row sm:items-center">
+                        <Link
+                          href="/blogs"
+                          className="inline-flex items-center justify-center rounded-2xl bg-[color:rgba(15,23,42,0.96)] px-5 py-3 text-sm font-semibold text-white transition hover:bg-[color:rgba(15,23,42,1)]"
+                        >
+                          View the /blogs demo
+                        </Link>
+                        <div className="text-xs text-zinc-600">purelyautomation.com/blogs</div>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              ) : null}
+
               <h3 className="mt-8 text-lg font-semibold text-zinc-900">Integrations and channels</h3>
               <div className="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-2">
                 {seo.integrations.map((i) => (

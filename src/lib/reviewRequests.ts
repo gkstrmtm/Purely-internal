@@ -235,14 +235,14 @@ export function parseReviewRequestsSettings(raw: unknown): ReviewRequestsSetting
     automation: { autoSend: true, manualSend: true, calendarIds: [] },
     sendAfter: { value: 30, unit: "minutes" },
     destinations: [],
-    messageTemplate: "Hi {name} — thanks again! If you have 30 seconds, would you leave us a review? {link}",
+    messageTemplate: "Hi {name}, thanks again! If you have 30 seconds, would you leave us a review? {link}",
     calendarMessageTemplates: {},
     publicPage: {
       enabled: true,
       galleryEnabled: true,
       title: "Reviews",
       description: "We’d love to hear about your experience.",
-      thankYouMessage: "Thanks — your review was submitted.",
+      thankYouMessage: "Thanks! Your review was submitted.",
       form: {
         version: 1,
         email: { enabled: false, required: false },

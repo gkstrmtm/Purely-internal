@@ -265,7 +265,7 @@ export async function POST(
     });
 
     if (updated.contactPhone) {
-      await sendSms(site.ownerId, updated.contactPhone, `Rescheduled: ${site.title} — ${when}`);
+      await sendSms(site.ownerId, updated.contactPhone, `Rescheduled: ${site.title} - ${when}`);
     }
   } catch {
     // ignore

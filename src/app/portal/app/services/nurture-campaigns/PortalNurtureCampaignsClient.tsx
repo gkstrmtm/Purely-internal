@@ -100,7 +100,7 @@ const NURTURE_TEMPLATES: NurtureTemplate[] = [
       {
         kind: "SMS",
         delayMinutes: 0,
-        body: "Hey {contact.firstName} — quick question. Want help getting this set up? – {business.name}",
+        body: "Hey {contact.firstName}, quick question. Want help getting this set up? – {business.name}",
       },
       {
         kind: "SMS",
@@ -111,7 +111,7 @@ const NURTURE_TEMPLATES: NurtureTemplate[] = [
         kind: "EMAIL",
         delayMinutes: 60 * 24 * 5,
         subject: "Quick question",
-        body: "Hi {contact.name},\n\nJust checking in — do you want help getting this set up?\n\nIf it’s easier, reply with the best time today/tomorrow.\n\n– {business.name}",
+        body: "Hi {contact.name},\n\nJust checking in. Do you want help getting this set up?\n\nIf it’s easier, reply with the best time today/tomorrow.\n\n– {business.name}",
       },
     ],
   },
@@ -123,24 +123,24 @@ const NURTURE_TEMPLATES: NurtureTemplate[] = [
       {
         kind: "EMAIL",
         delayMinutes: 0,
-        subject: "Welcome — next steps",
-        body: "Hi {contact.firstName},\n\nWelcome — excited to help. Here’s what happens next:\n\n1) We confirm your goals\n2) We set up the workflow\n3) You get results and reporting\n\nReply with your top priority and we’ll start there.\n\n– {business.name}",
+        subject: "Welcome: next steps",
+        body: "Hi {contact.firstName},\n\nWelcome! Excited to help. Here’s what happens next:\n\n1) We confirm your goals\n2) We set up the workflow\n3) You get results and reporting\n\nReply with your top priority and we’ll start there.\n\n– {business.name}",
       },
       {
         kind: "SMS",
         delayMinutes: 60 * 6,
-        body: "Hey {contact.firstName} — I emailed next steps. What’s your #1 goal right now?",
+        body: "Hey {contact.firstName}, I emailed next steps. What’s your #1 goal right now?",
       },
       {
         kind: "SMS",
         delayMinutes: 60 * 24,
-        body: "Quick ping {contact.firstName} — want me to set this up for you this week?",
+        body: "Quick ping {contact.firstName}, want me to set this up for you this week?",
       },
       {
         kind: "EMAIL",
         delayMinutes: 60 * 24 * 3,
         subject: "Should I close this out?",
-        body: "Hi {contact.firstName},\n\nTotally fine if now isn’t the right time — should I close this out for now?\n\nIf you still want help, reply with ‘yes’ and I’ll send 2–3 quick questions.\n\n– {business.name}",
+        body: "Hi {contact.firstName},\n\nTotally fine if now isn’t the right time. Should I close this out for now?\n\nIf you still want help, reply with ‘yes’ and I’ll send 2–3 quick questions.\n\n– {business.name}",
       },
       {
         kind: "SMS",
@@ -157,7 +157,7 @@ const NURTURE_TEMPLATES: NurtureTemplate[] = [
       {
         kind: "SMS",
         delayMinutes: 0,
-        body: "Hey {contact.firstName} — want to book 10 minutes so I can set this up for you?",
+        body: "Hey {contact.firstName}, want to book 10 minutes so I can set this up for you?",
       },
       {
         kind: "EMAIL",
@@ -168,7 +168,7 @@ const NURTURE_TEMPLATES: NurtureTemplate[] = [
       {
         kind: "SMS",
         delayMinutes: 60 * 24 * 2,
-        body: "What’s better — today or tomorrow? I can make time, {contact.firstName}.",
+        body: "What’s better: today or tomorrow? I can make time, {contact.firstName}.",
       },
       {
         kind: "SMS",
@@ -186,13 +186,13 @@ const NURTURE_TEMPLATES: NurtureTemplate[] = [
         kind: "EMAIL",
         delayMinutes: 0,
         subject: "Quick question",
-        body: "Hi {contact.firstName},\n\nQuick question — what are you trying to accomplish right now?\n\n– {business.name}",
+        body: "Hi {contact.firstName},\n\nQuick question: what are you trying to accomplish right now?\n\n– {business.name}",
       },
       {
         kind: "EMAIL",
         delayMinutes: 60 * 24 * 2,
         subject: "Bumping this",
-        body: "Hi {contact.firstName},\n\nJust bumping this — do you want help getting this set up?\n\n– {business.name}",
+        body: "Hi {contact.firstName},\n\nJust bumping this. Do you want help getting this set up?\n\n– {business.name}",
       },
       {
         kind: "EMAIL",
@@ -210,13 +210,13 @@ const NURTURE_TEMPLATES: NurtureTemplate[] = [
       {
         kind: "SMS",
         delayMinutes: 0,
-        body: "Hey {contact.firstName} — circling back. Still want help with this?",
+        body: "Hey {contact.firstName}, circling back. Still want help with this?",
       },
       {
         kind: "EMAIL",
         delayMinutes: 60 * 24,
         subject: "Still want help?",
-        body: "Hi {contact.firstName},\n\nJust checking in — do you still want help getting this set up?\n\nIf not, no worries — just reply ‘stop’.\n\n– {business.name}",
+        body: "Hi {contact.firstName},\n\nJust checking in. Do you still want help getting this set up?\n\nIf not, no worries. Just reply ‘stop’.\n\n– {business.name}",
       },
       {
         kind: "SMS",
@@ -226,7 +226,7 @@ const NURTURE_TEMPLATES: NurtureTemplate[] = [
       {
         kind: "SMS",
         delayMinutes: 60 * 24 * 10,
-        body: "Closing the loop — if you want help later, just reply here anytime.",
+        body: "Closing the loop. If you want help later, just reply here anytime.",
       },
     ],
   },
@@ -1401,7 +1401,7 @@ function StepCard(props: {
             setBody(e.target.value);
             setDirty(true);
           }}
-          placeholder={kind === "EMAIL" ? "Hi {contact.name},\n\n…" : "Hey {contact.name} — …"}
+          placeholder={kind === "EMAIL" ? "Hi {contact.name},\n\n…" : "Hey {contact.name}, …"}
         />
         <div className="mt-1 text-xs text-zinc-500">
           Supports templates like <span className="font-mono">{"{contact.name}"}</span> and <span className="font-mono">{"{business.name}"}</span>.

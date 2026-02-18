@@ -212,11 +212,11 @@ export function defaultFollowUpSettings(): FollowUpSettings {
           "",
           "If you have any questions, just reply to this email.",
           "",
-          "— {businessName}",
+          "- {businessName}",
         ].join("\n"),
       },
       sms: {
-        bodyTemplate: "Thanks again for your time — reply here if you have any questions. — {businessName}",
+        bodyTemplate: "Thanks again for your time. Reply here if you have any questions. - {businessName}",
       },
     },
     {
@@ -233,13 +233,13 @@ export function defaultFollowUpSettings(): FollowUpSettings {
           "",
           "Do you have any feedback on our conversation?",
           "",
-          "One sentence is totally fine — it helps {businessName} a lot.",
+          "One sentence is totally fine. It helps {businessName} a lot.",
           "",
-          "— {businessName}",
+          "- {businessName}",
         ].join("\n"),
       },
       sms: {
-        bodyTemplate: "Any quick feedback on our call? One sentence helps a lot. — {businessName}",
+        bodyTemplate: "Any quick feedback on our call? One sentence helps a lot. - {businessName}",
       },
     },
     {
@@ -259,11 +259,11 @@ export function defaultFollowUpSettings(): FollowUpSettings {
           "",
           "If you'd like, just reply with any questions.",
           "",
-          "— {businessName}",
+          "- {businessName}",
         ].join("\n"),
       },
       sms: {
-        bodyTemplate: "Next steps from our call — reply here if you want me to send them over. — {businessName}",
+        bodyTemplate: "Next steps from our call. Reply here if you want me to send them over. - {businessName}",
       },
     },
     {
@@ -280,13 +280,13 @@ export function defaultFollowUpSettings(): FollowUpSettings {
           "",
           "If you found our call helpful, would you be open to leaving a quick review for {businessName}?",
           "",
-          "No worries either way — thanks again.",
+          "No worries either way. Thanks again.",
           "",
-          "— {businessName}",
+          "- {businessName}",
         ].join("\n"),
       },
       sms: {
-        bodyTemplate: "If our call helped, would you be open to leaving a quick review for {businessName}? — {businessName}",
+        bodyTemplate: "If our call helped, would you be open to leaving a quick review for {businessName}? - {businessName}",
       },
     },
     {

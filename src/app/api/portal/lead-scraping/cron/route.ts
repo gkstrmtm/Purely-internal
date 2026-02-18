@@ -263,13 +263,13 @@ function normalizeSettings(value: unknown): Settings {
     email: {
       enabled: false,
       trigger: "MANUAL",
-      subject: "Quick question — {businessName}",
-      text: "Hi {businessName},\n\nQuick question — are you taking on new work right now?\n\n—",
+      subject: "Quick question: {businessName}",
+      text: "Hi {businessName},\n\nQuick question: are you taking on new work right now?\n\n-",
     },
     sms: {
       enabled: false,
       trigger: "MANUAL",
-      text: "Hi {businessName} — quick question. Are you taking on new work right now?",
+      text: "Hi {businessName}, quick question. Are you taking on new work right now?",
     },
     calls: {
       enabled: false,

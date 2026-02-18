@@ -15,7 +15,7 @@ type BugReportResponse = { ok?: boolean; reportId?: string; emailed?: boolean; e
 
 function shortSha(sha: string | null | undefined) {
   const s = (sha ?? "").trim();
-  if (!s) return "—";
+  if (!s) return "unknown";
   return s.length > 10 ? s.slice(0, 10) : s;
 }
 

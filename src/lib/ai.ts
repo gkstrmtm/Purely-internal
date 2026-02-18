@@ -29,10 +29,10 @@ export async function generateText({
   // Dev-friendly fallback so the UI works without configuring an AI provider.
   if (!baseUrl || !apiKey) {
     return [
-      "(AI not configured — set AI_API_KEY in .env.local)",
+      "(AI not configured. Set AI_API_KEY in .env.local)",
       "",
       "Quick opener:",
-      "Hey {{business_name}}, this is {{your_name}} — quick question.",
+      "Hey {{business_name}}, this is {{your_name}}. Quick question.",
       "",
       "Value hook:",
       "We help {{niche}} businesses book more qualified appointments without adding admin work.",
@@ -86,7 +86,7 @@ export async function transcribeAudio({
   const resolvedModel = model ?? process.env.AI_TRANSCRIBE_MODEL ?? "whisper-1";
 
   if (!baseUrl || !apiKey) {
-    throw new Error("AI not configured — set AI_BASE_URL and AI_API_KEY");
+    throw new Error("AI not configured. Set AI_BASE_URL and AI_API_KEY");
   }
 
   const buf = bytes instanceof Uint8Array ? bytes : new Uint8Array(bytes);
@@ -140,7 +140,7 @@ export async function transcribeAudioVerbose({
   const resolvedModel = model ?? process.env.AI_TRANSCRIBE_MODEL ?? "whisper-1";
 
   if (!baseUrl || !apiKey) {
-    throw new Error("AI not configured — set AI_BASE_URL and AI_API_KEY");
+    throw new Error("AI not configured. Set AI_BASE_URL and AI_API_KEY");
   }
 
   const buf = bytes instanceof Uint8Array ? bytes : new Uint8Array(bytes);

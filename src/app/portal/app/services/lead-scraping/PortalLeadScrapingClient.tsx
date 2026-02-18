@@ -894,14 +894,14 @@ export function PortalLeadScrapingClient() {
   function openCompose() {
     if (!activeLead) return;
     setComposeOpen(true);
-    setComposeSubject(`Quick question — ${activeLead.businessName}`.slice(0, 120));
+    setComposeSubject(`Quick question: ${activeLead.businessName}`.slice(0, 120));
     setComposeMessage(
       [
         `Hi ${activeLead.businessName},`,
         "",
-        "Quick question — are you taking on new work right now?",
+        "Quick question: are you taking on new work right now?",
         "",
-        "—",
+        "-",
       ].join("\n"),
     );
     setComposeSendEmail(Boolean(activeLead.email));
@@ -1553,7 +1553,7 @@ export function PortalLeadScrapingClient() {
         <div className="flex flex-col items-stretch gap-2 sm:items-end">
           <div className="rounded-2xl border border-[color:rgba(29,78,216,0.18)] bg-[color:rgba(29,78,216,0.06)] px-4 py-3 text-sm">
             <div className="text-xs font-semibold text-[color:var(--color-brand-blue)]">Credits</div>
-            <div className="mt-0.5 font-semibold text-zinc-900">{credits ?? "—"}</div>
+            <div className="mt-0.5 font-semibold text-zinc-900">{credits ?? "N/A"}</div>
           </div>
         </div>
       </div>
@@ -2703,7 +2703,7 @@ export function PortalLeadScrapingClient() {
               <div className="mt-4 grid grid-cols-1 gap-3 sm:grid-cols-3">
                 <div className="rounded-2xl border border-zinc-200 bg-zinc-50 p-4">
                   <div className="text-xs font-semibold text-zinc-600">Phone</div>
-                  <div className="mt-1 text-sm text-zinc-900">{activeLead.phone ?? "—"}</div>
+                  <div className="mt-1 text-sm text-zinc-900">{activeLead.phone ?? "N/A"}</div>
                 </div>
                 <div className="rounded-2xl border border-zinc-200 bg-zinc-50 p-4">
                   <div className="text-xs font-semibold text-zinc-600">Email</div>
@@ -2739,7 +2739,7 @@ export function PortalLeadScrapingClient() {
                         {activeLead.website}
                       </a>
                     ) : (
-                      "—"
+                      "N/A"
                     )}
                   </div>
                 </div>
@@ -2945,7 +2945,7 @@ export function PortalLeadScrapingClient() {
                         value={activeLead.email ?? ""}
                         disabled
                         className="mt-1 w-full rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm outline-none focus:border-zinc-300"
-                        placeholder="—"
+                        placeholder="N/A"
                       />
                     </label>
                     <label className="block">

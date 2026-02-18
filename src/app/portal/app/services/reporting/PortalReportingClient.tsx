@@ -200,12 +200,12 @@ function formatIsoDay(isoDay: string) {
 }
 
 function formatRating(value: number | null) {
-  if (typeof value !== "number" || !Number.isFinite(value)) return "—";
+  if (typeof value !== "number" || !Number.isFinite(value)) return "N/A";
   return value.toFixed(1);
 }
 
 function formatPct(value: number | null) {
-  if (typeof value !== "number" || !Number.isFinite(value)) return "—";
+  if (typeof value !== "number" || !Number.isFinite(value)) return "N/A";
   return `${Math.round(value * 100)}%`;
 }
 
@@ -809,7 +809,7 @@ export function PortalReportingClient() {
                   value={
                     mediaStats && (mediaStats as any).ok === true
                       ? ((mediaStats as any).itemsCount as number).toLocaleString()
-                      : "—"
+                      : "N/A"
                   }
                   sub={
                     mediaStats && (mediaStats as any).ok === true
@@ -1261,7 +1261,7 @@ export function PortalReportingClient() {
                     value={
                       typeof derived.creditRunwayDays === "number" && Number.isFinite(derived.creditRunwayDays)
                         ? `~${Math.max(0, Math.round(derived.creditRunwayDays))} days`
-                        : "—"
+                        : "N/A"
                     }
                     sub={
                       typeof derived.creditsPerDay === "number" && Number.isFinite(derived.creditsPerDay)
@@ -1422,7 +1422,7 @@ export function PortalReportingClient() {
                     <>
                       Twilio SMS: <span className="font-semibold text-emerald-700">connected</span>
                       <div className="mt-1 text-xs text-zinc-500">
-                        From: {twilio.fromNumberE164 ?? "—"}
+                        From: {twilio.fromNumberE164 ?? "N/A"}
                       </div>
                     </>
                   ) : (

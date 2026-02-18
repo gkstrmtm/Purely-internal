@@ -1166,7 +1166,7 @@ export function PortalAiOutboundCallsClient() {
                     <div className="text-xs font-semibold text-zinc-700">Agent ID (campaign override)</div>
                     <div className="mt-1 text-[11px] text-zinc-500">
                       Leave blank to use your Profile agent ID. If you just signed up and haven’t received an agent ID yet,
-                      it’s typically issued by Purely support—give it a couple hours, then reach out if needed.
+                      it’s typically issued by Purely support. Give it a couple hours, then reach out if needed.
                     </div>
                     <input
                       value={selected.voiceAgentId ?? ""}
@@ -1318,7 +1318,7 @@ export function PortalAiOutboundCallsClient() {
                         voiceAgentConfig: { firstMessage: (selected.voiceAgentConfig?.firstMessage ?? "").trim() },
                       })
                     }
-                    placeholder="Hi — this is ..."
+                    placeholder="Hi, this is ..."
                     className="mt-1 w-full rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-sm"
                   />
                 </div>

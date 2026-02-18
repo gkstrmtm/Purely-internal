@@ -530,15 +530,15 @@ export function PortalBlogsClient() {
             <div className="mt-5 grid grid-cols-1 gap-3 sm:grid-cols-2">
               <div className="rounded-2xl border border-zinc-200 bg-gradient-to-br from-zinc-50 to-white p-4 shadow-sm">
                 <div className="text-xs font-semibold text-zinc-600">Total credits</div>
-                <div className="mt-2 text-2xl font-bold text-brand-ink">{credits === null ? "—" : credits.toLocaleString()}</div>
+                <div className="mt-2 text-2xl font-bold text-brand-ink">{credits === null ? "N/A" : credits.toLocaleString()}</div>
               </div>
               <div className="rounded-2xl border border-zinc-200 bg-gradient-to-br from-zinc-50 to-white p-4 shadow-sm">
                 <div className="text-xs font-semibold text-zinc-600">Blog credits used</div>
                 <div className="mt-2 text-2xl font-bold text-brand-ink">
-                  {blogCreditsUsed30d === null ? "—" : blogCreditsUsed30d.toLocaleString()}
+                  {blogCreditsUsed30d === null ? "N/A" : blogCreditsUsed30d.toLocaleString()}
                 </div>
                 <div className="mt-1 text-xs text-zinc-500">
-                  Last 30 days · {blogGenerations30d === null ? "—" : blogGenerations30d} generation{blogGenerations30d === 1 ? "" : "s"}
+                  Last 30 days · {blogGenerations30d === null ? "N/A" : blogGenerations30d} generation{blogGenerations30d === 1 ? "" : "s"}
                 </div>
               </div>
             </div>
@@ -756,9 +756,9 @@ export function PortalBlogsClient() {
 
             {automation ? (
               <div className="rounded-2xl border border-zinc-200 bg-zinc-50 p-4 text-xs text-zinc-600">
-                <div>Last generated: {automation.lastGeneratedAt ? formatDate(automation.lastGeneratedAt) : "—"}</div>
-                <div>Next due: {automation.nextDueAt ? formatDate(automation.nextDueAt) : "—"}</div>
-                <div>Scheduler last ran: {automation.lastRunAt ? formatDate(automation.lastRunAt) : "—"}</div>
+                <div>Last generated: {automation.lastGeneratedAt ? formatDate(automation.lastGeneratedAt) : "N/A"}</div>
+                <div>Next due: {automation.nextDueAt ? formatDate(automation.nextDueAt) : "N/A"}</div>
+                <div>Scheduler last ran: {automation.lastRunAt ? formatDate(automation.lastRunAt) : "N/A"}</div>
                 <div className="mt-1 text-zinc-500">Scheduler checks about hourly. If Next due is in the past, a new post should appear within ~1 hour.</div>
               </div>
             ) : null}

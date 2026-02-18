@@ -446,7 +446,7 @@ export default function PortalGetStartedPage() {
                     <div className="flex flex-wrap items-center justify-between gap-3">
                       <div>
                         <div className="text-sm font-semibold text-zinc-900">Coupon code</div>
-                        <div className="mt-1 text-xs text-zinc-500">Optional — you can also enter a promo code at checkout.</div>
+                        <div className="mt-1 text-xs text-zinc-500">Optional: you can also enter a promo code at checkout.</div>
                       </div>
 
                       <input
@@ -458,11 +458,11 @@ export default function PortalGetStartedPage() {
                     </div>
 
                     {couponIsRichard ? (
-                      <div className="mt-2 text-xs font-semibold text-emerald-700">RICHARD applied — everything is free for testing.</div>
+                      <div className="mt-2 text-xs font-semibold text-emerald-700">RICHARD applied; everything is free for testing.</div>
                     ) : null}
                     {couponIsBuild ? (
                       <div className="mt-2 text-xs font-semibold text-emerald-700">
-                        BUILD applied — free bundle enabled (Core + AI Receptionist + Reviews).
+                        BUILD applied; free bundle enabled (Core + AI Receptionist + Reviews).
                       </div>
                     ) : null}
                   </div>

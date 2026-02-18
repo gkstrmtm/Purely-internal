@@ -444,7 +444,7 @@ export default function DialerAppointmentsPage() {
                         <option value="">Keep current closer</option>
                         {(editClosers ?? []).map((c) => (
                           <option key={c.id} value={c.id}>
-                            {(c.name ?? "(no name)") + " — " + c.email}
+                            {(c.name ?? "(no name)") + " - " + c.email}
                           </option>
                         ))}
                       </select>

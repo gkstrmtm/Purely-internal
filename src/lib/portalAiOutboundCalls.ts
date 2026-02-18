@@ -225,7 +225,7 @@ export async function renderCampaignScript(opts: {
   });
 
   const raw = String(opts.campaign.script || "").trim();
-  if (!raw) return "Hi — this is an automated call. Please call us back when you have a moment.";
+  if (!raw) return "Hi, this is an automated call. Please call us back when you have a moment.";
 
   return renderTextTemplate(raw, vars).trim().slice(0, 1800);
 }

@@ -666,7 +666,7 @@ export function PortalAiReceptionistClient() {
           <div className="hidden rounded-2xl border border-zinc-200 bg-white px-4 py-2 sm:block">
             <div className="text-[11px] font-semibold text-zinc-500">Credits remaining</div>
             <div className="mt-1 flex items-end justify-between gap-3">
-              <div className="text-lg font-bold text-brand-ink">{credits === null ? "—" : credits.toLocaleString()}</div>
+              <div className="text-lg font-bold text-brand-ink">{credits === null ? "N/A" : credits.toLocaleString()}</div>
               <Link href={billingPath} className="text-xs font-semibold text-brand-ink hover:underline">
                 Billing
               </Link>
@@ -910,7 +910,7 @@ export function PortalAiReceptionistClient() {
                 }
               >
                 <div className="text-xs font-semibold text-zinc-600">Webhook URL (token-based)</div>
-                <div className="mt-2 break-all font-mono text-xs text-zinc-800">{webhookUrlLegacy || "—"}</div>
+                <div className="mt-2 break-all font-mono text-xs text-zinc-800">{webhookUrlLegacy || "N/A"}</div>
                 {!twilioConfigured ? (
                   <div className="mt-2 text-xs text-red-700">
                     Twilio isn’t connected yet. Add your Twilio credentials in{" "}
@@ -970,7 +970,7 @@ export function PortalAiReceptionistClient() {
             }
           >
             <div className="text-xs font-semibold text-zinc-600">Webhook URL</div>
-            <div className="mt-2 break-all font-mono text-xs text-zinc-800">{webhookUrlLegacy || "—"}</div>
+            <div className="mt-2 break-all font-mono text-xs text-zinc-800">{webhookUrlLegacy || "N/A"}</div>
           </div>
 
         </div>
@@ -1038,7 +1038,7 @@ export function PortalAiReceptionistClient() {
                         <div className={"mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs " + (isSelected ? "text-zinc-200" : "text-zinc-600")}>
                           <span>{formatWhen(e.createdAtIso)}</span>
                           <span>•</span>
-                          <span className="truncate">To: {e.to ?? "—"}</span>
+                          <span className="truncate">To: {e.to ?? "N/A"}</span>
                           {hasAudio ? (
                             <>
                               <span>•</span>

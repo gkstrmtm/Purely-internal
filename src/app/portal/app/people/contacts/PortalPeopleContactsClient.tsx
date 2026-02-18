@@ -583,7 +583,7 @@ export function PortalPeopleContactsClient() {
           <div className="rounded-3xl border border-zinc-200 bg-white p-6">
             <div className="flex items-center justify-between gap-3">
               <div className="text-base font-semibold text-zinc-900">
-                Contacts ({data.contacts.length} of {typeof data.totalContacts === "number" ? data.totalContacts : "—"})
+                Contacts ({data.contacts.length} of {typeof data.totalContacts === "number" ? data.totalContacts : "N/A"})
                 {q.trim() ? <span className="ml-2 text-xs font-semibold text-zinc-500">Filtered: {filteredContacts.length}</span> : null}
               </div>
               <div className="flex items-center gap-2">
@@ -641,7 +641,7 @@ export function PortalPeopleContactsClient() {
                         onClick={() => openContact(c.id)}
                       >
                         <td className="px-4 py-3 min-w-0">
-                          <div className="font-semibold text-zinc-900">{c.name || "—"}</div>
+                          <div className="font-semibold text-zinc-900">{c.name || "N/A"}</div>
                           {c.tags?.length ? (
                             <div className="mt-1 flex flex-wrap gap-1">
                               {c.tags.slice(0, 3).map((t) => (
@@ -660,10 +660,10 @@ export function PortalPeopleContactsClient() {
                           ) : null}
                         </td>
                         <td className="px-4 py-3 min-w-0">
-                          <div className="truncate">{c.email || "—"}</div>
+                          <div className="truncate">{c.email || "N/A"}</div>
                         </td>
                         <td className="px-4 py-3 min-w-0">
-                          <div className="truncate">{c.phone || "—"}</div>
+                          <div className="truncate">{c.phone || "N/A"}</div>
                         </td>
                       </tr>
                     ))
@@ -684,7 +684,7 @@ export function PortalPeopleContactsClient() {
           <div className="rounded-3xl border border-zinc-200 bg-white p-6">
             <div className="flex items-center justify-between gap-3">
               <div className="text-base font-semibold text-zinc-900">
-                Unlinked leads ({data.unlinkedLeads.length} of {typeof data.totalUnlinkedLeads === "number" ? data.totalUnlinkedLeads : "—"})
+                Unlinked leads ({data.unlinkedLeads.length} of {typeof data.totalUnlinkedLeads === "number" ? data.totalUnlinkedLeads : "N/A"})
                 {q.trim() ? <span className="ml-2 text-xs font-semibold text-zinc-500">Filtered: {filteredLeads.length}</span> : null}
               </div>
               <div className="flex items-center gap-2">
@@ -735,9 +735,9 @@ export function PortalPeopleContactsClient() {
                   >
                     <div className="flex items-start justify-between gap-3">
                       <div className="min-w-0">
-                        <div className="font-semibold text-zinc-900 truncate">{l.businessName || "—"}</div>
+                        <div className="font-semibold text-zinc-900 truncate">{l.businessName || "N/A"}</div>
                         <div className="mt-1 text-sm text-zinc-600 truncate">
-                          {l.email || "—"} {l.phone ? `• ${l.phone}` : ""}
+                          {l.email || "N/A"} {l.phone ? `• ${l.phone}` : ""}
                         </div>
                         {l.website ? <div className="mt-1 text-xs text-zinc-500 truncate">{l.website}</div> : null}
                       </div>
@@ -812,7 +812,7 @@ export function PortalPeopleContactsClient() {
                     placeholder="Full name"
                   />
                 ) : (
-                  <div className="mt-1 text-sm font-semibold text-zinc-900">{detail?.name ?? "—"}</div>
+                  <div className="mt-1 text-sm font-semibold text-zinc-900">{detail?.name ?? "N/A"}</div>
                 )}
                 <div className="mt-3 text-xs font-semibold text-zinc-600">Email</div>
                 {editingContact ? (
@@ -823,7 +823,7 @@ export function PortalPeopleContactsClient() {
                     placeholder="email@company.com"
                   />
                 ) : (
-                  <div className="mt-1 text-sm text-zinc-800">{detail?.email ?? "—"}</div>
+                  <div className="mt-1 text-sm text-zinc-800">{detail?.email ?? "N/A"}</div>
                 )}
                 <div className="mt-3 text-xs font-semibold text-zinc-600">Phone</div>
                 {editingContact ? (
@@ -834,7 +834,7 @@ export function PortalPeopleContactsClient() {
                     placeholder="+15551234567"
                   />
                 ) : (
-                  <div className="mt-1 text-sm text-zinc-800">{detail?.phone ?? "—"}</div>
+                  <div className="mt-1 text-sm text-zinc-800">{detail?.phone ?? "N/A"}</div>
                 )}
 
                 <div className="mt-4 flex flex-wrap items-center gap-2">
@@ -900,7 +900,7 @@ export function PortalPeopleContactsClient() {
                 </div>
 
                 <div className="mt-3 text-xs text-zinc-500">
-                  Created: {detail?.createdAtIso ? new Date(detail.createdAtIso).toLocaleString() : "—"}
+                  Created: {detail?.createdAtIso ? new Date(detail.createdAtIso).toLocaleString() : "N/A"}
                   {detail?.updatedAtIso ? ` • Updated: ${new Date(detail.updatedAtIso).toLocaleString()}` : ""}
                 </div>
               </div>

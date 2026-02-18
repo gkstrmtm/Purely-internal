@@ -562,7 +562,7 @@ export function PortalMissedCallTextBackClient({ embedded }: { embedded?: boolea
                 }
               >
                 <div className="text-xs font-semibold text-zinc-600">Webhook URL (token-based)</div>
-                <div className="mt-2 break-all font-mono text-xs text-zinc-800">{webhookUrlLegacy || "—"}</div>
+                <div className="mt-2 break-all font-mono text-xs text-zinc-800">{webhookUrlLegacy || "N/A"}</div>
                 <div className="mt-3 flex items-center justify-between gap-2">
                   <button
                     type="button"

@@ -52,8 +52,8 @@ export async function POST(req: Request, ctx: { params: Promise<{ campaignId: st
       subject: kind === "EMAIL" ? "Quick question" : null,
       body:
         kind === "EMAIL"
-          ? "Hi {contact.name},\n\nJust checking in — do you want help getting this set up?\n\n– {business.name}"
-          : "Hey {contact.name} — just checking in. Want help getting this set up?",
+          ? "Hi {contact.name},\n\nJust checking in. Do you want help getting this set up?\n\n– {business.name}"
+          : "Hey {contact.name}, just checking in. Want help getting this set up?",
       createdAt: now,
       updatedAt: now,
     },

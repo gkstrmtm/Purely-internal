@@ -287,7 +287,7 @@ export function PortalPeopleUsersClient() {
             <div className="flex items-center justify-between gap-3">
               <div className="text-base font-semibold text-zinc-900">Members</div>
               <div className="text-xs font-semibold uppercase tracking-wide text-zinc-500">
-                Your role: {data.myRole ?? "—"}
+                Your role: {data.myRole ?? "N/A"}
               </div>
             </div>
 
@@ -311,7 +311,7 @@ export function PortalPeopleUsersClient() {
                       onClick={() => openMemberEditor(m)}
                     >
                       <td className="px-4 py-3">
-                        <div className="font-semibold text-zinc-900">{m.user?.name || "—"}</div>
+                        <div className="font-semibold text-zinc-900">{m.user?.name || "N/A"}</div>
                         <div className="text-xs text-zinc-500">{m.user?.email || ""}</div>
                       </td>
                       <td className="px-4 py-3">

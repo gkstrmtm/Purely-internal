@@ -59,7 +59,7 @@ export function parseMissedCallTextBackSettings(raw: unknown): MissedCallTextBac
     version: 1,
     enabled: false,
     replyDelaySeconds: 5,
-    replyBody: "Hey! Sorry we missed your call — what can we help with?",
+    replyBody: "Hey! Sorry we missed your call. What can we help with?",
     mediaUrls: [],
     forwardToPhoneE164: null,
     webhookToken: newToken(),

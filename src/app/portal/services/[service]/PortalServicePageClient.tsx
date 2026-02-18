@@ -69,7 +69,7 @@ function benefitCopyForService(serviceSlug: string, entitlementKey?: string) {
         "Automate follow-ups so every lead gets touched",
         "Standardize messaging while staying personal",
         "See what’s working and iterate",
-        "Spend time closing—not chasing",
+        "Spend time closing, not chasing",
       ],
     };
   }

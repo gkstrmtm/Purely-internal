@@ -195,7 +195,7 @@ function compactNum(n: number) {
 }
 
 function formatPct(value: number | null) {
-  if (typeof value !== "number" || !Number.isFinite(value)) return "—";
+  if (typeof value !== "number" || !Number.isFinite(value)) return "N/A";
   return `${Math.round(value * 100)}%`;
 }
 
@@ -873,7 +873,7 @@ export function PortalDashboardClient() {
             <div className="text-3xl font-bold text-brand-ink">
               {typeof derived.creditRunwayDays === "number" && Number.isFinite(derived.creditRunwayDays)
                 ? `~${Math.max(0, Math.round(derived.creditRunwayDays))} days`
-                : "—"}
+                : "N/A"}
             </div>
             <div className="mt-2 text-xs text-zinc-500">Estimated based on your current spend rate</div>
             <div className="mt-3 space-y-2">
@@ -883,7 +883,7 @@ export function PortalDashboardClient() {
                 value={
                   typeof derived.creditsPerDay === "number" && Number.isFinite(derived.creditsPerDay)
                     ? `~${Math.max(0, derived.creditsPerDay).toFixed(1)} / day`
-                    : "—"
+                    : "N/A"
                 }
               />
             </div>
@@ -965,7 +965,7 @@ export function PortalDashboardClient() {
             case "reviewsCollected":
               return compactNum(k.reviewsCollected);
             case "avgReviewRating":
-              return typeof k.avgReviewRating === "number" ? k.avgReviewRating.toFixed(1) : "—";
+              return typeof k.avgReviewRating === "number" ? k.avgReviewRating.toFixed(1) : "N/A";
             case "newsletterSends":
               return compactNum(k.newsletterSentCount);
             case "nurtureEnrollments":
@@ -1119,7 +1119,7 @@ export function PortalDashboardClient() {
               <StatLine label="Reviews collected" value={compactNum(k?.reviewsCollected ?? 0)} />
               <StatLine
                 label="Avg rating"
-                value={typeof k?.avgReviewRating === "number" ? k.avgReviewRating.toFixed(1) : "—"}
+                value={typeof k?.avgReviewRating === "number" ? k.avgReviewRating.toFixed(1) : "N/A"}
               />
               <StatLine label="Bookings" value={compactNum(k?.bookingsCreated ?? 0)} />
             </div>

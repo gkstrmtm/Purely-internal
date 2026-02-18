@@ -165,7 +165,7 @@ export async function POST(req: Request) {
             ownerId: userId,
             title: `Transcript – ${lead.businessName}`,
             kind: "CALL_TRANSCRIPT",
-            content: "(Paste transcript here — demo)\n",
+            content: "(Paste transcript here. Demo)\n",
           },
           select: { id: true, title: true, content: true, kind: true },
         });

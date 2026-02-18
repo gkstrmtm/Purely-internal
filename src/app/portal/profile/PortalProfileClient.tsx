@@ -79,7 +79,7 @@ function CopyRow({ label, value }: { label: string; value: string | null | undef
   return (
     <div className="rounded-2xl border border-zinc-200 bg-zinc-50 p-4">
       <div className="text-xs font-semibold text-zinc-600">{label}</div>
-      <div className="mt-2 break-all font-mono text-xs text-zinc-800">{v ?? "—"}</div>
+      <div className="mt-2 break-all font-mono text-xs text-zinc-800">{v ?? "N/A"}</div>
       <div className="mt-3 flex items-center justify-end">
         <button
           type="button"
@@ -780,10 +780,10 @@ export function PortalProfileClient() {
                     Configured: <span className="font-semibold text-zinc-900">{twilioMasked?.configured ? "Yes" : "No"}</span>
                   </div>
                   <div className="mt-1">
-                    Account: <span className="font-mono">{twilioMasked?.accountSidMasked ?? "—"}</span>
+                    Account: <span className="font-mono">{twilioMasked?.accountSidMasked ?? "N/A"}</span>
                   </div>
                   <div className="mt-1">
-                    From: <span className="font-mono">{twilioMasked?.fromNumberE164 ?? "—"}</span>
+                    From: <span className="font-mono">{twilioMasked?.fromNumberE164 ?? "N/A"}</span>
                   </div>
                 </div>
 

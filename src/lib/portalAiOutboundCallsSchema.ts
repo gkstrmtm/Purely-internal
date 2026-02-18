@@ -38,7 +38,7 @@ CREATE TABLE IF NOT EXISTS "PortalAiOutboundCallCampaign" (
   "name" TEXT NOT NULL,
   "status" "PortalAiOutboundCallCampaignStatus" NOT NULL DEFAULT 'DRAFT',
   "audienceTagIdsJson" JSONB,
-  "script" TEXT NOT NULL DEFAULT 'Hi — this is an automated call. Please call us back when you have a moment.',
+  "script" TEXT NOT NULL DEFAULT 'Hi, this is an automated call. Please call us back when you have a moment.',
   "voiceAgentId" TEXT,
   "voiceAgentConfigJson" JSONB,
   "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,

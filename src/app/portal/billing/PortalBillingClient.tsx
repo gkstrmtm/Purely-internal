@@ -472,7 +472,7 @@ export function PortalBillingClient() {
   const spentThisMonthText =
     summary && summary.configured && "spentThisMonthCents" in summary && typeof summary.spentThisMonthCents === "number"
       ? formatMoney(summary.spentThisMonthCents, (summary as any).spentThisMonthCurrency || summaryCurrency)
-      : "—";
+      : "N/A";
 
   const serviceStatuses = services && "ok" in services && services.ok ? services.statuses : null;
 
@@ -519,7 +519,7 @@ export function PortalBillingClient() {
       : "") ||
     (internalMonthlyBreakdown[0]?.currency || summaryCurrency || "usd");
 
-  const monthlyText = status?.configured ? formatMoney(displayMonthlyCents, displayCurrency) : "—";
+  const monthlyText = status?.configured ? formatMoney(displayMonthlyCents, displayCurrency) : "N/A";
 
   const sub = summary && "ok" in summary && summary.ok === true && summary.configured ? summary.subscription : undefined;
   const hasActiveSub = Boolean(sub?.id && ["active", "trialing", "past_due"].includes(String(sub.status)));
@@ -677,7 +677,7 @@ export function PortalBillingClient() {
                   <div className="rounded-2xl border border-zinc-200 bg-zinc-50 p-4">
                     <div className="text-xs font-semibold text-zinc-500">Monthly</div>
                     <div className="mt-1 text-lg font-bold text-brand-ink">
-                      {typeof monthlyCents === "number" ? formatMoney(monthlyCents, currency) : "—"}
+                      {typeof monthlyCents === "number" ? formatMoney(monthlyCents, currency) : "N/A"}
                       <span className="text-sm font-semibold text-zinc-500">/mo</span>
                     </div>
                   </div>
@@ -877,7 +877,7 @@ export function PortalBillingClient() {
           </div>
           <div className="text-right">
             <div className="text-xs text-zinc-500">Balance</div>
-            <div className="mt-1 text-2xl font-bold text-brand-ink">{credits ?? "—"}</div>
+            <div className="mt-1 text-2xl font-bold text-brand-ink">{credits ?? "N/A"}</div>
           </div>
         </div>
 

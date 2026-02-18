@@ -106,7 +106,7 @@ function isEmail(value: string): boolean {
 }
 
 function buildNewsletterEmailPreview(opts: { excerpt: string; link: string }) {
-  return [opts.excerpt, "", `Read online: ${opts.link}`, "", "—", "Sent via Purely Automation"].join("\n");
+  return [opts.excerpt, "", `Read online: ${opts.link}`, "", "-", "Sent via Purely Automation"].join("\n");
 }
 
 function buildNewsletterSmsPreview(opts: { smsText: string | null; link: string }) {
@@ -1195,11 +1195,11 @@ export function PortalNewsletterClient({ initialAudience }: { initialAudience: A
           <div className="mt-5 grid gap-4 sm:grid-cols-2">
             <div className="rounded-2xl border border-zinc-200 bg-white px-4 py-3">
               <div className="text-xs font-semibold uppercase tracking-wide text-zinc-500">Last generated</div>
-              <div className="mt-2 text-sm text-zinc-800">{formatDate(settings?.lastGeneratedAt ?? null) || "—"}</div>
+              <div className="mt-2 text-sm text-zinc-800">{formatDate(settings?.lastGeneratedAt ?? null) || "N/A"}</div>
             </div>
             <div className="rounded-2xl border border-zinc-200 bg-white px-4 py-3">
               <div className="text-xs font-semibold uppercase tracking-wide text-zinc-500">Next due</div>
-              <div className="mt-2 text-sm text-zinc-800">{formatDate(settings?.nextDueAt ?? null) || "—"}</div>
+              <div className="mt-2 text-sm text-zinc-800">{formatDate(settings?.nextDueAt ?? null) || "N/A"}</div>
             </div>
           </div>
 
@@ -1556,7 +1556,7 @@ export function PortalNewsletterClient({ initialAudience }: { initialAudience: A
           <div className="mt-6 rounded-2xl border border-zinc-200 bg-zinc-50 p-4">
             <div className="text-xs font-semibold uppercase tracking-wide text-zinc-500">Usage (30d)</div>
             <div className="mt-2 text-sm text-zinc-800">
-              {creditsUsed30d === null ? "—" : `${creditsUsed30d} credits used`} · {generations30d === null ? "—" : `${generations30d} generations`}
+              {creditsUsed30d === null ? "N/A" : `${creditsUsed30d} credits used`} · {generations30d === null ? "N/A" : `${generations30d} generations`}
             </div>
           </div>
 

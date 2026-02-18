@@ -114,7 +114,7 @@ export async function POST(req: Request) {
       ownerId,
       name,
       status: "DRAFT",
-      script: "Hi {contact.name} — this is {business.name}. We saw your recent request and wanted to help. If now isn’t a good time, you can call us back.",
+      script: "Hi {contact.name}, this is {business.name}. We saw your recent request and wanted to help. If now isn’t a good time, you can call us back.",
       audienceTagIdsJson: [],
       voiceAgentId: null,
       createdAt: now,

@@ -794,7 +794,7 @@ model PortalAiOutboundCallCampaign {
   audienceTagIdsJson Json?
 
   // Script read aloud on connect.
-  script String @default("Hi — this is an automated call. Please call us back when you have a moment.")
+  script String @default("Hi, this is an automated call. Please call us back when you have a moment.")
 
   // Optional ElevenLabs agent id override for this campaign.
   voiceAgentId String?

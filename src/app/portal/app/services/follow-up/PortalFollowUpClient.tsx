@@ -433,9 +433,9 @@ export function PortalFollowUpClient({ embedded }: { embedded?: boolean } = {}) 
       channels: { email: true, sms: false },
       email: {
         subjectTemplate: "Thanks, {contactName}",
-        bodyTemplate: "Hi {contactName},\n\nThanks again — {businessName}",
+        bodyTemplate: "Hi {contactName},\n\nThanks again, {businessName}",
       },
-      sms: { bodyTemplate: "Thanks again — {businessName}" },
+      sms: { bodyTemplate: "Thanks again, {businessName}" },
     };
 
     setSettings({ ...settings, templates: [...settings.templates, nextTemplate].slice(0, 20) });
@@ -1255,8 +1255,8 @@ export function PortalFollowUpClient({ embedded }: { embedded?: boolean } = {}) 
                   delayMinutes: 60,
                   audience: "CONTACT",
                   channels: { email: true, sms: false },
-                  email: { subjectTemplate: "Thanks, {contactName}", bodyTemplate: "Hi {contactName},\n\nThanks again — {businessName}" },
-                  sms: { bodyTemplate: "Thanks again — {businessName}" },
+                  email: { subjectTemplate: "Thanks, {contactName}", bodyTemplate: "Hi {contactName},\n\nThanks again, {businessName}" },
+                  sms: { bodyTemplate: "Thanks again, {businessName}" },
                 });
 
                 const stepFromPreset = (presetId: string): FollowUpStep | null => {

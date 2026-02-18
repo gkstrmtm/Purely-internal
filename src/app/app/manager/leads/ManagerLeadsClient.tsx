@@ -379,7 +379,7 @@ export default function ManagerLeadsClient({
               <option value="">Select a dialer…</option>
               {dialers.map((u) => (
                 <option key={u.id} value={u.id}>
-                  {(u.name ?? "(no name)") + " — " + u.email}
+                  {(u.name ?? "(no name)") + " - " + u.email}
                 </option>
               ))}
             </select>
@@ -532,7 +532,7 @@ export default function ManagerLeadsClient({
                                   >
                                     {closerOptions.map((c) => (
                                       <option key={c.id} value={c.id}>
-                                        {(c.name ?? "(no name)") + " — " + c.email + (c.isAvailable === false ? " (unavailable)" : "")}
+                                        {(c.name ?? "(no name)") + " - " + c.email + (c.isAvailable === false ? " (unavailable)" : "")}
                                       </option>
                                     ))}
                                   </select>

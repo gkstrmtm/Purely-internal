@@ -278,7 +278,7 @@ export async function POST(
     void tryNotifyPortalAccountUsers({
       ownerId: String(ownerId),
       kind: "booking_created",
-      subject: `New booking: ${cal.title} — ${booking.contactName}`,
+      subject: `New booking: ${cal.title} - ${booking.contactName}`,
       text: [
         "A new booking was created.",
         "",
@@ -383,7 +383,7 @@ export async function POST(
     if (notifyTo.length) {
       await sendEmail({
         to: notifyTo,
-        subject: `New booking: ${title} — ${booking.contactName}`,
+        subject: `New booking: ${title} - ${booking.contactName}`,
         body: internalBody,
         fromName,
       });
