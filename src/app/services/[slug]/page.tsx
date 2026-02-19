@@ -58,7 +58,9 @@ function getMarketingService(slug: string): MarketingService | null {
     };
   }
 
-  const portal = PORTAL_SERVICES.find((s) => s.slug === slug && !s.hidden);
+  const portal = PORTAL_SERVICES.find(
+    (s) => s.slug === slug && !s.hidden && (!s.variants || s.variants.includes("portal")),
+  );
   if (!portal) return null;
 
   return {
@@ -70,7 +72,9 @@ function getMarketingService(slug: string): MarketingService | null {
 }
 
 function portalServiceForSlug(slug: string): PortalService | null {
-  const found = PORTAL_SERVICES.find((s) => s.slug === slug && !s.hidden);
+  const found = PORTAL_SERVICES.find(
+    (s) => s.slug === slug && !s.hidden && (!s.variants || s.variants.includes("portal")),
+  );
   return found ?? null;
 }
 
@@ -312,7 +316,9 @@ function relatedServiceSlugs(slug: string): string[] {
 }
 
 export async function generateStaticParams() {
-  const slugs = PORTAL_SERVICES.filter((s) => !s.hidden).map((s) => s.slug);
+  const slugs = PORTAL_SERVICES.filter((s) => !s.hidden && (!s.variants || s.variants.includes("portal"))).map(
+    (s) => s.slug,
+  );
   return [{ slug: "portal" }, ...slugs.map((slug) => ({ slug }))];
 }
 

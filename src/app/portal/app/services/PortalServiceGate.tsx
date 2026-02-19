@@ -1,9 +1,11 @@
 import Link from "next/link";
+import { headers } from "next/headers";
 
 import { PORTAL_SERVICES } from "@/app/portal/services/catalog";
 import { requirePortalUserForAnyService, requirePortalUserForService } from "@/lib/portalAuth";
 import { getPortalServiceStatusesForOwner } from "@/lib/portalServicesStatus";
 import type { PortalServiceKey } from "@/lib/portalPermissions.shared";
+import { normalizePortalVariant, portalBasePath, PORTAL_VARIANT_HEADER } from "@/lib/portalVariant";
 
 function serviceKeysForSlug(slug: string): readonly PortalServiceKey[] {
   switch (slug) {
@@ -90,6 +92,7 @@ function benefitCopyForService(serviceSlug: string, entitlementKey?: string) {
 }
 
 function LockedShell(opts: {
+  basePath: "/portal" | "/credit";
   slug: string;
   title: string;
   description: string;
@@ -102,10 +105,10 @@ function LockedShell(opts: {
 
   const billingUnlockHref =
     opts.state === "paused" || opts.state === "canceled"
-      ? "/portal/app/billing"
+      ? `${opts.basePath}/app/billing`
       : opts.entitlementKey
-        ? `/portal/app/billing?buy=${encodeURIComponent(opts.entitlementKey)}&autostart=1`
-        : "/portal/app/billing";
+        ? `${opts.basePath}/app/billing?buy=${encodeURIComponent(opts.entitlementKey)}&autostart=1`
+        : `${opts.basePath}/app/billing`;
 
   const primaryCta = opts.state === "paused" || opts.state === "canceled" ? "Open Billing" : `Unlock ${opts.title}`;
 
@@ -169,7 +172,7 @@ function LockedShell(opts: {
             </Link>
           ) : null}
           <Link
-            href="/portal/app/services"
+            href={`${opts.basePath}/app/services`}
             className="inline-flex items-center justify-center rounded-2xl border border-zinc-200 bg-white px-5 py-3 text-sm font-semibold text-brand-ink hover:bg-zinc-50"
           >
             Back to services
@@ -187,6 +190,10 @@ export async function PortalServiceGate({
   slug: string;
   children: React.ReactNode;
 }) {
+  const h = await headers();
+  const variant = normalizePortalVariant(h.get(PORTAL_VARIANT_HEADER)) ?? "portal";
+  const basePath = portalBasePath(variant);
+
   const service = PORTAL_SERVICES.find((s) => s.slug === slug) ?? null;
   if (!service) return children;
 
@@ -205,6 +212,7 @@ export async function PortalServiceGate({
   if (state === "locked" || state === "paused" || state === "canceled" || state === "coming_soon") {
     return (
       <LockedShell
+        basePath={basePath}
         slug={slug}
         title={service.title}
         description={service.description}

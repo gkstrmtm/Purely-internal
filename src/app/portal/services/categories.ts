@@ -49,6 +49,7 @@ export function portalServiceCategoryForSlug(slug: string): PortalServiceCategor
       return "automation";
 
     case "lead-scraping":
+    case "funnel-builder":
       return "leads";
 
     case "media-library":

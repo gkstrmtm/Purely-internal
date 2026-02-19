@@ -76,7 +76,9 @@ export async function proxy(req: NextRequest) {
       (path === "/credit/login" ||
         path.startsWith("/credit/login/") ||
         path === "/credit/get-started" ||
-        path.startsWith("/credit/get-started/"));
+        path.startsWith("/credit/get-started/") ||
+        path.startsWith("/credit/f/") ||
+        path.startsWith("/credit/forms/"));
 
     const rewrittenPath = isCredit ? (path.replace("/credit", "/portal") || "/portal") : path;
     const rewrittenUrl = req.nextUrl.clone();

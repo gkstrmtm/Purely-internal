@@ -3,6 +3,7 @@ export type PortalService = {
   title: string;
   description: string;
   highlights?: string[];
+  variants?: ("portal" | "credit")[];
   entitlementKey?:
     | "blog"
     | "booking"
@@ -20,6 +21,19 @@ export type PortalService = {
 };
 
 export const PORTAL_SERVICES: PortalService[] = [
+  {
+    slug: "funnel-builder",
+    title: "Funnel Builder",
+    description: "Create funnels, forms, and connect domains.",
+    highlights: [
+      "Build and manage multiple funnels",
+      "Create and host forms",
+      "Connect a custom domain (DNS)",
+    ],
+    included: true,
+    accent: "blue",
+    variants: ["credit"],
+  },
   {
     slug: "inbox",
     title: "Inbox / Outbox",

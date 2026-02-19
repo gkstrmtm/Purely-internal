@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { usePathname } from "next/navigation";
 import { useCallback, useEffect, useMemo, useState } from "react";
 
 import { IconLock, IconServiceGlyph } from "@/app/portal/PortalIcons";
@@ -63,6 +64,10 @@ export function PortalServicesClient() {
   const [portalMe, setPortalMe] = useState<PortalMe | null>(null);
   const [statusRes, setStatusRes] = useState<StatusResponse | null>(null);
 
+  const pathname = usePathname();
+  const basePath = pathname === "/credit" || pathname.startsWith("/credit/") ? "/credit" : "/portal";
+  const variant = basePath === "/credit" ? "credit" : "portal";
+
   useEffect(() => {
     let mounted = true;
     (async () => {
@@ -120,8 +125,11 @@ export function PortalServicesClient() {
   }, [knownServiceKeys, portalMe]);
 
   const services = useMemo(() => {
-    return PORTAL_SERVICES.filter((s) => !s.hidden).filter((s) => canViewServiceSlug(s.slug));
-  }, [canViewServiceSlug]);
+    return PORTAL_SERVICES
+      .filter((s) => !s.hidden)
+      .filter((s) => !s.variants || s.variants.includes(variant))
+      .filter((s) => canViewServiceSlug(s.slug));
+  }, [canViewServiceSlug, variant]);
 
   const serviceGroups = useMemo(() => groupPortalServices(services), [services]);
 
@@ -138,7 +146,7 @@ export function PortalServicesClient() {
         </div>
         {canViewBilling ? (
           <Link
-            href="/portal/app/billing"
+            href={`${basePath}/app/billing`}
             className="inline-flex items-center justify-center rounded-2xl bg-brand-ink px-4 py-2 text-sm font-semibold text-white hover:opacity-95"
           >
             Billing
@@ -164,7 +172,7 @@ export function PortalServicesClient() {
                 return (
                   <Link
                     key={s.slug}
-                    href={`/portal/app/services/${s.slug}`}
+                    href={`${basePath}/app/services/${s.slug}`}
                     className="group rounded-3xl border border-zinc-200 bg-white p-6 hover:bg-zinc-50"
                   >
                     <div className="flex items-start justify-between gap-3">

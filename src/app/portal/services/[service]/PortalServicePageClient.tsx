@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { usePathname } from "next/navigation";
 import { useEffect, useMemo, useState } from "react";
 
 import { PORTAL_SERVICES } from "@/app/portal/services/catalog";
@@ -97,9 +98,17 @@ function benefitCopyForService(serviceSlug: string, entitlementKey?: string) {
 }
 
 export function PortalServicePageClient({ slug }: { slug: string }) {
+  const pathname = usePathname();
+  const variant = pathname === "/credit" || pathname.startsWith("/credit/") ? "credit" : "portal";
+
   const service = useMemo(
-    () => PORTAL_SERVICES.find((s) => s.slug === slug) ?? null,
-    [slug],
+    () => {
+      const s = PORTAL_SERVICES.find((x) => x.slug === slug) ?? null;
+      if (!s) return null;
+      if (!s.variants) return s;
+      return s.variants.includes(variant) ? s : null;
+    },
+    [slug, variant],
   );
 
   const [loading, setLoading] = useState(true);

@@ -147,6 +147,11 @@ model User {
 
   connectRoomsCreated  ConnectRoom[]
   connectParticipants  ConnectParticipant[]
+
+  creditFunnels       CreditFunnel[]
+  creditForms         CreditForm[]
+  creditCustomDomains CreditCustomDomain[]
+  creditFunnelBuilderSettings CreditFunnelBuilderSettings?
 }
 
 model EmployeeInvite {
@@ -1602,4 +1607,122 @@ model PortalTask {
 
   @@index([ownerId, status, updatedAt])
   @@index([ownerId, assignedToUserId, status])
+}
+
+enum CreditFunnelStatus {
+  DRAFT
+  ACTIVE
+  ARCHIVED
+}
+
+enum CreditFormStatus {
+  DRAFT
+  ACTIVE
+  ARCHIVED
+}
+
+enum CreditCustomDomainStatus {
+  PENDING
+  VERIFIED
+}
+
+model CreditFunnel {
+  id String @id @default(cuid())
+
+  ownerId String
+
+  slug   String @unique
+  name   String
+  status CreditFunnelStatus @default(DRAFT)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  owner User @relation(fields: [ownerId], references: [id])
+
+  pages CreditFunnelPage[]
+
+  @@index([ownerId, updatedAt])
+}
+
+model CreditForm {
+  id String @id @default(cuid())
+
+  ownerId String
+
+  slug   String @unique
+  name   String
+  status CreditFormStatus @default(DRAFT)
+
+  schemaJson Json?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  owner User @relation(fields: [ownerId], references: [id])
+
+  submissions CreditFormSubmission[]
+
+  @@index([ownerId, updatedAt])
+}
+
+model CreditFunnelPage {
+  id String @id @default(cuid())
+
+  funnelId String
+  slug     String
+  title    String
+  contentMarkdown String @default("")
+  sortOrder Int @default(0)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  funnel CreditFunnel @relation(fields: [funnelId], references: [id], onDelete: Cascade)
+
+  @@unique([funnelId, slug])
+  @@index([funnelId, sortOrder])
+}
+
+model CreditFormSubmission {
+  id String @id @default(cuid())
+
+  formId String
+  dataJson Json
+  ip String?
+  userAgent String?
+
+  createdAt DateTime @default(now())
+
+  form CreditForm @relation(fields: [formId], references: [id], onDelete: Cascade)
+
+  @@index([formId, createdAt])
+}
+
+model CreditFunnelBuilderSettings {
+  ownerId String @id
+  dataJson Json
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  owner User @relation(fields: [ownerId], references: [id], onDelete: Cascade)
+}
+
+model CreditCustomDomain {
+  id String @id @default(cuid())
+
+  ownerId String
+
+  domain String
+  status CreditCustomDomainStatus @default(PENDING)
+  verifiedAt DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  owner User @relation(fields: [ownerId], references: [id])
+
+  @@unique([ownerId, domain])
+  @@index([ownerId, updatedAt])
 }
