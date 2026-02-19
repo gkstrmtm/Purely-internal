@@ -139,6 +139,12 @@ SEED_DEMO_DATA=1 npm run db:seed
 
 Vercel builds do not require direct DB connectivity.
 
+## Credit repair portal (independent clone)
+
+Use the `credit-repair-portal` branch + a separate Vercel project + a separate database so accounts/data do not overlap.
+
+See [docs/credit-repair-portal.md](docs/credit-repair-portal.md).
+
 ## Blog automation cron (portal)
 
 The customer portal has a per-client blog automation scheduler that generates drafts on a schedule.
