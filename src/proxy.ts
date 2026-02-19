@@ -33,16 +33,25 @@ export async function proxy(req: NextRequest) {
   const creditCookie = req.cookies.get(CREDIT_PORTAL_SESSION_COOKIE_NAME)?.value;
   const portalToken = portalCookie && secret ? await decode({ token: portalCookie, secret }).catch(() => null) : null;
   const creditToken = creditCookie && secret ? await decode({ token: creditCookie, secret }).catch(() => null) : null;
+  const fromCredit = refererIsCredit(req);
 
   // Portal API calls should carry a portal variant hint so API auth can read the correct session cookie.
   if (path.startsWith("/api/portal/") || path === "/api/auth/client-signup") {
     const requestHeaders = new Headers(req.headers);
-    requestHeaders.set(PORTAL_VARIANT_HEADER, refererIsCredit(req) ? "credit" : "portal");
+    requestHeaders.set(PORTAL_VARIANT_HEADER, fromCredit ? "credit" : "portal");
     return NextResponse.next({ request: { headers: requestHeaders } });
   }
 
   const isCredit = isCreditPathname(path);
   const isPortal = isPortalPathname(path);
+
+  // If a credit navigation accidentally hits a hardcoded /portal/* link or a server-side
+  // redirect targets /portal/*, keep the user in the credit experience.
+  if (isPortal && fromCredit) {
+    const url = req.nextUrl.clone();
+    url.pathname = path.replace("/portal", "/credit") || "/credit";
+    return NextResponse.redirect(url);
+  }
 
   // If a credit-portal user lands on /portal/* (usually via a hardcoded link),
   // keep the credit experience fully under /credit/*.
