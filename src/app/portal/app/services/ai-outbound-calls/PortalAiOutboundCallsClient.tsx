@@ -1097,7 +1097,9 @@ export function PortalAiOutboundCallsClient() {
                     </div>
                   )}
                 </div>
-              ) : (
+              ) : null}
+
+              {tab === "settings" ? (
                 <>
 
               <div className="mt-5">
@@ -1589,7 +1591,7 @@ export function PortalAiOutboundCallsClient() {
 
               </div>
                 </>
-              )}
+              ) : null}
             </div>
           )}
         </div>
