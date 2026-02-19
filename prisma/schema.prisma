@@ -16,6 +16,11 @@ enum Role {
   CLIENT
 }
 
+enum ClientPortalVariant {
+  PORTAL
+  CREDIT
+}
+
 enum LeadStatus {
   NEW
   ASSIGNED
@@ -71,6 +76,8 @@ model User {
   role         Role    @default(DIALER)
   active       Boolean @default(true)
   timeZone     String  @default("America/New_York")
+
+  clientPortalVariant ClientPortalVariant @default(PORTAL)
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt

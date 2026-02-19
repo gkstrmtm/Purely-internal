@@ -1,13 +1,16 @@
 import type { Role } from "@prisma/client";
 import { cookies } from "next/headers";
+import { headers } from "next/headers";
 import { redirect } from "next/navigation";
 import { decode } from "next-auth/jwt";
 
 import { prisma } from "@/lib/db";
 import { hasPortalServiceCapability, type PortalServiceCapability } from "@/lib/portalPermissions";
 import type { PortalServiceKey } from "@/lib/portalPermissions.shared";
+import { normalizePortalVariant, PORTAL_VARIANT_HEADER, type PortalVariant } from "@/lib/portalVariant";
 
 export const PORTAL_SESSION_COOKIE_NAME = "pa.portal.session";
+export const CREDIT_PORTAL_SESSION_COOKIE_NAME = "pa.credit.session";
 
 export type PortalSessionUser = {
   id: string;
@@ -15,11 +18,32 @@ export type PortalSessionUser = {
   role: Role;
   name?: string | null;
   memberId?: string | null;
+  portalVariant?: PortalVariant;
 };
 
-export async function getPortalUser(): Promise<PortalSessionUser | null> {
+async function portalVariantFromHeaders(): Promise<PortalVariant | null> {
+  const h = await headers();
+  return normalizePortalVariant(h.get(PORTAL_VARIANT_HEADER));
+}
+
+export async function getPortalUser(opts?: { variant?: PortalVariant | "auto" }): Promise<PortalSessionUser | null> {
   const cookieStore = await cookies();
-  const tokenRaw = cookieStore.get(PORTAL_SESSION_COOKIE_NAME)?.value;
+  const requestedVariant = opts?.variant ?? "auto";
+
+  const headerVariant = requestedVariant === "auto" ? await portalVariantFromHeaders() : null;
+  const variant: PortalVariant =
+    requestedVariant === "portal" || requestedVariant === "credit"
+      ? requestedVariant
+      : headerVariant
+        ? headerVariant
+        : cookieStore.get(PORTAL_SESSION_COOKIE_NAME)
+          ? "portal"
+          : cookieStore.get(CREDIT_PORTAL_SESSION_COOKIE_NAME)
+            ? "credit"
+            : "portal";
+
+  const cookieName = variant === "credit" ? CREDIT_PORTAL_SESSION_COOKIE_NAME : PORTAL_SESSION_COOKIE_NAME;
+  const tokenRaw = cookieStore.get(cookieName)?.value;
   if (!tokenRaw) return null;
 
   const secret = process.env.NEXTAUTH_SECRET;
@@ -35,7 +59,7 @@ export async function getPortalUser(): Promise<PortalSessionUser | null> {
   const name = typeof (token as any).name === "string" ? ((token as any).name as string) : null;
 
   if (!uid || !email || !role) return null;
-  return { id: uid, email, role, name, memberId: memberUid && memberUid.trim() ? memberUid : uid };
+  return { id: uid, email, role, name, memberId: memberUid && memberUid.trim() ? memberUid : uid, portalVariant: variant };
 }
 
 export async function requirePortalUser() {

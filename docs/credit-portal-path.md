@@ -1,42 +1,35 @@
-# Credit portal at /credit (independent)
+# Credit portal at /credit (same Vercel project)
 
-Goal: serve an **independent** credit-repair portal at:
-- `https://purelyautomation.com/credit/portal/...`
+Goal: serve a **separate** credit-repair client portal at:
+- `https://purelyautomation.com/credit/...`
 
-…but keep it fully independent from the main portal:
-- separate accounts
-- separate DB
-- no links from funnels
+…while keeping it separate from the main portal at:
+- `https://purelyautomation.com/portal/...`
 
-## How this works (Vercel multi-zone)
+## How this works
 
-You deploy a **second Vercel project** for the credit portal (pointing at this repo’s `credit-repair-portal` branch).
+This repo now supports a **portal variant** concept:
+- `portal` (main) → base path `/portal`
+- `credit` → base path `/credit`
 
-Then, in the **main** Vercel project, set:
+Requests to `/credit/*` are handled by the **same Next.js routes** as `/portal/*` via the edge proxy rewrite in [src/proxy.ts](../src/proxy.ts), but the request is tagged with `x-portal-variant: credit`.
 
-- `CREDIT_PORTAL_ORIGIN=https://<your-credit-portal-deployment-domain>`
+Auth separation is handled by:
+- Separate session cookies:
+	- main: `pa.portal.session`
+	- credit: `pa.credit.session`
+- A user-level field `User.clientPortalVariant` (enum: `PORTAL` or `CREDIT`) so a user created for one portal **cannot log into the other**.
 
-The main project rewrites:
-- `/credit/:path*` → `${CREDIT_PORTAL_ORIGIN}/:path*`
+## What you need to do in production
 
-So users see `purelyautomation.com/credit/...`, but the request is served by the separate credit portal project.
+1) Apply the DB migration in production
+- New migration: [prisma/migrations/20260218193000_client_portal_variant/migration.sql](../prisma/migrations/20260218193000_client_portal_variant/migration.sql)
+- This adds `User.clientPortalVariant` with default `PORTAL`
 
-## Setup checklist
+2) Create credit-portal users
+- Any user created through `/credit/get-started` will be created as `clientPortalVariant=CREDIT`.
 
-1) Create **Credit portal** Vercel project
-- Repo: this repo
-- Branch: `credit-repair-portal`
-- Domain: use the default `*.vercel.app` domain (fine for the origin)
+## Notes / tradeoffs
 
-2) Credit portal env vars (separate values)
-- `DATABASE_URL` / `DIRECT_URL` → separate Postgres DB
-- `NEXTAUTH_URL` → the credit portal project’s URL (its `*.vercel.app` domain)
-- `NEXTAUTH_SECRET` → new secret
-- `SIGNUP_INVITE_CODE` → new code
-
-3) Main portal env var
-- `CREDIT_PORTAL_ORIGIN` → the credit portal project’s URL (e.g. `https://credit-repair-portal-xyz.vercel.app`)
-
-## Notes
-- `/credit` redirects to `/credit/portal`.
-- Keep navigation unlinked by simply not adding links to `/credit` anywhere.
+- This keeps everything in one Vercel project and one database.
+- If you ever want *hard* isolation (separate DB + no shared tables), you still need a second database (and typically a second Vercel project / multi-zone).

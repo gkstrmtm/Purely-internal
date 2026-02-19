@@ -6,6 +6,7 @@ import { hashPassword } from "@/lib/password";
 import { trySendTransactionalEmail } from "@/lib/emailSender";
 import { sendTwilioEnvSms } from "@/lib/twilioEnvSms";
 import { ensurePortalPasswordResetSchema } from "@/lib/portalPasswordResetSchema";
+import type { PortalVariant } from "@/lib/portalVariant";
 
 const PROFILE_EXTRAS_SERVICE_SLUG = "profile";
 
@@ -55,12 +56,18 @@ export async function getPortalUserPhoneE164(userId: string): Promise<string | n
 
 export async function createAndSendPortalPasswordResetCode(opts: {
   email: string;
+  variant?: PortalVariant;
 }): Promise<{ ok: true } | { ok: false; reason: string }> {
   const email = safeOneLine(opts.email).toLowerCase();
   if (!email || !email.includes("@")) return { ok: true };
 
+  const expectedVariant = opts.variant || "portal";
+
   const user = await prisma.user.findUnique({ where: { email } });
   if (!user || !user.active) return { ok: true };
+
+  const uv = (user as any).clientPortalVariant ? String((user as any).clientPortalVariant) : "PORTAL";
+  if (uv !== (expectedVariant === "credit" ? "CREDIT" : "PORTAL")) return { ok: true };
 
   // Only portal-capable accounts
   if (user.role !== "CLIENT" && user.role !== "ADMIN") return { ok: true };
@@ -139,10 +146,13 @@ export async function resetPortalPasswordWithCode(opts: {
   email: string;
   code: string;
   newPassword: string;
+  variant?: PortalVariant;
 }): Promise<{ ok: true } | { ok: false; reason: string }> {
   const email = safeOneLine(opts.email).toLowerCase();
   const code = safeOneLine(opts.code);
   const newPassword = String(opts.newPassword || "");
+
+  const expectedVariant = opts.variant || "portal";
 
   if (!email || !email.includes("@")) return { ok: false, reason: "Invalid request" };
   if (!code || code.length < 4 || code.length > 12) return { ok: false, reason: "Invalid code" };
@@ -150,6 +160,9 @@ export async function resetPortalPasswordWithCode(opts: {
 
   const user = await prisma.user.findUnique({ where: { email } });
   if (!user || !user.active) return { ok: false, reason: "Invalid code" };
+
+  const uv = (user as any).clientPortalVariant ? String((user as any).clientPortalVariant) : "PORTAL";
+  if (uv !== (expectedVariant === "credit" ? "CREDIT" : "PORTAL")) return { ok: false, reason: "Invalid code" };
   if (user.role !== "CLIENT" && user.role !== "ADMIN") return { ok: false, reason: "Invalid code" };
 
   await ensurePortalPasswordResetSchema();

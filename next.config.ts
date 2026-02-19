@@ -7,18 +7,7 @@ const nextConfig: NextConfig = {
     root: __dirname,
   },
   async redirects() {
-    return [
-      {
-        source: "/credit",
-        destination: "/credit/portal",
-        permanent: false,
-      },
-      {
-        source: "/credit/",
-        destination: "/credit/portal",
-        permanent: false,
-      },
-    ];
+    return [];
   },
   async rewrites() {
     const rewrites: Array<{ source: string; destination: string }> = [
@@ -26,18 +15,7 @@ const nextConfig: NextConfig = {
         source: "/hooks/:path*",
         destination: "/:path*",
       },
-
     ];
-
-    // Optional multi-zone: route /credit/* to an independent credit portal deployment.
-    // This allows purelyautomation.com/credit/... without sharing DB/users.
-    const creditOrigin = String(process.env.CREDIT_PORTAL_ORIGIN || "").trim().replace(/\/$/, "");
-    if (creditOrigin) {
-      rewrites.unshift({
-        source: "/credit/:path*",
-        destination: `${creditOrigin}/:path*`,
-      });
-    }
 
     return rewrites;
   },

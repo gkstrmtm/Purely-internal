@@ -3,6 +3,26 @@ import type { NextRequest } from "next/server";
 import { decode, getToken } from "next-auth/jwt";
 
 const PORTAL_SESSION_COOKIE_NAME = "pa.portal.session";
+const CREDIT_PORTAL_SESSION_COOKIE_NAME = "pa.credit.session";
+const PORTAL_VARIANT_HEADER = "x-portal-variant";
+
+function isCreditPathname(pathname: string) {
+  return pathname === "/credit" || pathname.startsWith("/credit/");
+}
+
+function isPortalPathname(pathname: string) {
+  return pathname === "/portal" || pathname.startsWith("/portal/");
+}
+
+function refererIsCredit(req: NextRequest) {
+  const referer = req.headers.get("referer") || "";
+  try {
+    const u = new URL(referer);
+    return isCreditPathname(u.pathname);
+  } catch {
+    return referer === "/credit" || referer.startsWith("/credit/");
+  }
+}
 
 export async function proxy(req: NextRequest) {
   const path = req.nextUrl.pathname;
@@ -10,7 +30,139 @@ export async function proxy(req: NextRequest) {
   const secret = process.env.NEXTAUTH_SECRET;
   const employeeToken = await getToken({ req, secret });
   const portalCookie = req.cookies.get(PORTAL_SESSION_COOKIE_NAME)?.value;
+  const creditCookie = req.cookies.get(CREDIT_PORTAL_SESSION_COOKIE_NAME)?.value;
   const portalToken = portalCookie && secret ? await decode({ token: portalCookie, secret }).catch(() => null) : null;
+  const creditToken = creditCookie && secret ? await decode({ token: creditCookie, secret }).catch(() => null) : null;
+
+  // Portal API calls should carry a portal variant hint so API auth can read the correct session cookie.
+  if (path.startsWith("/api/portal/") || path === "/api/auth/client-signup") {
+    const requestHeaders = new Headers(req.headers);
+    requestHeaders.set(PORTAL_VARIANT_HEADER, refererIsCredit(req) ? "credit" : "portal");
+    return NextResponse.next({ request: { headers: requestHeaders } });
+  }
+
+  const isCredit = isCreditPathname(path);
+  const isPortal = isPortalPathname(path);
+
+  // If only one portal session exists, keep the user in the matching base path.
+  if (isPortal && creditToken && !portalToken) {
+    const url = req.nextUrl.clone();
+    url.pathname = path.replace("/portal", "/credit") || "/credit";
+    return NextResponse.redirect(url);
+  }
+  if (isCredit && portalToken && !creditToken) {
+    const url = req.nextUrl.clone();
+    url.pathname = path.replace("/credit", "/portal") || "/portal";
+    return NextResponse.redirect(url);
+  }
+
+  // Serve /credit/* as an internal alias of /portal/* (same code) but separate auth.
+  if (isPortal || isCredit) {
+    const portalBase = isCredit ? "/credit" : "/portal";
+    const variantToken = isCredit ? creditToken : portalToken;
+
+    const rewrittenPath = isCredit ? (path.replace("/credit", "/portal") || "/portal") : path;
+    const rewrittenUrl = req.nextUrl.clone();
+    rewrittenUrl.pathname = rewrittenPath;
+
+    const requestHeaders = new Headers(req.headers);
+    requestHeaders.set(PORTAL_VARIANT_HEADER, isCredit ? "credit" : "portal");
+
+    const isPortalMarketingHome = rewrittenPath === "/portal" || rewrittenPath === "/portal/";
+    const isPortalPublicAuth =
+      rewrittenPath === "/portal/login" ||
+      rewrittenPath === "/portal/get-started" ||
+      rewrittenPath.startsWith("/portal/get-started/");
+    const isPortalPublicInvite = rewrittenPath === "/portal/invite" || rewrittenPath.startsWith("/portal/invite/");
+    const isPortalPublicApiAuth = rewrittenPath === "/portal/api/login" || rewrittenPath === "/portal/api/logout";
+
+    const isPortalApp = rewrittenPath === "/portal/app" || rewrittenPath.startsWith("/portal/app/");
+    const isLegacyPortalAppRoute =
+      rewrittenPath === "/portal/services" ||
+      rewrittenPath.startsWith("/portal/services/") ||
+      rewrittenPath === "/portal/billing" ||
+      rewrittenPath.startsWith("/portal/billing/") ||
+      rewrittenPath === "/portal/profile" ||
+      rewrittenPath.startsWith("/portal/profile/") ||
+      rewrittenPath === "/portal/modules" ||
+      rewrittenPath.startsWith("/portal/modules/");
+
+    function respondNextOrRewrite() {
+      return isCredit
+        ? NextResponse.rewrite(rewrittenUrl, { request: { headers: requestHeaders } })
+        : NextResponse.next({ request: { headers: requestHeaders } });
+    }
+
+    function requireClientOrAdmin() {
+      if (!variantToken) {
+        const url = req.nextUrl.clone();
+        url.pathname = `${portalBase}/login`;
+        return url;
+      }
+      const role = (variantToken as unknown as { role?: string }).role;
+      if (role !== "CLIENT" && role !== "ADMIN") {
+        return new URL("/app", req.url);
+      }
+      return null;
+    }
+
+    // Public portal home (marketing) should remain accessible even when signed in.
+    if (isPortalMarketingHome) return respondNextOrRewrite();
+
+    // Public portal auth pages
+    if (isPortalPublicAuth) return respondNextOrRewrite();
+
+    // Public portal invite acceptance page must be reachable without an employee session.
+    if (isPortalPublicInvite) return respondNextOrRewrite();
+
+    // Portal auth API routes must remain accessible without an employee session.
+    // These endpoints manage the portal session cookie directly.
+    if (isPortalPublicApiAuth) return respondNextOrRewrite();
+
+    // Redirect legacy authenticated portal URLs to the new /portal/app/* tree.
+    if (isLegacyPortalAppRoute) {
+      const guard = requireClientOrAdmin();
+      if (guard) {
+        let target = path;
+        if (path === `${portalBase}/modules` || path.startsWith(`${portalBase}/modules/`)) {
+          target = `${portalBase}/app/services`;
+        } else if (path.startsWith(`${portalBase}/services`)) {
+          target = path.replace(`${portalBase}/services`, `${portalBase}/app/services`);
+        } else if (path.startsWith(`${portalBase}/billing`)) {
+          target = path.replace(`${portalBase}/billing`, `${portalBase}/app/billing`);
+        } else if (path.startsWith(`${portalBase}/profile`)) {
+          target = path.replace(`${portalBase}/profile`, `${portalBase}/app/profile`);
+        }
+        guard.searchParams.set("from", target);
+        return NextResponse.redirect(guard);
+      }
+
+      if (path === `${portalBase}/modules` || path.startsWith(`${portalBase}/modules/`)) {
+        return NextResponse.redirect(new URL(`${portalBase}/app/services`, req.url));
+      }
+      if (path.startsWith(`${portalBase}/services`)) {
+        return NextResponse.redirect(new URL(path.replace(`${portalBase}/services`, `${portalBase}/app/services`), req.url));
+      }
+      if (path.startsWith(`${portalBase}/billing`)) {
+        return NextResponse.redirect(new URL(path.replace(`${portalBase}/billing`, `${portalBase}/app/billing`), req.url));
+      }
+      if (path.startsWith(`${portalBase}/profile`)) {
+        return NextResponse.redirect(new URL(path.replace(`${portalBase}/profile`, `${portalBase}/app/profile`), req.url));
+      }
+    }
+
+    // Authenticated client portal (new URL tree)
+    if (isPortalApp) {
+      const guard = requireClientOrAdmin();
+      if (guard) {
+        guard.searchParams.set("from", path);
+        return NextResponse.redirect(guard);
+      }
+      return respondNextOrRewrite();
+    }
+
+    return respondNextOrRewrite();
+  }
 
   const isPortalMarketingHome = path === "/portal" || path === "/portal/";
   const isPortalPublicAuth =
@@ -170,5 +322,5 @@ export async function proxy(req: NextRequest) {
 }
 
 export const config = {
-  matcher: ["/app/:path*", "/dashboard/:path*", "/portal/:path*"],
+  matcher: ["/app/:path*", "/dashboard/:path*", "/portal/:path*", "/credit/:path*", "/api/portal/:path*", "/api/auth/client-signup"],
 };

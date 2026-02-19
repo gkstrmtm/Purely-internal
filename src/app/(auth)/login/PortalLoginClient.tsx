@@ -6,6 +6,7 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { useMemo, useState } from "react";
 
 import { useToast } from "@/components/ToastProvider";
+import { PORTAL_VARIANT_HEADER } from "@/lib/portalVariant";
 
 function safeInternalPath(raw: string | null | undefined, fallback: string) {
   if (!raw) return fallback;
@@ -21,6 +22,7 @@ export default function PortalLoginClient() {
 
   const fromRaw = searchParams.get("from");
   const from = useMemo(() => safeInternalPath(fromRaw, "/portal/app"), [fromRaw]);
+  const portalVariant = useMemo(() => (from.startsWith("/credit") ? "credit" : "portal"), [from]);
 
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -39,7 +41,7 @@ export default function PortalLoginClient() {
 
     const res = await fetch("/portal/api/login", {
       method: "POST",
-      headers: { "content-type": "application/json" },
+      headers: { "content-type": "application/json", [PORTAL_VARIANT_HEADER]: portalVariant },
       body: JSON.stringify({ email, password }),
     });
 
@@ -128,7 +130,7 @@ export default function PortalLoginClient() {
                     try {
                       await fetch("/portal/api/forgot-password/request", {
                         method: "POST",
-                        headers: { "content-type": "application/json" },
+                        headers: { "content-type": "application/json", [PORTAL_VARIANT_HEADER]: portalVariant },
                         body: JSON.stringify({ email: email.trim() }),
                       });
                       setResetRequested(true);
@@ -179,7 +181,7 @@ export default function PortalLoginClient() {
                     try {
                       const res = await fetch("/portal/api/forgot-password/reset", {
                         method: "POST",
-                        headers: { "content-type": "application/json" },
+                        headers: { "content-type": "application/json", [PORTAL_VARIANT_HEADER]: portalVariant },
                         body: JSON.stringify({
                           email: email.trim(),
                           code: resetCode.trim(),

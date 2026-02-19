@@ -6,9 +6,10 @@ import { prisma } from "@/lib/db";
 import { hashPassword } from "@/lib/password";
 import { ensureClientRoleAllowed, isClientRoleMissingError } from "@/lib/ensureClientRoleAllowed";
 import { normalizePhoneStrict } from "@/lib/phone";
-import { PORTAL_SESSION_COOKIE_NAME } from "@/lib/portalAuth";
+import { CREDIT_PORTAL_SESSION_COOKIE_NAME, PORTAL_SESSION_COOKIE_NAME } from "@/lib/portalAuth";
 import { resolvePortalOwnerIdForLogin } from "@/lib/portalAccounts";
 import { getOrCreateOwnerMailboxAddress } from "@/lib/portalMailbox";
+import { normalizePortalVariant, PORTAL_VARIANT_HEADER, type PortalVariant } from "@/lib/portalVariant";
 import {
   goalLabelsFromIds,
   normalizeGoalIds,
@@ -89,6 +90,8 @@ function withLifecycle(dataJson: unknown, lifecycle: { state: string; reason?: s
 }
 
 export async function POST(req: Request) {
+  const variant = (normalizePortalVariant(req.headers.get(PORTAL_VARIANT_HEADER)) || "portal") satisfies PortalVariant;
+
   const secret = process.env.NEXTAUTH_SECRET;
   if (!secret) {
     return NextResponse.json({ error: "Server misconfigured" }, { status: 500 });
@@ -146,6 +149,7 @@ export async function POST(req: Request) {
           name: parsed.data.name,
           passwordHash,
           role: "CLIENT",
+          clientPortalVariant: variant === "credit" ? "CREDIT" : "PORTAL",
         },
         select: { id: true, email: true, name: true, role: true },
       });
@@ -330,7 +334,7 @@ export async function POST(req: Request) {
 
   const res = NextResponse.json({ ok: true, user, signedIn: true });
   res.cookies.set({
-    name: PORTAL_SESSION_COOKIE_NAME,
+    name: variant === "credit" ? CREDIT_PORTAL_SESSION_COOKIE_NAME : PORTAL_SESSION_COOKIE_NAME,
     value: token,
     httpOnly: true,
     sameSite: "lax",

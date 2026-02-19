@@ -4,15 +4,23 @@ import { encode } from "next-auth/jwt";
 
 import { prisma } from "@/lib/db";
 import { verifyPassword } from "@/lib/password";
-import { PORTAL_SESSION_COOKIE_NAME } from "@/lib/portalAuth";
+import { CREDIT_PORTAL_SESSION_COOKIE_NAME, PORTAL_SESSION_COOKIE_NAME } from "@/lib/portalAuth";
 import { resolvePortalOwnerIdForLogin } from "@/lib/portalAccounts";
+import { normalizePortalVariant, PORTAL_VARIANT_HEADER, type PortalVariant } from "@/lib/portalVariant";
 
 const bodySchema = z.object({
   email: z.string().email(),
   password: z.string().min(6),
 });
 
+const portalVariantToCookieName: Record<PortalVariant, string> = {
+  portal: PORTAL_SESSION_COOKIE_NAME,
+  credit: CREDIT_PORTAL_SESSION_COOKIE_NAME,
+};
+
 export async function POST(req: Request) {
+  const variant = (normalizePortalVariant(req.headers.get(PORTAL_VARIANT_HEADER)) || "portal") satisfies PortalVariant;
+
   const secret = process.env.NEXTAUTH_SECRET;
   if (!secret) {
     return NextResponse.json({ error: "Server misconfigured" }, { status: 500 });
@@ -28,6 +36,11 @@ export async function POST(req: Request) {
 
   const user = await prisma.user.findUnique({ where: { email } });
   if (!user || !user.active) {
+    return NextResponse.json({ error: "Invalid email or password" }, { status: 401 });
+  }
+
+  const userVariant = (user as any).clientPortalVariant ? String((user as any).clientPortalVariant) : "PORTAL";
+  if (userVariant !== (variant === "credit" ? "CREDIT" : "PORTAL")) {
     return NextResponse.json({ error: "Invalid email or password" }, { status: 401 });
   }
 
@@ -57,7 +70,7 @@ export async function POST(req: Request) {
 
   const res = NextResponse.json({ ok: true });
   res.cookies.set({
-    name: PORTAL_SESSION_COOKIE_NAME,
+    name: portalVariantToCookieName[variant],
     value: token,
     httpOnly: true,
     sameSite: "lax",
