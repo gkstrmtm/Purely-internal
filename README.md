@@ -79,6 +79,23 @@ Stripe setup checklist:
 
 Note: this repo currently reads subscription state live from Stripe; it does not require webhooks to unlock entitlements.
 
+## Credit portal (/credit)
+
+This repo supports a second, isolated client portal variant under `/credit` (separate client session cookie + variant enforcement).
+
+- Client-facing credit routes live under `/credit/*`.
+- Credit-only services are filtered out of `/portal` and public marketing pages.
+
+### Credit Funnel Builder
+
+The credit portal includes a credit-only Funnel Builder service with:
+
+- Funnels: `/credit/app/services/funnel-builder` → funnels list, hosted at `/credit/f/[slug]`
+- Forms: hosted at `/credit/forms/[slug]`, submissions POST to `/api/public/credit/forms/[slug]/submit`
+- Settings: notification emails + signed webhook URL
+
+If you deploy changes that add Prisma migrations, make sure migrations run in Vercel by setting `DIRECT_URL` (recommended) and/or `RUN_PRISMA_MIGRATIONS=1`.
+
 ## Credits (portal)
 
 The portal includes a lightweight credits system used by usage-based actions (e.g. “Generate with AI” in blogs).
