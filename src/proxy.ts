@@ -6,6 +6,14 @@ const PORTAL_SESSION_COOKIE_NAME = "pa.portal.session";
 const CREDIT_PORTAL_SESSION_COOKIE_NAME = "pa.credit.session";
 const PORTAL_VARIANT_HEADER = "x-portal-variant";
 
+function normalizePortalVariantHeader(raw: string | null) {
+  if (!raw) return null;
+  const v = raw.trim().toLowerCase();
+  if (v === "portal" || v === "main") return "portal" as const;
+  if (v === "credit") return "credit" as const;
+  return null;
+}
+
 function isCreditPathname(pathname: string) {
   return pathname === "/credit" || pathname.startsWith("/credit/");
 }
@@ -34,24 +42,20 @@ export async function proxy(req: NextRequest) {
   const portalToken = portalCookie && secret ? await decode({ token: portalCookie, secret }).catch(() => null) : null;
   const creditToken = creditCookie && secret ? await decode({ token: creditCookie, secret }).catch(() => null) : null;
   const fromCredit = refererIsCredit(req);
+  const headerVariant = normalizePortalVariantHeader(req.headers.get(PORTAL_VARIANT_HEADER));
 
   // Portal API calls should carry a portal variant hint so API auth can read the correct session cookie.
   if (path.startsWith("/api/portal/") || path === "/api/auth/client-signup") {
     const requestHeaders = new Headers(req.headers);
-    requestHeaders.set(PORTAL_VARIANT_HEADER, fromCredit ? "credit" : "portal");
+    requestHeaders.set(PORTAL_VARIANT_HEADER, headerVariant ?? (fromCredit ? "credit" : "portal"));
     return NextResponse.next({ request: { headers: requestHeaders } });
   }
 
   const isCredit = isCreditPathname(path);
   const isPortal = isPortalPathname(path);
 
-  // If a credit-portal user lands on /portal/* (usually via a hardcoded link),
-  // keep the credit experience fully under /credit/*.
-  if (isPortal && creditToken && !portalToken) {
-    const url = req.nextUrl.clone();
-    url.pathname = path.replace("/portal", "/credit") || "/credit";
-    return NextResponse.redirect(url);
-  }
+  // Keep /portal and /credit fully independent: never redirect across base paths
+  // just because another portal session exists in cookies.
 
   // Keep /portal and /credit fully independent.
   // If a user is signed into only one portal, do NOT redirect them across base paths.
@@ -76,8 +80,11 @@ export async function proxy(req: NextRequest) {
     const rewrittenUrl = req.nextUrl.clone();
     rewrittenUrl.pathname = rewrittenPath;
 
+    const isPortalPublicApiAuth = rewrittenPath === "/portal/api/login" || rewrittenPath === "/portal/api/logout";
+
     const requestHeaders = new Headers(req.headers);
-    requestHeaders.set(PORTAL_VARIANT_HEADER, isCredit ? "credit" : "portal");
+    const derivedVariant = headerVariant ?? (isPortalPublicApiAuth ? (fromCredit ? "credit" : "portal") : isCredit ? "credit" : "portal");
+    requestHeaders.set(PORTAL_VARIANT_HEADER, derivedVariant);
 
     const isPortalMarketingHome = rewrittenPath === "/portal" || rewrittenPath === "/portal/";
     const isPortalPublicAuth =
@@ -85,8 +92,6 @@ export async function proxy(req: NextRequest) {
       rewrittenPath === "/portal/get-started" ||
       rewrittenPath.startsWith("/portal/get-started/");
     const isPortalPublicInvite = rewrittenPath === "/portal/invite" || rewrittenPath.startsWith("/portal/invite/");
-    const isPortalPublicApiAuth = rewrittenPath === "/portal/api/login" || rewrittenPath === "/portal/api/logout";
-
     const isPortalApp = rewrittenPath === "/portal/app" || rewrittenPath.startsWith("/portal/app/");
     const isLegacyPortalAppRoute =
       rewrittenPath === "/portal/services" ||

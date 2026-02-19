@@ -7,6 +7,11 @@ import { generateText } from "@/lib/ai";
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
 
+function clampText(s: string, maxLen: number) {
+  if (s.length <= maxLen) return s;
+  return s.slice(0, maxLen) + "\n<!-- truncated -->";
+}
+
 function extractHtml(raw: string): string {
   const text = String(raw ?? "").trim();
   if (!text) return "";
@@ -44,6 +49,8 @@ export async function POST(req: Request, ctx: { params: Promise<{ funnelId: stri
   const prompt = typeof body?.prompt === "string" ? body.prompt.trim() : "";
   if (!prompt) return NextResponse.json({ ok: false, error: "Prompt is required" }, { status: 400 });
 
+  const currentHtmlFromClient = typeof body?.currentHtml === "string" ? body.currentHtml : null;
+
   const page = await prisma.creditFunnelPage.findFirst({
     where: { id: pageId, funnelId, funnel: { ownerId: auth.session.user.id } },
     select: {
@@ -51,6 +58,7 @@ export async function POST(req: Request, ctx: { params: Promise<{ funnelId: stri
       slug: true,
       title: true,
       customChatJson: true,
+      customHtml: true,
       funnel: { select: { id: true, slug: true, name: true } },
     },
   });
@@ -63,7 +71,7 @@ export async function POST(req: Request, ctx: { params: Promise<{ funnelId: stri
     select: { slug: true, name: true, status: true },
   });
 
-  const system = [
+  const baseSystem = [
     "You generate a single self-contained HTML document for a credit repair funnel page.",
     "Return ONLY HTML (no explanation).",
     "Constraints:",
@@ -80,6 +88,17 @@ export async function POST(req: Request, ctx: { params: Promise<{ funnelId: stri
     "Output rules:",
     "- Include <meta name=\"viewport\"> and a <title>.",
     "- Avoid placeholder braces like {{var}} unless asked.",
+  ];
+
+  const effectiveCurrentHtml =
+    (currentHtmlFromClient && currentHtmlFromClient.trim() ? currentHtmlFromClient : page.customHtml || "").trim();
+  const hasCurrentHtml = Boolean(effectiveCurrentHtml);
+
+  const system = [
+    ...baseSystem,
+    hasCurrentHtml
+      ? "Editing mode: You will be given CURRENT_HTML. Apply the user's instruction as a minimal change to CURRENT_HTML. Return the FULL updated HTML document."
+      : "Generation mode: Create a new HTML document from the user's instruction.",
   ].join("\n");
 
   const prevChat = Array.isArray(page.customChatJson) ? (page.customChatJson as any[]) : [];
@@ -87,12 +106,23 @@ export async function POST(req: Request, ctx: { params: Promise<{ funnelId: stri
 
   let html = "";
   try {
+    const currentHtmlBlock = hasCurrentHtml
+      ? [
+          "CURRENT_HTML:",
+          "```html",
+          clampText(effectiveCurrentHtml, 24000),
+          "```",
+          "",
+        ].join("\n")
+      : "";
+
     const aiRaw = await generateText({
       system,
       user: [
         `Funnel: ${page.funnel.name} (slug: ${page.funnel.slug})`,
         `Page: ${page.title} (slug: ${page.slug})`,
-        "", 
+        "",
+        currentHtmlBlock,
         prompt,
       ].join("\n"),
     });

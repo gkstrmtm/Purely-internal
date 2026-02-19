@@ -47,6 +47,11 @@ function classNames(...xs: Array<string | false | null | undefined>) {
 
 export function PortalShell({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
+  const isFunnelBuilderEditor =
+    typeof pathname === "string" &&
+    pathname.includes("/app/services/funnel-builder/") &&
+    (pathname.includes("/funnels/") || pathname.includes("/forms/")) &&
+    pathname.includes("/edit");
   const [collapsed, setCollapsed] = useState(false);
   const [mobileOpen, setMobileOpen] = useState(false);
   const [me, setMe] = useState<Me | null>(null);
@@ -224,6 +229,14 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
 
   const visibleSidebarServices = PORTAL_SERVICES.filter((s) => !s.hidden).filter((s) => canViewServiceSlug(s.slug));
   const sidebarServiceGroups = groupPortalServices(visibleSidebarServices);
+
+  if (isFunnelBuilderEditor) {
+    return (
+      <div className="min-h-screen bg-brand-mist text-brand-ink">
+        <main className="min-h-screen">{children}</main>
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen bg-brand-mist text-brand-ink">
