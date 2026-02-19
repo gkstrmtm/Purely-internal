@@ -44,17 +44,10 @@ export async function proxy(req: NextRequest) {
   const isCredit = isCreditPathname(path);
   const isPortal = isPortalPathname(path);
 
-  // If only one portal session exists, keep the user in the matching base path.
-  if (isPortal && creditToken && !portalToken) {
-    const url = req.nextUrl.clone();
-    url.pathname = path.replace("/portal", "/credit") || "/credit";
-    return NextResponse.redirect(url);
-  }
-  if (isCredit && portalToken && !creditToken) {
-    const url = req.nextUrl.clone();
-    url.pathname = path.replace("/credit", "/portal") || "/portal";
-    return NextResponse.redirect(url);
-  }
+  // Keep /portal and /credit fully independent.
+  // If a user is signed into only one portal, do NOT redirect them across base paths.
+  // Instead, treat the other portal as signed-out and let normal auth guards send them
+  // to the correct login page for that base path.
 
   // Serve /credit/* as an internal alias of /portal/* (same code) but separate auth.
   if (isPortal || isCredit) {

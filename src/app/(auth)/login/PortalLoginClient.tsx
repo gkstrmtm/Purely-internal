@@ -2,7 +2,7 @@
 
 import Image from "next/image";
 import Link from "next/link";
-import { useRouter, useSearchParams } from "next/navigation";
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { useMemo, useState } from "react";
 
 import { useToast } from "@/components/ToastProvider";
@@ -17,12 +17,16 @@ function safeInternalPath(raw: string | null | undefined, fallback: string) {
 
 export default function PortalLoginClient() {
   const router = useRouter();
+  const pathname = usePathname() || "";
   const searchParams = useSearchParams();
   const toast = useToast();
 
+  const pathnameVariant = useMemo(() => (pathname.startsWith("/credit") ? "credit" : "portal"), [pathname]);
+
   const fromRaw = searchParams.get("from");
-  const from = useMemo(() => safeInternalPath(fromRaw, "/portal/app"), [fromRaw]);
-  const portalVariant = useMemo(() => (from.startsWith("/credit") ? "credit" : "portal"), [from]);
+  const defaultFrom = useMemo(() => (pathnameVariant === "credit" ? "/credit/app" : "/portal/app"), [pathnameVariant]);
+  const from = useMemo(() => safeInternalPath(fromRaw, defaultFrom), [fromRaw, defaultFrom]);
+  const portalVariant = useMemo(() => (pathnameVariant === "credit" || from.startsWith("/credit") ? "credit" : "portal"), [from, pathnameVariant]);
 
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
