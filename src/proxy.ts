@@ -71,6 +71,13 @@ export async function proxy(req: NextRequest) {
     const portalBase = isCredit ? "/credit" : "/portal";
     const variantToken = isCredit ? creditToken : portalToken;
 
+    const isCreditNative =
+      isCredit &&
+      (path === "/credit/login" ||
+        path.startsWith("/credit/login/") ||
+        path === "/credit/get-started" ||
+        path.startsWith("/credit/get-started/"));
+
     const rewrittenPath = isCredit ? (path.replace("/credit", "/portal") || "/portal") : path;
     const rewrittenUrl = req.nextUrl.clone();
     rewrittenUrl.pathname = rewrittenPath;
@@ -99,7 +106,9 @@ export async function proxy(req: NextRequest) {
 
     function respondNextOrRewrite() {
       return isCredit
-        ? NextResponse.rewrite(rewrittenUrl, { request: { headers: requestHeaders } })
+        ? isCreditNative
+          ? NextResponse.next({ request: { headers: requestHeaders } })
+          : NextResponse.rewrite(rewrittenUrl, { request: { headers: requestHeaders } })
         : NextResponse.next({ request: { headers: requestHeaders } });
     }
 
