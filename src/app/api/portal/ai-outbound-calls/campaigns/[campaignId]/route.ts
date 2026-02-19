@@ -30,7 +30,6 @@ const patchSchema = z
   .object({
     name: z.string().trim().min(1).max(80).optional(),
     status: z.enum(["DRAFT", "ACTIVE", "PAUSED", "ARCHIVED"]).optional(),
-    script: z.string().trim().min(0).max(5000).optional(),
     audienceTagIds: z.array(z.string().trim().min(1).max(120)).max(50).optional(),
     voiceAgentId: z.string().trim().max(120).optional(),
     voiceAgentConfig: voiceAgentConfigPatchSchema.optional(),
@@ -65,7 +64,6 @@ export async function PATCH(req: Request, ctx: { params: Promise<{ campaignId: s
   const data: any = { updatedAt: new Date() };
   if (parsed.data.name !== undefined) data.name = parsed.data.name.trim();
   if (parsed.data.status !== undefined) data.status = parsed.data.status;
-  if (parsed.data.script !== undefined) data.script = parsed.data.script;
   if (parsed.data.audienceTagIds !== undefined) data.audienceTagIdsJson = normalizeTagIdList(parsed.data.audienceTagIds);
 
   if (parsed.data.voiceAgentId !== undefined) {

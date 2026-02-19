@@ -5,7 +5,6 @@ import { consumeCredits } from "@/lib/credits";
 import { getAiReceptionistServiceData } from "@/lib/aiReceptionist";
 import { normalizePhoneStrict } from "@/lib/phone";
 import { ensurePortalAiOutboundCallsSchema } from "@/lib/portalAiOutboundCallsSchema";
-import { renderCampaignScript } from "@/lib/portalAiOutboundCalls";
 import { placeElevenLabsTwilioOutboundCall, resolveElevenLabsAgentPhoneNumberId } from "@/lib/elevenLabsConvai";
 import { getOwnerTwilioSmsConfig } from "@/lib/portalTwilio";
 import { isVercelCronRequest, readCronAuthValue } from "@/lib/cronAuth";
@@ -224,7 +223,7 @@ export async function GET(req: Request) {
       campaignId: true,
       contactId: true,
       attemptCount: true,
-      campaign: { select: { id: true, status: true, script: true, voiceAgentId: true } },
+      campaign: { select: { id: true, status: true, voiceAgentId: true } },
       contact: { select: { id: true, name: true, email: true, phone: true } },
     },
     orderBy: [{ nextCallAt: "asc" }, { id: "asc" }],
@@ -262,19 +261,6 @@ export async function GET(req: Request) {
     }
 
     try {
-      const script = await renderCampaignScript({
-        ownerId: e.ownerId,
-        contact: {
-          id: e.contact.id,
-          name: e.contact.name ? String(e.contact.name) : null,
-          email: e.contact.email ? String(e.contact.email) : null,
-          phone: e.contact.phone ? String(e.contact.phone) : null,
-        },
-        campaign: { script: e.campaign.script },
-      });
-
-      const scriptTrimmed = String(script || "").trim();
-
       const parsedTo = normalizePhoneStrict(to);
       if (!parsedTo.ok) throw new Error("Contact phone number is invalid.");
       if (!parsedTo.e164) throw new Error("Contact has no phone number.");
@@ -352,15 +338,6 @@ export async function GET(req: Request) {
             contact_email: e.contact?.email ? String(e.contact.email).slice(0, 160) : null,
             contact_phone: parsedTo.e164,
           },
-          ...(scriptTrimmed
-            ? {
-                conversation_config_override: {
-                  agent: {
-                    first_message: scriptTrimmed,
-                  },
-                },
-              }
-            : {}),
         },
       });
       if (!call.ok) throw new Error(call.error);

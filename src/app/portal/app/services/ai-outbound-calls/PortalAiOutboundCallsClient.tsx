@@ -15,7 +15,6 @@ type Campaign = {
   id: string;
   name: string;
   status: CampaignStatus;
-  script: string;
   audienceTagIds: string[];
   voiceAgentId: string;
   voiceAgentConfig: VoiceAgentConfig;
@@ -584,7 +583,7 @@ export function PortalAiOutboundCallsClient() {
   }
 
   async function updateCampaign(
-    patch: Partial<Pick<Campaign, "name" | "status" | "script" | "audienceTagIds" | "voiceAgentId">> & {
+    patch: Partial<Pick<Campaign, "name" | "status" | "audienceTagIds" | "voiceAgentId">> & {
       voiceAgentConfig?: Partial<VoiceAgentConfig>;
     },
   ) {
@@ -880,36 +879,8 @@ export function PortalAiOutboundCallsClient() {
                     Use this widget to test your campaign’s voice agent directly in the browser.
                   </div>
 
-                  {agentSyncRequired ? (
-                    <div className="mt-4 rounded-2xl border border-amber-200 bg-amber-50 p-4">
-                      <div className="text-sm font-semibold text-amber-900">Sync required</div>
-                      <div className="mt-1 text-sm text-amber-800">
-                        You’ve changed agent settings. Sync the agent to apply updates before testing.
-                      </div>
-                      <div className="mt-3">
-                        <button
-                          type="button"
-                          disabled={busy}
-                          onClick={() => void syncVoiceAgent()}
-                          className={classNames(
-                            "rounded-2xl px-4 py-2 text-sm font-semibold",
-                            busy ? "bg-amber-200 text-amber-900/60" : "bg-amber-600 text-white hover:opacity-95",
-                          )}
-                        >
-                          {busy ? "Syncing…" : "Sync agent now"}
-                        </button>
-                      </div>
-                    </div>
-                  ) : null}
-
-                  <div className="mt-4 rounded-2xl border border-zinc-200 bg-zinc-50 p-4">
-                    <div className="text-xs font-semibold text-zinc-600">Agent ID</div>
-                    <div className="mt-2 break-all font-mono text-xs text-zinc-800">
-                      {selected.voiceAgentId?.trim() ? selected.voiceAgentId.trim() : "N/A"}
-                    </div>
-                    <div className="mt-3">
-                      <InlineElevenLabsAgentTester agentId={selected.voiceAgentId} />
-                    </div>
+                  <div className="mt-4">
+                    <InlineElevenLabsAgentTester agentId={selected.voiceAgentId} />
                   </div>
                 </div>
               ) : null}
@@ -1135,23 +1106,6 @@ export function PortalAiOutboundCallsClient() {
                 <>
 
               <div className="mt-5">
-                <div className="text-sm font-semibold text-zinc-800">Call script</div>
-                <p className="mt-1 text-xs text-zinc-500">
-                  If set, this overrides the agent’s opening line for each call. Leave blank to use the agent’s configured first message.
-                </p>
-                <textarea
-                  value={selected.script}
-                  onChange={(e) => {
-                    const script = e.target.value;
-                    setCampaigns((prev) => prev.map((c) => (c.id === selected.id ? { ...c, script } : c)));
-                  }}
-                  onBlur={() => updateCampaign({ script: selected.script })}
-                  rows={7}
-                  className="mt-2 w-full rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-sm"
-                />
-              </div>
-
-              <div className="mt-5">
                 <div className="text-sm font-semibold text-zinc-800">Voice agent</div>
                 <p className="mt-1 text-xs text-zinc-500">
                   Optional: configure an agent ID + behavior for this campaign.
@@ -1171,7 +1125,6 @@ export function PortalAiOutboundCallsClient() {
                     </li>
                     <li>Default Agent ID lives in your <span className="font-semibold">Profile</span>; you can override it per campaign.</li>
                     <li>Leaving behavior fields blank means Purely won’t overwrite your agent’s existing behavior when syncing.</li>
-                    <li>The campaign <span className="font-semibold">Call script</span> (if set) overrides the agent’s first message for that call.</li>
                   </ul>
                 </div>
 

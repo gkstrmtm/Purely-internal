@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { PortalPeopleTabs } from "@/app/portal/app/people/PortalPeopleTabs";
 import { useToast } from "@/components/ToastProvider";
+import { parseCsv } from "@/lib/csv";
 import { DEFAULT_TAG_COLORS } from "@/lib/tagColors.shared";
 
 type ContactTag = { id: string; name: string; color: string | null };
@@ -85,6 +86,88 @@ type ContactDetailPayload = {
   };
 };
 
+type CsvMapping = {
+  name: string;
+  firstName: string;
+  lastName: string;
+  email: string;
+  phone: string;
+  tags: string;
+};
+
+function normalizeHeaderKey(s: string) {
+  return String(s || "")
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "");
+}
+
+function guessHeader(headers: string[], patterns: string[]): string {
+  const scored = headers
+    .map((h) => {
+      const key = normalizeHeaderKey(h);
+      let score = 0;
+      for (const p of patterns) {
+        if (key === p) score = Math.max(score, 100);
+        else if (key.includes(p)) score = Math.max(score, 50);
+      }
+      return { header: h, score };
+    })
+    .sort((a, b) => b.score - a.score);
+
+  return scored[0]?.score ? scored[0].header : "";
+}
+
+function guessMapping(headers: string[]): CsvMapping {
+  return {
+    name: guessHeader(headers, ["fullname", "name", "contactname", "leadname"]),
+    firstName: guessHeader(headers, ["firstname", "fname", "first"]),
+    lastName: guessHeader(headers, ["lastname", "lname", "last", "surname"]),
+    email: guessHeader(headers, ["email", "emailaddress"]),
+    phone: guessHeader(headers, ["phone", "phonenumber", "mobile", "cell", "tel"]),
+    tags: guessHeader(headers, ["tags", "tag", "labels", "label"]),
+  };
+}
+
+function detectTagHeaders(headers: string[]): string[] {
+  const out: string[] = [];
+  for (const h of headers) {
+    const key = normalizeHeaderKey(h);
+    if (!key) continue;
+    if (/^(tags?|labels?)(\d+)?$/.test(key)) out.push(h);
+    else if (key.includes("tags") || key.includes("labels")) out.push(h);
+  }
+  const uniq: string[] = [];
+  const seen = new Set<string>();
+  for (const h of out) {
+    const k = normalizeHeaderKey(h);
+    if (!k || seen.has(k)) continue;
+    seen.add(k);
+    uniq.push(h);
+  }
+  return uniq.slice(0, 8);
+}
+
+function splitTags(raw: string): string[] {
+  const s = String(raw || "").trim();
+  if (!s) return [];
+  const parts = s
+    .split(/[\n\r,;|]+/g)
+    .map((p) => p.trim())
+    .filter(Boolean);
+
+  const uniq: string[] = [];
+  const seen = new Set<string>();
+  for (const p of parts) {
+    const k = normalizeHeaderKey(p);
+    if (!k || seen.has(k)) continue;
+    seen.add(k);
+    uniq.push(p);
+    if (uniq.length >= 10) break;
+  }
+  return uniq;
+}
+
 function classNames(...xs: Array<string | false | null | undefined>) {
   return xs.filter(Boolean).join(" ");
 }
@@ -94,6 +177,21 @@ export function PortalPeopleContactsClient() {
   const [loading, setLoading] = useState(true);
   const [data, setData] = useState<ContactsPayload | null>(null);
   const [q, setQ] = useState("");
+
+  const [importOpen, setImportOpen] = useState(false);
+  const [importBusy, setImportBusy] = useState(false);
+  const [importError, setImportError] = useState<string | null>(null);
+  const [importFile, setImportFile] = useState<File | null>(null);
+  const [importHeaders, setImportHeaders] = useState<string[]>([]);
+  const [importRows, setImportRows] = useState<string[][]>([]);
+  const [importMapping, setImportMapping] = useState<CsvMapping>({
+    name: "",
+    firstName: "",
+    lastName: "",
+    email: "",
+    phone: "",
+    tags: "",
+  });
 
   const [contactsCursor, setContactsCursor] = useState<string | null>(null);
   const [leadsCursor, setLeadsCursor] = useState<string | null>(null);
@@ -587,6 +685,20 @@ export function PortalPeopleContactsClient() {
                 {q.trim() ? <span className="ml-2 text-xs font-semibold text-zinc-500">Filtered: {filteredContacts.length}</span> : null}
               </div>
               <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setImportOpen(true);
+                    setImportError(null);
+                    setImportFile(null);
+                    setImportHeaders([]);
+                    setImportRows([]);
+                    setImportMapping({ name: "", firstName: "", lastName: "", email: "", phone: "", tags: "" });
+                  }}
+                  className="rounded-xl border border-zinc-200 bg-white px-3 py-2 text-xs font-semibold text-zinc-800 hover:bg-zinc-50"
+                >
+                  Import CSV
+                </button>
                 <div className="text-xs text-zinc-500">Page {contactsCursorStack.length}</div>
                 <div className="text-xs text-zinc-500">•</div>
                 <div className="text-xs text-zinc-500">50 per page</div>
@@ -758,6 +870,226 @@ export function PortalPeopleContactsClient() {
             </div>
 
             <div className="mt-3 text-xs text-zinc-500">Showing {data.unlinkedLeads.length} on this page.</div>
+          </div>
+        </div>
+      ) : null}
+
+      {importOpen ? (
+        <div className="fixed inset-0 z-[85] flex items-start justify-center overflow-auto bg-black/40 p-4">
+          <div className="w-full max-w-3xl rounded-3xl border border-zinc-200 bg-white p-5 shadow-xl">
+            <div className="flex items-start justify-between gap-3">
+              <div>
+                <div className="text-base font-semibold text-zinc-900">Import contacts (CSV)</div>
+                <div className="mt-1 text-sm text-zinc-600">Upload a CSV and we’ll map common fields automatically.</div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setImportOpen(false)}
+                className="rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-sm font-semibold text-zinc-800 hover:bg-zinc-50"
+              >
+                Close
+              </button>
+            </div>
+
+            <div className="mt-4 rounded-3xl border border-zinc-200 bg-zinc-50 p-4">
+              <div className="text-xs font-semibold text-zinc-600">CSV file</div>
+              <input
+                type="file"
+                accept=".csv,text/csv"
+                className="mt-2 w-full text-sm"
+                onChange={(e) => {
+                  const f = e.target.files?.[0] || null;
+                  setImportError(null);
+                  setImportFile(f);
+                  if (!f) {
+                    setImportHeaders([]);
+                    setImportRows([]);
+                    return;
+                  }
+
+                  void (async () => {
+                    try {
+                      const text = await f.text();
+                      const parsed = parseCsv(text, { maxRows: 2000 });
+                      const headers = parsed.headers.filter((h) => Boolean(String(h || "").trim()));
+                      if (!headers.length) throw new Error("CSV must include a header row");
+                      setImportHeaders(headers);
+                      setImportRows(parsed.rows);
+                      setImportMapping(guessMapping(headers));
+                    } catch (err: any) {
+                      setImportHeaders([]);
+                      setImportRows([]);
+                      setImportError(String(err?.message || "Failed to read CSV"));
+                    }
+                  })();
+                }}
+              />
+
+              {importError ? (
+                <div className="mt-3 rounded-2xl border border-red-200 bg-red-50 p-3 text-sm font-semibold text-red-800">
+                  {importError}
+                </div>
+              ) : null}
+            </div>
+
+            {importHeaders.length ? (
+              <div className="mt-4 grid grid-cols-1 gap-4 md:grid-cols-2">
+                <div className="rounded-3xl border border-zinc-200 bg-white p-4">
+                  <div className="text-sm font-semibold text-zinc-900">Field mapping</div>
+                  <div className="mt-1 text-xs text-zinc-500">Adjust anything we guessed wrong. Leave Tags blank to auto-detect.</div>
+
+                  {(
+                    [
+                      { key: "name", label: "Name" },
+                      { key: "firstName", label: "First name" },
+                      { key: "lastName", label: "Last name" },
+                      { key: "email", label: "Email" },
+                      { key: "phone", label: "Phone" },
+                      { key: "tags", label: "Tags (optional)" },
+                    ] as const
+                  ).map((f) => (
+                    <label key={f.key} className="mt-3 block">
+                      <div className="text-xs font-semibold text-zinc-700">{f.label}</div>
+                      <select
+                        value={(importMapping as any)[f.key]}
+                        onChange={(e) => setImportMapping((m) => ({ ...m, [f.key]: e.target.value }))}
+                        className="mt-1 w-full rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-sm"
+                      >
+                        <option value="">—</option>
+                        {importHeaders.map((h) => (
+                          <option key={h} value={h}>
+                            {h}
+                          </option>
+                        ))}
+                      </select>
+                    </label>
+                  ))}
+                </div>
+
+                <div className="rounded-3xl border border-zinc-200 bg-white p-4">
+                  <div className="flex items-center justify-between gap-3">
+                    <div>
+                      <div className="text-sm font-semibold text-zinc-900">Preview</div>
+                      <div className="mt-1 text-xs text-zinc-500">Showing up to 5 rows.</div>
+                    </div>
+                    <div className="text-xs text-zinc-500">Rows: {importRows.length}</div>
+                  </div>
+
+                  <div className="mt-3 overflow-auto rounded-2xl border border-zinc-200">
+                    <table className="min-w-full text-left text-xs">
+                      <thead className="bg-zinc-50 text-[11px] font-semibold uppercase tracking-wide text-zinc-500">
+                        <tr>
+                          <th className="px-3 py-2">Name</th>
+                          <th className="px-3 py-2">Email</th>
+                          <th className="px-3 py-2">Phone</th>
+                          <th className="px-3 py-2">Tags</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {importRows.slice(0, 5).map((r, idx) => {
+                          const headerIndex = new Map(importHeaders.map((h, i) => [h, i] as const));
+                          const cell = (h: string) => {
+                            const i = headerIndex.get(h);
+                            return i === undefined ? "" : String(r[i] ?? "");
+                          };
+
+                          const rawName = importMapping.name ? cell(importMapping.name) : "";
+                          const rawFirst = importMapping.firstName ? cell(importMapping.firstName) : "";
+                          const rawLast = importMapping.lastName ? cell(importMapping.lastName) : "";
+                          const name = rawName || `${rawFirst} ${rawLast}`.trim();
+
+                          const tagsText = (() => {
+                            if (importMapping.tags) return cell(importMapping.tags);
+                            const tagHeaders = detectTagHeaders(importHeaders);
+                            if (!tagHeaders.length) return "";
+                            const combined: string[] = [];
+                            for (const h of tagHeaders) combined.push(...splitTags(cell(h)));
+                            const uniq: string[] = [];
+                            const seen = new Set<string>();
+                            for (const t of combined) {
+                              const k = normalizeHeaderKey(t);
+                              if (!k || seen.has(k)) continue;
+                              seen.add(k);
+                              uniq.push(t);
+                              if (uniq.length >= 10) break;
+                            }
+                            return uniq.join(", ");
+                          })();
+
+                          return (
+                            <tr key={idx} className="border-t border-zinc-200">
+                              <td className="px-3 py-2 max-w-[180px] truncate">{name || "—"}</td>
+                              <td className="px-3 py-2 max-w-[180px] truncate">{importMapping.email ? cell(importMapping.email) : "—"}</td>
+                              <td className="px-3 py-2 max-w-[160px] truncate">{importMapping.phone ? cell(importMapping.phone) : "—"}</td>
+                              <td className="px-3 py-2 max-w-[180px] truncate">{tagsText || "—"}</td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              </div>
+            ) : null}
+
+            <div className="mt-5 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+              <div className="text-xs text-zinc-500">
+                Tip: include columns like Name, Email, Phone, Tags.
+              </div>
+              <button
+                type="button"
+                disabled={!importFile || importBusy}
+                onClick={() =>
+                  void (async () => {
+                    if (!importFile) return;
+                    setImportBusy(true);
+                    setImportError(null);
+
+                    try {
+                      const fd = new FormData();
+                      fd.set("file", importFile);
+                      fd.set(
+                        "mapping",
+                        JSON.stringify({
+                          name: importMapping.name || null,
+                          firstName: importMapping.firstName || null,
+                          lastName: importMapping.lastName || null,
+                          email: importMapping.email || null,
+                          phone: importMapping.phone || null,
+                          tags: importMapping.tags || null,
+                        }),
+                      );
+
+                      const res = await fetch("/api/portal/people/contacts/import", {
+                        method: "POST",
+                        body: fd,
+                      });
+                      const json = (await res.json().catch(() => ({}))) as any;
+                      if (!res.ok || !json?.ok) throw new Error(String(json?.error || "Import failed"));
+
+                      toast.success(`Imported ${Number(json.imported || 0)} contact(s)`);
+                      setImportOpen(false);
+
+                      setContactsCursor(null);
+                      setLeadsCursor(null);
+                      setContactsCursorStack([null]);
+                      setLeadsCursorStack([null]);
+                      void load({ contactsCursor: null, leadsCursor: null });
+                    } catch (err: any) {
+                      setImportError(String(err?.message || "Import failed"));
+                    } finally {
+                      setImportBusy(false);
+                    }
+                  })()
+                }
+                className={classNames(
+                  "rounded-2xl px-5 py-2.5 text-sm font-semibold",
+                  !importFile || importBusy ? "bg-zinc-200 text-zinc-600" : "bg-[color:var(--color-brand-blue)] text-white hover:opacity-95",
+                )}
+              >
+                {importBusy ? "Importing…" : "Import"}
+              </button>
+            </div>
           </div>
         </div>
       ) : null}
