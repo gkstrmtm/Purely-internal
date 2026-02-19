@@ -294,13 +294,22 @@ export function FunnelBuilderClient() {
                   <span className="inline-flex items-center rounded-full border border-zinc-200 bg-zinc-50 px-2.5 py-1 text-xs font-semibold text-zinc-700">
                     {f.status}
                   </span>
-                  <Link
-                    href={`${funnelPreviewBase}/${encodeURIComponent(f.slug)}`}
-                    target="_blank"
-                    className="text-sm font-semibold text-[color:var(--color-brand-blue)] hover:underline"
-                  >
-                    Preview
-                  </Link>
+                  <div className="flex items-center gap-3">
+                    <Link
+                      href={`${basePath}/app/services/funnel-builder/funnels/${encodeURIComponent(f.id)}/edit`}
+                      target="_blank"
+                      className="text-sm font-semibold text-brand-ink hover:underline"
+                    >
+                      Edit
+                    </Link>
+                    <Link
+                      href={`${funnelPreviewBase}/${encodeURIComponent(f.slug)}`}
+                      target="_blank"
+                      className="text-sm font-semibold text-[color:var(--color-brand-blue)] hover:underline"
+                    >
+                      Preview
+                    </Link>
+                  </div>
                 </div>
               </div>
             ))}
@@ -337,13 +346,22 @@ export function FunnelBuilderClient() {
                   <span className="inline-flex items-center rounded-full border border-zinc-200 bg-zinc-50 px-2.5 py-1 text-xs font-semibold text-zinc-700">
                     {f.status}
                   </span>
-                  <Link
-                    href={`${formPreviewBase}/${encodeURIComponent(f.slug)}`}
-                    target="_blank"
-                    className="text-sm font-semibold text-[color:var(--color-brand-blue)] hover:underline"
-                  >
-                    Preview
-                  </Link>
+                  <div className="flex items-center gap-3">
+                    <Link
+                      href={`${basePath}/app/services/funnel-builder/forms/${encodeURIComponent(f.id)}/edit`}
+                      target="_blank"
+                      className="text-sm font-semibold text-brand-ink hover:underline"
+                    >
+                      Edit
+                    </Link>
+                    <Link
+                      href={`${formPreviewBase}/${encodeURIComponent(f.slug)}`}
+                      target="_blank"
+                      className="text-sm font-semibold text-[color:var(--color-brand-blue)] hover:underline"
+                    >
+                      Preview
+                    </Link>
+                  </div>
                 </div>
               </div>
             ))}
