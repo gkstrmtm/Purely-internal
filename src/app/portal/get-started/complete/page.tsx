@@ -1,11 +1,26 @@
 "use client";
 
+import { Suspense } from "react";
 import { useEffect, useMemo, useState } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 
 import { useToast } from "@/components/ToastProvider";
 
 export default function PortalGetStartedCompletePage() {
+  return (
+    <Suspense
+      fallback={
+        <div className="min-h-screen bg-brand-mist text-brand-ink">
+          <div className="mx-auto flex min-h-screen max-w-lg flex-col justify-center px-6 py-12" />
+        </div>
+      }
+    >
+      <PortalGetStartedCompleteInner />
+    </Suspense>
+  );
+}
+
+function PortalGetStartedCompleteInner() {
   const router = useRouter();
   const pathname = usePathname() || "";
   const params = useSearchParams();

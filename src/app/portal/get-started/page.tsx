@@ -1,5 +1,6 @@
 "use client";
 
+import { Suspense } from "react";
 import Image from "next/image";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
@@ -37,6 +38,20 @@ function moneyLabel(monthlyUsd: number) {
 }
 
 export default function PortalGetStartedPage() {
+  return (
+    <Suspense
+      fallback={
+        <div className="min-h-screen bg-brand-mist text-brand-ink">
+          <div className="mx-auto flex min-h-screen max-w-lg flex-col justify-center px-6 py-12" />
+        </div>
+      }
+    >
+      <PortalGetStartedInner />
+    </Suspense>
+  );
+}
+
+function PortalGetStartedInner() {
   const router = useRouter();
   const pathname = usePathname() || "";
   const search = useSearchParams();
