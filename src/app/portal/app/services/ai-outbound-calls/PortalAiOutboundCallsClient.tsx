@@ -415,6 +415,7 @@ export function PortalAiOutboundCallsClient() {
   }
 
   const [createName, setCreateName] = useState("");
+  const [createOpen, setCreateOpen] = useState(false);
   const [addTagValue, setAddTagValue] = useState<string>("");
 
   const [newTagName, setNewTagName] = useState("");
@@ -530,6 +531,7 @@ export function PortalAiOutboundCallsClient() {
       }
 
       setCreateName("");
+      setCreateOpen(false);
       await loadAll();
       setSelectedId(json.id);
       toast.success("Campaign created");
@@ -737,34 +739,27 @@ export function PortalAiOutboundCallsClient() {
         </div>
       </div>
 
-      <div className="mt-6 rounded-3xl border border-zinc-200 bg-white p-5">
-        <div className="flex flex-col gap-3 sm:flex-row sm:items-end">
-          <div className="flex-1">
-            <div className="text-sm font-semibold text-zinc-800">New campaign</div>
-            <input
-              value={createName}
-              onChange={(e) => setCreateName(e.target.value)}
-              placeholder="Name (optional)"
-              className="mt-1 w-full rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-sm"
-            />
-          </div>
-          <button
-            type="button"
-            disabled={busy}
-            onClick={createCampaign}
-            className={classNames(
-              "inline-flex items-center justify-center rounded-2xl px-4 py-2 text-sm font-semibold",
-              busy ? "bg-zinc-200 text-zinc-600" : "bg-brand-ink text-white hover:opacity-95",
-            )}
-          >
-            Create
-          </button>
-        </div>
-      </div>
-
       <div className="mt-6 grid grid-cols-1 gap-4 lg:grid-cols-[320px,1fr]">
         <div className="rounded-3xl border border-zinc-200 bg-white p-4">
-          <div className="text-sm font-semibold text-zinc-800">Campaigns</div>
+          <div className="flex items-center justify-between gap-3">
+            <div className="text-sm font-semibold text-zinc-800">Campaigns</div>
+            <button
+              type="button"
+              disabled={busy}
+              onClick={() => {
+                setCreateName("");
+                setCreateOpen(true);
+              }}
+              className={classNames(
+                "inline-flex h-9 w-9 items-center justify-center rounded-xl border text-base font-semibold",
+                busy ? "border-zinc-200 bg-zinc-100 text-zinc-500" : "border-zinc-200 bg-white text-zinc-900 hover:bg-zinc-50",
+              )}
+              title="Create campaign"
+              aria-label="Create campaign"
+            >
+              +
+            </button>
+          </div>
           <div className="mt-3 space-y-2">
             {loading ? (
               <div className="text-sm text-zinc-500">Loading…</div>
@@ -1599,6 +1594,65 @@ export function PortalAiOutboundCallsClient() {
           )}
         </div>
       </div>
+
+      {createOpen ? (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center p-4"
+          role="dialog"
+          aria-modal="true"
+          aria-label="Create campaign"
+          onClick={() => {
+            if (busy) return;
+            setCreateOpen(false);
+          }}
+        >
+          <div className="absolute inset-0 bg-black/40" />
+          <div
+            className="relative w-full max-w-md rounded-3xl border border-zinc-200 bg-white p-5 shadow-xl"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="text-base font-bold text-zinc-900">New campaign</div>
+            <div className="mt-1 text-sm text-zinc-600">Name it now (or leave blank and rename later).</div>
+
+            <form
+              className="mt-4"
+              onSubmit={(e) => {
+                e.preventDefault();
+                void createCampaign();
+              }}
+            >
+              <input
+                value={createName}
+                onChange={(e) => setCreateName(e.target.value)}
+                placeholder="Campaign name (optional)"
+                autoFocus
+                className="w-full rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-sm"
+              />
+
+              <div className="mt-4 flex items-center justify-end gap-2">
+                <button
+                  type="button"
+                  disabled={busy}
+                  onClick={() => setCreateOpen(false)}
+                  className="rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm font-semibold text-zinc-700 hover:bg-zinc-50 disabled:opacity-60"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={busy}
+                  className={classNames(
+                    "rounded-2xl px-4 py-2 text-sm font-semibold",
+                    busy ? "bg-zinc-200 text-zinc-600" : "bg-brand-ink text-white hover:opacity-95",
+                  )}
+                >
+                  {busy ? "Creating…" : "Create"}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      ) : null}
     </div>
   );
 }
