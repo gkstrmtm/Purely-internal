@@ -184,6 +184,10 @@ export function PortalPeopleContactsClient() {
   const [importFile, setImportFile] = useState<File | null>(null);
   const [importHeaders, setImportHeaders] = useState<string[]>([]);
   const [importRows, setImportRows] = useState<string[][]>([]);
+  const [importDupesOpen, setImportDupesOpen] = useState(false);
+  const [importDupesBusy, setImportDupesBusy] = useState(false);
+  const [importDupesCount, setImportDupesCount] = useState(0);
+  const [importDupesRowIndexes, setImportDupesRowIndexes] = useState<number[]>([]);
   const [importMapping, setImportMapping] = useState<CsvMapping>({
     name: "",
     firstName: "",
@@ -1067,7 +1071,24 @@ export function PortalPeopleContactsClient() {
                       const json = (await res.json().catch(() => ({}))) as any;
                       if (!res.ok || !json?.ok) throw new Error(String(json?.error || "Import failed"));
 
-                      toast.success(`Imported ${Number(json.imported || 0)} contact(s)`);
+                      const importedCount = Number(json.imported || 0) || 0;
+                      const skippedDupes = Number(json.skippedDuplicates || 0) || 0;
+                      const dupesIndexes = Array.isArray(json.duplicateRowIndexes)
+                        ? (json.duplicateRowIndexes as any[])
+                            .map((n) => Number(n))
+                            .filter((n) => Number.isFinite(n) && n >= 0)
+                            .map((n) => Math.floor(n))
+                        : [];
+
+                      if (skippedDupes > 0) {
+                        toast.success(`Imported ${importedCount} contact(s). Skipped ${skippedDupes} duplicate(s).`);
+                        setImportDupesCount(skippedDupes);
+                        setImportDupesRowIndexes(dupesIndexes);
+                        setImportDupesOpen(true);
+                      } else {
+                        toast.success(`Imported ${importedCount} contact(s)`);
+                      }
+
                       setImportOpen(false);
 
                       setContactsCursor(null);
@@ -1088,6 +1109,101 @@ export function PortalPeopleContactsClient() {
                 )}
               >
                 {importBusy ? "Importing…" : "Import"}
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
+
+      {importDupesOpen ? (
+        <div
+          className="fixed inset-0 z-[90] flex items-center justify-center p-4"
+          role="dialog"
+          aria-modal="true"
+          aria-label="Duplicates skipped"
+          onClick={() => {
+            if (importDupesBusy) return;
+            setImportDupesOpen(false);
+          }}
+        >
+          <div className="absolute inset-0 bg-black/40" />
+          <div
+            className="relative w-full max-w-lg rounded-3xl border border-zinc-200 bg-white p-6 shadow-xl"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="text-base font-semibold text-zinc-900">Duplicates skipped</div>
+            <div className="mt-1 text-sm text-zinc-600">
+              Skipped {importDupesCount} duplicate contact(s) (matched an existing contact on 3+ fields).
+            </div>
+
+            <div className="mt-4 rounded-2xl border border-zinc-200 bg-zinc-50 p-4 text-sm text-zinc-700">
+              Would you like to add them anyway?
+            </div>
+
+            <div className="mt-5 flex flex-col gap-2 sm:flex-row sm:justify-end">
+              <button
+                type="button"
+                disabled={importDupesBusy}
+                onClick={() => setImportDupesOpen(false)}
+                className="rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm font-semibold text-zinc-700 hover:bg-zinc-50 disabled:opacity-60"
+              >
+                Not now
+              </button>
+              <button
+                type="button"
+                disabled={importDupesBusy || !importFile || importDupesRowIndexes.length === 0}
+                onClick={() =>
+                  void (async () => {
+                    if (!importFile) return;
+                    if (!importDupesRowIndexes.length) return;
+                    setImportDupesBusy(true);
+                    try {
+                      const fd = new FormData();
+                      fd.set("file", importFile);
+                      fd.set(
+                        "mapping",
+                        JSON.stringify({
+                          name: importMapping.name || null,
+                          firstName: importMapping.firstName || null,
+                          lastName: importMapping.lastName || null,
+                          email: importMapping.email || null,
+                          phone: importMapping.phone || null,
+                          tags: importMapping.tags || null,
+                        }),
+                      );
+                      fd.set("allowDuplicates", "1");
+                      fd.set("onlyRowIndexes", JSON.stringify(importDupesRowIndexes));
+
+                      const res = await fetch("/api/portal/people/contacts/import", {
+                        method: "POST",
+                        body: fd,
+                      });
+                      const json = (await res.json().catch(() => ({}))) as any;
+                      if (!res.ok || !json?.ok) throw new Error(String(json?.error || "Import failed"));
+
+                      toast.success(`Added ${Number(json.imported || 0)} duplicate contact(s)`);
+                      setImportDupesOpen(false);
+
+                      setContactsCursor(null);
+                      setLeadsCursor(null);
+                      setContactsCursorStack([null]);
+                      setLeadsCursorStack([null]);
+                      void load({ contactsCursor: null, leadsCursor: null });
+                    } catch (err: any) {
+                      toast.error(String(err?.message || "Failed to add duplicates"));
+                    } finally {
+                      setImportDupesBusy(false);
+                    }
+                  })()
+                }
+                className={classNames(
+                  "rounded-2xl px-5 py-2 text-sm font-semibold",
+                  importDupesBusy || !importFile || importDupesRowIndexes.length === 0
+                    ? "bg-zinc-200 text-zinc-600"
+                    : "bg-[color:var(--color-brand-blue)] text-white hover:opacity-95",
+                )}
+              >
+                {importDupesBusy ? "Adding…" : "Add duplicates anyway"}
               </button>
             </div>
           </div>
