@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 
 import {
   coerceBlocksJson,
@@ -81,10 +81,22 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
     setSelectedPageId((prev) => prev || nextPages[0]?.id || null);
   };
 
-  // initial load (simple lazy approach)
-  if (funnel === null || pages === null) {
-    void load().catch((e) => setError(e?.message ? String(e.message) : "Failed to load"));
-  }
+  useEffect(() => {
+    let cancelled = false;
+
+    if (funnel !== null && pages !== null) return;
+
+    void load().catch((e) => {
+      if (cancelled) return;
+      setError(e?.message ? String(e.message) : "Failed to load");
+    });
+
+    return () => {
+      cancelled = true;
+    };
+    // Intentionally omit `load` from deps to avoid re-creating it.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [funnelId, funnel, pages]);
 
   const createPage = async () => {
     const slug = normalizeSlug(prompt("Page slug (e.g. landing)") || "");

@@ -45,14 +45,6 @@ export async function proxy(req: NextRequest) {
   const isCredit = isCreditPathname(path);
   const isPortal = isPortalPathname(path);
 
-  // If a credit navigation accidentally hits a hardcoded /portal/* link or a server-side
-  // redirect targets /portal/*, keep the user in the credit experience.
-  if (isPortal && fromCredit) {
-    const url = req.nextUrl.clone();
-    url.pathname = path.replace("/portal", "/credit") || "/credit";
-    return NextResponse.redirect(url);
-  }
-
   // If a credit-portal user lands on /portal/* (usually via a hardcoded link),
   // keep the credit experience fully under /credit/*.
   if (isPortal && creditToken && !portalToken) {

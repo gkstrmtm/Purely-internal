@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 
 type Form = {
   id: string;
@@ -76,9 +76,22 @@ export function FormEditorClient({ basePath, formId }: { basePath: string; formI
     setSelectedIdx((prev) => Math.min(prev, Math.max(0, nextFields.length - 1)));
   };
 
-  if (form === null || fields === null) {
-    void load().catch((e) => setError(e?.message ? String(e.message) : "Failed to load"));
-  }
+  useEffect(() => {
+    let cancelled = false;
+
+    if (form !== null && fields !== null) return;
+
+    void load().catch((e) => {
+      if (cancelled) return;
+      setError(e?.message ? String(e.message) : "Failed to load");
+    });
+
+    return () => {
+      cancelled = true;
+    };
+    // Intentionally omit `load` from deps to avoid re-creating it.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [formId, form, fields]);
 
   const save = async (opts?: { name?: string; slug?: string; status?: Form["status"] }) => {
     if (!form || !fields) return;
