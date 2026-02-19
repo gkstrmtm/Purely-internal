@@ -13,3 +13,7 @@ export function normalizePortalVariant(raw: unknown): PortalVariant | null {
 export function portalVariantFromPathname(pathname: string): PortalVariant {
   return pathname === "/credit" || pathname.startsWith("/credit/") ? "credit" : "portal";
 }
+
+export function portalBasePath(variant: PortalVariant): "/portal" | "/credit" {
+  return variant === "credit" ? "/credit" : "/portal";
+}

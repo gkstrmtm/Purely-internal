@@ -1,5 +1,11 @@
 import { redirect } from "next/navigation";
+import { headers } from "next/headers";
 
-export default function PortalBookingFollowUpSlugPage() {
-  redirect("/portal/app/services/booking?tab=follow-up");
+import { normalizePortalVariant, PORTAL_VARIANT_HEADER, portalBasePath } from "@/lib/portalVariant";
+
+export default async function PortalBookingFollowUpSlugPage() {
+  const h = await headers();
+  const variant = normalizePortalVariant(h.get(PORTAL_VARIANT_HEADER)) || "portal";
+  const base = portalBasePath(variant);
+  redirect(`${base}/app/services/booking?tab=follow-up`);
 }

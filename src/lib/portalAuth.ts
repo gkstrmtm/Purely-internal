@@ -7,7 +7,7 @@ import { decode } from "next-auth/jwt";
 import { prisma } from "@/lib/db";
 import { hasPortalServiceCapability, type PortalServiceCapability } from "@/lib/portalPermissions";
 import type { PortalServiceKey } from "@/lib/portalPermissions.shared";
-import { normalizePortalVariant, PORTAL_VARIANT_HEADER, type PortalVariant } from "@/lib/portalVariant";
+import { normalizePortalVariant, PORTAL_VARIANT_HEADER, portalBasePath, type PortalVariant } from "@/lib/portalVariant";
 
 export const PORTAL_SESSION_COOKIE_NAME = "pa.portal.session";
 export const CREDIT_PORTAL_SESSION_COOKIE_NAME = "pa.credit.session";
@@ -24,6 +24,11 @@ export type PortalSessionUser = {
 async function portalVariantFromHeaders(): Promise<PortalVariant | null> {
   const h = await headers();
   return normalizePortalVariant(h.get(PORTAL_VARIANT_HEADER));
+}
+
+async function portalBaseFromHeaders(): Promise<string> {
+  const variant = (await portalVariantFromHeaders()) || "portal";
+  return portalBasePath(variant);
 }
 
 export async function getPortalUser(opts?: { variant?: PortalVariant | "auto" }): Promise<PortalSessionUser | null> {
@@ -71,6 +76,7 @@ export async function requirePortalUser() {
 
 export async function requirePortalUserForService(service: PortalServiceKey, capability: PortalServiceCapability = "view") {
   const user = await requirePortalUser();
+  const base = await portalBaseFromHeaders();
   const ownerId = user.id;
   const memberId = user.memberId || ownerId;
 
@@ -83,7 +89,7 @@ export async function requirePortalUserForService(service: PortalServiceKey, cap
 
   const roleRaw = typeof row?.role === "string" ? String(row.role) : null;
   const role = roleRaw === "ADMIN" || roleRaw === "MEMBER" ? roleRaw : null;
-  if (!role) redirect("/portal/login");
+  if (!role) redirect(`${base}/login`);
 
   const ok = hasPortalServiceCapability({
     role,
@@ -91,7 +97,7 @@ export async function requirePortalUserForService(service: PortalServiceKey, cap
     service,
     capability,
   });
-  if (!ok) redirect("/portal/app");
+  if (!ok) redirect(`${base}/app`);
 
   return user;
 }
@@ -101,6 +107,7 @@ export async function requirePortalUserForAnyService(
   capability: PortalServiceCapability = "view",
 ) {
   const user = await requirePortalUser();
+  const base = await portalBaseFromHeaders();
   const ownerId = user.id;
   const memberId = user.memberId || ownerId;
 
@@ -113,12 +120,12 @@ export async function requirePortalUserForAnyService(
 
   const roleRaw = typeof row?.role === "string" ? String(row.role) : null;
   const role = roleRaw === "ADMIN" || roleRaw === "MEMBER" ? roleRaw : null;
-  if (!role) redirect("/portal/login");
+  if (!role) redirect(`${base}/login`);
 
   const ok = services.some((service) =>
     hasPortalServiceCapability({ role, permissionsJson: row?.permissionsJson, service, capability }),
   );
-  if (!ok) redirect("/portal/app");
+  if (!ok) redirect(`${base}/app`);
 
   return user;
 }

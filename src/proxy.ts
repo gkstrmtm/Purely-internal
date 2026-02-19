@@ -44,6 +44,14 @@ export async function proxy(req: NextRequest) {
   const isCredit = isCreditPathname(path);
   const isPortal = isPortalPathname(path);
 
+  // If a credit-portal user lands on /portal/* (usually via a hardcoded link),
+  // keep the credit experience fully under /credit/*.
+  if (isPortal && creditToken && !portalToken) {
+    const url = req.nextUrl.clone();
+    url.pathname = path.replace("/portal", "/credit") || "/credit";
+    return NextResponse.redirect(url);
+  }
+
   // Keep /portal and /credit fully independent.
   // If a user is signed into only one portal, do NOT redirect them across base paths.
   // Instead, treat the other portal as signed-out and let normal auth guards send them

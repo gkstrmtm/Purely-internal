@@ -1,8 +1,10 @@
 import { redirect } from "next/navigation";
+import { headers } from "next/headers";
 
 import type { ReactElement } from "react";
 
 import { PortalServiceGate } from "@/app/portal/app/services/PortalServiceGate";
+import { normalizePortalVariant, PORTAL_VARIANT_HEADER, portalBasePath } from "@/lib/portalVariant";
 
 export default async function PortalAppointmentRemindersServicePage() {
   return (
@@ -12,7 +14,9 @@ export default async function PortalAppointmentRemindersServicePage() {
   );
 }
 
-function AppointmentRemindersRedirect(): ReactElement | null {
-  redirect("/portal/app/services/booking");
-  return null;
+async function AppointmentRemindersRedirect(): Promise<ReactElement | null> {
+  const h = await headers();
+  const variant = normalizePortalVariant(h.get(PORTAL_VARIANT_HEADER)) || "portal";
+  const base = portalBasePath(variant);
+  redirect(`${base}/app/services/booking`);
 }
