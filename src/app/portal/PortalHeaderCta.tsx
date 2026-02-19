@@ -8,7 +8,9 @@ export function PortalHeaderCta({ canOpenPortalApp }: { canOpenPortalApp: boolea
 
   if (!canOpenPortalApp) return null;
 
-  const inPortalApp = typeof pathname === "string" && pathname.startsWith("/portal/app");
+  const isCredit = typeof pathname === "string" && pathname.startsWith("/credit");
+  const base = isCredit ? "/credit" : "/portal";
+  const inPortalApp = typeof pathname === "string" && pathname.startsWith(`${base}/app`);
 
   if (inPortalApp) {
     return (
@@ -25,7 +27,7 @@ export function PortalHeaderCta({ canOpenPortalApp }: { canOpenPortalApp: boolea
 
   return (
     <Link
-      href="/portal/app"
+      href={`${base}/app`}
       className="rounded-xl bg-brand-ink px-3 py-2 text-sm font-semibold text-white hover:opacity-95"
     >
       Open portal

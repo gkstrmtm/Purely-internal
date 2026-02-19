@@ -1,8 +1,15 @@
 import Link from "next/link";
+import { headers } from "next/headers";
 
 import { PortalOffersCarousel } from "@/app/portal/PortalOffersCarousel";
+import { normalizePortalVariant, PORTAL_VARIANT_HEADER } from "@/lib/portalVariant";
 
 export default async function PortalDashboardPage() {
+  const h = await headers();
+  const variant = normalizePortalVariant(h.get(PORTAL_VARIANT_HEADER)) || "portal";
+  const getStartedHref = variant === "credit" ? "/credit/get-started" : "/portal/get-started";
+  const signInHref = variant === "credit" ? "/credit/login" : "/login";
+
   return (
     <div className="w-full">
       <section className="w-full bg-[color:var(--color-brand-blue)] text-white">
@@ -18,13 +25,13 @@ export default async function PortalDashboardPage() {
 
               <div className="mt-7 flex flex-col gap-3 sm:flex-row">
                 <Link
-                  href="/portal/get-started"
+                  href={getStartedHref}
                   className="inline-flex items-center justify-center rounded-2xl bg-white px-6 py-3 text-base font-semibold text-[color:var(--color-brand-blue)] hover:bg-zinc-50"
                 >
                   Get Started
                 </Link>
                 <Link
-                  href="/login"
+                  href={signInHref}
                   className="inline-flex items-center justify-center rounded-2xl bg-[color:var(--color-brand-pink)] px-6 py-3 text-base font-semibold text-white hover:opacity-95"
                 >
                   Sign In

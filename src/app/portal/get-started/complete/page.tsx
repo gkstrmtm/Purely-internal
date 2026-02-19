@@ -1,14 +1,17 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { useRouter, useSearchParams } from "next/navigation";
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
 
 import { useToast } from "@/components/ToastProvider";
 
 export default function PortalGetStartedCompletePage() {
   const router = useRouter();
+  const pathname = usePathname() || "";
   const params = useSearchParams();
   const toast = useToast();
+
+  const portalBase = pathname.startsWith("/credit") ? "/credit" : "/portal";
 
   const sessionId = useMemo(() => (params?.get("session_id") || "").trim(), [params]);
   const bypass = useMemo(() => (params?.get("bypass") || "").trim() === "1", [params]);
@@ -20,7 +23,7 @@ export default function PortalGetStartedCompletePage() {
     (async () => {
       if (!sessionId && !bypass) {
         toast.error("Missing checkout session");
-        router.replace("/portal/get-started");
+        router.replace(`${portalBase}/get-started`);
         return;
       }
 
@@ -35,7 +38,7 @@ export default function PortalGetStartedCompletePage() {
 
       if (!res.ok || !json?.ok) {
         if (res.status === 401 || res.status === 403) {
-          router.replace("/portal/login");
+          router.replace(`${portalBase}/login`);
           return;
         }
         toast.error(json?.error || "Unable to activate services");
@@ -44,14 +47,14 @@ export default function PortalGetStartedCompletePage() {
       }
 
       toast.success("Services activated");
-      router.replace(bypass ? "/portal/app/billing" : "/portal/app/services");
+      router.replace(bypass ? `${portalBase}/app/billing` : `${portalBase}/app/services`);
       router.refresh();
     })();
 
     return () => {
       mounted = false;
     };
-  }, [router, sessionId, toast, bypass]);
+  }, [router, sessionId, toast, bypass, portalBase]);
 
   return (
     <div className="min-h-screen bg-brand-mist text-brand-ink">

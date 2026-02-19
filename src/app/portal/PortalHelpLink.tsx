@@ -6,48 +6,52 @@ import { usePathname } from "next/navigation";
 function computeHelpHref(pathname: string | null): string {
   const path = pathname ?? "";
 
-  if (!path.startsWith("/portal")) {
-    return "/portal/tutorials";
+  const isCredit = path.startsWith("/credit");
+  const base = isCredit ? "/credit" : "/portal";
+  const internal = isCredit ? path.replace("/credit", "/portal") : path;
+
+  if (!internal.startsWith("/portal")) {
+    return `${base}/tutorials`;
   }
 
   // Portal marketing / getting started routes fall back to main tutorials.
-  if (path === "/portal" || path.startsWith("/portal/get-started")) {
-    return "/portal/tutorials";
+  if (internal === "/portal" || internal.startsWith("/portal/get-started")) {
+    return `${base}/tutorials`;
   }
 
   // Dashboard.
-  if (path === "/portal/app" || path === "/portal/app/") {
-    return "/portal/tutorials/dashboard";
+  if (internal === "/portal/app" || internal === "/portal/app/") {
+    return `${base}/tutorials/dashboard`;
   }
 
   // Services list view.
-  if (path === "/portal/app/services" || path.startsWith("/portal/app/services?")) {
-    return "/portal/tutorials";
+  if (internal === "/portal/app/services" || internal.startsWith("/portal/app/services?")) {
+    return `${base}/tutorials`;
   }
 
   // Specific service page, e.g. /portal/app/services/inbox/...
-  if (path.startsWith("/portal/app/services/")) {
-    const segments = path.split("/");
+  if (internal.startsWith("/portal/app/services/")) {
+    const segments = internal.split("/");
     // ['', 'portal', 'app', 'services', '<slug>', ...]
     const slug = segments[4];
-    if (slug) return `/portal/tutorials/${slug}`;
-    return "/portal/tutorials";
+    if (slug) return `${base}/tutorials/${slug}`;
+    return `${base}/tutorials`;
   }
 
   // People / Billing / Profile top-level sections.
-  if (path.startsWith("/portal/app/people")) {
-    return "/portal/tutorials/people";
+  if (internal.startsWith("/portal/app/people")) {
+    return `${base}/tutorials/people`;
   }
 
-  if (path.startsWith("/portal/app/billing")) {
-    return "/portal/tutorials/billing";
+  if (internal.startsWith("/portal/app/billing")) {
+    return `${base}/tutorials/billing`;
   }
 
-  if (path.startsWith("/portal/app/profile")) {
-    return "/portal/tutorials/profile";
+  if (internal.startsWith("/portal/app/profile")) {
+    return `${base}/tutorials/profile`;
   }
 
-  return "/portal/tutorials";
+  return `${base}/tutorials`;
 }
 
 export function PortalHelpLink() {

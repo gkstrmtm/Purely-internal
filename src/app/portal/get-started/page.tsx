@@ -2,7 +2,7 @@
 
 import Image from "next/image";
 import Link from "next/link";
-import { useRouter } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
 import { useSearchParams } from "next/navigation";
 import { useEffect, useState } from "react";
 
@@ -38,8 +38,11 @@ function moneyLabel(monthlyUsd: number) {
 
 export default function PortalGetStartedPage() {
   const router = useRouter();
+  const pathname = usePathname() || "";
   const search = useSearchParams();
   const toast = useToast();
+
+  const portalBase = pathname.startsWith("/credit") ? "/credit" : "/portal";
 
   const checkoutState = (search?.get("checkout") || "").trim().toLowerCase();
   useEffect(() => {
@@ -255,12 +258,12 @@ export default function PortalGetStartedPage() {
       const confirmJson = await confirmRes.json().catch(() => null);
       if (!confirmRes.ok || !confirmJson?.ok) {
         setError(confirmJson?.error || "Unable to activate services");
-        router.push("/portal/login");
+        router.push(`${portalBase}/login`);
         return;
       }
 
       toast.success("Welcome to your portal");
-      router.push("/portal/app/billing");
+      router.push(`${portalBase}/app/billing`);
       return;
     }
 
@@ -269,11 +272,11 @@ export default function PortalGetStartedPage() {
       toast.error(msg);
       setError(msg);
       if (checkoutRes.status === 401 || checkoutRes.status === 403) {
-        router.push("/portal/login");
+        router.push(`${portalBase}/login`);
         return;
       }
 
-      router.push("/portal/app/billing");
+      router.push(`${portalBase}/app/billing`);
       router.refresh();
       return;
     }
