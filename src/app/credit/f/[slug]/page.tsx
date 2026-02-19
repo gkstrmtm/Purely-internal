@@ -2,6 +2,7 @@ import { notFound } from "next/navigation";
 
 import { prisma } from "@/lib/db";
 import { inlineMarkdownToHtmlSafe, parseBlogContent } from "@/lib/blog";
+import { coerceBlocksJson, renderCreditFunnelBlocks } from "@/lib/creditFunnelBlocks";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
@@ -21,7 +22,13 @@ export default async function CreditHostedFunnelPage({ params }: { params: Promi
         pages: {
           orderBy: [{ sortOrder: "asc" }, { id: "asc" }],
           take: 1,
-          select: { title: true, contentMarkdown: true },
+          select: {
+            title: true,
+            contentMarkdown: true,
+            editorMode: true,
+            blocksJson: true,
+            customHtml: true,
+          },
         },
       },
     })
@@ -30,7 +37,8 @@ export default async function CreditHostedFunnelPage({ params }: { params: Promi
   if (!funnel) notFound();
 
   const page = funnel.pages[0] || null;
-  const blocks = page ? parseBlogContent(page.contentMarkdown) : [];
+  const markdownBlocks = page ? parseBlogContent(page.contentMarkdown) : [];
+  const blockBlocks = page ? coerceBlocksJson(page.blocksJson) : [];
 
   return (
     <main className="mx-auto w-full max-w-3xl p-8">
@@ -40,8 +48,21 @@ export default async function CreditHostedFunnelPage({ params }: { params: Promi
         <p className="mt-2 text-sm text-zinc-600">Slug: /credit/f/{funnel.slug}</p>
 
         {page ? (
-          <div className="prose prose-zinc mt-8 max-w-none">
-            {blocks.map((b, idx) => {
+          <div className="mt-8">
+            {page.editorMode === "CUSTOM_HTML" ? (
+              <div className="overflow-hidden rounded-2xl border border-zinc-200">
+                <iframe
+                  title={page.title}
+                  sandbox="allow-forms allow-popups allow-scripts"
+                  srcDoc={page.customHtml || ""}
+                  className="h-[70vh] w-full bg-white"
+                />
+              </div>
+            ) : page.editorMode === "BLOCKS" ? (
+              <div className="prose prose-zinc max-w-none">{renderCreditFunnelBlocks({ blocks: blockBlocks, basePath: "/credit" })}</div>
+            ) : (
+              <div className="prose prose-zinc max-w-none">
+                {markdownBlocks.map((b, idx) => {
               if (b.type === "h2") {
                 return (
                   <h2 key={idx} className="pt-4 text-xl font-bold text-zinc-900">
@@ -83,7 +104,9 @@ export default async function CreditHostedFunnelPage({ params }: { params: Promi
                 );
               }
               return null;
-            })}
+                })}
+              </div>
+            )}
           </div>
         ) : (
           <p className="mt-6 text-sm text-zinc-700">No pages yet for this funnel.</p>

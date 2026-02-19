@@ -35,6 +35,17 @@ export async function PATCH(req: Request, ctx: { params: Promise<{ funnelId: str
   if (typeof body?.contentMarkdown === "string") data.contentMarkdown = body.contentMarkdown;
   if (typeof body?.sortOrder === "number" && Number.isFinite(body.sortOrder)) data.sortOrder = body.sortOrder;
 
+  if (typeof body?.editorMode === "string") {
+    const m = body.editorMode.trim().toUpperCase();
+    if (m !== "MARKDOWN" && m !== "BLOCKS" && m !== "CUSTOM_HTML") {
+      return NextResponse.json({ ok: false, error: "Invalid editorMode" }, { status: 400 });
+    }
+    data.editorMode = m;
+  }
+  if (typeof body?.customHtml === "string") data.customHtml = body.customHtml;
+  if (body?.blocksJson !== undefined) data.blocksJson = body.blocksJson;
+  if (body?.customChatJson !== undefined) data.customChatJson = body.customChatJson;
+
   if (typeof body?.slug === "string") {
     const slug = body.slug
       .trim()
@@ -56,6 +67,10 @@ export async function PATCH(req: Request, ctx: { params: Promise<{ funnelId: str
       title: true,
       sortOrder: true,
       contentMarkdown: true,
+      editorMode: true,
+      blocksJson: true,
+      customHtml: true,
+      customChatJson: true,
       createdAt: true,
       updatedAt: true,
     },

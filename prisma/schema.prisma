@@ -1626,6 +1626,12 @@ enum CreditCustomDomainStatus {
   VERIFIED
 }
 
+enum CreditFunnelPageEditorMode {
+  MARKDOWN
+  BLOCKS
+  CUSTOM_HTML
+}
+
 model CreditFunnel {
   id String @id @default(cuid())
 
@@ -1673,6 +1679,12 @@ model CreditFunnelPage {
   slug     String
   title    String
   contentMarkdown String @default("")
+
+  editorMode CreditFunnelPageEditorMode @default(MARKDOWN)
+  blocksJson Json?
+  customHtml String @default("")
+  customChatJson Json?
+
   sortOrder Int @default(0)
 
   createdAt DateTime @default(now())

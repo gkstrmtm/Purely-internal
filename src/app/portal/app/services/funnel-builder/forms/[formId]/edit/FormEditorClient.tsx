@@ -77,7 +77,6 @@ export function FormEditorClient({ basePath, formId }: { basePath: string; formI
   };
 
   if (form === null || fields === null) {
-    // eslint-disable-next-line no-void
     void load().catch((e) => setError(e?.message ? String(e.message) : "Failed to load"));
   }
 
