@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { useEffect, useMemo, useState } from "react";
 
 import {
@@ -15,9 +16,19 @@ import {
   type PortalMediaPickItem,
 } from "@/components/PortalMediaPickerModal";
 import { SignOutButton } from "@/components/SignOutButton";
+import { useToast } from "@/components/ToastProvider";
 import { PORTAL_VARIANT_HEADER, type PortalVariant } from "@/lib/portalVariant";
 
 type Funnel = {
+  id: string;
+  slug: string;
+  name: string;
+  status: "DRAFT" | "ACTIVE" | "ARCHIVED";
+  createdAt: string;
+  updatedAt: string;
+};
+
+type CreditForm = {
   id: string;
   slug: string;
   name: string;
@@ -250,6 +261,7 @@ type FunnelEditorDialog =
   | { type: "rename-page"; value: string }
   | { type: "slug-page"; value: string }
   | { type: "create-page"; slug: string; title: string }
+  | { type: "create-form"; slug: string; name: string }
   | { type: "delete-page" }
   | null;
 
@@ -823,27 +835,75 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
                         <div className="truncate text-sm font-semibold text-zinc-900">{selectedPage?.title || "Preview"}</div>
                         {selectedPage ? <div className="truncate text-xs text-zinc-500">/{selectedPage.slug}</div> : null}
                       </div>
-                      {funnel?.slug ? (
-                        <a
-                          href={`${basePath}/f/${encodeURIComponent(funnel.slug)}`}
-                          target="_blank"
-                          rel="noreferrer"
-                          className="rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm font-semibold text-zinc-900 hover:bg-zinc-50"
-                        >
-                          Open hosted
-                        </a>
-                      ) : null}
+                      <div className="flex items-center gap-2">
+                        <div className="inline-flex rounded-xl border border-zinc-200 bg-white p-1">
+                          <button
+                            type="button"
+                            onClick={() => setPreviewMode("edit")}
+                            className={classNames(
+                              "rounded-lg px-3 py-1.5 text-sm font-semibold",
+                              previewMode === "edit" ? "bg-zinc-900 text-white" : "text-zinc-700 hover:bg-zinc-50",
+                            )}
+                          >
+                            Edit
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => setPreviewMode("preview")}
+                            className={classNames(
+                              "rounded-lg px-3 py-1.5 text-sm font-semibold",
+                              previewMode === "preview" ? "bg-zinc-900 text-white" : "text-zinc-700 hover:bg-zinc-50",
+                            )}
+                          >
+                            Preview
+                          </button>
+                        </div>
+
+                        <div className="inline-flex rounded-xl border border-zinc-200 bg-white p-1">
+                          <button
+                            type="button"
+                            onClick={() => setPreviewDevice("desktop")}
+                            className={classNames(
+                              "rounded-lg px-3 py-1.5 text-sm font-semibold",
+                              previewDevice === "desktop" ? "bg-zinc-900 text-white" : "text-zinc-700 hover:bg-zinc-50",
+                            )}
+                          >
+                            Desktop
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => setPreviewDevice("mobile")}
+                            className={classNames(
+                              "rounded-lg px-3 py-1.5 text-sm font-semibold",
+                              previewDevice === "mobile" ? "bg-zinc-900 text-white" : "text-zinc-700 hover:bg-zinc-50",
+                            )}
+                          >
+                            Mobile
+                          </button>
+                        </div>
+
+                        {funnel?.slug ? (
+                          <a
+                            href={`${basePath}/f/${encodeURIComponent(funnel.slug)}`}
+                            target="_blank"
+                            rel="noreferrer"
+                            className="rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm font-semibold text-zinc-900 hover:bg-zinc-50"
+                          >
+                            Open hosted
+                          </a>
+                        ) : null}
+                      </div>
                     </div>
 
                     <div
                       className="flex-1 overflow-auto p-8"
                       onDragOver={(e) => {
-                        if (!selectedPage || selectedPage.editorMode !== "BLOCKS") return;
+                        if (!selectedPage || selectedPage.editorMode !== "BLOCKS" || previewMode !== "edit") return;
                         e.preventDefault();
                         e.dataTransfer.dropEffect = "copy";
                       }}
                       onDrop={(e) => {
-                        if (!selectedPage || selectedPage.editorMode !== "BLOCKS") return;
+                        if (!selectedPage || selectedPage.editorMode !== "BLOCKS" || previewMode !== "edit") return;
                         e.preventDefault();
                         const t = e.dataTransfer.getData("text/x-block-type");
                         if (t) addBlock(t as any);
@@ -852,51 +912,67 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
                       {!selectedPage ? (
                         <div className="text-sm text-zinc-600">Select a page to preview.</div>
                       ) : selectedPage.editorMode === "CUSTOM_HTML" ? (
-                        <div className="h-[78vh] overflow-hidden rounded-2xl border border-zinc-200 bg-white">
+                        <div
+                          className={classNames(
+                            "mx-auto w-full overflow-hidden rounded-3xl border border-zinc-200 bg-white",
+                            previewDevice === "mobile" ? "max-w-[420px]" : "max-w-5xl",
+                          )}
+                        >
                           <iframe
                             title={selectedPage.title}
                             sandbox="allow-forms allow-popups allow-scripts"
                             srcDoc={selectedPage.customHtml || ""}
-                            className="h-full w-full bg-white"
+                            className="h-[78vh] w-full bg-white"
                           />
                         </div>
                       ) : (
-                        <div className="mx-auto w-full max-w-4xl rounded-3xl border border-zinc-200 bg-white p-8">
-                          {selectedBlocks.length === 0 ? (
-                            <div className="rounded-xl border border-dashed border-zinc-300 p-6 text-sm text-zinc-600">
-                              Drag a block from the left, or click a block to add.
-                            </div>
+                        <div
+                          className={classNames(
+                            "mx-auto w-full overflow-hidden rounded-3xl border border-zinc-200",
+                            previewDevice === "mobile" ? "max-w-[420px]" : "max-w-5xl",
+                          )}
+                        >
+                          {previewMode === "preview" ? (
+                            <div className="min-h-[70vh]">{renderCreditFunnelBlocks({ blocks: selectedBlocks, basePath })}</div>
                           ) : (
-                            <div className="space-y-4">
-                              {selectedBlocks.map((b) => (
-                                <div
-                                  key={b.id}
-                                  draggable
-                                  onDragStart={(e) => {
-                                    e.dataTransfer.setData("text/x-block-id", b.id);
-                                    e.dataTransfer.effectAllowed = "move";
-                                  }}
-                                  onDragOver={(e) => {
-                                    e.preventDefault();
-                                    e.dataTransfer.dropEffect = "move";
-                                  }}
-                                  onDrop={(e) => {
-                                    e.preventDefault();
-                                    const dragId = e.dataTransfer.getData("text/x-block-id");
-                                    if (dragId) reorderBlocks(dragId, b.id);
-                                  }}
-                                  onClick={() => setSelectedBlockId(b.id)}
-                                  className={classNames(
-                                    "cursor-pointer rounded-2xl border p-4",
-                                    selectedBlockId === b.id
-                                      ? "border-[color:var(--color-brand-blue)] bg-blue-50"
-                                      : "border-zinc-200 bg-white hover:bg-zinc-50",
-                                  )}
-                                >
-                                  <div className="text-xs font-semibold uppercase tracking-wide text-zinc-500">{b.type}</div>
-                                  <div className="mt-3">{renderCreditFunnelBlocks({ blocks: [b], basePath })}</div>
+                            <div className="bg-white p-8">
+                              {selectedBlocks.length === 0 ? (
+                                <div className="rounded-xl border border-dashed border-zinc-300 p-6 text-sm text-zinc-600">
+                                  Drag a block from the left, or click a block to add.
                                 </div>
-                              ))}
+                              ) : (
+                                <div className="space-y-4">
+                                  {selectedBlocks.map((b) => (
+                                    <div
+                                      key={b.id}
+                                      draggable
+                                      onDragStart={(e) => {
+                                        e.dataTransfer.setData("text/x-block-id", b.id);
+                                        e.dataTransfer.effectAllowed = "move";
+                                      }}
+                                      onDragOver={(e) => {
+                                        e.preventDefault();
+                                        e.dataTransfer.dropEffect = "move";
+                                      }}
+                                      onDrop={(e) => {
+                                        e.preventDefault();
+                                        const dragId = e.dataTransfer.getData("text/x-block-id");
+                                        if (dragId) reorderBlocks(dragId, b.id);
+                                      }}
+                                      onClick={() => setSelectedBlockId(b.id)}
+                                      className={classNames(
+                                        "cursor-pointer rounded-2xl border p-4",
+                                        selectedBlockId === b.id
+                                          ? "border-[color:var(--color-brand-blue)] bg-blue-50"
+                                          : "border-zinc-200 bg-white hover:bg-zinc-50",
+                                      )}
+                                    >
+                                      <div className="text-xs font-semibold uppercase tracking-wide text-zinc-500">{b.type}</div>
+                                      <div className="mt-3">{renderCreditFunnelBlocks({ blocks: [b], basePath })}</div>
+                                    </div>
+                                  ))}
+                                </div>
+                              )}
                             </div>
                           )}
                         </div>
@@ -1058,13 +1134,23 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
 */
 
 export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; funnelId: string }) {
+  const router = useRouter();
+  const toast = useToast();
+
   const [funnel, setFunnel] = useState<Funnel | null>(null);
   const [pages, setPages] = useState<Page[] | null>(null);
+  const [forms, setForms] = useState<CreditForm[] | null>(null);
   const [selectedPageId, setSelectedPageId] = useState<string | null>(null);
   const [selectedBlockId, setSelectedBlockId] = useState<string | null>(null);
   const [chatInput, setChatInput] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  const [uploadingImageBlockId, setUploadingImageBlockId] = useState<string | null>(null);
+  const [uploadingAi, setUploadingAi] = useState(false);
+
+  const [previewDevice, setPreviewDevice] = useState<"desktop" | "mobile">("desktop");
+  const [previewMode, setPreviewMode] = useState<"edit" | "preview">("edit");
 
   const [dialog, setDialog] = useState<FunnelEditorDialog>(null);
   const [dialogError, setDialogError] = useState<string | null>(null);
@@ -1164,6 +1250,58 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
     setDialogError(null);
   };
 
+  const openCreateForm = () => {
+    setDialog({ type: "create-form", slug: "", name: "" });
+    setDialogError(null);
+  };
+
+  const performCreateForm = async (args: { slug: string; name: string }) => {
+    const slug = normalizeSlug(args.slug);
+    const name = args.name.trim();
+    if (!slug) {
+      setDialogError("Slug is required.");
+      return;
+    }
+
+    setBusy(true);
+    setDialogError(null);
+    setError(null);
+
+    try {
+      const res = await fetch("/api/portal/funnel-builder/forms", {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          [PORTAL_VARIANT_HEADER]: portalVariant,
+        },
+        body: JSON.stringify({ slug, name: name || undefined }),
+      });
+      const json = (await res.json().catch(() => null)) as any;
+      if (!res.ok || !json || json.ok !== true) throw new Error(json?.error || "Failed to create form");
+
+      const created = json.form as CreditForm | undefined;
+      await load();
+      closeDialog();
+
+      toast.success("Form created");
+      if (created?.id) {
+        router.push(`${basePath}/app/services/funnel-builder/forms/${encodeURIComponent(created.id)}/edit`);
+      }
+    } catch (e) {
+      const msg = (e as any)?.message ? String((e as any).message) : "Failed to create form";
+      setDialogError(msg);
+      toast.error(msg);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const formsBySlug = useMemo(() => {
+    const m = new Map<string, CreditForm>();
+    (forms || []).forEach((f) => m.set(f.slug, f));
+    return m;
+  }, [forms]);
+
   const selectedPage = useMemo(
     () => (pages || []).find((p) => p.id === selectedPageId) || null,
     [pages, selectedPageId],
@@ -1219,16 +1357,21 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
 
   const load = async () => {
     setError(null);
-    const [fRes, pRes] = await Promise.all([
+    const [fRes, pRes, formsRes] = await Promise.all([
       fetch(`/api/portal/funnel-builder/funnels/${encodeURIComponent(funnelId)}`, {
         cache: "no-store",
       }),
       fetch(`/api/portal/funnel-builder/funnels/${encodeURIComponent(funnelId)}/pages`, {
         cache: "no-store",
       }),
+      fetch("/api/portal/funnel-builder/forms", {
+        cache: "no-store",
+        headers: { [PORTAL_VARIANT_HEADER]: portalVariant },
+      }).catch(() => null as any),
     ]);
     const fJson = (await fRes.json().catch(() => null)) as any;
     const pJson = (await pRes.json().catch(() => null)) as any;
+    const formsJson = formsRes ? ((await formsRes.json().catch(() => null)) as any) : null;
     if (!fRes.ok || !fJson || fJson.ok !== true)
       throw new Error(fJson?.error || "Failed to load funnel");
     if (!pRes.ok || !pJson || pJson.ok !== true)
@@ -1238,6 +1381,10 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
     const nextPages = Array.isArray(pJson.pages) ? (pJson.pages as Page[]) : [];
     setPages(nextPages);
     setSelectedPageId((prev) => prev || nextPages[0]?.id || null);
+
+    if (formsRes && formsRes.ok && formsJson?.ok === true) {
+      setForms(Array.isArray(formsJson.forms) ? (formsJson.forms as CreditForm[]) : []);
+    }
   };
 
   useEffect(() => {
@@ -1503,6 +1650,83 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
     setSelectedBlockId(id);
   };
 
+  const addPresetSection = (preset: "hero" | "body" | "form") => {
+    if (!selectedPage) return;
+
+    const blocks: CreditFunnelBlock[] = [];
+    const firstFormSlug = (forms || []).find((f) => typeof f?.slug === "string" && f.slug.trim())?.slug || "";
+
+    if (preset === "hero") {
+      blocks.push({
+        id: newId(),
+        type: "section",
+        props: {
+          layout: "one",
+          markdown: "# Hero headline\n\nAdd your subheadline here.\n\n[Get started](#)",
+          style: {
+            backgroundColor: "#0f172a",
+            textColor: "#ffffff",
+            paddingPx: 48,
+            borderRadiusPx: 24,
+            align: "center",
+            marginBottomPx: 24,
+          },
+        },
+      });
+      blocks.push({
+        id: newId(),
+        type: "button",
+        props: {
+          text: "Get started",
+          href: firstFormSlug ? `${basePath}/forms/${encodeURIComponent(firstFormSlug)}` : `${basePath}/forms/your-form-slug`,
+          variant: "primary",
+          style: { marginBottomPx: 24 },
+        },
+      });
+    }
+
+    if (preset === "body") {
+      blocks.push({
+        id: newId(),
+        type: "section",
+        props: {
+          layout: "one",
+          markdown: "## Body section\n\nWrite your main content here…",
+          style: { paddingPx: 32, marginBottomPx: 24 },
+        },
+      });
+    }
+
+    if (preset === "form") {
+      blocks.push({
+        id: newId(),
+        type: "section",
+        props: {
+          layout: "one",
+          markdown: "## Form section\n\nEmbed a form below.",
+          style: { paddingPx: 32, backgroundColor: "#f8fafc", borderRadiusPx: 24, marginBottomPx: 16 },
+        },
+      });
+      blocks.push({
+        id: newId(),
+        type: "formEmbed",
+        props: {
+          formSlug: firstFormSlug,
+          height: 760,
+          style: { paddingPx: 16, backgroundColor: "#f8fafc", borderRadiusPx: 24 },
+        },
+      });
+    }
+
+    if (!blocks.length) return;
+    const nextEditable = [...editableBlocks, ...blocks].filter((b) => b.type !== "page");
+    setSelectedPageLocal({
+      editorMode: "BLOCKS",
+      blocksJson: pageSettingsBlock ? [pageSettingsBlock, ...nextEditable] : nextEditable,
+    });
+    setSelectedBlockId(blocks[0].id);
+  };
+
   const removeBlock = (blockId: string) => {
     if (!selectedPage) return;
     const nextEditable = editableBlocks.filter((b) => b.id !== blockId);
@@ -1658,6 +1882,74 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
                 setDialog((prev) => (prev?.type === "create-page" ? { ...prev, title: v } : prev));
               }}
               placeholder="Landing page"
+              className="mt-1 w-full rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm"
+            />
+          </label>
+
+          {dialogError ? <div className="text-sm font-semibold text-red-700">{dialogError}</div> : null}
+        </div>
+      </AppModal>
+
+      <AppModal
+        open={dialog?.type === "create-form"}
+        title="Create form"
+        description="Create a hosted form you can link/embed in this funnel."
+        onClose={closeDialog}
+        widthClassName="w-[min(640px,calc(100vw-32px))]"
+        footer={
+          <div className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
+            <button
+              type="button"
+              className="rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm font-semibold text-zinc-800 hover:bg-zinc-50"
+              onClick={closeDialog}
+              disabled={busy}
+            >
+              Cancel
+            </button>
+            <button
+              type="button"
+              className={classNames(
+                "rounded-2xl bg-[color:var(--color-brand-blue)] px-4 py-2 text-sm font-semibold text-white hover:bg-blue-700",
+                busy ? "opacity-60" : "",
+              )}
+              disabled={busy}
+              onClick={() => {
+                if (dialog?.type !== "create-form") return;
+                void performCreateForm({ slug: dialog.slug, name: dialog.name });
+              }}
+            >
+              Create
+            </button>
+          </div>
+        }
+      >
+        <div className="space-y-4">
+          <label className="block">
+            <div className="text-xs font-semibold uppercase tracking-wide text-zinc-500">Slug</div>
+            <input
+              autoFocus
+              value={dialog?.type === "create-form" ? dialog.slug : ""}
+              onChange={(e) => {
+                const v = e.target.value;
+                setDialogError(null);
+                setDialog((prev) => (prev?.type === "create-form" ? { ...prev, slug: v } : prev));
+              }}
+              placeholder="new-client-intake"
+              className="mt-1 w-full rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm"
+            />
+            <div className="mt-1 text-xs text-zinc-500">Allowed: letters, numbers, and dashes.</div>
+          </label>
+
+          <label className="block">
+            <div className="text-xs font-semibold uppercase tracking-wide text-zinc-500">Name (optional)</div>
+            <input
+              value={dialog?.type === "create-form" ? dialog.name : ""}
+              onChange={(e) => {
+                const v = e.target.value;
+                setDialogError(null);
+                setDialog((prev) => (prev?.type === "create-form" ? { ...prev, name: v } : prev));
+              }}
+              placeholder="New client intake"
               className="mt-1 w-full rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm"
             />
           </label>
@@ -1897,6 +2189,36 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
               </div>
 
               <div className="text-sm font-semibold text-zinc-900">Blocks</div>
+              <div className="mt-3 rounded-2xl border border-zinc-200 bg-zinc-50 p-4">
+                <div className="text-sm font-semibold text-zinc-900">Section presets</div>
+                <div className="mt-3 grid grid-cols-3 gap-2">
+                  <button
+                    type="button"
+                    disabled={busy}
+                    onClick={() => addPresetSection("hero")}
+                    className="rounded-xl border border-zinc-200 bg-white px-3 py-2 text-left text-xs font-semibold text-zinc-800 hover:bg-zinc-50"
+                  >
+                    Hero
+                  </button>
+                  <button
+                    type="button"
+                    disabled={busy}
+                    onClick={() => addPresetSection("body")}
+                    className="rounded-xl border border-zinc-200 bg-white px-3 py-2 text-left text-xs font-semibold text-zinc-800 hover:bg-zinc-50"
+                  >
+                    Body
+                  </button>
+                  <button
+                    type="button"
+                    disabled={busy}
+                    onClick={() => addPresetSection("form")}
+                    className="rounded-xl border border-zinc-200 bg-white px-3 py-2 text-left text-xs font-semibold text-zinc-800 hover:bg-zinc-50"
+                  >
+                    Form
+                  </button>
+                </div>
+                <div className="mt-2 text-xs text-zinc-500">Quick-start templates that add a few blocks.</div>
+              </div>
               <div className="mt-3 grid grid-cols-2 gap-2">
                 {(
                   [
@@ -2025,17 +2347,55 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
 
                     {selectedBlock.type === "formLink" ? (
                       <div className="space-y-2">
-                        <input
-                          value={selectedBlock.props.formSlug}
-                          onChange={(e) =>
-                            upsertBlock({
-                              ...selectedBlock,
-                              props: { ...selectedBlock.props, formSlug: normalizeSlug(e.target.value) },
-                            })
-                          }
-                          className="w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm"
-                          placeholder="form-slug"
-                        />
+                        <label className="block">
+                          <div className="mb-1 text-[11px] font-semibold uppercase tracking-wide text-zinc-500">Form</div>
+                          <select
+                            value={selectedBlock.props.formSlug || ""}
+                            onChange={(e) =>
+                              upsertBlock({
+                                ...selectedBlock,
+                                props: { ...selectedBlock.props, formSlug: e.target.value || "" },
+                              })
+                            }
+                            className="w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm"
+                          >
+                            <option value="">Select a form…</option>
+                            {(forms || []).map((f) => (
+                              <option key={f.id} value={f.slug}>
+                                {f.name} ({f.slug})
+                              </option>
+                            ))}
+                          </select>
+                          <div className="mt-1 text-[11px] text-zinc-500">Links to the hosted credit form.</div>
+                        </label>
+
+                        <div className="flex flex-wrap gap-2">
+                          <button
+                            type="button"
+                            disabled={busy}
+                            onClick={openCreateForm}
+                            className="rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm font-semibold text-zinc-800 hover:bg-zinc-50"
+                          >
+                            + New form
+                          </button>
+                          <button
+                            type="button"
+                            disabled={busy || !selectedBlock.props.formSlug || !formsBySlug.get(selectedBlock.props.formSlug)}
+                            onClick={() => {
+                              const f = formsBySlug.get(selectedBlock.props.formSlug);
+                              if (!f) return;
+                              window.open(
+                                `${basePath}/app/services/funnel-builder/forms/${encodeURIComponent(f.id)}/edit`,
+                                "_blank",
+                                "noopener,noreferrer",
+                              );
+                            }}
+                            className="rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm font-semibold text-zinc-800 hover:bg-zinc-50 disabled:opacity-60"
+                          >
+                            Edit form
+                          </button>
+                        </div>
+
                         <input
                           value={selectedBlock.props.text ?? ""}
                           onChange={(e) =>
@@ -2066,27 +2426,27 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
                           </button>
                           <label className={classNames(
                             "cursor-pointer rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm font-semibold text-zinc-800 hover:bg-zinc-50",
-                            busy ? "opacity-60" : "",
+                            uploadingImageBlockId === selectedBlock.id ? "opacity-60" : "",
                           )}>
-                            Upload image
+                            {uploadingImageBlockId === selectedBlock.id ? "Uploading…" : "Upload image"}
                             <input
                               type="file"
                               accept="image/*"
                               className="hidden"
-                              disabled={busy}
+                              disabled={busy || uploadingImageBlockId === selectedBlock.id}
                               onChange={(e) => {
                                 const files = e.target.files;
                                 e.currentTarget.value = "";
                                 if (!files || files.length === 0) return;
                                 if (!selectedBlock || selectedBlock.type !== "image") return;
-                                setBusy(true);
+                                setUploadingImageBlockId(selectedBlock.id);
                                 setError(null);
                                 void (async () => {
                                   try {
                                     const created = await uploadToMediaLibrary(files, { maxFiles: 1 });
                                     const it = created[0];
                                     if (!it) return;
-                                    const nextSrc = String((it as any).shareUrl || (it as any).previewUrl || "").trim();
+                                    const nextSrc = String((it as any).shareUrl || (it as any).previewUrl || (it as any).openUrl || (it as any).downloadUrl || "").trim();
                                     if (!nextSrc) return;
                                     upsertBlock({
                                       ...selectedBlock,
@@ -2096,10 +2456,13 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
                                         alt: (selectedBlock.props.alt || "").trim() ? selectedBlock.props.alt : it.fileName,
                                       },
                                     });
+                                    toast.success("Image uploaded and selected");
                                   } catch (err) {
-                                    setError((err as any)?.message ? String((err as any).message) : "Upload failed");
+                                    const msg = (err as any)?.message ? String((err as any).message) : "Upload failed";
+                                    setError(msg);
+                                    toast.error(msg);
                                   } finally {
-                                    setBusy(false);
+                                    setUploadingImageBlockId(null);
                                   }
                                 })();
                               }}
@@ -2148,17 +2511,54 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
 
                     {selectedBlock.type === "formEmbed" ? (
                       <div className="space-y-2">
-                        <input
-                          value={selectedBlock.props.formSlug}
-                          onChange={(e) =>
-                            upsertBlock({
-                              ...selectedBlock,
-                              props: { ...selectedBlock.props, formSlug: normalizeSlug(e.target.value) },
-                            })
-                          }
-                          className="w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm"
-                          placeholder="form-slug"
-                        />
+                        <label className="block">
+                          <div className="mb-1 text-[11px] font-semibold uppercase tracking-wide text-zinc-500">Form</div>
+                          <select
+                            value={selectedBlock.props.formSlug || ""}
+                            onChange={(e) =>
+                              upsertBlock({
+                                ...selectedBlock,
+                                props: { ...selectedBlock.props, formSlug: e.target.value || "" },
+                              })
+                            }
+                            className="w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm"
+                          >
+                            <option value="">Select a form…</option>
+                            {(forms || []).map((f) => (
+                              <option key={f.id} value={f.slug}>
+                                {f.name} ({f.slug})
+                              </option>
+                            ))}
+                          </select>
+                        </label>
+
+                        <div className="flex flex-wrap gap-2">
+                          <button
+                            type="button"
+                            disabled={busy}
+                            onClick={openCreateForm}
+                            className="rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm font-semibold text-zinc-800 hover:bg-zinc-50"
+                          >
+                            + New form
+                          </button>
+                          <button
+                            type="button"
+                            disabled={busy || !selectedBlock.props.formSlug || !formsBySlug.get(selectedBlock.props.formSlug)}
+                            onClick={() => {
+                              const f = formsBySlug.get(selectedBlock.props.formSlug);
+                              if (!f) return;
+                              window.open(
+                                `${basePath}/app/services/funnel-builder/forms/${encodeURIComponent(f.id)}/edit`,
+                                "_blank",
+                                "noopener,noreferrer",
+                              );
+                            }}
+                            className="rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm font-semibold text-zinc-800 hover:bg-zinc-50 disabled:opacity-60"
+                          >
+                            Edit form
+                          </button>
+                        </div>
+
                         <input
                           type="number"
                           value={String(selectedBlock.props.height ?? 760)}
@@ -2541,13 +2941,22 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
                       <div className="text-xs font-semibold uppercase tracking-wide text-zinc-500">Style</div>
 
                       <div className="mt-2 space-y-2">
-                        <ColorPickerField
-                          label="Text color"
-                          value={selectedBlock.props.style?.textColor}
-                          onChange={(v) => updateSelectedBlockStyle({ textColor: v })}
-                          swatches={colorSwatches}
-                          allowAlpha
-                        />
+                        {(
+                          selectedBlock.type === "heading" ||
+                          selectedBlock.type === "paragraph" ||
+                          selectedBlock.type === "button" ||
+                          selectedBlock.type === "formLink" ||
+                          selectedBlock.type === "columns" ||
+                          selectedBlock.type === "section"
+                        ) ? (
+                          <ColorPickerField
+                            label="Text color"
+                            value={selectedBlock.props.style?.textColor}
+                            onChange={(v) => updateSelectedBlockStyle({ textColor: v })}
+                            swatches={colorSwatches}
+                            allowAlpha
+                          />
+                        ) : null}
 
                         <ColorPickerField
                           label="Background"
@@ -2770,29 +3179,32 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
                   <label
                     className={classNames(
                       "cursor-pointer rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm font-semibold text-zinc-800 hover:bg-zinc-50",
-                      busy ? "opacity-60" : "",
+                      uploadingAi ? "opacity-60" : "",
                     )}
                   >
-                    Upload files
+                    {uploadingAi ? "Uploading…" : "Upload files"}
                     <input
                       type="file"
                       multiple
                       className="hidden"
-                      disabled={busy}
+                      disabled={busy || uploadingAi}
                       onChange={(e) => {
                         const files = e.target.files;
                         e.currentTarget.value = "";
                         if (!files || files.length === 0) return;
-                        setBusy(true);
+                        setUploadingAi(true);
                         setError(null);
                         void (async () => {
                           try {
                             const created = await uploadToMediaLibrary(files, { maxFiles: 10 });
                             for (const it of created) addAiAttachment(it);
+                            toast.success(`Uploaded ${created.length} file${created.length === 1 ? "" : "s"}`);
                           } catch (err) {
-                            setError((err as any)?.message ? String((err as any).message) : "Upload failed");
+                            const msg = (err as any)?.message ? String((err as any).message) : "Upload failed";
+                            setError(msg);
+                            toast.error(msg);
                           } finally {
-                            setBusy(false);
+                            setUploadingAi(false);
                           }
                         })();
                       }}
@@ -2851,27 +3263,75 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
                 <div className="truncate text-sm font-semibold text-zinc-900">{selectedPage?.title || "Preview"}</div>
                 {selectedPage ? <div className="truncate text-xs text-zinc-500">/{selectedPage.slug}</div> : null}
               </div>
-              {funnel?.slug ? (
-                <a
-                  href={`${basePath}/f/${encodeURIComponent(funnel.slug)}`}
-                  target="_blank"
-                  rel="noreferrer"
-                  className="rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm font-semibold text-zinc-900 hover:bg-zinc-50"
-                >
-                  Open hosted
-                </a>
-              ) : null}
+              <div className="flex items-center gap-2">
+                <div className="inline-flex rounded-xl border border-zinc-200 bg-white p-1">
+                  <button
+                    type="button"
+                    onClick={() => setPreviewMode("edit")}
+                    className={classNames(
+                      "rounded-lg px-3 py-1.5 text-sm font-semibold",
+                      previewMode === "edit" ? "bg-zinc-900 text-white" : "text-zinc-700 hover:bg-zinc-50",
+                    )}
+                  >
+                    Edit
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setPreviewMode("preview")}
+                    className={classNames(
+                      "rounded-lg px-3 py-1.5 text-sm font-semibold",
+                      previewMode === "preview" ? "bg-zinc-900 text-white" : "text-zinc-700 hover:bg-zinc-50",
+                    )}
+                  >
+                    Preview
+                  </button>
+                </div>
+
+                <div className="inline-flex rounded-xl border border-zinc-200 bg-white p-1">
+                  <button
+                    type="button"
+                    onClick={() => setPreviewDevice("desktop")}
+                    className={classNames(
+                      "rounded-lg px-3 py-1.5 text-sm font-semibold",
+                      previewDevice === "desktop" ? "bg-zinc-900 text-white" : "text-zinc-700 hover:bg-zinc-50",
+                    )}
+                  >
+                    Desktop
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setPreviewDevice("mobile")}
+                    className={classNames(
+                      "rounded-lg px-3 py-1.5 text-sm font-semibold",
+                      previewDevice === "mobile" ? "bg-zinc-900 text-white" : "text-zinc-700 hover:bg-zinc-50",
+                    )}
+                  >
+                    Mobile
+                  </button>
+                </div>
+
+                {funnel?.slug ? (
+                  <a
+                    href={`${basePath}/f/${encodeURIComponent(funnel.slug)}`}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm font-semibold text-zinc-900 hover:bg-zinc-50"
+                  >
+                    Open hosted
+                  </a>
+                ) : null}
+              </div>
             </div>
 
             <div
               className="flex-1 overflow-auto p-8"
               onDragOver={(e) => {
-                if (!selectedPage || selectedPage.editorMode !== "BLOCKS") return;
+                if (!selectedPage || selectedPage.editorMode !== "BLOCKS" || previewMode !== "edit") return;
                 e.preventDefault();
                 e.dataTransfer.dropEffect = "copy";
               }}
               onDrop={(e) => {
-                if (!selectedPage || selectedPage.editorMode !== "BLOCKS") return;
+                if (!selectedPage || selectedPage.editorMode !== "BLOCKS" || previewMode !== "edit") return;
                 e.preventDefault();
                 const t = e.dataTransfer.getData("text/x-block-type");
                 if (t) addBlock(t as any);
@@ -2880,51 +3340,72 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
               {!selectedPage ? (
                 <div className="text-sm text-zinc-600">Select a page to preview.</div>
               ) : selectedPage.editorMode === "CUSTOM_HTML" ? (
-                <div className="h-[78vh] overflow-hidden rounded-2xl border border-zinc-200 bg-white">
+                <div
+                  className={classNames(
+                    "mx-auto w-full overflow-hidden rounded-3xl border border-zinc-200 bg-white",
+                    previewDevice === "mobile" ? "max-w-[420px]" : "max-w-5xl",
+                  )}
+                >
                   <iframe
                     title={selectedPage.title}
                     sandbox="allow-forms allow-popups allow-scripts"
                     srcDoc={selectedPage.customHtml || ""}
-                    className="h-full w-full bg-white"
+                    className="h-[78vh] w-full bg-white"
                   />
                 </div>
               ) : (
-                <div className="mx-auto w-full max-w-4xl rounded-3xl border border-zinc-200 bg-white p-8">
-                  {editableBlocks.length === 0 ? (
-                    <div className="rounded-xl border border-dashed border-zinc-300 p-6 text-sm text-zinc-600">
-                      Drag a block from the left, or click a block to add.
+                <div
+                  className={classNames(
+                    "mx-auto w-full overflow-hidden rounded-3xl border border-zinc-200",
+                    previewDevice === "mobile" ? "max-w-[420px]" : "max-w-5xl",
+                  )}
+                >
+                  {previewMode === "preview" ? (
+                    <div className="min-h-[70vh]">
+                      {renderCreditFunnelBlocks({
+                        blocks: pageSettingsBlock ? [pageSettingsBlock, ...editableBlocks] : editableBlocks,
+                        basePath,
+                      })}
                     </div>
                   ) : (
-                    <div className="space-y-4">
-                      {editableBlocks.map((b) => (
-                        <div
-                          key={b.id}
-                          draggable
-                          onDragStart={(e) => {
-                            e.dataTransfer.setData("text/x-block-id", b.id);
-                            e.dataTransfer.effectAllowed = "move";
-                          }}
-                          onDragOver={(e) => {
-                            e.preventDefault();
-                            e.dataTransfer.dropEffect = "move";
-                          }}
-                          onDrop={(e) => {
-                            e.preventDefault();
-                            const dragId = e.dataTransfer.getData("text/x-block-id");
-                            if (dragId) reorderBlocks(dragId, b.id);
-                          }}
-                          onClick={() => setSelectedBlockId(b.id)}
-                          className={classNames(
-                            "cursor-pointer rounded-2xl border p-4",
-                            selectedBlockId === b.id
-                              ? "border-[color:var(--color-brand-blue)] bg-blue-50"
-                              : "border-zinc-200 bg-white hover:bg-zinc-50",
-                          )}
-                        >
-                          <div className="text-xs font-semibold uppercase tracking-wide text-zinc-500">{b.type}</div>
-                          <div className="mt-3">{renderCreditFunnelBlocks({ blocks: [b], basePath })}</div>
+                    <div className="bg-white p-8">
+                      {editableBlocks.length === 0 ? (
+                        <div className="rounded-xl border border-dashed border-zinc-300 p-6 text-sm text-zinc-600">
+                          Drag a block from the left, or click a block to add.
                         </div>
-                      ))}
+                      ) : (
+                        <div className="space-y-4">
+                          {editableBlocks.map((b) => (
+                            <div
+                              key={b.id}
+                              draggable
+                              onDragStart={(e) => {
+                                e.dataTransfer.setData("text/x-block-id", b.id);
+                                e.dataTransfer.effectAllowed = "move";
+                              }}
+                              onDragOver={(e) => {
+                                e.preventDefault();
+                                e.dataTransfer.dropEffect = "move";
+                              }}
+                              onDrop={(e) => {
+                                e.preventDefault();
+                                const dragId = e.dataTransfer.getData("text/x-block-id");
+                                if (dragId) reorderBlocks(dragId, b.id);
+                              }}
+                              onClick={() => setSelectedBlockId(b.id)}
+                              className={classNames(
+                                "cursor-pointer rounded-2xl border p-4",
+                                selectedBlockId === b.id
+                                  ? "border-[color:var(--color-brand-blue)] bg-blue-50"
+                                  : "border-zinc-200 bg-white hover:bg-zinc-50",
+                              )}
+                            >
+                              <div className="text-xs font-semibold uppercase tracking-wide text-zinc-500">{b.type}</div>
+                              <div className="mt-3">{renderCreditFunnelBlocks({ blocks: [b], basePath })}</div>
+                            </div>
+                          ))}
+                        </div>
+                      )}
                     </div>
                   )}
                 </div>
