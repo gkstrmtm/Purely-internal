@@ -86,6 +86,21 @@ This repo supports a second, isolated client portal variant under `/credit` (sep
 - Client-facing credit routes live under `/credit/*`.
 - Credit-only services are filtered out of `/portal` and public marketing pages.
 
+### Credit Dispute Letters
+
+Credit-only workflow to generate and send credit dispute letters:
+
+- UI: `/credit/app/disputes`
+- APIs: `/credit/api/disputes/*`, `/credit/api/credit-pulls/*`, `/credit/api/contacts`
+
+Credit AI keys must be configured via credit-only env vars (not the portal AI env vars):
+
+- `CREDIT_AI_BASE_URL`
+- `CREDIT_AI_API_KEY`
+- Optional: `CREDIT_AI_MODEL`
+
+Note: credit pulls are currently stubbed/persisted for provider integration later.
+
 ### Credit Funnel Builder
 
 The credit portal includes a credit-only Funnel Builder service with:

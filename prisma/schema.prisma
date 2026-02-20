@@ -152,6 +152,9 @@ model User {
   creditForms         CreditForm[]
   creditCustomDomains CreditCustomDomain[]
   creditFunnelBuilderSettings CreditFunnelBuilderSettings?
+
+  creditPulls          CreditPull[]
+  creditDisputeLetters CreditDisputeLetter[]
 }
 
 model EmployeeInvite {
@@ -427,6 +430,9 @@ model PortalContact {
   portalAiOutboundCallEnrollments PortalAiOutboundCallEnrollment[]
 
   portalServiceTriggers PortalContactServiceTrigger[]
+
+  creditPulls          CreditPull[]
+  creditDisputeLetters CreditDisputeLetter[]
 
   @@index([ownerId])
   @@index([ownerId, emailKey])
@@ -1632,6 +1638,18 @@ enum CreditFunnelPageEditorMode {
   CUSTOM_HTML
 }
 
+enum CreditPullStatus {
+  PENDING
+  SUCCESS
+  FAILED
+}
+
+enum CreditDisputeLetterStatus {
+  DRAFT
+  GENERATED
+  SENT
+}
+
 model CreditFunnel {
   id String @id @default(cuid())
 
@@ -1737,4 +1755,65 @@ model CreditCustomDomain {
 
   @@unique([ownerId, domain])
   @@index([ownerId, updatedAt])
+}
+
+model CreditPull {
+  id String @id @default(cuid())
+
+  ownerId   String
+  contactId String
+
+  provider String @default("STUB")
+  status   CreditPullStatus @default(PENDING)
+
+  requestedAt DateTime @default(now())
+  completedAt DateTime?
+
+  rawJson Json?
+  error  String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  owner   User         @relation(fields: [ownerId], references: [id])
+  contact PortalContact @relation(fields: [contactId], references: [id], onDelete: Cascade)
+
+  disputeLetters CreditDisputeLetter[]
+
+  @@index([ownerId, requestedAt])
+  @@index([ownerId, contactId, requestedAt])
+  @@index([contactId, requestedAt])
+}
+
+model CreditDisputeLetter {
+  id String @id @default(cuid())
+
+  ownerId   String
+  contactId String
+
+  creditPullId String?
+
+  status CreditDisputeLetterStatus @default(DRAFT)
+
+  subject  String
+  bodyText String
+
+  promptText String?
+  model      String?
+
+  generatedAt DateTime?
+  sentAt      DateTime?
+  lastSentTo  String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  owner   User         @relation(fields: [ownerId], references: [id])
+  contact PortalContact @relation(fields: [contactId], references: [id], onDelete: Cascade)
+  creditPull CreditPull? @relation(fields: [creditPullId], references: [id], onDelete: SetNull)
+
+  @@index([ownerId, createdAt])
+  @@index([ownerId, contactId, createdAt])
+  @@index([contactId, createdAt])
+  @@index([creditPullId])
 }
