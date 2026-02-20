@@ -27,6 +27,7 @@ export default function PortalLoginClient() {
   const defaultFrom = useMemo(() => (pathnameVariant === "credit" ? "/credit/app" : "/portal/app"), [pathnameVariant]);
   const from = useMemo(() => safeInternalPath(fromRaw, defaultFrom), [fromRaw, defaultFrom]);
   const portalVariant = useMemo(() => (pathnameVariant === "credit" || from.startsWith("/credit") ? "credit" : "portal"), [from, pathnameVariant]);
+  const apiBase = useMemo(() => (portalVariant === "credit" ? "/credit" : "/portal"), [portalVariant]);
 
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -43,7 +44,7 @@ export default function PortalLoginClient() {
     e.preventDefault();
     setLoading(true);
 
-    const res = await fetch("/portal/api/login", {
+    const res = await fetch(`${apiBase}/api/login`, {
       method: "POST",
       headers: { "content-type": "application/json", [PORTAL_VARIANT_HEADER]: portalVariant },
       body: JSON.stringify({ email, password }),
@@ -132,7 +133,7 @@ export default function PortalLoginClient() {
                     }
                     setResetLoading(true);
                     try {
-                      await fetch("/portal/api/forgot-password/request", {
+                      await fetch(`${apiBase}/api/forgot-password/request`, {
                         method: "POST",
                         headers: { "content-type": "application/json", [PORTAL_VARIANT_HEADER]: portalVariant },
                         body: JSON.stringify({ email: email.trim() }),
@@ -183,7 +184,7 @@ export default function PortalLoginClient() {
 
                     setResetLoading(true);
                     try {
-                      const res = await fetch("/portal/api/forgot-password/reset", {
+                      const res = await fetch(`${apiBase}/api/forgot-password/reset`, {
                         method: "POST",
                         headers: { "content-type": "application/json", [PORTAL_VARIANT_HEADER]: portalVariant },
                         body: JSON.stringify({

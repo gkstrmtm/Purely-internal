@@ -71,6 +71,9 @@ export async function proxy(req: NextRequest) {
       isCredit &&
       (path === "/credit/login" ||
         path.startsWith("/credit/login/") ||
+        path === "/credit/api/login" ||
+        path === "/credit/api/logout" ||
+        path.startsWith("/credit/api/forgot-password/") ||
         path === "/credit/get-started" ||
         path.startsWith("/credit/get-started/") ||
         path.startsWith("/credit/f/") ||
