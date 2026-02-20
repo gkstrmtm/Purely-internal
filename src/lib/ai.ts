@@ -1,5 +1,14 @@
 type ChatMessage = { role: "system" | "user" | "assistant"; content: string };
 
+type ChatContentPart =
+  | { type: "text"; text: string }
+  | { type: "image_url"; image_url: { url: string } };
+
+type ChatMessageMultimodal = {
+  role: "system" | "user" | "assistant";
+  content: string | ChatContentPart[];
+};
+
 type OpenAIChatResponse = {
   choices?: Array<{ message?: { content?: string } }>;
 };
@@ -47,6 +56,60 @@ export async function generateText({
   const messages: ChatMessage[] = [];
   if (system) messages.push({ role: "system", content: system });
   messages.push({ role: "user", content: user });
+
+  const res = await fetch(`${baseUrl.replace(/\/$/, "")}/chat/completions`, {
+    method: "POST",
+    headers: {
+      "content-type": "application/json",
+      authorization: `Bearer ${apiKey}`,
+    },
+    body: JSON.stringify({
+      model: resolvedModel,
+      messages,
+      temperature: 0.6,
+    }),
+  });
+
+  if (!res.ok) {
+    const text = await res.text().catch(() => "");
+    throw new Error(`AI request failed: ${res.status} ${text}`);
+  }
+
+  const data = (await res.json()) as OpenAIChatResponse;
+  return data.choices?.[0]?.message?.content ?? "";
+}
+
+export async function generateTextWithImages({
+  system,
+  user,
+  imageUrls,
+  model,
+}: {
+  system?: string;
+  user: string;
+  imageUrls: string[];
+  model?: string;
+}): Promise<string> {
+  const baseUrl = process.env.AI_BASE_URL;
+  const apiKey = process.env.AI_API_KEY;
+  const resolvedModel = model ?? process.env.AI_VISION_MODEL ?? process.env.AI_MODEL ?? "gpt-4o-mini";
+
+  // Dev-friendly fallback so the UI works without configuring an AI provider.
+  if (!baseUrl || !apiKey) {
+    return generateText({ system, user, model: resolvedModel });
+  }
+
+  const safeUrls = (Array.isArray(imageUrls) ? imageUrls : [])
+    .map((u) => (typeof u === "string" ? u.trim() : ""))
+    .filter(Boolean)
+    .slice(0, 8);
+
+  const userParts: ChatContentPart[] = [{ type: "text", text: user }];
+  for (const url of safeUrls) userParts.push({ type: "image_url", image_url: { url } });
+
+  const messages: ChatMessageMultimodal[] = [];
+  if (system) messages.push({ role: "system", content: system });
+  messages.push({ role: "user", content: userParts });
 
   const res = await fetch(`${baseUrl.replace(/\/$/, "")}/chat/completions`, {
     method: "POST",

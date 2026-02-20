@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 
 import { prisma } from "@/lib/db";
 import { requireCreditClientSession } from "@/lib/creditPortalAccess";
-import { generateText } from "@/lib/ai";
+import { generateText, generateTextWithImages } from "@/lib/ai";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
@@ -29,6 +29,35 @@ function escapeHtml(s: string) {
   return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/\"/g, "&quot;");
 }
 
+type AiAttachment = {
+  url: string;
+  fileName?: string;
+  mimeType?: string;
+};
+
+function coerceAttachments(raw: unknown): AiAttachment[] {
+  if (!Array.isArray(raw)) return [];
+  const out: AiAttachment[] = [];
+  for (const it of raw) {
+    if (!it || typeof it !== "object") continue;
+    const url = typeof (it as any).url === "string" ? (it as any).url.trim() : "";
+    if (!url) continue;
+    const fileName = typeof (it as any).fileName === "string" ? (it as any).fileName.trim() : undefined;
+    const mimeType = typeof (it as any).mimeType === "string" ? (it as any).mimeType.trim() : undefined;
+    out.push({ url, fileName, mimeType });
+    if (out.length >= 12) break;
+  }
+  return out;
+}
+
+function toAbsoluteUrl(req: Request, url: string): string {
+  const u = url.trim();
+  if (!u) return "";
+  if (/^https?:\/\//i.test(u)) return u;
+  const origin = new URL(req.url).origin;
+  return new URL(u, origin).toString();
+}
+
 export async function POST(req: Request, ctx: { params: Promise<{ funnelId: string; pageId: string }> }) {
   const auth = await requireCreditClientSession();
   if (!auth.ok) {
@@ -50,6 +79,7 @@ export async function POST(req: Request, ctx: { params: Promise<{ funnelId: stri
   if (!prompt) return NextResponse.json({ ok: false, error: "Prompt is required" }, { status: 400 });
 
   const currentHtmlFromClient = typeof body?.currentHtml === "string" ? body.currentHtml : null;
+  const attachments = coerceAttachments(body?.attachments);
 
   const page = await prisma.creditFunnelPage.findFirst({
     where: { id: pageId, funnelId, funnel: { ownerId: auth.session.user.id } },
@@ -102,7 +132,20 @@ export async function POST(req: Request, ctx: { params: Promise<{ funnelId: stri
   ].join("\n");
 
   const prevChat = Array.isArray(page.customChatJson) ? (page.customChatJson as any[]) : [];
-  const userMsg = { role: "user", content: prompt, at: new Date().toISOString() };
+  const attachmentsBlock = attachments.length
+    ? [
+        "",
+        "ATTACHMENTS:",
+        ...attachments.map((a) => {
+          const name = a.fileName ? ` ${a.fileName}` : "";
+          const mime = a.mimeType ? ` (${a.mimeType})` : "";
+          const url = toAbsoluteUrl(req, a.url);
+          return `- ${name}${mime}: ${url}`.trim();
+        }),
+        "",
+      ].join("\n")
+    : "";
+  const userMsg = { role: "user", content: `${prompt}${attachmentsBlock}`, at: new Date().toISOString() };
 
   let html = "";
   try {
@@ -116,16 +159,24 @@ export async function POST(req: Request, ctx: { params: Promise<{ funnelId: stri
         ].join("\n")
       : "";
 
-    const aiRaw = await generateText({
-      system,
-      user: [
-        `Funnel: ${page.funnel.name} (slug: ${page.funnel.slug})`,
-        `Page: ${page.title} (slug: ${page.slug})`,
-        "",
-        currentHtmlBlock,
-        prompt,
-      ].join("\n"),
-    });
+    const imageUrls = attachments
+      .filter((a) => String(a.mimeType || "").toLowerCase().startsWith("image/"))
+      .map((a) => toAbsoluteUrl(req, a.url))
+      .filter(Boolean)
+      .slice(0, 6);
+
+    const userText = [
+      `Funnel: ${page.funnel.name} (slug: ${page.funnel.slug})`,
+      `Page: ${page.title} (slug: ${page.slug})`,
+      "",
+      currentHtmlBlock,
+      prompt,
+      attachmentsBlock,
+    ].join("\n");
+
+    const aiRaw = imageUrls.length
+      ? await generateTextWithImages({ system, user: userText, imageUrls })
+      : await generateText({ system, user: userText });
     html = extractHtml(aiRaw);
   } catch (e) {
     return NextResponse.json(

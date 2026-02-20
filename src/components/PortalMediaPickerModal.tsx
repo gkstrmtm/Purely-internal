@@ -3,6 +3,8 @@
 import { createPortal } from "react-dom";
 import { useEffect, useMemo, useState } from "react";
 
+import { PORTAL_VARIANT_HEADER, type PortalVariant } from "@/lib/portalVariant";
+
 export type PortalMediaPickItem = {
   id: string;
   fileName: string;
@@ -40,12 +42,14 @@ export function PortalMediaPickerModal({
   onPick,
   title,
   confirmLabel,
+  variant,
 }: {
   open: boolean;
   onClose: () => void;
   onPick: (item: PortalMediaPickItem) => void | Promise<void>;
   title?: string;
   confirmLabel?: string;
+  variant?: PortalVariant;
 }) {
   const [mounted, setMounted] = useState(false);
   const [q, setQ] = useState("");
@@ -66,7 +70,10 @@ export function PortalMediaPickerModal({
     url.searchParams.set("limit", "200");
     if (nextQ.trim()) url.searchParams.set("q", nextQ.trim());
 
-    const res = await fetch(url.toString(), { cache: "no-store" });
+    const res = await fetch(url.toString(), {
+      cache: "no-store",
+      headers: variant ? { [PORTAL_VARIANT_HEADER]: variant } : undefined,
+    });
     const json = (await res.json().catch(() => null)) as ItemsRes | null;
 
     if (!res.ok || !json || json.ok !== true) {

@@ -3,6 +3,8 @@
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 
+import { AppConfirmModal, AppModal } from "@/components/AppModal";
+
 type Form = {
   id: string;
   slug: string;
@@ -53,6 +55,13 @@ function normalizeFields(rawSchema: any): Field[] {
   return out;
 }
 
+type FormEditorDialog =
+  | { type: "rename-form"; value: string }
+  | { type: "slug-form"; value: string }
+  | { type: "add-question"; label: string; name: string; keyTouched: boolean }
+  | { type: "delete-question"; idx: number; label: string }
+  | null;
+
 export function FormEditorClient({ basePath, formId }: { basePath: string; formId: string }) {
   const [form, setForm] = useState<Form | null>(null);
   const [fields, setFields] = useState<Field[] | null>(null);
@@ -61,6 +70,14 @@ export function FormEditorClient({ basePath, formId }: { basePath: string; formI
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [savedAt, setSavedAt] = useState<number | null>(null);
+
+  const [dialog, setDialog] = useState<FormEditorDialog>(null);
+  const [dialogError, setDialogError] = useState<string | null>(null);
+
+  const closeDialog = () => {
+    setDialog(null);
+    setDialogError(null);
+  };
 
   const selected = useMemo(() => (fields || [])[selectedIdx] || null, [fields, selectedIdx]);
 
@@ -118,24 +135,42 @@ export function FormEditorClient({ basePath, formId }: { basePath: string; formI
   };
 
   const addQuestion = () => {
-    const label = (prompt("Question label", "New question") || "").trim();
-    if (!label) return;
-    const name = slugifyName(prompt("Field key (internal)", slugifyName(label) || "field") || "");
-    if (!name) return;
+    const label = "New question";
+    setDialogError(null);
+    setDialog({ type: "add-question", label, name: slugifyName(label) || "field", keyTouched: false });
+  };
+
+  const performAddQuestion = ({ label, name }: { label: string; name: string }) => {
+    const trimmedLabel = label.trim();
+    if (!trimmedLabel) {
+      setDialogError("Label is required.");
+      return;
+    }
+    const cleanedName = slugifyName(name);
+    if (!cleanedName) {
+      setDialogError("Field key is required.");
+      return;
+    }
 
     setFields((prev) => {
       const next = [...(prev || [])];
-      next.push({ name, label, type: "text", required: false });
+      next.push({ name: cleanedName, label: trimmedLabel, type: "text", required: false });
       return next;
     });
     setSelectedIdx((fields?.length || 0));
+    closeDialog();
   };
 
   const removeQuestion = (idx: number) => {
     if (!fields) return;
     const f = fields[idx];
     if (!f) return;
-    if (!confirm(`Delete question “${f.label}”?`)) return;
+    setDialogError(null);
+    setDialog({ type: "delete-question", idx, label: f.label });
+  };
+
+  const performRemoveQuestion = (idx: number) => {
+    if (!fields) return;
     const next = fields.filter((_, i) => i !== idx);
     setFields(next);
     setSelectedIdx((prev) => Math.max(0, Math.min(prev, next.length - 1)));
@@ -155,6 +190,205 @@ export function FormEditorClient({ basePath, formId }: { basePath: string; formI
 
   return (
     <div className="mx-auto w-full max-w-7xl">
+      <AppModal
+        open={dialog?.type === "rename-form"}
+        title="Rename form"
+        description="Set a new display name for this form."
+        onClose={closeDialog}
+        widthClassName="w-[min(560px,calc(100vw-32px))]"
+        footer={
+          <div className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
+            <button
+              type="button"
+              className="rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm font-semibold text-zinc-800 hover:bg-zinc-50"
+              onClick={closeDialog}
+              disabled={busy}
+            >
+              Cancel
+            </button>
+            <button
+              type="button"
+              className={classNames(
+                "rounded-2xl bg-brand-ink px-4 py-2 text-sm font-semibold text-white hover:opacity-95",
+                busy ? "opacity-60" : "",
+              )}
+              disabled={busy}
+              onClick={() => {
+                if (dialog?.type !== "rename-form") return;
+                const name = dialog.value.trim();
+                if (!name) {
+                  setDialogError("Name is required.");
+                  return;
+                }
+                void save({ name });
+                closeDialog();
+              }}
+            >
+              Save
+            </button>
+          </div>
+        }
+      >
+        <label className="block">
+          <div className="text-xs font-semibold uppercase tracking-wide text-zinc-500">Name</div>
+          <input
+            autoFocus
+            value={dialog?.type === "rename-form" ? dialog.value : ""}
+            onChange={(e) => {
+              const v = e.target.value;
+              setDialogError(null);
+              setDialog((prev) => (prev?.type === "rename-form" ? { type: "rename-form", value: v } : prev));
+            }}
+            className="mt-1 w-full rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm"
+          />
+        </label>
+        {dialogError ? <div className="mt-3 text-sm font-semibold text-red-700">{dialogError}</div> : null}
+      </AppModal>
+
+      <AppModal
+        open={dialog?.type === "slug-form"}
+        title="Change form slug"
+        description="This controls the hosted URL path segment."
+        onClose={closeDialog}
+        widthClassName="w-[min(560px,calc(100vw-32px))]"
+        footer={
+          <div className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
+            <button
+              type="button"
+              className="rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm font-semibold text-zinc-800 hover:bg-zinc-50"
+              onClick={closeDialog}
+              disabled={busy}
+            >
+              Cancel
+            </button>
+            <button
+              type="button"
+              className={classNames(
+                "rounded-2xl bg-brand-ink px-4 py-2 text-sm font-semibold text-white hover:opacity-95",
+                busy ? "opacity-60" : "",
+              )}
+              disabled={busy}
+              onClick={() => {
+                if (dialog?.type !== "slug-form") return;
+                const slug = slugifyName(dialog.value);
+                if (!slug) {
+                  setDialogError("Slug is required.");
+                  return;
+                }
+                void save({ slug });
+                closeDialog();
+              }}
+            >
+              Save
+            </button>
+          </div>
+        }
+      >
+        <label className="block">
+          <div className="text-xs font-semibold uppercase tracking-wide text-zinc-500">Slug</div>
+          <input
+            autoFocus
+            value={dialog?.type === "slug-form" ? dialog.value : ""}
+            onChange={(e) => {
+              const v = e.target.value;
+              setDialogError(null);
+              setDialog((prev) => (prev?.type === "slug-form" ? { type: "slug-form", value: v } : prev));
+            }}
+            className="mt-1 w-full rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm"
+          />
+          <div className="mt-1 text-xs text-zinc-500">Allowed: letters, numbers, and dashes.</div>
+        </label>
+        {dialogError ? <div className="mt-3 text-sm font-semibold text-red-700">{dialogError}</div> : null}
+      </AppModal>
+
+      <AppModal
+        open={dialog?.type === "add-question"}
+        title="Add question"
+        description="Create a new form field."
+        onClose={closeDialog}
+        widthClassName="w-[min(640px,calc(100vw-32px))]"
+        footer={
+          <div className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
+            <button
+              type="button"
+              className="rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm font-semibold text-zinc-800 hover:bg-zinc-50"
+              onClick={closeDialog}
+              disabled={busy}
+            >
+              Cancel
+            </button>
+            <button
+              type="button"
+              className={classNames(
+                "rounded-2xl bg-[color:var(--color-brand-blue)] px-4 py-2 text-sm font-semibold text-white hover:bg-blue-700",
+                busy ? "opacity-60" : "",
+              )}
+              disabled={busy}
+              onClick={() => {
+                if (dialog?.type !== "add-question") return;
+                performAddQuestion({ label: dialog.label, name: dialog.name });
+              }}
+            >
+              Add
+            </button>
+          </div>
+        }
+      >
+        <div className="space-y-4">
+          <label className="block">
+            <div className="text-xs font-semibold uppercase tracking-wide text-zinc-500">Label</div>
+            <input
+              autoFocus
+              value={dialog?.type === "add-question" ? dialog.label : ""}
+              onChange={(e) => {
+                const v = e.target.value;
+                setDialogError(null);
+                setDialog((prev) => {
+                  if (!prev || prev.type !== "add-question") return prev;
+                  const nextName = prev.keyTouched ? prev.name : slugifyName(v) || "";
+                  return { ...prev, label: v, name: nextName };
+                });
+              }}
+              placeholder="Email"
+              className="mt-1 w-full rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm"
+            />
+          </label>
+
+          <label className="block">
+            <div className="text-xs font-semibold uppercase tracking-wide text-zinc-500">Field key</div>
+            <input
+              value={dialog?.type === "add-question" ? dialog.name : ""}
+              onChange={(e) => {
+                const v = e.target.value;
+                setDialogError(null);
+                setDialog((prev) => (prev?.type === "add-question" ? { ...prev, name: v, keyTouched: true } : prev));
+              }}
+              placeholder="email"
+              className="mt-1 w-full rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm"
+            />
+            <div className="mt-1 text-xs text-zinc-500">This becomes the JSON key saved on submission.</div>
+          </label>
+
+          {dialogError ? <div className="text-sm font-semibold text-red-700">{dialogError}</div> : null}
+        </div>
+      </AppModal>
+
+      <AppConfirmModal
+        open={dialog?.type === "delete-question"}
+        title="Delete question"
+        message={dialog?.type === "delete-question" ? `Delete question “${dialog.label}”? This cannot be undone.` : "Delete this question?"}
+        confirmLabel="Delete"
+        cancelLabel="Cancel"
+        destructive
+        onClose={closeDialog}
+        onConfirm={() => {
+          if (dialog?.type !== "delete-question") return;
+          const idx = dialog.idx;
+          closeDialog();
+          performRemoveQuestion(idx);
+        }}
+      />
+
       <div className="flex flex-col items-start justify-between gap-3 sm:flex-row sm:items-end">
         <div>
           <div className="text-xs font-semibold uppercase tracking-wide text-zinc-500">Form editor</div>
@@ -179,8 +413,8 @@ export function FormEditorClient({ basePath, formId }: { basePath: string; formI
             type="button"
             disabled={busy}
             onClick={() => {
-              const name = (prompt("Form name", form?.name || "") || "").trim();
-              if (name) save({ name });
+              setDialogError(null);
+              setDialog({ type: "rename-form", value: form?.name || "" });
             }}
             className={classNames(
               "rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm font-semibold text-brand-ink hover:bg-zinc-50",
@@ -193,8 +427,8 @@ export function FormEditorClient({ basePath, formId }: { basePath: string; formI
             type="button"
             disabled={busy}
             onClick={() => {
-              const slug = (prompt("Form slug", form?.slug || "") || "").trim();
-              if (slug) save({ slug });
+              setDialogError(null);
+              setDialog({ type: "slug-form", value: form?.slug || "" });
             }}
             className={classNames(
               "rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm font-semibold text-brand-ink hover:bg-zinc-50",

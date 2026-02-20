@@ -8,7 +8,13 @@ import {
   renderCreditFunnelBlocks,
   type CreditFunnelBlock,
 } from "@/lib/creditFunnelBlocks";
+import { AppConfirmModal, AppModal } from "@/components/AppModal";
+import {
+  PortalMediaPickerModal,
+  type PortalMediaPickItem,
+} from "@/components/PortalMediaPickerModal";
 import { SignOutButton } from "@/components/SignOutButton";
+import { PORTAL_VARIANT_HEADER, type PortalVariant } from "@/lib/portalVariant";
 
 type Funnel = {
   id: string;
@@ -35,6 +41,14 @@ type Page = {
 
 type ChatMessage = { role: "user" | "assistant"; content: string; at?: string };
 
+type AiAttachment = {
+  id: string;
+  fileName: string;
+  mimeType: string;
+  url: string;
+  previewUrl?: string;
+};
+
 function classNames(...xs: Array<string | false | null | undefined>) {
   return xs.filter(Boolean).join(" ");
 }
@@ -49,6 +63,14 @@ function normalizeSlug(raw: string) {
     .replace(/-$/, "");
   return cleaned;
 }
+
+type FunnelEditorDialog =
+  | { type: "rename-funnel"; value: string }
+  | { type: "rename-page"; value: string }
+  | { type: "slug-page"; value: string }
+  | { type: "create-page"; slug: string; title: string }
+  | { type: "delete-page" }
+  | null;
 
 /* DISABLED: broken intermediate refactor (kept temporarily for reference)
 export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; funnelId: string }) {
@@ -101,9 +123,9 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
   }, [funnelId, funnel, pages]);
 
   const createPage = async () => {
-    const slug = normalizeSlug(prompt("Page slug (e.g. landing)") || "");
+    const slug = normalizeSlug(PROMPT_DISABLED("Page slug (e.g. landing)") || "");
     if (!slug) return;
-    const title = (prompt("Page title (optional)") || "").trim();
+    const title = (PROMPT_DISABLED("Page title (optional)") || "").trim();
     setBusy(true);
     setError(null);
     try {
@@ -212,7 +234,7 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
                       type="button"
                       disabled={busy}
                       onClick={() => {
-                        const name = (prompt("Funnel name", funnel?.name || "") || "").trim();
+                        const name = (PROMPT_DISABLED("Funnel name", funnel?.name || "") || "").trim();
                         if (name) saveFunnelMeta({ name });
                       }}
                       className={classNames(
@@ -247,7 +269,7 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
                       disabled={busy || !selectedPage}
                       onClick={() => {
                         if (!selectedPage) return;
-                        const title = (prompt("Page title", selectedPage.title) || "").trim();
+                        const title = (PROMPT_DISABLED("Page title", selectedPage.title) || "").trim();
                         if (title) savePage({ title });
                       }}
                       className={classNames(
@@ -263,7 +285,7 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
                       disabled={busy || !selectedPage}
                       onClick={() => {
                         if (!selectedPage) return;
-                        const slug = normalizeSlug(prompt("Page slug", selectedPage.slug) || "");
+                        const slug = normalizeSlug(PROMPT_DISABLED("Page slug", selectedPage.slug) || "");
                         if (slug) savePage({ slug });
                       }}
                       className={classNames(
@@ -863,6 +885,60 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  const [dialog, setDialog] = useState<FunnelEditorDialog>(null);
+  const [dialogError, setDialogError] = useState<string | null>(null);
+
+  const portalVariant: PortalVariant = basePath === "/credit" ? "credit" : "portal";
+
+  const [mediaPickerOpen, setMediaPickerOpen] = useState(false);
+  const [mediaPickerTarget, setMediaPickerTarget] = useState<
+    null | { type: "ai" } | { type: "image-block"; blockId: string }
+  >(null);
+  const [aiAttachments, setAiAttachments] = useState<AiAttachment[]>([]);
+
+  const addAiAttachment = (it: PortalMediaPickItem) => {
+    const url = String(it.shareUrl || "").trim();
+    if (!url) return;
+    setAiAttachments((prev) => {
+      if (prev.some((a) => a.id === it.id)) return prev;
+      return [
+        ...prev,
+        {
+          id: it.id,
+          fileName: it.fileName,
+          mimeType: it.mimeType,
+          url,
+          previewUrl: it.previewUrl,
+        },
+      ];
+    });
+  };
+
+  const uploadToMediaLibrary = async (files: FileList | File[], opts?: { maxFiles?: number }) => {
+    const maxFiles = Math.max(1, Math.min(20, Math.floor(opts?.maxFiles ?? 20)));
+    const list = Array.from(files || []).filter(Boolean).slice(0, maxFiles);
+    if (!list.length) return [] as PortalMediaPickItem[];
+
+    const form = new FormData();
+    for (const f of list) form.append("files", f);
+
+    const res = await fetch("/api/portal/media/items", {
+      method: "POST",
+      headers: { [PORTAL_VARIANT_HEADER]: portalVariant },
+      body: form,
+    });
+    const json = (await res.json().catch(() => null)) as any;
+    if (!res.ok || !json || json.ok !== true) {
+      throw new Error(typeof json?.error === "string" ? json.error : "Failed to upload media");
+    }
+    return Array.isArray(json.items) ? (json.items as PortalMediaPickItem[]) : [];
+  };
+
+  const closeDialog = () => {
+    setDialog(null);
+    setDialogError(null);
+  };
+
   const selectedPage = useMemo(
     () => (pages || []).find((p) => p.id === selectedPageId) || null,
     [pages, selectedPageId],
@@ -940,25 +1016,6 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [funnelId, funnel, pages]);
 
-  const saveFunnelMeta = async (patch: Partial<Pick<Funnel, "name" | "slug" | "status">>) => {
-    setBusy(true);
-    setError(null);
-    try {
-      const res = await fetch(`/api/portal/funnel-builder/funnels/${encodeURIComponent(funnelId)}`, {
-        method: "PATCH",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify(patch),
-      });
-      const json = (await res.json().catch(() => null)) as any;
-      if (!res.ok || !json || json.ok !== true) throw new Error(json?.error || "Failed to save");
-      setFunnel(json.funnel as Funnel);
-    } catch (e) {
-      setError((e as any)?.message ? String((e as any).message) : "Failed to save");
-    } finally {
-      setBusy(false);
-    }
-  };
-
   const savePage = async (
     patch: Partial<
       Pick<
@@ -997,18 +1054,27 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
     }
   };
 
-  const createPage = async () => {
-    const slug = normalizeSlug(prompt("Page slug (e.g. landing)") || "");
-    if (!slug) return;
-    const title = (prompt("Page title (optional)") || "").trim();
+  const createPage = () => {
+    setDialogError(null);
+    setDialog({ type: "create-page", slug: "", title: "" });
+  };
 
+  const performCreatePage = async ({ slug, title }: { slug: string; title: string }) => {
+    const normalizedSlug = normalizeSlug(slug);
+    if (!normalizedSlug) {
+      setDialogError("Slug is required.");
+      return;
+    }
+
+    const trimmedTitle = title.trim();
     setBusy(true);
     setError(null);
+    setDialogError(null);
     try {
       const res = await fetch(`/api/portal/funnel-builder/funnels/${encodeURIComponent(funnelId)}/pages`, {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ slug, title: title || undefined, contentMarkdown: "" }),
+        body: JSON.stringify({ slug: normalizedSlug, title: trimmedTitle || undefined, contentMarkdown: "" }),
       });
       const json = (await res.json().catch(() => null)) as any;
       if (!res.ok || !json || json.ok !== true) throw new Error(json?.error || "Failed to create page");
@@ -1028,16 +1094,24 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
       await load();
       setSelectedPageId(createdId || null);
       setSelectedBlockId(null);
+      closeDialog();
     } catch (e) {
-      setError((e as any)?.message ? String((e as any).message) : "Failed to create page");
+      const message = (e as any)?.message ? String((e as any).message) : "Failed to create page";
+      setError(message);
+      setDialogError(message);
     } finally {
       setBusy(false);
     }
   };
 
-  const deletePage = async () => {
+  const deletePage = () => {
     if (!selectedPage) return;
-    if (!confirm(`Delete page “${selectedPage.title}”?`)) return;
+    setDialogError(null);
+    setDialog({ type: "delete-page" });
+  };
+
+  const performDeletePage = async () => {
+    if (!selectedPage) return;
     setBusy(true);
     setError(null);
     try {
@@ -1148,6 +1222,11 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
           body: JSON.stringify({
             prompt: promptText,
             currentHtml: selectedPage.customHtml || "",
+            attachments: aiAttachments.map((a) => ({
+              url: a.url,
+              fileName: a.fileName,
+              mimeType: a.mimeType,
+            })),
           }),
         },
       );
@@ -1155,6 +1234,7 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
       if (!res.ok || !json || json.ok !== true) throw new Error(json?.error || "Failed to generate HTML");
 
       setChatInput("");
+      setAiAttachments([]);
       const page = json.page as Partial<Page> | undefined;
       if (page?.id) {
         setPages((prev) => (prev || []).map((p) => (p.id === page.id ? ({ ...p, ...page } as Page) : p)));
@@ -1171,6 +1251,121 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
 
   return (
     <div className="flex min-h-screen flex-col">
+      <PortalMediaPickerModal
+        open={mediaPickerOpen}
+        onClose={() => {
+          setMediaPickerOpen(false);
+          setMediaPickerTarget(null);
+        }}
+        variant={portalVariant}
+        onPick={async (it) => {
+          const target = mediaPickerTarget;
+          setMediaPickerOpen(false);
+          setMediaPickerTarget(null);
+          if (!target) return;
+          if (target.type === "ai") {
+            addAiAttachment(it);
+            return;
+          }
+          if (target.type === "image-block") {
+            const block = selectedBlocks.find((b) => b.id === target.blockId);
+            if (!block || block.type !== "image") return;
+            const nextSrc = String(it.shareUrl || it.previewUrl || "").trim();
+            if (!nextSrc) return;
+            upsertBlock({
+              ...block,
+              props: {
+                ...block.props,
+                src: nextSrc,
+                alt: (block.props.alt || "").trim() ? block.props.alt : it.fileName,
+              },
+            });
+          }
+        }}
+      />
+
+      <AppModal
+        open={dialog?.type === "create-page"}
+        title="Create page"
+        description="Add a new page to this funnel."
+        onClose={closeDialog}
+        widthClassName="w-[min(640px,calc(100vw-32px))]"
+        footer={
+          <div className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
+            <button
+              type="button"
+              className="rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm font-semibold text-zinc-800 hover:bg-zinc-50"
+              onClick={closeDialog}
+              disabled={busy}
+            >
+              Cancel
+            </button>
+            <button
+              type="button"
+              className={classNames(
+                "rounded-2xl bg-[color:var(--color-brand-blue)] px-4 py-2 text-sm font-semibold text-white hover:bg-blue-700",
+                busy ? "opacity-60" : "",
+              )}
+              disabled={busy}
+              onClick={() => {
+                if (dialog?.type !== "create-page") return;
+                void performCreatePage({ slug: dialog.slug, title: dialog.title });
+              }}
+            >
+              Create
+            </button>
+          </div>
+        }
+      >
+        <div className="space-y-4">
+          <label className="block">
+            <div className="text-xs font-semibold uppercase tracking-wide text-zinc-500">Slug</div>
+            <input
+              autoFocus
+              value={dialog?.type === "create-page" ? dialog.slug : ""}
+              onChange={(e) => {
+                const v = e.target.value;
+                setDialogError(null);
+                setDialog((prev) => (prev?.type === "create-page" ? { ...prev, slug: v } : prev));
+              }}
+              placeholder="landing"
+              className="mt-1 w-full rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm"
+            />
+            <div className="mt-1 text-xs text-zinc-500">Allowed: letters, numbers, and dashes.</div>
+          </label>
+
+          <label className="block">
+            <div className="text-xs font-semibold uppercase tracking-wide text-zinc-500">Title (optional)</div>
+            <input
+              value={dialog?.type === "create-page" ? dialog.title : ""}
+              onChange={(e) => {
+                const v = e.target.value;
+                setDialogError(null);
+                setDialog((prev) => (prev?.type === "create-page" ? { ...prev, title: v } : prev));
+              }}
+              placeholder="Landing page"
+              className="mt-1 w-full rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm"
+            />
+          </label>
+
+          {dialogError ? <div className="text-sm font-semibold text-red-700">{dialogError}</div> : null}
+        </div>
+      </AppModal>
+
+      <AppConfirmModal
+        open={dialog?.type === "delete-page"}
+        title="Delete page"
+        message={selectedPage ? `Delete page “${selectedPage.title}”? This cannot be undone.` : "Delete this page?"}
+        confirmLabel="Delete"
+        cancelLabel="Cancel"
+        destructive
+        onClose={closeDialog}
+        onConfirm={() => {
+          closeDialog();
+          void performDeletePage();
+        }}
+      />
+
       <header className="sticky top-0 z-20 border-b border-zinc-200 bg-white/85 backdrop-blur">
         <div className="flex flex-col gap-2 px-4 py-3 lg:flex-row lg:items-center lg:justify-between">
           <div className="flex flex-wrap items-center gap-3">
@@ -1475,6 +1670,61 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
 
                     {selectedBlock.type === "image" ? (
                       <div className="space-y-2">
+                        <div className="flex flex-wrap gap-2">
+                          <button
+                            type="button"
+                            disabled={busy}
+                            onClick={() => {
+                              setMediaPickerTarget({ type: "image-block", blockId: selectedBlock.id });
+                              setMediaPickerOpen(true);
+                            }}
+                            className="rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm font-semibold text-zinc-800 hover:bg-zinc-50"
+                          >
+                            Choose from media
+                          </button>
+                          <label className={classNames(
+                            "cursor-pointer rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm font-semibold text-zinc-800 hover:bg-zinc-50",
+                            busy ? "opacity-60" : "",
+                          )}>
+                            Upload image
+                            <input
+                              type="file"
+                              accept="image/*"
+                              className="hidden"
+                              disabled={busy}
+                              onChange={(e) => {
+                                const files = e.target.files;
+                                e.currentTarget.value = "";
+                                if (!files || files.length === 0) return;
+                                if (!selectedBlock || selectedBlock.type !== "image") return;
+                                setBusy(true);
+                                setError(null);
+                                void (async () => {
+                                  try {
+                                    const created = await uploadToMediaLibrary(files, { maxFiles: 1 });
+                                    const it = created[0];
+                                    if (!it) return;
+                                    const nextSrc = String((it as any).shareUrl || (it as any).previewUrl || "").trim();
+                                    if (!nextSrc) return;
+                                    upsertBlock({
+                                      ...selectedBlock,
+                                      props: {
+                                        ...selectedBlock.props,
+                                        src: nextSrc,
+                                        alt: (selectedBlock.props.alt || "").trim() ? selectedBlock.props.alt : it.fileName,
+                                      },
+                                    });
+                                  } catch (err) {
+                                    setError((err as any)?.message ? String((err as any).message) : "Upload failed");
+                                  } finally {
+                                    setBusy(false);
+                                  }
+                                })();
+                              }}
+                            />
+                          </label>
+                        </div>
+
                         <input
                           value={selectedBlock.props.src}
                           onChange={(e) =>
@@ -1557,6 +1807,102 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
                 className="mt-3 min-h-[110px] w-full rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-sm"
                 placeholder="Describe what to build or change…"
               />
+
+              <div className="mt-3 space-y-2">
+                {aiAttachments.length ? (
+                  <div className="flex flex-col gap-2">
+                    <div className="text-xs font-semibold uppercase tracking-wide text-zinc-500">Attachments</div>
+                    <div className="space-y-2">
+                      {aiAttachments.map((a) => {
+                        const isImg = a.mimeType.startsWith("image/");
+                        return (
+                          <div
+                            key={a.id}
+                            className="flex items-center justify-between gap-3 rounded-2xl border border-zinc-200 bg-white p-3"
+                          >
+                            <div className="flex min-w-0 items-center gap-3">
+                              {isImg && a.previewUrl ? (
+                                /* eslint-disable-next-line @next/next/no-img-element */
+                                <img
+                                  src={a.previewUrl}
+                                  alt={a.fileName}
+                                  className="h-10 w-10 rounded-2xl object-cover"
+                                />
+                              ) : (
+                                <div className="flex h-10 w-10 items-center justify-center rounded-2xl bg-zinc-100 text-[10px] font-semibold text-zinc-700">
+                                  FILE
+                                </div>
+                              )}
+                              <div className="min-w-0">
+                                <div className="truncate text-sm font-semibold text-zinc-900">{a.fileName}</div>
+                                <div className="mt-1 truncate text-[11px] text-zinc-500">{a.mimeType}</div>
+                              </div>
+                            </div>
+                            <button
+                              type="button"
+                              disabled={busy}
+                              onClick={() => setAiAttachments((prev) => prev.filter((x) => x.id !== a.id))}
+                              className="shrink-0 rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm font-semibold text-zinc-800 hover:bg-zinc-50"
+                            >
+                              Remove
+                            </button>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+                ) : null}
+
+                <div className="flex flex-wrap gap-2">
+                  <button
+                    type="button"
+                    disabled={busy}
+                    onClick={() => {
+                      setMediaPickerTarget({ type: "ai" });
+                      setMediaPickerOpen(true);
+                    }}
+                    className="rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm font-semibold text-zinc-800 hover:bg-zinc-50"
+                  >
+                    Attach from media
+                  </button>
+
+                  <label
+                    className={classNames(
+                      "cursor-pointer rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm font-semibold text-zinc-800 hover:bg-zinc-50",
+                      busy ? "opacity-60" : "",
+                    )}
+                  >
+                    Upload files
+                    <input
+                      type="file"
+                      multiple
+                      className="hidden"
+                      disabled={busy}
+                      onChange={(e) => {
+                        const files = e.target.files;
+                        e.currentTarget.value = "";
+                        if (!files || files.length === 0) return;
+                        setBusy(true);
+                        setError(null);
+                        void (async () => {
+                          try {
+                            const created = await uploadToMediaLibrary(files, { maxFiles: 10 });
+                            for (const it of created) addAiAttachment(it);
+                          } catch (err) {
+                            setError((err as any)?.message ? String((err as any).message) : "Upload failed");
+                          } finally {
+                            setBusy(false);
+                          }
+                        })();
+                      }}
+                    />
+                  </label>
+                </div>
+
+                <div className="text-xs text-zinc-500">
+                  Images are sent to the AI for visual context. Other file types are included as links.
+                </div>
+              </div>
 
               <div className="mt-3 flex gap-2">
                 <button
