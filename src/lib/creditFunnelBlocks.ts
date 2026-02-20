@@ -387,13 +387,110 @@ function renderMarkdown(content: string): React.ReactNode {
 export function renderCreditFunnelBlocks({
   blocks,
   basePath,
+  editor,
 }: {
   blocks: CreditFunnelBlock[];
   basePath: string;
+  editor?: {
+    enabled?: boolean;
+    selectedBlockId?: string | null;
+    hoveredBlockId?: string | null;
+    onSelectBlockId?: (id: string) => void;
+    onHoverBlockId?: (id: string | null) => void;
+    onUpsertBlock?: (next: CreditFunnelBlock) => void;
+    onReorder?: (dragId: string, dropId: string) => void;
+  };
 }): React.ReactNode {
   const first = blocks[0];
   const pageStyleBlock = first && first.type === "page" ? first : null;
   const renderBlocks = pageStyleBlock ? blocks.slice(1) : blocks;
+
+  const isEditor = Boolean(editor?.enabled);
+
+  const blockWrapStyle = (id: string): React.CSSProperties | undefined => {
+    if (!isEditor) return undefined;
+    const selected = editor?.selectedBlockId === id;
+    const hovered = editor?.hoveredBlockId === id;
+    if (!selected && !hovered) return undefined;
+    const color = selected ? "var(--color-brand-blue)" : "rgba(15, 23, 42, 0.25)";
+    return {
+      boxShadow: `0 0 0 ${selected ? 2 : 1}px ${color}`,
+      borderRadius: 12,
+    };
+  };
+
+  const wrapProps = (id: string): Record<string, any> => {
+    if (!isEditor) return {};
+    return {
+      "data-block-id": id,
+      onClick: (e: any) => {
+        e.preventDefault?.();
+        e.stopPropagation?.();
+        editor?.onSelectBlockId?.(id);
+      },
+      onMouseEnter: () => editor?.onHoverBlockId?.(id),
+      onMouseLeave: () => editor?.onHoverBlockId?.(null),
+      draggable: Boolean(editor?.onReorder),
+      onDragStart: (e: any) => {
+        if (!editor?.onReorder) return;
+        e.dataTransfer.setData("text/x-block-id", id);
+        e.dataTransfer.effectAllowed = "move";
+      },
+      onDragOver: (e: any) => {
+        if (!editor?.onReorder) return;
+        e.preventDefault?.();
+        e.dataTransfer.dropEffect = "move";
+      },
+      onDrop: (e: any) => {
+        if (!editor?.onReorder) return;
+        e.preventDefault?.();
+        const dragId = e.dataTransfer.getData("text/x-block-id");
+        if (dragId) editor.onReorder(dragId, id);
+      },
+    };
+  };
+
+  const editableTextProps = (
+    block: CreditFunnelBlock,
+    currentText: string,
+  ): Record<string, any> => {
+    if (!isEditor) return {};
+    if (editor?.selectedBlockId !== block.id) return {};
+    const upsert = editor?.onUpsertBlock;
+    if (!upsert) return {};
+    const nextFromEl = (el: any) => (typeof el?.textContent === "string" ? el.textContent : "");
+    return {
+      contentEditable: true,
+      suppressContentEditableWarning: true,
+      spellCheck: true,
+      onKeyDown: (e: any) => {
+        if (e.key === "Enter") {
+          e.preventDefault?.();
+          e.currentTarget?.blur?.();
+        }
+        if (e.key === "Escape") {
+          e.preventDefault?.();
+          e.currentTarget?.blur?.();
+        }
+      },
+      onBlur: (e: any) => {
+        const next = nextFromEl(e.currentTarget);
+        if (next === currentText) return;
+        if (block.type === "heading") {
+          upsert({ ...block, props: { ...block.props, text: next } } as CreditFunnelBlock);
+          return;
+        }
+        if (block.type === "paragraph") {
+          upsert({ ...block, props: { ...block.props, text: next } } as CreditFunnelBlock);
+          return;
+        }
+        if (block.type === "button") {
+          upsert({ ...block, props: { ...block.props, text: next } } as CreditFunnelBlock);
+          return;
+        }
+      },
+    };
+  };
 
   const renderBlocksInner: (inner: CreditFunnelBlock[]) => React.ReactNode[] = (inner) =>
     inner.map((b) => {
@@ -416,7 +513,11 @@ export function renderCreditFunnelBlocks({
 
         return React.createElement(
           "div",
-          { key: b.id, style: wrapperStyle(b.props.style) },
+          {
+            key: b.id,
+            style: { ...wrapperStyle(b.props.style), ...(blockWrapStyle(b.id) || {}) },
+            ...wrapProps(b.id),
+          },
           React.createElement(
             Tag,
             {
@@ -424,6 +525,7 @@ export function renderCreditFunnelBlocks({
               style: {
                 ...textStyle(b.props.style),
               },
+              ...editableTextProps(b, b.props.text),
             },
             b.props.text,
           ),
@@ -434,7 +536,11 @@ export function renderCreditFunnelBlocks({
         const cls = "text-base leading-relaxed";
         return React.createElement(
           "div",
-          { key: b.id, style: wrapperStyle(b.props.style) },
+          {
+            key: b.id,
+            style: { ...wrapperStyle(b.props.style), ...(blockWrapStyle(b.id) || {}) },
+            ...wrapProps(b.id),
+          },
           React.createElement(
             "p",
             {
@@ -442,6 +548,7 @@ export function renderCreditFunnelBlocks({
               style: {
                 ...textStyle(b.props.style),
               },
+              ...editableTextProps(b, b.props.text),
             },
             b.props.text,
           ),
@@ -465,13 +572,21 @@ export function renderCreditFunnelBlocks({
         };
         return React.createElement(
           "div",
-          { key: b.id, style: wrapper },
+          { key: b.id, style: { ...wrapper, ...(blockWrapStyle(b.id) || {}) }, ...wrapProps(b.id) },
           React.createElement(
             "a",
             {
               href: b.props.href,
               className: buttonClass(b.props.variant ?? "primary"),
               style: Object.keys(linkStyle).some((k) => (linkStyle as any)[k] !== undefined) ? linkStyle : undefined,
+              onClick: isEditor
+                ? (e: any) => {
+                    e.preventDefault?.();
+                    e.stopPropagation?.();
+                    editor?.onSelectBlockId?.(b.id);
+                  }
+                : undefined,
+              ...editableTextProps(b, b.props.text),
             },
             b.props.text,
           ),
@@ -486,7 +601,11 @@ export function renderCreditFunnelBlocks({
         ].join(" ");
         return React.createElement(
           "div",
-          { key: b.id, style: wrapperStyle(b.props.style) },
+          {
+            key: b.id,
+            style: { ...wrapperStyle(b.props.style), ...(blockWrapStyle(b.id) || {}) },
+            ...wrapProps(b.id),
+          },
           React.createElement(
             "div",
             { className: cls },
@@ -502,7 +621,8 @@ export function renderCreditFunnelBlocks({
       if (b.type === "spacer") {
         return React.createElement("div", {
           key: b.id,
-          style: { ...wrapperStyle(b.props.style), height: b.props.height ?? 24 },
+          style: { ...wrapperStyle(b.props.style), ...(blockWrapStyle(b.id) || {}), height: b.props.height ?? 24 },
+          ...wrapProps(b.id),
         });
       }
 
@@ -511,10 +631,24 @@ export function renderCreditFunnelBlocks({
           basePath + "/forms/" + encodeURIComponent(b.props.formSlug || "");
         return React.createElement(
           "div",
-          { key: b.id, style: wrapperStyle(b.props.style) },
+          {
+            key: b.id,
+            style: { ...wrapperStyle(b.props.style), ...(blockWrapStyle(b.id) || {}) },
+            ...wrapProps(b.id),
+          },
           React.createElement(
             "a",
-            { href, className: buttonClass("primary") },
+            {
+              href,
+              className: buttonClass("primary"),
+              onClick: isEditor
+                ? (e: any) => {
+                    e.preventDefault?.();
+                    e.stopPropagation?.();
+                    editor?.onSelectBlockId?.(b.id);
+                  }
+                : undefined,
+            },
             b.props.text || "Open form",
           ),
         );
@@ -527,14 +661,38 @@ export function renderCreditFunnelBlocks({
         const height = typeof b.props.height === "number" ? b.props.height : 760;
         return React.createElement(
           "div",
-          { key: b.id, style: wrapperStyle(b.props.style) },
-          React.createElement("iframe", {
-            title: `Form ${formSlug}`,
-            src,
-            className: "w-full rounded-2xl border border-zinc-200 bg-white",
-            style: { height },
-            sandbox: "allow-forms allow-scripts allow-same-origin",
-          }),
+          {
+            key: b.id,
+            style: { ...wrapperStyle(b.props.style), ...(blockWrapStyle(b.id) || {}), position: "relative" },
+            ...wrapProps(b.id),
+          },
+          isEditor
+            ? React.createElement(
+                "div",
+                { style: { position: "relative" } },
+                React.createElement("iframe", {
+                  title: `Form ${formSlug}`,
+                  src,
+                  className: "w-full rounded-2xl border border-zinc-200 bg-white",
+                  style: { height },
+                  sandbox: "allow-forms allow-scripts allow-same-origin",
+                }),
+                React.createElement("div", {
+                  style: {
+                    position: "absolute",
+                    inset: 0,
+                    cursor: "pointer",
+                    background: "transparent",
+                  },
+                }),
+              )
+            : React.createElement("iframe", {
+                title: `Form ${formSlug}`,
+                src,
+                className: "w-full rounded-2xl border border-zinc-200 bg-white",
+                style: { height },
+                sandbox: "allow-forms allow-scripts allow-same-origin",
+              }),
         );
       }
 
@@ -549,7 +707,11 @@ export function renderCreditFunnelBlocks({
           : renderMarkdown(b.props.rightMarkdown || "");
         return React.createElement(
           "div",
-          { key: b.id, style: wrapperStyle(b.props.style) },
+          {
+            key: b.id,
+            style: { ...wrapperStyle(b.props.style), ...(blockWrapStyle(b.id) || {}) },
+            ...wrapProps(b.id),
+          },
           React.createElement(
             "div",
             {
@@ -591,7 +753,11 @@ export function renderCreditFunnelBlocks({
             : renderMarkdown(b.props.rightMarkdown || "");
           return React.createElement(
             "section",
-            { key: b.id, style: wrapperStyle(b.props.style) },
+            {
+              key: b.id,
+              style: { ...wrapperStyle(b.props.style), ...(blockWrapStyle(b.id) || {}) },
+              ...wrapProps(b.id),
+            },
             React.createElement(
               "div",
               {
@@ -614,7 +780,11 @@ export function renderCreditFunnelBlocks({
 
         return React.createElement(
           "section",
-          { key: b.id, style: wrapperStyle(b.props.style) },
+          {
+            key: b.id,
+            style: { ...wrapperStyle(b.props.style), ...(blockWrapStyle(b.id) || {}) },
+            ...wrapProps(b.id),
+          },
           b.props.children?.length
             ? React.createElement(
                 "div",

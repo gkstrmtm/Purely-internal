@@ -1346,6 +1346,7 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
   const [forms, setForms] = useState<CreditForm[] | null>(null);
   const [selectedPageId, setSelectedPageId] = useState<string | null>(null);
   const [selectedBlockId, setSelectedBlockId] = useState<string | null>(null);
+  const [hoveredBlockId, setHoveredBlockId] = useState<string | null>(null);
   const [chatInput, setChatInput] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -2140,95 +2141,6 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
     }
 
     setSelectedPageLocal({ blocksJson: pageSettingsBlock ? [pageSettingsBlock, ...nextEditable] : nextEditable });
-  };
-
-  const renderEditBlockCards = (
-    blocks: CreditFunnelBlock[],
-    depth: number,
-  ): React.ReactNode => {
-    return blocks.map((b) => {
-      const isSelected = selectedBlockId === b.id;
-      const card = (
-        <div
-          key={b.id}
-          draggable
-          onDragStart={(e) => {
-            e.dataTransfer.setData("text/x-block-id", b.id);
-            e.dataTransfer.effectAllowed = "move";
-          }}
-          onDragOver={(e) => {
-            e.preventDefault();
-            e.dataTransfer.dropEffect = "move";
-          }}
-          onDrop={(e) => {
-            e.preventDefault();
-            const dragId = e.dataTransfer.getData("text/x-block-id");
-            if (dragId) reorderBlocks(dragId, b.id);
-          }}
-          onClick={() => setSelectedBlockId(b.id)}
-          className={classNames(
-            "cursor-pointer rounded-2xl border p-4",
-            isSelected
-              ? "border-[color:var(--color-brand-blue)] bg-blue-50"
-              : "border-zinc-200 bg-white hover:bg-zinc-50",
-          )}
-          style={{ marginLeft: depth ? depth * 12 : undefined }}
-        >
-          <div className="text-xs font-semibold uppercase tracking-wide text-zinc-500">{b.type}</div>
-          <div className="mt-3">
-            {b.type === "section" ? (
-              <div className="rounded-2xl border border-dashed border-zinc-300 bg-white p-3 text-sm font-semibold text-zinc-700">
-                Section container
-              </div>
-            ) : (
-              renderCreditFunnelBlocks({ blocks: [b], basePath })
-            )}
-          </div>
-        </div>
-      );
-
-      if (b.type !== "section") return card;
-
-      const props: any = b.props;
-      const layout = props.layout === "two" ? "two" : "one";
-      const children = Array.isArray(props.children) ? (props.children as CreditFunnelBlock[]) : [];
-      const leftChildren = Array.isArray(props.leftChildren) ? (props.leftChildren as CreditFunnelBlock[]) : [];
-      const rightChildren = Array.isArray(props.rightChildren) ? (props.rightChildren as CreditFunnelBlock[]) : [];
-
-      return (
-        <div key={b.id}>
-          {card}
-          {layout === "two" ? (
-            <div className="mt-3 grid grid-cols-2 gap-3" style={{ marginLeft: depth ? depth * 12 : undefined }}>
-              <div className="rounded-2xl border border-zinc-200 bg-white p-3">
-                <div className="text-[11px] font-semibold uppercase tracking-wide text-zinc-500">Left</div>
-                <div className="mt-2 space-y-3">
-                  {leftChildren.length ? renderEditBlockCards(leftChildren, depth + 1) : (
-                    <div className="rounded-xl border border-dashed border-zinc-300 p-3 text-sm text-zinc-600">
-                      Empty
-                    </div>
-                  )}
-                </div>
-              </div>
-              <div className="rounded-2xl border border-zinc-200 bg-white p-3">
-                <div className="text-[11px] font-semibold uppercase tracking-wide text-zinc-500">Right</div>
-                <div className="mt-2 space-y-3">
-                  {rightChildren.length ? renderEditBlockCards(rightChildren, depth + 1) : (
-                    <div className="rounded-xl border border-dashed border-zinc-300 p-3 text-sm text-zinc-600">
-                      Empty
-                    </div>
-                  )}
-                </div>
-              </div>
-            </div>
-          ) : children.length ? (
-            <div className="mt-3 space-y-3" style={{ marginLeft: depth ? depth * 12 : undefined }}>
-              {renderEditBlockCards(children, depth + 1)}
-            </div>
-          ) : null}
-        </div>
-      );
-    });
   };
 
   const runAi = async () => {
@@ -4326,15 +4238,27 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
                       })}
                     </div>
                   ) : (
-                    <div className="bg-white p-8">
+                    <div className="min-h-[70vh]">
                       {editableBlocks.length === 0 ? (
-                        <div className="rounded-xl border border-dashed border-zinc-300 p-6 text-sm text-zinc-600">
-                          Drag a block from the left, or click a block to add.
+                        <div className="p-8">
+                          <div className="rounded-xl border border-dashed border-zinc-300 bg-white p-6 text-sm text-zinc-600">
+                            Drag a block from the left, or click a block to add.
+                          </div>
                         </div>
                       ) : (
-                        <div className="space-y-4">
-                          {renderEditBlockCards(editableBlocks, 0)}
-                        </div>
+                        renderCreditFunnelBlocks({
+                          blocks: pageSettingsBlock ? [pageSettingsBlock, ...editableBlocks] : editableBlocks,
+                          basePath,
+                          editor: {
+                            enabled: true,
+                            selectedBlockId,
+                            hoveredBlockId,
+                            onSelectBlockId: (id) => setSelectedBlockId(id),
+                            onHoverBlockId: (id) => setHoveredBlockId(id),
+                            onUpsertBlock: (next) => upsertBlock(next),
+                            onReorder: (dragId, dropId) => reorderBlocks(dragId, dropId),
+                          },
+                        })
                       )}
                     </div>
                   )}
