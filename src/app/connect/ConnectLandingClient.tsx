@@ -6,7 +6,7 @@ import { useMemo, useState } from "react";
 
 import { ConnectAuthPanel } from "./ConnectAuthPanel";
 
-export function ConnectLandingClient() {
+export function ConnectLandingClient({ signedInName }: { signedInName?: string | null }) {
 	const router = useRouter();
 	const [creating, setCreating] = useState(false);
 	const [joinValue, setJoinValue] = useState("");
@@ -63,7 +63,9 @@ export function ConnectLandingClient() {
 						<div className="relative h-12 w-48">
 							<Image src="/brand/Purely_Connect.png" alt="Purely Connect" fill className="object-contain" priority />
 						</div>
-						<div className="hidden text-sm text-zinc-600 sm:block">Video meetings</div>
+						<div className="hidden text-sm text-zinc-600 sm:block">
+							{signedInName ? `Signed in as ${signedInName}` : "Video meetings"}
+						</div>
 					</div>
 
 					<h1 className="mt-6 text-balance text-2xl font-semibold text-zinc-900 sm:text-3xl">Video calls, the simple way.</h1>
