@@ -16,6 +16,7 @@ export default async function CreditHostedFunnelPage({ params }: { params: Promi
     .findUnique({
       where: { slug: s },
       select: {
+        ownerId: true,
         name: true,
         slug: true,
         status: true,
@@ -52,7 +53,13 @@ export default async function CreditHostedFunnelPage({ params }: { params: Promi
               className="h-[100vh] w-full bg-white"
             />
           ) : page.editorMode === "BLOCKS" ? (
-            <div>{renderCreditFunnelBlocks({ blocks: blockBlocks, basePath: "/credit" })}</div>
+            <div>
+              {renderCreditFunnelBlocks({
+                blocks: blockBlocks,
+                basePath: "/credit",
+                context: { bookingOwnerId: funnel.ownerId },
+              })}
+            </div>
           ) : (
             <div className="mx-auto w-full max-w-3xl p-8">
               <div className="prose prose-zinc max-w-none">

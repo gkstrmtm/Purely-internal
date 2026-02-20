@@ -38,6 +38,12 @@ type CreditForm = {
   updatedAt: string;
 };
 
+type BookingCalendarLite = {
+  id: string;
+  title?: string;
+  enabled?: boolean;
+};
+
 type Page = {
   id: string;
   slug: string;
@@ -1484,6 +1490,9 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
 
   const [brandSwatches, setBrandSwatches] = useState<string[]>([]);
 
+  const [bookingCalendars, setBookingCalendars] = useState<BookingCalendarLite[]>([]);
+  const [bookingSiteSlug, setBookingSiteSlug] = useState<string | null>(null);
+
   const colorSwatches = useMemo(() => {
     const defaults = [
       "#ffffff",
@@ -1722,7 +1731,7 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
       if (b.type === "columns") {
         const columns = Array.isArray(props.columns) ? (props.columns as any[]) : [];
         if (columns.length) {
-          const nextColumns = columns.map((c, idx) => {
+          const nextColumns = columns.map((c) => {
             if (!c || typeof c !== "object") return c;
             const arr = Array.isArray((c as any).children) ? ((c as any).children as CreditFunnelBlock[]) : undefined;
             if (!arr) return c;
@@ -1828,7 +1837,7 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
 
   const load = async () => {
     setError(null);
-    const [fRes, pRes, formsRes] = await Promise.all([
+    const [fRes, pRes, formsRes, bookingCalendarsRes, bookingSettingsRes] = await Promise.all([
       fetch(`/api/portal/funnel-builder/funnels/${encodeURIComponent(funnelId)}`, {
         cache: "no-store",
       }),
@@ -1839,10 +1848,18 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
         cache: "no-store",
         headers: { [PORTAL_VARIANT_HEADER]: portalVariant },
       }).catch(() => null as any),
+      fetch("/api/portal/booking/calendars", { cache: "no-store" }).catch(() => null as any),
+      fetch("/api/portal/booking/settings", { cache: "no-store" }).catch(() => null as any),
     ]);
     const fJson = (await fRes.json().catch(() => null)) as any;
     const pJson = (await pRes.json().catch(() => null)) as any;
     const formsJson = formsRes ? ((await formsRes.json().catch(() => null)) as any) : null;
+    const bookingCalendarsJson = bookingCalendarsRes
+      ? ((await bookingCalendarsRes.json().catch(() => null)) as any)
+      : null;
+    const bookingSettingsJson = bookingSettingsRes
+      ? ((await bookingSettingsRes.json().catch(() => null)) as any)
+      : null;
     if (!fRes.ok || !fJson || fJson.ok !== true)
       throw new Error(fJson?.error || "Failed to load funnel");
     if (!pRes.ok || !pJson || pJson.ok !== true)
@@ -1855,6 +1872,29 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
 
     if (formsRes && formsRes.ok && formsJson?.ok === true) {
       setForms(Array.isArray(formsJson.forms) ? (formsJson.forms as CreditForm[]) : []);
+    }
+
+    if (bookingCalendarsRes?.ok && bookingCalendarsJson?.ok === true) {
+      const raw = bookingCalendarsJson?.config?.calendars;
+      const next = Array.isArray(raw)
+        ? (raw
+            .map((c: any) => ({
+              id: typeof c?.id === "string" ? c.id : "",
+              title: typeof c?.title === "string" ? c.title : undefined,
+              enabled: typeof c?.enabled === "boolean" ? c.enabled : undefined,
+            }))
+            .filter((c: BookingCalendarLite) => !!c.id) as BookingCalendarLite[])
+        : [];
+      setBookingCalendars(next);
+    } else {
+      setBookingCalendars([]);
+    }
+
+    if (bookingSettingsRes?.ok && bookingSettingsJson?.ok === true) {
+      const slug = typeof bookingSettingsJson?.site?.slug === "string" ? bookingSettingsJson.site.slug.trim() : "";
+      setBookingSiteSlug(slug || null);
+    } else {
+      setBookingSiteSlug(null);
     }
   };
 
@@ -2099,6 +2139,8 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
                 ? { id, type, props: { formSlug: "", text: "Open form" } }
                 : type === "formEmbed"
                   ? { id, type, props: { formSlug: "" } }
+                  : type === "calendarEmbed"
+                    ? { id, type, props: { calendarId: "" } }
                   : type === "columns"
                     ? {
                         id,
@@ -2347,6 +2389,84 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
     }
 
     setSelectedPageLocal({ blocksJson: pageSettingsBlock ? [pageSettingsBlock, ...nextEditable] : nextEditable });
+  };
+
+  const canMoveBlock = (id: string, dir: "up" | "down") => {
+    const delta = dir === "up" ? -1 : 1;
+    const container = findContainerForBlock(editableBlocks, id);
+    if (!container) return false;
+
+    const canInArray = <T extends { id: string }>(arr: T[]) => {
+      const idx = arr.findIndex((b) => b.id === id);
+      if (idx < 0) return false;
+      const nextIdx = idx + delta;
+      return nextIdx >= 0 && nextIdx < arr.length;
+    };
+
+    if (container.key === "root") return canInArray(editableBlocks);
+
+    const containerBlock = findBlockInTree(editableBlocks, container.sectionId)?.block;
+    if (!containerBlock || (containerBlock.type !== "section" && containerBlock.type !== "columns")) return false;
+    const props: any = containerBlock.props;
+
+    if (container.key === "columnChildren") {
+      if (containerBlock.type !== "columns") return false;
+      const cols = Array.isArray(props.columns) ? (props.columns as any[]) : [];
+      const col = cols[(container as any).columnIndex];
+      const arr = col && typeof col === "object" && Array.isArray((col as any).children) ? ((col as any).children as CreditFunnelBlock[]) : [];
+      return canInArray(arr);
+    }
+
+    const arr = Array.isArray(props[container.key]) ? (props[container.key] as CreditFunnelBlock[]) : [];
+    return canInArray(arr);
+  };
+
+  const moveBlock = (id: string, dir: "up" | "down") => {
+    if (!selectedPage) return;
+    const delta = dir === "up" ? -1 : 1;
+    const container = findContainerForBlock(editableBlocks, id);
+    if (!container) return;
+
+    const swapInArray = <T extends { id: string }>(arr: T[]): T[] => {
+      const idx = arr.findIndex((b) => b.id === id);
+      if (idx < 0) return arr;
+      const nextIdx = idx + delta;
+      if (nextIdx < 0 || nextIdx >= arr.length) return arr;
+      const next = [...arr];
+      const tmp = next[idx];
+      next[idx] = next[nextIdx];
+      next[nextIdx] = tmp;
+      return next;
+    };
+
+    let nextEditable = editableBlocks;
+    if (container.key === "root") {
+      nextEditable = swapInArray(editableBlocks);
+    } else {
+      const containerBlock = findBlockInTree(editableBlocks, container.sectionId)?.block;
+      if (containerBlock && (containerBlock.type === "section" || containerBlock.type === "columns")) {
+        const props: any = containerBlock.props;
+        if (container.key === "columnChildren") {
+          if (containerBlock.type !== "columns") return;
+          const cols = Array.isArray(props.columns) ? (props.columns as any[]) : [];
+          const colIndex = (container as any).columnIndex as number;
+          const col = cols[colIndex];
+          const arr = col && typeof col === "object" && Array.isArray((col as any).children) ? ((col as any).children as CreditFunnelBlock[]) : [];
+          const nextArr = swapInArray(arr);
+          const nextCols = cols.map((c, i) => (i === colIndex ? { ...(c || {}), children: nextArr } : c));
+          const nextContainer: CreditFunnelBlock = { ...containerBlock, props: { ...props, columns: nextCols } } as any;
+          nextEditable = replaceBlockInTree(editableBlocks, nextContainer);
+        } else {
+          const arr = Array.isArray(props[container.key]) ? (props[container.key] as CreditFunnelBlock[]) : [];
+          const nextArr = swapInArray(arr);
+          const nextContainer: CreditFunnelBlock = { ...containerBlock, props: { ...props, [container.key]: nextArr } } as any;
+          nextEditable = replaceBlockInTree(editableBlocks, nextContainer);
+        }
+      }
+    }
+
+    setSelectedPageLocal({ blocksJson: pageSettingsBlock ? [pageSettingsBlock, ...nextEditable] : nextEditable });
+    setSelectedBlockId(id);
   };
 
   const runAi = async () => {
@@ -2801,24 +2921,42 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
                     <button
                       type="button"
                       disabled={busy}
+                      draggable
+                      onDragStart={(e) => {
+                        e.dataTransfer.setData("text/x-funnel-preset", "hero");
+                        e.dataTransfer.effectAllowed = "copy";
+                      }}
                       onClick={() => addPresetSection("hero")}
                       className="rounded-xl border border-zinc-200 bg-white px-3 py-2 text-left text-xs font-semibold text-zinc-800 hover:bg-zinc-50"
+                      title="Drag into preview or click to add"
                     >
                       Hero
                     </button>
                     <button
                       type="button"
                       disabled={busy}
+                      draggable
+                      onDragStart={(e) => {
+                        e.dataTransfer.setData("text/x-funnel-preset", "body");
+                        e.dataTransfer.effectAllowed = "copy";
+                      }}
                       onClick={() => addPresetSection("body")}
                       className="rounded-xl border border-zinc-200 bg-white px-3 py-2 text-left text-xs font-semibold text-zinc-800 hover:bg-zinc-50"
+                      title="Drag into preview or click to add"
                     >
                       Body
                     </button>
                     <button
                       type="button"
                       disabled={busy}
+                      draggable
+                      onDragStart={(e) => {
+                        e.dataTransfer.setData("text/x-funnel-preset", "form");
+                        e.dataTransfer.effectAllowed = "copy";
+                      }}
                       onClick={() => addPresetSection("form")}
                       className="rounded-xl border border-zinc-200 bg-white px-3 py-2 text-left text-xs font-semibold text-zinc-800 hover:bg-zinc-50"
+                      title="Drag into preview or click to add"
                     >
                       Form
                     </button>
@@ -2897,6 +3035,7 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
                       [
                         { type: "formLink", label: "Form link" },
                         { type: "formEmbed", label: "Form embed" },
+                        { type: "calendarEmbed", label: "Calendar embed" },
                       ] as const
                     ).map((b) => (
                       <button
@@ -3286,6 +3425,95 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
                             </button>
                           </div>
                           <div className="mt-1 text-xs text-zinc-500">Controls the iframe height when this form is embedded on the hosted page.</div>
+                        </label>
+                      </div>
+                    ) : null}
+
+                    {selectedBlock.type === "calendarEmbed" ? (
+                      <div className="space-y-2">
+                        <label className="block">
+                          <div className="mb-1 text-[11px] font-semibold uppercase tracking-wide text-zinc-500">Calendar</div>
+                          <select
+                            value={selectedBlock.props.calendarId || ""}
+                            onChange={(e) =>
+                              upsertBlock({
+                                ...selectedBlock,
+                                props: { ...selectedBlock.props, calendarId: e.target.value || "" },
+                              } as any)
+                            }
+                            className="w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm"
+                          >
+                            <option value="">Select a calendar…</option>
+                            {(bookingCalendars || []).map((c) => (
+                              <option key={c.id} value={c.id}>
+                                {(c.title || "Untitled calendar").trim()} ({c.id})
+                              </option>
+                            ))}
+                          </select>
+                          <div className="mt-1 text-xs text-zinc-500">Embeds your booking calendar as an iframe.</div>
+                        </label>
+
+                        <div className="flex flex-wrap gap-2">
+                          <button
+                            type="button"
+                            disabled={busy}
+                            onClick={() => {
+                              window.open(`${basePath}/app/services/booking/settings`, "_blank", "noopener,noreferrer");
+                            }}
+                            className="rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm font-semibold text-zinc-800 hover:bg-zinc-50 disabled:opacity-60"
+                          >
+                            Manage calendars
+                          </button>
+                          <button
+                            type="button"
+                            disabled={busy || !bookingSiteSlug || !selectedBlock.props.calendarId}
+                            onClick={() => {
+                              if (!bookingSiteSlug || !selectedBlock.props.calendarId) return;
+                              window.open(
+                                `/book/${encodeURIComponent(bookingSiteSlug)}/c/${encodeURIComponent(selectedBlock.props.calendarId)}`,
+                                "_blank",
+                                "noopener,noreferrer",
+                              );
+                            }}
+                            className="rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm font-semibold text-zinc-800 hover:bg-zinc-50 disabled:opacity-60"
+                          >
+                            Open calendar
+                          </button>
+                        </div>
+
+                        <label className="block">
+                          <div className="mb-1 text-[11px] font-semibold uppercase tracking-wide text-zinc-500">Embed height (px)</div>
+                          <div className="flex flex-wrap items-center gap-2">
+                            <input
+                              type="number"
+                              value={selectedBlock.props.height ?? ""}
+                              onChange={(e) => {
+                                const raw = e.target.value;
+                                upsertBlock({
+                                  ...selectedBlock,
+                                  props: {
+                                    ...selectedBlock.props,
+                                    height: raw === "" ? undefined : Number(raw) || 0,
+                                  },
+                                } as any);
+                              }}
+                              className="min-w-[180px] flex-1 rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm"
+                              placeholder="Default: 760"
+                            />
+                            <button
+                              type="button"
+                              disabled={busy}
+                              onClick={() =>
+                                upsertBlock({
+                                  ...selectedBlock,
+                                  props: { ...selectedBlock.props, height: undefined },
+                                } as any)
+                              }
+                              className="shrink-0 rounded-xl border border-zinc-200 bg-white px-3 py-2 text-xs font-semibold text-zinc-800 hover:bg-zinc-50"
+                            >
+                              Default (760)
+                            </button>
+                          </div>
                         </label>
                       </div>
                     ) : null}
@@ -4322,6 +4550,11 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
               onDrop={(e) => {
                 if (!selectedPage || selectedPage.editorMode !== "BLOCKS") return;
                 e.preventDefault();
+                const preset = e.dataTransfer.getData("text/x-funnel-preset");
+                if (preset === "hero" || preset === "body" || preset === "form") {
+                  addPresetSection(preset);
+                  return;
+                }
                 const t = e.dataTransfer.getData("text/x-block-type");
                 if (t) addBlock(t as any);
               }}
@@ -4360,6 +4593,7 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
                       renderCreditFunnelBlocks({
                         blocks: pageSettingsBlock ? [pageSettingsBlock, ...editableBlocks] : editableBlocks,
                         basePath,
+                        context: { bookingSiteSlug: bookingSiteSlug || undefined },
                         editor: {
                           enabled: true,
                           selectedBlockId,
@@ -4371,6 +4605,8 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
                           onHoverBlockId: (id) => setHoveredBlockId(id),
                           onUpsertBlock: (next) => upsertBlock(next),
                           onReorder: (dragId, dropId) => reorderBlocks(dragId, dropId),
+                          onMove: (id, dir) => moveBlock(id, dir),
+                          canMove: (id, dir) => canMoveBlock(id, dir),
                         },
                       })
                     )}

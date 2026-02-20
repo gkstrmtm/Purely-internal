@@ -71,6 +71,11 @@ export type CreditFunnelBlock =
     }
   | {
       id: string;
+      type: "calendarEmbed";
+      props: { calendarId: string; height?: number; style?: BlockStyle };
+    }
+  | {
+      id: string;
       type: "columns";
       props: {
         columns: ColumnsColumn[];
@@ -365,6 +370,14 @@ function coerceBlocksJsonInternal(value: unknown, depth: number): CreditFunnelBl
       continue;
     }
 
+    if (type === "calendarEmbed") {
+      const calendarId = typeof props?.calendarId === "string" ? props.calendarId : "";
+      const height = clampNum(props?.height, 120, 2000);
+      const style = coerceStyle(props?.style);
+      out.push({ id, type, props: { calendarId, height, style } });
+      continue;
+    }
+
     if (type === "columns") {
       const rawColumns = Array.isArray(props?.columns) ? (props.columns as any[]) : null;
       const legacyLeftMarkdown = typeof props?.leftMarkdown === "string" ? props.leftMarkdown : "";
@@ -566,10 +579,15 @@ function renderMarkdown(content: string): React.ReactNode {
 export function renderCreditFunnelBlocks({
   blocks,
   basePath,
+  context,
   editor,
 }: {
   blocks: CreditFunnelBlock[];
   basePath: string;
+  context?: {
+    bookingSiteSlug?: string;
+    bookingOwnerId?: string;
+  };
   editor?: {
     enabled?: boolean;
     selectedBlockId?: string | null;
@@ -578,6 +596,8 @@ export function renderCreditFunnelBlocks({
     onHoverBlockId?: (id: string | null) => void;
     onUpsertBlock?: (next: CreditFunnelBlock) => void;
     onReorder?: (dragId: string, dropId: string) => void;
+    onMove?: (id: string, dir: "up" | "down") => void;
+    canMove?: (id: string, dir: "up" | "down") => boolean;
   };
 }): React.ReactNode {
   const first = blocks[0];
@@ -585,6 +605,67 @@ export function renderCreditFunnelBlocks({
   const renderBlocks = pageStyleBlock ? blocks.slice(1) : blocks;
 
   const isEditor = Boolean(editor?.enabled);
+
+  const renderMoveControls = (id: string): React.ReactNode => {
+    if (!isEditor) return null;
+    if (!editor?.onMove) return null;
+    const selected = editor?.selectedBlockId === id;
+    const hovered = editor?.hoveredBlockId === id;
+    if (!selected && !hovered) return null;
+
+    const canUp = editor?.canMove ? editor.canMove(id, "up") : true;
+    const canDown = editor?.canMove ? editor.canMove(id, "down") : true;
+
+    return React.createElement(
+      "div",
+      {
+        key: `${id}_move_controls`,
+        className: "absolute right-2 top-2 z-10 flex flex-col gap-1",
+      },
+      React.createElement(
+        "button",
+        {
+          type: "button",
+          disabled: !canUp,
+          onMouseDown: (e: any) => {
+            e.preventDefault?.();
+            e.stopPropagation?.();
+          },
+          onClick: (e: any) => {
+            e.preventDefault?.();
+            e.stopPropagation?.();
+            editor.onMove?.(id, "up");
+          },
+          className:
+            "h-7 w-7 rounded-lg border border-zinc-200 bg-white text-xs font-bold text-zinc-700 shadow-sm hover:bg-zinc-50 disabled:cursor-not-allowed disabled:opacity-40",
+          title: "Move up",
+          "aria-label": "Move up",
+        },
+        "↑",
+      ),
+      React.createElement(
+        "button",
+        {
+          type: "button",
+          disabled: !canDown,
+          onMouseDown: (e: any) => {
+            e.preventDefault?.();
+            e.stopPropagation?.();
+          },
+          onClick: (e: any) => {
+            e.preventDefault?.();
+            e.stopPropagation?.();
+            editor.onMove?.(id, "down");
+          },
+          className:
+            "h-7 w-7 rounded-lg border border-zinc-200 bg-white text-xs font-bold text-zinc-700 shadow-sm hover:bg-zinc-50 disabled:cursor-not-allowed disabled:opacity-40",
+          title: "Move down",
+          "aria-label": "Move down",
+        },
+        "↓",
+      ),
+    );
+  };
 
   const blockWrapStyle = (id: string): React.CSSProperties | undefined => {
     if (!isEditor) return undefined;
@@ -602,6 +683,7 @@ export function renderCreditFunnelBlocks({
     if (!isEditor) return {};
     return {
       "data-block-id": id,
+      className: "relative",
       onClick: (e: any) => {
         e.preventDefault?.();
         e.stopPropagation?.();
@@ -704,6 +786,7 @@ export function renderCreditFunnelBlocks({
             style: { ...wrapperStyle(b.props.style), ...(blockWrapStyle(b.id) || {}) },
             ...wrapProps(b.id),
           },
+          renderMoveControls(b.id),
           React.createElement(
             Tag,
             {
@@ -730,6 +813,7 @@ export function renderCreditFunnelBlocks({
             style: { ...wrapperStyle(b.props.style), ...(blockWrapStyle(b.id) || {}) },
             ...wrapProps(b.id),
           },
+          renderMoveControls(b.id),
           React.createElement(
             "p",
             {
@@ -776,6 +860,7 @@ export function renderCreditFunnelBlocks({
         return React.createElement(
           "div",
           { key: b.id, style: { ...wrapper, ...(blockWrapStyle(b.id) || {}) }, ...wrapProps(b.id) },
+          renderMoveControls(b.id),
           React.createElement(
             "a",
             {
@@ -806,6 +891,7 @@ export function renderCreditFunnelBlocks({
               style: { ...wrapperStyle(b.props.style), ...(blockWrapStyle(b.id) || {}) },
               ...wrapProps(b.id),
             },
+            renderMoveControls(b.id),
             React.createElement(
               "div",
               {
@@ -827,6 +913,7 @@ export function renderCreditFunnelBlocks({
             style: { ...wrapperStyle(b.props.style), ...(blockWrapStyle(b.id) || {}) },
             ...wrapProps(b.id),
           },
+          renderMoveControls(b.id),
           React.createElement(
             "div",
             { className: cls },
@@ -840,11 +927,15 @@ export function renderCreditFunnelBlocks({
       }
 
       if (b.type === "spacer") {
-        return React.createElement("div", {
-          key: b.id,
-          style: { ...wrapperStyle(b.props.style), ...(blockWrapStyle(b.id) || {}), height: b.props.height ?? 24 },
-          ...wrapProps(b.id),
-        });
+        return React.createElement(
+          "div",
+          {
+            key: b.id,
+            style: { ...wrapperStyle(b.props.style), ...(blockWrapStyle(b.id) || {}), height: b.props.height ?? 24 },
+            ...wrapProps(b.id),
+          },
+          renderMoveControls(b.id),
+        );
       }
 
       if (b.type === "formLink") {
@@ -857,6 +948,7 @@ export function renderCreditFunnelBlocks({
             style: { ...wrapperStyle(b.props.style), ...(blockWrapStyle(b.id) || {}) },
             ...wrapProps(b.id),
           },
+          renderMoveControls(b.id),
           React.createElement(
             "a",
             {
@@ -877,7 +969,26 @@ export function renderCreditFunnelBlocks({
 
       if (b.type === "formEmbed") {
         const formSlug = String(b.props.formSlug || "").trim();
-        if (!formSlug) return null;
+        if (!formSlug) {
+          if (!isEditor) return null;
+          return React.createElement(
+            "div",
+            {
+              key: b.id,
+              style: { ...wrapperStyle(b.props.style), ...(blockWrapStyle(b.id) || {}) },
+              ...wrapProps(b.id),
+            },
+            renderMoveControls(b.id),
+            React.createElement(
+              "div",
+              {
+                className:
+                  "rounded-2xl border border-dashed border-zinc-300 bg-zinc-50 px-4 py-10 text-center text-sm text-zinc-600",
+              },
+              "Form embed: select this block and pick a form.",
+            ),
+          );
+        }
         const src = `${basePath}/forms/${encodeURIComponent(formSlug)}?embed=1`;
         const height = typeof b.props.height === "number" ? b.props.height : 760;
         return React.createElement(
@@ -887,6 +998,7 @@ export function renderCreditFunnelBlocks({
             style: { ...wrapperStyle(b.props.style), ...(blockWrapStyle(b.id) || {}), position: "relative" },
             ...wrapProps(b.id),
           },
+          renderMoveControls(b.id),
           isEditor
             ? React.createElement(
                 "div",
@@ -909,6 +1021,97 @@ export function renderCreditFunnelBlocks({
               )
             : React.createElement("iframe", {
                 title: `Form ${formSlug}`,
+                src,
+                className: "w-full rounded-2xl border border-zinc-200 bg-white",
+                style: { height },
+                sandbox: "allow-forms allow-scripts allow-same-origin",
+              }),
+        );
+      }
+
+      if (b.type === "calendarEmbed") {
+        const calendarId = String((b.props as any).calendarId || "").trim();
+        if (!calendarId) {
+          if (!isEditor) return null;
+          return React.createElement(
+            "div",
+            {
+              key: b.id,
+              style: { ...wrapperStyle(b.props.style), ...(blockWrapStyle(b.id) || {}) },
+              ...wrapProps(b.id),
+            },
+            renderMoveControls(b.id),
+            React.createElement(
+              "div",
+              {
+                className:
+                  "rounded-2xl border border-dashed border-zinc-300 bg-zinc-50 px-4 py-10 text-center text-sm text-zinc-600",
+              },
+              "Calendar embed: select this block and pick a calendar.",
+            ),
+          );
+        }
+
+        const height = typeof (b.props as any).height === "number" ? (b.props as any).height : 760;
+        const slug = context?.bookingSiteSlug ? String(context.bookingSiteSlug).trim() : "";
+        const ownerId = context?.bookingOwnerId ? String(context.bookingOwnerId).trim() : "";
+        const src = slug
+          ? `/book/${encodeURIComponent(slug)}/c/${encodeURIComponent(calendarId)}`
+          : ownerId
+            ? `/book/u/${encodeURIComponent(ownerId)}/${encodeURIComponent(calendarId)}`
+            : "";
+
+        if (!src) {
+          if (!isEditor) return null;
+          return React.createElement(
+            "div",
+            {
+              key: b.id,
+              style: { ...wrapperStyle(b.props.style), ...(blockWrapStyle(b.id) || {}) },
+              ...wrapProps(b.id),
+            },
+            renderMoveControls(b.id),
+            React.createElement(
+              "div",
+              {
+                className:
+                  "rounded-2xl border border-dashed border-zinc-300 bg-zinc-50 px-4 py-10 text-center text-sm text-zinc-600",
+              },
+              "Calendar embed: missing booking context.",
+            ),
+          );
+        }
+
+        return React.createElement(
+          "div",
+          {
+            key: b.id,
+            style: { ...wrapperStyle(b.props.style), ...(blockWrapStyle(b.id) || {}), position: "relative" },
+            ...wrapProps(b.id),
+          },
+          renderMoveControls(b.id),
+          isEditor
+            ? React.createElement(
+                "div",
+                { style: { position: "relative" } },
+                React.createElement("iframe", {
+                  title: `Calendar ${calendarId}`,
+                  src,
+                  className: "w-full rounded-2xl border border-zinc-200 bg-white",
+                  style: { height },
+                  sandbox: "allow-forms allow-scripts allow-same-origin",
+                }),
+                React.createElement("div", {
+                  style: {
+                    position: "absolute",
+                    inset: 0,
+                    cursor: "pointer",
+                    background: "transparent",
+                  },
+                }),
+              )
+            : React.createElement("iframe", {
+                title: `Calendar ${calendarId}`,
                 src,
                 className: "w-full rounded-2xl border border-zinc-200 bg-white",
                 style: { height },
@@ -943,6 +1146,7 @@ export function renderCreditFunnelBlocks({
             style: { ...wrapperStyle(b.props.style), ...(blockWrapStyle(b.id) || {}) },
             ...wrapProps(b.id),
           },
+          renderMoveControls(b.id),
           React.createElement(
             "div",
             {
@@ -993,6 +1197,7 @@ export function renderCreditFunnelBlocks({
               style: { ...wrapperStyle(b.props.style), ...(blockWrapStyle(b.id) || {}) },
               ...wrapProps(b.id),
             },
+            renderMoveControls(b.id),
             React.createElement(
               "div",
               {
@@ -1020,6 +1225,7 @@ export function renderCreditFunnelBlocks({
             style: { ...wrapperStyle(b.props.style), ...(blockWrapStyle(b.id) || {}) },
             ...wrapProps(b.id),
           },
+          renderMoveControls(b.id),
           b.props.children?.length
             ? React.createElement(
                 "div",
