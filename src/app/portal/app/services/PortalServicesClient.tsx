@@ -127,6 +127,7 @@ export function PortalServicesClient() {
   const services = useMemo(() => {
     return PORTAL_SERVICES
       .filter((s) => !s.hidden)
+      .filter((s) => (variant === "portal" ? s.slug !== "funnel-builder" : true))
       .filter((s) => !s.variants || s.variants.includes(variant))
       .filter((s) => canViewServiceSlug(s.slug));
   }, [canViewServiceSlug, variant]);

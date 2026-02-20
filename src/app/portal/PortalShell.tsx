@@ -47,6 +47,9 @@ function classNames(...xs: Array<string | false | null | undefined>) {
 
 export function PortalShell({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
+  const variant = typeof pathname === "string" && (pathname === "/credit" || pathname.startsWith("/credit/")) ? "credit" : "portal";
+  const basePath = variant === "credit" ? "/credit" : "/portal";
+
   const isFunnelBuilderEditor =
     typeof pathname === "string" &&
     pathname.includes("/app/services/funnel-builder/") &&
@@ -125,7 +128,7 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
     (async () => {
       const res = await fetch("/api/customer/me", {
         cache: "no-store",
-        headers: { "x-pa-app": "portal" },
+        headers: { "x-pa-app": "portal", "x-portal-variant": variant },
       });
       if (!mounted) return;
       if (!res.ok) return;
@@ -135,7 +138,7 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
     return () => {
       mounted = false;
     };
-  }, []);
+  }, [variant]);
 
   const isFullDemo = (me?.user.email ?? "").toLowerCase().trim() === DEFAULT_FULL_DEMO_EMAIL;
   const knownServiceKeys = useMemo(() => new Set<string>(PORTAL_SERVICE_KEYS as unknown as string[]), []);
@@ -151,14 +154,14 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
     };
 
     const base = [
-      { href: "/portal/app", label: "Dashboard", icon: <IconDashboard /> },
-      { href: "/portal/app/services", label: "Services", icon: <IconService /> },
-      ...(can("people") ? [{ href: "/portal/app/people", label: "People", icon: <IconPeople /> }] : []),
-      ...(can("billing") ? [{ href: "/portal/app/billing", label: "Billing", icon: <IconBilling /> }] : []),
-      ...(can("profile") ? [{ href: "/portal/app/profile", label: "Profile", icon: <IconProfile /> }] : []),
+      { href: `${basePath}/app`, label: "Dashboard", icon: <IconDashboard /> },
+      { href: `${basePath}/app/services`, label: "Services", icon: <IconService /> },
+      ...(can("people") ? [{ href: `${basePath}/app/people`, label: "People", icon: <IconPeople /> }] : []),
+      ...(can("billing") ? [{ href: `${basePath}/app/billing`, label: "Billing", icon: <IconBilling /> }] : []),
+      ...(can("profile") ? [{ href: `${basePath}/app/profile`, label: "Profile", icon: <IconProfile /> }] : []),
     ];
     return base;
-  }, [portalMe]);
+  }, [portalMe, basePath]);
 
   function canViewServiceKey(key: PortalServiceKey) {
     if (!portalMe || portalMe.ok !== true) return true;
@@ -191,7 +194,7 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
   }
 
   function isActive(href: string) {
-    if (href === "/portal/app") return pathname === "/portal/app";
+    if (href === `${basePath}/app`) return pathname === `${basePath}/app`;
     return pathname === href || pathname.startsWith(href + "/");
   }
 
@@ -227,7 +230,13 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
     setShowGettingStartedHint(false);
   }
 
-  const visibleSidebarServices = PORTAL_SERVICES.filter((s) => !s.hidden).filter((s) => canViewServiceSlug(s.slug));
+  const visibleSidebarServices = PORTAL_SERVICES.filter((s) => !s.hidden)
+    .filter((s) => canViewServiceSlug(s.slug))
+    .filter((s) => {
+      if (variant === "credit") return s.slug === "funnel-builder";
+      return s.slug !== "funnel-builder";
+    })
+    .filter((s) => !s.variants || s.variants.includes(variant));
   const sidebarServiceGroups = groupPortalServices(visibleSidebarServices);
 
   if (isFunnelBuilderEditor) {
@@ -256,7 +265,7 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
             </p>
             <div className="mt-4 flex flex-wrap gap-2">
               <Link
-                href="/portal/tutorials/getting-started"
+                href={`${basePath}/tutorials/getting-started`}
                 className="inline-flex items-center justify-center rounded-2xl bg-brand-ink px-4 py-2 text-sm font-semibold text-white hover:opacity-95"
                 onClick={dismissGettingStartedHint}
               >
@@ -300,7 +309,7 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
             )}
           >
             <div className="sticky top-0 z-10 flex items-center gap-3 border-b border-zinc-200 bg-white/90 p-4 backdrop-blur">
-              <Link href="/portal/app" className="flex items-center gap-3">
+              <Link href={`${basePath}/app`} className="flex items-center gap-3">
                 <Image
                   src="/brand/purity-5.png"
                   alt="Purely Automation"
@@ -356,10 +365,10 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
                           return (
                             <Link
                               key={s.slug}
-                              href={`/portal/app/services/${s.slug}`}
+                              href={`${basePath}/app/services/${s.slug}`}
                               className={classNames(
                                 "flex items-center gap-3 rounded-2xl px-3 py-2 text-sm font-medium",
-                                pathname.startsWith(`/portal/app/services/${s.slug}`)
+                                pathname.startsWith(`${basePath}/app/services/${s.slug}`)
                                   ? "bg-zinc-100 text-zinc-900"
                                   : "text-zinc-700 hover:bg-zinc-50",
                               )}
@@ -417,7 +426,7 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
           <div className={classNames("flex items-center gap-3 border-b border-zinc-200 p-4", collapsed && "justify-center")}
           >
             {!collapsed ? (
-              <Link href="/portal/app" className="flex items-center gap-3">
+              <Link href={`${basePath}/app`} className="flex items-center gap-3">
                 <Image
                   src="/brand/purity-5.png"
                   alt="Purely Automation"
@@ -428,7 +437,7 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
                 />
               </Link>
             ) : (
-              <Link href="/portal/app" aria-label="Portal dashboard">
+              <Link href={`${basePath}/app`} aria-label="Portal dashboard">
                 <Image
                   src="/brand/purity-5.png"
                   alt="Purely Automation"
@@ -481,15 +490,14 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
               ) : null}
               {collapsed ? (
                 <div className="mt-2 space-y-1">
-                  {PORTAL_SERVICES.filter((s) => !s.hidden).map((s) => {
-                    if (!canViewServiceSlug(s.slug)) return null;
+                  {visibleSidebarServices.map((s) => {
                     return (
                       <Link
                         key={s.slug}
-                        href={`/portal/app/services/${s.slug}`}
+                        href={`${basePath}/app/services/${s.slug}`}
                         className={classNames(
                           "flex items-center gap-3 rounded-2xl px-3 py-2 text-sm font-medium",
-                          pathname === `/portal/app/services/${s.slug}` || pathname.startsWith(`/portal/app/services/${s.slug}/`)
+                          pathname === `${basePath}/app/services/${s.slug}` || pathname.startsWith(`${basePath}/app/services/${s.slug}/`)
                             ? "bg-zinc-100 text-zinc-900"
                             : "text-zinc-700 hover:bg-zinc-50",
                           "justify-center px-2",
@@ -525,10 +533,10 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
                           return (
                             <Link
                               key={s.slug}
-                              href={`/portal/app/services/${s.slug}`}
+                              href={`${basePath}/app/services/${s.slug}`}
                               className={classNames(
                                 "flex items-center gap-3 rounded-2xl px-3 py-2 text-sm font-medium",
-                                pathname === `/portal/app/services/${s.slug}` || pathname.startsWith(`/portal/app/services/${s.slug}/`)
+                                pathname === `${basePath}/app/services/${s.slug}` || pathname.startsWith(`${basePath}/app/services/${s.slug}/`)
                                   ? "bg-zinc-100 text-zinc-900"
                                   : "text-zinc-700 hover:bg-zinc-50",
                               )}
@@ -594,7 +602,7 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
                 <IconHamburger />
               </button>
 
-              <Link href="/portal/app" className="flex items-center gap-3">
+              <Link href={`${basePath}/app`} className="flex items-center gap-3">
                 <Image
                   src="/brand/purity-5.png"
                   alt="Purely Automation"
@@ -605,7 +613,7 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
                 />
               </Link>
               <Link
-                href="/portal/app/services"
+                href={`${basePath}/app/services`}
                 className="inline-flex items-center justify-center rounded-xl bg-brand-ink px-3 py-2 text-sm font-semibold text-white"
               >
                 Services

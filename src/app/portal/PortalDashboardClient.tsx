@@ -331,11 +331,12 @@ export function PortalDashboardClient() {
       const timeout = window.setTimeout(() => controller.abort(), 15000);
 
       try {
+        const variant = typeof window !== "undefined" && window.location.pathname.startsWith("/credit") ? "credit" : "portal";
         const [meRes, dashRes, repRes, statsRes] = await Promise.all([
           fetch("/api/customer/me", {
             cache: "no-store",
             signal: controller.signal,
-            headers: { "x-pa-app": "portal" },
+            headers: { "x-pa-app": "portal", "x-portal-variant": variant },
           }),
           fetch("/api/portal/dashboard", { cache: "no-store", signal: controller.signal }),
           fetch("/api/portal/reporting?range=30d", { cache: "no-store", signal: controller.signal }).catch(() => null as any),

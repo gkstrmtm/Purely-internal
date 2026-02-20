@@ -127,7 +127,13 @@ export function PortalBlogsClient() {
     setError(null);
 
     const [meRes, siteRes, postsRes, autoRes, creditsRes, usageRes] = await Promise.all([
-      fetch("/api/customer/me", { cache: "no-store", headers: { "x-pa-app": "portal" } }),
+      fetch("/api/customer/me", {
+        cache: "no-store",
+        headers: {
+          "x-pa-app": "portal",
+          "x-portal-variant": typeof window !== "undefined" && window.location.pathname.startsWith("/credit") ? "credit" : "portal",
+        },
+      }),
       fetch("/api/portal/blogs/site", { cache: "no-store" }),
       fetch("/api/portal/blogs/posts?take=100", { cache: "no-store" }),
       fetch("/api/portal/blogs/automation/settings", { cache: "no-store" }),

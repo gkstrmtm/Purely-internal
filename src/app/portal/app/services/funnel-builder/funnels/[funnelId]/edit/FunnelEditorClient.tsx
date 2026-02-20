@@ -1175,7 +1175,7 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
         <div className="flex flex-col gap-2 px-4 py-3 lg:flex-row lg:items-center lg:justify-between">
           <div className="flex flex-wrap items-center gap-3">
             <Link
-              href="/portal/app/services/funnel-builder"
+              href={`${basePath}/app/services/funnel-builder`}
               className="rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm font-semibold text-zinc-900 hover:bg-zinc-50"
             >
               ← Back
@@ -1189,20 +1189,7 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
               </div>
             </div>
 
-            <button
-              type="button"
-              disabled={busy}
-              onClick={() => {
-                const name = (prompt("Funnel name", funnel?.name || "") || "").trim();
-                if (name) void saveFunnelMeta({ name });
-              }}
-              className={classNames(
-                "rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm font-semibold text-zinc-900 hover:bg-zinc-50",
-                busy ? "opacity-60" : "",
-              )}
-            >
-              Rename funnel
-            </button>
+            <div className="text-xs text-zinc-500">Manage funnel name/slug from the Funnels list.</div>
           </div>
 
           <div className="flex flex-wrap items-center gap-2">
@@ -1222,38 +1209,6 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
                 </option>
               ))}
             </select>
-
-            <button
-              type="button"
-              disabled={busy || !selectedPage}
-              onClick={() => {
-                if (!selectedPage) return;
-                const title = (prompt("Page title", selectedPage.title) || "").trim();
-                if (title) void savePage({ title });
-              }}
-              className={classNames(
-                "rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm font-semibold text-zinc-900 hover:bg-zinc-50",
-                busy ? "opacity-60" : "",
-              )}
-            >
-              Rename page
-            </button>
-
-            <button
-              type="button"
-              disabled={busy || !selectedPage}
-              onClick={() => {
-                if (!selectedPage) return;
-                const slug = normalizeSlug(prompt("Page slug", selectedPage.slug) || "");
-                if (slug) void savePage({ slug });
-              }}
-              className={classNames(
-                "rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm font-semibold text-zinc-900 hover:bg-zinc-50",
-                busy ? "opacity-60" : "",
-              )}
-            >
-              Slug
-            </button>
 
             <button
               type="button"

@@ -7,6 +7,7 @@ import { isStripeConfigured } from "@/lib/stripeFetch";
 import type { Entitlements } from "@/lib/entitlements";
 import { resolveEntitlements } from "@/lib/entitlements";
 import { getPortalUser } from "@/lib/portalAuth";
+import { normalizePortalVariant, PORTAL_VARIANT_HEADER } from "@/lib/portalVariant";
 import { listAiReceptionistEvents, type AiReceptionistCallEvent } from "@/lib/aiReceptionist";
 import { listMissedCallTextBackEvents, type MissedCallTextBackEvent } from "@/lib/missedCallTextBack";
 
@@ -156,10 +157,22 @@ export async function GET(req: Request) {
   // explicitly bind to the portal cookie to avoid being treated as an employee session.
   const app = (req.headers.get("x-pa-app") ?? "").toLowerCase().trim();
 
+  const portalVariant = (() => {
+    const headerVariant = normalizePortalVariant(req.headers.get(PORTAL_VARIANT_HEADER));
+    if (headerVariant) return headerVariant;
+    const referer = String(req.headers.get("referer") || "");
+    try {
+      const u = new URL(referer);
+      return u.pathname === "/credit" || u.pathname.startsWith("/credit/") ? "credit" : "portal";
+    } catch {
+      return referer === "/credit" || referer.startsWith("/credit/") ? "credit" : "portal";
+    }
+  })();
+
   const user =
     app === "portal"
       ? await (async () => {
-          const portalUser = await getPortalUser();
+          const portalUser = await getPortalUser({ variant: portalVariant });
           return portalUser
             ? { email: portalUser.email, name: portalUser.name ?? "", role: portalUser.role }
             : null;
@@ -183,7 +196,7 @@ export async function GET(req: Request) {
   let entitlementsEmail = user.email;
   let ownerIdForEntitlements: string | null = null;
   if (app === "portal") {
-    const portalUser = await getPortalUser().catch(() => null);
+    const portalUser = await getPortalUser({ variant: portalVariant }).catch(() => null);
     const ownerId = portalUser?.id ? String(portalUser.id) : null;
     ownerIdForEntitlements = ownerId;
     if (ownerId) {
