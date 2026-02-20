@@ -76,6 +76,162 @@ function normalizeHexInput(value: string) {
   return "#" + v;
 }
 
+function clamp(n: number, min: number, max: number) {
+  return Math.max(min, Math.min(max, n));
+}
+
+function hexToRgb(hex: string): { r: number; g: number; b: number } | null {
+  const h = hex.trim();
+  if (!isHexColor(h)) return null;
+  const raw = h.slice(1);
+  const full = raw.length === 3 ? raw.split("").map((c) => c + c).join("") : raw;
+  const num = Number.parseInt(full, 16);
+  if (!Number.isFinite(num)) return null;
+  return {
+    r: (num >> 16) & 255,
+    g: (num >> 8) & 255,
+    b: num & 255,
+  };
+}
+
+function rgbToHex(r: number, g: number, b: number) {
+  const to = (x: number) => clamp(Math.round(x), 0, 255).toString(16).padStart(2, "0");
+  return `#${to(r)}${to(g)}${to(b)}`;
+}
+
+function parseCssColor(value: string | undefined | null): { hex: string; alpha: number } {
+  const v = String(value || "").trim();
+  if (!v) return { hex: "#000000", alpha: 1 };
+  if (isHexColor(v)) return { hex: v, alpha: 1 };
+
+  const rgba = v.match(/^rgba\((\d{1,3})\s*,\s*(\d{1,3})\s*,\s*(\d{1,3})\s*,\s*(0|0?\.\d+|1|1\.0)\)\s*$/i);
+  if (rgba) {
+    const r = clamp(Number(rgba[1]), 0, 255);
+    const g = clamp(Number(rgba[2]), 0, 255);
+    const b = clamp(Number(rgba[3]), 0, 255);
+    const a = clamp(Number(rgba[4]), 0, 1);
+    return { hex: rgbToHex(r, g, b), alpha: a };
+  }
+
+  const rgb = v.match(/^rgb\((\d{1,3})\s*,\s*(\d{1,3})\s*,\s*(\d{1,3})\)\s*$/i);
+  if (rgb) {
+    const r = clamp(Number(rgb[1]), 0, 255);
+    const g = clamp(Number(rgb[2]), 0, 255);
+    const b = clamp(Number(rgb[3]), 0, 255);
+    return { hex: rgbToHex(r, g, b), alpha: 1 };
+  }
+
+  return { hex: "#000000", alpha: 1 };
+}
+
+function formatColorWithAlpha(hex: string, alpha: number): string {
+  const a = clamp(alpha, 0, 1);
+  if (a >= 0.999) return hex;
+  const rgb = hexToRgb(hex);
+  if (!rgb) return hex;
+  const rounded = Math.round(a * 1000) / 1000;
+  return `rgba(${rgb.r}, ${rgb.g}, ${rgb.b}, ${rounded})`;
+}
+
+function ColorPickerField({
+  label,
+  value,
+  onChange,
+  swatches,
+  allowAlpha,
+}: {
+  label: string;
+  value: string | undefined;
+  onChange: (next: string | undefined) => void;
+  swatches: string[];
+  allowAlpha?: boolean;
+}) {
+  const parsed = parseCssColor(value);
+  const currentHex = parsed.hex;
+  const currentAlpha = parsed.alpha;
+
+  return (
+    <label className="block">
+      <div className="mb-1 text-xs font-semibold uppercase tracking-wide text-zinc-500">{label}</div>
+      <div className="flex items-center gap-2">
+        <input
+          type="color"
+          value={currentHex}
+          onChange={(e) => {
+            const hex = e.target.value;
+            const next = allowAlpha ? formatColorWithAlpha(hex, currentAlpha) : hex;
+            onChange(next);
+          }}
+          className="h-9 w-12 shrink-0 rounded-lg border border-zinc-200 bg-white"
+        />
+        <input
+          value={String(value || "")}
+          onChange={(e) => {
+            const raw = e.target.value.trim();
+            if (!raw) {
+              onChange(undefined);
+              return;
+            }
+            const normalized = isHexColor(normalizeHexInput(raw)) ? normalizeHexInput(raw) : raw;
+            if (allowAlpha) {
+              const p = parseCssColor(normalized);
+              onChange(formatColorWithAlpha(p.hex, p.alpha));
+              return;
+            }
+            onChange(normalized);
+          }}
+          className="w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm"
+          placeholder="#0f172a or rgba(0,0,0,0.6)"
+        />
+        <button
+          type="button"
+          onClick={() => onChange(undefined)}
+          className="rounded-xl border border-zinc-200 bg-white px-3 py-2 text-xs font-semibold text-zinc-800 hover:bg-zinc-50"
+        >
+          Clear
+        </button>
+      </div>
+
+      {allowAlpha ? (
+        <div className="mt-2 flex items-center gap-3">
+          <div className="text-[11px] font-semibold uppercase tracking-wide text-zinc-500">Opacity</div>
+          <input
+            type="range"
+            min={0}
+            max={100}
+            value={Math.round(currentAlpha * 100)}
+            onChange={(e) => {
+              const pct = clamp(Number(e.target.value) || 0, 0, 100);
+              const next = formatColorWithAlpha(currentHex, pct / 100);
+              onChange(next);
+            }}
+            className="flex-1"
+          />
+          <div className="w-12 text-right text-xs font-semibold text-zinc-700">{Math.round(currentAlpha * 100)}%</div>
+        </div>
+      ) : null}
+
+      {swatches.length ? (
+        <div className="mt-2 flex flex-wrap gap-2">
+          {swatches.map((c) => (
+            <button
+              key={c}
+              type="button"
+              onClick={() => {
+                const next = allowAlpha ? formatColorWithAlpha(c, currentAlpha) : c;
+                onChange(next);
+              }}
+              className="h-8 w-8 rounded-full border border-zinc-200"
+              style={{ backgroundColor: c }}
+              title={c}
+            />
+          ))}
+        </div>
+      ) : null}
+    </label>
+  );
+}
+
 function compactStyle(style: BlockStyle | undefined): BlockStyle | undefined {
   if (!style) return undefined;
   const next: any = { ...style };
@@ -917,6 +1073,23 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
 
   const [brandSwatches, setBrandSwatches] = useState<string[]>([]);
 
+  const colorSwatches = useMemo(() => {
+    const defaults = [
+      "#ffffff",
+      "#000000",
+      "#0f172a",
+      "#111827",
+      "#1d4ed8",
+      "#2563eb",
+      "#10b981",
+      "#f59e0b",
+      "#ef4444",
+      "#a855f7",
+    ];
+    const all = [...brandSwatches, ...defaults].filter((c) => isHexColor(c));
+    return Array.from(new Set(all));
+  }, [brandSwatches]);
+
   const [mediaPickerOpen, setMediaPickerOpen] = useState(false);
   const [mediaPickerTarget, setMediaPickerTarget] = useState<
     null | { type: "ai" } | { type: "image-block"; blockId: string }
@@ -1001,6 +1174,19 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
     return coerceBlocksJson(selectedPage.blocksJson);
   }, [selectedPage]);
 
+  const pageSettingsBlock = useMemo(() => {
+    const first = selectedBlocks[0];
+    return first && first.type === "page" ? first : null;
+  }, [selectedBlocks]);
+
+  const editableBlocks = useMemo(() => {
+    return selectedBlocks.filter((b) => b.type !== "page");
+  }, [selectedBlocks]);
+
+  const saveableBlocks = useMemo(() => {
+    return pageSettingsBlock ? [pageSettingsBlock, ...editableBlocks] : editableBlocks;
+  }, [pageSettingsBlock, editableBlocks]);
+
   const selectedChat = useMemo(() => {
     if (!selectedPage) return [];
     return Array.isArray(selectedPage.customChatJson)
@@ -1010,8 +1196,8 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
 
   const selectedBlock = useMemo(() => {
     if (!selectedBlockId) return null;
-    return selectedBlocks.find((b) => b.id === selectedBlockId) || null;
-  }, [selectedBlocks, selectedBlockId]);
+    return editableBlocks.find((b) => b.id === selectedBlockId) || null;
+  }, [editableBlocks, selectedBlockId]);
 
   const newId = () => {
     try {
@@ -1192,7 +1378,7 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
   const saveCurrentPage = async () => {
     if (!selectedPage) return;
     if (selectedPage.editorMode === "BLOCKS") {
-      await savePage({ editorMode: "BLOCKS", blocksJson: selectedBlocks });
+      await savePage({ editorMode: "BLOCKS", blocksJson: saveableBlocks });
       return;
     }
     if (selectedPage.editorMode === "CUSTOM_HTML") {
@@ -1208,8 +1394,24 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
 
   const upsertBlock = (block: CreditFunnelBlock) => {
     if (!selectedPage) return;
-    const next = selectedBlocks.map((b) => (b.id === block.id ? block : b));
-    setSelectedPageLocal({ editorMode: "BLOCKS", blocksJson: next });
+    const nextEditable = editableBlocks.map((b) => (b.id === block.id ? block : b));
+    setSelectedPageLocal({ editorMode: "BLOCKS", blocksJson: pageSettingsBlock ? [pageSettingsBlock, ...nextEditable] : nextEditable });
+  };
+
+  const ensurePageSettings = () => {
+    if (pageSettingsBlock) return pageSettingsBlock;
+    const id = newId();
+    const next = { id, type: "page", props: { style: {} } } as any as CreditFunnelBlock;
+    setSelectedPageLocal({ editorMode: "BLOCKS", blocksJson: [next, ...editableBlocks] });
+    return next as any;
+  };
+
+  const updatePageStyle = (patch: Partial<BlockStyle>) => {
+    const pg = ensurePageSettings() as any;
+    const prev = (pg.props || {}).style as BlockStyle | undefined;
+    const nextStyle = applyStylePatch(prev, patch);
+    const nextPage = { ...pg, props: { ...pg.props, style: nextStyle } };
+    setSelectedPageLocal({ editorMode: "BLOCKS", blocksJson: [nextPage, ...editableBlocks] });
   };
 
   const updateSelectedBlockStyle = (patch: Partial<BlockStyle>) => {
@@ -1223,12 +1425,19 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
     } as any);
   };
 
-  const clearSelectedBlockStyleKey = (key: keyof BlockStyle) => {
-    updateSelectedBlockStyle({ [key]: undefined } as any);
-  };
-
   const updateSelectedColumnsSideStyle = (side: "leftStyle" | "rightStyle", patch: Partial<BlockStyle>) => {
     if (!selectedBlock || selectedBlock.type !== "columns") return;
+    upsertBlock({
+      ...selectedBlock,
+      props: {
+        ...selectedBlock.props,
+        [side]: applyStylePatch((selectedBlock.props as any)[side], patch),
+      } as any,
+    });
+  };
+
+  const updateSelectedSectionSideStyle = (side: "leftStyle" | "rightStyle", patch: Partial<BlockStyle>) => {
+    if (!selectedBlock || selectedBlock.type !== "section") return;
     upsertBlock({
       ...selectedBlock,
       props: {
@@ -1242,6 +1451,9 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
     if (!selectedPage) return;
     const id = newId();
     const base: CreditFunnelBlock =
+      type === "page"
+        ? ({ id, type, props: { style: {} } } as any)
+        :
       type === "heading"
         ? { id, type, props: { text: "Headline", level: 2 } }
         : type === "paragraph"
@@ -1273,29 +1485,40 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
                           stackOnMobile: true,
                         },
                       }
+                    : type === "section"
+                      ? {
+                          id,
+                          type,
+                          props: {
+                            layout: "one",
+                            markdown: "## Section\n\nAdd your content…",
+                            gapPx: 24,
+                            stackOnMobile: true,
+                          },
+                        }
                     : { id, type: "spacer", props: { height: 24 } };
 
-    const next = [...selectedBlocks, base];
-    setSelectedPageLocal({ editorMode: "BLOCKS", blocksJson: next });
+    const nextEditable = [...editableBlocks, base].filter((b) => b.type !== "page");
+    setSelectedPageLocal({ editorMode: "BLOCKS", blocksJson: pageSettingsBlock ? [pageSettingsBlock, ...nextEditable] : nextEditable });
     setSelectedBlockId(id);
   };
 
   const removeBlock = (blockId: string) => {
     if (!selectedPage) return;
-    const next = selectedBlocks.filter((b) => b.id !== blockId);
-    setSelectedPageLocal({ blocksJson: next });
+    const nextEditable = editableBlocks.filter((b) => b.id !== blockId);
+    setSelectedPageLocal({ blocksJson: pageSettingsBlock ? [pageSettingsBlock, ...nextEditable] : nextEditable });
     if (selectedBlockId === blockId) setSelectedBlockId(null);
   };
 
   const reorderBlocks = (dragId: string, dropId: string) => {
     if (dragId === dropId) return;
-    const fromIdx = selectedBlocks.findIndex((b) => b.id === dragId);
-    const toIdx = selectedBlocks.findIndex((b) => b.id === dropId);
+    const fromIdx = editableBlocks.findIndex((b) => b.id === dragId);
+    const toIdx = editableBlocks.findIndex((b) => b.id === dropId);
     if (fromIdx < 0 || toIdx < 0) return;
-    const next = [...selectedBlocks];
+    const next = [...editableBlocks];
     const [moved] = next.splice(fromIdx, 1);
     next.splice(toIdx, 0, moved);
-    setSelectedPageLocal({ blocksJson: next });
+    setSelectedPageLocal({ blocksJson: pageSettingsBlock ? [pageSettingsBlock, ...next] : next });
   };
 
   const runAi = async () => {
@@ -1359,7 +1582,7 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
             return;
           }
           if (target.type === "image-block") {
-            const block = selectedBlocks.find((b) => b.id === target.blockId);
+            const block = editableBlocks.find((b) => b.id === target.blockId);
             if (!block || block.type !== "image") return;
             const nextSrc = String(it.shareUrl || it.previewUrl || "").trim();
             if (!nextSrc) return;
@@ -1608,6 +1831,71 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
             </div>
           ) : selectedPage.editorMode === "BLOCKS" ? (
             <div>
+              <div className="rounded-2xl border border-zinc-200 bg-white p-4">
+                <div className="text-sm font-semibold text-zinc-900">Page</div>
+                <div className="mt-3 space-y-3">
+                  <ColorPickerField
+                    label="Page background"
+                    value={(pageSettingsBlock as any)?.props?.style?.backgroundColor}
+                    onChange={(v) => updatePageStyle({ backgroundColor: v })}
+                    swatches={colorSwatches}
+                    allowAlpha
+                  />
+                  <ColorPickerField
+                    label="Page text color"
+                    value={(pageSettingsBlock as any)?.props?.style?.textColor}
+                    onChange={(v) => updatePageStyle({ textColor: v })}
+                    swatches={colorSwatches}
+                    allowAlpha
+                  />
+
+                  <div className="grid grid-cols-2 gap-2">
+                    <label className="block">
+                      <div className="mb-1 text-xs font-semibold uppercase tracking-wide text-zinc-500">Page padding</div>
+                      <input
+                        type="number"
+                        value={(pageSettingsBlock as any)?.props?.style?.paddingPx ?? ""}
+                        onChange={(e) =>
+                          updatePageStyle({
+                            paddingPx: e.target.value === "" ? undefined : Number(e.target.value) || 0,
+                          })
+                        }
+                        className="w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm"
+                        placeholder="e.g. 32"
+                      />
+                    </label>
+                    <label className="block">
+                      <div className="mb-1 text-xs font-semibold uppercase tracking-wide text-zinc-500">Max width</div>
+                      <input
+                        type="number"
+                        value={(pageSettingsBlock as any)?.props?.style?.maxWidthPx ?? ""}
+                        onChange={(e) =>
+                          updatePageStyle({
+                            maxWidthPx: e.target.value === "" ? undefined : Number(e.target.value) || 0,
+                          })
+                        }
+                        className="w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm"
+                        placeholder="e.g. 1100"
+                      />
+                    </label>
+                  </div>
+
+                  <label className="block">
+                    <div className="mb-1 text-xs font-semibold uppercase tracking-wide text-zinc-500">Page align</div>
+                    <select
+                      value={(pageSettingsBlock as any)?.props?.style?.align || ""}
+                      onChange={(e) => updatePageStyle({ align: (e.target.value as any) || undefined })}
+                      className="w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm"
+                    >
+                      <option value="">Default</option>
+                      <option value="left">Left</option>
+                      <option value="center">Center</option>
+                      <option value="right">Right</option>
+                    </select>
+                  </label>
+                </div>
+              </div>
+
               <div className="text-sm font-semibold text-zinc-900">Blocks</div>
               <div className="mt-3 grid grid-cols-2 gap-2">
                 {(
@@ -1615,6 +1903,7 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
                     { type: "heading", label: "Heading" },
                     { type: "paragraph", label: "Text" },
                     { type: "button", label: "Button" },
+                    { type: "section", label: "Section" },
                     { type: "formLink", label: "Form link" },
                     { type: "formEmbed", label: "Form embed" },
                     { type: "columns", label: "Columns" },
@@ -2042,75 +2331,231 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
                       </div>
                     ) : null}
 
+                    {selectedBlock.type === "section" ? (
+                      <div className="space-y-2">
+                        <select
+                          value={selectedBlock.props.layout === "two" ? "two" : "one"}
+                          onChange={(e) =>
+                            upsertBlock({
+                              ...selectedBlock,
+                              props: {
+                                ...selectedBlock.props,
+                                layout: e.target.value === "two" ? "two" : "one",
+                              },
+                            })
+                          }
+                          className="w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm"
+                        >
+                          <option value="one">One column</option>
+                          <option value="two">Two columns</option>
+                        </select>
+
+                        {selectedBlock.props.layout === "two" ? (
+                          <>
+                            <textarea
+                              value={selectedBlock.props.leftMarkdown || ""}
+                              onChange={(e) =>
+                                upsertBlock({
+                                  ...selectedBlock,
+                                  props: { ...selectedBlock.props, leftMarkdown: e.target.value },
+                                })
+                              }
+                              className="min-h-[120px] w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm"
+                              placeholder="Left column (markdown)"
+                            />
+                            <textarea
+                              value={selectedBlock.props.rightMarkdown || ""}
+                              onChange={(e) =>
+                                upsertBlock({
+                                  ...selectedBlock,
+                                  props: { ...selectedBlock.props, rightMarkdown: e.target.value },
+                                })
+                              }
+                              className="min-h-[120px] w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm"
+                              placeholder="Right column (markdown)"
+                            />
+
+                            <div className="grid grid-cols-2 gap-2">
+                              <label className="block">
+                                <div className="mb-1 text-xs font-semibold uppercase tracking-wide text-zinc-500">Gap (px)</div>
+                                <input
+                                  type="number"
+                                  value={String(selectedBlock.props.gapPx ?? 24)}
+                                  onChange={(e) =>
+                                    upsertBlock({
+                                      ...selectedBlock,
+                                      props: { ...selectedBlock.props, gapPx: Number(e.target.value) || 0 },
+                                    })
+                                  }
+                                  className="w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm"
+                                />
+                              </label>
+                              <label className="flex items-center gap-2 rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm">
+                                <input
+                                  type="checkbox"
+                                  checked={selectedBlock.props.stackOnMobile !== false}
+                                  onChange={(e) =>
+                                    upsertBlock({
+                                      ...selectedBlock,
+                                      props: { ...selectedBlock.props, stackOnMobile: e.target.checked },
+                                    })
+                                  }
+                                />
+                                Stack on mobile
+                              </label>
+                            </div>
+
+                            <div className="rounded-xl border border-zinc-200 bg-white p-3">
+                              <div className="text-xs font-semibold uppercase tracking-wide text-zinc-500">Left column style</div>
+                              <div className="mt-2 grid grid-cols-2 gap-2">
+                                <label className="block">
+                                  <div className="mb-1 text-[11px] font-semibold uppercase tracking-wide text-zinc-500">Text</div>
+                                  <input
+                                    value={selectedBlock.props.leftStyle?.textColor || ""}
+                                    onChange={(e) =>
+                                      updateSelectedSectionSideStyle("leftStyle", {
+                                        textColor: e.target.value.trim() ? e.target.value.trim() : undefined,
+                                      })
+                                    }
+                                    className="w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm"
+                                    placeholder="#0f172a"
+                                  />
+                                </label>
+                                <label className="block">
+                                  <div className="mb-1 text-[11px] font-semibold uppercase tracking-wide text-zinc-500">Background</div>
+                                  <input
+                                    value={selectedBlock.props.leftStyle?.backgroundColor || ""}
+                                    onChange={(e) =>
+                                      updateSelectedSectionSideStyle("leftStyle", {
+                                        backgroundColor: e.target.value.trim() ? e.target.value.trim() : undefined,
+                                      })
+                                    }
+                                    className="w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm"
+                                    placeholder="#ffffff"
+                                  />
+                                </label>
+                                <label className="block">
+                                  <div className="mb-1 text-[11px] font-semibold uppercase tracking-wide text-zinc-500">Padding</div>
+                                  <input
+                                    type="number"
+                                    value={selectedBlock.props.leftStyle?.paddingPx ?? ""}
+                                    onChange={(e) =>
+                                      updateSelectedSectionSideStyle("leftStyle", {
+                                        paddingPx: e.target.value === "" ? undefined : Number(e.target.value) || 0,
+                                      })
+                                    }
+                                    className="w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm"
+                                  />
+                                </label>
+                                <label className="block">
+                                  <div className="mb-1 text-[11px] font-semibold uppercase tracking-wide text-zinc-500">Radius</div>
+                                  <input
+                                    type="number"
+                                    value={selectedBlock.props.leftStyle?.borderRadiusPx ?? ""}
+                                    onChange={(e) =>
+                                      updateSelectedSectionSideStyle("leftStyle", {
+                                        borderRadiusPx: e.target.value === "" ? undefined : Number(e.target.value) || 0,
+                                      })
+                                    }
+                                    className="w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm"
+                                  />
+                                </label>
+                              </div>
+                            </div>
+
+                            <div className="rounded-xl border border-zinc-200 bg-white p-3">
+                              <div className="text-xs font-semibold uppercase tracking-wide text-zinc-500">Right column style</div>
+                              <div className="mt-2 grid grid-cols-2 gap-2">
+                                <label className="block">
+                                  <div className="mb-1 text-[11px] font-semibold uppercase tracking-wide text-zinc-500">Text</div>
+                                  <input
+                                    value={selectedBlock.props.rightStyle?.textColor || ""}
+                                    onChange={(e) =>
+                                      updateSelectedSectionSideStyle("rightStyle", {
+                                        textColor: e.target.value.trim() ? e.target.value.trim() : undefined,
+                                      })
+                                    }
+                                    className="w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm"
+                                    placeholder="#0f172a"
+                                  />
+                                </label>
+                                <label className="block">
+                                  <div className="mb-1 text-[11px] font-semibold uppercase tracking-wide text-zinc-500">Background</div>
+                                  <input
+                                    value={selectedBlock.props.rightStyle?.backgroundColor || ""}
+                                    onChange={(e) =>
+                                      updateSelectedSectionSideStyle("rightStyle", {
+                                        backgroundColor: e.target.value.trim() ? e.target.value.trim() : undefined,
+                                      })
+                                    }
+                                    className="w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm"
+                                    placeholder="#ffffff"
+                                  />
+                                </label>
+                                <label className="block">
+                                  <div className="mb-1 text-[11px] font-semibold uppercase tracking-wide text-zinc-500">Padding</div>
+                                  <input
+                                    type="number"
+                                    value={selectedBlock.props.rightStyle?.paddingPx ?? ""}
+                                    onChange={(e) =>
+                                      updateSelectedSectionSideStyle("rightStyle", {
+                                        paddingPx: e.target.value === "" ? undefined : Number(e.target.value) || 0,
+                                      })
+                                    }
+                                    className="w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm"
+                                  />
+                                </label>
+                                <label className="block">
+                                  <div className="mb-1 text-[11px] font-semibold uppercase tracking-wide text-zinc-500">Radius</div>
+                                  <input
+                                    type="number"
+                                    value={selectedBlock.props.rightStyle?.borderRadiusPx ?? ""}
+                                    onChange={(e) =>
+                                      updateSelectedSectionSideStyle("rightStyle", {
+                                        borderRadiusPx: e.target.value === "" ? undefined : Number(e.target.value) || 0,
+                                      })
+                                    }
+                                    className="w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm"
+                                  />
+                                </label>
+                              </div>
+                            </div>
+                          </>
+                        ) : (
+                          <textarea
+                            value={selectedBlock.props.markdown || ""}
+                            onChange={(e) =>
+                              upsertBlock({
+                                ...selectedBlock,
+                                props: { ...selectedBlock.props, markdown: e.target.value },
+                              })
+                            }
+                            className="min-h-[140px] w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm"
+                            placeholder="Section content (markdown)"
+                          />
+                        )}
+                      </div>
+                    ) : null}
+
                     <div className="mt-2 rounded-xl border border-zinc-200 bg-white p-3">
                       <div className="text-xs font-semibold uppercase tracking-wide text-zinc-500">Style</div>
 
                       <div className="mt-2 space-y-2">
-                        <label className="block">
-                          <div className="mb-1 text-xs font-semibold uppercase tracking-wide text-zinc-500">Text color</div>
-                          <div className="flex items-center gap-2">
-                            <input
-                              type="color"
-                              value={isHexColor(selectedBlock.props.style?.textColor || "") ? (selectedBlock.props.style?.textColor as string) : "#000000"}
-                              onChange={(e) => updateSelectedBlockStyle({ textColor: e.target.value })}
-                              className="h-9 w-12 shrink-0 rounded-lg border border-zinc-200 bg-white"
-                              title="Pick a text color"
-                            />
-                            <input
-                              value={selectedBlock.props.style?.textColor || ""}
-                              onChange={(e) => updateSelectedBlockStyle({ textColor: normalizeHexInput(e.target.value) || undefined })}
-                              className="w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm"
-                              placeholder="#0f172a"
-                            />
-                            <button
-                              type="button"
-                              onClick={() => clearSelectedBlockStyleKey("textColor")}
-                              className="rounded-xl border border-zinc-200 bg-white px-3 py-2 text-xs font-semibold text-zinc-800 hover:bg-zinc-50"
-                            >
-                              Clear
-                            </button>
-                          </div>
-                          {brandSwatches.length ? (
-                            <div className="mt-2 flex flex-wrap gap-2">
-                              {brandSwatches.map((c) => (
-                                <button
-                                  key={c}
-                                  type="button"
-                                  onClick={() => updateSelectedBlockStyle({ textColor: c })}
-                                  className="h-8 w-8 rounded-full border border-zinc-200"
-                                  style={{ backgroundColor: c }}
-                                  title={c}
-                                />
-                              ))}
-                            </div>
-                          ) : null}
-                        </label>
+                        <ColorPickerField
+                          label="Text color"
+                          value={selectedBlock.props.style?.textColor}
+                          onChange={(v) => updateSelectedBlockStyle({ textColor: v })}
+                          swatches={colorSwatches}
+                          allowAlpha
+                        />
 
-                        <label className="block">
-                          <div className="mb-1 text-xs font-semibold uppercase tracking-wide text-zinc-500">Background color</div>
-                          <div className="flex items-center gap-2">
-                            <input
-                              type="color"
-                              value={isHexColor(selectedBlock.props.style?.backgroundColor || "") ? (selectedBlock.props.style?.backgroundColor as string) : "#ffffff"}
-                              onChange={(e) => updateSelectedBlockStyle({ backgroundColor: e.target.value })}
-                              className="h-9 w-12 shrink-0 rounded-lg border border-zinc-200 bg-white"
-                              title="Pick a background color"
-                            />
-                            <input
-                              value={selectedBlock.props.style?.backgroundColor || ""}
-                              onChange={(e) => updateSelectedBlockStyle({ backgroundColor: normalizeHexInput(e.target.value) || undefined })}
-                              className="w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm"
-                              placeholder="#ffffff"
-                            />
-                            <button
-                              type="button"
-                              onClick={() => clearSelectedBlockStyleKey("backgroundColor")}
-                              className="rounded-xl border border-zinc-200 bg-white px-3 py-2 text-xs font-semibold text-zinc-800 hover:bg-zinc-50"
-                            >
-                              Clear
-                            </button>
-                          </div>
-                        </label>
+                        <ColorPickerField
+                          label="Background"
+                          value={selectedBlock.props.style?.backgroundColor}
+                          onChange={(v) => updateSelectedBlockStyle({ backgroundColor: v })}
+                          swatches={colorSwatches}
+                          allowAlpha
+                        />
 
                         {(selectedBlock.type === "heading" || selectedBlock.type === "paragraph") ? (
                           <label className="block">
@@ -2445,13 +2890,13 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
                 </div>
               ) : (
                 <div className="mx-auto w-full max-w-4xl rounded-3xl border border-zinc-200 bg-white p-8">
-                  {selectedBlocks.length === 0 ? (
+                  {editableBlocks.length === 0 ? (
                     <div className="rounded-xl border border-dashed border-zinc-300 p-6 text-sm text-zinc-600">
                       Drag a block from the left, or click a block to add.
                     </div>
                   ) : (
                     <div className="space-y-4">
-                      {selectedBlocks.map((b) => (
+                      {editableBlocks.map((b) => (
                         <div
                           key={b.id}
                           draggable
