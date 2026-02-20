@@ -2,6 +2,9 @@
 
 # dependencies
 /node_modules
+
+# tooling artifacts
+.eslint-report*.json
 /.pnp
 .pnp.*
 .yarn/*

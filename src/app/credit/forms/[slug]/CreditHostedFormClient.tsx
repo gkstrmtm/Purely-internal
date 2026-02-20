@@ -9,6 +9,17 @@ export type Field = {
   required?: boolean;
 };
 
+export type CreditFormStyle = {
+  pageBg?: string;
+  cardBg?: string;
+  textColor?: string;
+  inputBg?: string;
+  inputBorder?: string;
+  buttonBg?: string;
+  buttonText?: string;
+  radiusPx?: number;
+};
+
 function classNames(...xs: Array<string | false | null | undefined>) {
   return xs.filter(Boolean).join(" ");
 }
@@ -18,11 +29,13 @@ export function CreditHostedFormClient({
   formName,
   fields,
   embedded,
+  style,
 }: {
   slug: string;
   formName: string;
   fields: Field[];
   embedded?: boolean;
+  style?: CreditFormStyle;
 }) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -33,16 +46,30 @@ export function CreditHostedFormClient({
     [slug],
   );
 
+  const radiusPx = typeof style?.radiusPx === "number" && Number.isFinite(style.radiusPx) ? style.radiusPx : 16;
+  const cardBg = style?.cardBg || "#ffffff";
+  const textColor = style?.textColor || "#18181b";
+  const inputBg = style?.inputBg || "#ffffff";
+  const inputBorder = style?.inputBorder || "#e4e4e7";
+  const buttonBg = style?.buttonBg || "var(--color-brand-blue)";
+  const buttonText = style?.buttonText || "#ffffff";
+
   return (
     <div
       className={classNames(
-        "bg-white",
-        embedded ? "rounded-none border-0 p-4 sm:p-6" : "rounded-3xl border border-zinc-200 p-8",
+        embedded ? "border-0 p-4 sm:p-6" : "border border-zinc-200 p-8",
       )}
+      style={{
+        backgroundColor: cardBg,
+        borderRadius: embedded ? 0 : Math.min(40, radiusPx + 8),
+        color: textColor,
+      }}
     >
       {embedded ? null : (
         <>
-          <h1 className="mt-2 text-2xl font-bold text-brand-ink sm:text-3xl">{formName}</h1>
+          <h1 className="mt-2 text-2xl font-bold sm:text-3xl" style={{ color: textColor }}>
+            {formName}
+          </h1>
         </>
       )}
 
@@ -85,7 +112,7 @@ export function CreditHostedFormClient({
       >
         {fields.map((f) => (
           <label key={f.name} className="block">
-            <div className="mb-1 text-sm font-semibold text-zinc-900">
+            <div className="mb-1 text-sm font-semibold" style={{ color: textColor }}>
               {f.label}
               {f.required ? <span className="ml-1 text-red-600">*</span> : null}
             </div>
@@ -94,7 +121,13 @@ export function CreditHostedFormClient({
                 name={f.name}
                 required={!!f.required}
                 disabled={busy}
-                className="min-h-28 w-full rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm text-zinc-900 placeholder:text-zinc-400"
+                className="min-h-28 w-full border px-4 py-2 text-sm placeholder:text-zinc-400"
+                style={{
+                  borderRadius: radiusPx,
+                  borderColor: inputBorder,
+                  backgroundColor: inputBg,
+                  color: textColor,
+                }}
               />
             ) : (
               <input
@@ -102,7 +135,13 @@ export function CreditHostedFormClient({
                 type={f.type}
                 required={!!f.required}
                 disabled={busy}
-                className="w-full rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm text-zinc-900 placeholder:text-zinc-400"
+                className="w-full border px-4 py-2 text-sm placeholder:text-zinc-400"
+                style={{
+                  borderRadius: radiusPx,
+                  borderColor: inputBorder,
+                  backgroundColor: inputBg,
+                  color: textColor,
+                }}
               />
             )}
           </label>
@@ -119,9 +158,14 @@ export function CreditHostedFormClient({
           type="submit"
           disabled={busy}
           className={classNames(
-            "inline-flex w-full items-center justify-center rounded-2xl px-4 py-2 text-sm font-bold text-white",
-            busy ? "bg-zinc-400" : "bg-[color:var(--color-brand-blue)] hover:bg-blue-700",
+            "inline-flex w-full items-center justify-center px-4 py-2 text-sm font-bold",
+            busy ? "opacity-60" : "hover:opacity-95",
           )}
+          style={{
+            borderRadius: radiusPx,
+            backgroundColor: busy ? "#a1a1aa" : buttonBg,
+            color: buttonText,
+          }}
         >
           {busy ? "Submitting…" : "Submit"}
         </button>

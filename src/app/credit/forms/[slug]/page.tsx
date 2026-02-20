@@ -2,7 +2,7 @@ import { notFound } from "next/navigation";
 
 import { prisma } from "@/lib/db";
 
-import { CreditHostedFormClient, type Field } from "./CreditHostedFormClient";
+import { CreditHostedFormClient, type CreditFormStyle, type Field } from "./CreditHostedFormClient";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
@@ -37,6 +37,44 @@ function parseFields(schemaJson: unknown): Field[] {
   return out.length ? out.slice(0, 25) : getDefaultFields();
 }
 
+function parseHexColor(raw: unknown) {
+  const s = typeof raw === "string" ? raw.trim() : "";
+  if (!s) return null;
+  if (s === "transparent") return "transparent";
+  if (!/^#([0-9a-fA-F]{3}|[0-9a-fA-F]{6})$/.test(s)) return null;
+  return s;
+}
+
+function parseStyle(schemaJson: unknown): CreditFormStyle {
+  if (!schemaJson || typeof schemaJson !== "object") return {};
+  const raw = (schemaJson as any).style;
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return {};
+
+  const out: CreditFormStyle = {};
+  const pageBg = parseHexColor((raw as any).pageBg);
+  const cardBg = parseHexColor((raw as any).cardBg);
+  const buttonBg = parseHexColor((raw as any).buttonBg);
+  const buttonText = parseHexColor((raw as any).buttonText);
+  const inputBg = parseHexColor((raw as any).inputBg);
+  const inputBorder = parseHexColor((raw as any).inputBorder);
+  const textColor = parseHexColor((raw as any).textColor);
+
+  if (pageBg) out.pageBg = pageBg;
+  if (cardBg) out.cardBg = cardBg;
+  if (buttonBg) out.buttonBg = buttonBg;
+  if (buttonText) out.buttonText = buttonText;
+  if (inputBg) out.inputBg = inputBg;
+  if (inputBorder) out.inputBorder = inputBorder;
+  if (textColor) out.textColor = textColor;
+
+  const radiusPx = (raw as any).radiusPx;
+  if (typeof radiusPx === "number" && Number.isFinite(radiusPx)) {
+    out.radiusPx = Math.max(0, Math.min(40, Math.round(radiusPx)));
+  }
+
+  return out;
+}
+
 export default async function CreditHostedFormPage({
   params,
   searchParams,
@@ -58,15 +96,20 @@ export default async function CreditHostedFormPage({
   if (!form) notFound();
 
   const fields = parseFields(form.schemaJson);
+  const style = parseStyle(form.schemaJson);
+  const pageBg = style.pageBg ?? (embed ? "transparent" : "#f4f4f5");
 
   return (
-    <main className={embed ? "mx-auto w-full max-w-3xl p-0" : "mx-auto w-full max-w-3xl p-8"}>
-      <CreditHostedFormClient
-        slug={form.slug}
-        formName={form.name}
-        fields={fields}
-        embedded={embed}
-      />
-    </main>
+    <div className={embed ? "w-full" : "min-h-dvh w-full"} style={{ backgroundColor: pageBg }}>
+      <main className={embed ? "mx-auto w-full max-w-3xl p-0" : "mx-auto w-full max-w-3xl p-8"}>
+        <CreditHostedFormClient
+          slug={form.slug}
+          formName={form.name}
+          fields={fields}
+          embedded={embed}
+          style={style}
+        />
+      </main>
+    </div>
   );
 }

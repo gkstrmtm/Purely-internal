@@ -19,9 +19,46 @@ function normalizeSlug(raw: unknown) {
   return cleaned;
 }
 
+function normalizeHexColor(raw: unknown) {
+  const s = typeof raw === "string" ? raw.trim() : "";
+  if (!s) return null;
+  if (s === "transparent") return "transparent";
+  if (!/^#([0-9a-fA-F]{3}|[0-9a-fA-F]{6})$/.test(s)) return null;
+  return s;
+}
+
+function normalizeStyle(raw: unknown) {
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return {};
+  const r = raw as any;
+  const out: any = {};
+
+  const pageBg = normalizeHexColor(r.pageBg);
+  const cardBg = normalizeHexColor(r.cardBg);
+  const buttonBg = normalizeHexColor(r.buttonBg);
+  const buttonText = normalizeHexColor(r.buttonText);
+  const inputBg = normalizeHexColor(r.inputBg);
+  const inputBorder = normalizeHexColor(r.inputBorder);
+  const textColor = normalizeHexColor(r.textColor);
+
+  if (pageBg) out.pageBg = pageBg;
+  if (cardBg) out.cardBg = cardBg;
+  if (buttonBg) out.buttonBg = buttonBg;
+  if (buttonText) out.buttonText = buttonText;
+  if (inputBg) out.inputBg = inputBg;
+  if (inputBorder) out.inputBorder = inputBorder;
+  if (textColor) out.textColor = textColor;
+
+  if (typeof r.radiusPx === "number" && Number.isFinite(r.radiusPx)) {
+    out.radiusPx = Math.max(0, Math.min(40, Math.round(r.radiusPx)));
+  }
+
+  return out;
+}
+
 function normalizeSchema(schema: unknown): any {
   if (!schema || typeof schema !== "object" || Array.isArray(schema)) return { fields: [] };
   const fields = (schema as any).fields;
+  const style = normalizeStyle((schema as any).style);
   if (!Array.isArray(fields)) return { fields: [] };
   const out: any[] = [];
   for (const f of fields) {
@@ -34,7 +71,10 @@ function normalizeSchema(schema: unknown): any {
     if (type !== "text" && type !== "email" && type !== "tel" && type !== "textarea") continue;
     out.push({ name: name.slice(0, 64), label: label.slice(0, 160), type, required });
   }
-  return { fields: out.slice(0, 50) };
+
+  const normalized: any = { fields: out.slice(0, 50) };
+  if (style && typeof style === "object" && Object.keys(style).length) normalized.style = style;
+  return normalized;
 }
 
 export async function GET(_req: Request, ctx: { params: Promise<{ formId: string }> }) {
