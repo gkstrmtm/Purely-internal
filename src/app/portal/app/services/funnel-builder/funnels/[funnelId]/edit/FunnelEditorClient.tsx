@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 
 import {
   coerceBlocksJson,
@@ -240,6 +240,210 @@ function ColorPickerField({
         </div>
       ) : null}
     </label>
+  );
+}
+
+function CollapsiblePanel({
+  title,
+  defaultOpen,
+  right,
+  children,
+}: {
+  title: string;
+  defaultOpen?: boolean;
+  right?: React.ReactNode;
+  children: React.ReactNode;
+}) {
+  const [open, setOpen] = useState(defaultOpen ?? true);
+  return (
+    <div className="rounded-2xl border border-zinc-200 bg-white">
+      <button
+        type="button"
+        onClick={() => setOpen((v) => !v)}
+        className="flex w-full items-center justify-between gap-3 px-4 py-3"
+      >
+        <div className="text-sm font-semibold text-zinc-900">{title}</div>
+        <div className="flex items-center gap-2">
+          {right}
+          <div className="rounded-lg border border-zinc-200 bg-white px-2 py-1 text-xs font-semibold text-zinc-700">
+            {open ? "Hide" : "Show"}
+          </div>
+        </div>
+      </button>
+      {open ? <div className="border-t border-zinc-200 p-4">{children}</div> : null}
+    </div>
+  );
+}
+
+function CollapsibleGroup({
+  title,
+  defaultOpen,
+  children,
+}: {
+  title: string;
+  defaultOpen?: boolean;
+  children: React.ReactNode;
+}) {
+  return (
+    <details open={defaultOpen ?? true} className="rounded-2xl border border-zinc-200 bg-white">
+      <summary className="cursor-pointer list-none px-4 py-3 text-sm font-semibold text-zinc-900">
+        {title}
+      </summary>
+      <div className="border-t border-zinc-200 p-4">{children}</div>
+    </details>
+  );
+}
+
+function AlignPicker({
+  value,
+  onChange,
+}: {
+  value: "left" | "center" | "right" | undefined;
+  onChange: (next: "left" | "center" | "right" | undefined) => void;
+}) {
+  const options: Array<{ v: "left" | "center" | "right"; label: string }> = [
+    { v: "left", label: "Left" },
+    { v: "center", label: "Center" },
+    { v: "right", label: "Right" },
+  ];
+
+  return (
+    <div>
+      <div className="mb-1 text-xs font-semibold uppercase tracking-wide text-zinc-500">Align</div>
+      <div className="flex gap-2">
+        {options.map(({ v, label }) => (
+          <button
+            key={v}
+            type="button"
+            onClick={() => onChange(value === v ? undefined : v)}
+            className={classNames(
+              "flex-1 rounded-xl border px-3 py-2 text-sm font-semibold",
+              value === v
+                ? "border-[color:var(--color-brand-blue)] bg-blue-50 text-zinc-900"
+                : "border-zinc-200 bg-white text-zinc-800 hover:bg-zinc-50",
+            )}
+            aria-pressed={value === v}
+          >
+            {label}
+          </button>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function PaddingPicker({
+  label,
+  value,
+  onChange,
+  max,
+}: {
+  label: string;
+  value: number | undefined;
+  onChange: (next: number | undefined) => void;
+  max?: number;
+}) {
+  const v = typeof value === "number" ? value : 0;
+  const maxV = max ?? 120;
+  return (
+    <div>
+      <div className="mb-1 text-xs font-semibold uppercase tracking-wide text-zinc-500">{label}</div>
+      <div className="flex items-center gap-3">
+        <div className="relative h-10 w-10 rounded-xl border border-zinc-200 bg-white">
+          <div
+            className="absolute rounded-lg bg-zinc-100"
+            style={{
+              inset: `${Math.min(14, Math.round((v / Math.max(1, maxV)) * 14))}px`,
+            }}
+          />
+        </div>
+        <input
+          type="range"
+          min={0}
+          max={maxV}
+          value={Math.round(v)}
+          onChange={(e) => onChange(Number(e.target.value) || 0)}
+          className="flex-1"
+        />
+        <input
+          type="number"
+          value={value ?? ""}
+          onChange={(e) => onChange(e.target.value === "" ? undefined : Number(e.target.value) || 0)}
+          className="w-24 rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm"
+          placeholder="Auto"
+        />
+        <button
+          type="button"
+          onClick={() => onChange(undefined)}
+          className="rounded-xl border border-zinc-200 bg-white px-3 py-2 text-xs font-semibold text-zinc-800 hover:bg-zinc-50"
+        >
+          Clear
+        </button>
+      </div>
+    </div>
+  );
+}
+
+function MaxWidthPicker({
+  label,
+  value,
+  onChange,
+}: {
+  label: string;
+  value: number | undefined;
+  onChange: (next: number | undefined) => void;
+}) {
+  const options: Array<{ label: string; px?: number }> = [
+    { label: "Auto", px: undefined },
+    { label: "1100", px: 1100 },
+    { label: "960", px: 960 },
+    { label: "800", px: 800 },
+    { label: "640", px: 640 },
+    { label: "480", px: 480 },
+    { label: "360", px: 360 },
+  ];
+  return (
+    <div>
+      <div className="mb-1 text-xs font-semibold uppercase tracking-wide text-zinc-500">{label}</div>
+      <div className="grid grid-cols-4 gap-2">
+        {options.map((o) => (
+          <button
+            key={o.label}
+            type="button"
+            onClick={() => onChange(o.px)}
+            className={classNames(
+              "rounded-xl border px-3 py-2 text-xs font-semibold",
+              (value ?? undefined) === (o.px ?? undefined)
+                ? "border-[color:var(--color-brand-blue)] bg-blue-50 text-zinc-900"
+                : "border-zinc-200 bg-white text-zinc-800 hover:bg-zinc-50",
+            )}
+          >
+            {o.label}
+          </button>
+        ))}
+      </div>
+      <div className="mt-2 flex items-center gap-2">
+        <div className="h-2 flex-1 rounded-full bg-zinc-100">
+          <div
+            className="h-2 rounded-full bg-[color:var(--color-brand-blue)]"
+            style={{
+              width:
+                typeof value === "number" && value > 0
+                  ? `${Math.max(10, Math.min(100, Math.round((value / 1400) * 100)))}%`
+                  : "100%",
+              opacity: typeof value === "number" && value > 0 ? 1 : 0.3,
+            }}
+          />
+        </div>
+        <input
+          type="number"
+          value={value ?? ""}
+          onChange={(e) => onChange(e.target.value === "" ? undefined : Number(e.target.value) || 0)}
+          className="w-28 rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm"
+          placeholder="Auto"
+        />
+      </div>
+    </div>
   );
 }
 
@@ -1317,8 +1521,8 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
     return first && first.type === "page" ? first : null;
   }, [selectedBlocks]);
 
-  const editableBlocks = useMemo(() => {
-    return selectedBlocks.filter((b) => b.type !== "page");
+  const editableBlocks = useMemo<CreditFunnelBlock[]>(() => {
+    return selectedBlocks.filter((b) => b.type !== "page") as CreditFunnelBlock[];
   }, [selectedBlocks]);
 
   const saveableBlocks = useMemo(() => {
@@ -1332,10 +1536,110 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
       : [];
   }, [selectedPage]);
 
+  type BlockContainerKey = "root" | "children" | "leftChildren" | "rightChildren";
+  type BlockContainerPath =
+    | { key: "root" }
+    | { key: "children" | "leftChildren" | "rightChildren"; sectionId: string };
+
+  const findBlockInTree = useCallback(
+    (
+      blocks: CreditFunnelBlock[],
+      id: string,
+      container: BlockContainerPath = { key: "root" },
+    ): { block: CreditFunnelBlock; container: BlockContainerPath } | null => {
+      for (const b of blocks) {
+        if (b.id === id) return { block: b, container };
+        if (b.type !== "section" && b.type !== "columns") continue;
+        const props: any = b.props;
+        const keys = b.type === "section" ? (["children", "leftChildren", "rightChildren"] as const) : (["leftChildren", "rightChildren"] as const);
+        for (const key of keys) {
+          const arr = Array.isArray(props[key]) ? (props[key] as CreditFunnelBlock[]) : [];
+          const nested = findBlockInTree(arr, id, { key, sectionId: b.id });
+          if (nested) return nested;
+        }
+      }
+      return null;
+    },
+    [],
+  );
+
+  const replaceBlockInTree = useCallback((blocks: CreditFunnelBlock[], next: CreditFunnelBlock): CreditFunnelBlock[] => {
+    let changed = false;
+    const out = blocks.map((b) => {
+      if (b.id === next.id) {
+        changed = true;
+        return next;
+      }
+      if (b.type !== "section" && b.type !== "columns") return b;
+      const props: any = b.props;
+      let propsChanged = false;
+      const patched: any = { ...props };
+      const keys = b.type === "section" ? (["children", "leftChildren", "rightChildren"] as const) : (["leftChildren", "rightChildren"] as const);
+      for (const key of keys) {
+        const arr = Array.isArray(props[key]) ? (props[key] as CreditFunnelBlock[]) : undefined;
+        if (!arr) continue;
+        const nextArr = replaceBlockInTree(arr, next);
+        if (nextArr !== arr) {
+          patched[key] = nextArr;
+          propsChanged = true;
+        }
+      }
+      if (!propsChanged) return b;
+      changed = true;
+      return { ...b, props: patched } as CreditFunnelBlock;
+    });
+    return changed ? out : blocks;
+  }, []);
+
+  const removeBlockFromTree = useCallback((blocks: CreditFunnelBlock[], id: string): CreditFunnelBlock[] => {
+    let changed = false;
+    const out: CreditFunnelBlock[] = [];
+    for (const b of blocks) {
+      if (b.id === id) {
+        changed = true;
+        continue;
+      }
+      if (b.type !== "section" && b.type !== "columns") {
+        out.push(b);
+        continue;
+      }
+      const props: any = b.props;
+      let propsChanged = false;
+      const patched: any = { ...props };
+      const keys = b.type === "section" ? (["children", "leftChildren", "rightChildren"] as const) : (["leftChildren", "rightChildren"] as const);
+      for (const key of keys) {
+        const arr = Array.isArray(props[key]) ? (props[key] as CreditFunnelBlock[]) : undefined;
+        if (!arr) continue;
+        const nextArr = removeBlockFromTree(arr, id);
+        if (nextArr !== arr) {
+          patched[key] = nextArr.length ? nextArr : undefined;
+          propsChanged = true;
+        }
+      }
+      if (propsChanged) {
+        changed = true;
+        out.push({ ...b, props: patched } as CreditFunnelBlock);
+      } else {
+        out.push(b);
+      }
+    }
+    return changed ? out : blocks;
+  }, []);
+
+  const findContainerForBlock = useCallback(
+    (blocks: CreditFunnelBlock[], id: string): BlockContainerPath | null => {
+      const found = findBlockInTree(blocks, id);
+      if (!found) return null;
+      const { container } = found;
+      return container;
+    },
+    [findBlockInTree],
+  );
+
   const selectedBlock = useMemo(() => {
     if (!selectedBlockId) return null;
-    return editableBlocks.find((b) => b.id === selectedBlockId) || null;
-  }, [editableBlocks, selectedBlockId]);
+    return findBlockInTree(editableBlocks, selectedBlockId)?.block || null;
+  }, [editableBlocks, selectedBlockId, findBlockInTree]);
 
   const newId = () => {
     try {
@@ -1541,8 +1845,11 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
 
   const upsertBlock = (block: CreditFunnelBlock) => {
     if (!selectedPage) return;
-    const nextEditable = editableBlocks.map((b) => (b.id === block.id ? block : b));
-    setSelectedPageLocal({ editorMode: "BLOCKS", blocksJson: pageSettingsBlock ? [pageSettingsBlock, ...nextEditable] : nextEditable });
+    const nextEditable = replaceBlockInTree(editableBlocks, block);
+    setSelectedPageLocal({
+      editorMode: "BLOCKS",
+      blocksJson: pageSettingsBlock ? [pageSettingsBlock, ...nextEditable] : nextEditable,
+    });
   };
 
   const ensurePageSettings = () => {
@@ -1594,13 +1901,10 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
     });
   };
 
-  const addBlock = (type: CreditFunnelBlock["type"]) => {
+  const addBlock = (type: Exclude<CreditFunnelBlock["type"], "page">) => {
     if (!selectedPage) return;
     const id = newId();
     const base: CreditFunnelBlock =
-      type === "page"
-        ? ({ id, type, props: { style: {} } } as any)
-        :
       type === "heading"
         ? { id, type, props: { text: "Headline", level: 2 } }
         : type === "paragraph"
@@ -1626,8 +1930,16 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
                         id,
                         type,
                         props: {
-                          leftMarkdown: "## Left\n\nAdd your content…",
-                          rightMarkdown: "## Right\n\nAdd your content…",
+                          leftMarkdown: "",
+                          rightMarkdown: "",
+                          leftChildren: [
+                            { id: newId(), type: "heading", props: { text: "Left", level: 3 } },
+                            { id: newId(), type: "paragraph", props: { text: "Add your content…" } },
+                          ],
+                          rightChildren: [
+                            { id: newId(), type: "heading", props: { text: "Right", level: 3 } },
+                            { id: newId(), type: "paragraph", props: { text: "Add your content…" } },
+                          ],
                           gapPx: 24,
                           stackOnMobile: true,
                         },
@@ -1638,15 +1950,61 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
                           type,
                           props: {
                             layout: "one",
-                            markdown: "## Section\n\nAdd your content…",
+                            children: [],
                             gapPx: 24,
                             stackOnMobile: true,
                           },
                         }
                     : { id, type: "spacer", props: { height: 24 } };
 
-    const nextEditable = [...editableBlocks, base].filter((b) => b.type !== "page");
-    setSelectedPageLocal({ editorMode: "BLOCKS", blocksJson: pageSettingsBlock ? [pageSettingsBlock, ...nextEditable] : nextEditable });
+    const selectedContainer = selectedBlockId ? findContainerForBlock(editableBlocks, selectedBlockId) : null;
+    const nextEditable = (() => {
+      if (selectedBlock && selectedBlock.type === "section") {
+        const section = selectedBlock as any;
+        const key: BlockContainerKey =
+          section.props?.layout === "two" ? "leftChildren" : "children";
+        const nextSection: CreditFunnelBlock = {
+          ...section,
+          props: {
+            ...section.props,
+            [key]: [...(Array.isArray(section.props?.[key]) ? section.props[key] : []), base],
+          },
+        };
+        return replaceBlockInTree(editableBlocks, nextSection);
+      }
+
+      if (selectedBlockId && selectedContainer && selectedContainer.key !== "root") {
+        const containerBlock = findBlockInTree(editableBlocks, selectedContainer.sectionId)?.block;
+        if (containerBlock && (containerBlock.type === "section" || containerBlock.type === "columns")) {
+          const props: any = containerBlock.props;
+          const arr = Array.isArray(props[selectedContainer.key]) ? (props[selectedContainer.key] as CreditFunnelBlock[]) : [];
+          const idx = arr.findIndex((b) => b.id === selectedBlockId);
+          const nextArr = [...arr];
+          nextArr.splice(idx >= 0 ? idx + 1 : nextArr.length, 0, base);
+          const nextContainer: CreditFunnelBlock = {
+            ...containerBlock,
+            props: { ...props, [selectedContainer.key]: nextArr },
+          } as any;
+          return replaceBlockInTree(editableBlocks, nextContainer);
+        }
+      }
+
+      if (selectedBlockId && selectedContainer?.key === "root") {
+        const idx = editableBlocks.findIndex((b) => b.id === selectedBlockId);
+        if (idx >= 0) {
+          const next = [...editableBlocks];
+          next.splice(idx + 1, 0, base);
+          return next;
+        }
+      }
+
+      return [...editableBlocks, base];
+    })();
+
+    setSelectedPageLocal({
+      editorMode: "BLOCKS",
+      blocksJson: pageSettingsBlock ? [pageSettingsBlock, ...nextEditable] : nextEditable,
+    });
     setSelectedBlockId(id);
   };
 
@@ -1657,30 +2015,39 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
     const firstFormSlug = (forms || []).find((f) => typeof f?.slug === "string" && f.slug.trim())?.slug || "";
 
     if (preset === "hero") {
+      const heroSectionId = newId();
       blocks.push({
-        id: newId(),
+        id: heroSectionId,
         type: "section",
         props: {
           layout: "one",
-          markdown: "# Hero headline\n\nAdd your subheadline here.\n\n[Get started](#)",
+          children: [
+            { id: newId(), type: "heading", props: { text: "Hero headline", level: 1, style: { align: "center" } } },
+            {
+              id: newId(),
+              type: "paragraph",
+              props: { text: "Add your subheadline here.", style: { align: "center" } },
+            },
+            {
+              id: newId(),
+              type: "button",
+              props: {
+                text: "Get started",
+                href: firstFormSlug
+                  ? `${basePath}/forms/${encodeURIComponent(firstFormSlug)}`
+                  : `${basePath}/forms/your-form-slug`,
+                variant: "primary",
+                style: { align: "center" },
+              },
+            },
+          ],
           style: {
             backgroundColor: "#0f172a",
             textColor: "#ffffff",
             paddingPx: 48,
             borderRadiusPx: 24,
-            align: "center",
             marginBottomPx: 24,
           },
-        },
-      });
-      blocks.push({
-        id: newId(),
-        type: "button",
-        props: {
-          text: "Get started",
-          href: firstFormSlug ? `${basePath}/forms/${encodeURIComponent(firstFormSlug)}` : `${basePath}/forms/your-form-slug`,
-          variant: "primary",
-          style: { marginBottomPx: 24 },
         },
       });
     }
@@ -1691,7 +2058,10 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
         type: "section",
         props: {
           layout: "one",
-          markdown: "## Body section\n\nWrite your main content here…",
+          children: [
+            { id: newId(), type: "heading", props: { text: "Body section", level: 2 } },
+            { id: newId(), type: "paragraph", props: { text: "Write your main content here…" } },
+          ],
           style: { paddingPx: 32, marginBottomPx: 24 },
         },
       });
@@ -1703,17 +2073,20 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
         type: "section",
         props: {
           layout: "one",
-          markdown: "## Form section\n\nEmbed a form below.",
+          children: [
+            { id: newId(), type: "heading", props: { text: "Form section", level: 2 } },
+            { id: newId(), type: "paragraph", props: { text: "Embed a form below." } },
+            {
+              id: newId(),
+              type: "formEmbed",
+              props: {
+                formSlug: firstFormSlug,
+                height: 760,
+                style: { marginTopPx: 16 },
+              },
+            },
+          ],
           style: { paddingPx: 32, backgroundColor: "#f8fafc", borderRadiusPx: 24, marginBottomPx: 16 },
-        },
-      });
-      blocks.push({
-        id: newId(),
-        type: "formEmbed",
-        props: {
-          formSlug: firstFormSlug,
-          height: 760,
-          style: { paddingPx: 16, backgroundColor: "#f8fafc", borderRadiusPx: 24 },
         },
       });
     }
@@ -1729,20 +2102,133 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
 
   const removeBlock = (blockId: string) => {
     if (!selectedPage) return;
-    const nextEditable = editableBlocks.filter((b) => b.id !== blockId);
+    const nextEditable = removeBlockFromTree(editableBlocks, blockId);
     setSelectedPageLocal({ blocksJson: pageSettingsBlock ? [pageSettingsBlock, ...nextEditable] : nextEditable });
     if (selectedBlockId === blockId) setSelectedBlockId(null);
   };
 
   const reorderBlocks = (dragId: string, dropId: string) => {
     if (dragId === dropId) return;
-    const fromIdx = editableBlocks.findIndex((b) => b.id === dragId);
-    const toIdx = editableBlocks.findIndex((b) => b.id === dropId);
-    if (fromIdx < 0 || toIdx < 0) return;
-    const next = [...editableBlocks];
-    const [moved] = next.splice(fromIdx, 1);
-    next.splice(toIdx, 0, moved);
-    setSelectedPageLocal({ blocksJson: pageSettingsBlock ? [pageSettingsBlock, ...next] : next });
+    const dragContainer = findContainerForBlock(editableBlocks, dragId);
+    const dropContainer = findContainerForBlock(editableBlocks, dropId);
+    if (!dragContainer || !dropContainer) return;
+    if (dragContainer.key !== dropContainer.key) return;
+    if (dragContainer.key !== "root" && dragContainer.sectionId !== (dropContainer as any).sectionId) return;
+
+    const reorderInArray = <T extends { id: string }>(arr: T[]): T[] => {
+      const fromIdx = arr.findIndex((b) => b.id === dragId);
+      const toIdx = arr.findIndex((b) => b.id === dropId);
+      if (fromIdx < 0 || toIdx < 0) return arr;
+      const next = [...arr];
+      const [moved] = next.splice(fromIdx, 1);
+      next.splice(toIdx, 0, moved);
+      return next;
+    };
+
+    let nextEditable = editableBlocks;
+    if (dragContainer.key === "root") {
+      nextEditable = reorderInArray(editableBlocks);
+    } else {
+      const containerBlock = findBlockInTree(editableBlocks, dragContainer.sectionId)?.block;
+      if (containerBlock && (containerBlock.type === "section" || containerBlock.type === "columns")) {
+        const props: any = containerBlock.props;
+        const arr = Array.isArray(props[dragContainer.key]) ? (props[dragContainer.key] as CreditFunnelBlock[]) : [];
+        const nextArr = reorderInArray(arr);
+        const nextContainer: CreditFunnelBlock = { ...containerBlock, props: { ...props, [dragContainer.key]: nextArr } } as any;
+        nextEditable = replaceBlockInTree(editableBlocks, nextContainer);
+      }
+    }
+
+    setSelectedPageLocal({ blocksJson: pageSettingsBlock ? [pageSettingsBlock, ...nextEditable] : nextEditable });
+  };
+
+  const renderEditBlockCards = (
+    blocks: CreditFunnelBlock[],
+    depth: number,
+  ): React.ReactNode => {
+    return blocks.map((b) => {
+      const isSelected = selectedBlockId === b.id;
+      const card = (
+        <div
+          key={b.id}
+          draggable
+          onDragStart={(e) => {
+            e.dataTransfer.setData("text/x-block-id", b.id);
+            e.dataTransfer.effectAllowed = "move";
+          }}
+          onDragOver={(e) => {
+            e.preventDefault();
+            e.dataTransfer.dropEffect = "move";
+          }}
+          onDrop={(e) => {
+            e.preventDefault();
+            const dragId = e.dataTransfer.getData("text/x-block-id");
+            if (dragId) reorderBlocks(dragId, b.id);
+          }}
+          onClick={() => setSelectedBlockId(b.id)}
+          className={classNames(
+            "cursor-pointer rounded-2xl border p-4",
+            isSelected
+              ? "border-[color:var(--color-brand-blue)] bg-blue-50"
+              : "border-zinc-200 bg-white hover:bg-zinc-50",
+          )}
+          style={{ marginLeft: depth ? depth * 12 : undefined }}
+        >
+          <div className="text-xs font-semibold uppercase tracking-wide text-zinc-500">{b.type}</div>
+          <div className="mt-3">
+            {b.type === "section" ? (
+              <div className="rounded-2xl border border-dashed border-zinc-300 bg-white p-3 text-sm font-semibold text-zinc-700">
+                Section container
+              </div>
+            ) : (
+              renderCreditFunnelBlocks({ blocks: [b], basePath })
+            )}
+          </div>
+        </div>
+      );
+
+      if (b.type !== "section") return card;
+
+      const props: any = b.props;
+      const layout = props.layout === "two" ? "two" : "one";
+      const children = Array.isArray(props.children) ? (props.children as CreditFunnelBlock[]) : [];
+      const leftChildren = Array.isArray(props.leftChildren) ? (props.leftChildren as CreditFunnelBlock[]) : [];
+      const rightChildren = Array.isArray(props.rightChildren) ? (props.rightChildren as CreditFunnelBlock[]) : [];
+
+      return (
+        <div key={b.id}>
+          {card}
+          {layout === "two" ? (
+            <div className="mt-3 grid grid-cols-2 gap-3" style={{ marginLeft: depth ? depth * 12 : undefined }}>
+              <div className="rounded-2xl border border-zinc-200 bg-white p-3">
+                <div className="text-[11px] font-semibold uppercase tracking-wide text-zinc-500">Left</div>
+                <div className="mt-2 space-y-3">
+                  {leftChildren.length ? renderEditBlockCards(leftChildren, depth + 1) : (
+                    <div className="rounded-xl border border-dashed border-zinc-300 p-3 text-sm text-zinc-600">
+                      Empty
+                    </div>
+                  )}
+                </div>
+              </div>
+              <div className="rounded-2xl border border-zinc-200 bg-white p-3">
+                <div className="text-[11px] font-semibold uppercase tracking-wide text-zinc-500">Right</div>
+                <div className="mt-2 space-y-3">
+                  {rightChildren.length ? renderEditBlockCards(rightChildren, depth + 1) : (
+                    <div className="rounded-xl border border-dashed border-zinc-300 p-3 text-sm text-zinc-600">
+                      Empty
+                    </div>
+                  )}
+                </div>
+              </div>
+            </div>
+          ) : children.length ? (
+            <div className="mt-3 space-y-3" style={{ marginLeft: depth ? depth * 12 : undefined }}>
+              {renderEditBlockCards(children, depth + 1)}
+            </div>
+          ) : null}
+        </div>
+      );
+    });
   };
 
   const runAi = async () => {
@@ -2123,9 +2609,8 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
             </div>
           ) : selectedPage.editorMode === "BLOCKS" ? (
             <div>
-              <div className="rounded-2xl border border-zinc-200 bg-white p-4">
-                <div className="text-sm font-semibold text-zinc-900">Page</div>
-                <div className="mt-3 space-y-3">
+              <CollapsiblePanel title="Page" defaultOpen>
+                <div className="space-y-3">
                   <ColorPickerField
                     label="Page background"
                     value={(pageSettingsBlock as any)?.props?.style?.backgroundColor}
@@ -2141,114 +2626,168 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
                     allowAlpha
                   />
 
-                  <div className="grid grid-cols-2 gap-2">
-                    <label className="block">
-                      <div className="mb-1 text-xs font-semibold uppercase tracking-wide text-zinc-500">Page padding</div>
-                      <input
-                        type="number"
-                        value={(pageSettingsBlock as any)?.props?.style?.paddingPx ?? ""}
-                        onChange={(e) =>
-                          updatePageStyle({
-                            paddingPx: e.target.value === "" ? undefined : Number(e.target.value) || 0,
-                          })
-                        }
-                        className="w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm"
-                        placeholder="e.g. 32"
-                      />
-                    </label>
-                    <label className="block">
-                      <div className="mb-1 text-xs font-semibold uppercase tracking-wide text-zinc-500">Max width</div>
-                      <input
-                        type="number"
-                        value={(pageSettingsBlock as any)?.props?.style?.maxWidthPx ?? ""}
-                        onChange={(e) =>
-                          updatePageStyle({
-                            maxWidthPx: e.target.value === "" ? undefined : Number(e.target.value) || 0,
-                          })
-                        }
-                        className="w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm"
-                        placeholder="e.g. 1100"
-                      />
-                    </label>
+                  <PaddingPicker
+                    label="Page padding"
+                    value={(pageSettingsBlock as any)?.props?.style?.paddingPx}
+                    onChange={(v) => updatePageStyle({ paddingPx: v })}
+                  />
+
+                  <MaxWidthPicker
+                    label="Max width"
+                    value={(pageSettingsBlock as any)?.props?.style?.maxWidthPx}
+                    onChange={(v) => updatePageStyle({ maxWidthPx: v })}
+                  />
+
+                  <AlignPicker
+                    value={(pageSettingsBlock as any)?.props?.style?.align}
+                    onChange={(v) => updatePageStyle({ align: v })}
+                  />
+                </div>
+              </CollapsiblePanel>
+
+              <div className="mt-4">
+                <CollapsiblePanel title="Blocks" defaultOpen>
+                  <div className="space-y-3">
+                    <CollapsibleGroup title="Presets" defaultOpen>
+                      <div className="grid grid-cols-3 gap-2">
+                        <button
+                          type="button"
+                          disabled={busy}
+                          onClick={() => addPresetSection("hero")}
+                          className="rounded-xl border border-zinc-200 bg-white px-3 py-2 text-left text-xs font-semibold text-zinc-800 hover:bg-zinc-50"
+                        >
+                          Hero
+                        </button>
+                        <button
+                          type="button"
+                          disabled={busy}
+                          onClick={() => addPresetSection("body")}
+                          className="rounded-xl border border-zinc-200 bg-white px-3 py-2 text-left text-xs font-semibold text-zinc-800 hover:bg-zinc-50"
+                        >
+                          Body
+                        </button>
+                        <button
+                          type="button"
+                          disabled={busy}
+                          onClick={() => addPresetSection("form")}
+                          className="rounded-xl border border-zinc-200 bg-white px-3 py-2 text-left text-xs font-semibold text-zinc-800 hover:bg-zinc-50"
+                        >
+                          Form
+                        </button>
+                      </div>
+                      <div className="mt-2 text-xs text-zinc-500">
+                        Quick-start templates using real blocks (no markdown typing).
+                      </div>
+                    </CollapsibleGroup>
+
+                    <CollapsibleGroup title="Text" defaultOpen>
+                      <div className="grid grid-cols-2 gap-2">
+                        {(
+                          [
+                            { type: "heading", label: "Heading" },
+                            { type: "paragraph", label: "Text" },
+                            { type: "button", label: "Button" },
+                          ] as const
+                        ).map((b) => (
+                          <button
+                            key={b.type}
+                            type="button"
+                            disabled={busy}
+                            draggable
+                            onDragStart={(e) => {
+                              e.dataTransfer.setData("text/x-block-type", b.type);
+                              e.dataTransfer.effectAllowed = "copy";
+                            }}
+                            onClick={() => addBlock(b.type)}
+                            className="rounded-xl border border-zinc-200 bg-white px-3 py-2 text-left text-xs font-semibold text-zinc-800 hover:bg-zinc-50"
+                            title="Drag into preview or click to add"
+                          >
+                            {b.label}
+                          </button>
+                        ))}
+                      </div>
+                    </CollapsibleGroup>
+
+                    <CollapsibleGroup title="Layout" defaultOpen>
+                      <div className="grid grid-cols-2 gap-2">
+                        {(
+                          [
+                            { type: "section", label: "Section" },
+                            { type: "columns", label: "Columns" },
+                            { type: "spacer", label: "Spacer" },
+                          ] as const
+                        ).map((b) => (
+                          <button
+                            key={b.type}
+                            type="button"
+                            disabled={busy}
+                            draggable
+                            onDragStart={(e) => {
+                              e.dataTransfer.setData("text/x-block-type", b.type);
+                              e.dataTransfer.effectAllowed = "copy";
+                            }}
+                            onClick={() => addBlock(b.type)}
+                            className="rounded-xl border border-zinc-200 bg-white px-3 py-2 text-left text-xs font-semibold text-zinc-800 hover:bg-zinc-50"
+                            title="Drag into preview or click to add"
+                          >
+                            {b.label}
+                          </button>
+                        ))}
+                      </div>
+                    </CollapsibleGroup>
+
+                    <CollapsibleGroup title="Forms" defaultOpen={false}>
+                      <div className="grid grid-cols-2 gap-2">
+                        {(
+                          [
+                            { type: "formLink", label: "Form link" },
+                            { type: "formEmbed", label: "Form embed" },
+                          ] as const
+                        ).map((b) => (
+                          <button
+                            key={b.type}
+                            type="button"
+                            disabled={busy}
+                            draggable
+                            onDragStart={(e) => {
+                              e.dataTransfer.setData("text/x-block-type", b.type);
+                              e.dataTransfer.effectAllowed = "copy";
+                            }}
+                            onClick={() => addBlock(b.type)}
+                            className="rounded-xl border border-zinc-200 bg-white px-3 py-2 text-left text-xs font-semibold text-zinc-800 hover:bg-zinc-50"
+                            title="Drag into preview or click to add"
+                          >
+                            {b.label}
+                          </button>
+                        ))}
+                      </div>
+                    </CollapsibleGroup>
+
+                    <CollapsibleGroup title="Media" defaultOpen={false}>
+                      <div className="grid grid-cols-2 gap-2">
+                        {(
+                          [{ type: "image", label: "Image" }] as const
+                        ).map((b) => (
+                          <button
+                            key={b.type}
+                            type="button"
+                            disabled={busy}
+                            draggable
+                            onDragStart={(e) => {
+                              e.dataTransfer.setData("text/x-block-type", b.type);
+                              e.dataTransfer.effectAllowed = "copy";
+                            }}
+                            onClick={() => addBlock(b.type)}
+                            className="rounded-xl border border-zinc-200 bg-white px-3 py-2 text-left text-xs font-semibold text-zinc-800 hover:bg-zinc-50"
+                            title="Drag into preview or click to add"
+                          >
+                            {b.label}
+                          </button>
+                        ))}
+                      </div>
+                    </CollapsibleGroup>
                   </div>
-
-                  <label className="block">
-                    <div className="mb-1 text-xs font-semibold uppercase tracking-wide text-zinc-500">Page align</div>
-                    <select
-                      value={(pageSettingsBlock as any)?.props?.style?.align || ""}
-                      onChange={(e) => updatePageStyle({ align: (e.target.value as any) || undefined })}
-                      className="w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm"
-                    >
-                      <option value="">Default</option>
-                      <option value="left">Left</option>
-                      <option value="center">Center</option>
-                      <option value="right">Right</option>
-                    </select>
-                  </label>
-                </div>
-              </div>
-
-              <div className="text-sm font-semibold text-zinc-900">Blocks</div>
-              <div className="mt-3 rounded-2xl border border-zinc-200 bg-zinc-50 p-4">
-                <div className="text-sm font-semibold text-zinc-900">Section presets</div>
-                <div className="mt-3 grid grid-cols-3 gap-2">
-                  <button
-                    type="button"
-                    disabled={busy}
-                    onClick={() => addPresetSection("hero")}
-                    className="rounded-xl border border-zinc-200 bg-white px-3 py-2 text-left text-xs font-semibold text-zinc-800 hover:bg-zinc-50"
-                  >
-                    Hero
-                  </button>
-                  <button
-                    type="button"
-                    disabled={busy}
-                    onClick={() => addPresetSection("body")}
-                    className="rounded-xl border border-zinc-200 bg-white px-3 py-2 text-left text-xs font-semibold text-zinc-800 hover:bg-zinc-50"
-                  >
-                    Body
-                  </button>
-                  <button
-                    type="button"
-                    disabled={busy}
-                    onClick={() => addPresetSection("form")}
-                    className="rounded-xl border border-zinc-200 bg-white px-3 py-2 text-left text-xs font-semibold text-zinc-800 hover:bg-zinc-50"
-                  >
-                    Form
-                  </button>
-                </div>
-                <div className="mt-2 text-xs text-zinc-500">Quick-start templates that add a few blocks.</div>
-              </div>
-              <div className="mt-3 grid grid-cols-2 gap-2">
-                {(
-                  [
-                    { type: "heading", label: "Heading" },
-                    { type: "paragraph", label: "Text" },
-                    { type: "button", label: "Button" },
-                    { type: "section", label: "Section" },
-                    { type: "formLink", label: "Form link" },
-                    { type: "formEmbed", label: "Form embed" },
-                    { type: "columns", label: "Columns" },
-                    { type: "image", label: "Image" },
-                    { type: "spacer", label: "Spacer" },
-                  ] as const
-                ).map((b) => (
-                  <button
-                    key={b.type}
-                    type="button"
-                    disabled={busy}
-                    draggable
-                    onDragStart={(e) => {
-                      e.dataTransfer.setData("text/x-block-type", b.type);
-                      e.dataTransfer.effectAllowed = "copy";
-                    }}
-                    onClick={() => addBlock(b.type)}
-                    className="rounded-xl border border-zinc-200 bg-white px-3 py-2 text-left text-xs font-semibold text-zinc-800 hover:bg-zinc-50"
-                    title="Drag into preview or click to add"
-                  >
-                    {b.label}
-                  </button>
-                ))}
+                </CollapsiblePanel>
               </div>
 
               <div className="mt-4 rounded-2xl border border-zinc-200 bg-zinc-50 p-4">
@@ -2577,28 +3116,6 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
 
                     {selectedBlock.type === "columns" ? (
                       <div className="space-y-2">
-                        <textarea
-                          value={selectedBlock.props.leftMarkdown}
-                          onChange={(e) =>
-                            upsertBlock({
-                              ...selectedBlock,
-                              props: { ...selectedBlock.props, leftMarkdown: e.target.value },
-                            })
-                          }
-                          className="min-h-[120px] w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm"
-                          placeholder="Left column (markdown)"
-                        />
-                        <textarea
-                          value={selectedBlock.props.rightMarkdown}
-                          onChange={(e) =>
-                            upsertBlock({
-                              ...selectedBlock,
-                              props: { ...selectedBlock.props, rightMarkdown: e.target.value },
-                            })
-                          }
-                          className="min-h-[120px] w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm"
-                          placeholder="Right column (markdown)"
-                        />
                         <div className="grid grid-cols-2 gap-2">
                           <label className="block">
                             <div className="mb-1 text-xs font-semibold uppercase tracking-wide text-zinc-500">Gap (px)</div>
@@ -2628,6 +3145,255 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
                             Stack on mobile
                           </label>
                         </div>
+
+                        <div className="rounded-xl border border-zinc-200 bg-white p-3">
+                          <div className="text-xs font-semibold uppercase tracking-wide text-zinc-500">Left column blocks</div>
+                          <div className="mt-2 flex flex-wrap gap-2">
+                            <button
+                              type="button"
+                              disabled={busy}
+                              onClick={() => {
+                                const id = newId();
+                                const base: CreditFunnelBlock = { id, type: "heading", props: { text: "Left heading", level: 2 } };
+                                upsertBlock({
+                                  ...selectedBlock,
+                                  props: {
+                                    ...selectedBlock.props,
+                                    leftChildren: [
+                                      ...(((selectedBlock.props as any).leftChildren as CreditFunnelBlock[]) || []),
+                                      base,
+                                    ],
+                                  },
+                                } as any);
+                                setSelectedBlockId(id);
+                              }}
+                              className="rounded-xl border border-zinc-200 bg-white px-3 py-2 text-xs font-semibold text-zinc-800 hover:bg-zinc-50"
+                            >
+                              + Heading
+                            </button>
+                            <button
+                              type="button"
+                              disabled={busy}
+                              onClick={() => {
+                                const id = newId();
+                                const base: CreditFunnelBlock = { id, type: "paragraph", props: { text: "Left text" } };
+                                upsertBlock({
+                                  ...selectedBlock,
+                                  props: {
+                                    ...selectedBlock.props,
+                                    leftChildren: [
+                                      ...(((selectedBlock.props as any).leftChildren as CreditFunnelBlock[]) || []),
+                                      base,
+                                    ],
+                                  },
+                                } as any);
+                                setSelectedBlockId(id);
+                              }}
+                              className="rounded-xl border border-zinc-200 bg-white px-3 py-2 text-xs font-semibold text-zinc-800 hover:bg-zinc-50"
+                            >
+                              + Text
+                            </button>
+                            <button
+                              type="button"
+                              disabled={busy}
+                              onClick={() => {
+                                const id = newId();
+                                const base: CreditFunnelBlock = {
+                                  id,
+                                  type: "button",
+                                  props: { text: "Button", href: `${basePath}/forms/your-form-slug`, variant: "primary" },
+                                };
+                                upsertBlock({
+                                  ...selectedBlock,
+                                  props: {
+                                    ...selectedBlock.props,
+                                    leftChildren: [
+                                      ...(((selectedBlock.props as any).leftChildren as CreditFunnelBlock[]) || []),
+                                      base,
+                                    ],
+                                  },
+                                } as any);
+                                setSelectedBlockId(id);
+                              }}
+                              className="rounded-xl border border-zinc-200 bg-white px-3 py-2 text-xs font-semibold text-zinc-800 hover:bg-zinc-50"
+                            >
+                              + Button
+                            </button>
+                          </div>
+
+                          <div className="mt-3 space-y-2">
+                            {((((selectedBlock.props as any).leftChildren as CreditFunnelBlock[]) || [])).length === 0 ? (
+                              <div className="text-sm text-zinc-600">No blocks yet.</div>
+                            ) : (
+                              ((((selectedBlock.props as any).leftChildren as CreditFunnelBlock[]) || [])).map((c) => (
+                                <div
+                                  key={c.id}
+                                  className={classNames(
+                                    "flex items-center justify-between gap-2 rounded-xl border px-3 py-2",
+                                    selectedBlockId === c.id
+                                      ? "border-[color:var(--color-brand-blue)] bg-blue-50"
+                                      : "border-zinc-200 bg-white",
+                                  )}
+                                >
+                                  <button
+                                    type="button"
+                                    onClick={() => setSelectedBlockId(c.id)}
+                                    className="min-w-0 flex-1 truncate text-left text-sm font-semibold text-zinc-900"
+                                  >
+                                    {c.type}
+                                  </button>
+                                  <button
+                                    type="button"
+                                    disabled={busy}
+                                    onClick={() => removeBlock(c.id)}
+                                    className="rounded-xl border border-zinc-200 bg-white px-3 py-2 text-xs font-semibold text-zinc-800 hover:bg-zinc-50"
+                                  >
+                                    Remove
+                                  </button>
+                                </div>
+                              ))
+                            )}
+                          </div>
+                        </div>
+
+                        <div className="rounded-xl border border-zinc-200 bg-white p-3">
+                          <div className="text-xs font-semibold uppercase tracking-wide text-zinc-500">Right column blocks</div>
+                          <div className="mt-2 flex flex-wrap gap-2">
+                            <button
+                              type="button"
+                              disabled={busy}
+                              onClick={() => {
+                                const id = newId();
+                                const base: CreditFunnelBlock = { id, type: "heading", props: { text: "Right heading", level: 2 } };
+                                upsertBlock({
+                                  ...selectedBlock,
+                                  props: {
+                                    ...selectedBlock.props,
+                                    rightChildren: [
+                                      ...(((selectedBlock.props as any).rightChildren as CreditFunnelBlock[]) || []),
+                                      base,
+                                    ],
+                                  },
+                                } as any);
+                                setSelectedBlockId(id);
+                              }}
+                              className="rounded-xl border border-zinc-200 bg-white px-3 py-2 text-xs font-semibold text-zinc-800 hover:bg-zinc-50"
+                            >
+                              + Heading
+                            </button>
+                            <button
+                              type="button"
+                              disabled={busy}
+                              onClick={() => {
+                                const id = newId();
+                                const base: CreditFunnelBlock = { id, type: "paragraph", props: { text: "Right text" } };
+                                upsertBlock({
+                                  ...selectedBlock,
+                                  props: {
+                                    ...selectedBlock.props,
+                                    rightChildren: [
+                                      ...(((selectedBlock.props as any).rightChildren as CreditFunnelBlock[]) || []),
+                                      base,
+                                    ],
+                                  },
+                                } as any);
+                                setSelectedBlockId(id);
+                              }}
+                              className="rounded-xl border border-zinc-200 bg-white px-3 py-2 text-xs font-semibold text-zinc-800 hover:bg-zinc-50"
+                            >
+                              + Text
+                            </button>
+                            <button
+                              type="button"
+                              disabled={busy}
+                              onClick={() => {
+                                const id = newId();
+                                const base: CreditFunnelBlock = {
+                                  id,
+                                  type: "button",
+                                  props: { text: "Button", href: `${basePath}/forms/your-form-slug`, variant: "primary" },
+                                };
+                                upsertBlock({
+                                  ...selectedBlock,
+                                  props: {
+                                    ...selectedBlock.props,
+                                    rightChildren: [
+                                      ...(((selectedBlock.props as any).rightChildren as CreditFunnelBlock[]) || []),
+                                      base,
+                                    ],
+                                  },
+                                } as any);
+                                setSelectedBlockId(id);
+                              }}
+                              className="rounded-xl border border-zinc-200 bg-white px-3 py-2 text-xs font-semibold text-zinc-800 hover:bg-zinc-50"
+                            >
+                              + Button
+                            </button>
+                          </div>
+
+                          <div className="mt-3 space-y-2">
+                            {((((selectedBlock.props as any).rightChildren as CreditFunnelBlock[]) || [])).length === 0 ? (
+                              <div className="text-sm text-zinc-600">No blocks yet.</div>
+                            ) : (
+                              ((((selectedBlock.props as any).rightChildren as CreditFunnelBlock[]) || [])).map((c) => (
+                                <div
+                                  key={c.id}
+                                  className={classNames(
+                                    "flex items-center justify-between gap-2 rounded-xl border px-3 py-2",
+                                    selectedBlockId === c.id
+                                      ? "border-[color:var(--color-brand-blue)] bg-blue-50"
+                                      : "border-zinc-200 bg-white",
+                                  )}
+                                >
+                                  <button
+                                    type="button"
+                                    onClick={() => setSelectedBlockId(c.id)}
+                                    className="min-w-0 flex-1 truncate text-left text-sm font-semibold text-zinc-900"
+                                  >
+                                    {c.type}
+                                  </button>
+                                  <button
+                                    type="button"
+                                    disabled={busy}
+                                    onClick={() => removeBlock(c.id)}
+                                    className="rounded-xl border border-zinc-200 bg-white px-3 py-2 text-xs font-semibold text-zinc-800 hover:bg-zinc-50"
+                                  >
+                                    Remove
+                                  </button>
+                                </div>
+                              ))
+                            )}
+                          </div>
+                        </div>
+
+                        {(selectedBlock.props.leftMarkdown || "").trim() || (selectedBlock.props.rightMarkdown || "").trim() ? (
+                          <CollapsibleGroup title="Legacy markdown (optional)" defaultOpen={false}>
+                            <div className="space-y-2">
+                              <textarea
+                                value={selectedBlock.props.leftMarkdown}
+                                onChange={(e) =>
+                                  upsertBlock({
+                                    ...selectedBlock,
+                                    props: { ...selectedBlock.props, leftMarkdown: e.target.value },
+                                  })
+                                }
+                                className="min-h-[100px] w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm"
+                                placeholder="Left column (markdown)"
+                              />
+                              <textarea
+                                value={selectedBlock.props.rightMarkdown}
+                                onChange={(e) =>
+                                  upsertBlock({
+                                    ...selectedBlock,
+                                    props: { ...selectedBlock.props, rightMarkdown: e.target.value },
+                                  })
+                                }
+                                className="min-h-[100px] w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm"
+                                placeholder="Right column (markdown)"
+                              />
+                            </div>
+                          </CollapsibleGroup>
+                        ) : null}
 
                         <div className="rounded-xl border border-zinc-200 bg-white p-3">
                           <div className="text-xs font-semibold uppercase tracking-wide text-zinc-500">Left column style</div>
@@ -2752,29 +3518,6 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
 
                         {selectedBlock.props.layout === "two" ? (
                           <>
-                            <textarea
-                              value={selectedBlock.props.leftMarkdown || ""}
-                              onChange={(e) =>
-                                upsertBlock({
-                                  ...selectedBlock,
-                                  props: { ...selectedBlock.props, leftMarkdown: e.target.value },
-                                })
-                              }
-                              className="min-h-[120px] w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm"
-                              placeholder="Left column (markdown)"
-                            />
-                            <textarea
-                              value={selectedBlock.props.rightMarkdown || ""}
-                              onChange={(e) =>
-                                upsertBlock({
-                                  ...selectedBlock,
-                                  props: { ...selectedBlock.props, rightMarkdown: e.target.value },
-                                })
-                              }
-                              className="min-h-[120px] w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm"
-                              placeholder="Right column (markdown)"
-                            />
-
                             <div className="grid grid-cols-2 gap-2">
                               <label className="block">
                                 <div className="mb-1 text-xs font-semibold uppercase tracking-wide text-zinc-500">Gap (px)</div>
@@ -2806,141 +3549,383 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
                             </div>
 
                             <div className="rounded-xl border border-zinc-200 bg-white p-3">
-                              <div className="text-xs font-semibold uppercase tracking-wide text-zinc-500">Left column style</div>
-                              <div className="mt-2 grid grid-cols-2 gap-2">
-                                <label className="block">
-                                  <div className="mb-1 text-[11px] font-semibold uppercase tracking-wide text-zinc-500">Text</div>
-                                  <input
-                                    value={selectedBlock.props.leftStyle?.textColor || ""}
-                                    onChange={(e) =>
-                                      updateSelectedSectionSideStyle("leftStyle", {
-                                        textColor: e.target.value.trim() ? e.target.value.trim() : undefined,
-                                      })
-                                    }
-                                    className="w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm"
-                                    placeholder="#0f172a"
-                                  />
-                                </label>
-                                <label className="block">
-                                  <div className="mb-1 text-[11px] font-semibold uppercase tracking-wide text-zinc-500">Background</div>
-                                  <input
-                                    value={selectedBlock.props.leftStyle?.backgroundColor || ""}
-                                    onChange={(e) =>
-                                      updateSelectedSectionSideStyle("leftStyle", {
-                                        backgroundColor: e.target.value.trim() ? e.target.value.trim() : undefined,
-                                      })
-                                    }
-                                    className="w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm"
-                                    placeholder="#ffffff"
-                                  />
-                                </label>
-                                <label className="block">
-                                  <div className="mb-1 text-[11px] font-semibold uppercase tracking-wide text-zinc-500">Padding</div>
-                                  <input
-                                    type="number"
-                                    value={selectedBlock.props.leftStyle?.paddingPx ?? ""}
-                                    onChange={(e) =>
-                                      updateSelectedSectionSideStyle("leftStyle", {
-                                        paddingPx: e.target.value === "" ? undefined : Number(e.target.value) || 0,
-                                      })
-                                    }
-                                    className="w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm"
-                                  />
-                                </label>
-                                <label className="block">
-                                  <div className="mb-1 text-[11px] font-semibold uppercase tracking-wide text-zinc-500">Radius</div>
-                                  <input
-                                    type="number"
-                                    value={selectedBlock.props.leftStyle?.borderRadiusPx ?? ""}
-                                    onChange={(e) =>
-                                      updateSelectedSectionSideStyle("leftStyle", {
-                                        borderRadiusPx: e.target.value === "" ? undefined : Number(e.target.value) || 0,
-                                      })
-                                    }
-                                    className="w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm"
-                                  />
-                                </label>
+                              <div className="text-xs font-semibold uppercase tracking-wide text-zinc-500">Left column blocks</div>
+                              <div className="mt-2 flex flex-wrap gap-2">
+                                <button
+                                  type="button"
+                                  disabled={busy}
+                                  onClick={() => {
+                                    const id = newId();
+                                    const base: CreditFunnelBlock = { id, type: "heading", props: { text: "Left heading", level: 2 } };
+                                    upsertBlock({
+                                      ...selectedBlock,
+                                      props: {
+                                        ...selectedBlock.props,
+                                        leftChildren: [
+                                          ...((selectedBlock.props as any).leftChildren || []),
+                                          base,
+                                        ],
+                                      },
+                                    } as any);
+                                    setSelectedBlockId(id);
+                                  }}
+                                  className="rounded-xl border border-zinc-200 bg-white px-3 py-2 text-xs font-semibold text-zinc-800 hover:bg-zinc-50"
+                                >
+                                  + Heading
+                                </button>
+                                <button
+                                  type="button"
+                                  disabled={busy}
+                                  onClick={() => {
+                                    const id = newId();
+                                    const base: CreditFunnelBlock = { id, type: "paragraph", props: { text: "Left text" } };
+                                    upsertBlock({
+                                      ...selectedBlock,
+                                      props: {
+                                        ...selectedBlock.props,
+                                        leftChildren: [
+                                          ...((selectedBlock.props as any).leftChildren || []),
+                                          base,
+                                        ],
+                                      },
+                                    } as any);
+                                    setSelectedBlockId(id);
+                                  }}
+                                  className="rounded-xl border border-zinc-200 bg-white px-3 py-2 text-xs font-semibold text-zinc-800 hover:bg-zinc-50"
+                                >
+                                  + Text
+                                </button>
+                                <button
+                                  type="button"
+                                  disabled={busy}
+                                  onClick={() => {
+                                    const id = newId();
+                                    const base: CreditFunnelBlock = {
+                                      id,
+                                      type: "button",
+                                      props: { text: "Button", href: `${basePath}/forms/your-form-slug`, variant: "primary" },
+                                    };
+                                    upsertBlock({
+                                      ...selectedBlock,
+                                      props: {
+                                        ...selectedBlock.props,
+                                        leftChildren: [
+                                          ...((selectedBlock.props as any).leftChildren || []),
+                                          base,
+                                        ],
+                                      },
+                                    } as any);
+                                    setSelectedBlockId(id);
+                                  }}
+                                  className="rounded-xl border border-zinc-200 bg-white px-3 py-2 text-xs font-semibold text-zinc-800 hover:bg-zinc-50"
+                                >
+                                  + Button
+                                </button>
+                              </div>
+
+                              <div className="mt-3 space-y-2">
+                                {(((selectedBlock.props as any).leftChildren as CreditFunnelBlock[]) || []).length === 0 ? (
+                                  <div className="text-sm text-zinc-600">No blocks yet.</div>
+                                ) : (
+                                  (((selectedBlock.props as any).leftChildren as CreditFunnelBlock[]) || []).map((c) => (
+                                    <div
+                                      key={c.id}
+                                      className={classNames(
+                                        "flex items-center justify-between gap-2 rounded-xl border px-3 py-2",
+                                        selectedBlockId === c.id
+                                          ? "border-[color:var(--color-brand-blue)] bg-blue-50"
+                                          : "border-zinc-200 bg-white",
+                                      )}
+                                    >
+                                      <button
+                                        type="button"
+                                        onClick={() => setSelectedBlockId(c.id)}
+                                        className="min-w-0 flex-1 truncate text-left text-sm font-semibold text-zinc-900"
+                                      >
+                                        {c.type}
+                                      </button>
+                                      <button
+                                        type="button"
+                                        disabled={busy}
+                                        onClick={() => removeBlock(c.id)}
+                                        className="rounded-xl border border-zinc-200 bg-white px-3 py-2 text-xs font-semibold text-zinc-800 hover:bg-zinc-50"
+                                      >
+                                        Remove
+                                      </button>
+                                    </div>
+                                  ))
+                                )}
                               </div>
                             </div>
 
                             <div className="rounded-xl border border-zinc-200 bg-white p-3">
-                              <div className="text-xs font-semibold uppercase tracking-wide text-zinc-500">Right column style</div>
-                              <div className="mt-2 grid grid-cols-2 gap-2">
-                                <label className="block">
-                                  <div className="mb-1 text-[11px] font-semibold uppercase tracking-wide text-zinc-500">Text</div>
-                                  <input
-                                    value={selectedBlock.props.rightStyle?.textColor || ""}
-                                    onChange={(e) =>
-                                      updateSelectedSectionSideStyle("rightStyle", {
-                                        textColor: e.target.value.trim() ? e.target.value.trim() : undefined,
-                                      })
-                                    }
-                                    className="w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm"
-                                    placeholder="#0f172a"
-                                  />
-                                </label>
-                                <label className="block">
-                                  <div className="mb-1 text-[11px] font-semibold uppercase tracking-wide text-zinc-500">Background</div>
-                                  <input
-                                    value={selectedBlock.props.rightStyle?.backgroundColor || ""}
-                                    onChange={(e) =>
-                                      updateSelectedSectionSideStyle("rightStyle", {
-                                        backgroundColor: e.target.value.trim() ? e.target.value.trim() : undefined,
-                                      })
-                                    }
-                                    className="w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm"
-                                    placeholder="#ffffff"
-                                  />
-                                </label>
-                                <label className="block">
-                                  <div className="mb-1 text-[11px] font-semibold uppercase tracking-wide text-zinc-500">Padding</div>
-                                  <input
-                                    type="number"
-                                    value={selectedBlock.props.rightStyle?.paddingPx ?? ""}
-                                    onChange={(e) =>
-                                      updateSelectedSectionSideStyle("rightStyle", {
-                                        paddingPx: e.target.value === "" ? undefined : Number(e.target.value) || 0,
-                                      })
-                                    }
-                                    className="w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm"
-                                  />
-                                </label>
-                                <label className="block">
-                                  <div className="mb-1 text-[11px] font-semibold uppercase tracking-wide text-zinc-500">Radius</div>
-                                  <input
-                                    type="number"
-                                    value={selectedBlock.props.rightStyle?.borderRadiusPx ?? ""}
-                                    onChange={(e) =>
-                                      updateSelectedSectionSideStyle("rightStyle", {
-                                        borderRadiusPx: e.target.value === "" ? undefined : Number(e.target.value) || 0,
-                                      })
-                                    }
-                                    className="w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm"
-                                  />
-                                </label>
+                              <div className="text-xs font-semibold uppercase tracking-wide text-zinc-500">Right column blocks</div>
+                              <div className="mt-2 flex flex-wrap gap-2">
+                                <button
+                                  type="button"
+                                  disabled={busy}
+                                  onClick={() => {
+                                    const id = newId();
+                                    const base: CreditFunnelBlock = { id, type: "heading", props: { text: "Right heading", level: 2 } };
+                                    upsertBlock({
+                                      ...selectedBlock,
+                                      props: {
+                                        ...selectedBlock.props,
+                                        rightChildren: [
+                                          ...((selectedBlock.props as any).rightChildren || []),
+                                          base,
+                                        ],
+                                      },
+                                    } as any);
+                                    setSelectedBlockId(id);
+                                  }}
+                                  className="rounded-xl border border-zinc-200 bg-white px-3 py-2 text-xs font-semibold text-zinc-800 hover:bg-zinc-50"
+                                >
+                                  + Heading
+                                </button>
+                                <button
+                                  type="button"
+                                  disabled={busy}
+                                  onClick={() => {
+                                    const id = newId();
+                                    const base: CreditFunnelBlock = { id, type: "paragraph", props: { text: "Right text" } };
+                                    upsertBlock({
+                                      ...selectedBlock,
+                                      props: {
+                                        ...selectedBlock.props,
+                                        rightChildren: [
+                                          ...((selectedBlock.props as any).rightChildren || []),
+                                          base,
+                                        ],
+                                      },
+                                    } as any);
+                                    setSelectedBlockId(id);
+                                  }}
+                                  className="rounded-xl border border-zinc-200 bg-white px-3 py-2 text-xs font-semibold text-zinc-800 hover:bg-zinc-50"
+                                >
+                                  + Text
+                                </button>
+                                <button
+                                  type="button"
+                                  disabled={busy}
+                                  onClick={() => {
+                                    const id = newId();
+                                    const base: CreditFunnelBlock = {
+                                      id,
+                                      type: "button",
+                                      props: { text: "Button", href: `${basePath}/forms/your-form-slug`, variant: "primary" },
+                                    };
+                                    upsertBlock({
+                                      ...selectedBlock,
+                                      props: {
+                                        ...selectedBlock.props,
+                                        rightChildren: [
+                                          ...((selectedBlock.props as any).rightChildren || []),
+                                          base,
+                                        ],
+                                      },
+                                    } as any);
+                                    setSelectedBlockId(id);
+                                  }}
+                                  className="rounded-xl border border-zinc-200 bg-white px-3 py-2 text-xs font-semibold text-zinc-800 hover:bg-zinc-50"
+                                >
+                                  + Button
+                                </button>
+                              </div>
+
+                              <div className="mt-3 space-y-2">
+                                {(((selectedBlock.props as any).rightChildren as CreditFunnelBlock[]) || []).length === 0 ? (
+                                  <div className="text-sm text-zinc-600">No blocks yet.</div>
+                                ) : (
+                                  (((selectedBlock.props as any).rightChildren as CreditFunnelBlock[]) || []).map((c) => (
+                                    <div
+                                      key={c.id}
+                                      className={classNames(
+                                        "flex items-center justify-between gap-2 rounded-xl border px-3 py-2",
+                                        selectedBlockId === c.id
+                                          ? "border-[color:var(--color-brand-blue)] bg-blue-50"
+                                          : "border-zinc-200 bg-white",
+                                      )}
+                                    >
+                                      <button
+                                        type="button"
+                                        onClick={() => setSelectedBlockId(c.id)}
+                                        className="min-w-0 flex-1 truncate text-left text-sm font-semibold text-zinc-900"
+                                      >
+                                        {c.type}
+                                      </button>
+                                      <button
+                                        type="button"
+                                        disabled={busy}
+                                        onClick={() => removeBlock(c.id)}
+                                        className="rounded-xl border border-zinc-200 bg-white px-3 py-2 text-xs font-semibold text-zinc-800 hover:bg-zinc-50"
+                                      >
+                                        Remove
+                                      </button>
+                                    </div>
+                                  ))
+                                )}
                               </div>
                             </div>
+
+                            <CollapsibleGroup title="Column styles" defaultOpen={false}>
+                              <div className="space-y-2">
+                                <div className="rounded-xl border border-zinc-200 bg-white p-3">
+                                  <div className="text-xs font-semibold uppercase tracking-wide text-zinc-500">Left style</div>
+                                  <div className="mt-2 space-y-2">
+                                    <ColorPickerField
+                                      label="Text"
+                                      value={selectedBlock.props.leftStyle?.textColor}
+                                      onChange={(v) => updateSelectedSectionSideStyle("leftStyle", { textColor: v })}
+                                      swatches={colorSwatches}
+                                      allowAlpha
+                                    />
+                                    <ColorPickerField
+                                      label="Background"
+                                      value={selectedBlock.props.leftStyle?.backgroundColor}
+                                      onChange={(v) => updateSelectedSectionSideStyle("leftStyle", { backgroundColor: v })}
+                                      swatches={colorSwatches}
+                                      allowAlpha
+                                    />
+                                    <PaddingPicker
+                                      label="Padding"
+                                      value={selectedBlock.props.leftStyle?.paddingPx}
+                                      onChange={(v) => updateSelectedSectionSideStyle("leftStyle", { paddingPx: v })}
+                                    />
+                                  </div>
+                                </div>
+
+                                <div className="rounded-xl border border-zinc-200 bg-white p-3">
+                                  <div className="text-xs font-semibold uppercase tracking-wide text-zinc-500">Right style</div>
+                                  <div className="mt-2 space-y-2">
+                                    <ColorPickerField
+                                      label="Text"
+                                      value={selectedBlock.props.rightStyle?.textColor}
+                                      onChange={(v) => updateSelectedSectionSideStyle("rightStyle", { textColor: v })}
+                                      swatches={colorSwatches}
+                                      allowAlpha
+                                    />
+                                    <ColorPickerField
+                                      label="Background"
+                                      value={selectedBlock.props.rightStyle?.backgroundColor}
+                                      onChange={(v) => updateSelectedSectionSideStyle("rightStyle", { backgroundColor: v })}
+                                      swatches={colorSwatches}
+                                      allowAlpha
+                                    />
+                                    <PaddingPicker
+                                      label="Padding"
+                                      value={selectedBlock.props.rightStyle?.paddingPx}
+                                      onChange={(v) => updateSelectedSectionSideStyle("rightStyle", { paddingPx: v })}
+                                    />
+                                  </div>
+                                </div>
+                              </div>
+                            </CollapsibleGroup>
                           </>
                         ) : (
-                          <textarea
-                            value={selectedBlock.props.markdown || ""}
-                            onChange={(e) =>
-                              upsertBlock({
-                                ...selectedBlock,
-                                props: { ...selectedBlock.props, markdown: e.target.value },
-                              })
-                            }
-                            className="min-h-[140px] w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm"
-                            placeholder="Section content (markdown)"
-                          />
+                          <>
+                            <div className="rounded-xl border border-zinc-200 bg-white p-3">
+                              <div className="text-xs font-semibold uppercase tracking-wide text-zinc-500">Section blocks</div>
+                              <div className="mt-2 flex flex-wrap gap-2">
+                                <button
+                                  type="button"
+                                  disabled={busy}
+                                  onClick={() => addBlock("heading")}
+                                  className="rounded-xl border border-zinc-200 bg-white px-3 py-2 text-xs font-semibold text-zinc-800 hover:bg-zinc-50"
+                                >
+                                  + Heading
+                                </button>
+                                <button
+                                  type="button"
+                                  disabled={busy}
+                                  onClick={() => addBlock("paragraph")}
+                                  className="rounded-xl border border-zinc-200 bg-white px-3 py-2 text-xs font-semibold text-zinc-800 hover:bg-zinc-50"
+                                >
+                                  + Text
+                                </button>
+                                <button
+                                  type="button"
+                                  disabled={busy}
+                                  onClick={() => addBlock("button")}
+                                  className="rounded-xl border border-zinc-200 bg-white px-3 py-2 text-xs font-semibold text-zinc-800 hover:bg-zinc-50"
+                                >
+                                  + Button
+                                </button>
+                                <button
+                                  type="button"
+                                  disabled={busy}
+                                  onClick={() => addBlock("formEmbed")}
+                                  className="rounded-xl border border-zinc-200 bg-white px-3 py-2 text-xs font-semibold text-zinc-800 hover:bg-zinc-50"
+                                >
+                                  + Form embed
+                                </button>
+                                <button
+                                  type="button"
+                                  disabled={busy}
+                                  onClick={() => addBlock("image")}
+                                  className="rounded-xl border border-zinc-200 bg-white px-3 py-2 text-xs font-semibold text-zinc-800 hover:bg-zinc-50"
+                                >
+                                  + Image
+                                </button>
+                              </div>
+
+                              <div className="mt-3 space-y-2">
+                                {(((selectedBlock.props as any).children as CreditFunnelBlock[]) || []).length === 0 ? (
+                                  <div className="text-sm text-zinc-600">No blocks yet.</div>
+                                ) : (
+                                  (((selectedBlock.props as any).children as CreditFunnelBlock[]) || []).map((c) => (
+                                    <div
+                                      key={c.id}
+                                      className={classNames(
+                                        "flex items-center justify-between gap-2 rounded-xl border px-3 py-2",
+                                        selectedBlockId === c.id
+                                          ? "border-[color:var(--color-brand-blue)] bg-blue-50"
+                                          : "border-zinc-200 bg-white",
+                                      )}
+                                    >
+                                      <button
+                                        type="button"
+                                        onClick={() => setSelectedBlockId(c.id)}
+                                        className="min-w-0 flex-1 truncate text-left text-sm font-semibold text-zinc-900"
+                                      >
+                                        {c.type}
+                                      </button>
+                                      <button
+                                        type="button"
+                                        disabled={busy}
+                                        onClick={() => removeBlock(c.id)}
+                                        className="rounded-xl border border-zinc-200 bg-white px-3 py-2 text-xs font-semibold text-zinc-800 hover:bg-zinc-50"
+                                      >
+                                        Remove
+                                      </button>
+                                    </div>
+                                  ))
+                                )}
+                              </div>
+                            </div>
+
+                            {(selectedBlock.props.markdown || "").trim() ? (
+                              <CollapsibleGroup title="Legacy markdown (optional)" defaultOpen={false}>
+                                <textarea
+                                  value={selectedBlock.props.markdown || ""}
+                                  onChange={(e) =>
+                                    upsertBlock({
+                                      ...selectedBlock,
+                                      props: { ...selectedBlock.props, markdown: e.target.value },
+                                    })
+                                  }
+                                  className="min-h-[120px] w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm"
+                                  placeholder="Legacy markdown content"
+                                />
+                              </CollapsibleGroup>
+                            ) : null}
+                          </>
                         )}
                       </div>
                     ) : null}
 
-                    <div className="mt-2 rounded-xl border border-zinc-200 bg-white p-3">
-                      <div className="text-xs font-semibold uppercase tracking-wide text-zinc-500">Style</div>
-
-                      <div className="mt-2 space-y-2">
+                    <CollapsibleGroup title="Style" defaultOpen>
+                      <div className="space-y-2">
                         {(
                           selectedBlock.type === "heading" ||
                           selectedBlock.type === "paragraph" ||
@@ -2983,19 +3968,10 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
                           </label>
                         ) : null}
 
-                        <label className="block">
-                          <div className="mb-1 text-xs font-semibold uppercase tracking-wide text-zinc-500">Align</div>
-                          <select
-                            value={selectedBlock.props.style?.align || ""}
-                            onChange={(e) => updateSelectedBlockStyle({ align: (e.target.value as any) || undefined })}
-                            className="w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm"
-                          >
-                            <option value="">Default</option>
-                            <option value="left">Left</option>
-                            <option value="center">Center</option>
-                            <option value="right">Right</option>
-                          </select>
-                        </label>
+                        <AlignPicker
+                          value={selectedBlock.props.style?.align}
+                          onChange={(v) => updateSelectedBlockStyle({ align: v })}
+                        />
 
                         <div className="grid grid-cols-2 gap-2">
                           <label className="block">
@@ -3026,53 +4002,35 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
                           </label>
                         </div>
 
-                        <div className="grid grid-cols-2 gap-2">
-                          <label className="block">
-                            <div className="mb-1 text-xs font-semibold uppercase tracking-wide text-zinc-500">Padding</div>
-                            <input
-                              type="number"
-                              value={selectedBlock.props.style?.paddingPx ?? ""}
-                              onChange={(e) =>
-                                updateSelectedBlockStyle({
-                                  paddingPx: e.target.value === "" ? undefined : Number(e.target.value) || 0,
-                                })
-                              }
-                              className="w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm"
-                            />
-                          </label>
-                          <label className="block">
-                            <div className="mb-1 text-xs font-semibold uppercase tracking-wide text-zinc-500">Radius</div>
-                            <input
-                              type="number"
-                              value={selectedBlock.props.style?.borderRadiusPx ?? ""}
-                              onChange={(e) =>
-                                updateSelectedBlockStyle({
-                                  borderRadiusPx: e.target.value === "" ? undefined : Number(e.target.value) || 0,
-                                })
-                              }
-                              className="w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm"
-                            />
-                          </label>
-                        </div>
+                        <PaddingPicker
+                          label="Padding"
+                          value={selectedBlock.props.style?.paddingPx}
+                          onChange={(v) => updateSelectedBlockStyle({ paddingPx: v })}
+                        />
+
+                        <label className="block">
+                          <div className="mb-1 text-xs font-semibold uppercase tracking-wide text-zinc-500">Radius</div>
+                          <input
+                            type="number"
+                            value={selectedBlock.props.style?.borderRadiusPx ?? ""}
+                            onChange={(e) =>
+                              updateSelectedBlockStyle({
+                                borderRadiusPx: e.target.value === "" ? undefined : Number(e.target.value) || 0,
+                              })
+                            }
+                            className="w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm"
+                          />
+                        </label>
 
                         {(selectedBlock.type === "image" || selectedBlock.type === "button") ? (
-                          <label className="block">
-                            <div className="mb-1 text-xs font-semibold uppercase tracking-wide text-zinc-500">Max width (px)</div>
-                            <input
-                              type="number"
-                              value={selectedBlock.props.style?.maxWidthPx ?? ""}
-                              onChange={(e) =>
-                                updateSelectedBlockStyle({
-                                  maxWidthPx: e.target.value === "" ? undefined : Number(e.target.value) || 0,
-                                })
-                              }
-                              className="w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm"
-                              placeholder="e.g. 640"
-                            />
-                          </label>
+                          <MaxWidthPicker
+                            label="Max width"
+                            value={selectedBlock.props.style?.maxWidthPx}
+                            onChange={(v) => updateSelectedBlockStyle({ maxWidthPx: v })}
+                          />
                         ) : null}
                       </div>
-                    </div>
+                    </CollapsibleGroup>
 
                     <button
                       type="button"
@@ -3375,35 +4333,7 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
                         </div>
                       ) : (
                         <div className="space-y-4">
-                          {editableBlocks.map((b) => (
-                            <div
-                              key={b.id}
-                              draggable
-                              onDragStart={(e) => {
-                                e.dataTransfer.setData("text/x-block-id", b.id);
-                                e.dataTransfer.effectAllowed = "move";
-                              }}
-                              onDragOver={(e) => {
-                                e.preventDefault();
-                                e.dataTransfer.dropEffect = "move";
-                              }}
-                              onDrop={(e) => {
-                                e.preventDefault();
-                                const dragId = e.dataTransfer.getData("text/x-block-id");
-                                if (dragId) reorderBlocks(dragId, b.id);
-                              }}
-                              onClick={() => setSelectedBlockId(b.id)}
-                              className={classNames(
-                                "cursor-pointer rounded-2xl border p-4",
-                                selectedBlockId === b.id
-                                  ? "border-[color:var(--color-brand-blue)] bg-blue-50"
-                                  : "border-zinc-200 bg-white hover:bg-zinc-50",
-                              )}
-                            >
-                              <div className="text-xs font-semibold uppercase tracking-wide text-zinc-500">{b.type}</div>
-                              <div className="mt-3">{renderCreditFunnelBlocks({ blocks: [b], basePath })}</div>
-                            </div>
-                          ))}
+                          {renderEditBlockCards(editableBlocks, 0)}
                         </div>
                       )}
                     </div>

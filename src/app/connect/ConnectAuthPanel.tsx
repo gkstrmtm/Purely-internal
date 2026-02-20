@@ -2,7 +2,7 @@
 
 import { signIn, signOut } from "next-auth/react";
 import { useRouter } from "next/navigation";
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 
 type AuthStatus = {
 	ok: boolean;
@@ -37,7 +37,7 @@ export function ConnectAuthPanel(props: { defaultOpen?: boolean; hideWhenSignedI
 	const [submitting, setSubmitting] = useState(false);
 	const [error, setError] = useState<string | null>(null);
 
-	async function refresh() {
+	const refresh = useCallback(async () => {
 		setLoading(true);
 		try {
 			const next = await fetchAuthStatus();
@@ -45,12 +45,11 @@ export function ConnectAuthPanel(props: { defaultOpen?: boolean; hideWhenSignedI
 		} finally {
 			setLoading(false);
 		}
-	}
+	}, []);
 
 	useEffect(() => {
 		void refresh();
-		// eslint-disable-next-line react-hooks/exhaustive-deps
-	}, []);
+	}, [refresh]);
 
 	const signedInAs = useMemo(() => {
 		const employee = displayName(status?.employee ?? null);

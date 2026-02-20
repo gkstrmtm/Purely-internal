@@ -16,13 +16,11 @@ function classNames(...xs: Array<string | false | null | undefined>) {
 export function CreditHostedFormClient({
   slug,
   formName,
-  status,
   fields,
   embedded,
 }: {
   slug: string;
   formName: string;
-  status: string;
   fields: Field[];
   embedded?: boolean;
 }) {
@@ -44,13 +42,7 @@ export function CreditHostedFormClient({
     >
       {embedded ? null : (
         <>
-          <div className="text-xs font-semibold uppercase tracking-wide text-zinc-500">Credit Form</div>
           <h1 className="mt-2 text-2xl font-bold text-brand-ink sm:text-3xl">{formName}</h1>
-          <p className="mt-2 text-sm text-zinc-600">Slug: /credit/forms/{slug}</p>
-
-          <div className="mt-6 inline-flex items-center rounded-full border border-zinc-200 bg-zinc-50 px-3 py-1 text-xs font-semibold text-zinc-700">
-            Status: {status}
-          </div>
         </>
       )}
 

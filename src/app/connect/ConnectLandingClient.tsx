@@ -6,7 +6,7 @@ import { useMemo, useState } from "react";
 
 import { ConnectAuthPanel } from "./ConnectAuthPanel";
 
-export function ConnectLandingClient(props: { signedInName?: string | null }) {
+export function ConnectLandingClient() {
 	const router = useRouter();
 	const [creating, setCreating] = useState(false);
 	const [joinValue, setJoinValue] = useState("");

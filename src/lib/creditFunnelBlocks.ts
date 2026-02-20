@@ -66,6 +66,8 @@ export type CreditFunnelBlock =
       props: {
         leftMarkdown: string;
         rightMarkdown: string;
+        leftChildren?: CreditFunnelBlock[];
+        rightChildren?: CreditFunnelBlock[];
         gapPx?: number;
         stackOnMobile?: boolean;
         style?: BlockStyle;
@@ -78,6 +80,9 @@ export type CreditFunnelBlock =
       type: "section";
       props: {
         layout?: "one" | "two";
+        children?: CreditFunnelBlock[];
+        leftChildren?: CreditFunnelBlock[];
+        rightChildren?: CreditFunnelBlock[];
         markdown?: string;
         leftMarkdown?: string;
         rightMarkdown?: string;
@@ -128,8 +133,9 @@ function coerceStyle(raw: unknown): BlockStyle | undefined {
   return hasAny ? style : undefined;
 }
 
-export function coerceBlocksJson(value: unknown): CreditFunnelBlock[] {
+function coerceBlocksJsonInternal(value: unknown, depth: number): CreditFunnelBlock[] {
   if (!Array.isArray(value)) return [];
+  if (depth > 6) return [];
   const out: CreditFunnelBlock[] = [];
 
   for (const raw of value) {
@@ -214,6 +220,8 @@ export function coerceBlocksJson(value: unknown): CreditFunnelBlock[] {
     if (type === "columns") {
       const leftMarkdown = typeof props?.leftMarkdown === "string" ? props.leftMarkdown : "";
       const rightMarkdown = typeof props?.rightMarkdown === "string" ? props.rightMarkdown : "";
+      const leftChildren = coerceBlocksJsonInternal(props?.leftChildren, depth + 1).filter((b) => b.type !== "page");
+      const rightChildren = coerceBlocksJsonInternal(props?.rightChildren, depth + 1).filter((b) => b.type !== "page");
       const gapPx = clampNum(props?.gapPx, 0, 120) ?? 24;
       const stackOnMobile = props?.stackOnMobile !== false;
       const style = coerceStyle(props?.style);
@@ -222,13 +230,26 @@ export function coerceBlocksJson(value: unknown): CreditFunnelBlock[] {
       out.push({
         id,
         type,
-        props: { leftMarkdown, rightMarkdown, gapPx, stackOnMobile, style, leftStyle, rightStyle },
+        props: {
+          leftMarkdown,
+          rightMarkdown,
+          leftChildren: leftChildren.length ? leftChildren : undefined,
+          rightChildren: rightChildren.length ? rightChildren : undefined,
+          gapPx,
+          stackOnMobile,
+          style,
+          leftStyle,
+          rightStyle,
+        },
       });
       continue;
     }
 
     if (type === "section") {
       const layout = props?.layout === "two" ? "two" : "one";
+      const children = coerceBlocksJsonInternal(props?.children, depth + 1).filter((b) => b.type !== "page");
+      const leftChildren = coerceBlocksJsonInternal(props?.leftChildren, depth + 1).filter((b) => b.type !== "page");
+      const rightChildren = coerceBlocksJsonInternal(props?.rightChildren, depth + 1).filter((b) => b.type !== "page");
       const markdown = typeof props?.markdown === "string" ? props.markdown : "";
       const leftMarkdown = typeof props?.leftMarkdown === "string" ? props.leftMarkdown : "";
       const rightMarkdown = typeof props?.rightMarkdown === "string" ? props.rightMarkdown : "";
@@ -242,6 +263,9 @@ export function coerceBlocksJson(value: unknown): CreditFunnelBlock[] {
         type,
         props: {
           layout,
+          children: children.length ? children : undefined,
+          leftChildren: leftChildren.length ? leftChildren : undefined,
+          rightChildren: rightChildren.length ? rightChildren : undefined,
           markdown,
           leftMarkdown,
           rightMarkdown,
@@ -259,12 +283,16 @@ export function coerceBlocksJson(value: unknown): CreditFunnelBlock[] {
   return out;
 }
 
+export function coerceBlocksJson(value: unknown): CreditFunnelBlock[] {
+  return coerceBlocksJsonInternal(value, 0);
+}
+
 function buttonClass(variant: "primary" | "secondary") {
   if (variant === "secondary") {
     return [
       "inline-flex items-center justify-center rounded-xl",
       "border border-zinc-200 bg-white",
-      "px-5 py-3 text-sm font-semibold text-zinc-900",
+      "px-5 py-3 text-sm font-semibold",
       "hover:bg-zinc-50",
     ].join(" ");
   }
@@ -367,14 +395,10 @@ export function renderCreditFunnelBlocks({
   const pageStyleBlock = first && first.type === "page" ? first : null;
   const renderBlocks = pageStyleBlock ? blocks.slice(1) : blocks;
 
-  return React.createElement(
-    "div",
-    {
-      className: "space-y-4",
-      style: { ...wrapperStyle(pageStyleBlock?.props.style), width: "100%", minHeight: "100vh" },
-    },
-    renderBlocks.map((b) => {
+  const renderBlocksInner: (inner: CreditFunnelBlock[]) => React.ReactNode[] = (inner) =>
+    inner.map((b) => {
       if (b.type === "page") return null;
+
       if (b.type === "heading") {
         const Tag =
           b.props.level === 1
@@ -385,10 +409,10 @@ export function renderCreditFunnelBlocks({
 
         const cls =
           b.props.level === 1
-            ? "text-3xl font-bold text-zinc-900"
+            ? "text-3xl font-bold"
             : b.props.level === 3
-              ? "text-lg font-bold text-zinc-900"
-              : "text-xl font-bold text-zinc-900";
+              ? "text-lg font-bold"
+              : "text-xl font-bold";
 
         return React.createElement(
           "div",
@@ -399,7 +423,6 @@ export function renderCreditFunnelBlocks({
               className: cls,
               style: {
                 ...textStyle(b.props.style),
-                color: b.props.style?.textColor,
               },
             },
             b.props.text,
@@ -408,7 +431,7 @@ export function renderCreditFunnelBlocks({
       }
 
       if (b.type === "paragraph") {
-        const cls = "text-base leading-relaxed text-zinc-700";
+        const cls = "text-base leading-relaxed";
         return React.createElement(
           "div",
           { key: b.id, style: wrapperStyle(b.props.style) },
@@ -418,7 +441,6 @@ export function renderCreditFunnelBlocks({
               className: cls,
               style: {
                 ...textStyle(b.props.style),
-                color: b.props.style?.textColor,
               },
             },
             b.props.text,
@@ -427,15 +449,29 @@ export function renderCreditFunnelBlocks({
       }
 
       if (b.type === "button") {
+        const s = b.props.style;
+        const wrapper: React.CSSProperties = wrapperStyle({
+          align: s?.align,
+          marginTopPx: s?.marginTopPx,
+          marginBottomPx: s?.marginBottomPx,
+          maxWidthPx: s?.maxWidthPx,
+        });
+        const linkStyle: React.CSSProperties = {
+          ...textStyle(s),
+          color: s?.textColor,
+          backgroundColor: s?.backgroundColor,
+          borderRadius: typeof s?.borderRadiusPx === "number" ? s.borderRadiusPx : undefined,
+          padding: typeof s?.paddingPx === "number" ? s.paddingPx : undefined,
+        };
         return React.createElement(
           "div",
-          { key: b.id, style: wrapperStyle(b.props.style) },
+          { key: b.id, style: wrapper },
           React.createElement(
             "a",
             {
               href: b.props.href,
               className: buttonClass(b.props.variant ?? "primary"),
-              style: b.props.style?.textColor ? { color: b.props.style.textColor } : undefined,
+              style: Object.keys(linkStyle).some((k) => (linkStyle as any)[k] !== undefined) ? linkStyle : undefined,
             },
             b.props.text,
           ),
@@ -505,6 +541,12 @@ export function renderCreditFunnelBlocks({
       if (b.type === "columns") {
         const gapPx = typeof b.props.gapPx === "number" ? b.props.gapPx : 24;
         const stack = b.props.stackOnMobile !== false;
+        const leftContent: React.ReactNode = b.props.leftChildren?.length
+          ? React.createElement("div", { className: "space-y-4" }, renderBlocksInner(b.props.leftChildren))
+          : renderMarkdown(b.props.leftMarkdown || "");
+        const rightContent: React.ReactNode = b.props.rightChildren?.length
+          ? React.createElement("div", { className: "space-y-4" }, renderBlocksInner(b.props.rightChildren))
+          : renderMarkdown(b.props.rightMarkdown || "");
         return React.createElement(
           "div",
           { key: b.id, style: wrapperStyle(b.props.style) },
@@ -517,12 +559,12 @@ export function renderCreditFunnelBlocks({
             React.createElement(
               "div",
               { style: wrapperStyle(b.props.leftStyle) },
-              renderMarkdown(b.props.leftMarkdown || ""),
+              leftContent,
             ),
             React.createElement(
               "div",
               { style: wrapperStyle(b.props.rightStyle) },
-              renderMarkdown(b.props.rightMarkdown || ""),
+              rightContent,
             ),
           ),
         );
@@ -533,6 +575,20 @@ export function renderCreditFunnelBlocks({
         const gapPx = typeof b.props.gapPx === "number" ? b.props.gapPx : 24;
         const stack = b.props.stackOnMobile !== false;
         if (layout === "two") {
+          const leftContent: React.ReactNode = b.props.leftChildren?.length
+            ? React.createElement(
+                "div",
+                { className: "space-y-4" },
+                renderBlocksInner(b.props.leftChildren),
+              )
+            : renderMarkdown(b.props.leftMarkdown || "");
+          const rightContent: React.ReactNode = b.props.rightChildren?.length
+            ? React.createElement(
+                "div",
+                { className: "space-y-4" },
+                renderBlocksInner(b.props.rightChildren),
+              )
+            : renderMarkdown(b.props.rightMarkdown || "");
           return React.createElement(
             "section",
             { key: b.id, style: wrapperStyle(b.props.style) },
@@ -545,12 +601,12 @@ export function renderCreditFunnelBlocks({
               React.createElement(
                 "div",
                 { style: wrapperStyle(b.props.leftStyle) },
-                renderMarkdown(b.props.leftMarkdown || ""),
+                leftContent,
               ),
               React.createElement(
                 "div",
                 { style: wrapperStyle(b.props.rightStyle) },
-                renderMarkdown(b.props.rightMarkdown || ""),
+                rightContent,
               ),
             ),
           );
@@ -559,11 +615,25 @@ export function renderCreditFunnelBlocks({
         return React.createElement(
           "section",
           { key: b.id, style: wrapperStyle(b.props.style) },
-          renderMarkdown(b.props.markdown || ""),
+          b.props.children?.length
+            ? React.createElement(
+                "div",
+                { className: "space-y-4" },
+                renderBlocksInner(b.props.children),
+              )
+            : renderMarkdown(b.props.markdown || ""),
         );
       }
 
       return null;
-    }),
+    });
+
+  return React.createElement(
+    "div",
+    {
+      className: "space-y-4",
+      style: { ...wrapperStyle(pageStyleBlock?.props.style), width: "100%", minHeight: "100vh" },
+    },
+    renderBlocksInner(renderBlocks),
   );
 }

@@ -328,7 +328,6 @@ export async function POST(req: Request) {
   const concurrency = 10;
 
   async function worker() {
-    // eslint-disable-next-line no-constant-condition
     while (true) {
       const rowIndex = cursor++;
       if (rowIndex >= dataRows.length) return;

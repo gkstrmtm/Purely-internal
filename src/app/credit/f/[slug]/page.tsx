@@ -41,26 +41,20 @@ export default async function CreditHostedFunnelPage({ params }: { params: Promi
   const blockBlocks = page ? coerceBlocksJson(page.blocksJson) : [];
 
   return (
-    <main className="mx-auto w-full max-w-3xl p-8">
-      <div className="rounded-3xl border border-zinc-200 bg-white p-8">
-        <div className="text-xs font-semibold uppercase tracking-wide text-zinc-500">Credit Funnel</div>
-        <h1 className="mt-2 text-2xl font-bold text-brand-ink sm:text-3xl">{page?.title || funnel.name}</h1>
-        <p className="mt-2 text-sm text-zinc-600">Slug: /credit/f/{funnel.slug}</p>
-
-        {page ? (
-          <div className="mt-8">
-            {page.editorMode === "CUSTOM_HTML" ? (
-              <div className="overflow-hidden rounded-2xl border border-zinc-200">
-                <iframe
-                  title={page.title}
-                  sandbox="allow-forms allow-popups allow-scripts"
-                  srcDoc={page.customHtml || ""}
-                  className="h-[70vh] w-full bg-white"
-                />
-              </div>
-            ) : page.editorMode === "BLOCKS" ? (
-              <div>{renderCreditFunnelBlocks({ blocks: blockBlocks, basePath: "/credit" })}</div>
-            ) : (
+    <main className="w-full min-h-screen">
+      {page ? (
+        <>
+          {page.editorMode === "CUSTOM_HTML" ? (
+            <iframe
+              title={page.title}
+              sandbox="allow-forms allow-popups allow-scripts"
+              srcDoc={page.customHtml || ""}
+              className="h-[100vh] w-full bg-white"
+            />
+          ) : page.editorMode === "BLOCKS" ? (
+            <div>{renderCreditFunnelBlocks({ blocks: blockBlocks, basePath: "/credit" })}</div>
+          ) : (
+            <div className="mx-auto w-full max-w-3xl p-8">
               <div className="prose prose-zinc max-w-none">
                 {markdownBlocks.map((b, idx) => {
               if (b.type === "h2") {
@@ -106,15 +100,14 @@ export default async function CreditHostedFunnelPage({ params }: { params: Promi
               return null;
                 })}
               </div>
-            )}
-          </div>
-        ) : (
-          <p className="mt-6 text-sm text-zinc-700">No pages yet for this funnel.</p>
-        )}
-        <div className="mt-6 inline-flex items-center rounded-full border border-zinc-200 bg-zinc-50 px-3 py-1 text-xs font-semibold text-zinc-700">
-          Status: {funnel.status}
+            </div>
+          )}
+        </>
+      ) : (
+        <div className="mx-auto w-full max-w-3xl p-8">
+          <p className="text-sm text-zinc-700">No pages yet for this funnel.</p>
         </div>
-      </div>
+      )}
     </main>
   );
 }

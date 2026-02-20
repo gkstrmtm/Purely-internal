@@ -64,7 +64,6 @@ export default async function CreditHostedFormPage({
       <CreditHostedFormClient
         slug={form.slug}
         formName={form.name}
-        status={form.status}
         fields={fields}
         embedded={embed}
       />

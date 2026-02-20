@@ -1,7 +1,7 @@
 "use client";
 
 import { createPortal } from "react-dom";
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 
 import { PORTAL_VARIANT_HEADER, type PortalVariant } from "@/lib/portalVariant";
 
@@ -62,7 +62,7 @@ export function PortalMediaPickerModal({
     setMounted(true);
   }, []);
 
-  async function load(nextQ: string) {
+  const load = useCallback(async (nextQ: string) => {
     setLoading(true);
     setError(null);
 
@@ -85,18 +85,18 @@ export function PortalMediaPickerModal({
 
     setItems(Array.isArray(json.items) ? json.items : []);
     setLoading(false);
-  }
+  }, [variant]);
 
   useEffect(() => {
     if (!open) return;
     void load("");
-  }, [open]);
+  }, [open, load]);
 
   useEffect(() => {
     if (!open) return;
     const t = setTimeout(() => void load(q), 200);
     return () => clearTimeout(t);
-  }, [q, open]);
+  }, [q, open, load]);
 
   const body = useMemo(() => {
     return (
