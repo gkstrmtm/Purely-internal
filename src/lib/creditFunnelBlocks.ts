@@ -5,13 +5,22 @@ import { inlineMarkdownToHtmlSafe, parseBlogContent } from "@/lib/blog";
 export type BlockStyle = {
   textColor?: string;
   backgroundColor?: string;
+  backgroundImageUrl?: string;
   fontSizePx?: number;
   align?: "left" | "center" | "right";
   marginTopPx?: number;
   marginBottomPx?: number;
   paddingPx?: number;
   borderRadiusPx?: number;
+  borderColor?: string;
+  borderWidthPx?: number;
   maxWidthPx?: number;
+};
+
+export type ColumnsColumn = {
+  markdown: string;
+  children?: CreditFunnelBlock[];
+  style?: BlockStyle;
 };
 
 export type CreditFunnelBlock =
@@ -23,12 +32,12 @@ export type CreditFunnelBlock =
   | {
       id: string;
       type: "heading";
-      props: { text: string; level?: 1 | 2 | 3; style?: BlockStyle };
+      props: { text: string; html?: string; level?: 1 | 2 | 3; style?: BlockStyle };
     }
   | {
       id: string;
       type: "paragraph";
-      props: { text: string; style?: BlockStyle };
+      props: { text: string; html?: string; style?: BlockStyle };
     }
   | {
       id: string;
@@ -64,15 +73,10 @@ export type CreditFunnelBlock =
       id: string;
       type: "columns";
       props: {
-        leftMarkdown: string;
-        rightMarkdown: string;
-        leftChildren?: CreditFunnelBlock[];
-        rightChildren?: CreditFunnelBlock[];
+        columns: ColumnsColumn[];
         gapPx?: number;
         stackOnMobile?: boolean;
         style?: BlockStyle;
-        leftStyle?: BlockStyle;
-        rightStyle?: BlockStyle;
       };
     }
   | {
@@ -108,6 +112,145 @@ function coerceCssColor(v: unknown): string | undefined {
   return s;
 }
 
+function coerceCssUrl(v: unknown): string | undefined {
+  if (typeof v !== "string") return undefined;
+  const s = v.trim();
+  if (!s) return undefined;
+  if (s.length > 500) return undefined;
+  const lower = s.toLowerCase();
+  if (lower.startsWith("javascript:")) return undefined;
+  if (lower.startsWith("data:")) return undefined;
+  if (lower.startsWith("http://") || lower.startsWith("https://") || lower.startsWith("/")) return s;
+  return undefined;
+}
+
+function escapeHtmlText(raw: string): string {
+  // Preserve existing entities (&nbsp;, &amp;, etc). ContentEditable often emits them.
+  return raw.replace(/</g, "&lt;").replace(/>/g, "&gt;");
+}
+
+function escapeHtmlAttr(raw: string): string {
+  return raw
+    .replace(/&/g, "&amp;")
+    .replace(/"/g, "&quot;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;");
+}
+
+function sanitizeHref(raw: string | undefined): string | undefined {
+  if (!raw) return undefined;
+  const s = raw.trim();
+  if (!s) return undefined;
+  if (s.length > 500) return undefined;
+  const lower = s.toLowerCase();
+  if (lower.startsWith("javascript:")) return undefined;
+  if (lower.startsWith("data:")) return undefined;
+  if (lower.startsWith("http://") || lower.startsWith("https://")) return s;
+  if (lower.startsWith("mailto:") || lower.startsWith("tel:")) return s;
+  if (s.startsWith("/") || s.startsWith("#")) return s;
+  return undefined;
+}
+
+function extractAttr(tagBody: string, attr: string): string | undefined {
+  const re = new RegExp(`${attr}\\s*=\\s*(?:"([^"]*)"|'([^']*)'|([^\\s>]+))`, "i");
+  const m = re.exec(tagBody);
+  return (m?.[1] ?? m?.[2] ?? m?.[3]) as any;
+}
+
+export function sanitizeRichTextHtml(input: unknown): string | undefined {
+  if (typeof input !== "string") return undefined;
+  let s = input.trim();
+  if (!s) return undefined;
+  if (s.length > 10000) s = s.slice(0, 10000);
+  s = s.replace(/<!--[\s\S]*?-->/g, "");
+
+  const normalizeTag = (rawName: string): "strong" | "em" | "u" | "a" | "br" | null => {
+    const n = rawName.toLowerCase();
+    if (n === "strong" || n === "b") return "strong";
+    if (n === "em" || n === "i") return "em";
+    if (n === "u") return "u";
+    if (n === "a") return "a";
+    if (n === "br") return "br";
+    return null;
+  };
+
+  const out: string[] = [];
+  const stack: Array<"strong" | "em" | "u" | "a"> = [];
+
+  let i = 0;
+  while (i < s.length) {
+    const lt = s.indexOf("<", i);
+    if (lt === -1) {
+      out.push(escapeHtmlText(s.slice(i)));
+      break;
+    }
+
+    if (lt > i) out.push(escapeHtmlText(s.slice(i, lt)));
+    const gt = s.indexOf(">", lt + 1);
+    if (gt === -1) {
+      out.push(escapeHtmlText(s.slice(lt)));
+      break;
+    }
+
+    const rawTag = s.slice(lt + 1, gt).trim();
+    i = gt + 1;
+
+    if (!rawTag) continue;
+    if (rawTag.startsWith("!")) continue;
+    if (rawTag.startsWith("?")) continue;
+
+    const isClosing = rawTag.startsWith("/");
+    const isSelfClosing = /\/$/.test(rawTag);
+    const tagBody = rawTag.replace(/^\//, "").replace(/\/$/, "").trim();
+    const nameMatch = /^([a-zA-Z0-9]+)/.exec(tagBody);
+    if (!nameMatch) continue;
+
+    const name = normalizeTag(nameMatch[1]);
+    if (!name) continue;
+
+    if (name === "br") {
+      out.push("<br />");
+      continue;
+    }
+
+    if (isClosing) {
+      const top = stack[stack.length - 1];
+      if (top === name) {
+        stack.pop();
+        out.push(`</${name}>`);
+      }
+      continue;
+    }
+
+    if (name === "a") {
+      const href = sanitizeHref(extractAttr(tagBody, "href"));
+      if (!href) continue;
+      out.push(`<a href=\"${escapeHtmlAttr(href)}\">`);
+      stack.push("a");
+      if (isSelfClosing) {
+        stack.pop();
+        out.push("</a>");
+      }
+      continue;
+    }
+
+    out.push(`<${name}>`);
+    stack.push(name);
+    if (isSelfClosing) {
+      stack.pop();
+      out.push(`</${name}>`);
+    }
+  }
+
+  while (stack.length) {
+    const name = stack.pop();
+    if (name) out.push(`</${name}>`);
+  }
+
+  const result = out.join("").trim();
+  return result ? result : undefined;
+}
+
 function coerceAlign(v: unknown): BlockStyle["align"] {
   if (v === "center" || v === "right") return v;
   if (v === "left") return "left";
@@ -120,12 +263,15 @@ function coerceStyle(raw: unknown): BlockStyle | undefined {
   const style: BlockStyle = {
     textColor: coerceCssColor(r.textColor),
     backgroundColor: coerceCssColor(r.backgroundColor),
+    backgroundImageUrl: coerceCssUrl(r.backgroundImageUrl),
     fontSizePx: clampNum(r.fontSizePx, 8, 120),
     align: coerceAlign(r.align),
     marginTopPx: clampNum(r.marginTopPx, 0, 240),
     marginBottomPx: clampNum(r.marginBottomPx, 0, 240),
     paddingPx: clampNum(r.paddingPx, 0, 240),
     borderRadiusPx: clampNum(r.borderRadiusPx, 0, 80),
+    borderColor: coerceCssColor(r.borderColor),
+    borderWidthPx: clampNum(r.borderWidthPx, 0, 24),
     maxWidthPx: clampNum(r.maxWidthPx, 0, 1600),
   };
 
@@ -153,19 +299,21 @@ function coerceBlocksJsonInternal(value: unknown, depth: number): CreditFunnelBl
 
     if (type === "heading") {
       const text = typeof props?.text === "string" ? props.text : "";
+      const html = sanitizeRichTextHtml(props?.html);
       const levelNum = Number(props?.level);
       const level = [1, 2, 3].includes(levelNum)
         ? (levelNum as 1 | 2 | 3)
         : 2;
       const style = coerceStyle(props?.style);
-      out.push({ id, type, props: { text, level, style } });
+      out.push({ id, type, props: { text, html, level, style } });
       continue;
     }
 
     if (type === "paragraph") {
       const text = typeof props?.text === "string" ? props.text : "";
+      const html = sanitizeRichTextHtml(props?.html);
       const style = coerceStyle(props?.style);
-      out.push({ id, type, props: { text, style } });
+      out.push({ id, type, props: { text, html, style } });
       continue;
     }
 
@@ -211,35 +359,59 @@ function coerceBlocksJsonInternal(value: unknown, depth: number): CreditFunnelBl
 
     if (type === "formEmbed") {
       const formSlug = typeof props?.formSlug === "string" ? props.formSlug : "";
-      const height = clampNum(props?.height, 120, 2000) ?? 760;
+      const height = clampNum(props?.height, 120, 2000);
       const style = coerceStyle(props?.style);
       out.push({ id, type, props: { formSlug, height, style } });
       continue;
     }
 
     if (type === "columns") {
-      const leftMarkdown = typeof props?.leftMarkdown === "string" ? props.leftMarkdown : "";
-      const rightMarkdown = typeof props?.rightMarkdown === "string" ? props.rightMarkdown : "";
-      const leftChildren = coerceBlocksJsonInternal(props?.leftChildren, depth + 1).filter((b) => b.type !== "page");
-      const rightChildren = coerceBlocksJsonInternal(props?.rightChildren, depth + 1).filter((b) => b.type !== "page");
+      const rawColumns = Array.isArray(props?.columns) ? (props.columns as any[]) : null;
+      const legacyLeftMarkdown = typeof props?.leftMarkdown === "string" ? props.leftMarkdown : "";
+      const legacyRightMarkdown = typeof props?.rightMarkdown === "string" ? props.rightMarkdown : "";
+      const legacyLeftChildren = coerceBlocksJsonInternal(props?.leftChildren, depth + 1).filter((b) => b.type !== "page");
+      const legacyRightChildren = coerceBlocksJsonInternal(props?.rightChildren, depth + 1).filter((b) => b.type !== "page");
       const gapPx = clampNum(props?.gapPx, 0, 120) ?? 24;
       const stackOnMobile = props?.stackOnMobile !== false;
       const style = coerceStyle(props?.style);
-      const leftStyle = coerceStyle(props?.leftStyle);
-      const rightStyle = coerceStyle(props?.rightStyle);
+      const legacyLeftStyle = coerceStyle(props?.leftStyle);
+      const legacyRightStyle = coerceStyle(props?.rightStyle);
+
+      const nextColumns: ColumnsColumn[] = [];
+      if (rawColumns && rawColumns.length) {
+        for (const c of rawColumns.slice(0, 6)) {
+          if (!c || typeof c !== "object") continue;
+          const markdown = typeof (c as any).markdown === "string" ? String((c as any).markdown) : "";
+          const children = coerceBlocksJsonInternal((c as any).children, depth + 1).filter((b) => b.type !== "page");
+          const colStyle = coerceStyle((c as any).style);
+          nextColumns.push({
+            markdown,
+            children: children.length ? children : undefined,
+            style: colStyle,
+          });
+        }
+      } else {
+        nextColumns.push({
+          markdown: legacyLeftMarkdown,
+          children: legacyLeftChildren.length ? legacyLeftChildren : undefined,
+          style: legacyLeftStyle,
+        });
+        nextColumns.push({
+          markdown: legacyRightMarkdown,
+          children: legacyRightChildren.length ? legacyRightChildren : undefined,
+          style: legacyRightStyle,
+        });
+      }
+
+      const cols = nextColumns.length ? nextColumns : [{ markdown: "" }, { markdown: "" }];
       out.push({
         id,
         type,
         props: {
-          leftMarkdown,
-          rightMarkdown,
-          leftChildren: leftChildren.length ? leftChildren : undefined,
-          rightChildren: rightChildren.length ? rightChildren : undefined,
+          columns: cols,
           gapPx,
           stackOnMobile,
           style,
-          leftStyle,
-          rightStyle,
         },
       });
       continue;
@@ -311,6 +483,13 @@ function wrapperStyle(style?: BlockStyle): React.CSSProperties {
   if (!s) return out;
   if (s.textColor) out.color = s.textColor;
   if (s.backgroundColor) out.backgroundColor = s.backgroundColor;
+  if (s.backgroundImageUrl) {
+    const safeUrl = s.backgroundImageUrl.replace(/"/g, "\\\"");
+    out.backgroundImage = `url(\"${safeUrl}\")`;
+    out.backgroundSize = "cover";
+    out.backgroundPosition = "center";
+    out.backgroundRepeat = "no-repeat";
+  }
   if (s.align) out.textAlign = s.align;
   if (typeof s.marginTopPx === "number") out.marginTop = s.marginTopPx;
   if (typeof s.marginBottomPx === "number") out.marginBottom = s.marginBottomPx;
@@ -458,7 +637,8 @@ export function renderCreditFunnelBlocks({
     if (editor?.selectedBlockId !== block.id) return {};
     const upsert = editor?.onUpsertBlock;
     if (!upsert) return {};
-    const nextFromEl = (el: any) => (typeof el?.textContent === "string" ? el.textContent : "");
+    const nextTextFromEl = (el: any) => (typeof el?.textContent === "string" ? el.textContent : "");
+    const nextHtmlFromEl = (el: any) => (typeof el?.innerHTML === "string" ? el.innerHTML : "");
     return {
       contentEditable: true,
       suppressContentEditableWarning: true,
@@ -474,18 +654,24 @@ export function renderCreditFunnelBlocks({
         }
       },
       onBlur: (e: any) => {
-        const next = nextFromEl(e.currentTarget);
-        if (next === currentText) return;
         if (block.type === "heading") {
-          upsert({ ...block, props: { ...block.props, text: next } } as CreditFunnelBlock);
+          const nextText = nextTextFromEl(e.currentTarget).replace(/\s+/g, " ").trim();
+          const nextHtml = sanitizeRichTextHtml(nextHtmlFromEl(e.currentTarget));
+          if (nextText === currentText && nextHtml === (block.props.html || undefined)) return;
+          upsert({ ...block, props: { ...block.props, text: nextText, html: nextHtml } } as CreditFunnelBlock);
           return;
         }
         if (block.type === "paragraph") {
-          upsert({ ...block, props: { ...block.props, text: next } } as CreditFunnelBlock);
+          const nextText = nextTextFromEl(e.currentTarget);
+          const nextHtml = sanitizeRichTextHtml(nextHtmlFromEl(e.currentTarget));
+          if (nextText === currentText && nextHtml === (block.props.html || undefined)) return;
+          upsert({ ...block, props: { ...block.props, text: nextText, html: nextHtml } } as CreditFunnelBlock);
           return;
         }
         if (block.type === "button") {
-          upsert({ ...block, props: { ...block.props, text: next } } as CreditFunnelBlock);
+          const nextText = nextTextFromEl(e.currentTarget);
+          if (nextText === currentText) return;
+          upsert({ ...block, props: { ...block.props, text: nextText } } as CreditFunnelBlock);
           return;
         }
       },
@@ -526,8 +712,11 @@ export function renderCreditFunnelBlocks({
                 ...textStyle(b.props.style),
               },
               ...editableTextProps(b, b.props.text),
+              ...(b.props.html
+                ? { dangerouslySetInnerHTML: { __html: b.props.html } }
+                : null),
             },
-            b.props.text,
+            b.props.html ? undefined : b.props.text,
           ),
         );
       }
@@ -549,8 +738,11 @@ export function renderCreditFunnelBlocks({
                 ...textStyle(b.props.style),
               },
               ...editableTextProps(b, b.props.text),
+              ...(b.props.html
+                ? { dangerouslySetInnerHTML: { __html: b.props.html } }
+                : null),
             },
-            b.props.text,
+            b.props.html ? undefined : b.props.text,
           ),
         );
       }
@@ -563,12 +755,23 @@ export function renderCreditFunnelBlocks({
           marginBottomPx: s?.marginBottomPx,
           maxWidthPx: s?.maxWidthPx,
         });
+
+        const borderWidth =
+          typeof s?.borderWidthPx === "number"
+            ? s.borderWidthPx
+            : s?.borderColor
+              ? 1
+              : undefined;
+
         const linkStyle: React.CSSProperties = {
           ...textStyle(s),
           color: s?.textColor,
           backgroundColor: s?.backgroundColor,
           borderRadius: typeof s?.borderRadiusPx === "number" ? s.borderRadiusPx : undefined,
           padding: typeof s?.paddingPx === "number" ? s.paddingPx : undefined,
+          borderWidth: borderWidth,
+          borderStyle: borderWidth !== undefined ? "solid" : undefined,
+          borderColor: borderWidth !== undefined ? (s?.borderColor || "currentColor") : undefined,
         };
         return React.createElement(
           "div",
@@ -594,7 +797,25 @@ export function renderCreditFunnelBlocks({
       }
 
       if (b.type === "image") {
-        if (!b.props.src) return null;
+        if (!b.props.src) {
+          if (!isEditor) return null;
+          return React.createElement(
+            "div",
+            {
+              key: b.id,
+              style: { ...wrapperStyle(b.props.style), ...(blockWrapStyle(b.id) || {}) },
+              ...wrapProps(b.id),
+            },
+            React.createElement(
+              "div",
+              {
+                className:
+                  "rounded-2xl border border-dashed border-zinc-300 bg-zinc-50 px-4 py-10 text-center text-sm text-zinc-600",
+              },
+              "Image block: select it to choose an image.",
+            ),
+          );
+        }
         const cls = [
           "overflow-hidden rounded-2xl",
           "border border-zinc-200 bg-zinc-50",
@@ -699,12 +920,22 @@ export function renderCreditFunnelBlocks({
       if (b.type === "columns") {
         const gapPx = typeof b.props.gapPx === "number" ? b.props.gapPx : 24;
         const stack = b.props.stackOnMobile !== false;
-        const leftContent: React.ReactNode = b.props.leftChildren?.length
-          ? React.createElement("div", { className: "space-y-4" }, renderBlocksInner(b.props.leftChildren))
-          : renderMarkdown(b.props.leftMarkdown || "");
-        const rightContent: React.ReactNode = b.props.rightChildren?.length
-          ? React.createElement("div", { className: "space-y-4" }, renderBlocksInner(b.props.rightChildren))
-          : renderMarkdown(b.props.rightMarkdown || "");
+        const rawColumns = Array.isArray((b.props as any).columns) ? ((b.props as any).columns as ColumnsColumn[]) : null;
+        const legacyColumns: ColumnsColumn[] = [
+          {
+            markdown: String((b.props as any).leftMarkdown || ""),
+            children: Array.isArray((b.props as any).leftChildren) ? ((b.props as any).leftChildren as CreditFunnelBlock[]) : undefined,
+            style: (b.props as any).leftStyle as any,
+          },
+          {
+            markdown: String((b.props as any).rightMarkdown || ""),
+            children: Array.isArray((b.props as any).rightChildren) ? ((b.props as any).rightChildren as CreditFunnelBlock[]) : undefined,
+            style: (b.props as any).rightStyle as any,
+          },
+        ];
+        const cols = (rawColumns && rawColumns.length ? rawColumns : legacyColumns).filter(Boolean);
+        const count = Math.max(1, Math.min(6, cols.length || 2));
+        const cssCols = `repeat(${count}, minmax(0, 1fr))`;
         return React.createElement(
           "div",
           {
@@ -715,19 +946,23 @@ export function renderCreditFunnelBlocks({
           React.createElement(
             "div",
             {
-              className: stack ? "grid grid-cols-1 sm:grid-cols-2" : "grid grid-cols-2",
-              style: { gap: gapPx },
+              className: stack ? "grid grid-cols-1 md:[grid-template-columns:var(--cols)]" : "grid [grid-template-columns:var(--cols)]",
+              style: {
+                gap: gapPx,
+                ...(count ? ({ "--cols": cssCols } as any) : null),
+              },
             },
-            React.createElement(
-              "div",
-              { style: wrapperStyle(b.props.leftStyle) },
-              leftContent,
-            ),
-            React.createElement(
-              "div",
-              { style: wrapperStyle(b.props.rightStyle) },
-              rightContent,
-            ),
+            ...cols.slice(0, count).map((c, idx) => {
+              const children = c?.children;
+              const content: React.ReactNode = Array.isArray(children) && children.length
+                ? React.createElement("div", { className: "space-y-4" }, renderBlocksInner(children))
+                : renderMarkdown(String(c?.markdown || ""));
+              return React.createElement(
+                "div",
+                { key: `${b.id}_col_${idx}`, style: wrapperStyle(c?.style) },
+                content,
+              );
+            }),
           ),
         );
       }

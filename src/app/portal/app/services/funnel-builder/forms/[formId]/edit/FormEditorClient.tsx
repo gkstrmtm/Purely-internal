@@ -104,6 +104,9 @@ function normalizeStyle(rawSchema: any): FormStyle {
   return next;
 }
 
+const TRANSPARENCY_CHECKERBOARD =
+  "linear-gradient(45deg, rgba(24,24,27,0.08) 25%, transparent 25%), linear-gradient(-45deg, rgba(24,24,27,0.08) 25%, transparent 25%), linear-gradient(45deg, transparent 75%, rgba(24,24,27,0.08) 75%), linear-gradient(-45deg, transparent 75%, rgba(24,24,27,0.08) 75%)";
+
 type FormEditorDialog =
   | { type: "rename-form"; value: string }
   | { type: "slug-form"; value: string }
@@ -171,7 +174,7 @@ export function FormEditorClient({ basePath, formId }: { basePath: string; formI
         headers: { "content-type": "application/json" },
         body: JSON.stringify({
           ...(opts || {}),
-          schemaJson: { fields, style },
+          schemaJson: { fields, style: normalizeStyle({ style }) },
         }),
       });
       const json = (await res.json().catch(() => null)) as any;
@@ -636,9 +639,30 @@ export function FormEditorClient({ basePath, formId }: { basePath: string; formI
                   <div className="text-sm font-semibold text-brand-ink">Preview</div>
                   <div
                     className="mt-4 rounded-3xl border border-zinc-200 p-6"
-                    style={{ backgroundColor: style.pageBg || "#f4f4f5" }}
+                    style={
+                      style.pageBg === "transparent"
+                        ? {
+                            backgroundColor: "transparent",
+                            backgroundImage: TRANSPARENCY_CHECKERBOARD,
+                            backgroundSize: "18px 18px",
+                            backgroundPosition: "0 0, 0 9px, 9px -9px, -9px 0px",
+                          }
+                        : { backgroundColor: style.pageBg || "#f4f4f5" }
+                    }
                   >
-                    <div className="rounded-3xl border border-zinc-200 p-6" style={{ backgroundColor: style.cardBg || "#ffffff" }}>
+                    <div
+                      className="rounded-3xl border border-zinc-200 p-6"
+                      style={
+                        style.cardBg === "transparent"
+                          ? {
+                              backgroundColor: "transparent",
+                              backgroundImage: TRANSPARENCY_CHECKERBOARD,
+                              backgroundSize: "18px 18px",
+                              backgroundPosition: "0 0, 0 9px, 9px -9px, -9px 0px",
+                            }
+                          : { backgroundColor: style.cardBg || "#ffffff" }
+                      }
+                    >
                       <div className="text-xs font-semibold uppercase tracking-wide text-zinc-500">{form?.name || "Form"}</div>
                       <div className="mt-2 text-lg font-bold" style={{ color: style.textColor || "#18181b" }}>
                         {selected.label}
@@ -698,8 +722,12 @@ export function FormEditorClient({ basePath, formId }: { basePath: string; formI
                           <input
                             type="color"
                             value={style.pageBg && style.pageBg !== "transparent" ? style.pageBg : "#f4f4f5"}
-                            onChange={(e) => setStyle((prev) => ({ ...prev, pageBg: e.target.value }))}
-                            className="h-10 w-14 rounded-xl border border-zinc-200 bg-white"
+                            onChange={(e) => setStyle((prev) => ({ ...prev, pageBg: e.target.value.trim() }))}
+                            disabled={style.pageBg === "transparent"}
+                            className={classNames(
+                              "h-10 w-14 rounded-xl border border-zinc-200 bg-white",
+                              style.pageBg === "transparent" ? "cursor-not-allowed opacity-60" : "",
+                            )}
                           />
                           <input
                             value={style.pageBg || "#f4f4f5"}
@@ -707,6 +735,31 @@ export function FormEditorClient({ basePath, formId }: { basePath: string; formI
                             className="h-10 w-full rounded-2xl border border-zinc-200 bg-white px-3 text-sm text-zinc-900 placeholder:text-zinc-400"
                             placeholder="#f4f4f5 or transparent"
                           />
+                          <button
+                            type="button"
+                            onClick={() => setStyle((prev) => ({ ...prev, pageBg: "transparent" }))}
+                            className={classNames(
+                              "h-10 rounded-2xl border px-3 text-sm font-semibold",
+                              style.pageBg === "transparent"
+                                ? "border-[color:var(--color-brand-blue)] bg-blue-50 text-[color:var(--color-brand-blue)]"
+                                : "border-zinc-200 bg-white text-zinc-700 hover:bg-zinc-50",
+                            )}
+                          >
+                            Transparent
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() =>
+                              setStyle((prev) => {
+                                const next = { ...prev };
+                                delete next.pageBg;
+                                return next;
+                              })
+                            }
+                            className="h-10 rounded-2xl border border-zinc-200 bg-white px-3 text-sm font-semibold text-zinc-700 hover:bg-zinc-50"
+                          >
+                            Clear
+                          </button>
                         </div>
                       </label>
 
@@ -716,15 +769,44 @@ export function FormEditorClient({ basePath, formId }: { basePath: string; formI
                           <input
                             type="color"
                             value={style.cardBg && style.cardBg !== "transparent" ? style.cardBg : "#ffffff"}
-                            onChange={(e) => setStyle((prev) => ({ ...prev, cardBg: e.target.value }))}
-                            className="h-10 w-14 rounded-xl border border-zinc-200 bg-white"
+                            onChange={(e) => setStyle((prev) => ({ ...prev, cardBg: e.target.value.trim() }))}
+                            disabled={style.cardBg === "transparent"}
+                            className={classNames(
+                              "h-10 w-14 rounded-xl border border-zinc-200 bg-white",
+                              style.cardBg === "transparent" ? "cursor-not-allowed opacity-60" : "",
+                            )}
                           />
                           <input
                             value={style.cardBg || "#ffffff"}
                             onChange={(e) => setStyle((prev) => ({ ...prev, cardBg: e.target.value }))}
                             className="h-10 w-full rounded-2xl border border-zinc-200 bg-white px-3 text-sm text-zinc-900 placeholder:text-zinc-400"
-                            placeholder="#ffffff"
+                            placeholder="#ffffff or transparent"
                           />
+                          <button
+                            type="button"
+                            onClick={() => setStyle((prev) => ({ ...prev, cardBg: "transparent" }))}
+                            className={classNames(
+                              "h-10 rounded-2xl border px-3 text-sm font-semibold",
+                              style.cardBg === "transparent"
+                                ? "border-[color:var(--color-brand-blue)] bg-blue-50 text-[color:var(--color-brand-blue)]"
+                                : "border-zinc-200 bg-white text-zinc-700 hover:bg-zinc-50",
+                            )}
+                          >
+                            Transparent
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() =>
+                              setStyle((prev) => {
+                                const next = { ...prev };
+                                delete next.cardBg;
+                                return next;
+                              })
+                            }
+                            className="h-10 rounded-2xl border border-zinc-200 bg-white px-3 text-sm font-semibold text-zinc-700 hover:bg-zinc-50"
+                          >
+                            Clear
+                          </button>
                         </div>
                       </label>
 
@@ -790,7 +872,7 @@ export function FormEditorClient({ basePath, formId }: { basePath: string; formI
                       </div>
                     </div>
 
-                    <div className="mt-2 text-xs text-zinc-500">Tip: use “transparent” for embedded forms.</div>
+                    <div className="mt-2 text-xs text-zinc-500">Tip: set Page/Card backgrounds to “transparent” for embed-friendly styling.</div>
                   </div>
 
                   <div className="mt-4 text-xs text-zinc-500">

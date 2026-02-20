@@ -7,6 +7,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   coerceBlocksJson,
   renderCreditFunnelBlocks,
+  sanitizeRichTextHtml,
   type BlockStyle,
   type CreditFunnelBlock,
 } from "@/lib/creditFunnelBlocks";
@@ -164,7 +165,7 @@ function ColorPickerField({
   return (
     <label className="block">
       <div className="mb-1 text-xs font-semibold uppercase tracking-wide text-zinc-500">{label}</div>
-      <div className="flex items-center gap-2">
+      <div className="flex flex-wrap items-center gap-2">
         <input
           type="color"
           value={currentHex}
@@ -191,13 +192,13 @@ function ColorPickerField({
             }
             onChange(normalized);
           }}
-          className="w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm"
+          className="min-w-[180px] flex-1 rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm"
           placeholder="#0f172a or rgba(0,0,0,0.6)"
         />
         <button
           type="button"
           onClick={() => onChange(undefined)}
-          className="rounded-xl border border-zinc-200 bg-white px-3 py-2 text-xs font-semibold text-zinc-800 hover:bg-zinc-50"
+          className="shrink-0 rounded-xl border border-zinc-200 bg-white px-3 py-2 text-xs font-semibold text-zinc-800 hover:bg-zinc-50"
         >
           Clear
         </button>
@@ -316,7 +317,7 @@ function PaddingPicker({
   return (
     <div>
       <div className="mb-1 text-xs font-semibold uppercase tracking-wide text-zinc-500">{label}</div>
-      <div className="flex items-center gap-3">
+      <div className="flex flex-wrap items-center gap-3">
         <div className="relative h-10 w-10 rounded-xl border border-zinc-200 bg-white">
           <div
             className="absolute rounded-lg bg-zinc-100"
@@ -331,19 +332,168 @@ function PaddingPicker({
           max={maxV}
           value={Math.round(v)}
           onChange={(e) => onChange(Number(e.target.value) || 0)}
-          className="flex-1"
+          className="min-w-[160px] flex-1"
         />
         <input
           type="number"
           value={value ?? ""}
           onChange={(e) => onChange(e.target.value === "" ? undefined : Number(e.target.value) || 0)}
-          className="w-24 rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm"
+          className="w-24 shrink-0 rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm"
           placeholder="Auto"
         />
         <button
           type="button"
           onClick={() => onChange(undefined)}
-          className="rounded-xl border border-zinc-200 bg-white px-3 py-2 text-xs font-semibold text-zinc-800 hover:bg-zinc-50"
+          className="shrink-0 rounded-xl border border-zinc-200 bg-white px-3 py-2 text-xs font-semibold text-zinc-800 hover:bg-zinc-50"
+        >
+          Clear
+        </button>
+      </div>
+    </div>
+  );
+}
+
+function RichTextField({
+  valueHtml,
+  placeholder,
+  onCommit,
+  singleLine,
+}: {
+  valueHtml: string | undefined;
+  placeholder: string;
+  onCommit: (nextHtml: string | undefined, nextText: string) => void;
+  singleLine?: boolean;
+}) {
+  const [focused, setFocused] = useState(false);
+  const [localHtml, setLocalHtml] = useState<string>(valueHtml || "");
+
+  useEffect(() => {
+    if (focused) return;
+    setLocalHtml(valueHtml || "");
+  }, [valueHtml, focused]);
+
+  const exec = (cmd: "bold" | "italic" | "underline" | "createLink" | "unlink") => {
+    try {
+      if (cmd === "createLink") {
+        const url = window.prompt("Link URL", "https://");
+        if (!url) return;
+        document.execCommand("createLink", false, url);
+        return;
+      }
+      document.execCommand(cmd);
+    } catch {
+      // ignore
+    }
+  };
+
+  return (
+    <div className="space-y-2">
+      <div className="flex flex-wrap gap-2">
+        {(
+          [
+            { cmd: "bold" as const, label: "B" },
+            { cmd: "italic" as const, label: "I" },
+            { cmd: "underline" as const, label: "U" },
+            { cmd: "createLink" as const, label: "Link" },
+            { cmd: "unlink" as const, label: "Unlink" },
+          ] as const
+        ).map((b) => (
+          <button
+            key={b.cmd}
+            type="button"
+            onMouseDown={(e) => e.preventDefault()}
+            onClick={() => exec(b.cmd)}
+            className="rounded-xl border border-zinc-200 bg-white px-3 py-1.5 text-xs font-semibold text-zinc-800 hover:bg-zinc-50"
+          >
+            {b.label}
+          </button>
+        ))}
+      </div>
+
+      <div
+        className={classNames(
+          "min-h-[44px] w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm",
+          "focus-within:border-[color:var(--color-brand-blue)]",
+        )}
+      >
+        <div
+          contentEditable
+          suppressContentEditableWarning
+          spellCheck
+          className={classNames(
+            "outline-none",
+            singleLine ? "whitespace-nowrap" : "whitespace-pre-wrap",
+          )}
+          onFocus={() => setFocused(true)}
+          onBlur={(e) => {
+            setFocused(false);
+            const rawHtml = (e.currentTarget as any)?.innerHTML ?? "";
+            const rawText = (e.currentTarget as any)?.textContent ?? "";
+            const cleanedHtml = sanitizeRichTextHtml(rawHtml);
+            const cleanedText = singleLine ? String(rawText).replace(/\s+/g, " ").trim() : String(rawText);
+            setLocalHtml(cleanedHtml || "");
+            onCommit(cleanedHtml, cleanedText);
+          }}
+          onKeyDown={(e) => {
+            if (singleLine && e.key === "Enter") {
+              e.preventDefault();
+              (e.currentTarget as any)?.blur?.();
+            }
+            if (e.key === "Escape") {
+              e.preventDefault();
+              (e.currentTarget as any)?.blur?.();
+            }
+          }}
+          dangerouslySetInnerHTML={{ __html: localHtml || "" }}
+        />
+        {!localHtml ? <div className="pointer-events-none -mt-6 text-sm text-zinc-400">{placeholder}</div> : null}
+      </div>
+    </div>
+  );
+}
+
+function RadiusPicker({
+  label,
+  value,
+  onChange,
+  max,
+}: {
+  label: string;
+  value: number | undefined;
+  onChange: (next: number | undefined) => void;
+  max?: number;
+}) {
+  const v = typeof value === "number" ? value : 0;
+  const maxV = max ?? 64;
+  return (
+    <div>
+      <div className="mb-1 text-xs font-semibold uppercase tracking-wide text-zinc-500">{label}</div>
+      <div className="flex flex-wrap items-center gap-3">
+        <div className="relative h-10 w-10 overflow-hidden rounded-xl border border-zinc-200 bg-white">
+          <div
+            className="absolute inset-2 border border-zinc-200 bg-zinc-50"
+            style={{ borderRadius: Math.round(v) }}
+          />
+        </div>
+        <input
+          type="range"
+          min={0}
+          max={maxV}
+          value={Math.round(v)}
+          onChange={(e) => onChange(Number(e.target.value) || 0)}
+          className="min-w-[160px] flex-1"
+        />
+        <input
+          type="number"
+          value={value ?? ""}
+          onChange={(e) => onChange(e.target.value === "" ? undefined : Number(e.target.value) || 0)}
+          className="w-24 shrink-0 rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm"
+          placeholder="Auto"
+        />
+        <button
+          type="button"
+          onClick={() => onChange(undefined)}
+          className="shrink-0 rounded-xl border border-zinc-200 bg-white px-3 py-2 text-xs font-semibold text-zinc-800 hover:bg-zinc-50"
         >
           Clear
         </button>
@@ -1510,7 +1660,8 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
   type BlockContainerKey = "root" | "children" | "leftChildren" | "rightChildren";
   type BlockContainerPath =
     | { key: "root" }
-    | { key: "children" | "leftChildren" | "rightChildren"; sectionId: string };
+    | { key: "children" | "leftChildren" | "rightChildren"; sectionId: string }
+    | { key: "columnChildren"; sectionId: string; columnIndex: number };
 
   const findBlockInTree = useCallback(
     (
@@ -1522,11 +1673,22 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
         if (b.id === id) return { block: b, container };
         if (b.type !== "section" && b.type !== "columns") continue;
         const props: any = b.props;
-        const keys = b.type === "section" ? (["children", "leftChildren", "rightChildren"] as const) : (["leftChildren", "rightChildren"] as const);
-        for (const key of keys) {
-          const arr = Array.isArray(props[key]) ? (props[key] as CreditFunnelBlock[]) : [];
-          const nested = findBlockInTree(arr, id, { key, sectionId: b.id });
-          if (nested) return nested;
+        if (b.type === "section") {
+          const keys = ["children", "leftChildren", "rightChildren"] as const;
+          for (const key of keys) {
+            const arr = Array.isArray(props[key]) ? (props[key] as CreditFunnelBlock[]) : [];
+            const nested = findBlockInTree(arr, id, { key, sectionId: b.id });
+            if (nested) return nested;
+          }
+        }
+        if (b.type === "columns") {
+          const columns = Array.isArray(props.columns) ? (props.columns as any[]) : [];
+          for (let i = 0; i < columns.length; i++) {
+            const col = columns[i];
+            const arr = col && typeof col === "object" && Array.isArray((col as any).children) ? ((col as any).children as CreditFunnelBlock[]) : [];
+            const nested = findBlockInTree(arr, id, { key: "columnChildren", sectionId: b.id, columnIndex: i });
+            if (nested) return nested;
+          }
         }
       }
       return null;
@@ -1545,14 +1707,31 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
       const props: any = b.props;
       let propsChanged = false;
       const patched: any = { ...props };
-      const keys = b.type === "section" ? (["children", "leftChildren", "rightChildren"] as const) : (["leftChildren", "rightChildren"] as const);
-      for (const key of keys) {
-        const arr = Array.isArray(props[key]) ? (props[key] as CreditFunnelBlock[]) : undefined;
-        if (!arr) continue;
-        const nextArr = replaceBlockInTree(arr, next);
-        if (nextArr !== arr) {
-          patched[key] = nextArr;
-          propsChanged = true;
+      if (b.type === "section") {
+        const keys = ["children", "leftChildren", "rightChildren"] as const;
+        for (const key of keys) {
+          const arr = Array.isArray(props[key]) ? (props[key] as CreditFunnelBlock[]) : undefined;
+          if (!arr) continue;
+          const nextArr = replaceBlockInTree(arr, next);
+          if (nextArr !== arr) {
+            patched[key] = nextArr;
+            propsChanged = true;
+          }
+        }
+      }
+      if (b.type === "columns") {
+        const columns = Array.isArray(props.columns) ? (props.columns as any[]) : [];
+        if (columns.length) {
+          const nextColumns = columns.map((c, idx) => {
+            if (!c || typeof c !== "object") return c;
+            const arr = Array.isArray((c as any).children) ? ((c as any).children as CreditFunnelBlock[]) : undefined;
+            if (!arr) return c;
+            const nextArr = replaceBlockInTree(arr, next);
+            if (nextArr === arr) return c;
+            propsChanged = true;
+            return { ...c, children: nextArr };
+          });
+          if (propsChanged) patched.columns = nextColumns;
         }
       }
       if (!propsChanged) return b;
@@ -1577,14 +1756,31 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
       const props: any = b.props;
       let propsChanged = false;
       const patched: any = { ...props };
-      const keys = b.type === "section" ? (["children", "leftChildren", "rightChildren"] as const) : (["leftChildren", "rightChildren"] as const);
-      for (const key of keys) {
-        const arr = Array.isArray(props[key]) ? (props[key] as CreditFunnelBlock[]) : undefined;
-        if (!arr) continue;
-        const nextArr = removeBlockFromTree(arr, id);
-        if (nextArr !== arr) {
-          patched[key] = nextArr.length ? nextArr : undefined;
-          propsChanged = true;
+      if (b.type === "section") {
+        const keys = ["children", "leftChildren", "rightChildren"] as const;
+        for (const key of keys) {
+          const arr = Array.isArray(props[key]) ? (props[key] as CreditFunnelBlock[]) : undefined;
+          if (!arr) continue;
+          const nextArr = removeBlockFromTree(arr, id);
+          if (nextArr !== arr) {
+            patched[key] = nextArr.length ? nextArr : undefined;
+            propsChanged = true;
+          }
+        }
+      }
+      if (b.type === "columns") {
+        const columns = Array.isArray(props.columns) ? (props.columns as any[]) : [];
+        if (columns.length) {
+          const nextColumns = columns.map((c) => {
+            if (!c || typeof c !== "object") return c;
+            const arr = Array.isArray((c as any).children) ? ((c as any).children as CreditFunnelBlock[]) : undefined;
+            if (!arr) return c;
+            const nextArr = removeBlockFromTree(arr, id);
+            if (nextArr === arr) return c;
+            propsChanged = true;
+            return { ...c, children: nextArr.length ? nextArr : undefined };
+          });
+          if (propsChanged) patched.columns = nextColumns;
         }
       }
       if (propsChanged) {
@@ -1850,13 +2046,20 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
     } as any);
   };
 
-  const updateSelectedColumnsSideStyle = (side: "leftStyle" | "rightStyle", patch: Partial<BlockStyle>) => {
+  const updateSelectedColumnsColumnStyle = (columnIndex: number, patch: Partial<BlockStyle>) => {
     if (!selectedBlock || selectedBlock.type !== "columns") return;
+    const cols = Array.isArray((selectedBlock.props as any).columns) ? ((selectedBlock.props as any).columns as any[]) : [];
+    if (columnIndex < 0 || columnIndex >= cols.length) return;
+    const nextCols = cols.map((c, idx) => {
+      if (idx !== columnIndex) return c;
+      const prevStyle = c && typeof c === "object" ? (c as any).style : undefined;
+      return { ...(c || {}), style: applyStylePatch(prevStyle, patch) };
+    });
     upsertBlock({
       ...selectedBlock,
       props: {
         ...selectedBlock.props,
-        [side]: applyStylePatch((selectedBlock.props as any)[side], patch),
+        columns: nextCols,
       } as any,
     });
   };
@@ -1895,21 +2098,27 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
               : type === "formLink"
                 ? { id, type, props: { formSlug: "", text: "Open form" } }
                 : type === "formEmbed"
-                  ? { id, type, props: { formSlug: "", height: 760 } }
+                  ? { id, type, props: { formSlug: "" } }
                   : type === "columns"
                     ? {
                         id,
                         type,
                         props: {
-                          leftMarkdown: "",
-                          rightMarkdown: "",
-                          leftChildren: [
-                            { id: newId(), type: "heading", props: { text: "Left", level: 3 } },
-                            { id: newId(), type: "paragraph", props: { text: "Add your content…" } },
-                          ],
-                          rightChildren: [
-                            { id: newId(), type: "heading", props: { text: "Right", level: 3 } },
-                            { id: newId(), type: "paragraph", props: { text: "Add your content…" } },
+                          columns: [
+                            {
+                              markdown: "",
+                              children: [
+                                { id: newId(), type: "heading", props: { text: "Column 1", level: 3 } },
+                                { id: newId(), type: "paragraph", props: { text: "Add your content…" } },
+                              ],
+                            },
+                            {
+                              markdown: "",
+                              children: [
+                                { id: newId(), type: "heading", props: { text: "Column 2", level: 3 } },
+                                { id: newId(), type: "paragraph", props: { text: "Add your content…" } },
+                              ],
+                            },
                           ],
                           gapPx: 24,
                           stackOnMobile: true,
@@ -1948,6 +2157,21 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
         const containerBlock = findBlockInTree(editableBlocks, selectedContainer.sectionId)?.block;
         if (containerBlock && (containerBlock.type === "section" || containerBlock.type === "columns")) {
           const props: any = containerBlock.props;
+          if (containerBlock.type === "columns" && selectedContainer.key === "columnChildren") {
+            const cols = Array.isArray(props.columns) ? (props.columns as any[]) : [];
+            const col = cols[selectedContainer.columnIndex];
+            const arr = col && typeof col === "object" && Array.isArray((col as any).children) ? ((col as any).children as CreditFunnelBlock[]) : [];
+            const idx = arr.findIndex((b) => b.id === selectedBlockId);
+            const nextArr = [...arr];
+            nextArr.splice(idx >= 0 ? idx + 1 : nextArr.length, 0, base);
+            const nextCols = cols.map((c, i) => (i === selectedContainer.columnIndex ? { ...(c || {}), children: nextArr } : c));
+            const nextContainer: CreditFunnelBlock = {
+              ...containerBlock,
+              props: { ...props, columns: nextCols },
+            } as any;
+            return replaceBlockInTree(editableBlocks, nextContainer);
+          }
+
           const arr = Array.isArray(props[selectedContainer.key]) ? (props[selectedContainer.key] as CreditFunnelBlock[]) : [];
           const idx = arr.findIndex((b) => b.id === selectedBlockId);
           const nextArr = [...arr];
@@ -2052,7 +2276,6 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
               type: "formEmbed",
               props: {
                 formSlug: firstFormSlug,
-                height: 760,
                 style: { marginTopPx: 16 },
               },
             },
@@ -2084,7 +2307,10 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
     const dropContainer = findContainerForBlock(editableBlocks, dropId);
     if (!dragContainer || !dropContainer) return;
     if (dragContainer.key !== dropContainer.key) return;
-    if (dragContainer.key !== "root" && dragContainer.sectionId !== (dropContainer as any).sectionId) return;
+    if (dragContainer.key !== "root") {
+      if (dragContainer.sectionId !== (dropContainer as any).sectionId) return;
+      if (dragContainer.key === "columnChildren" && (dragContainer as any).columnIndex !== (dropContainer as any).columnIndex) return;
+    }
 
     const reorderInArray = <T extends { id: string }>(arr: T[]): T[] => {
       const fromIdx = arr.findIndex((b) => b.id === dragId);
@@ -2103,10 +2329,20 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
       const containerBlock = findBlockInTree(editableBlocks, dragContainer.sectionId)?.block;
       if (containerBlock && (containerBlock.type === "section" || containerBlock.type === "columns")) {
         const props: any = containerBlock.props;
-        const arr = Array.isArray(props[dragContainer.key]) ? (props[dragContainer.key] as CreditFunnelBlock[]) : [];
-        const nextArr = reorderInArray(arr);
-        const nextContainer: CreditFunnelBlock = { ...containerBlock, props: { ...props, [dragContainer.key]: nextArr } } as any;
-        nextEditable = replaceBlockInTree(editableBlocks, nextContainer);
+        if (containerBlock.type === "columns" && dragContainer.key === "columnChildren") {
+          const cols = Array.isArray(props.columns) ? (props.columns as any[]) : [];
+          const col = cols[(dragContainer as any).columnIndex];
+          const arr = col && typeof col === "object" && Array.isArray((col as any).children) ? ((col as any).children as CreditFunnelBlock[]) : [];
+          const nextArr = reorderInArray(arr);
+          const nextCols = cols.map((c, i) => (i === (dragContainer as any).columnIndex ? { ...(c || {}), children: nextArr } : c));
+          const nextContainer: CreditFunnelBlock = { ...containerBlock, props: { ...props, columns: nextCols } } as any;
+          nextEditable = replaceBlockInTree(editableBlocks, nextContainer);
+        } else {
+          const arr = Array.isArray(props[dragContainer.key]) ? (props[dragContainer.key] as CreditFunnelBlock[]) : [];
+          const nextArr = reorderInArray(arr);
+          const nextContainer: CreditFunnelBlock = { ...containerBlock, props: { ...props, [dragContainer.key]: nextArr } } as any;
+          nextEditable = replaceBlockInTree(editableBlocks, nextContainer);
+        }
       }
     }
 
@@ -2174,7 +2410,7 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
             return;
           }
           if (target.type === "image-block") {
-            const block = editableBlocks.find((b) => b.id === target.blockId);
+            const block = findBlockInTree(editableBlocks, target.blockId)?.block;
             if (!block || block.type !== "image") return;
             const nextSrc = String(it.shareUrl || it.previewUrl || "").trim();
             if (!nextSrc) return;
@@ -2512,7 +2748,7 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
                       "rounded-xl border px-3 py-2 text-left text-xs font-semibold",
                       t.key === sidebarPanel
                         ? "border-[color:var(--color-brand-blue)] bg-blue-50 text-zinc-900"
-                        : "border-zinc-200 bg-white text-zinc-800 hover:bg-zinc-50",
+                        : "border-zinc-200 bg-zinc-50 text-zinc-800 hover:bg-white",
                       t.key === "selected" && !selectedBlock ? "opacity-50" : "",
                     )}
                     aria-pressed={t.key === sidebarPanel}
@@ -2721,16 +2957,16 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
 
                       {selectedBlock.type === "heading" ? (
                         <div className="space-y-2">
-                          <input
-                            value={selectedBlock.props.text}
-                            onChange={(e) =>
+                          <RichTextField
+                            valueHtml={selectedBlock.props.html}
+                            placeholder="Heading text"
+                            singleLine
+                            onCommit={(nextHtml, nextText) =>
                               upsertBlock({
                                 ...selectedBlock,
-                                props: { ...selectedBlock.props, text: e.target.value },
+                                props: { ...selectedBlock.props, html: nextHtml, text: nextText },
                               })
                             }
-                            className="w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm"
-                            placeholder="Heading text"
                           />
                           <select
                             value={String(selectedBlock.props.level ?? 2)}
@@ -2749,19 +2985,18 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
                         </div>
                       ) : null}
 
-                    {selectedBlock.type === "paragraph" ? (
-                      <textarea
-                        value={selectedBlock.props.text}
-                        onChange={(e) =>
-                          upsertBlock({
-                            ...selectedBlock,
-                            props: { ...selectedBlock.props, text: e.target.value },
-                          })
-                        }
-                        className="min-h-[120px] w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm"
-                        placeholder="Paragraph text"
-                      />
-                    ) : null}
+                      {selectedBlock.type === "paragraph" ? (
+                        <RichTextField
+                          valueHtml={selectedBlock.props.html}
+                          placeholder="Paragraph text"
+                          onCommit={(nextHtml, nextText) =>
+                            upsertBlock({
+                              ...selectedBlock,
+                              props: { ...selectedBlock.props, html: nextHtml, text: nextText },
+                            })
+                          }
+                        />
+                      ) : null}
 
                     {selectedBlock.type === "button" ? (
                       <div className="space-y-2">
@@ -3017,25 +3252,69 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
                           </button>
                         </div>
 
-                        <input
-                          type="number"
-                          value={String(selectedBlock.props.height ?? 760)}
-                          onChange={(e) =>
-                            upsertBlock({
-                              ...selectedBlock,
-                              props: { ...selectedBlock.props, height: Number(e.target.value) || 760 },
-                            })
-                          }
-                          className="w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm"
-                          placeholder="Height (px)"
-                        />
-                        <div className="text-xs text-zinc-500">Embeds as an iframe on the hosted page.</div>
+                        <label className="block">
+                          <div className="mb-1 text-[11px] font-semibold uppercase tracking-wide text-zinc-500">Embed height (px)</div>
+                          <div className="flex flex-wrap items-center gap-2">
+                            <input
+                              type="number"
+                              value={selectedBlock.props.height ?? ""}
+                              onChange={(e) => {
+                                const raw = e.target.value;
+                                upsertBlock({
+                                  ...selectedBlock,
+                                  props: {
+                                    ...selectedBlock.props,
+                                    height: raw === "" ? undefined : Number(raw) || 0,
+                                  },
+                                });
+                              }}
+                              className="min-w-[180px] flex-1 rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm"
+                              placeholder="Default: 760"
+                            />
+                            <button
+                              type="button"
+                              disabled={busy}
+                              onClick={() =>
+                                upsertBlock({
+                                  ...selectedBlock,
+                                  props: { ...selectedBlock.props, height: undefined },
+                                })
+                              }
+                              className="shrink-0 rounded-xl border border-zinc-200 bg-white px-3 py-2 text-xs font-semibold text-zinc-800 hover:bg-zinc-50"
+                            >
+                              Default (760)
+                            </button>
+                          </div>
+                          <div className="mt-1 text-xs text-zinc-500">Controls the iframe height when this form is embedded on the hosted page.</div>
+                        </label>
                       </div>
                     ) : null}
 
                     {selectedBlock.type === "columns" ? (
-                      <div className="space-y-2">
+                      <div className="space-y-3">
                         <div className="grid grid-cols-2 gap-2">
+                          <label className="block">
+                            <div className="mb-1 text-xs font-semibold uppercase tracking-wide text-zinc-500">Columns</div>
+                            <input
+                              type="number"
+                              min={1}
+                              max={6}
+                              value={String((selectedBlock.props.columns || []).length || 2)}
+                              onChange={(e) => {
+                                const nextCount = Math.max(1, Math.min(6, Number(e.target.value) || 1));
+                                const prevCols = Array.isArray(selectedBlock.props.columns) ? selectedBlock.props.columns : [];
+                                const nextCols = [...prevCols];
+                                while (nextCols.length < nextCount) nextCols.push({ markdown: "", children: [] });
+                                while (nextCols.length > nextCount) nextCols.pop();
+                                upsertBlock({
+                                  ...selectedBlock,
+                                  props: { ...selectedBlock.props, columns: nextCols },
+                                } as any);
+                                setSelectedBlockId(selectedBlock.id);
+                              }}
+                              className="w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm"
+                            />
+                          </label>
                           <label className="block">
                             <div className="mb-1 text-xs font-semibold uppercase tracking-wide text-zinc-500">Gap (px)</div>
                             <input
@@ -3050,7 +3329,7 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
                               className="w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm"
                             />
                           </label>
-                          <label className="flex items-center gap-2 rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm">
+                          <label className="col-span-2 flex items-center gap-2 rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm">
                             <input
                               type="checkbox"
                               checked={selectedBlock.props.stackOnMobile !== false}
@@ -3065,354 +3344,166 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
                           </label>
                         </div>
 
-                        <div className="rounded-xl border border-zinc-200 bg-white p-3">
-                          <div className="text-xs font-semibold uppercase tracking-wide text-zinc-500">Left column blocks</div>
-                          <div className="mt-2 flex flex-wrap gap-2">
-                            <button
-                              type="button"
-                              disabled={busy}
-                              onClick={() => {
-                                const id = newId();
-                                const base: CreditFunnelBlock = { id, type: "heading", props: { text: "Left heading", level: 2 } };
-                                upsertBlock({
-                                  ...selectedBlock,
-                                  props: {
-                                    ...selectedBlock.props,
-                                    leftChildren: [
-                                      ...(((selectedBlock.props as any).leftChildren as CreditFunnelBlock[]) || []),
-                                      base,
-                                    ],
-                                  },
-                                } as any);
-                                setSelectedBlockId(id);
-                              }}
-                              className="rounded-xl border border-zinc-200 bg-white px-3 py-2 text-xs font-semibold text-zinc-800 hover:bg-zinc-50"
-                            >
-                              + Heading
-                            </button>
-                            <button
-                              type="button"
-                              disabled={busy}
-                              onClick={() => {
-                                const id = newId();
-                                const base: CreditFunnelBlock = { id, type: "paragraph", props: { text: "Left text" } };
-                                upsertBlock({
-                                  ...selectedBlock,
-                                  props: {
-                                    ...selectedBlock.props,
-                                    leftChildren: [
-                                      ...(((selectedBlock.props as any).leftChildren as CreditFunnelBlock[]) || []),
-                                      base,
-                                    ],
-                                  },
-                                } as any);
-                                setSelectedBlockId(id);
-                              }}
-                              className="rounded-xl border border-zinc-200 bg-white px-3 py-2 text-xs font-semibold text-zinc-800 hover:bg-zinc-50"
-                            >
-                              + Text
-                            </button>
-                            <button
-                              type="button"
-                              disabled={busy}
-                              onClick={() => {
-                                const id = newId();
-                                const base: CreditFunnelBlock = {
-                                  id,
-                                  type: "button",
-                                  props: { text: "Button", href: `${basePath}/forms/your-form-slug`, variant: "primary" },
-                                };
-                                upsertBlock({
-                                  ...selectedBlock,
-                                  props: {
-                                    ...selectedBlock.props,
-                                    leftChildren: [
-                                      ...(((selectedBlock.props as any).leftChildren as CreditFunnelBlock[]) || []),
-                                      base,
-                                    ],
-                                  },
-                                } as any);
-                                setSelectedBlockId(id);
-                              }}
-                              className="rounded-xl border border-zinc-200 bg-white px-3 py-2 text-xs font-semibold text-zinc-800 hover:bg-zinc-50"
-                            >
-                              + Button
-                            </button>
-                          </div>
-
-                          <div className="mt-3 space-y-2">
-                            {((((selectedBlock.props as any).leftChildren as CreditFunnelBlock[]) || [])).length === 0 ? (
-                              <div className="text-sm text-zinc-600">No blocks yet.</div>
-                            ) : (
-                              ((((selectedBlock.props as any).leftChildren as CreditFunnelBlock[]) || [])).map((c) => (
-                                <div
-                                  key={c.id}
-                                  className={classNames(
-                                    "flex items-center justify-between gap-2 rounded-xl border px-3 py-2",
-                                    selectedBlockId === c.id
-                                      ? "border-[color:var(--color-brand-blue)] bg-blue-50"
-                                      : "border-zinc-200 bg-white",
-                                  )}
-                                >
-                                  <button
-                                    type="button"
-                                    onClick={() => setSelectedBlockId(c.id)}
-                                    className="min-w-0 flex-1 truncate text-left text-sm font-semibold text-zinc-900"
-                                  >
-                                    {c.type}
-                                  </button>
+                        {(selectedBlock.props.columns || []).map((col, colIdx) => {
+                          const children = Array.isArray(col.children) ? (col.children as CreditFunnelBlock[]) : [];
+                          return (
+                            <div key={colIdx} className="rounded-xl border border-zinc-200 bg-white p-3">
+                              <div className="flex items-center justify-between gap-2">
+                                <div className="text-xs font-semibold uppercase tracking-wide text-zinc-500">Column {colIdx + 1}</div>
+                                {(selectedBlock.props.columns || []).length > 1 ? (
                                   <button
                                     type="button"
                                     disabled={busy}
-                                    onClick={() => removeBlock(c.id)}
+                                    onClick={() => {
+                                      const cols = [...(selectedBlock.props.columns || [])];
+                                      cols.splice(colIdx, 1);
+                                      upsertBlock({ ...selectedBlock, props: { ...selectedBlock.props, columns: cols } } as any);
+                                      setSelectedBlockId(selectedBlock.id);
+                                    }}
                                     className="rounded-xl border border-zinc-200 bg-white px-3 py-2 text-xs font-semibold text-zinc-800 hover:bg-zinc-50"
                                   >
-                                    Remove
+                                    Remove column
                                   </button>
-                                </div>
-                              ))
-                            )}
-                          </div>
-                        </div>
+                                ) : null}
+                              </div>
 
-                        <div className="rounded-xl border border-zinc-200 bg-white p-3">
-                          <div className="text-xs font-semibold uppercase tracking-wide text-zinc-500">Right column blocks</div>
-                          <div className="mt-2 flex flex-wrap gap-2">
-                            <button
-                              type="button"
-                              disabled={busy}
-                              onClick={() => {
-                                const id = newId();
-                                const base: CreditFunnelBlock = { id, type: "heading", props: { text: "Right heading", level: 2 } };
-                                upsertBlock({
-                                  ...selectedBlock,
-                                  props: {
-                                    ...selectedBlock.props,
-                                    rightChildren: [
-                                      ...(((selectedBlock.props as any).rightChildren as CreditFunnelBlock[]) || []),
-                                      base,
-                                    ],
-                                  },
-                                } as any);
-                                setSelectedBlockId(id);
-                              }}
-                              className="rounded-xl border border-zinc-200 bg-white px-3 py-2 text-xs font-semibold text-zinc-800 hover:bg-zinc-50"
-                            >
-                              + Heading
-                            </button>
-                            <button
-                              type="button"
-                              disabled={busy}
-                              onClick={() => {
-                                const id = newId();
-                                const base: CreditFunnelBlock = { id, type: "paragraph", props: { text: "Right text" } };
-                                upsertBlock({
-                                  ...selectedBlock,
-                                  props: {
-                                    ...selectedBlock.props,
-                                    rightChildren: [
-                                      ...(((selectedBlock.props as any).rightChildren as CreditFunnelBlock[]) || []),
-                                      base,
-                                    ],
-                                  },
-                                } as any);
-                                setSelectedBlockId(id);
-                              }}
-                              className="rounded-xl border border-zinc-200 bg-white px-3 py-2 text-xs font-semibold text-zinc-800 hover:bg-zinc-50"
-                            >
-                              + Text
-                            </button>
-                            <button
-                              type="button"
-                              disabled={busy}
-                              onClick={() => {
-                                const id = newId();
-                                const base: CreditFunnelBlock = {
-                                  id,
-                                  type: "button",
-                                  props: { text: "Button", href: `${basePath}/forms/your-form-slug`, variant: "primary" },
-                                };
-                                upsertBlock({
-                                  ...selectedBlock,
-                                  props: {
-                                    ...selectedBlock.props,
-                                    rightChildren: [
-                                      ...(((selectedBlock.props as any).rightChildren as CreditFunnelBlock[]) || []),
-                                      base,
-                                    ],
-                                  },
-                                } as any);
-                                setSelectedBlockId(id);
-                              }}
-                              className="rounded-xl border border-zinc-200 bg-white px-3 py-2 text-xs font-semibold text-zinc-800 hover:bg-zinc-50"
-                            >
-                              + Button
-                            </button>
-                          </div>
-
-                          <div className="mt-3 space-y-2">
-                            {((((selectedBlock.props as any).rightChildren as CreditFunnelBlock[]) || [])).length === 0 ? (
-                              <div className="text-sm text-zinc-600">No blocks yet.</div>
-                            ) : (
-                              ((((selectedBlock.props as any).rightChildren as CreditFunnelBlock[]) || [])).map((c) => (
-                                <div
-                                  key={c.id}
-                                  className={classNames(
-                                    "flex items-center justify-between gap-2 rounded-xl border px-3 py-2",
-                                    selectedBlockId === c.id
-                                      ? "border-[color:var(--color-brand-blue)] bg-blue-50"
-                                      : "border-zinc-200 bg-white",
-                                  )}
-                                >
+                              <div className="mt-2 flex flex-wrap gap-2">
+                                {(
+                                  [
+                                    { t: "heading", label: "+ Heading" },
+                                    { t: "paragraph", label: "+ Text" },
+                                    { t: "button", label: "+ Button" },
+                                    { t: "image", label: "+ Image" },
+                                    { t: "spacer", label: "+ Spacer" },
+                                  ] as const
+                                ).map((b) => (
                                   <button
-                                    type="button"
-                                    onClick={() => setSelectedBlockId(c.id)}
-                                    className="min-w-0 flex-1 truncate text-left text-sm font-semibold text-zinc-900"
-                                  >
-                                    {c.type}
-                                  </button>
-                                  <button
+                                    key={b.t}
                                     type="button"
                                     disabled={busy}
-                                    onClick={() => removeBlock(c.id)}
+                                    onClick={() => {
+                                      const id = newId();
+                                      const base: CreditFunnelBlock =
+                                        b.t === "heading"
+                                          ? { id, type: "heading", props: { text: `Heading`, level: 2 } }
+                                          : b.t === "paragraph"
+                                            ? { id, type: "paragraph", props: { text: `Text` } }
+                                            : b.t === "button"
+                                              ? {
+                                                  id,
+                                                  type: "button",
+                                                  props: { text: "Button", href: `${basePath}/forms/your-form-slug`, variant: "primary" },
+                                                }
+                                              : b.t === "image"
+                                                ? { id, type: "image", props: { src: "", alt: "" } }
+                                                : { id, type: "spacer", props: { height: 24 } };
+                                      const cols = [...(selectedBlock.props.columns || [])];
+                                      const nextCol = { ...(cols[colIdx] || { markdown: "" }) } as any;
+                                      const nextChildren = [...(Array.isArray(nextCol.children) ? nextCol.children : []), base];
+                                      nextCol.children = nextChildren;
+                                      cols[colIdx] = nextCol;
+                                      upsertBlock({ ...selectedBlock, props: { ...selectedBlock.props, columns: cols } } as any);
+                                      setSelectedBlockId(id);
+                                    }}
                                     className="rounded-xl border border-zinc-200 bg-white px-3 py-2 text-xs font-semibold text-zinc-800 hover:bg-zinc-50"
                                   >
-                                    Remove
+                                    {b.label}
                                   </button>
-                                </div>
-                              ))
-                            )}
-                          </div>
-                        </div>
+                                ))}
+                              </div>
 
-                        {(selectedBlock.props.leftMarkdown || "").trim() || (selectedBlock.props.rightMarkdown || "").trim() ? (
-                          <CollapsibleGroup title="Legacy markdown (optional)" defaultOpen={false}>
-                            <div className="space-y-2">
-                              <textarea
-                                value={selectedBlock.props.leftMarkdown}
-                                onChange={(e) =>
-                                  upsertBlock({
-                                    ...selectedBlock,
-                                    props: { ...selectedBlock.props, leftMarkdown: e.target.value },
-                                  })
-                                }
-                                className="min-h-[100px] w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm"
-                                placeholder="Left column (markdown)"
-                              />
-                              <textarea
-                                value={selectedBlock.props.rightMarkdown}
-                                onChange={(e) =>
-                                  upsertBlock({
-                                    ...selectedBlock,
-                                    props: { ...selectedBlock.props, rightMarkdown: e.target.value },
-                                  })
-                                }
-                                className="min-h-[100px] w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm"
-                                placeholder="Right column (markdown)"
-                              />
+                              <div className="mt-3 space-y-2">
+                                {children.length === 0 ? (
+                                  <div className="text-sm text-zinc-600">No blocks yet.</div>
+                                ) : (
+                                  children.map((c) => (
+                                    <div
+                                      key={c.id}
+                                      className={classNames(
+                                        "flex items-center justify-between gap-2 rounded-xl border px-3 py-2",
+                                        selectedBlockId === c.id
+                                          ? "border-[color:var(--color-brand-blue)] bg-blue-50"
+                                          : "border-zinc-200 bg-white",
+                                      )}
+                                    >
+                                      <button
+                                        type="button"
+                                        onClick={() => setSelectedBlockId(c.id)}
+                                        className="min-w-0 flex-1 truncate text-left text-sm font-semibold text-zinc-900"
+                                      >
+                                        {c.type}
+                                      </button>
+                                      <button
+                                        type="button"
+                                        disabled={busy}
+                                        onClick={() => removeBlock(c.id)}
+                                        className="rounded-xl border border-zinc-200 bg-white px-3 py-2 text-xs font-semibold text-zinc-800 hover:bg-zinc-50"
+                                      >
+                                        Remove
+                                      </button>
+                                    </div>
+                                  ))
+                                )}
+                              </div>
+
+                              <CollapsibleGroup title="Markdown (optional)" defaultOpen={false}>
+                                <textarea
+                                  value={col.markdown || ""}
+                                  onChange={(e) => {
+                                    const cols = [...(selectedBlock.props.columns || [])];
+                                    cols[colIdx] = { ...(cols[colIdx] || { markdown: "" }), markdown: e.target.value } as any;
+                                    upsertBlock({ ...selectedBlock, props: { ...selectedBlock.props, columns: cols } } as any);
+                                  }}
+                                  className="min-h-[100px] w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm"
+                                  placeholder={`Column ${colIdx + 1} (markdown)`}
+                                />
+                                <div className="mt-1 text-[11px] text-zinc-500">Used only when the column has no blocks.</div>
+                              </CollapsibleGroup>
+
+                              <CollapsibleGroup title="Style" defaultOpen={false}>
+                                <div className="grid grid-cols-2 gap-2">
+                                  <label className="block">
+                                    <div className="mb-1 text-[11px] font-semibold uppercase tracking-wide text-zinc-500">Text</div>
+                                    <input
+                                      value={(col.style as any)?.textColor || ""}
+                                      onChange={(e) => updateSelectedColumnsColumnStyle(colIdx, { textColor: normalizeHexInput(e.target.value) || undefined })}
+                                      className="w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm"
+                                      placeholder="#0f172a"
+                                    />
+                                  </label>
+                                  <label className="block">
+                                    <div className="mb-1 text-[11px] font-semibold uppercase tracking-wide text-zinc-500">Background</div>
+                                    <input
+                                      value={(col.style as any)?.backgroundColor || ""}
+                                      onChange={(e) => updateSelectedColumnsColumnStyle(colIdx, { backgroundColor: normalizeHexInput(e.target.value) || undefined })}
+                                      className="w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm"
+                                      placeholder="#ffffff"
+                                    />
+                                  </label>
+                                  <label className="block">
+                                    <div className="mb-1 text-[11px] font-semibold uppercase tracking-wide text-zinc-500">Padding</div>
+                                    <input
+                                      type="number"
+                                      value={(col.style as any)?.paddingPx ?? ""}
+                                      onChange={(e) =>
+                                        updateSelectedColumnsColumnStyle(colIdx, {
+                                          paddingPx: e.target.value === "" ? undefined : Number(e.target.value) || 0,
+                                        })
+                                      }
+                                      className="w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm"
+                                    />
+                                  </label>
+                                  <RadiusPicker
+                                    label="Radius"
+                                    value={(col.style as any)?.borderRadiusPx}
+                                    onChange={(v) => updateSelectedColumnsColumnStyle(colIdx, { borderRadiusPx: v })}
+                                    max={64}
+                                  />
+                                </div>
+                              </CollapsibleGroup>
                             </div>
-                          </CollapsibleGroup>
-                        ) : null}
-
-                        <div className="rounded-xl border border-zinc-200 bg-white p-3">
-                          <div className="text-xs font-semibold uppercase tracking-wide text-zinc-500">Left column style</div>
-                          <div className="mt-2 grid grid-cols-2 gap-2">
-                            <label className="block">
-                              <div className="mb-1 text-[11px] font-semibold uppercase tracking-wide text-zinc-500">Text</div>
-                              <input
-                                value={selectedBlock.props.leftStyle?.textColor || ""}
-                                onChange={(e) => updateSelectedColumnsSideStyle("leftStyle", { textColor: normalizeHexInput(e.target.value) || undefined })}
-                                className="w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm"
-                                placeholder="#0f172a"
-                              />
-                            </label>
-                            <label className="block">
-                              <div className="mb-1 text-[11px] font-semibold uppercase tracking-wide text-zinc-500">Background</div>
-                              <input
-                                value={selectedBlock.props.leftStyle?.backgroundColor || ""}
-                                onChange={(e) => updateSelectedColumnsSideStyle("leftStyle", { backgroundColor: normalizeHexInput(e.target.value) || undefined })}
-                                className="w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm"
-                                placeholder="#ffffff"
-                              />
-                            </label>
-                            <label className="block">
-                              <div className="mb-1 text-[11px] font-semibold uppercase tracking-wide text-zinc-500">Padding</div>
-                              <input
-                                type="number"
-                                value={selectedBlock.props.leftStyle?.paddingPx ?? ""}
-                                onChange={(e) =>
-                                  updateSelectedColumnsSideStyle("leftStyle", {
-                                    paddingPx: e.target.value === "" ? undefined : Number(e.target.value) || 0,
-                                  })
-                                }
-                                className="w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm"
-                              />
-                            </label>
-                            <label className="block">
-                              <div className="mb-1 text-[11px] font-semibold uppercase tracking-wide text-zinc-500">Radius</div>
-                              <input
-                                type="number"
-                                value={selectedBlock.props.leftStyle?.borderRadiusPx ?? ""}
-                                onChange={(e) =>
-                                  updateSelectedColumnsSideStyle("leftStyle", {
-                                    borderRadiusPx: e.target.value === "" ? undefined : Number(e.target.value) || 0,
-                                  })
-                                }
-                                className="w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm"
-                              />
-                            </label>
-                          </div>
-                        </div>
-
-                        <div className="rounded-xl border border-zinc-200 bg-white p-3">
-                          <div className="text-xs font-semibold uppercase tracking-wide text-zinc-500">Right column style</div>
-                          <div className="mt-2 grid grid-cols-2 gap-2">
-                            <label className="block">
-                              <div className="mb-1 text-[11px] font-semibold uppercase tracking-wide text-zinc-500">Text</div>
-                              <input
-                                value={selectedBlock.props.rightStyle?.textColor || ""}
-                                onChange={(e) => updateSelectedColumnsSideStyle("rightStyle", { textColor: normalizeHexInput(e.target.value) || undefined })}
-                                className="w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm"
-                                placeholder="#0f172a"
-                              />
-                            </label>
-                            <label className="block">
-                              <div className="mb-1 text-[11px] font-semibold uppercase tracking-wide text-zinc-500">Background</div>
-                              <input
-                                value={selectedBlock.props.rightStyle?.backgroundColor || ""}
-                                onChange={(e) => updateSelectedColumnsSideStyle("rightStyle", { backgroundColor: normalizeHexInput(e.target.value) || undefined })}
-                                className="w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm"
-                                placeholder="#ffffff"
-                              />
-                            </label>
-                            <label className="block">
-                              <div className="mb-1 text-[11px] font-semibold uppercase tracking-wide text-zinc-500">Padding</div>
-                              <input
-                                type="number"
-                                value={selectedBlock.props.rightStyle?.paddingPx ?? ""}
-                                onChange={(e) =>
-                                  updateSelectedColumnsSideStyle("rightStyle", {
-                                    paddingPx: e.target.value === "" ? undefined : Number(e.target.value) || 0,
-                                  })
-                                }
-                                className="w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm"
-                              />
-                            </label>
-                            <label className="block">
-                              <div className="mb-1 text-[11px] font-semibold uppercase tracking-wide text-zinc-500">Radius</div>
-                              <input
-                                type="number"
-                                value={selectedBlock.props.rightStyle?.borderRadiusPx ?? ""}
-                                onChange={(e) =>
-                                  updateSelectedColumnsSideStyle("rightStyle", {
-                                    borderRadiusPx: e.target.value === "" ? undefined : Number(e.target.value) || 0,
-                                  })
-                                }
-                                className="w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm"
-                              />
-                            </label>
-                          </div>
-                        </div>
+                          );
+                        })}
                       </div>
                     ) : null}
 
@@ -3870,6 +3961,28 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
                           allowAlpha
                         />
 
+                        {selectedBlock.type === "section" ? (
+                          <label className="block">
+                            <div className="mb-1 text-xs font-semibold uppercase tracking-wide text-zinc-500">Background image URL</div>
+                            <div className="flex flex-wrap items-center gap-2">
+                              <input
+                                value={selectedBlock.props.style?.backgroundImageUrl || ""}
+                                onChange={(e) => updateSelectedBlockStyle({ backgroundImageUrl: e.target.value.trim() || undefined })}
+                                className="min-w-[180px] flex-1 rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm"
+                                placeholder="https://..."
+                              />
+                              <button
+                                type="button"
+                                onClick={() => updateSelectedBlockStyle({ backgroundImageUrl: undefined })}
+                                className="shrink-0 rounded-xl border border-zinc-200 bg-white px-3 py-2 text-xs font-semibold text-zinc-800 hover:bg-zinc-50"
+                              >
+                                Clear
+                              </button>
+                            </div>
+                            <div className="mt-1 text-xs text-zinc-500">Renders as a cover background on hosted pages.</div>
+                          </label>
+                        ) : null}
+
                         {(selectedBlock.type === "heading" || selectedBlock.type === "paragraph") ? (
                           <label className="block">
                             <div className="mb-1 text-xs font-semibold uppercase tracking-wide text-zinc-500">Font size (px)</div>
@@ -3912,19 +4025,55 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
                           onChange={(v) => updateSelectedBlockStyle({ paddingPx: v })}
                         />
 
-                        <label className="block">
-                          <div className="mb-1 text-xs font-semibold uppercase tracking-wide text-zinc-500">Radius</div>
-                          <input
-                            type="number"
-                            value={selectedBlock.props.style?.borderRadiusPx ?? ""}
-                            onChange={(e) =>
-                              updateSelectedBlockStyle({
-                                borderRadiusPx: e.target.value === "" ? undefined : Number(e.target.value) || 0,
-                              })
-                            }
-                            className="w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm"
-                          />
-                        </label>
+                        {selectedBlock.type === "button" ? (
+                          <div className="space-y-2">
+                            <ColorPickerField
+                              label="Outline color"
+                              value={selectedBlock.props.style?.borderColor}
+                              onChange={(v) => updateSelectedBlockStyle({ borderColor: v })}
+                              swatches={colorSwatches}
+                              allowAlpha
+                            />
+                            <label className="block">
+                              <div className="mb-1 text-xs font-semibold uppercase tracking-wide text-zinc-500">Outline width (px)</div>
+                              <div className="flex flex-wrap items-center gap-3">
+                                <input
+                                  type="range"
+                                  min={0}
+                                  max={12}
+                                  value={Math.round(selectedBlock.props.style?.borderWidthPx ?? 0)}
+                                  onChange={(e) => updateSelectedBlockStyle({ borderWidthPx: Number(e.target.value) || 0 })}
+                                  className="min-w-[160px] flex-1"
+                                />
+                                <input
+                                  type="number"
+                                  value={selectedBlock.props.style?.borderWidthPx ?? ""}
+                                  onChange={(e) =>
+                                    updateSelectedBlockStyle({
+                                      borderWidthPx: e.target.value === "" ? undefined : Number(e.target.value) || 0,
+                                    })
+                                  }
+                                  className="w-24 shrink-0 rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm"
+                                  placeholder="Auto"
+                                />
+                                <button
+                                  type="button"
+                                  onClick={() => updateSelectedBlockStyle({ borderWidthPx: undefined })}
+                                  className="shrink-0 rounded-xl border border-zinc-200 bg-white px-3 py-2 text-xs font-semibold text-zinc-800 hover:bg-zinc-50"
+                                >
+                                  Clear
+                                </button>
+                              </div>
+                            </label>
+                          </div>
+                        ) : null}
+
+                        <RadiusPicker
+                          label="Radius"
+                          value={selectedBlock.props.style?.borderRadiusPx}
+                          onChange={(v) => updateSelectedBlockStyle({ borderRadiusPx: v })}
+                          max={64}
+                        />
 
                         {(selectedBlock.type === "image" || selectedBlock.type === "button") ? (
                           <MaxWidthPicker
