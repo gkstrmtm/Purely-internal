@@ -37,10 +37,19 @@ function parseFields(schemaJson: unknown): Field[] {
   return out.length ? out.slice(0, 25) : getDefaultFields();
 }
 
-export default async function CreditHostedFormPage({ params }: { params: Promise<{ slug: string }> }) {
+export default async function CreditHostedFormPage({
+  params,
+  searchParams,
+}: {
+  params: Promise<{ slug: string }>;
+  searchParams?: { [key: string]: string | string[] | undefined };
+}) {
   const { slug } = await params;
   const s = String(slug || "").trim().toLowerCase();
   if (!s) notFound();
+
+  const embedRaw = searchParams?.embed;
+  const embed = Array.isArray(embedRaw) ? embedRaw[0] === "1" : embedRaw === "1";
 
   const form = await prisma.creditForm
     .findUnique({ where: { slug: s }, select: { name: true, slug: true, status: true, schemaJson: true } })
@@ -51,8 +60,14 @@ export default async function CreditHostedFormPage({ params }: { params: Promise
   const fields = parseFields(form.schemaJson);
 
   return (
-    <main className="mx-auto w-full max-w-3xl p-8">
-      <CreditHostedFormClient slug={form.slug} formName={form.name} status={form.status} fields={fields} />
+    <main className={embed ? "mx-auto w-full max-w-3xl p-0" : "mx-auto w-full max-w-3xl p-8"}>
+      <CreditHostedFormClient
+        slug={form.slug}
+        formName={form.name}
+        status={form.status}
+        fields={fields}
+        embedded={embed}
+      />
     </main>
   );
 }

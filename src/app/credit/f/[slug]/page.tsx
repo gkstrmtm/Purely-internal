@@ -59,7 +59,7 @@ export default async function CreditHostedFunnelPage({ params }: { params: Promi
                 />
               </div>
             ) : page.editorMode === "BLOCKS" ? (
-              <div className="prose prose-zinc max-w-none">{renderCreditFunnelBlocks({ blocks: blockBlocks, basePath: "/credit" })}</div>
+              <div>{renderCreditFunnelBlocks({ blocks: blockBlocks, basePath: "/credit" })}</div>
             ) : (
               <div className="prose prose-zinc max-w-none">
                 {markdownBlocks.map((b, idx) => {

@@ -6,6 +6,7 @@ import { useEffect, useMemo, useState } from "react";
 import {
   coerceBlocksJson,
   renderCreditFunnelBlocks,
+  type BlockStyle,
   type CreditFunnelBlock,
 } from "@/lib/creditFunnelBlocks";
 import { AppConfirmModal, AppModal } from "@/components/AppModal";
@@ -62,6 +63,30 @@ function normalizeSlug(raw: string) {
     .replace(/^-/, "")
     .replace(/-$/, "");
   return cleaned;
+}
+
+function isHexColor(value: string) {
+  return /^#([0-9a-fA-F]{3}|[0-9a-fA-F]{6})$/.test(value.trim());
+}
+
+function normalizeHexInput(value: string) {
+  const v = value.trim();
+  if (!v) return "";
+  if (v.startsWith("#")) return v;
+  return "#" + v;
+}
+
+function compactStyle(style: BlockStyle | undefined): BlockStyle | undefined {
+  if (!style) return undefined;
+  const next: any = { ...style };
+  for (const k of Object.keys(next)) {
+    if (next[k] === undefined || next[k] === null || next[k] === "") delete next[k];
+  }
+  return Object.keys(next).length ? (next as BlockStyle) : undefined;
+}
+
+function applyStylePatch(prev: BlockStyle | undefined, patch: Partial<BlockStyle>) {
+  return compactStyle({ ...(prev || {}), ...patch });
 }
 
 type FunnelEditorDialog =
@@ -890,11 +915,38 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
 
   const portalVariant: PortalVariant = basePath === "/credit" ? "credit" : "portal";
 
+  const [brandSwatches, setBrandSwatches] = useState<string[]>([]);
+
   const [mediaPickerOpen, setMediaPickerOpen] = useState(false);
   const [mediaPickerTarget, setMediaPickerTarget] = useState<
     null | { type: "ai" } | { type: "image-block"; blockId: string }
   >(null);
   const [aiAttachments, setAiAttachments] = useState<AiAttachment[]>([]);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    void (async () => {
+      try {
+        const res = await fetch("/api/portal/business-profile", {
+          cache: "no-store",
+          headers: { [PORTAL_VARIANT_HEADER]: portalVariant },
+        });
+        const json = (await res.json().catch(() => null)) as any;
+        const p = json?.profile;
+        const values = [p?.brandPrimaryHex, p?.brandAccentHex, p?.brandTextHex]
+          .map((x) => (typeof x === "string" ? x.trim() : ""))
+          .filter((x) => isHexColor(x));
+        if (!cancelled) setBrandSwatches(values);
+      } catch {
+        // ignore
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [portalVariant]);
 
   const addAiAttachment = (it: PortalMediaPickItem) => {
     const url = String(it.shareUrl || "").trim();
@@ -1160,6 +1212,32 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
     setSelectedPageLocal({ editorMode: "BLOCKS", blocksJson: next });
   };
 
+  const updateSelectedBlockStyle = (patch: Partial<BlockStyle>) => {
+    if (!selectedBlock) return;
+    upsertBlock({
+      ...selectedBlock,
+      props: {
+        ...(selectedBlock as any).props,
+        style: applyStylePatch(((selectedBlock as any).props as any)?.style, patch),
+      } as any,
+    } as any);
+  };
+
+  const clearSelectedBlockStyleKey = (key: keyof BlockStyle) => {
+    updateSelectedBlockStyle({ [key]: undefined } as any);
+  };
+
+  const updateSelectedColumnsSideStyle = (side: "leftStyle" | "rightStyle", patch: Partial<BlockStyle>) => {
+    if (!selectedBlock || selectedBlock.type !== "columns") return;
+    upsertBlock({
+      ...selectedBlock,
+      props: {
+        ...selectedBlock.props,
+        [side]: applyStylePatch((selectedBlock.props as any)[side], patch),
+      } as any,
+    });
+  };
+
   const addBlock = (type: CreditFunnelBlock["type"]) => {
     if (!selectedPage) return;
     const id = newId();
@@ -1182,7 +1260,20 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
               ? { id, type, props: { src: "", alt: "" } }
               : type === "formLink"
                 ? { id, type, props: { formSlug: "", text: "Open form" } }
-                : { id, type: "spacer", props: { height: 24 } };
+                : type === "formEmbed"
+                  ? { id, type, props: { formSlug: "", height: 760 } }
+                  : type === "columns"
+                    ? {
+                        id,
+                        type,
+                        props: {
+                          leftMarkdown: "## Left\n\nAdd your content…",
+                          rightMarkdown: "## Right\n\nAdd your content…",
+                          gapPx: 24,
+                          stackOnMobile: true,
+                        },
+                      }
+                    : { id, type: "spacer", props: { height: 24 } };
 
     const next = [...selectedBlocks, base];
     setSelectedPageLocal({ editorMode: "BLOCKS", blocksJson: next });
@@ -1525,6 +1616,8 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
                     { type: "paragraph", label: "Text" },
                     { type: "button", label: "Button" },
                     { type: "formLink", label: "Form link" },
+                    { type: "formEmbed", label: "Form embed" },
+                    { type: "columns", label: "Columns" },
                     { type: "image", label: "Image" },
                     { type: "spacer", label: "Spacer" },
                   ] as const
@@ -1763,6 +1856,369 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
                         className="w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm"
                       />
                     ) : null}
+
+                    {selectedBlock.type === "formEmbed" ? (
+                      <div className="space-y-2">
+                        <input
+                          value={selectedBlock.props.formSlug}
+                          onChange={(e) =>
+                            upsertBlock({
+                              ...selectedBlock,
+                              props: { ...selectedBlock.props, formSlug: normalizeSlug(e.target.value) },
+                            })
+                          }
+                          className="w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm"
+                          placeholder="form-slug"
+                        />
+                        <input
+                          type="number"
+                          value={String(selectedBlock.props.height ?? 760)}
+                          onChange={(e) =>
+                            upsertBlock({
+                              ...selectedBlock,
+                              props: { ...selectedBlock.props, height: Number(e.target.value) || 760 },
+                            })
+                          }
+                          className="w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm"
+                          placeholder="Height (px)"
+                        />
+                        <div className="text-xs text-zinc-500">Embeds as an iframe on the hosted page.</div>
+                      </div>
+                    ) : null}
+
+                    {selectedBlock.type === "columns" ? (
+                      <div className="space-y-2">
+                        <textarea
+                          value={selectedBlock.props.leftMarkdown}
+                          onChange={(e) =>
+                            upsertBlock({
+                              ...selectedBlock,
+                              props: { ...selectedBlock.props, leftMarkdown: e.target.value },
+                            })
+                          }
+                          className="min-h-[120px] w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm"
+                          placeholder="Left column (markdown)"
+                        />
+                        <textarea
+                          value={selectedBlock.props.rightMarkdown}
+                          onChange={(e) =>
+                            upsertBlock({
+                              ...selectedBlock,
+                              props: { ...selectedBlock.props, rightMarkdown: e.target.value },
+                            })
+                          }
+                          className="min-h-[120px] w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm"
+                          placeholder="Right column (markdown)"
+                        />
+                        <div className="grid grid-cols-2 gap-2">
+                          <label className="block">
+                            <div className="mb-1 text-xs font-semibold uppercase tracking-wide text-zinc-500">Gap (px)</div>
+                            <input
+                              type="number"
+                              value={String(selectedBlock.props.gapPx ?? 24)}
+                              onChange={(e) =>
+                                upsertBlock({
+                                  ...selectedBlock,
+                                  props: { ...selectedBlock.props, gapPx: Number(e.target.value) || 0 },
+                                })
+                              }
+                              className="w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm"
+                            />
+                          </label>
+                          <label className="flex items-center gap-2 rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm">
+                            <input
+                              type="checkbox"
+                              checked={selectedBlock.props.stackOnMobile !== false}
+                              onChange={(e) =>
+                                upsertBlock({
+                                  ...selectedBlock,
+                                  props: { ...selectedBlock.props, stackOnMobile: e.target.checked },
+                                })
+                              }
+                            />
+                            Stack on mobile
+                          </label>
+                        </div>
+
+                        <div className="rounded-xl border border-zinc-200 bg-white p-3">
+                          <div className="text-xs font-semibold uppercase tracking-wide text-zinc-500">Left column style</div>
+                          <div className="mt-2 grid grid-cols-2 gap-2">
+                            <label className="block">
+                              <div className="mb-1 text-[11px] font-semibold uppercase tracking-wide text-zinc-500">Text</div>
+                              <input
+                                value={selectedBlock.props.leftStyle?.textColor || ""}
+                                onChange={(e) => updateSelectedColumnsSideStyle("leftStyle", { textColor: normalizeHexInput(e.target.value) || undefined })}
+                                className="w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm"
+                                placeholder="#0f172a"
+                              />
+                            </label>
+                            <label className="block">
+                              <div className="mb-1 text-[11px] font-semibold uppercase tracking-wide text-zinc-500">Background</div>
+                              <input
+                                value={selectedBlock.props.leftStyle?.backgroundColor || ""}
+                                onChange={(e) => updateSelectedColumnsSideStyle("leftStyle", { backgroundColor: normalizeHexInput(e.target.value) || undefined })}
+                                className="w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm"
+                                placeholder="#ffffff"
+                              />
+                            </label>
+                            <label className="block">
+                              <div className="mb-1 text-[11px] font-semibold uppercase tracking-wide text-zinc-500">Padding</div>
+                              <input
+                                type="number"
+                                value={selectedBlock.props.leftStyle?.paddingPx ?? ""}
+                                onChange={(e) =>
+                                  updateSelectedColumnsSideStyle("leftStyle", {
+                                    paddingPx: e.target.value === "" ? undefined : Number(e.target.value) || 0,
+                                  })
+                                }
+                                className="w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm"
+                              />
+                            </label>
+                            <label className="block">
+                              <div className="mb-1 text-[11px] font-semibold uppercase tracking-wide text-zinc-500">Radius</div>
+                              <input
+                                type="number"
+                                value={selectedBlock.props.leftStyle?.borderRadiusPx ?? ""}
+                                onChange={(e) =>
+                                  updateSelectedColumnsSideStyle("leftStyle", {
+                                    borderRadiusPx: e.target.value === "" ? undefined : Number(e.target.value) || 0,
+                                  })
+                                }
+                                className="w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm"
+                              />
+                            </label>
+                          </div>
+                        </div>
+
+                        <div className="rounded-xl border border-zinc-200 bg-white p-3">
+                          <div className="text-xs font-semibold uppercase tracking-wide text-zinc-500">Right column style</div>
+                          <div className="mt-2 grid grid-cols-2 gap-2">
+                            <label className="block">
+                              <div className="mb-1 text-[11px] font-semibold uppercase tracking-wide text-zinc-500">Text</div>
+                              <input
+                                value={selectedBlock.props.rightStyle?.textColor || ""}
+                                onChange={(e) => updateSelectedColumnsSideStyle("rightStyle", { textColor: normalizeHexInput(e.target.value) || undefined })}
+                                className="w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm"
+                                placeholder="#0f172a"
+                              />
+                            </label>
+                            <label className="block">
+                              <div className="mb-1 text-[11px] font-semibold uppercase tracking-wide text-zinc-500">Background</div>
+                              <input
+                                value={selectedBlock.props.rightStyle?.backgroundColor || ""}
+                                onChange={(e) => updateSelectedColumnsSideStyle("rightStyle", { backgroundColor: normalizeHexInput(e.target.value) || undefined })}
+                                className="w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm"
+                                placeholder="#ffffff"
+                              />
+                            </label>
+                            <label className="block">
+                              <div className="mb-1 text-[11px] font-semibold uppercase tracking-wide text-zinc-500">Padding</div>
+                              <input
+                                type="number"
+                                value={selectedBlock.props.rightStyle?.paddingPx ?? ""}
+                                onChange={(e) =>
+                                  updateSelectedColumnsSideStyle("rightStyle", {
+                                    paddingPx: e.target.value === "" ? undefined : Number(e.target.value) || 0,
+                                  })
+                                }
+                                className="w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm"
+                              />
+                            </label>
+                            <label className="block">
+                              <div className="mb-1 text-[11px] font-semibold uppercase tracking-wide text-zinc-500">Radius</div>
+                              <input
+                                type="number"
+                                value={selectedBlock.props.rightStyle?.borderRadiusPx ?? ""}
+                                onChange={(e) =>
+                                  updateSelectedColumnsSideStyle("rightStyle", {
+                                    borderRadiusPx: e.target.value === "" ? undefined : Number(e.target.value) || 0,
+                                  })
+                                }
+                                className="w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm"
+                              />
+                            </label>
+                          </div>
+                        </div>
+                      </div>
+                    ) : null}
+
+                    <div className="mt-2 rounded-xl border border-zinc-200 bg-white p-3">
+                      <div className="text-xs font-semibold uppercase tracking-wide text-zinc-500">Style</div>
+
+                      <div className="mt-2 space-y-2">
+                        <label className="block">
+                          <div className="mb-1 text-xs font-semibold uppercase tracking-wide text-zinc-500">Text color</div>
+                          <div className="flex items-center gap-2">
+                            <input
+                              type="color"
+                              value={isHexColor(selectedBlock.props.style?.textColor || "") ? (selectedBlock.props.style?.textColor as string) : "#000000"}
+                              onChange={(e) => updateSelectedBlockStyle({ textColor: e.target.value })}
+                              className="h-9 w-12 shrink-0 rounded-lg border border-zinc-200 bg-white"
+                              title="Pick a text color"
+                            />
+                            <input
+                              value={selectedBlock.props.style?.textColor || ""}
+                              onChange={(e) => updateSelectedBlockStyle({ textColor: normalizeHexInput(e.target.value) || undefined })}
+                              className="w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm"
+                              placeholder="#0f172a"
+                            />
+                            <button
+                              type="button"
+                              onClick={() => clearSelectedBlockStyleKey("textColor")}
+                              className="rounded-xl border border-zinc-200 bg-white px-3 py-2 text-xs font-semibold text-zinc-800 hover:bg-zinc-50"
+                            >
+                              Clear
+                            </button>
+                          </div>
+                          {brandSwatches.length ? (
+                            <div className="mt-2 flex flex-wrap gap-2">
+                              {brandSwatches.map((c) => (
+                                <button
+                                  key={c}
+                                  type="button"
+                                  onClick={() => updateSelectedBlockStyle({ textColor: c })}
+                                  className="h-8 w-8 rounded-full border border-zinc-200"
+                                  style={{ backgroundColor: c }}
+                                  title={c}
+                                />
+                              ))}
+                            </div>
+                          ) : null}
+                        </label>
+
+                        <label className="block">
+                          <div className="mb-1 text-xs font-semibold uppercase tracking-wide text-zinc-500">Background color</div>
+                          <div className="flex items-center gap-2">
+                            <input
+                              type="color"
+                              value={isHexColor(selectedBlock.props.style?.backgroundColor || "") ? (selectedBlock.props.style?.backgroundColor as string) : "#ffffff"}
+                              onChange={(e) => updateSelectedBlockStyle({ backgroundColor: e.target.value })}
+                              className="h-9 w-12 shrink-0 rounded-lg border border-zinc-200 bg-white"
+                              title="Pick a background color"
+                            />
+                            <input
+                              value={selectedBlock.props.style?.backgroundColor || ""}
+                              onChange={(e) => updateSelectedBlockStyle({ backgroundColor: normalizeHexInput(e.target.value) || undefined })}
+                              className="w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm"
+                              placeholder="#ffffff"
+                            />
+                            <button
+                              type="button"
+                              onClick={() => clearSelectedBlockStyleKey("backgroundColor")}
+                              className="rounded-xl border border-zinc-200 bg-white px-3 py-2 text-xs font-semibold text-zinc-800 hover:bg-zinc-50"
+                            >
+                              Clear
+                            </button>
+                          </div>
+                        </label>
+
+                        {(selectedBlock.type === "heading" || selectedBlock.type === "paragraph") ? (
+                          <label className="block">
+                            <div className="mb-1 text-xs font-semibold uppercase tracking-wide text-zinc-500">Font size (px)</div>
+                            <input
+                              type="number"
+                              value={selectedBlock.props.style?.fontSizePx ?? ""}
+                              onChange={(e) =>
+                                updateSelectedBlockStyle({
+                                  fontSizePx: e.target.value === "" ? undefined : Number(e.target.value) || undefined,
+                                })
+                              }
+                              className="w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm"
+                              placeholder="16"
+                            />
+                          </label>
+                        ) : null}
+
+                        <label className="block">
+                          <div className="mb-1 text-xs font-semibold uppercase tracking-wide text-zinc-500">Align</div>
+                          <select
+                            value={selectedBlock.props.style?.align || ""}
+                            onChange={(e) => updateSelectedBlockStyle({ align: (e.target.value as any) || undefined })}
+                            className="w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm"
+                          >
+                            <option value="">Default</option>
+                            <option value="left">Left</option>
+                            <option value="center">Center</option>
+                            <option value="right">Right</option>
+                          </select>
+                        </label>
+
+                        <div className="grid grid-cols-2 gap-2">
+                          <label className="block">
+                            <div className="mb-1 text-xs font-semibold uppercase tracking-wide text-zinc-500">Margin top</div>
+                            <input
+                              type="number"
+                              value={selectedBlock.props.style?.marginTopPx ?? ""}
+                              onChange={(e) =>
+                                updateSelectedBlockStyle({
+                                  marginTopPx: e.target.value === "" ? undefined : Number(e.target.value) || 0,
+                                })
+                              }
+                              className="w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm"
+                            />
+                          </label>
+                          <label className="block">
+                            <div className="mb-1 text-xs font-semibold uppercase tracking-wide text-zinc-500">Margin bottom</div>
+                            <input
+                              type="number"
+                              value={selectedBlock.props.style?.marginBottomPx ?? ""}
+                              onChange={(e) =>
+                                updateSelectedBlockStyle({
+                                  marginBottomPx: e.target.value === "" ? undefined : Number(e.target.value) || 0,
+                                })
+                              }
+                              className="w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm"
+                            />
+                          </label>
+                        </div>
+
+                        <div className="grid grid-cols-2 gap-2">
+                          <label className="block">
+                            <div className="mb-1 text-xs font-semibold uppercase tracking-wide text-zinc-500">Padding</div>
+                            <input
+                              type="number"
+                              value={selectedBlock.props.style?.paddingPx ?? ""}
+                              onChange={(e) =>
+                                updateSelectedBlockStyle({
+                                  paddingPx: e.target.value === "" ? undefined : Number(e.target.value) || 0,
+                                })
+                              }
+                              className="w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm"
+                            />
+                          </label>
+                          <label className="block">
+                            <div className="mb-1 text-xs font-semibold uppercase tracking-wide text-zinc-500">Radius</div>
+                            <input
+                              type="number"
+                              value={selectedBlock.props.style?.borderRadiusPx ?? ""}
+                              onChange={(e) =>
+                                updateSelectedBlockStyle({
+                                  borderRadiusPx: e.target.value === "" ? undefined : Number(e.target.value) || 0,
+                                })
+                              }
+                              className="w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm"
+                            />
+                          </label>
+                        </div>
+
+                        {(selectedBlock.type === "image" || selectedBlock.type === "button") ? (
+                          <label className="block">
+                            <div className="mb-1 text-xs font-semibold uppercase tracking-wide text-zinc-500">Max width (px)</div>
+                            <input
+                              type="number"
+                              value={selectedBlock.props.style?.maxWidthPx ?? ""}
+                              onChange={(e) =>
+                                updateSelectedBlockStyle({
+                                  maxWidthPx: e.target.value === "" ? undefined : Number(e.target.value) || 0,
+                                })
+                              }
+                              className="w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm"
+                              placeholder="e.g. 640"
+                            />
+                          </label>
+                        ) : null}
+                      </div>
+                    </div>
 
                     <button
                       type="button"

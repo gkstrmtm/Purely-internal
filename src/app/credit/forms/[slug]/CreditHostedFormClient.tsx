@@ -18,11 +18,13 @@ export function CreditHostedFormClient({
   formName,
   status,
   fields,
+  embedded,
 }: {
   slug: string;
   formName: string;
   status: string;
   fields: Field[];
+  embedded?: boolean;
 }) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -34,14 +36,23 @@ export function CreditHostedFormClient({
   );
 
   return (
-    <div className="rounded-3xl border border-zinc-200 bg-white p-8">
-      <div className="text-xs font-semibold uppercase tracking-wide text-zinc-500">Credit Form</div>
-      <h1 className="mt-2 text-2xl font-bold text-brand-ink sm:text-3xl">{formName}</h1>
-      <p className="mt-2 text-sm text-zinc-600">Slug: /credit/forms/{slug}</p>
+    <div
+      className={classNames(
+        "bg-white",
+        embedded ? "rounded-none border-0 p-4 sm:p-6" : "rounded-3xl border border-zinc-200 p-8",
+      )}
+    >
+      {embedded ? null : (
+        <>
+          <div className="text-xs font-semibold uppercase tracking-wide text-zinc-500">Credit Form</div>
+          <h1 className="mt-2 text-2xl font-bold text-brand-ink sm:text-3xl">{formName}</h1>
+          <p className="mt-2 text-sm text-zinc-600">Slug: /credit/forms/{slug}</p>
 
-      <div className="mt-6 inline-flex items-center rounded-full border border-zinc-200 bg-zinc-50 px-3 py-1 text-xs font-semibold text-zinc-700">
-        Status: {status}
-      </div>
+          <div className="mt-6 inline-flex items-center rounded-full border border-zinc-200 bg-zinc-50 px-3 py-1 text-xs font-semibold text-zinc-700">
+            Status: {status}
+          </div>
+        </>
+      )}
 
       <form
         className="mt-8 space-y-4"
