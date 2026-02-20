@@ -355,6 +355,13 @@ export function FunnelBuilderClient() {
                       Edit
                     </Link>
                     <Link
+                      href={`${basePath}/app/services/funnel-builder/forms/${encodeURIComponent(f.id)}/responses`}
+                      target="_blank"
+                      className="text-sm font-semibold text-brand-ink hover:underline"
+                    >
+                      Responses
+                    </Link>
+                    <Link
                       href={`${formPreviewBase}/${encodeURIComponent(f.slug)}`}
                       target="_blank"
                       className="text-sm font-semibold text-[color:var(--color-brand-blue)] hover:underline"

@@ -243,38 +243,6 @@ function ColorPickerField({
   );
 }
 
-function CollapsiblePanel({
-  title,
-  defaultOpen,
-  right,
-  children,
-}: {
-  title: string;
-  defaultOpen?: boolean;
-  right?: React.ReactNode;
-  children: React.ReactNode;
-}) {
-  const [open, setOpen] = useState(defaultOpen ?? true);
-  return (
-    <div className="rounded-2xl border border-zinc-200 bg-white">
-      <button
-        type="button"
-        onClick={() => setOpen((v) => !v)}
-        className="flex w-full items-center justify-between gap-3 px-4 py-3"
-      >
-        <div className="text-sm font-semibold text-zinc-900">{title}</div>
-        <div className="flex items-center gap-2">
-          {right}
-          <div className="rounded-lg border border-zinc-200 bg-white px-2 py-1 text-xs font-semibold text-zinc-700">
-            {open ? "Hide" : "Show"}
-          </div>
-        </div>
-      </button>
-      {open ? <div className="border-t border-zinc-200 p-4">{children}</div> : null}
-    </div>
-  );
-}
-
 function CollapsibleGroup({
   title,
   defaultOpen,
@@ -1355,7 +1323,9 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
   const [uploadingAi, setUploadingAi] = useState(false);
 
   const [previewDevice, setPreviewDevice] = useState<"desktop" | "mobile">("desktop");
-  const [previewMode, setPreviewMode] = useState<"edit" | "preview">("edit");
+  const [sidebarPanel, setSidebarPanel] = useState<
+    "presets" | "text" | "layout" | "forms" | "media" | "page" | "selected"
+  >("presets");
 
   const [dialog, setDialog] = useState<FunnelEditorDialog>(null);
   const [dialogError, setDialogError] = useState<string | null>(null);
@@ -2521,226 +2491,263 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
             </div>
           ) : selectedPage.editorMode === "BLOCKS" ? (
             <div>
-              <CollapsiblePanel title="Page" defaultOpen>
-                <div className="space-y-3">
-                  <ColorPickerField
-                    label="Page background"
-                    value={(pageSettingsBlock as any)?.props?.style?.backgroundColor}
-                    onChange={(v) => updatePageStyle({ backgroundColor: v })}
-                    swatches={colorSwatches}
-                    allowAlpha
-                  />
-                  <ColorPickerField
-                    label="Page text color"
-                    value={(pageSettingsBlock as any)?.props?.style?.textColor}
-                    onChange={(v) => updatePageStyle({ textColor: v })}
-                    swatches={colorSwatches}
-                    allowAlpha
-                  />
-
-                  <PaddingPicker
-                    label="Page padding"
-                    value={(pageSettingsBlock as any)?.props?.style?.paddingPx}
-                    onChange={(v) => updatePageStyle({ paddingPx: v })}
-                  />
-
-                  <MaxWidthPicker
-                    label="Max width"
-                    value={(pageSettingsBlock as any)?.props?.style?.maxWidthPx}
-                    onChange={(v) => updatePageStyle({ maxWidthPx: v })}
-                  />
-
-                  <AlignPicker
-                    value={(pageSettingsBlock as any)?.props?.style?.align}
-                    onChange={(v) => updatePageStyle({ align: v })}
-                  />
-                </div>
-              </CollapsiblePanel>
-
-              <div className="mt-4">
-                <CollapsiblePanel title="Blocks" defaultOpen>
-                  <div className="space-y-3">
-                    <CollapsibleGroup title="Presets" defaultOpen>
-                      <div className="grid grid-cols-3 gap-2">
-                        <button
-                          type="button"
-                          disabled={busy}
-                          onClick={() => addPresetSection("hero")}
-                          className="rounded-xl border border-zinc-200 bg-white px-3 py-2 text-left text-xs font-semibold text-zinc-800 hover:bg-zinc-50"
-                        >
-                          Hero
-                        </button>
-                        <button
-                          type="button"
-                          disabled={busy}
-                          onClick={() => addPresetSection("body")}
-                          className="rounded-xl border border-zinc-200 bg-white px-3 py-2 text-left text-xs font-semibold text-zinc-800 hover:bg-zinc-50"
-                        >
-                          Body
-                        </button>
-                        <button
-                          type="button"
-                          disabled={busy}
-                          onClick={() => addPresetSection("form")}
-                          className="rounded-xl border border-zinc-200 bg-white px-3 py-2 text-left text-xs font-semibold text-zinc-800 hover:bg-zinc-50"
-                        >
-                          Form
-                        </button>
-                      </div>
-                      <div className="mt-2 text-xs text-zinc-500">
-                        Quick-start templates using real blocks (no markdown typing).
-                      </div>
-                    </CollapsibleGroup>
-
-                    <CollapsibleGroup title="Text" defaultOpen>
-                      <div className="grid grid-cols-2 gap-2">
-                        {(
-                          [
-                            { type: "heading", label: "Heading" },
-                            { type: "paragraph", label: "Text" },
-                            { type: "button", label: "Button" },
-                          ] as const
-                        ).map((b) => (
-                          <button
-                            key={b.type}
-                            type="button"
-                            disabled={busy}
-                            draggable
-                            onDragStart={(e) => {
-                              e.dataTransfer.setData("text/x-block-type", b.type);
-                              e.dataTransfer.effectAllowed = "copy";
-                            }}
-                            onClick={() => addBlock(b.type)}
-                            className="rounded-xl border border-zinc-200 bg-white px-3 py-2 text-left text-xs font-semibold text-zinc-800 hover:bg-zinc-50"
-                            title="Drag into preview or click to add"
-                          >
-                            {b.label}
-                          </button>
-                        ))}
-                      </div>
-                    </CollapsibleGroup>
-
-                    <CollapsibleGroup title="Layout" defaultOpen>
-                      <div className="grid grid-cols-2 gap-2">
-                        {(
-                          [
-                            { type: "section", label: "Section" },
-                            { type: "columns", label: "Columns" },
-                            { type: "spacer", label: "Spacer" },
-                          ] as const
-                        ).map((b) => (
-                          <button
-                            key={b.type}
-                            type="button"
-                            disabled={busy}
-                            draggable
-                            onDragStart={(e) => {
-                              e.dataTransfer.setData("text/x-block-type", b.type);
-                              e.dataTransfer.effectAllowed = "copy";
-                            }}
-                            onClick={() => addBlock(b.type)}
-                            className="rounded-xl border border-zinc-200 bg-white px-3 py-2 text-left text-xs font-semibold text-zinc-800 hover:bg-zinc-50"
-                            title="Drag into preview or click to add"
-                          >
-                            {b.label}
-                          </button>
-                        ))}
-                      </div>
-                    </CollapsibleGroup>
-
-                    <CollapsibleGroup title="Forms" defaultOpen={false}>
-                      <div className="grid grid-cols-2 gap-2">
-                        {(
-                          [
-                            { type: "formLink", label: "Form link" },
-                            { type: "formEmbed", label: "Form embed" },
-                          ] as const
-                        ).map((b) => (
-                          <button
-                            key={b.type}
-                            type="button"
-                            disabled={busy}
-                            draggable
-                            onDragStart={(e) => {
-                              e.dataTransfer.setData("text/x-block-type", b.type);
-                              e.dataTransfer.effectAllowed = "copy";
-                            }}
-                            onClick={() => addBlock(b.type)}
-                            className="rounded-xl border border-zinc-200 bg-white px-3 py-2 text-left text-xs font-semibold text-zinc-800 hover:bg-zinc-50"
-                            title="Drag into preview or click to add"
-                          >
-                            {b.label}
-                          </button>
-                        ))}
-                      </div>
-                    </CollapsibleGroup>
-
-                    <CollapsibleGroup title="Media" defaultOpen={false}>
-                      <div className="grid grid-cols-2 gap-2">
-                        {(
-                          [{ type: "image", label: "Image" }] as const
-                        ).map((b) => (
-                          <button
-                            key={b.type}
-                            type="button"
-                            disabled={busy}
-                            draggable
-                            onDragStart={(e) => {
-                              e.dataTransfer.setData("text/x-block-type", b.type);
-                              e.dataTransfer.effectAllowed = "copy";
-                            }}
-                            onClick={() => addBlock(b.type)}
-                            className="rounded-xl border border-zinc-200 bg-white px-3 py-2 text-left text-xs font-semibold text-zinc-800 hover:bg-zinc-50"
-                            title="Drag into preview or click to add"
-                          >
-                            {b.label}
-                          </button>
-                        ))}
-                      </div>
-                    </CollapsibleGroup>
-                  </div>
-                </CollapsiblePanel>
+              <div className="grid grid-cols-3 gap-2">
+                {(
+                  [
+                    { key: "presets", label: "Presets" },
+                    { key: "text", label: "Text" },
+                    { key: "layout", label: "Layout" },
+                    { key: "forms", label: "Forms" },
+                    { key: "media", label: "Media" },
+                    { key: "page", label: "Page" },
+                    { key: "selected", label: "Selected" },
+                  ] as const
+                ).map((t) => (
+                  <button
+                    key={t.key}
+                    type="button"
+                    disabled={t.key === "selected" ? !selectedBlock : false}
+                    onClick={() => setSidebarPanel(t.key)}
+                    className={classNames(
+                      "rounded-xl border px-3 py-2 text-left text-xs font-semibold",
+                      t.key === sidebarPanel
+                        ? "border-[color:var(--color-brand-blue)] bg-blue-50 text-zinc-900"
+                        : "border-zinc-200 bg-white text-zinc-800 hover:bg-zinc-50",
+                      t.key === "selected" && !selectedBlock ? "opacity-50" : "",
+                    )}
+                    aria-pressed={t.key === sidebarPanel}
+                  >
+                    {t.label}
+                  </button>
+                ))}
               </div>
 
-              <div className="mt-4 rounded-2xl border border-zinc-200 bg-zinc-50 p-4">
-                <div className="text-sm font-semibold text-zinc-900">Selected</div>
-                {!selectedBlock ? (
-                  <div className="mt-2 text-sm text-zinc-600">Click a block in the preview.</div>
-                ) : (
+              {sidebarPanel === "page" ? (
+                <div className="mt-4 rounded-2xl border border-zinc-200 bg-white p-4">
+                  <div className="text-sm font-semibold text-zinc-900">Page</div>
                   <div className="mt-3 space-y-3">
-                    <div className="text-xs font-semibold uppercase tracking-wide text-zinc-500">
-                      {selectedBlock.type}
-                    </div>
+                    <ColorPickerField
+                      label="Page background"
+                      value={(pageSettingsBlock as any)?.props?.style?.backgroundColor}
+                      onChange={(v) => updatePageStyle({ backgroundColor: v })}
+                      swatches={colorSwatches}
+                      allowAlpha
+                    />
+                    <ColorPickerField
+                      label="Page text color"
+                      value={(pageSettingsBlock as any)?.props?.style?.textColor}
+                      onChange={(v) => updatePageStyle({ textColor: v })}
+                      swatches={colorSwatches}
+                      allowAlpha
+                    />
 
-                    {selectedBlock.type === "heading" ? (
-                      <div className="space-y-2">
-                        <input
-                          value={selectedBlock.props.text}
-                          onChange={(e) =>
-                            upsertBlock({
-                              ...selectedBlock,
-                              props: { ...selectedBlock.props, text: e.target.value },
-                            })
-                          }
-                          className="w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm"
-                          placeholder="Heading text"
-                        />
-                        <select
-                          value={String(selectedBlock.props.level ?? 2)}
-                          onChange={(e) =>
-                            upsertBlock({
-                              ...selectedBlock,
-                              props: { ...selectedBlock.props, level: Number(e.target.value) as any },
-                            })
-                          }
-                          className="w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm"
-                        >
-                          <option value="1">H1</option>
-                          <option value="2">H2</option>
-                          <option value="3">H3</option>
-                        </select>
+                    <PaddingPicker
+                      label="Page padding"
+                      value={(pageSettingsBlock as any)?.props?.style?.paddingPx}
+                      onChange={(v) => updatePageStyle({ paddingPx: v })}
+                    />
+
+                    <MaxWidthPicker
+                      label="Max width"
+                      value={(pageSettingsBlock as any)?.props?.style?.maxWidthPx}
+                      onChange={(v) => updatePageStyle({ maxWidthPx: v })}
+                    />
+
+                    <AlignPicker value={(pageSettingsBlock as any)?.props?.style?.align} onChange={(v) => updatePageStyle({ align: v })} />
+                  </div>
+                </div>
+              ) : null}
+
+              {sidebarPanel === "presets" ? (
+                <div className="mt-4 rounded-2xl border border-zinc-200 bg-white p-4">
+                  <div className="text-sm font-semibold text-zinc-900">Presets</div>
+                  <div className="mt-3 grid grid-cols-3 gap-2">
+                    <button
+                      type="button"
+                      disabled={busy}
+                      onClick={() => addPresetSection("hero")}
+                      className="rounded-xl border border-zinc-200 bg-white px-3 py-2 text-left text-xs font-semibold text-zinc-800 hover:bg-zinc-50"
+                    >
+                      Hero
+                    </button>
+                    <button
+                      type="button"
+                      disabled={busy}
+                      onClick={() => addPresetSection("body")}
+                      className="rounded-xl border border-zinc-200 bg-white px-3 py-2 text-left text-xs font-semibold text-zinc-800 hover:bg-zinc-50"
+                    >
+                      Body
+                    </button>
+                    <button
+                      type="button"
+                      disabled={busy}
+                      onClick={() => addPresetSection("form")}
+                      className="rounded-xl border border-zinc-200 bg-white px-3 py-2 text-left text-xs font-semibold text-zinc-800 hover:bg-zinc-50"
+                    >
+                      Form
+                    </button>
+                  </div>
+                  <div className="mt-2 text-xs text-zinc-500">Quick-start templates using real blocks (no markdown typing).</div>
+                </div>
+              ) : null}
+
+              {sidebarPanel === "text" ? (
+                <div className="mt-4 rounded-2xl border border-zinc-200 bg-white p-4">
+                  <div className="text-sm font-semibold text-zinc-900">Text</div>
+                  <div className="mt-3 grid grid-cols-2 gap-2">
+                    {(
+                      [
+                        { type: "heading", label: "Heading" },
+                        { type: "paragraph", label: "Text" },
+                        { type: "button", label: "Button" },
+                      ] as const
+                    ).map((b) => (
+                      <button
+                        key={b.type}
+                        type="button"
+                        disabled={busy}
+                        draggable
+                        onDragStart={(e) => {
+                          e.dataTransfer.setData("text/x-block-type", b.type);
+                          e.dataTransfer.effectAllowed = "copy";
+                        }}
+                        onClick={() => addBlock(b.type)}
+                        className="rounded-xl border border-zinc-200 bg-white px-3 py-2 text-left text-xs font-semibold text-zinc-800 hover:bg-zinc-50"
+                        title="Drag into preview or click to add"
+                      >
+                        {b.label}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              ) : null}
+
+              {sidebarPanel === "layout" ? (
+                <div className="mt-4 rounded-2xl border border-zinc-200 bg-white p-4">
+                  <div className="text-sm font-semibold text-zinc-900">Layout</div>
+                  <div className="mt-3 grid grid-cols-2 gap-2">
+                    {(
+                      [
+                        { type: "section", label: "Section" },
+                        { type: "columns", label: "Columns" },
+                        { type: "spacer", label: "Spacer" },
+                      ] as const
+                    ).map((b) => (
+                      <button
+                        key={b.type}
+                        type="button"
+                        disabled={busy}
+                        draggable
+                        onDragStart={(e) => {
+                          e.dataTransfer.setData("text/x-block-type", b.type);
+                          e.dataTransfer.effectAllowed = "copy";
+                        }}
+                        onClick={() => addBlock(b.type)}
+                        className="rounded-xl border border-zinc-200 bg-white px-3 py-2 text-left text-xs font-semibold text-zinc-800 hover:bg-zinc-50"
+                        title="Drag into preview or click to add"
+                      >
+                        {b.label}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              ) : null}
+
+              {sidebarPanel === "forms" ? (
+                <div className="mt-4 rounded-2xl border border-zinc-200 bg-white p-4">
+                  <div className="text-sm font-semibold text-zinc-900">Forms</div>
+                  <div className="mt-3 grid grid-cols-2 gap-2">
+                    {(
+                      [
+                        { type: "formLink", label: "Form link" },
+                        { type: "formEmbed", label: "Form embed" },
+                      ] as const
+                    ).map((b) => (
+                      <button
+                        key={b.type}
+                        type="button"
+                        disabled={busy}
+                        draggable
+                        onDragStart={(e) => {
+                          e.dataTransfer.setData("text/x-block-type", b.type);
+                          e.dataTransfer.effectAllowed = "copy";
+                        }}
+                        onClick={() => addBlock(b.type)}
+                        className="rounded-xl border border-zinc-200 bg-white px-3 py-2 text-left text-xs font-semibold text-zinc-800 hover:bg-zinc-50"
+                        title="Drag into preview or click to add"
+                      >
+                        {b.label}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              ) : null}
+
+              {sidebarPanel === "media" ? (
+                <div className="mt-4 rounded-2xl border border-zinc-200 bg-white p-4">
+                  <div className="text-sm font-semibold text-zinc-900">Media</div>
+                  <div className="mt-3 grid grid-cols-2 gap-2">
+                    {([{ type: "image", label: "Image" }] as const).map((b) => (
+                      <button
+                        key={b.type}
+                        type="button"
+                        disabled={busy}
+                        draggable
+                        onDragStart={(e) => {
+                          e.dataTransfer.setData("text/x-block-type", b.type);
+                          e.dataTransfer.effectAllowed = "copy";
+                        }}
+                        onClick={() => addBlock(b.type)}
+                        className="rounded-xl border border-zinc-200 bg-white px-3 py-2 text-left text-xs font-semibold text-zinc-800 hover:bg-zinc-50"
+                        title="Drag into preview or click to add"
+                      >
+                        {b.label}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              ) : null}
+
+              {sidebarPanel === "selected" ? (
+                <div className="mt-4 rounded-2xl border border-zinc-200 bg-zinc-50 p-4">
+                  <div className="text-sm font-semibold text-zinc-900">Selected</div>
+                  {!selectedBlock ? (
+                    <div className="mt-2 text-sm text-zinc-600">Click a block in the preview.</div>
+                  ) : (
+                    <div className="mt-3 space-y-3">
+                      <div className="text-xs font-semibold uppercase tracking-wide text-zinc-500">
+                        {selectedBlock.type}
                       </div>
-                    ) : null}
+
+                      {selectedBlock.type === "heading" ? (
+                        <div className="space-y-2">
+                          <input
+                            value={selectedBlock.props.text}
+                            onChange={(e) =>
+                              upsertBlock({
+                                ...selectedBlock,
+                                props: { ...selectedBlock.props, text: e.target.value },
+                              })
+                            }
+                            className="w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm"
+                            placeholder="Heading text"
+                          />
+                          <select
+                            value={String(selectedBlock.props.level ?? 2)}
+                            onChange={(e) =>
+                              upsertBlock({
+                                ...selectedBlock,
+                                props: { ...selectedBlock.props, level: Number(e.target.value) as any },
+                              })
+                            }
+                            className="w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm"
+                          >
+                            <option value="1">H1</option>
+                            <option value="2">H2</option>
+                            <option value="3">H3</option>
+                          </select>
+                        </div>
+                      ) : null}
 
                     {selectedBlock.type === "paragraph" ? (
                       <textarea
@@ -3885,34 +3892,19 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
                           onChange={(v) => updateSelectedBlockStyle({ align: v })}
                         />
 
-                        <div className="grid grid-cols-2 gap-2">
-                          <label className="block">
-                            <div className="mb-1 text-xs font-semibold uppercase tracking-wide text-zinc-500">Margin top</div>
-                            <input
-                              type="number"
-                              value={selectedBlock.props.style?.marginTopPx ?? ""}
-                              onChange={(e) =>
-                                updateSelectedBlockStyle({
-                                  marginTopPx: e.target.value === "" ? undefined : Number(e.target.value) || 0,
-                                })
-                              }
-                              className="w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm"
-                            />
-                          </label>
-                          <label className="block">
-                            <div className="mb-1 text-xs font-semibold uppercase tracking-wide text-zinc-500">Margin bottom</div>
-                            <input
-                              type="number"
-                              value={selectedBlock.props.style?.marginBottomPx ?? ""}
-                              onChange={(e) =>
-                                updateSelectedBlockStyle({
-                                  marginBottomPx: e.target.value === "" ? undefined : Number(e.target.value) || 0,
-                                })
-                              }
-                              className="w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm"
-                            />
-                          </label>
-                        </div>
+                        <PaddingPicker
+                          label="Margin top"
+                          value={selectedBlock.props.style?.marginTopPx}
+                          onChange={(v) => updateSelectedBlockStyle({ marginTopPx: v })}
+                          max={240}
+                        />
+
+                        <PaddingPicker
+                          label="Margin bottom"
+                          value={selectedBlock.props.style?.marginBottomPx}
+                          onChange={(v) => updateSelectedBlockStyle({ marginBottomPx: v })}
+                          max={240}
+                        />
 
                         <PaddingPicker
                           label="Padding"
@@ -3954,8 +3946,9 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
                     </button>
                   </div>
                 )}
-              </div>
-              <div className="mt-4 text-xs text-zinc-500">Tip: drag blocks in the preview to reorder.</div>
+                <div className="mt-4 text-xs text-zinc-500">Tip: drag blocks in the preview to reorder.</div>
+                </div>
+              ) : null}
             </div>
           ) : (
             <div>
@@ -4137,29 +4130,6 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
                 <div className="inline-flex rounded-xl border border-zinc-200 bg-white p-1">
                   <button
                     type="button"
-                    onClick={() => setPreviewMode("edit")}
-                    className={classNames(
-                      "rounded-lg px-3 py-1.5 text-sm font-semibold",
-                      previewMode === "edit" ? "bg-zinc-900 text-white" : "text-zinc-700 hover:bg-zinc-50",
-                    )}
-                  >
-                    Edit
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setPreviewMode("preview")}
-                    className={classNames(
-                      "rounded-lg px-3 py-1.5 text-sm font-semibold",
-                      previewMode === "preview" ? "bg-zinc-900 text-white" : "text-zinc-700 hover:bg-zinc-50",
-                    )}
-                  >
-                    Preview
-                  </button>
-                </div>
-
-                <div className="inline-flex rounded-xl border border-zinc-200 bg-white p-1">
-                  <button
-                    type="button"
                     onClick={() => setPreviewDevice("desktop")}
                     className={classNames(
                       "rounded-lg px-3 py-1.5 text-sm font-semibold",
@@ -4196,12 +4166,12 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
             <div
               className="flex-1 overflow-auto p-8"
               onDragOver={(e) => {
-                if (!selectedPage || selectedPage.editorMode !== "BLOCKS" || previewMode !== "edit") return;
+                if (!selectedPage || selectedPage.editorMode !== "BLOCKS") return;
                 e.preventDefault();
                 e.dataTransfer.dropEffect = "copy";
               }}
               onDrop={(e) => {
-                if (!selectedPage || selectedPage.editorMode !== "BLOCKS" || previewMode !== "edit") return;
+                if (!selectedPage || selectedPage.editorMode !== "BLOCKS") return;
                 e.preventDefault();
                 const t = e.dataTransfer.getData("text/x-block-type");
                 if (t) addBlock(t as any);
@@ -4230,38 +4200,32 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
                     previewDevice === "mobile" ? "max-w-[420px]" : "max-w-5xl",
                   )}
                 >
-                  {previewMode === "preview" ? (
-                    <div className="min-h-[70vh]">
-                      {renderCreditFunnelBlocks({
+                  <div className="min-h-[70vh]">
+                    {editableBlocks.length === 0 ? (
+                      <div className="p-8">
+                        <div className="rounded-xl border border-dashed border-zinc-300 bg-white p-6 text-sm text-zinc-600">
+                          Drag a block from the left, or click a block to add.
+                        </div>
+                      </div>
+                    ) : (
+                      renderCreditFunnelBlocks({
                         blocks: pageSettingsBlock ? [pageSettingsBlock, ...editableBlocks] : editableBlocks,
                         basePath,
-                      })}
-                    </div>
-                  ) : (
-                    <div className="min-h-[70vh]">
-                      {editableBlocks.length === 0 ? (
-                        <div className="p-8">
-                          <div className="rounded-xl border border-dashed border-zinc-300 bg-white p-6 text-sm text-zinc-600">
-                            Drag a block from the left, or click a block to add.
-                          </div>
-                        </div>
-                      ) : (
-                        renderCreditFunnelBlocks({
-                          blocks: pageSettingsBlock ? [pageSettingsBlock, ...editableBlocks] : editableBlocks,
-                          basePath,
-                          editor: {
-                            enabled: true,
-                            selectedBlockId,
-                            hoveredBlockId,
-                            onSelectBlockId: (id) => setSelectedBlockId(id),
-                            onHoverBlockId: (id) => setHoveredBlockId(id),
-                            onUpsertBlock: (next) => upsertBlock(next),
-                            onReorder: (dragId, dropId) => reorderBlocks(dragId, dropId),
+                        editor: {
+                          enabled: true,
+                          selectedBlockId,
+                          hoveredBlockId,
+                          onSelectBlockId: (id) => {
+                            setSelectedBlockId(id);
+                            setSidebarPanel("selected");
                           },
-                        })
-                      )}
-                    </div>
-                  )}
+                          onHoverBlockId: (id) => setHoveredBlockId(id),
+                          onUpsertBlock: (next) => upsertBlock(next),
+                          onReorder: (dragId, dropId) => reorderBlocks(dragId, dropId),
+                        },
+                      })
+                    )}
+                  </div>
                 </div>
               )}
             </div>

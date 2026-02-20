@@ -35,14 +35,6 @@ type FormStyle = {
   radiusPx?: number;
 };
 
-type FormSubmission = {
-  id: string;
-  createdAt: string;
-  dataJson: any;
-  ip: string | null;
-  userAgent: string | null;
-};
-
 function classNames(...xs: Array<string | false | null | undefined>) {
   return xs.filter(Boolean).join(" ");
 }
@@ -125,14 +117,6 @@ export function FormEditorClient({ basePath, formId }: { basePath: string; formI
   const [selectedIdx, setSelectedIdx] = useState<number>(0);
   const [style, setStyle] = useState<FormStyle>({});
 
-  const [pane, setPane] = useState<"builder" | "responses">("builder");
-
-  const [submissions, setSubmissions] = useState<FormSubmission[] | null>(null);
-  const [submissionsBusy, setSubmissionsBusy] = useState(false);
-  const [submissionsError, setSubmissionsError] = useState<string | null>(null);
-  const [submissionsCursor, setSubmissionsCursor] = useState<string | null>(null);
-  const [selectedSubmissionId, setSelectedSubmissionId] = useState<string | null>(null);
-
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [savedAt, setSavedAt] = useState<number | null>(null);
@@ -146,11 +130,6 @@ export function FormEditorClient({ basePath, formId }: { basePath: string; formI
   };
 
   const selected = useMemo(() => (fields || [])[selectedIdx] || null, [fields, selectedIdx]);
-
-  const selectedSubmission = useMemo(
-    () => (submissions || []).find((s) => s.id === selectedSubmissionId) || null,
-    [submissions, selectedSubmissionId],
-  );
 
   const load = async () => {
     setError(null);
@@ -181,52 +160,6 @@ export function FormEditorClient({ basePath, formId }: { basePath: string; formI
     // Intentionally omit `load` from deps to avoid re-creating it.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [formId, form, fields]);
-
-  const loadSubmissions = async (opts?: { reset?: boolean }) => {
-    setSubmissionsError(null);
-    setSubmissionsBusy(true);
-    try {
-      const limit = 50;
-      const cursor = opts?.reset ? null : submissionsCursor;
-      const url = new URL(`/api/portal/funnel-builder/forms/${encodeURIComponent(formId)}/submissions`, window.location.origin);
-      url.searchParams.set("limit", String(limit));
-      if (cursor) url.searchParams.set("cursor", cursor);
-      const res = await fetch(url.toString(), { cache: "no-store" });
-      const json = (await res.json().catch(() => null)) as any;
-      if (!res.ok || !json || json.ok !== true) throw new Error(json?.error || "Failed to load submissions");
-      const nextItems: FormSubmission[] = Array.isArray(json.submissions) ? json.submissions : [];
-      const nextCursor = typeof json.nextCursor === "string" ? json.nextCursor : null;
-
-      setSubmissions((prev) => {
-        if (opts?.reset) return nextItems;
-        const existing = prev || [];
-        const seen = new Set(existing.map((s) => s.id));
-        const merged = [...existing];
-        for (const item of nextItems) {
-          if (!item || typeof item !== "object") continue;
-          if (typeof (item as any).id !== "string") continue;
-          if (seen.has(item.id)) continue;
-          merged.push(item);
-          seen.add(item.id);
-        }
-        return merged;
-      });
-
-      setSubmissionsCursor(nextCursor);
-      if (opts?.reset) setSelectedSubmissionId(null);
-    } catch (e) {
-      setSubmissionsError((e as any)?.message ? String((e as any).message) : "Failed to load submissions");
-    } finally {
-      setSubmissionsBusy(false);
-    }
-  };
-
-  useEffect(() => {
-    if (pane !== "responses") return;
-    if (submissions !== null) return;
-    void loadSubmissions({ reset: true });
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [pane, submissions, formId]);
 
   const save = async (opts?: { name?: string; slug?: string; status?: Form["status"] }) => {
     if (!form || !fields) return;
@@ -468,7 +401,7 @@ export function FormEditorClient({ basePath, formId }: { basePath: string; formI
                 });
               }}
               placeholder="Email"
-              className="mt-1 w-full rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm"
+              className="mt-1 w-full rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm text-zinc-900 placeholder:text-zinc-400"
             />
           </label>
 
@@ -482,9 +415,8 @@ export function FormEditorClient({ basePath, formId }: { basePath: string; formI
                 setDialog((prev) => (prev?.type === "add-question" ? { ...prev, name: v, keyTouched: true } : prev));
               }}
               placeholder="email"
-              className="mt-1 w-full rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm"
+              className="mt-1 w-full rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm text-zinc-900 placeholder:text-zinc-400"
             />
-            <div className="mt-1 text-xs text-zinc-500">This becomes the JSON key saved on submission.</div>
           </label>
 
           {dialogError ? <div className="text-sm font-semibold text-red-700">{dialogError}</div> : null}
@@ -636,68 +568,10 @@ export function FormEditorClient({ basePath, formId }: { basePath: string; formI
         </aside>
 
         <section className="rounded-3xl border border-zinc-200 bg-white p-6">
-          <div className="flex flex-wrap items-center justify-between gap-2">
-            <div className="inline-flex rounded-2xl border border-zinc-200 bg-white p-1">
-              <button
-                type="button"
-                onClick={() => setPane("builder")}
-                className={classNames(
-                  "rounded-xl px-3 py-1.5 text-sm font-semibold",
-                  pane === "builder" ? "bg-brand-ink text-white" : "text-brand-ink hover:bg-zinc-50",
-                )}
-              >
-                Builder
-              </button>
-              <button
-                type="button"
-                onClick={() => setPane("responses")}
-                className={classNames(
-                  "rounded-xl px-3 py-1.5 text-sm font-semibold",
-                  pane === "responses" ? "bg-brand-ink text-white" : "text-brand-ink hover:bg-zinc-50",
-                )}
-              >
-                Responses
-              </button>
-            </div>
-
-            {pane === "responses" ? (
-              <div className="flex flex-wrap items-center gap-2">
-                <button
-                  type="button"
-                  disabled={submissionsBusy}
-                  onClick={() => {
-                    setSubmissions(null);
-                    setSubmissionsCursor(null);
-                    setSelectedSubmissionId(null);
-                    void loadSubmissions({ reset: true });
-                  }}
-                  className={classNames(
-                    "rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-sm font-semibold text-brand-ink hover:bg-zinc-50",
-                    submissionsBusy ? "opacity-60" : "",
-                  )}
-                >
-                  Refresh
-                </button>
-                <button
-                  type="button"
-                  disabled={submissionsBusy || !submissionsCursor}
-                  onClick={() => void loadSubmissions()}
-                  className={classNames(
-                    "rounded-2xl bg-[color:var(--color-brand-blue)] px-3 py-2 text-sm font-semibold text-white hover:bg-blue-700",
-                    submissionsBusy || !submissionsCursor ? "opacity-60" : "",
-                  )}
-                >
-                  Load more
-                </button>
-              </div>
-            ) : null}
-          </div>
-
-          {pane === "builder" ? (
-            !selected ? (
-              <div className="mt-6 text-sm text-zinc-600">Add a question to start.</div>
-            ) : (
-              <div className="mt-6 grid grid-cols-1 gap-6 lg:grid-cols-2">
+          {!selected ? (
+            <div className="mt-6 text-sm text-zinc-600">Add a question to start.</div>
+          ) : (
+            <div className="mt-6 grid grid-cols-1 gap-6 lg:grid-cols-2">
                 <div>
                   <div className="text-sm font-semibold text-brand-ink">Edit question</div>
 
@@ -710,7 +584,7 @@ export function FormEditorClient({ basePath, formId }: { basePath: string; formI
                           const v = e.target.value;
                           setFields((prev) => (prev || []).map((f, i) => (i === selectedIdx ? { ...f, label: v } : f)));
                         }}
-                        className="mt-1 w-full rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm"
+                        className="mt-1 w-full rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm text-zinc-900 placeholder:text-zinc-400"
                       />
                     </label>
 
@@ -722,7 +596,7 @@ export function FormEditorClient({ basePath, formId }: { basePath: string; formI
                           const v = slugifyName(e.target.value);
                           setFields((prev) => (prev || []).map((f, i) => (i === selectedIdx ? { ...f, name: v } : f)));
                         }}
-                        className="mt-1 w-full rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm"
+                        className="mt-1 w-full rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm text-zinc-900 placeholder:text-zinc-400"
                       />
                     </label>
 
@@ -734,7 +608,7 @@ export function FormEditorClient({ basePath, formId }: { basePath: string; formI
                           const t = e.target.value as FieldType;
                           setFields((prev) => (prev || []).map((f, i) => (i === selectedIdx ? { ...f, type: t } : f)));
                         }}
-                        className="mt-1 w-full rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm"
+                        className="mt-1 w-full rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm text-zinc-900"
                       >
                         <option value="text">Short answer</option>
                         <option value="textarea">Paragraph</option>
@@ -830,7 +704,7 @@ export function FormEditorClient({ basePath, formId }: { basePath: string; formI
                           <input
                             value={style.pageBg || "#f4f4f5"}
                             onChange={(e) => setStyle((prev) => ({ ...prev, pageBg: e.target.value }))}
-                            className="h-10 w-full rounded-2xl border border-zinc-200 bg-white px-3 text-sm"
+                            className="h-10 w-full rounded-2xl border border-zinc-200 bg-white px-3 text-sm text-zinc-900 placeholder:text-zinc-400"
                             placeholder="#f4f4f5 or transparent"
                           />
                         </div>
@@ -848,7 +722,7 @@ export function FormEditorClient({ basePath, formId }: { basePath: string; formI
                           <input
                             value={style.cardBg || "#ffffff"}
                             onChange={(e) => setStyle((prev) => ({ ...prev, cardBg: e.target.value }))}
-                            className="h-10 w-full rounded-2xl border border-zinc-200 bg-white px-3 text-sm"
+                            className="h-10 w-full rounded-2xl border border-zinc-200 bg-white px-3 text-sm text-zinc-900 placeholder:text-zinc-400"
                             placeholder="#ffffff"
                           />
                         </div>
@@ -866,7 +740,7 @@ export function FormEditorClient({ basePath, formId }: { basePath: string; formI
                           <input
                             value={style.buttonBg || "#2563eb"}
                             onChange={(e) => setStyle((prev) => ({ ...prev, buttonBg: e.target.value }))}
-                            className="h-10 w-full rounded-2xl border border-zinc-200 bg-white px-3 text-sm"
+                            className="h-10 w-full rounded-2xl border border-zinc-200 bg-white px-3 text-sm text-zinc-900 placeholder:text-zinc-400"
                             placeholder="#2563eb"
                           />
                         </div>
@@ -884,7 +758,7 @@ export function FormEditorClient({ basePath, formId }: { basePath: string; formI
                           <input
                             value={style.buttonText || "#ffffff"}
                             onChange={(e) => setStyle((prev) => ({ ...prev, buttonText: e.target.value }))}
-                            className="h-10 w-full rounded-2xl border border-zinc-200 bg-white px-3 text-sm"
+                            className="h-10 w-full rounded-2xl border border-zinc-200 bg-white px-3 text-sm text-zinc-900 placeholder:text-zinc-400"
                             placeholder="#ffffff"
                           />
                         </div>
@@ -905,7 +779,7 @@ export function FormEditorClient({ basePath, formId }: { basePath: string; formI
                         </div>
                       </label>
 
-                      <div className="flex items-end justify-end">
+                      <div className="flex items-end justify-end sm:col-span-2">
                         <button
                           type="button"
                           onClick={() => setStyle({})}
@@ -924,117 +798,6 @@ export function FormEditorClient({ basePath, formId }: { basePath: string; formI
                   </div>
                 </div>
               </div>
-            )
-          ) : (
-            <div className="mt-6">
-              {submissionsError ? (
-                <div className="mb-4 rounded-2xl border border-red-200 bg-red-50 p-3 text-sm text-red-700">{submissionsError}</div>
-              ) : null}
-
-              {submissions === null ? (
-                <div className="text-sm text-zinc-600">Loading responses…</div>
-              ) : submissions.length === 0 ? (
-                <div className="text-sm text-zinc-600">No responses yet.</div>
-              ) : (
-                <div className="grid grid-cols-1 gap-4 lg:grid-cols-[1fr_360px]">
-                  <div className="overflow-hidden rounded-3xl border border-zinc-200">
-                    <div className="overflow-x-auto">
-                      <table className="min-w-full border-separate border-spacing-0">
-                        <thead>
-                          <tr className="bg-zinc-50">
-                            <th className="whitespace-nowrap border-b border-zinc-200 px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-zinc-600">
-                              Submitted
-                            </th>
-                            {(fields || []).slice(0, 6).map((f) => (
-                              <th
-                                key={f.name}
-                                className="border-b border-zinc-200 px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-zinc-600"
-                              >
-                                {f.label}
-                              </th>
-                            ))}
-                          </tr>
-                        </thead>
-                        <tbody>
-                          {submissions.map((s) => {
-                            const created = new Date(s.createdAt);
-                            const createdLabel = Number.isNaN(created.getTime()) ? s.createdAt : created.toLocaleString();
-                            return (
-                              <tr
-                                key={s.id}
-                                className={classNames(
-                                  "cursor-pointer",
-                                  selectedSubmissionId === s.id ? "bg-blue-50" : "bg-white hover:bg-zinc-50",
-                                )}
-                                onClick={() => setSelectedSubmissionId(s.id)}
-                              >
-                                <td className="whitespace-nowrap border-b border-zinc-100 px-4 py-3 text-sm font-semibold text-zinc-900">
-                                  {createdLabel}
-                                </td>
-                                {(fields || []).slice(0, 6).map((f) => {
-                                  const v = s?.dataJson && typeof s.dataJson === "object" ? (s.dataJson as any)[f.name] : undefined;
-                                  const txt = v === null || v === undefined ? "" : typeof v === "string" ? v : JSON.stringify(v);
-                                  return (
-                                    <td key={f.name} className="max-w-[260px] border-b border-zinc-100 px-4 py-3 text-sm text-zinc-700">
-                                      <div className="truncate" title={txt}>
-                                        {txt}
-                                      </div>
-                                    </td>
-                                  );
-                                })}
-                              </tr>
-                            );
-                          })}
-                        </tbody>
-                      </table>
-                    </div>
-                  </div>
-
-                  <div className="rounded-3xl border border-zinc-200 bg-white p-4">
-                    <div className="text-sm font-semibold text-brand-ink">Submission details</div>
-                    {!selectedSubmission ? (
-                      <div className="mt-2 text-sm text-zinc-600">Click a row to view.</div>
-                    ) : (
-                      <>
-                        <div className="mt-2 text-xs text-zinc-600">ID: {selectedSubmission.id}</div>
-                        <div className="mt-1 text-xs text-zinc-600">Created: {new Date(selectedSubmission.createdAt).toLocaleString()}</div>
-                        {selectedSubmission.ip ? <div className="mt-1 text-xs text-zinc-600">IP: {selectedSubmission.ip}</div> : null}
-                        {selectedSubmission.userAgent ? (
-                          <div className="mt-1 text-xs text-zinc-600">User agent: {selectedSubmission.userAgent}</div>
-                        ) : null}
-
-                        <div className="mt-4 space-y-2">
-                          {(fields || []).map((f) => {
-                            const v = selectedSubmission?.dataJson && typeof selectedSubmission.dataJson === "object" ? (selectedSubmission.dataJson as any)[f.name] : undefined;
-                            const txt = v === null || v === undefined ? "" : typeof v === "string" ? v : JSON.stringify(v);
-                            return (
-                              <div key={f.name} className="rounded-2xl border border-zinc-200 bg-zinc-50 p-3">
-                                <div className="text-xs font-semibold uppercase tracking-wide text-zinc-500">{f.label}</div>
-                                <div className="mt-1 text-sm font-semibold text-zinc-900 break-words">{txt || "—"}</div>
-                              </div>
-                            );
-                          })}
-                        </div>
-
-                        <div className="mt-4">
-                          <button
-                            type="button"
-                            className="w-full rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-sm font-semibold text-brand-ink hover:bg-zinc-50"
-                            onClick={() => {
-                              void navigator.clipboard
-                                .writeText(JSON.stringify(selectedSubmission.dataJson ?? {}, null, 2))
-                                .catch(() => null);
-                            }}
-                          >
-                            Copy JSON
-                          </button>
-                        </div>
-                      </>
-                    )}
-                  </div>
-                </div>
-              )}
-            </div>
           )}
         </section>
       </div>
