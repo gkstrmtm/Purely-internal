@@ -2,6 +2,8 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 
+import { PortalListboxDropdown, type PortalListboxOption } from "@/components/PortalListboxDropdown";
+
 type ContactLite = {
   id: string;
   name: string;
@@ -332,18 +334,25 @@ export default function DisputeLettersClient() {
               </button>
             </div>
 
-            <select
-              value={selectedContactId}
-              onChange={(e) => setSelectedContactId(e.target.value)}
-              className="mt-2 w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm"
-              disabled={busy || contacts.length === 0}
-            >
-              {contacts.map((c) => (
-                <option key={c.id} value={c.id}>
-                  {c.name}{c.email ? ` — ${c.email}` : ""}
-                </option>
-              ))}
-            </select>
+            <div className="mt-2">
+              <PortalListboxDropdown
+                value={selectedContactId}
+                onChange={(v) => setSelectedContactId(v)}
+                disabled={busy || contacts.length === 0}
+                placeholder="Select a contact…"
+                buttonClassName="flex w-full items-center justify-between gap-2 rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm hover:bg-zinc-50"
+                options={
+                  (contacts.length
+                    ? contacts.map(
+                        (c): PortalListboxOption<string> => ({
+                          value: c.id,
+                          label: `${c.name}${c.email ? ` — ${c.email}` : ""}`,
+                        }),
+                      )
+                    : ([{ value: "", label: "No contacts yet", disabled: true }] as PortalListboxOption<string>[]))
+                }
+              />
+            </div>
 
             {selectedContact ? (
               <div className="mt-3 rounded-2xl border border-zinc-200 bg-zinc-50 p-3 text-sm">
@@ -366,19 +375,27 @@ export default function DisputeLettersClient() {
                 >
                   Pull credit (stub)
                 </button>
-                <select
-                  value={selectedPullId}
-                  onChange={(e) => setSelectedPullId(e.target.value)}
-                  disabled={busy || pulls.length === 0}
-                  className="min-w-[160px] flex-1 rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm"
-                >
-                  <option value="">No pull selected</option>
-                  {pulls.map((p) => (
-                    <option key={p.id} value={p.id}>
-                      {p.status} • {p.provider} • {new Date(p.requestedAt).toLocaleString()}
-                    </option>
-                  ))}
-                </select>
+                <div className="min-w-[160px] flex-1">
+                  <PortalListboxDropdown
+                    value={selectedPullId}
+                    onChange={(v) => setSelectedPullId(v)}
+                    disabled={busy || pulls.length === 0}
+                    buttonClassName="flex w-full items-center justify-between gap-2 rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm hover:bg-zinc-50"
+                    options={([
+                      {
+                        value: "",
+                        label: pulls.length ? "No pull selected" : "No pulls yet",
+                        disabled: pulls.length === 0,
+                      },
+                      ...pulls.map(
+                        (p): PortalListboxOption<string> => ({
+                          value: p.id,
+                          label: `${p.status} • ${p.provider} • ${new Date(p.requestedAt).toLocaleString()}`,
+                        }),
+                      ),
+                    ] as PortalListboxOption<string>[])}
+                  />
+                </div>
               </div>
               {pulls.length ? (
                 <div className="mt-2 space-y-1 text-xs text-zinc-600">

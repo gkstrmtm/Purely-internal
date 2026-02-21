@@ -15,9 +15,12 @@ export function PortalListboxDropdown<T extends string>(props: {
   options: Array<PortalListboxOption<T>>;
   onChange: (v: T) => void;
   className?: string;
+  buttonClassName?: string;
   portal?: boolean;
+  disabled?: boolean;
+  placeholder?: string;
 }) {
-  const { value, options, onChange, className, portal = true } = props;
+  const { value, options, onChange, className, buttonClassName, portal = true, disabled = false, placeholder } = props;
   const [open, setOpen] = useState(false);
   const rootRef = useRef<HTMLDivElement | null>(null);
   const buttonRef = useRef<HTMLButtonElement | null>(null);
@@ -25,7 +28,12 @@ export function PortalListboxDropdown<T extends string>(props: {
 
   const [menuRect, setMenuRect] = useState<null | { left: number; top: number; width: number; placement: "down" | "up" }>(null);
 
-  const current = options.find((o) => o.value === value) ?? { value, label: value };
+  const current = options.find((o) => o.value === value) ?? null;
+  const currentLabel = current ? current.label : placeholder ? placeholder : String(value ?? "");
+
+  useEffect(() => {
+    if (disabled && open) setOpen(false);
+  }, [disabled, open]);
 
   const updateMenuRect = () => {
     const btn = buttonRef.current;
@@ -149,8 +157,14 @@ export function PortalListboxDropdown<T extends string>(props: {
       <button
         ref={buttonRef}
         type="button"
-        className="flex w-full items-center justify-between gap-2 rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-sm hover:bg-zinc-50"
+        disabled={disabled}
+        className={
+          (buttonClassName ||
+            "flex w-full items-center justify-between gap-2 rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-sm hover:bg-zinc-50") +
+          (disabled ? " cursor-not-allowed opacity-60" : "")
+        }
         onClick={() => {
+          if (disabled) return;
           setOpen((v) => {
             const next = !v;
             if (next) window.setTimeout(() => updateMenuRect(), 0);
@@ -160,7 +174,7 @@ export function PortalListboxDropdown<T extends string>(props: {
         aria-haspopup="listbox"
         aria-expanded={open}
       >
-        <span className="truncate">{current.label}</span>
+        <span className={"truncate " + (!current && placeholder ? "text-zinc-500" : "")}>{currentLabel}</span>
         <span className="shrink-0 text-xs text-zinc-500">▾</span>
       </button>
 

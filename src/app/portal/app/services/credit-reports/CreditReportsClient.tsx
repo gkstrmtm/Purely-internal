@@ -2,6 +2,8 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 
+import { PortalListboxDropdown, type PortalListboxOption } from "@/components/PortalListboxDropdown";
+
 type ContactLite = { id: string; name: string; email: string | null };
 
 type ReportLite = {
@@ -225,38 +227,45 @@ export default function CreditReportsClient() {
                 Search
               </button>
             </div>
-            <select
-              value={selectedContactId}
-              onChange={(e) => setSelectedContactId(e.target.value)}
-              className="mt-2 w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm"
-              disabled={busy || contacts.length === 0}
-            >
-              <option value="">No contact</option>
-              {contacts.map((c) => (
-                <option key={c.id} value={c.id}>
-                  {c.name}{c.email ? ` — ${c.email}` : ""}
-                </option>
-              ))}
-            </select>
+            <div className="mt-2">
+              <PortalListboxDropdown
+                value={selectedContactId}
+                onChange={(v) => setSelectedContactId(v)}
+                disabled={busy}
+                buttonClassName="flex w-full items-center justify-between gap-2 rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm hover:bg-zinc-50"
+                options={([
+                  { value: "", label: "No contact" },
+                  ...contacts.map(
+                    (c): PortalListboxOption<string> => ({
+                      value: c.id,
+                      label: `${c.name}${c.email ? ` — ${c.email}` : ""}`,
+                    }),
+                  ),
+                ] as PortalListboxOption<string>[])}
+              />
+            </div>
             {selectedContact ? <div className="mt-1 text-xs text-zinc-500">Selected: {selectedContact.name}</div> : null}
           </label>
 
           <label className="mt-3 block">
             <div className="mb-1 text-[11px] font-semibold uppercase tracking-wide text-zinc-500">Provider</div>
-            <select
+            <PortalListboxDropdown
               value={provider}
-              onChange={(e) => setProvider(e.target.value)}
-              className="w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm"
+              onChange={(v) => setProvider(v)}
               disabled={busy}
-            >
-              <option value="IdentityIQ">IdentityIQ</option>
-              <option value="SmartCredit">SmartCredit</option>
-              <option value="MyScoreIQ">MyScoreIQ</option>
-              <option value="Experian">Experian</option>
-              <option value="TransUnion">TransUnion</option>
-              <option value="Equifax">Equifax</option>
-              <option value="Other">Other</option>
-            </select>
+              buttonClassName="flex w-full items-center justify-between gap-2 rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm hover:bg-zinc-50"
+              options={(
+                [
+                  { value: "IdentityIQ", label: "IdentityIQ" },
+                  { value: "SmartCredit", label: "SmartCredit" },
+                  { value: "MyScoreIQ", label: "MyScoreIQ" },
+                  { value: "Experian", label: "Experian" },
+                  { value: "TransUnion", label: "TransUnion" },
+                  { value: "Equifax", label: "Equifax" },
+                  { value: "Other", label: "Other" },
+                ] as PortalListboxOption<string>[]
+              )}
+            />
           </label>
 
           <div className="mt-3 flex gap-2">
@@ -367,16 +376,19 @@ export default function CreditReportsClient() {
                             {(it.bureau ? `${it.bureau} • ` : "") + (it.kind ? it.kind : "")}
                           </div>
                         </div>
-                        <select
-                          className="w-full rounded-xl border border-zinc-200 bg-white px-2 py-2 text-sm"
+                        <PortalListboxDropdown
                           value={it.auditTag}
+                          onChange={(v) => updateItem(it.id, { auditTag: v })}
                           disabled={busy}
-                          onChange={(e) => updateItem(it.id, { auditTag: e.target.value as any })}
-                        >
-                          <option value="PENDING">Pending</option>
-                          <option value="NEGATIVE">Negative</option>
-                          <option value="POSITIVE">Positive</option>
-                        </select>
+                          buttonClassName="flex w-full items-center justify-between gap-2 rounded-xl border border-zinc-200 bg-white px-2 py-2 text-sm hover:bg-zinc-50"
+                          options={(
+                            [
+                              { value: "PENDING", label: "Pending" },
+                              { value: "NEGATIVE", label: "Negative" },
+                              { value: "POSITIVE", label: "Positive" },
+                            ] as PortalListboxOption<ReportItemLite["auditTag"]>[]
+                          )}
+                        />
                         <input
                           className="w-full rounded-xl border border-zinc-200 bg-white px-2 py-2 text-sm"
                           value={it.disputeStatus || ""}
