@@ -49,6 +49,25 @@ function getIntegrationsRecord(raw: unknown): Record<string, unknown> {
   return { ...rec, version: 1 };
 }
 
+function envFirst(keys: string[]): string {
+  for (const key of keys) {
+    const v = (process.env[key] ?? "").trim();
+    if (v) return v;
+  }
+  return "";
+}
+
+function envTwilioConfig(): OwnerTwilioSmsConfig | null {
+  const candidate: OwnerTwilioSmsConfig = {
+    accountSid: envFirst(["TWILIO_ACCOUNT_SID"]),
+    authToken: envFirst(["TWILIO_AUTH_TOKEN"]),
+    fromNumberE164: envFirst(["TWILIO_FROM_NUMBER", "TWILIO_SMS_FROM_NUMBER", "TWILIO_MARKETING_FROM_NUMBER"]),
+    updatedAtIso: new Date().toISOString(),
+  };
+
+  return parseConfig(candidate);
+}
+
 export async function getOwnerTwilioSmsConfig(ownerId: string): Promise<OwnerTwilioSmsConfig | null> {
   const row = await prisma.portalServiceSetup.findUnique({
     where: { ownerId_serviceSlug: { ownerId, serviceSlug: SERVICE_SLUG } },
@@ -57,7 +76,7 @@ export async function getOwnerTwilioSmsConfig(ownerId: string): Promise<OwnerTwi
 
   const rec = getIntegrationsRecord(row?.dataJson ?? null);
   const twilioRaw = rec.twilio;
-  return parseConfig(twilioRaw);
+  return parseConfig(twilioRaw) || envTwilioConfig();
 }
 
 export async function getOwnerTwilioSmsConfigMasked(ownerId: string): Promise<OwnerTwilioSmsConfigMasked> {

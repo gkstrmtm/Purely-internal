@@ -15,6 +15,22 @@ export const runtime = "nodejs";
 
 const PROFILE_EXTRAS_SERVICE_SLUG = "profile";
 
+function envFirst(keys: string[]): string {
+  for (const key of keys) {
+    const v = (process.env[key] ?? "").trim();
+    if (v) return v;
+  }
+  return "";
+}
+
+function envVoiceAgentId(): string {
+  return envFirst(["VOICE_AGENT_ID", "ELEVENLABS_AGENT_ID", "ELEVEN_LABS_AGENT_ID"]).slice(0, 120);
+}
+
+function envVoiceAgentApiKey(): string {
+  return envFirst(["VOICE_AGENT_API_KEY", "ELEVENLABS_API_KEY", "ELEVEN_LABS_API_KEY"]).slice(0, 400);
+}
+
 type TwilioCall = {
   status: string;
   durationSec: number | null;
@@ -71,7 +87,7 @@ async function getProfileVoiceAgentId(ownerId: string): Promise<string | null> {
 
   const raw = rec?.voiceAgentId;
   const id = typeof raw === "string" ? raw.trim().slice(0, 120) : "";
-  return id ? id : null;
+  return id || envVoiceAgentId() || null;
 }
 
 async function getProfileVoiceAgentApiKey(ownerId: string): Promise<string | null> {
@@ -87,7 +103,7 @@ async function getProfileVoiceAgentApiKey(ownerId: string): Promise<string | nul
 
   const raw = rec?.voiceAgentApiKey;
   const key = typeof raw === "string" ? raw.trim().slice(0, 400) : "";
-  return key ? key : null;
+  return key || envVoiceAgentApiKey() || null;
 }
 
 function checkAuth(req: Request) {
