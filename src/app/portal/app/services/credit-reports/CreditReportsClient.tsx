@@ -58,8 +58,13 @@ export default function CreditReportsClient() {
   const [contacts, setContacts] = useState<ContactLite[]>([]);
   const [selectedContactId, setSelectedContactId] = useState<string>("");
 
-  const [provider, setProvider] = useState<string>("UPLOAD");
+  const [provider, setProvider] = useState<string>("Credit Repair Cloud");
   const [rawText, setRawText] = useState<string>("{");
+  const showAdvancedImport = useMemo(() => {
+    if (typeof window === "undefined") return false;
+    const host = window.location.hostname;
+    return host === "localhost" || host === "127.0.0.1";
+  }, []);
 
   const loadReports = useCallback(async () => {
     const json = await fetchJson<{ ok: true; reports: ReportLite[] }>("/api/portal/credit/reports", { cache: "no-store" as any });
@@ -148,6 +153,12 @@ export default function CreditReportsClient() {
     }
   };
 
+  const requestProviderPull = async () => {
+    setError(null);
+    setBusy(false);
+    setError("Provider pull is coming soon. For now, reports are added by the backend integration.");
+  };
+
   const updateItem = async (itemId: string, patch: { auditTag?: ReportItemLite["auditTag"]; disputeStatus?: string | null }) => {
     if (!selectedReportId) return;
     setBusy(true);
@@ -173,7 +184,10 @@ export default function CreditReportsClient() {
 
       <div className="grid grid-cols-1 gap-4 lg:grid-cols-[360px_1fr]">
         <aside className="rounded-3xl border border-zinc-200 bg-white p-4">
-          <div className="text-sm font-semibold">Import</div>
+          <div className="text-sm font-semibold">Pull report</div>
+          <div className="mt-1 text-sm text-zinc-600">
+            Choose your provider and pull a credit report.
+          </div>
 
           <label className="mt-3 block">
             <div className="mb-1 text-[11px] font-semibold uppercase tracking-wide text-zinc-500">Contact (optional)</div>
@@ -211,37 +225,61 @@ export default function CreditReportsClient() {
 
           <label className="mt-3 block">
             <div className="mb-1 text-[11px] font-semibold uppercase tracking-wide text-zinc-500">Provider</div>
-            <input
+            <select
               value={provider}
               onChange={(e) => setProvider(e.target.value)}
               className="w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm"
-              placeholder="UPLOAD"
-            />
-          </label>
-
-          <label className="mt-3 block">
-            <div className="mb-1 text-[11px] font-semibold uppercase tracking-wide text-zinc-500">Report JSON</div>
-            <textarea
-              value={rawText}
-              onChange={(e) => setRawText(e.target.value)}
-              className="min-h-[180px] w-full rounded-2xl border border-zinc-200 bg-white px-3 py-2 font-mono text-xs"
-              placeholder="Paste JSON here"
-            />
-            <div className="mt-1 text-xs text-zinc-500">
-              Import currently supports JSON only; we’ll add PDF upload + parsing next.
-            </div>
+              disabled={busy}
+            >
+              <option value="Credit Repair Cloud">Credit Repair Cloud</option>
+              <option value="IdentityIQ">IdentityIQ</option>
+              <option value="SmartCredit">SmartCredit</option>
+              <option value="MyScoreIQ">MyScoreIQ</option>
+              <option value="Experian">Experian</option>
+              <option value="TransUnion">TransUnion</option>
+              <option value="Equifax">Equifax</option>
+              <option value="Other">Other</option>
+            </select>
           </label>
 
           <div className="mt-3 flex gap-2">
             <button
               type="button"
-              disabled={busy || rawText.trim().length < 2}
-              onClick={importReport}
+              disabled={busy}
+              onClick={requestProviderPull}
               className="rounded-xl bg-zinc-900 px-4 py-2 text-sm font-semibold text-white hover:bg-zinc-800 disabled:opacity-60"
             >
-              {busy ? "Working…" : "Import report"}
+              Pull report (coming soon)
             </button>
           </div>
+
+          {showAdvancedImport ? (
+            <details className="mt-4 rounded-2xl border border-zinc-200 bg-zinc-50 p-3">
+              <summary className="cursor-pointer text-sm font-semibold text-zinc-800">Advanced (dev only)</summary>
+              <div className="mt-2 text-xs text-zinc-600">
+                For local development only. Production uses provider integrations.
+              </div>
+              <label className="mt-3 block">
+                <div className="mb-1 text-[11px] font-semibold uppercase tracking-wide text-zinc-500">Report JSON</div>
+                <textarea
+                  value={rawText}
+                  onChange={(e) => setRawText(e.target.value)}
+                  className="min-h-[180px] w-full rounded-2xl border border-zinc-200 bg-white px-3 py-2 font-mono text-xs"
+                  placeholder="Paste JSON here"
+                />
+              </label>
+              <div className="mt-3 flex gap-2">
+                <button
+                  type="button"
+                  disabled={busy || rawText.trim().length < 2}
+                  onClick={importReport}
+                  className="rounded-xl bg-white px-4 py-2 text-sm font-semibold text-zinc-900 ring-1 ring-inset ring-zinc-200 hover:bg-zinc-50 disabled:opacity-60"
+                >
+                  {busy ? "Working…" : "Import report"}
+                </button>
+              </div>
+            </details>
+          ) : null}
 
           <div className="mt-6 border-t border-zinc-200 pt-4">
             <div className="text-sm font-semibold">Reports</div>
@@ -284,7 +322,7 @@ export default function CreditReportsClient() {
 
           {!selectedReport ? (
             <div className="mt-3 rounded-2xl border border-dashed border-zinc-300 bg-zinc-50 p-6 text-sm text-zinc-600">
-              Import a report and select it from the left.
+              Pull a report (coming soon) or select an existing report from the left.
             </div>
           ) : (
             <div className="mt-4">
@@ -335,12 +373,14 @@ export default function CreditReportsClient() {
                 )}
               </div>
 
-              <details className="mt-4">
-                <summary className="cursor-pointer text-sm font-semibold text-zinc-800">Raw JSON</summary>
-                <pre className="mt-2 max-h-[420px] overflow-auto rounded-2xl border border-zinc-200 bg-zinc-50 p-3 text-xs text-zinc-800">
-                  {JSON.stringify(selectedReport.rawJson, null, 2)}
-                </pre>
-              </details>
+              {showAdvancedImport ? (
+                <details className="mt-4">
+                  <summary className="cursor-pointer text-sm font-semibold text-zinc-800">Raw JSON (dev)</summary>
+                  <pre className="mt-2 max-h-[420px] overflow-auto rounded-2xl border border-zinc-200 bg-zinc-50 p-3 text-xs text-zinc-800">
+                    {JSON.stringify(selectedReport.rawJson, null, 2)}
+                  </pre>
+                </details>
+              ) : null}
             </div>
           )}
         </main>
