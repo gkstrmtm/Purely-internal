@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 
 import { prisma } from "@/lib/db";
+import { ensurePortalContactTagsReady } from "@/lib/portalContactTags";
 import { requireClientSessionForService } from "@/lib/portalAccess";
 
 export const runtime = "nodejs";
@@ -39,6 +40,10 @@ export async function GET(req: Request) {
 
   const ownerId = auth.session.user.id;
 
+  // This endpoint must work even if the DB was recreated and
+  // runtime schema installers haven't been triggered yet.
+  await ensurePortalContactTagsReady().catch(() => null);
+
   const url = new URL(req.url);
   const take = Math.max(1, Math.min(50, Number(url.searchParams.get("take") || 50) || 50));
   const contactsCursor = parseCursor(url.searchParams.get("contactsCursor"));
@@ -60,42 +65,58 @@ export async function GET(req: Request) {
     ];
   }
 
-  const [contactsRaw, unlinkedLeadsRaw, totalContacts, totalUnlinkedLeads] = await Promise.all([
-    prisma.portalContact.findMany({
-      where: contactsWhere,
-      select: {
-        id: true,
-        name: true,
-        email: true,
-        phone: true,
-        createdAt: true,
-        updatedAt: true,
-        tagAssignments: {
-          select: {
-            tag: { select: { id: true, name: true, color: true } },
+  let contactsRaw: any[] = [];
+  let unlinkedLeadsRaw: any[] = [];
+  let totalContacts = 0;
+  let totalUnlinkedLeads = 0;
+
+  try {
+    [contactsRaw, unlinkedLeadsRaw, totalContacts, totalUnlinkedLeads] = await Promise.all([
+      prisma.portalContact.findMany({
+        where: contactsWhere,
+        select: {
+          id: true,
+          name: true,
+          email: true,
+          phone: true,
+          createdAt: true,
+          updatedAt: true,
+          tagAssignments: {
+            select: {
+              tag: { select: { id: true, name: true, color: true } },
+            },
           },
         },
+        orderBy: [{ updatedAt: "desc" }, { id: "desc" }],
+        take: take + 1,
+      }),
+      prisma.portalLead.findMany({
+        where: leadsWhere,
+        select: {
+          id: true,
+          businessName: true,
+          email: true,
+          phone: true,
+          website: true,
+          createdAt: true,
+          assignedToUserId: true,
+        },
+        orderBy: [{ createdAt: "desc" }, { id: "desc" }],
+        take: take + 1,
+      }),
+      prisma.portalContact.count({ where: { ownerId } }),
+      prisma.portalLead.count({ where: { ownerId, contactId: null } }),
+    ]);
+  } catch (e: any) {
+    return NextResponse.json(
+      {
+        ok: false,
+        error: "Failed to load contacts/leads",
+        details: e instanceof Error ? e.message : String(e ?? "Unknown error"),
       },
-      orderBy: [{ updatedAt: "desc" }, { id: "desc" }],
-      take: take + 1,
-    }),
-    prisma.portalLead.findMany({
-      where: leadsWhere,
-      select: {
-        id: true,
-        businessName: true,
-        email: true,
-        phone: true,
-        website: true,
-        createdAt: true,
-        assignedToUserId: true,
-      },
-      orderBy: [{ createdAt: "desc" }, { id: "desc" }],
-      take: take + 1,
-    }),
-    prisma.portalContact.count({ where: { ownerId } }),
-    prisma.portalLead.count({ where: { ownerId, contactId: null } }),
-  ]);
+      { status: 500 },
+    );
+  }
 
   const contactsHasMore = contactsRaw.length > take;
   const contacts = contactsHasMore ? contactsRaw.slice(0, take) : contactsRaw;
