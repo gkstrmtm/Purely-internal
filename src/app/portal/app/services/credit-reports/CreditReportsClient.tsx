@@ -58,7 +58,7 @@ export default function CreditReportsClient() {
   const [contacts, setContacts] = useState<ContactLite[]>([]);
   const [selectedContactId, setSelectedContactId] = useState<string>("");
 
-  const [provider, setProvider] = useState<string>("Credit Repair Cloud");
+  const [provider, setProvider] = useState<string>("IdentityIQ");
   const [rawText, setRawText] = useState<string>("{");
   const showAdvancedImport = useMemo(() => {
     if (typeof window === "undefined") return false;
@@ -154,9 +154,27 @@ export default function CreditReportsClient() {
   };
 
   const requestProviderPull = async () => {
+    setBusy(true);
     setError(null);
-    setBusy(false);
-    setError("Provider pull is coming soon. For now, reports are added by the backend integration.");
+    try {
+      if (!selectedContactId) {
+        setError("Select a contact first.");
+        return;
+      }
+      const json = await fetchJson<{ ok: true; report: ReportLite }>("/api/portal/credit/reports/pull", {
+        method: "POST",
+        body: JSON.stringify({
+          contactId: selectedContactId,
+          provider,
+        }),
+      });
+      await loadReports();
+      setSelectedReportId(json.report.id);
+    } catch (e: any) {
+      setError(e?.message ? String(e.message) : "Unable to pull report");
+    } finally {
+      setBusy(false);
+    }
   };
 
   const updateItem = async (itemId: string, patch: { auditTag?: ReportItemLite["auditTag"]; disputeStatus?: string | null }) => {
@@ -231,7 +249,6 @@ export default function CreditReportsClient() {
               className="w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm"
               disabled={busy}
             >
-              <option value="Credit Repair Cloud">Credit Repair Cloud</option>
               <option value="IdentityIQ">IdentityIQ</option>
               <option value="SmartCredit">SmartCredit</option>
               <option value="MyScoreIQ">MyScoreIQ</option>
@@ -249,7 +266,7 @@ export default function CreditReportsClient() {
               onClick={requestProviderPull}
               className="rounded-xl bg-zinc-900 px-4 py-2 text-sm font-semibold text-white hover:bg-zinc-800 disabled:opacity-60"
             >
-              Pull report (coming soon)
+              {busy ? "Working…" : "Pull report"}
             </button>
           </div>
 
