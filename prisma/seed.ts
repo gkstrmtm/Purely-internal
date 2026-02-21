@@ -15,6 +15,9 @@ async function main() {
   const closerEmail = (process.env.SEED_CLOSER_EMAIL ?? "closer@purelyautomation.dev").toLowerCase();
   const closerPassword = process.env.SEED_CLOSER_PASSWORD ?? "closer1234";
 
+  const creditClientEmail = (process.env.SEED_CREDIT_CLIENT_EMAIL ?? "credit-client@purelyautomation.dev").toLowerCase();
+  const creditClientPassword = process.env.SEED_CREDIT_CLIENT_PASSWORD ?? "credit1234";
+
   await prisma.user.upsert({
     where: { email: adminEmail },
     update: { role: "ADMIN", active: true },
@@ -48,6 +51,19 @@ async function main() {
     },
   });
 
+  await prisma.user.upsert({
+    where: { email: creditClientEmail },
+    update: { role: "CLIENT", active: true, clientPortalVariant: "CREDIT" as any },
+    create: {
+      email: creditClientEmail,
+      name: "Credit Client",
+      role: "CLIENT",
+      active: true,
+      clientPortalVariant: "CREDIT" as any,
+      passwordHash: await hashPassword(creditClientPassword),
+    },
+  });
+
   const leadCount = await prisma.lead.count();
   if (leadCount === 0) {
     await prisma.lead.createMany({
@@ -76,6 +92,7 @@ async function main() {
   console.log("Admin login:", adminEmail, adminPassword);
   console.log("Dialer login:", dialerEmail, dialerPassword);
   console.log("Closer login:", closerEmail, closerPassword);
+  console.log("Credit client login:", creditClientEmail, creditClientPassword);
 }
 
 main()

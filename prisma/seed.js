@@ -41,10 +41,7 @@ async function main() {
     process.env.SEED_DEMO_DATA === "true" ||
     process.env.SEED_DEMO_DATA === "yes";
 
-  if (!seedDemo) {
-    console.log("Seed skipped (set SEED_DEMO_DATA=1 to enable demo seeding).");
-    return;
-  }
+  // Always seed baseline auth users so a reset DB isn't unusable.
 
   const inviteCode = process.env.SIGNUP_INVITE_CODE ?? "purely-dev";
 
@@ -59,6 +56,9 @@ async function main() {
 
   const managerEmail = (process.env.SEED_MANAGER_EMAIL ?? "manager@purelyautomation.dev").toLowerCase();
   const managerPassword = process.env.SEED_MANAGER_PASSWORD ?? "manager1234";
+
+  const creditClientEmail = (process.env.SEED_CREDIT_CLIENT_EMAIL ?? "credit-client@purelyautomation.dev").toLowerCase();
+  const creditClientPassword = process.env.SEED_CREDIT_CLIENT_PASSWORD ?? "credit1234";
 
   await prisma.user.upsert({
     where: { email: adminEmail },
@@ -104,9 +104,34 @@ async function main() {
     },
   });
 
+  // Credit portal client account for local/dev use.
+  await prisma.user.upsert({
+    where: { email: creditClientEmail },
+    update: { role: "CLIENT", active: true, clientPortalVariant: "CREDIT" },
+    create: {
+      email: creditClientEmail,
+      name: "Credit Client",
+      role: "CLIENT",
+      active: true,
+      clientPortalVariant: "CREDIT",
+      passwordHash: await hashPassword(creditClientPassword),
+    },
+  });
+
   const dialer = await prisma.user.findUnique({ where: { email: dialerEmail } });
   const closer = await prisma.user.findUnique({ where: { email: closerEmail } });
   if (!dialer || !closer) throw new Error("Seed users missing");
+
+  if (!seedDemo) {
+    console.log("Seed complete (baseline users only). Set SEED_DEMO_DATA=1 to seed demo data.");
+    console.log("Invite code:", inviteCode);
+    console.log("Admin login:", adminEmail, adminPassword);
+    console.log("Dialer login:", dialerEmail, dialerPassword);
+    console.log("Closer login:", closerEmail, closerPassword);
+    console.log("Manager login:", managerEmail, managerPassword);
+    console.log("Credit client login:", creditClientEmail, creditClientPassword);
+    return;
+  }
 
   // === Leads ===
   // Create a decent pool across niches/locations so the filtering UI feels real.
