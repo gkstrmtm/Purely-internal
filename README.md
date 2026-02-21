@@ -90,8 +90,8 @@ This repo supports a second, isolated client portal variant under `/credit` (sep
 
 Credit-only workflow to generate and send credit dispute letters:
 
-- UI: `/credit/app/disputes`
-- APIs: `/credit/api/disputes/*`, `/credit/api/credit-pulls/*`, `/credit/api/contacts`
+- UI: `/credit/app/services/dispute-letters`
+- APIs: `/api/portal/credit/disputes/*`, `/api/portal/credit/credit-pulls/*`, `/api/portal/credit/contacts`
 
 Credit AI keys must be configured via credit-only env vars (not the portal AI env vars):
 

@@ -35,6 +35,19 @@ export const PORTAL_SERVICES: PortalService[] = [
     variants: ["credit"],
   },
   {
+    slug: "dispute-letters",
+    title: "Dispute Letters",
+    description: "Generate and send credit dispute letters.",
+    highlights: [
+      "Pick a contact",
+      "Generate a letter with AI",
+      "Edit and send directly to the contact",
+    ],
+    included: true,
+    accent: "coral",
+    variants: ["credit"],
+  },
+  {
     slug: "inbox",
     title: "Inbox / Outbox",
     description: "Email + SMS threads in one place.",

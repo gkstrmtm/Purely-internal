@@ -4,6 +4,10 @@ import { z } from "zod";
 import { prisma } from "@/lib/db";
 import { requireCreditClientSession } from "@/lib/creditPortalAccess";
 
+export const runtime = "nodejs";
+export const dynamic = "force-dynamic";
+export const revalidate = 0;
+
 const createSchema = z.object({
   contactId: z.string().min(1),
 });

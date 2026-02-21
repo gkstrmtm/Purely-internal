@@ -3,6 +3,10 @@ import { NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
 import { requireCreditClientSession } from "@/lib/creditPortalAccess";
 
+export const runtime = "nodejs";
+export const dynamic = "force-dynamic";
+export const revalidate = 0;
+
 function normalizeKey(raw: string) {
   return raw
     .trim()
@@ -24,11 +28,7 @@ export async function GET(req: Request) {
       ownerId: session.session.user.id,
       ...(qKey
         ? {
-            OR: [
-              { nameKey: { contains: qKey } },
-              { emailKey: { contains: qKey } },
-              { phoneKey: { contains: qKey } },
-            ],
+            OR: [{ nameKey: { contains: qKey } }, { emailKey: { contains: qKey } }, { phoneKey: { contains: qKey } }],
           }
         : {}),
     },

@@ -3,10 +3,14 @@ import { z } from "zod";
 
 import { prisma } from "@/lib/db";
 import { requireCreditClientSession } from "@/lib/creditPortalAccess";
-import { trySendTransactionalEmail } from "@/lib/emailSender";
+import { sendTransactionalEmail } from "@/lib/emailSender";
 
-const bodySchema = z.object({
-  to: z.string().trim().email().optional(),
+export const runtime = "nodejs";
+export const dynamic = "force-dynamic";
+export const revalidate = 0;
+
+const sendSchema = z.object({
+  to: z.string().trim().email().optional().nullable(),
 });
 
 export async function POST(req: Request, ctx: { params: Promise<{ letterId: string }> }) {
@@ -15,44 +19,41 @@ export async function POST(req: Request, ctx: { params: Promise<{ letterId: stri
 
   const { letterId } = await ctx.params;
   const id = String(letterId || "").trim();
-  if (!id) return NextResponse.json({ ok: false, error: "Missing id" }, { status: 400 });
+  if (!id) return NextResponse.json({ ok: false, error: "Not found" }, { status: 404 });
 
   const json = await req.json().catch(() => null);
-  const parsed = bodySchema.safeParse(json ?? {});
+  const parsed = sendSchema.safeParse(json);
   if (!parsed.success) return NextResponse.json({ ok: false, error: "Invalid request" }, { status: 400 });
 
+  const ownerId = session.session.user.id;
+
   const letter = await prisma.creditDisputeLetter.findFirst({
-    where: { id, ownerId: session.session.user.id },
+    where: { id, ownerId },
     select: {
       id: true,
       subject: true,
       bodyText: true,
-      status: true,
-      contact: { select: { email: true, name: true } },
+      contact: { select: { id: true, name: true, email: true } },
     },
   });
-
   if (!letter) return NextResponse.json({ ok: false, error: "Not found" }, { status: 404 });
 
-  const to = (parsed.data.to || letter.contact.email || "").trim();
+  const fallbackTo = letter.contact.email ? String(letter.contact.email) : "";
+  const to = (parsed.data.to || "").trim() || fallbackTo;
   if (!to) return NextResponse.json({ ok: false, error: "Contact has no email" }, { status: 400 });
 
-  const subject = (letter.subject || "Credit Dispute Letter").trim();
-  const text = (letter.bodyText || "").trim();
+  const subject = (letter.subject || "Credit report dispute letter").trim() || "Credit report dispute letter";
+  const text = String(letter.bodyText || "").trim();
+  if (!text) return NextResponse.json({ ok: false, error: "Letter is empty" }, { status: 400 });
 
-  const send = await trySendTransactionalEmail({
+  await sendTransactionalEmail({
     to,
     subject,
     text,
   });
 
-  if (!send.ok) {
-    const reason = send.reason || "Failed to send";
-    return NextResponse.json({ ok: false, error: reason, skipped: (send as any).skipped === true }, { status: 400 });
-  }
-
   await prisma.creditDisputeLetter.updateMany({
-    where: { id, ownerId: session.session.user.id },
+    where: { id, ownerId },
     data: {
       status: "SENT",
       sentAt: new Date(),

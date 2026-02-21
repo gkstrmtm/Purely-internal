@@ -80,7 +80,7 @@ export default function DisputeLettersClient() {
   const selectedLetter = useMemo(() => letters.find((l) => l.id === selectedLetterId) || null, [letters, selectedLetterId]);
 
   const loadContacts = useCallback(async (q: string) => {
-    const url = `/credit/api/contacts${q.trim() ? `?q=${encodeURIComponent(q.trim())}` : ""}`;
+    const url = `/api/portal/credit/contacts${q.trim() ? `?q=${encodeURIComponent(q.trim())}` : ""}`;
     const json = await fetchJson<{ ok: true; contacts: Array<any> }>(url);
     const next: ContactLite[] = (json.contacts || []).map((c: any) => ({
       id: String(c.id),
@@ -93,13 +93,13 @@ export default function DisputeLettersClient() {
   }, []);
 
   const loadLetters = useCallback(async (contactId: string) => {
-    const url = `/credit/api/disputes${contactId ? `?contactId=${encodeURIComponent(contactId)}` : ""}`;
+    const url = `/api/portal/credit/disputes${contactId ? `?contactId=${encodeURIComponent(contactId)}` : ""}`;
     const json = await fetchJson<{ ok: true; letters: LetterLite[] }>(url);
     setLetters(json.letters || []);
   }, []);
 
   const loadPulls = useCallback(async (contactId: string) => {
-    const url = `/credit/api/credit-pulls${contactId ? `?contactId=${encodeURIComponent(contactId)}` : ""}`;
+    const url = `/api/portal/credit/credit-pulls${contactId ? `?contactId=${encodeURIComponent(contactId)}` : ""}`;
     const json = await fetchJson<{ ok: true; pulls: CreditPullLite[] }>(url);
     setPulls(json.pulls || []);
   }, []);
@@ -151,7 +151,7 @@ export default function DisputeLettersClient() {
 
     void (async () => {
       try {
-        const json = await fetchJson<{ ok: true; letter: LetterFull }>(`/credit/api/disputes/${encodeURIComponent(selectedLetterId)}`);
+        const json = await fetchJson<{ ok: true; letter: LetterFull }>(`/api/portal/credit/disputes/${encodeURIComponent(selectedLetterId)}`);
         if (cancelled) return;
         setLetterDraftSubject(json.letter.subject || "");
         setLetterDraftBody(json.letter.bodyText || "");
@@ -176,7 +176,7 @@ export default function DisputeLettersClient() {
     setBusy(true);
     setError(null);
     try {
-      const json = await fetchJson<{ ok: true; letter: LetterFull }>("/credit/api/disputes", {
+      const json = await fetchJson<{ ok: true; letter: LetterFull }>("/api/portal/credit/disputes", {
         method: "POST",
         body: JSON.stringify({
           contactId: selectedContactId,
@@ -202,7 +202,7 @@ export default function DisputeLettersClient() {
     setBusy(true);
     setError(null);
     try {
-      await fetchJson<{ ok: true }>("/credit/api/credit-pulls", {
+      await fetchJson<{ ok: true }>("/api/portal/credit/credit-pulls", {
         method: "POST",
         body: JSON.stringify({ contactId: selectedContactId }),
       });
@@ -219,7 +219,7 @@ export default function DisputeLettersClient() {
     setBusy(true);
     setError(null);
     try {
-      await fetchJson<{ ok: true; letter: LetterFull }>(`/credit/api/disputes/${encodeURIComponent(selectedLetterId)}`, {
+      await fetchJson<{ ok: true; letter: LetterFull }>(`/api/portal/credit/disputes/${encodeURIComponent(selectedLetterId)}`, {
         method: "PATCH",
         body: JSON.stringify({
           subject: letterDraftSubject.trim(),
@@ -239,7 +239,7 @@ export default function DisputeLettersClient() {
     setBusy(true);
     setError(null);
     try {
-      await fetchJson<{ ok: true }>(`/credit/api/disputes/${encodeURIComponent(selectedLetterId)}/send`, {
+      await fetchJson<{ ok: true }>(`/api/portal/credit/disputes/${encodeURIComponent(selectedLetterId)}/send`, {
         method: "POST",
         body: JSON.stringify({}),
       });

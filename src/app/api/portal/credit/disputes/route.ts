@@ -5,6 +5,10 @@ import { prisma } from "@/lib/db";
 import { requireCreditClientSession } from "@/lib/creditPortalAccess";
 import { generateCreditText } from "@/lib/creditAi";
 
+export const runtime = "nodejs";
+export const dynamic = "force-dynamic";
+export const revalidate = 0;
+
 const createSchema = z.object({
   contactId: z.string().min(1),
   recipientName: z.string().trim().max(120).optional().nullable(),
@@ -93,7 +97,9 @@ export async function POST(req: Request) {
     "Dispute context:",
     disputesText,
     "",
-    creditPull?.rawJson ? `Credit data (JSON):\n${JSON.stringify(creditPull.rawJson).slice(0, 6000)}` : "Credit data: (not available yet)",
+    creditPull?.rawJson
+      ? `Credit data (JSON):\n${JSON.stringify(creditPull.rawJson).slice(0, 6000)}`
+      : "Credit data: (not available yet)",
     "",
     "Write the letter now.",
   ].join("\n");
