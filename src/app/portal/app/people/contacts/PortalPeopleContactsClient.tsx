@@ -172,6 +172,17 @@ function classNames(...xs: Array<string | false | null | undefined>) {
   return xs.filter(Boolean).join(" ");
 }
 
+async function readJsonBody(res: Response): Promise<any | null> {
+  if (res.status === 204) return null;
+  const text = await res.text().catch(() => "");
+  if (!text || !text.trim()) return null;
+  try {
+    return JSON.parse(text);
+  } catch {
+    return null;
+  }
+}
+
 export function PortalPeopleContactsClient() {
   const toast = useToast();
   const [loading, setLoading] = useState(true);
@@ -257,11 +268,29 @@ export function PortalPeopleContactsClient() {
         const res = await fetch(`/api/portal/people/contacts?${sp.toString()}`,
           { cache: "no-store" },
         );
-        const json = (await res.json().catch(() => null)) as any;
-        if (!res.ok || !json?.ok) throw new Error(String(json?.error || "Failed to load"));
-        setData(json as ContactsPayload);
-        setContactsNextCursor(typeof json?.contactsNextCursor === "string" ? json.contactsNextCursor : null);
-        setLeadsNextCursor(typeof json?.unlinkedLeadsNextCursor === "string" ? json.unlinkedLeadsNextCursor : null);
+        const json = (await readJsonBody(res)) as any;
+
+        // Treat an empty/204 response as a valid "no contacts yet" state.
+        // This prevents scary toasts when a brand-new account has no People data.
+        if (res.ok && !json) {
+          const empty: ContactsPayload = {
+            ok: true,
+            contacts: [],
+            unlinkedLeads: [],
+            totalContacts: 0,
+            totalUnlinkedLeads: 0,
+            contactsNextCursor: null,
+            unlinkedLeadsNextCursor: null,
+          };
+          setData(empty);
+          setContactsNextCursor(null);
+          setLeadsNextCursor(null);
+        } else {
+          if (!res.ok || !json?.ok) throw new Error(String(json?.error || `Failed to load (HTTP ${res.status})`));
+          setData(json as ContactsPayload);
+          setContactsNextCursor(typeof json?.contactsNextCursor === "string" ? json.contactsNextCursor : null);
+          setLeadsNextCursor(typeof json?.unlinkedLeadsNextCursor === "string" ? json.unlinkedLeadsNextCursor : null);
+        }
 
         if (opts?.contactsCursor !== undefined) {
           contactsCursorRef.current = opts.contactsCursor;
