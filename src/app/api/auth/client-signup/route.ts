@@ -2,6 +2,8 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 import { encode } from "next-auth/jwt";
 
+import type { User } from "@prisma/client";
+
 import { prisma } from "@/lib/db";
 import { hashPassword } from "@/lib/password";
 import { ensureClientRoleAllowed, isClientRoleMissingError } from "@/lib/ensureClientRoleAllowed";
@@ -17,6 +19,10 @@ import {
   recommendPortalServiceSlugs,
 } from "@/lib/portalGetStartedRecommendations";
 import { CORE_INCLUDED_SERVICE_SLUGS, planById } from "@/lib/portalOnboardingWizardCatalog";
+
+export const runtime = "nodejs";
+export const dynamic = "force-dynamic";
+export const revalidate = 0;
 
 const bodySchema = z.object({
   name: z.string().trim().min(2).max(120),
@@ -298,49 +304,68 @@ export async function POST(req: Request) {
       return user;
     });
 
-  let user;
+  let user: Pick<User, "id" | "email" | "name" | "role">;
   try {
-    user = await createUser();
-  } catch (e) {
-    if (isClientRoleMissingError(e)) {
-      await ensureClientRoleAllowed(prisma);
+    try {
       user = await createUser();
-    } else {
-      throw e;
+    } catch (e) {
+      if (isClientRoleMissingError(e)) {
+        await ensureClientRoleAllowed(prisma);
+        user = await createUser();
+      } else {
+        throw e;
+      }
     }
+
+    // Multi-user portal accounts: session uid is the account ownerId.
+    const ownerId = await resolvePortalOwnerIdForLogin(user.id).catch(() => user.id);
+
+    // Best-effort: provision the managed business mailbox alias.
+    try {
+      await getOrCreateOwnerMailboxAddress(ownerId);
+    } catch {
+      // ignore
+    }
+
+    const token = await encode({
+      secret,
+      token: {
+        uid: ownerId,
+        memberUid: user.id,
+        email: user.email,
+        name: user.name,
+        role: user.role,
+      },
+      maxAge: 60 * 60 * 24 * 30,
+    });
+
+    const res = NextResponse.json({ ok: true, user, signedIn: true });
+    res.cookies.set({
+      name: variant === "credit" ? CREDIT_PORTAL_SESSION_COOKIE_NAME : PORTAL_SESSION_COOKIE_NAME,
+      value: token,
+      httpOnly: true,
+      sameSite: "lax",
+      secure: process.env.NODE_ENV === "production",
+      path: "/",
+      maxAge: 60 * 60 * 24 * 30,
+    });
+    return res;
+  } catch (e) {
+    console.error("/api/auth/client-signup failed", e);
+
+    const prismaCode = typeof (e as any)?.code === "string" ? String((e as any).code) : null;
+    if (prismaCode === "P2002") {
+      return NextResponse.json({ error: "Email already in use" }, { status: 409 });
+    }
+    if (prismaCode === "P2021") {
+      return NextResponse.json(
+        { error: "Server database is missing required tables" },
+        { status: 500 },
+      );
+    }
+
+    const message = e instanceof Error ? e.message : "Unknown error";
+    const error = process.env.NODE_ENV === "production" ? "Unable to create account" : message;
+    return NextResponse.json({ error }, { status: 500 });
   }
-
-  // Multi-user portal accounts: session uid is the account ownerId.
-  const ownerId = await resolvePortalOwnerIdForLogin(user.id).catch(() => user.id);
-
-  // Best-effort: provision the managed business mailbox alias.
-  try {
-    await getOrCreateOwnerMailboxAddress(ownerId);
-  } catch {
-    // ignore
-  }
-
-  const token = await encode({
-    secret,
-    token: {
-      uid: ownerId,
-      memberUid: user.id,
-      email: user.email,
-      name: user.name,
-      role: user.role,
-    },
-    maxAge: 60 * 60 * 24 * 30,
-  });
-
-  const res = NextResponse.json({ ok: true, user, signedIn: true });
-  res.cookies.set({
-    name: variant === "credit" ? CREDIT_PORTAL_SESSION_COOKIE_NAME : PORTAL_SESSION_COOKIE_NAME,
-    value: token,
-    httpOnly: true,
-    sameSite: "lax",
-    secure: process.env.NODE_ENV === "production",
-    path: "/",
-    maxAge: 60 * 60 * 24 * 30,
-  });
-  return res;
 }
