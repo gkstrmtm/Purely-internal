@@ -590,7 +590,7 @@ export function PortalBillingClient() {
       included: boolean;
     }>;
 
-    const rows = PORTAL_SERVICES.filter((s) => !s.hidden)
+    const rows = PORTAL_SERVICES.filter((s) => !s.hidden && (!s.variants || s.variants.includes("portal")))
       .map((s) => {
         const st = serviceStatuses?.[s.slug];
         const state = st?.state ?? "active";
@@ -1103,7 +1103,7 @@ export function PortalBillingClient() {
 
         <div className="mt-4 space-y-2 text-sm text-zinc-700">
           {(() => {
-            const servicesList = PORTAL_SERVICES.filter((s) => !s.hidden);
+            const servicesList = PORTAL_SERVICES.filter((s) => !s.hidden && (!s.variants || s.variants.includes("portal")));
             const rows = servicesList.map((s) => {
               const st = serviceStatuses?.[s.slug];
               const state = st?.state ?? "active";

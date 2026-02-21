@@ -3,6 +3,8 @@ import { normalizePhoneStrict } from "@/lib/phone";
 import { makeSmsThreadKey, tryUpsertPortalInboxMessage } from "@/lib/portalInbox";
 
 const SERVICE_SLUG = "integrations";
+const DEFAULT_DEMO_FULL_EMAIL_DEV = "demo-full@purelyautomation.dev";
+const DEFAULT_DEMO_FULL_EMAIL_COM = "demo-full@purelyautomation.com";
 
 export type OwnerTwilioSmsConfig = {
   accountSid: string;
@@ -68,6 +70,25 @@ function envTwilioConfig(): OwnerTwilioSmsConfig | null {
   return parseConfig(candidate);
 }
 
+function normalizeEmail(email: unknown): string {
+  return typeof email === "string" ? email.trim().toLowerCase() : "";
+}
+
+async function envTwilioConfigForOwner(ownerId: string): Promise<OwnerTwilioSmsConfig | null> {
+  const envConfig = envTwilioConfig();
+  if (!envConfig) return null;
+
+  const allow = new Set<string>([DEFAULT_DEMO_FULL_EMAIL_DEV, DEFAULT_DEMO_FULL_EMAIL_COM]);
+  const fromEnv = normalizeEmail(process.env.DEMO_PORTAL_FULL_EMAIL);
+  if (fromEnv) allow.add(fromEnv);
+
+  const user = await prisma.user.findUnique({ where: { id: ownerId }, select: { email: true } }).catch(() => null);
+  const email = normalizeEmail(user?.email);
+  if (!email) return null;
+
+  return allow.has(email) ? envConfig : null;
+}
+
 export async function getOwnerTwilioSmsConfig(ownerId: string): Promise<OwnerTwilioSmsConfig | null> {
   const row = await prisma.portalServiceSetup.findUnique({
     where: { ownerId_serviceSlug: { ownerId, serviceSlug: SERVICE_SLUG } },
@@ -76,7 +97,9 @@ export async function getOwnerTwilioSmsConfig(ownerId: string): Promise<OwnerTwi
 
   const rec = getIntegrationsRecord(row?.dataJson ?? null);
   const twilioRaw = rec.twilio;
-  return parseConfig(twilioRaw) || envTwilioConfig();
+  const saved = parseConfig(twilioRaw);
+  if (saved) return saved;
+  return await envTwilioConfigForOwner(ownerId);
 }
 
 export async function getOwnerTwilioSmsConfigMasked(ownerId: string): Promise<OwnerTwilioSmsConfigMasked> {

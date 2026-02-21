@@ -125,7 +125,7 @@ export function PortalPeopleUsersClient() {
     setLoading(true);
     try {
       const res = await fetch("/api/portal/people/users", { cache: "no-store" });
-      const json = (await res.json()) as any;
+      const json = (await res.json().catch(() => null)) as any;
       if (!res.ok || !json?.ok) throw new Error(json?.error || "Failed to load users");
       setData(json as UsersPayload);
     } catch (e: any) {
@@ -232,7 +232,7 @@ export function PortalPeopleUsersClient() {
         headers: { "content-type": "application/json" },
         body: JSON.stringify({ email, role: inviteRole, permissions: invitePermissions }),
       });
-      const json = (await res.json()) as any;
+      const json = (await res.json().catch(() => null)) as any;
       if (!res.ok || !json?.ok) throw new Error(json?.error || "Failed to invite");
 
       setInviteEmail("");

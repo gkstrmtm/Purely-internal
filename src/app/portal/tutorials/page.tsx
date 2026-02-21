@@ -60,7 +60,7 @@ function getServiceWhatYoullLearn(slug: string): string {
 export default async function PortalTutorialsPage() {
   await requirePortalUser();
 
-  const services = PORTAL_SERVICES.filter((s) => !s.hidden);
+  const services = PORTAL_SERVICES.filter((s) => !s.hidden && (!s.variants || s.variants.includes("portal")));
   const serviceGroups = groupPortalServices(services);
   const corePages = [
     {

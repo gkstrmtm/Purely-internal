@@ -257,7 +257,7 @@ export function PortalPeopleContactsClient() {
         const res = await fetch(`/api/portal/people/contacts?${sp.toString()}`,
           { cache: "no-store" },
         );
-        const json = (await res.json()) as any;
+        const json = (await res.json().catch(() => null)) as any;
         if (!res.ok || !json?.ok) throw new Error(String(json?.error || "Failed to load"));
         setData(json as ContactsPayload);
         setContactsNextCursor(typeof json?.contactsNextCursor === "string" ? json.contactsNextCursor : null);

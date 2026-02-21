@@ -11,10 +11,10 @@
     "test:twilio-mms-smoke": "node scripts/twilio-mms-smoke.mjs",
     "postinstall": "prisma generate",
     "db:generate": "prisma generate",
-    "db:push": "prisma db push",
-    "db:migrate": "prisma migrate dev",
+    "db:push": "node scripts/db-guard.mjs && prisma db push",
+    "db:migrate": "node scripts/db-guard.mjs && prisma migrate dev",
     "db:seed": "prisma db seed",
-    "db:deploy": "prisma db push && prisma db seed",
+    "db:deploy": "node scripts/db-guard.mjs && prisma db push && prisma db seed",
     "vercel-build": "node scripts/prisma-prebuild.mjs && next build",
     "blogs:cleanup-asterisks": "node prisma/cleanup-blog-asterisks.js"
   },

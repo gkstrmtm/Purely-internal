@@ -1,9 +1,11 @@
 import { notFound } from "next/navigation";
+import { headers } from "next/headers";
 
 import { requirePortalUser, requirePortalUserForAnyService, requirePortalUserForService } from "@/lib/portalAuth";
 import { PORTAL_SERVICES } from "@/app/portal/services/catalog";
 import { PortalServicePageClient } from "@/app/portal/services/[service]/PortalServicePageClient";
 import { PORTAL_SERVICE_KEYS } from "@/lib/portalPermissions.shared";
+import { normalizePortalVariant, PORTAL_VARIANT_HEADER } from "@/lib/portalVariant";
 
 const KNOWN_KEYS = new Set<string>(PORTAL_SERVICE_KEYS as unknown as string[]);
 
@@ -32,9 +34,13 @@ export default async function PortalAppServicePage({
 }: {
   params: Promise<{ service: string }>;
 }) {
+  const h = await headers();
+  const variant = normalizePortalVariant(h.get(PORTAL_VARIANT_HEADER)) ?? "portal";
+
   const { service } = await params;
-  const exists = PORTAL_SERVICES.some((s) => s.slug === service);
-  if (!exists) notFound();
+  const serviceRec = PORTAL_SERVICES.find((s) => s.slug === service) ?? null;
+  if (!serviceRec) notFound();
+  if (serviceRec.variants && !serviceRec.variants.includes(variant)) notFound();
 
   const keys = serviceKeysForSlug(service);
   if (!keys) {
