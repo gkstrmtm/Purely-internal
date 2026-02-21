@@ -1,6 +1,7 @@
 import type { PortalService } from "@/app/portal/services/catalog";
 
 export type PortalServiceCategory =
+  | "credit"
   | "communication"
   | "marketing"
   | "automation"
@@ -10,6 +11,7 @@ export type PortalServiceCategory =
   | "other";
 
 export const PORTAL_SERVICE_CATEGORY_ORDER: PortalServiceCategory[] = [
+  "credit",
   "communication",
   "marketing",
   "automation",
@@ -20,6 +22,7 @@ export const PORTAL_SERVICE_CATEGORY_ORDER: PortalServiceCategory[] = [
 ];
 
 export const PORTAL_SERVICE_CATEGORY_LABELS: Record<PortalServiceCategory, string> = {
+  credit: "Credit",
   communication: "Inbox, SMS, and calls",
   marketing: "Marketing and reputation",
   automation: "Automations and booking",
@@ -31,6 +34,11 @@ export const PORTAL_SERVICE_CATEGORY_LABELS: Record<PortalServiceCategory, strin
 
 export function portalServiceCategoryForSlug(slug: string): PortalServiceCategory {
   switch (slug) {
+    case "dispute-letters":
+    case "credit-reports":
+    case "funnel-builder":
+      return "credit";
+
     case "inbox":
     case "ai-receptionist":
     case "ai-outbound-calls":
@@ -49,7 +57,6 @@ export function portalServiceCategoryForSlug(slug: string): PortalServiceCategor
       return "automation";
 
     case "lead-scraping":
-    case "funnel-builder":
       return "leads";
 
     case "media-library":

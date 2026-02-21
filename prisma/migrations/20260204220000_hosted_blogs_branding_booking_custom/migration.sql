@@ -74,6 +74,53 @@ CREATE INDEX IF NOT EXISTS "ClientBlogPost_siteId_archivedAt_idx" ON "ClientBlog
 ALTER TABLE "ClientBlogSite" ADD COLUMN IF NOT EXISTS "slug" TEXT;
 CREATE UNIQUE INDEX IF NOT EXISTS "ClientBlogSite_slug_key" ON "ClientBlogSite"("slug");
 
+-- NOTE: Some environments historically had PortalBookingSite/PortalBooking created manually (outside Prisma).
+-- Prisma uses a shadow database that replays migrations from scratch; ensure these tables exist
+-- so this migration is replayable in clean databases.
+DO $$
+BEGIN
+	IF NOT EXISTS (SELECT 1 FROM pg_type WHERE typname = 'PortalBookingStatus') THEN
+		CREATE TYPE "PortalBookingStatus" AS ENUM ('SCHEDULED', 'CANCELED');
+	END IF;
+EXCEPTION
+	WHEN duplicate_object THEN NULL;
+END $$;
+
+CREATE TABLE IF NOT EXISTS "PortalBookingSite" (
+	"id" TEXT NOT NULL PRIMARY KEY,
+	"ownerId" TEXT NOT NULL,
+	"slug" TEXT NOT NULL,
+	"enabled" BOOLEAN NOT NULL DEFAULT false,
+	"title" TEXT NOT NULL DEFAULT 'Book a call',
+	"description" TEXT,
+	"durationMinutes" INTEGER NOT NULL DEFAULT 30,
+	"timeZone" TEXT NOT NULL DEFAULT 'America/New_York',
+	"createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+	"updatedAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+	CONSTRAINT "PortalBookingSite_ownerId_key" UNIQUE ("ownerId"),
+	CONSTRAINT "PortalBookingSite_slug_key" UNIQUE ("slug"),
+	CONSTRAINT "PortalBookingSite_ownerId_fkey" FOREIGN KEY ("ownerId") REFERENCES "User" ("id") ON DELETE RESTRICT ON UPDATE CASCADE
+);
+
+CREATE TABLE IF NOT EXISTS "PortalBooking" (
+	"id" TEXT NOT NULL PRIMARY KEY,
+	"siteId" TEXT NOT NULL,
+	"startAt" TIMESTAMP(3) NOT NULL,
+	"endAt" TIMESTAMP(3) NOT NULL,
+	"status" "PortalBookingStatus" NOT NULL DEFAULT 'SCHEDULED',
+	"contactName" TEXT NOT NULL,
+	"contactEmail" TEXT NOT NULL,
+	"contactPhone" TEXT,
+	"notes" TEXT,
+	"canceledAt" TIMESTAMP(3),
+	"createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+	"updatedAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+	CONSTRAINT "PortalBooking_siteId_fkey" FOREIGN KEY ("siteId") REFERENCES "PortalBookingSite" ("id") ON DELETE RESTRICT ON UPDATE CASCADE
+);
+
+CREATE INDEX IF NOT EXISTS "PortalBooking_siteId_startAt_idx" ON "PortalBooking"("siteId", "startAt");
+CREATE INDEX IF NOT EXISTS "PortalBooking_siteId_status_startAt_idx" ON "PortalBooking"("siteId", "status", "startAt");
+
 -- PortalBookingSite customization fields
 ALTER TABLE "PortalBookingSite" ADD COLUMN IF NOT EXISTS "photoUrl" TEXT;
 ALTER TABLE "PortalBookingSite" ADD COLUMN IF NOT EXISTS "notificationEmails" JSONB;

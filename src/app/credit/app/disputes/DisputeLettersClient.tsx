@@ -35,7 +35,23 @@ type LetterLite = {
 
 type LetterFull = LetterLite & {
   bodyText: string;
+  pdfMediaItemId?: string | null;
+  pdfGeneratedAt?: string | null;
+  pdfMediaItem?: { id: string; publicToken: string } | null;
 };
+
+type PdfResponse =
+  | {
+      ok: true;
+      pdf: {
+        mediaItemId: string;
+        openUrl: string;
+        downloadUrl: string;
+        shareUrl: string;
+        generatedAt?: string | null;
+      };
+    }
+  | { ok: false; error?: string };
 
 function classNames(...xs: Array<string | false | null | undefined>) {
   return xs.filter(Boolean).join(" ");
@@ -76,6 +92,7 @@ export default function DisputeLettersClient() {
   const [selectedLetterId, setSelectedLetterId] = useState<string>("");
   const [letterDraftSubject, setLetterDraftSubject] = useState<string>("");
   const [letterDraftBody, setLetterDraftBody] = useState<string>("");
+  const [pdfDownloadUrl, setPdfDownloadUrl] = useState<string>("");
 
   const selectedLetter = useMemo(() => letters.find((l) => l.id === selectedLetterId) || null, [letters, selectedLetterId]);
 
@@ -148,6 +165,7 @@ export default function DisputeLettersClient() {
     if (!selectedLetterId) return;
     let cancelled = false;
     setError(null);
+    setPdfDownloadUrl("");
 
     void (async () => {
       try {
@@ -155,6 +173,12 @@ export default function DisputeLettersClient() {
         if (cancelled) return;
         setLetterDraftSubject(json.letter.subject || "");
         setLetterDraftBody(json.letter.bodyText || "");
+
+        const media = (json.letter as any)?.pdfMediaItem;
+        if (media?.id && media?.publicToken) {
+          const openUrl = `/api/public/media/item/${media.id}/${media.publicToken}`;
+          setPdfDownloadUrl(`${openUrl}?download=1`);
+        }
       } catch (e: any) {
         if (cancelled) return;
         setError(e?.message ? String(e.message) : "Failed to load letter" );
@@ -176,7 +200,7 @@ export default function DisputeLettersClient() {
     setBusy(true);
     setError(null);
     try {
-      const json = await fetchJson<{ ok: true; letter: LetterFull }>("/api/portal/credit/disputes", {
+      const json = await fetchJson<{ ok: true; letter: LetterFull; pdf?: any }>("/api/portal/credit/disputes", {
         method: "POST",
         body: JSON.stringify({
           contactId: selectedContactId,
@@ -190,8 +214,28 @@ export default function DisputeLettersClient() {
       setSelectedLetterId(json.letter.id);
       setLetterDraftSubject(json.letter.subject || "");
       setLetterDraftBody(json.letter.bodyText || "");
+
+      const dl = (json as any)?.pdf?.downloadUrl;
+      if (typeof dl === "string" && dl) setPdfDownloadUrl(dl);
     } catch (e: any) {
       setError(e?.message ? String(e.message) : "Failed to generate");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const ensurePdf = async () => {
+    if (!selectedLetterId) return;
+    setBusy(true);
+    setError(null);
+    try {
+      const json = await fetchJson<PdfResponse>(
+        `/api/portal/credit/disputes/${encodeURIComponent(selectedLetterId)}/pdf`,
+        { method: "POST", body: JSON.stringify({}) },
+      );
+      if (json.ok === true) setPdfDownloadUrl(json.pdf.downloadUrl);
+    } catch (e: any) {
+      setError(e?.message ? String(e.message) : "Failed to generate PDF");
     } finally {
       setBusy(false);
     }
@@ -436,6 +480,25 @@ export default function DisputeLettersClient() {
               <div className="flex flex-wrap items-center justify-between gap-2">
                 <div className="text-sm font-semibold">Editor</div>
                 <div className="flex gap-2">
+                  <button
+                    type="button"
+                    disabled={busy || !selectedLetterId}
+                    onClick={ensurePdf}
+                    className="rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm font-semibold hover:bg-zinc-50 disabled:opacity-60"
+                    title={selectedLetterId ? "" : "Select a letter first"}
+                  >
+                    {pdfDownloadUrl ? "Regenerate PDF" : "Generate PDF"}
+                  </button>
+                  {pdfDownloadUrl ? (
+                    <a
+                      href={pdfDownloadUrl}
+                      className="rounded-xl bg-[color:var(--color-brand-blue)] px-3 py-2 text-sm font-semibold text-white hover:bg-blue-700"
+                      target="_blank"
+                      rel="noreferrer"
+                    >
+                      Download PDF
+                    </a>
+                  ) : null}
                   <button
                     type="button"
                     disabled={busy || !selectedLetterId}

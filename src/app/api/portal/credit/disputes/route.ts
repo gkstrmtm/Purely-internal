@@ -4,6 +4,8 @@ import { z } from "zod";
 import { prisma } from "@/lib/db";
 import { requireCreditClientSession } from "@/lib/creditPortalAccess";
 import { generateCreditText } from "@/lib/creditAi";
+import { mirrorUploadToMediaLibrary } from "@/lib/portalMediaUploads";
+import { renderTextToPdfBytes } from "@/lib/simplePdf";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -38,6 +40,8 @@ export async function GET(req: Request) {
       createdAt: true,
       updatedAt: true,
       generatedAt: true,
+      pdfMediaItemId: true,
+      pdfGeneratedAt: true,
       sentAt: true,
       lastSentTo: true,
       contactId: true,
@@ -131,6 +135,8 @@ export async function POST(req: Request) {
       createdAt: true,
       updatedAt: true,
       generatedAt: true,
+      pdfMediaItemId: true,
+      pdfGeneratedAt: true,
       sentAt: true,
       lastSentTo: true,
       contact: { select: { id: true, name: true, email: true, phone: true } },
@@ -138,5 +144,23 @@ export async function POST(req: Request) {
     },
   });
 
-  return NextResponse.json({ ok: true, letter: created });
+  // Auto-export PDF into Media Library.
+  let pdf: null | { mediaItemId: string; openUrl: string; downloadUrl: string; shareUrl: string } = null;
+  try {
+    const pdfBytes = renderTextToPdfBytes({ title: created.subject || "Dispute Letter", text: created.bodyText || "(empty)" });
+    const safeContact = (created.contact?.name || "contact").replace(/[^a-z0-9]+/gi, "-").replace(/^-+|-+$/g, "");
+    const fileName = `dispute-letter-${safeContact || "contact"}-${created.id.slice(0, 8)}.pdf`;
+    const media = await mirrorUploadToMediaLibrary({ ownerId, fileName, mimeType: "application/pdf", bytes: pdfBytes });
+    if (media) {
+      await prisma.creditDisputeLetter.updateMany({
+        where: { id: created.id, ownerId },
+        data: { pdfMediaItemId: media.id, pdfGeneratedAt: new Date(), updatedAt: new Date() },
+      });
+      pdf = { mediaItemId: media.id, openUrl: media.openUrl, downloadUrl: media.downloadUrl, shareUrl: media.shareUrl };
+    }
+  } catch {
+    // Best-effort: PDF export should not block letter generation.
+  }
+
+  return NextResponse.json({ ok: true, letter: created, pdf });
 }

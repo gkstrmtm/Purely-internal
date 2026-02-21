@@ -155,6 +155,8 @@ model User {
 
   creditPulls          CreditPull[]
   creditDisputeLetters CreditDisputeLetter[]
+
+  creditReports CreditReport[]
 }
 
 model EmployeeInvite {
@@ -311,6 +313,8 @@ model PortalMediaItem {
 
   createdAt DateTime @default(now())
 
+  creditDisputeLetterPdf CreditDisputeLetter? @relation("CreditDisputeLetterPdf")
+
   owner  User @relation(fields: [ownerId], references: [id])
   folder PortalMediaFolder? @relation(fields: [folderId], references: [id], onDelete: SetNull)
 
@@ -433,6 +437,8 @@ model PortalContact {
 
   creditPulls          CreditPull[]
   creditDisputeLetters CreditDisputeLetter[]
+
+  creditReports CreditReport[]
 
   @@index([ownerId])
   @@index([ownerId, emailKey])
@@ -1650,6 +1656,12 @@ enum CreditDisputeLetterStatus {
   SENT
 }
 
+enum CreditReportAuditTag {
+  PENDING
+  NEGATIVE
+  POSITIVE
+}
+
 model CreditFunnel {
   id String @id @default(cuid())
 
@@ -1805,6 +1817,11 @@ model CreditDisputeLetter {
   sentAt      DateTime?
   lastSentTo  String?
 
+  pdfMediaItemId String?
+  pdfGeneratedAt DateTime?
+
+  @@unique([pdfMediaItemId])
+
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
@@ -1812,8 +1829,57 @@ model CreditDisputeLetter {
   contact PortalContact @relation(fields: [contactId], references: [id], onDelete: Cascade)
   creditPull CreditPull? @relation(fields: [creditPullId], references: [id], onDelete: SetNull)
 
+  pdfMediaItem PortalMediaItem? @relation("CreditDisputeLetterPdf", fields: [pdfMediaItemId], references: [id], onDelete: SetNull)
+
   @@index([ownerId, createdAt])
   @@index([ownerId, contactId, createdAt])
   @@index([contactId, createdAt])
   @@index([creditPullId])
+  @@index([pdfMediaItemId])
+}
+
+model CreditReport {
+  id String @id @default(cuid())
+
+  ownerId   String
+  contactId String?
+
+  provider   String   @default("UPLOAD")
+  importedAt DateTime @default(now())
+
+  rawJson Json
+
+  createdAt DateTime @default(now())
+
+  owner   User          @relation(fields: [ownerId], references: [id])
+  contact PortalContact? @relation(fields: [contactId], references: [id], onDelete: SetNull)
+
+  items CreditReportItem[]
+
+  @@index([ownerId, importedAt])
+  @@index([ownerId, contactId, importedAt])
+  @@index([contactId, importedAt])
+}
+
+model CreditReportItem {
+  id String @id @default(cuid())
+
+  reportId String
+
+  bureau String?
+  kind   String?
+  label  String
+
+  detailsJson Json?
+
+  auditTag      CreditReportAuditTag @default(PENDING)
+  disputeStatus String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  report CreditReport @relation(fields: [reportId], references: [id], onDelete: Cascade)
+
+  @@index([reportId])
+  @@index([reportId, auditTag])
 }

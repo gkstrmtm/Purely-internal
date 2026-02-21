@@ -48,6 +48,19 @@ export const PORTAL_SERVICES: PortalService[] = [
     variants: ["credit"],
   },
   {
+    slug: "credit-reports",
+    title: "Credit Reports",
+    description: "Import and audit credit reports, and track disputed items.",
+    highlights: [
+      "Import a report (JSON for now)",
+      "Tag items pending / negative / positive",
+      "Track dispute status over time",
+    ],
+    included: true,
+    accent: "ink",
+    variants: ["credit"],
+  },
+  {
     slug: "inbox",
     title: "Inbox / Outbox",
     description: "Email + SMS threads in one place.",

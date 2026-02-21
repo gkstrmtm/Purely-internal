@@ -31,11 +31,14 @@ export async function GET(_req: Request, ctx: { params: Promise<{ letterId: stri
       createdAt: true,
       updatedAt: true,
       generatedAt: true,
+      pdfMediaItemId: true,
+      pdfGeneratedAt: true,
       sentAt: true,
       lastSentTo: true,
       contactId: true,
       creditPullId: true,
       contact: { select: { id: true, name: true, email: true, phone: true } },
+      pdfMediaItem: { select: { id: true, publicToken: true } },
     },
   });
 
@@ -80,10 +83,13 @@ export async function PATCH(req: Request, ctx: { params: Promise<{ letterId: str
       createdAt: true,
       updatedAt: true,
       generatedAt: true,
+      pdfMediaItemId: true,
+      pdfGeneratedAt: true,
       sentAt: true,
       lastSentTo: true,
       creditPullId: true,
       contact: { select: { id: true, name: true, email: true, phone: true } },
+      pdfMediaItem: { select: { id: true, publicToken: true } },
     },
   });
 
