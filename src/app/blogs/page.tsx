@@ -85,16 +85,16 @@ export default async function BlogsIndexPage(props: PageProps) {
               </p>
               <div className="mt-8 flex flex-wrap items-center gap-3">
                 <Link
-                  href={cta.href}
+                  href="/book-a-call"
                   className="inline-flex items-center justify-center rounded-2xl bg-[color:var(--color-brand-pink)] px-6 py-3 text-base font-extrabold text-[color:var(--color-brand-blue)] shadow-md hover:bg-pink-300"
                 >
-                  {cta.button}
+                  Book a call
                 </Link>
                 <Link
-                  href="/"
+                  href="/portal"
                   className="inline-flex items-center justify-center rounded-2xl border border-white/25 bg-white/10 px-6 py-3 text-base font-bold text-white hover:bg-white/15"
                 >
-                  see the demo page
+                  Get started
                 </Link>
               </div>
             </div>
@@ -179,13 +179,13 @@ export default async function BlogsIndexPage(props: PageProps) {
 
                 <div className="mt-6 rounded-2xl bg-[color:rgba(29,78,216,0.06)] p-5">
                   <div className="text-sm font-bold text-zinc-900">ready to automate your content?</div>
-                  <p className="mt-2 text-sm text-zinc-700">Book a call and we&apos;ll map the exact workflow.</p>
+                  <p className="mt-2 text-sm text-zinc-700">Sign up for the portal and activate your automated blogs today.</p>
                   <div className="mt-4">
                     <Link
-                      href={cta.href}
+                      href="/portal"
                       className="inline-flex items-center rounded-2xl bg-[color:var(--color-brand-pink)] px-4 py-2 text-sm font-extrabold text-[color:var(--color-brand-blue)] shadow-sm hover:bg-pink-300"
                     >
-                      {cta.button}
+                      Get started
                     </Link>
                   </div>
                 </div>
