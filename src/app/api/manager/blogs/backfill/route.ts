@@ -27,14 +27,11 @@ export async function POST(req: Request) {
     const result = await runBackfillBatch(parsed.data);
     return NextResponse.json({ ...result, buildSha });
   } catch (e) {
-    return NextResponse.json(
-      {
-        ok: false,
-        error: "Backfill failed",
-        details: e instanceof Error ? e.message : "Unknown error",
-        buildSha,
-      },
-      { status: 500 },
-    );
+    return NextResponse.json({
+      ok: false,
+      error: "Backfill failed",
+      details: e instanceof Error ? e.message : "Unknown error",
+      buildSha,
+    });
   }
 }

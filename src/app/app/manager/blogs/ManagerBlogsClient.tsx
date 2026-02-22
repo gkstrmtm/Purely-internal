@@ -435,6 +435,27 @@ export default function ManagerBlogsClient() {
           }),
         });
 
+        if (data?.ok === false) {
+          const msg = data.error || data.details || data.message || "Backfill failed";
+          setError(msg);
+          setBackfillProgress((p) =>
+            p
+              ? { ...p, running: false, stoppedEarly: true, message: msg, lastBuildSha: data.buildSha ?? null }
+              : {
+                  running: false,
+                  processed: Math.min(backfillCount, Math.max(0, offset)),
+                  count: backfillCount,
+                  created: totalCreated,
+                  skipped: totalSkipped,
+                  stoppedEarly: true,
+                  message: msg,
+                  lastBuildSha: data.buildSha ?? null,
+                },
+          );
+          setLastResult({ ...data, autoProgress: { totalCreated, totalSkipped, currentOffset: offset, count: backfillCount } });
+          break;
+        }
+
         totalCreated += typeof data.createdCount === "number" ? data.createdCount : 0;
         totalSkipped += typeof data.skippedCount === "number" ? data.skippedCount : 0;
 

@@ -3,7 +3,7 @@ import { Prisma } from "@prisma/client";
 import { generateText } from "@/lib/ai";
 import { stripDoubleAsterisks } from "@/lib/blog";
 import { prisma } from "@/lib/db";
-import { hasPublicColumn } from "@/lib/dbSchema";
+import { hasPublicColumn, hasPublicTable } from "@/lib/dbSchema";
 
 export type BlogDraft = {
   title: string;
@@ -710,6 +710,25 @@ export async function runBackfillBatch(params: BackfillParams) {
   const maxPerRequest = Math.min(20, Math.max(1, params.maxPerRequest));
   const timeBudgetSeconds = Math.min(60, Math.max(5, params.timeBudgetSeconds));
   const anchor = params.anchor ?? "NOW";
+
+  const hasBlogPost = await hasPublicTable("BlogPost").catch(() => false);
+  if (!hasBlogPost) {
+    return {
+      ok: false as const,
+      error:
+        "Blog posts table is missing in this database (public.BlogPost). Run Prisma migrations / verify DATABASE_URL is pointing at the right DB, then try again.",
+      stoppedEarly: true as const,
+      anchor,
+      offset,
+      nextOffset: offset,
+      hasMore: false as const,
+      createdCount: 0,
+      skippedCount: 0,
+      created: [] as Array<{ slug: string; title: string; publishedAt: string }>,
+      skipped: [] as Array<{ date: string; reason: string }>,
+      elapsedMs: 0,
+    };
+  }
 
   const now = new Date();
   const startedAt = Date.now();
