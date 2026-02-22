@@ -32,6 +32,7 @@ type BackfillResponse = {
   message?: string;
   stoppedEarly?: boolean;
   anchor?: "NOW" | "OLDEST_POST";
+  anchorBaseIso?: string;
   targetDates?: string[];
   pendingCount?: number;
   createdCount?: number;
@@ -165,6 +166,7 @@ export default function ManagerBlogsClient() {
   const [backfillMaxPerRequest, setBackfillMaxPerRequest] = useState(1);
   const [backfillTimeBudget, setBackfillTimeBudget] = useState(60);
   const [backfillAnchor, setBackfillAnchor] = useState<"NOW" | "OLDEST_POST">("OLDEST_POST");
+  const [backfillAnchorBaseIso, setBackfillAnchorBaseIso] = useState<string | null>(null);
 
   const [backfillProgress, setBackfillProgress] = useState<{
     running: boolean;
@@ -400,6 +402,10 @@ export default function ManagerBlogsClient() {
     setLastResult(null);
     setBackfillProgress(null);
 
+    if (backfillAnchor !== "OLDEST_POST" && backfillAnchorBaseIso) {
+      setBackfillAnchorBaseIso(null);
+    }
+
     if (backfillAtEnd) {
       setError("Backfill offset is at the end of the range. Set offset to 0 (or increase count) and run again.");
       return;
@@ -411,6 +417,13 @@ export default function ManagerBlogsClient() {
       let safety = 0;
       let totalCreated = 0;
       let totalSkipped = 0;
+      let anchorBaseIso: string | null = backfillAnchor === "OLDEST_POST" ? backfillAnchorBaseIso : null;
+
+      // If starting from the beginning, compute a fresh stable anchor.
+      if (backfillAnchor === "OLDEST_POST" && offset === 0 && anchorBaseIso) {
+        anchorBaseIso = null;
+        setBackfillAnchorBaseIso(null);
+      }
 
       setBackfillProgress({
         running: true,
@@ -432,6 +445,7 @@ export default function ManagerBlogsClient() {
             maxPerRequest: 1,
             timeBudgetSeconds: backfillTimeBudget,
             anchor: backfillAnchor,
+            ...(backfillAnchor === "OLDEST_POST" && anchorBaseIso ? { anchorBaseIso } : {}),
           }),
         });
 
@@ -454,6 +468,11 @@ export default function ManagerBlogsClient() {
           );
           setLastResult({ ...data, autoProgress: { totalCreated, totalSkipped, currentOffset: offset, count: backfillCount } });
           break;
+        }
+
+        if (backfillAnchor === "OLDEST_POST" && !anchorBaseIso && typeof data.anchorBaseIso === "string" && data.anchorBaseIso) {
+          anchorBaseIso = data.anchorBaseIso;
+          setBackfillAnchorBaseIso(anchorBaseIso);
         }
 
         totalCreated += typeof data.createdCount === "number" ? data.createdCount : 0;

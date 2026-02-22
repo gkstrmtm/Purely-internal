@@ -11,6 +11,7 @@ const bodySchema = z.object({
   maxPerRequest: z.number().int().min(1).max(20).default(1),
   timeBudgetSeconds: z.number().min(5).max(60).default(60),
   anchor: z.enum(["NOW", "OLDEST_POST"]).default("OLDEST_POST"),
+  anchorBaseIso: z.string().trim().optional(),
 });
 
 export async function POST(req: Request) {

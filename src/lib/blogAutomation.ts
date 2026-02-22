@@ -59,7 +59,16 @@ type BackfillParams = {
   maxPerRequest: number;
   timeBudgetSeconds: number;
   anchor?: "NOW" | "OLDEST_POST";
+  anchorBaseIso?: string;
 };
+
+function parseAnchorBaseIso(value: unknown): Date | null {
+  if (typeof value !== "string") return null;
+  const trimmed = value.trim();
+  if (!trimmed) return null;
+  const dt = new Date(trimmed);
+  return Number.isNaN(dt.getTime()) ? null : dt;
+}
 
 function slugify(input: string) {
   return input
@@ -777,17 +786,21 @@ export async function runBackfillBatch(params: BackfillParams) {
   const startedAt = Date.now();
 
   let targetDates: Date[] = [];
+  let anchorBaseIso: string | null = null;
 
   if (anchor === "OLDEST_POST") {
     const nonArchivedWhere = await blogPostNonArchivedWhere().catch(() => ({} as Prisma.BlogPostWhereInput));
-    const oldest = await prisma.blogPost
-      .aggregate({
-        where: nonArchivedWhere,
-        _min: { publishedAt: true },
-      })
-      .catch(() => ({ _min: { publishedAt: null as Date | null } }));
+    const suppliedAnchor = parseAnchorBaseIso(params.anchorBaseIso);
+    const oldest = suppliedAnchor
+      ? null
+      : await prisma.blogPost
+          .aggregate({
+            where: nonArchivedWhere,
+            _min: { publishedAt: true },
+          })
+          .catch(() => ({ _min: { publishedAt: null as Date | null } }));
 
-    const anchorDateRaw = oldest._min.publishedAt ?? now;
+    const anchorDateRaw = suppliedAnchor ?? oldest?._min.publishedAt ?? now;
     const anchorDate = new Date(
       Date.UTC(
         anchorDateRaw.getUTCFullYear(),
@@ -799,6 +812,8 @@ export async function runBackfillBatch(params: BackfillParams) {
         0,
       ),
     );
+
+    anchorBaseIso = anchorDate.toISOString();
 
     const endExclusive = Math.min(count, offset + maxPerRequest);
     for (let idx = offset; idx < endExclusive; idx++) {
@@ -937,6 +952,7 @@ export async function runBackfillBatch(params: BackfillParams) {
   return {
     ok: true as const,
     anchor,
+    ...(anchorBaseIso ? { anchorBaseIso } : {}),
     message: stopReason ?? undefined,
     stoppedEarly: stoppedEarly || undefined,
     targetDates: targetDateStrings,
