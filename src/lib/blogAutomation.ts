@@ -5,6 +5,43 @@ import { stripDoubleAsterisks } from "@/lib/blog";
 import { prisma } from "@/lib/db";
 import { hasPublicColumn, hasPublicTable } from "@/lib/dbSchema";
 
+export async function ensureBlogPostTableSafe() {
+  try {
+    await prisma.$executeRawUnsafe(`
+      CREATE TABLE IF NOT EXISTS "BlogPost" (
+        "id" TEXT PRIMARY KEY,
+        "slug" TEXT NOT NULL,
+        "title" TEXT NOT NULL,
+        "excerpt" TEXT NOT NULL,
+        "content" TEXT NOT NULL,
+        "seoKeywords" JSONB,
+        "publishedAt" TIMESTAMPTZ NOT NULL DEFAULT now(),
+        "archivedAt" TIMESTAMPTZ,
+        "createdAt" TIMESTAMPTZ NOT NULL DEFAULT now(),
+        "updatedAt" TIMESTAMPTZ NOT NULL DEFAULT now()
+      );
+    `);
+
+    // Patch missing columns on older/partial schemas.
+    await prisma.$executeRawUnsafe(`ALTER TABLE "BlogPost" ADD COLUMN IF NOT EXISTS "slug" TEXT;`);
+    await prisma.$executeRawUnsafe(`ALTER TABLE "BlogPost" ADD COLUMN IF NOT EXISTS "title" TEXT;`);
+    await prisma.$executeRawUnsafe(`ALTER TABLE "BlogPost" ADD COLUMN IF NOT EXISTS "excerpt" TEXT;`);
+    await prisma.$executeRawUnsafe(`ALTER TABLE "BlogPost" ADD COLUMN IF NOT EXISTS "content" TEXT;`);
+    await prisma.$executeRawUnsafe(`ALTER TABLE "BlogPost" ADD COLUMN IF NOT EXISTS "seoKeywords" JSONB;`);
+    await prisma.$executeRawUnsafe(`ALTER TABLE "BlogPost" ADD COLUMN IF NOT EXISTS "publishedAt" TIMESTAMPTZ;`);
+    await prisma.$executeRawUnsafe(`ALTER TABLE "BlogPost" ADD COLUMN IF NOT EXISTS "archivedAt" TIMESTAMPTZ;`);
+    await prisma.$executeRawUnsafe(`ALTER TABLE "BlogPost" ADD COLUMN IF NOT EXISTS "createdAt" TIMESTAMPTZ;`);
+    await prisma.$executeRawUnsafe(`ALTER TABLE "BlogPost" ADD COLUMN IF NOT EXISTS "updatedAt" TIMESTAMPTZ;`);
+
+    // Indexes/constraints.
+    await prisma.$executeRawUnsafe(`CREATE UNIQUE INDEX IF NOT EXISTS "BlogPost_slug_key" ON "BlogPost"("slug");`);
+    await prisma.$executeRawUnsafe(`CREATE INDEX IF NOT EXISTS "BlogPost_publishedAt_idx" ON "BlogPost"("publishedAt");`);
+    await prisma.$executeRawUnsafe(`CREATE INDEX IF NOT EXISTS "BlogPost_archivedAt_idx" ON "BlogPost"("archivedAt");`);
+  } catch {
+    // ignore
+  }
+}
+
 export type BlogDraft = {
   title: string;
   slug?: string;
@@ -711,12 +748,17 @@ export async function runBackfillBatch(params: BackfillParams) {
   const timeBudgetSeconds = Math.min(60, Math.max(5, params.timeBudgetSeconds));
   const anchor = params.anchor ?? "NOW";
 
+  const hasBlogPostBefore = await hasPublicTable("BlogPost").catch(() => false);
+  if (!hasBlogPostBefore) {
+    await ensureBlogPostTableSafe();
+  }
+
   const hasBlogPost = await hasPublicTable("BlogPost").catch(() => false);
   if (!hasBlogPost) {
     return {
       ok: false as const,
       error:
-        "Blog posts table is missing in this database (public.BlogPost). Run Prisma migrations / verify DATABASE_URL is pointing at the right DB, then try again.",
+        "Blog posts table is missing in this database (public.BlogPost) and could not be created automatically. Check that your DB user has permission to create tables, or run migrations.",
       stoppedEarly: true as const,
       anchor,
       offset,
