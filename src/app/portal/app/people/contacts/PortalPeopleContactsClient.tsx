@@ -186,6 +186,7 @@ async function readJsonBody(res: Response): Promise<any | null> {
 export function PortalPeopleContactsClient() {
   const toast = useToast();
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState<string | null>(null);
   const [data, setData] = useState<ContactsPayload | null>(null);
   const [q, setQ] = useState("");
 
@@ -256,6 +257,7 @@ export function PortalPeopleContactsClient() {
   const load = useCallback(
     async (opts?: { contactsCursor?: string | null; leadsCursor?: string | null }) => {
       setLoading(true);
+      setLoadError(null);
       try {
         const cCur = opts?.contactsCursor !== undefined ? opts.contactsCursor : contactsCursorRef.current;
         const lCur = opts?.leadsCursor !== undefined ? opts.leadsCursor : leadsCursorRef.current;
@@ -303,7 +305,9 @@ export function PortalPeopleContactsClient() {
 
         return true;
       } catch (e: any) {
-        toast.error(String(e?.message || "Failed to load"));
+        const msg = String(e?.message || "Failed to load");
+        setLoadError(msg);
+        toast.error(msg);
         return false;
       } finally {
         setLoading(false);
@@ -311,6 +315,15 @@ export function PortalPeopleContactsClient() {
     },
     [toast]
   );
+
+  const openImportModal = useCallback(() => {
+    setImportOpen(true);
+    setImportError(null);
+    setImportFile(null);
+    setImportHeaders([]);
+    setImportRows([]);
+    setImportMapping({ name: "", firstName: "", lastName: "", email: "", phone: "", tags: "" });
+  }, []);
 
   const loadOwnerTags = useCallback(async () => {
     try {
@@ -709,6 +722,27 @@ export function PortalPeopleContactsClient() {
         <div className="mt-6 rounded-3xl border border-zinc-200 bg-white p-6 text-sm text-zinc-600">Loading…</div>
       ) : null}
 
+      {!loading && !data ? (
+        <div className="mt-6 rounded-3xl border border-zinc-200 bg-white p-6">
+          <div className="flex items-start justify-between gap-3">
+            <div>
+              <div className="text-base font-semibold text-zinc-900">Contacts</div>
+              <div className={classNames("mt-1 text-sm", loadError ? "text-red-700" : "text-zinc-600")}
+                >
+                {loadError ? "Failed to load contacts/leads, but you can still import contacts." : "No contacts yet."}
+              </div>
+            </div>
+            <button
+              type="button"
+              onClick={openImportModal}
+              className="rounded-xl border border-zinc-200 bg-white px-3 py-2 text-xs font-semibold text-zinc-800 hover:bg-zinc-50"
+            >
+              Import contacts
+            </button>
+          </div>
+        </div>
+      ) : null}
+
       {data ? (
         <div className="mt-6 grid grid-cols-1 gap-6 lg:grid-cols-2">
           <div className="rounded-3xl border border-zinc-200 bg-white p-6">
@@ -720,17 +754,10 @@ export function PortalPeopleContactsClient() {
               <div className="flex items-center gap-2">
                 <button
                   type="button"
-                  onClick={() => {
-                    setImportOpen(true);
-                    setImportError(null);
-                    setImportFile(null);
-                    setImportHeaders([]);
-                    setImportRows([]);
-                    setImportMapping({ name: "", firstName: "", lastName: "", email: "", phone: "", tags: "" });
-                  }}
+                  onClick={openImportModal}
                   className="rounded-xl border border-zinc-200 bg-white px-3 py-2 text-xs font-semibold text-zinc-800 hover:bg-zinc-50"
                 >
-                  Import CSV
+                  Import contacts
                 </button>
                 <div className="text-xs text-zinc-500">Page {contactsCursorStack.length}</div>
                 <div className="text-xs text-zinc-500">•</div>
@@ -815,7 +842,16 @@ export function PortalPeopleContactsClient() {
                   ) : (
                     <tr className="border-t border-zinc-200">
                       <td className="px-4 py-5 text-sm text-zinc-600" colSpan={3}>
-                        No contacts yet.
+                        <div className="flex flex-wrap items-center justify-between gap-2">
+                          <div>No contacts yet.</div>
+                          <button
+                            type="button"
+                            onClick={openImportModal}
+                            className="rounded-xl border border-zinc-200 bg-white px-3 py-2 text-xs font-semibold text-zinc-800 hover:bg-zinc-50"
+                          >
+                            Import contacts
+                          </button>
+                        </div>
                       </td>
                     </tr>
                   )}

@@ -29,6 +29,19 @@ function makeCursor(t: Date, id: string) {
   return Buffer.from(JSON.stringify({ t: t.toISOString(), id }), "utf8").toString("base64url");
 }
 
+async function hasTable(tableName: string): Promise<boolean> {
+  const safe = String(tableName || "").replace(/[^A-Za-z0-9_]/g, "");
+  if (!safe) return false;
+  const rows = await prisma.$queryRawUnsafe<Array<{ exists: boolean }>>(
+    `SELECT EXISTS (
+      SELECT 1
+      FROM information_schema.tables
+      WHERE table_schema = 'public' AND lower(table_name) = lower('${safe}')
+    ) AS "exists";`,
+  );
+  return Boolean(rows?.[0]?.exists);
+}
+
 export async function GET(req: Request) {
   const auth = await requireClientSessionForService("people");
   if (!auth.ok) {
@@ -49,6 +62,8 @@ export async function GET(req: Request) {
   const contactsCursor = parseCursor(url.searchParams.get("contactsCursor"));
   const leadsCursor = parseCursor(url.searchParams.get("leadsCursor"));
 
+  const portalLeadAvailable = await hasTable("PortalLead").catch(() => false);
+
   const contactsWhere: any = { ownerId };
   if (contactsCursor) {
     contactsWhere.OR = [
@@ -58,7 +73,7 @@ export async function GET(req: Request) {
   }
 
   const leadsWhere: any = { ownerId, contactId: null };
-  if (leadsCursor) {
+  if (portalLeadAvailable && leadsCursor) {
     leadsWhere.OR = [
       { createdAt: { lt: leadsCursor.t } },
       { createdAt: { equals: leadsCursor.t }, id: { lt: leadsCursor.id } },
@@ -90,22 +105,24 @@ export async function GET(req: Request) {
         orderBy: [{ updatedAt: "desc" }, { id: "desc" }],
         take: take + 1,
       }),
-      prisma.portalLead.findMany({
-        where: leadsWhere,
-        select: {
-          id: true,
-          businessName: true,
-          email: true,
-          phone: true,
-          website: true,
-          createdAt: true,
-          assignedToUserId: true,
-        },
-        orderBy: [{ createdAt: "desc" }, { id: "desc" }],
-        take: take + 1,
-      }),
+      portalLeadAvailable
+        ? prisma.portalLead.findMany({
+            where: leadsWhere,
+            select: {
+              id: true,
+              businessName: true,
+              email: true,
+              phone: true,
+              website: true,
+              createdAt: true,
+              assignedToUserId: true,
+            },
+            orderBy: [{ createdAt: "desc" }, { id: "desc" }],
+            take: take + 1,
+          })
+        : Promise.resolve([]),
       prisma.portalContact.count({ where: { ownerId } }),
-      prisma.portalLead.count({ where: { ownerId, contactId: null } }),
+      portalLeadAvailable ? prisma.portalLead.count({ where: { ownerId, contactId: null } }) : Promise.resolve(0),
     ]);
   } catch (e: any) {
     return NextResponse.json(
