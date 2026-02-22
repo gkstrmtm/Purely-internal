@@ -49,6 +49,7 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
   const variant = typeof pathname === "string" && (pathname === "/credit" || pathname.startsWith("/credit/")) ? "credit" : "portal";
   const basePath = variant === "credit" ? "/credit" : "/portal";
+  const logoSrc = variant === "credit" ? "/brand/purely%20credit.png" : "/brand/purity-5.png";
 
   const isFunnelBuilderEditor =
     typeof pathname === "string" &&
@@ -308,7 +309,7 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
             <div className="sticky top-0 z-10 flex items-center gap-3 border-b border-zinc-200 bg-white/90 p-4 backdrop-blur">
               <Link href={`${basePath}/app`} className="flex items-center gap-3">
                 <Image
-                  src="/brand/purity-5.png"
+                  src={logoSrc}
                   alt="Purely Automation"
                   width={190}
                   height={58}
@@ -425,7 +426,7 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
             {!collapsed ? (
               <Link href={`${basePath}/app`} className="flex items-center gap-3">
                 <Image
-                  src="/brand/purity-5.png"
+                  src={logoSrc}
                   alt="Purely Automation"
                   width={190}
                   height={58}
@@ -436,7 +437,7 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
             ) : (
               <Link href={`${basePath}/app`} aria-label="Portal dashboard">
                 <Image
-                  src="/brand/purity-5.png"
+                  src={logoSrc}
                   alt="Purely Automation"
                   width={56}
                   height={56}
@@ -601,7 +602,7 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
 
               <Link href={`${basePath}/app`} className="flex items-center gap-3">
                 <Image
-                  src="/brand/purity-5.png"
+                  src={logoSrc}
                   alt="Purely Automation"
                   width={150}
                   height={46}

@@ -22,6 +22,10 @@ export default function PortalLoginClient() {
   const toast = useToast();
 
   const pathnameVariant = useMemo(() => (pathname.startsWith("/credit") ? "credit" : "portal"), [pathname]);
+  const logoSrc = useMemo(
+    () => (pathnameVariant === "credit" ? "/brand/purely%20credit.png" : "/brand/purity-5.png"),
+    [pathnameVariant],
+  );
 
   const fromRaw = searchParams.get("from");
   const defaultFrom = useMemo(() => (pathnameVariant === "credit" ? "/credit/app" : "/portal/app"), [pathnameVariant]);
@@ -68,7 +72,7 @@ export default function PortalLoginClient() {
         <div className="rounded-3xl border border-zinc-200 bg-white p-8 shadow-sm sm:p-10">
           <div className="flex justify-center">
             <Image
-              src="/brand/purity-5.png"
+              src={logoSrc}
               alt="Purely Automation"
               width={520}
               height={160}

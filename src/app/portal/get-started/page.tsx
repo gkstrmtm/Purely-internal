@@ -58,6 +58,7 @@ function PortalGetStartedInner() {
   const toast = useToast();
 
   const portalBase = pathname.startsWith("/credit") ? "/credit" : "/portal";
+  const logoSrc = portalBase === "/credit" ? "/brand/purely%20credit.png" : "/brand/purity-5.png";
 
   const checkoutState = (search?.get("checkout") || "").trim().toLowerCase();
   useEffect(() => {
@@ -305,7 +306,7 @@ function PortalGetStartedInner() {
         <div className="rounded-3xl border border-zinc-200 bg-white p-8 shadow-sm sm:p-10">
           <div className="flex justify-center">
             <Image
-              src="/brand/purity-5.png"
+              src={logoSrc}
               alt="Purely Automation"
               width={520}
               height={160}

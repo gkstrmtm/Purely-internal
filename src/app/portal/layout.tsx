@@ -40,6 +40,7 @@ export default async function PortalLayout({
 }) {
   const h = await headers();
   const variant = normalizePortalVariant(h.get(PORTAL_VARIANT_HEADER)) || "portal";
+  const logoSrc = variant === "credit" ? "/brand/purely%20credit.png" : "/brand/purity-5.png";
   const homeHref = variant === "credit" ? "/credit" : "/portal";
   const signInHref = variant === "credit" ? "/credit/login" : "/login";
   const getStartedHref = variant === "credit" ? "/credit/get-started" : "/portal/get-started";
@@ -53,7 +54,7 @@ export default async function PortalLayout({
         <div className="mx-auto flex max-w-6xl items-center justify-between gap-4 px-4 py-4 sm:gap-6 sm:px-6">
           <Link href={homeHref} className="flex shrink-0 items-center gap-3">
             <Image
-              src="/brand/purity-5.png"
+              src={logoSrc}
               alt="Purely Automation"
               width={190}
               height={58}
