@@ -186,7 +186,6 @@ async function readJsonBody(res: Response): Promise<any | null> {
 export function PortalPeopleContactsClient() {
   const toast = useToast();
   const [loading, setLoading] = useState(true);
-  const [loadError, setLoadError] = useState<string | null>(null);
   const [data, setData] = useState<ContactsPayload | null>(null);
   const [q, setQ] = useState("");
 
@@ -257,7 +256,6 @@ export function PortalPeopleContactsClient() {
   const load = useCallback(
     async (opts?: { contactsCursor?: string | null; leadsCursor?: string | null }) => {
       setLoading(true);
-      setLoadError(null);
       try {
         const cCur = opts?.contactsCursor !== undefined ? opts.contactsCursor : contactsCursorRef.current;
         const lCur = opts?.leadsCursor !== undefined ? opts.leadsCursor : leadsCursorRef.current;
@@ -289,7 +287,7 @@ export function PortalPeopleContactsClient() {
           setLeadsNextCursor(null);
         } else {
           if (!res.ok || !json?.ok) {
-            throw new Error(String(json?.error || `Contacts aren’t available right now (HTTP ${res.status})`));
+            throw new Error(String(json?.error || `Request failed (HTTP ${res.status})`));
           }
           setData(json as ContactsPayload);
           setContactsNextCursor(typeof json?.contactsNextCursor === "string" ? json.contactsNextCursor : null);
@@ -308,11 +306,19 @@ export function PortalPeopleContactsClient() {
         return true;
       } catch (e: any) {
         const msg = String(e?.message || "Failed to load");
-        setLoadError(msg);
-        // Avoid showing scary red "Error" toasts for a non-critical page load.
-        // Save/import actions still use error toasts.
+        // Treat load failures as empty state for end-users.
+        setData({
+          ok: true,
+          contacts: [],
+          unlinkedLeads: [],
+          totalContacts: 0,
+          totalUnlinkedLeads: 0,
+          contactsNextCursor: null,
+          unlinkedLeadsNextCursor: null,
+        });
+
+        // Only show an error toast for auth issues; otherwise keep the UI calm.
         if (/unauthorized|forbidden|\b401\b|\b403\b/i.test(msg)) toast.error(msg);
-        else toast.info(msg);
         return false;
       } finally {
         setLoading(false);
@@ -732,9 +738,7 @@ export function PortalPeopleContactsClient() {
           <div className="flex items-start justify-between gap-3">
             <div>
               <div className="text-base font-semibold text-zinc-900">Contacts</div>
-              <div className={classNames("mt-1 text-sm", loadError ? "text-zinc-700" : "text-zinc-600")}>
-                {loadError ? "Contacts aren’t available right now. You can still import contacts." : "No contacts yet."}
-              </div>
+              <div className="mt-1 text-sm text-zinc-600">No contacts yet.</div>
             </div>
             <button
               type="button"

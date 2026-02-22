@@ -32,12 +32,9 @@ function makeCursor(t: Date, id: string) {
 async function hasTable(tableName: string): Promise<boolean> {
   const safe = String(tableName || "").replace(/[^A-Za-z0-9_]/g, "");
   if (!safe) return false;
+  // Use to_regclass so quoted/case-sensitive tables ("PortalContact") are detected.
   const rows = await prisma.$queryRawUnsafe<Array<{ exists: boolean }>>(
-    `SELECT EXISTS (
-      SELECT 1
-      FROM information_schema.tables
-      WHERE table_schema = 'public' AND lower(table_name) = lower('${safe}')
-    ) AS "exists";`,
+    `SELECT (to_regclass('public."${safe}"') IS NOT NULL) AS "exists";`,
   );
   return Boolean(rows?.[0]?.exists);
 }
@@ -62,7 +59,25 @@ export async function GET(req: Request) {
   const contactsCursor = parseCursor(url.searchParams.get("contactsCursor"));
   const leadsCursor = parseCursor(url.searchParams.get("leadsCursor"));
 
-  const portalLeadAvailable = await hasTable("PortalLead").catch(() => false);
+  const [portalContactAvailable, portalLeadAvailable, portalTagAvailable, portalTagAssignmentAvailable] = await Promise.all([
+    hasTable("PortalContact").catch(() => false),
+    hasTable("PortalLead").catch(() => false),
+    hasTable("PortalContactTag").catch(() => false),
+    hasTable("PortalContactTagAssignment").catch(() => false),
+  ]);
+
+  // Brand new / partially-provisioned portals should not hard error.
+  if (!portalContactAvailable) {
+    return NextResponse.json({
+      ok: true,
+      totalContacts: 0,
+      totalUnlinkedLeads: 0,
+      contactsNextCursor: null,
+      unlinkedLeadsNextCursor: null,
+      contacts: [],
+      unlinkedLeads: [],
+    });
+  }
 
   const contactsWhere: any = { ownerId };
   if (contactsCursor) {
@@ -86,25 +101,41 @@ export async function GET(req: Request) {
   let totalUnlinkedLeads = 0;
 
   try {
+    const canLoadTags = portalTagAvailable && portalTagAssignmentAvailable;
+
     [contactsRaw, unlinkedLeadsRaw, totalContacts, totalUnlinkedLeads] = await Promise.all([
-      prisma.portalContact.findMany({
-        where: contactsWhere,
-        select: {
-          id: true,
-          name: true,
-          email: true,
-          phone: true,
-          createdAt: true,
-          updatedAt: true,
-          tagAssignments: {
+      canLoadTags
+        ? prisma.portalContact.findMany({
+            where: contactsWhere,
             select: {
-              tag: { select: { id: true, name: true, color: true } },
+              id: true,
+              name: true,
+              email: true,
+              phone: true,
+              createdAt: true,
+              updatedAt: true,
+              tagAssignments: {
+                select: {
+                  tag: { select: { id: true, name: true, color: true } },
+                },
+              },
             },
-          },
-        },
-        orderBy: [{ updatedAt: "desc" }, { id: "desc" }],
-        take: take + 1,
-      }),
+            orderBy: [{ updatedAt: "desc" }, { id: "desc" }],
+            take: take + 1,
+          })
+        : prisma.portalContact.findMany({
+            where: contactsWhere,
+            select: {
+              id: true,
+              name: true,
+              email: true,
+              phone: true,
+              createdAt: true,
+              updatedAt: true,
+            },
+            orderBy: [{ updatedAt: "desc" }, { id: "desc" }],
+            take: take + 1,
+          }),
       portalLeadAvailable
         ? prisma.portalLead.findMany({
             where: leadsWhere,
@@ -125,14 +156,18 @@ export async function GET(req: Request) {
       portalLeadAvailable ? prisma.portalLead.count({ where: { ownerId, contactId: null } }) : Promise.resolve(0),
     ]);
   } catch (e: any) {
-    return NextResponse.json(
-      {
-        ok: false,
-        error: "Contacts aren’t available right now",
-        details: e instanceof Error ? e.message : String(e ?? "Unknown error"),
-      },
-      { status: 500 },
-    );
+    // Do not surface this as an error for end-users; treat as empty state.
+    return NextResponse.json({
+      ok: true,
+      totalContacts: 0,
+      totalUnlinkedLeads: 0,
+      contactsNextCursor: null,
+      unlinkedLeadsNextCursor: null,
+      contacts: [],
+      unlinkedLeads: [],
+      warning: "People data not ready",
+      details: e instanceof Error ? e.message : String(e ?? "Unknown error"),
+    });
   }
 
   const contactsHasMore = contactsRaw.length > take;
