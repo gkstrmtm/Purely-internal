@@ -317,7 +317,7 @@ export default function DisputeLettersClient() {
         <div className="grid grid-cols-1 gap-4 lg:grid-cols-[360px_1fr]">
           <aside className="rounded-3xl border border-zinc-200 bg-white p-4">
             <div className="text-sm font-semibold">Contact</div>
-            <div className="mt-2 flex gap-2">
+            <div className="mt-2 flex flex-col gap-2 sm:flex-row">
               <input
                 value={contactQuery}
                 onChange={(e) => setContactQuery(e.target.value)}
@@ -496,7 +496,7 @@ export default function DisputeLettersClient() {
             <div className="mt-6 border-t border-zinc-200 pt-5">
               <div className="flex flex-wrap items-center justify-between gap-2">
                 <div className="text-sm font-semibold">Editor</div>
-                <div className="flex gap-2">
+                <div className="flex flex-wrap items-center justify-end gap-2">
                   <button
                     type="button"
                     disabled={busy || !selectedLetterId}

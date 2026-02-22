@@ -357,49 +357,51 @@ export default function CreditReportsClient() {
                 {new Date(selectedReport.importedAt).toLocaleString()}
               </div>
 
-              <div className="mt-4 overflow-hidden rounded-2xl border border-zinc-200">
-                <div className="grid grid-cols-[1fr_140px_160px] gap-0 border-b border-zinc-200 bg-zinc-50 px-3 py-2 text-[11px] font-semibold uppercase tracking-wide text-zinc-500">
-                  <div>Item</div>
-                  <div>Audit tag</div>
-                  <div>Dispute status</div>
-                </div>
-
-                {selectedReport.items.length === 0 ? (
-                  <div className="px-3 py-3 text-sm text-zinc-600">No items detected in JSON yet.</div>
-                ) : (
-                  <div className="divide-y divide-zinc-200">
-                    {selectedReport.items.map((it) => (
-                      <div key={it.id} className="grid grid-cols-[1fr_140px_160px] items-center gap-3 px-3 py-2">
-                        <div className="min-w-0">
-                          <div className="truncate text-sm font-medium text-zinc-900">{it.label}</div>
-                          <div className="mt-0.5 text-xs text-zinc-500">
-                            {(it.bureau ? `${it.bureau} • ` : "") + (it.kind ? it.kind : "")}
-                          </div>
-                        </div>
-                        <PortalListboxDropdown
-                          value={it.auditTag}
-                          onChange={(v) => updateItem(it.id, { auditTag: v })}
-                          disabled={busy}
-                          buttonClassName="flex w-full items-center justify-between gap-2 rounded-xl border border-zinc-200 bg-white px-2 py-2 text-sm hover:bg-zinc-50"
-                          options={(
-                            [
-                              { value: "PENDING", label: "Pending" },
-                              { value: "NEGATIVE", label: "Negative" },
-                              { value: "POSITIVE", label: "Positive" },
-                            ] as PortalListboxOption<ReportItemLite["auditTag"]>[]
-                          )}
-                        />
-                        <input
-                          className="w-full rounded-xl border border-zinc-200 bg-white px-2 py-2 text-sm"
-                          value={it.disputeStatus || ""}
-                          disabled={busy}
-                          placeholder="e.g., OPEN"
-                          onChange={(e) => updateItem(it.id, { disputeStatus: e.target.value })}
-                        />
-                      </div>
-                    ))}
+              <div className="mt-4 overflow-x-auto rounded-2xl border border-zinc-200">
+                <div className="min-w-[640px]">
+                  <div className="grid grid-cols-[1fr_140px_160px] gap-0 border-b border-zinc-200 bg-zinc-50 px-3 py-2 text-[11px] font-semibold uppercase tracking-wide text-zinc-500">
+                    <div>Item</div>
+                    <div>Audit tag</div>
+                    <div>Dispute status</div>
                   </div>
-                )}
+
+                  {selectedReport.items.length === 0 ? (
+                    <div className="px-3 py-3 text-sm text-zinc-600">No items detected in JSON yet.</div>
+                  ) : (
+                    <div className="divide-y divide-zinc-200">
+                      {selectedReport.items.map((it) => (
+                        <div key={it.id} className="grid grid-cols-[1fr_140px_160px] items-center gap-3 px-3 py-2">
+                          <div className="min-w-0">
+                            <div className="truncate text-sm font-medium text-zinc-900">{it.label}</div>
+                            <div className="mt-0.5 text-xs text-zinc-500">
+                              {(it.bureau ? `${it.bureau} • ` : "") + (it.kind ? it.kind : "")}
+                            </div>
+                          </div>
+                          <PortalListboxDropdown
+                            value={it.auditTag}
+                            onChange={(v) => updateItem(it.id, { auditTag: v })}
+                            disabled={busy}
+                            buttonClassName="flex w-full items-center justify-between gap-2 rounded-xl border border-zinc-200 bg-white px-2 py-2 text-sm hover:bg-zinc-50"
+                            options={(
+                              [
+                                { value: "PENDING", label: "Pending" },
+                                { value: "NEGATIVE", label: "Negative" },
+                                { value: "POSITIVE", label: "Positive" },
+                              ] as PortalListboxOption<ReportItemLite["auditTag"]>[]
+                            )}
+                          />
+                          <input
+                            className="w-full rounded-xl border border-zinc-200 bg-white px-2 py-2 text-sm"
+                            value={it.disputeStatus || ""}
+                            disabled={busy}
+                            placeholder="e.g., OPEN"
+                            onChange={(e) => updateItem(it.id, { disputeStatus: e.target.value })}
+                          />
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
               </div>
 
               {showAdvancedImport ? (

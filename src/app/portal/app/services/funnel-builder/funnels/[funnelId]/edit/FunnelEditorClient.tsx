@@ -887,8 +887,8 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
 
               {error ? <div className="mx-4 mt-4 rounded-2xl border border-red-200 bg-red-50 p-4 text-sm text-red-700">{error}</div> : null}
 
-              <div className="flex flex-1 overflow-hidden">
-                <aside className="w-[380px] shrink-0 overflow-y-auto border-r border-zinc-200 bg-white p-4">
+              <div className="flex flex-1 flex-col overflow-auto lg:flex-row lg:overflow-hidden">
+                <aside className="w-full shrink-0 border-b border-zinc-200 bg-white p-4 lg:w-[380px] lg:overflow-y-auto lg:border-b-0 lg:border-r">
                   {!selectedPage ? (
                     <div className="text-sm text-zinc-600">Select a page to edit.</div>
                   ) : selectedPage.editorMode === "MARKDOWN" ? (
@@ -1156,14 +1156,14 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
                   )}
                 </aside>
 
-                <main className="flex-1 overflow-hidden bg-zinc-100 p-4">
+                <main className="flex-1 overflow-auto bg-zinc-100 p-3 sm:p-4 lg:overflow-hidden">
                   <div className="flex h-full flex-col overflow-hidden rounded-2xl border border-zinc-200 bg-white">
                     <div className="flex items-center justify-between border-b border-zinc-200 bg-white px-4 py-2">
                       <div className="min-w-0">
                         <div className="truncate text-sm font-semibold text-zinc-900">{selectedPage?.title || "Preview"}</div>
                         {selectedPage ? <div className="truncate text-xs text-zinc-500">/{selectedPage.slug}</div> : null}
                       </div>
-                      <div className="flex items-center gap-2">
+                      <div className="flex flex-wrap items-center justify-end gap-2">
                         <div className="inline-flex rounded-xl border border-zinc-200 bg-white p-1">
                           <button
                             type="button"
@@ -2809,8 +2809,8 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
         </div>
       ) : null}
 
-      <div className="flex flex-1 overflow-hidden">
-        <aside className="w-[380px] shrink-0 overflow-y-auto border-r border-zinc-200 bg-white p-4">
+      <div className="flex flex-1 flex-col overflow-auto lg:flex-row lg:overflow-hidden">
+        <aside className="w-full shrink-0 border-b border-zinc-200 bg-white p-4 lg:w-[380px] lg:overflow-y-auto lg:border-b-0 lg:border-r">
           {!selectedPage ? (
             <div className="text-sm text-zinc-600">Select a page to edit.</div>
           ) : selectedPage.editorMode === "MARKDOWN" ? (
@@ -4496,14 +4496,14 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
           )}
         </aside>
 
-        <main className="flex-1 overflow-hidden bg-zinc-100 p-4">
+        <main className="flex-1 overflow-auto bg-zinc-100 p-3 sm:p-4 lg:overflow-hidden">
           <div className="flex h-full flex-col overflow-hidden rounded-2xl border border-zinc-200 bg-white">
             <div className="flex items-center justify-between border-b border-zinc-200 bg-white px-4 py-2">
               <div className="min-w-0">
                 <div className="truncate text-sm font-semibold text-zinc-900">{selectedPage?.title || "Preview"}</div>
                 {selectedPage ? <div className="truncate text-xs text-zinc-500">/{selectedPage.slug}</div> : null}
               </div>
-              <div className="flex items-center gap-2">
+              <div className="flex flex-wrap items-center justify-end gap-2">
                 <div className="inline-flex rounded-xl border border-zinc-200 bg-white p-1">
                   <button
                     type="button"
