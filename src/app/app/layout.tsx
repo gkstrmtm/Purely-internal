@@ -16,7 +16,7 @@ export default async function AppLayout({
 }: {
   children: React.ReactNode;
 }) {
-  const session = await getServerSession(authOptions);
+  const session = await getServerSession(authOptions).catch(() => null);
 
   return (
     <AppShell role={session?.user?.role} email={session?.user?.email ?? undefined}>

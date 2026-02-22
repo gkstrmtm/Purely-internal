@@ -58,8 +58,18 @@ export default function EmployeeLoginClient() {
 
     setLoading(false);
 
-    if (!res || res.error) {
-      toast.error("Incorrect username or incorrect password");
+    if (!res) {
+      toast.error("Sign-in is temporarily unavailable. Please try again.");
+      return;
+    }
+
+    if (res.error) {
+      if (res.error === "CredentialsSignin") {
+        toast.error("Incorrect username or incorrect password");
+        return;
+      }
+
+      toast.error("Sign-in is temporarily unavailable. Please contact support.");
       return;
     }
 

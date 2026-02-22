@@ -12,7 +12,7 @@ import { deriveInterestedServiceFromNotes } from "@/lib/leadDerived";
 export default async function CloserAppointmentsPage() {
   await ensureAppointmentMeetingFieldsReady().catch(() => null);
 
-  const session = await getServerSession(authOptions);
+  const session = await getServerSession(authOptions).catch(() => null);
   const userId = session?.user?.id;
   const role = session?.user?.role;
 

@@ -12,7 +12,11 @@ const credentialsSchema = z.object({
 });
 
 export const authOptions: NextAuthOptions = {
-  secret: process.env.NEXTAUTH_SECRET,
+  secret: (() => {
+    const raw = process.env.NEXTAUTH_SECRET ?? process.env.AUTH_SECRET ?? "";
+    const secret = raw.trim();
+    return secret.length ? secret : undefined;
+  })(),
   session: { strategy: "jwt" },
   pages: {
     signIn: "/employeelogin",

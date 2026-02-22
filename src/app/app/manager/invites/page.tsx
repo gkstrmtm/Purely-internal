@@ -5,7 +5,7 @@ import { authOptions } from "@/lib/auth";
 import ManagerInvitesClient from "./ManagerInvitesClient";
 
 export default async function ManagerInvitesPage() {
-  const session = await getServerSession(authOptions);
+  const session = await getServerSession(authOptions).catch(() => null);
   if (!session?.user) redirect("/employeelogin");
 
   const role = session.user.role;

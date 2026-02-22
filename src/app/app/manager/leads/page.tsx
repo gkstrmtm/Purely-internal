@@ -9,7 +9,7 @@ import { hasPublicColumn } from "@/lib/dbSchema";
 import { deriveInterestedServiceFromNotes } from "@/lib/leadDerived";
 
 export default async function ManagerLeadsPage() {
-  const session = await getServerSession(authOptions);
+  const session = await getServerSession(authOptions).catch(() => null);
   if (!session?.user) redirect("/employeelogin");
 
   const role = session.user.role;

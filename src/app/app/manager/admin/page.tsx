@@ -6,7 +6,7 @@ import PortalDemoSeeder from "../PortalDemoSeeder";
 import PortalTutorialVideosAdmin from "../PortalTutorialVideosAdmin";
 
 export default async function ManagerAdminPage() {
-  const session = await getServerSession(authOptions);
+  const session = await getServerSession(authOptions).catch(() => null);
   if (!session?.user) redirect("/employeelogin");
 
   const role = session.user.role;

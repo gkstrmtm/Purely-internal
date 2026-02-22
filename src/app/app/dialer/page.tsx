@@ -5,7 +5,7 @@ import Link from "next/link";
 import { authOptions } from "@/lib/auth";
 
 export default async function DialerHome() {
-  const session = await getServerSession(authOptions);
+  const session = await getServerSession(authOptions).catch(() => null);
   if (!session?.user) redirect("/employeelogin");
 
   const role = session.user.role;
