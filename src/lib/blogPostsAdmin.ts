@@ -1,5 +1,5 @@
 import { prisma } from "@/lib/db";
-import { hasPublicColumn } from "@/lib/dbSchema";
+import { hasPublicColumn, hasPublicTable } from "@/lib/dbSchema";
 
 export async function ensureBlogPostArchivedAtColumnSafe() {
   try {
@@ -24,6 +24,11 @@ export async function listBlogPostsForManager(params?: {
   const take = Math.min(500, Math.max(1, params?.take ?? 200));
   const skip = Math.max(0, params?.skip ?? 0);
   const includeArchived = Boolean(params?.includeArchived);
+
+  const hasBlogPost = await hasPublicTable("BlogPost");
+  if (!hasBlogPost) {
+    return { hasArchivedAt: false, posts: [] };
+  }
 
   const hasArchivedAt = await hasPublicColumn("BlogPost", "archivedAt");
   const where = hasArchivedAt && !includeArchived ? { archivedAt: null } : undefined;

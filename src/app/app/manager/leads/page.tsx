@@ -5,7 +5,7 @@ import ManagerLeadsClient from "./ManagerLeadsClient";
 
 import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/db";
-import { hasPublicColumn } from "@/lib/dbSchema";
+import { hasPublicColumn, hasPublicTable } from "@/lib/dbSchema";
 import { deriveInterestedServiceFromNotes } from "@/lib/leadDerived";
 
 export default async function ManagerLeadsPage() {
@@ -15,14 +15,22 @@ export default async function ManagerLeadsPage() {
   const role = session.user.role;
   if (role !== "MANAGER" && role !== "ADMIN") redirect("/app");
 
-  const [hasContactPhone, hasInterestedService] = await Promise.all([
-    hasPublicColumn("Lead", "contactPhone"),
-    hasPublicColumn("Lead", "interestedService"),
+  const [hasLead, hasUser, hasLeadAssignment, hasAppointment] = await Promise.all([
+    hasPublicTable("Lead"),
+    hasPublicTable("User"),
+    hasPublicTable("LeadAssignment"),
+    hasPublicTable("Appointment"),
   ]);
 
-  const hasNotes = await hasPublicColumn("Lead", "notes");
+  const [hasContactPhone, hasInterestedService, hasNotes] = hasLead
+    ? await Promise.all([
+        hasPublicColumn("Lead", "contactPhone"),
+        hasPublicColumn("Lead", "interestedService"),
+        hasPublicColumn("Lead", "notes"),
+      ])
+    : [false, false, false];
 
-  const leadSelect = {
+  const leadSelect: Record<string, unknown> = {
     id: true,
     businessName: true,
     phone: true,
@@ -36,40 +44,60 @@ export default async function ManagerLeadsPage() {
     source: true,
     status: true,
     createdAt: true,
-    assignments: {
-      where: { releasedAt: null },
-      select: {
-        claimedAt: true,
-        user: { select: { name: true, email: true } },
-      },
-      orderBy: { claimedAt: "desc" },
-      take: 1,
-    },
-    appointments: {
-      where: { status: { in: ["SCHEDULED", "RESCHEDULED"] as Array<"SCHEDULED" | "RESCHEDULED"> } },
-      orderBy: { startAt: "desc" },
-      take: 1,
-      select: {
-        id: true,
-        startAt: true,
-        endAt: true,
-        status: true,
-        closer: { select: { id: true, name: true, email: true } },
-      },
-    },
-  } as const;
+    ...(hasLeadAssignment && hasUser
+      ? {
+          assignments: {
+            where: { releasedAt: null },
+            select: {
+              claimedAt: true,
+              user: { select: { name: true, email: true } },
+            },
+            orderBy: { claimedAt: "desc" },
+            take: 1,
+          },
+        }
+      : {}),
+    ...(hasAppointment && hasUser
+      ? {
+          appointments: {
+            where: {
+              status: {
+                in: ["SCHEDULED", "RESCHEDULED"] as Array<"SCHEDULED" | "RESCHEDULED">,
+              },
+            },
+            orderBy: { startAt: "desc" },
+            take: 1,
+            select: {
+              id: true,
+              startAt: true,
+              endAt: true,
+              status: true,
+              closer: { select: { id: true, name: true, email: true } },
+            },
+          },
+        }
+      : {}),
+  };
 
-  const leads = await prisma.lead.findMany({
-    orderBy: { createdAt: "desc" },
-    take: 200,
-    select: leadSelect,
-  });
+  const leads = hasLead
+    ? await prisma.lead
+        .findMany({
+          orderBy: { createdAt: "desc" },
+          take: 200,
+          select: leadSelect as any,
+        })
+        .catch(() => [])
+    : [];
 
-  const dialers = await prisma.user.findMany({
-    where: { role: "DIALER" },
-    select: { id: true, name: true, email: true, role: true },
-    orderBy: [{ name: "asc" }, { email: "asc" }],
-  });
+  const dialers = hasUser
+    ? await prisma.user
+        .findMany({
+          where: { role: "DIALER" },
+          select: { id: true, name: true, email: true, role: true },
+          orderBy: [{ name: "asc" }, { email: "asc" }],
+        })
+        .catch(() => [])
+    : [];
 
   const initialLeads = leads.map((l) => {
     const assignment = l.assignments?.[0] ?? null;

@@ -41,13 +41,20 @@ export async function GET(req: Request) {
       },
     );
   } catch (e) {
+    // Keep the UI usable even if the database isn't fully provisioned yet.
     return NextResponse.json(
       {
-        ok: false,
-        error: "Failed to load posts",
+        ok: true,
+        hasArchivedAt: false,
+        posts: [],
+        warning: "Posts are temporarily unavailable",
         details: e instanceof Error ? e.message : "Unknown error",
       },
-      { status: 500 },
+      {
+        headers: {
+          "cache-control": "no-store, max-age=0",
+        },
+      },
     );
   }
 }

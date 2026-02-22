@@ -4,7 +4,7 @@ import { z } from "zod";
 import { prisma } from "@/lib/db";
 import { requireManagerSession } from "@/lib/apiAuth";
 import { ensureBlogAutomationSettingsTableSafe, getBlogAutomationSettingsSafe } from "@/lib/blogAutomation";
-import { hasPublicColumn } from "@/lib/dbSchema";
+import { hasPublicColumn, hasPublicTable } from "@/lib/dbSchema";
 import { stripDoubleAsterisks } from "@/lib/blog";
 
 export const dynamic = "force-dynamic";
@@ -16,13 +16,26 @@ export async function GET() {
 
   const buildSha = process.env.VERCEL_GIT_COMMIT_SHA ?? null;
 
-  const hasArchivedAt = await hasPublicColumn("BlogPost", "archivedAt");
+  const hasBlogPost = await hasPublicTable("BlogPost");
+  const hasArchivedAt = hasBlogPost ? await hasPublicColumn("BlogPost", "archivedAt") : false;
   const whereNonArchived = hasArchivedAt ? { archivedAt: null } : undefined;
 
   const [settings, totalPosts, latest] = await Promise.all([
     getBlogAutomationSettingsSafe(),
-    prisma.blogPost.count(whereNonArchived ? { where: whereNonArchived } : undefined),
-    prisma.blogPost.findFirst({ where: whereNonArchived, orderBy: { publishedAt: "desc" }, select: { slug: true, publishedAt: true } }),
+    hasBlogPost
+      ? prisma.blogPost
+          .count(whereNonArchived ? { where: whereNonArchived } : undefined)
+          .catch(() => 0)
+      : 0,
+    hasBlogPost
+      ? prisma.blogPost
+          .findFirst({
+            where: whereNonArchived,
+            orderBy: { publishedAt: "desc" },
+            select: { slug: true, publishedAt: true },
+          })
+          .catch(() => null)
+      : null,
   ]);
 
   return NextResponse.json(

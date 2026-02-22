@@ -3,11 +3,11 @@ import { getServerSession } from "next-auth";
 
 import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/db";
-import { hasPublicColumn } from "@/lib/dbSchema";
+import { hasPublicColumn, hasPublicTable } from "@/lib/dbSchema";
 import { deriveInterestedServiceFromNotes } from "@/lib/leadDerived";
 
 export async function GET(req: Request) {
-  const session = await getServerSession(authOptions);
+  const session = await getServerSession(authOptions).catch(() => null);
   const userId = session?.user?.id;
   const role = session?.user?.role;
   if (!userId) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
@@ -20,13 +20,24 @@ export async function GET(req: Request) {
   const takeParsed = takeRaw ? Number(takeRaw) : undefined;
   const take = Math.max(1, Math.min(500, Number.isFinite(takeParsed as number) ? (takeParsed as number) : 200));
 
+  const [hasLead, hasUser, hasLeadAssignment, hasAppointment] = await Promise.all([
+    hasPublicTable("Lead"),
+    hasPublicTable("User"),
+    hasPublicTable("LeadAssignment"),
+    hasPublicTable("Appointment"),
+  ]);
+
+  if (!hasLead) {
+    return NextResponse.json({ leads: [] }, { headers: { "cache-control": "no-store, max-age=0" } });
+  }
+
   const [hasContactPhone, hasInterestedService, hasNotes] = await Promise.all([
     hasPublicColumn("Lead", "contactPhone"),
     hasPublicColumn("Lead", "interestedService"),
     hasPublicColumn("Lead", "notes"),
   ]);
 
-  const leadSelect = {
+  const leadSelect: Record<string, unknown> = {
     id: true,
     businessName: true,
     phone: true,
@@ -40,34 +51,48 @@ export async function GET(req: Request) {
     source: true,
     status: true,
     createdAt: true,
-    assignments: {
-      where: { releasedAt: null },
-      select: {
-        claimedAt: true,
-        user: { select: { name: true, email: true } },
-      },
-      orderBy: { claimedAt: "desc" },
-      take: 1,
-    },
-    appointments: {
-      where: { status: { in: ["SCHEDULED", "RESCHEDULED"] as Array<"SCHEDULED" | "RESCHEDULED"> } },
-      orderBy: { startAt: "desc" },
-      take: 1,
-      select: {
-        id: true,
-        startAt: true,
-        endAt: true,
-        status: true,
-        closer: { select: { id: true, name: true, email: true } },
-      },
-    },
-  } as const;
+    ...(hasLeadAssignment && hasUser
+      ? {
+          assignments: {
+            where: { releasedAt: null },
+            select: {
+              claimedAt: true,
+              user: { select: { name: true, email: true } },
+            },
+            orderBy: { claimedAt: "desc" },
+            take: 1,
+          },
+        }
+      : {}),
+    ...(hasAppointment && hasUser
+      ? {
+          appointments: {
+            where: {
+              status: {
+                in: ["SCHEDULED", "RESCHEDULED"] as Array<"SCHEDULED" | "RESCHEDULED">,
+              },
+            },
+            orderBy: { startAt: "desc" },
+            take: 1,
+            select: {
+              id: true,
+              startAt: true,
+              endAt: true,
+              status: true,
+              closer: { select: { id: true, name: true, email: true } },
+            },
+          },
+        }
+      : {}),
+  };
 
-  const leads = await prisma.lead.findMany({
-    orderBy: { createdAt: "desc" },
-    take,
-    select: leadSelect,
-  });
+  const leads = await prisma.lead
+    .findMany({
+      orderBy: { createdAt: "desc" },
+      take,
+      select: leadSelect as any,
+    })
+    .catch(() => []);
 
   const normalized = leads.map((l) => {
     const record = l as unknown as Record<string, unknown>;
@@ -89,5 +114,12 @@ export async function GET(req: Request) {
     };
   });
 
-  return NextResponse.json({ leads: normalized });
+  return NextResponse.json(
+    { leads: normalized },
+    {
+      headers: {
+        "cache-control": "no-store, max-age=0",
+      },
+    },
+  );
 }
