@@ -4,7 +4,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 
 import { useToast } from "@/components/ToastProvider";
 
-type LeadRow = {
+export type LeadRow = {
   id: string;
   businessName: string;
   phone: string;
@@ -32,7 +32,7 @@ type LeadRow = {
   }>;
 };
 
-type DialerRow = { id: string; name: string | null; email: string; role: string };
+export type DialerRow = { id: string; name: string | null; email: string; role: string };
 
 type LeadsResponse = { leads?: LeadRow[]; error?: string };
 

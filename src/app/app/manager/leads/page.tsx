@@ -1,7 +1,7 @@
 import { getServerSession } from "next-auth";
 import { redirect } from "next/navigation";
 
-import ManagerLeadsClient from "./ManagerLeadsClient";
+import ManagerLeadsClient, { type DialerRow, type LeadRow } from "./ManagerLeadsClient";
 
 import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/db";
@@ -79,50 +79,77 @@ export default async function ManagerLeadsPage() {
       : {}),
   };
 
-  const leads = hasLead
-    ? await prisma.lead
+  // The select shape is dynamic (depends on which tables exist), so Prisma's
+  // inferred types become a big union in `next build`. Normalize to a generic
+  // record and access nested fields defensively.
+  const leads: Array<Record<string, any>> = hasLead
+    ? ((await prisma.lead
         .findMany({
           orderBy: { createdAt: "desc" },
           take: 200,
           select: leadSelect as any,
         })
-        .catch(() => [])
+        .catch(() => [])) as Array<Record<string, any>>)
     : [];
 
-  const dialers = hasUser
-    ? await prisma.user
+  const dialers: DialerRow[] = hasUser
+    ? ((await prisma.user
         .findMany({
           where: { role: "DIALER" },
           select: { id: true, name: true, email: true, role: true },
           orderBy: [{ name: "asc" }, { email: "asc" }],
         })
-        .catch(() => [])
+        .catch(() => [])) as DialerRow[])
     : [];
 
-  const initialLeads = leads.map((l) => {
-    const assignment = l.assignments?.[0] ?? null;
+  const initialLeads: LeadRow[] = leads.map((l): LeadRow => {
+    const assignments = Array.isArray(l.assignments) ? l.assignments : [];
+    const assignment = assignments[0] ?? null;
     const assignedUser = assignment?.user ?? null;
 
-    const record = l as unknown as Record<string, unknown>;
-    const contactPhoneValue = record.contactPhone;
-    const interestedServiceValue = record.interestedService;
-    const notesValue = record.notes;
+    const contactPhoneValue = l.contactPhone;
+    const interestedServiceValue = l.interestedService;
+    const notesValue = l.notes;
     const contactPhone = typeof contactPhoneValue === "string" ? contactPhoneValue : null;
     const interestedService =
       typeof interestedServiceValue === "string" && interestedServiceValue.trim()
         ? interestedServiceValue
         : deriveInterestedServiceFromNotes(notesValue);
 
+    const appointments = Array.isArray(l.appointments) ? l.appointments : [];
+
+    const createdAtValue = l.createdAt;
+    const createdAt =
+      createdAtValue instanceof Date
+        ? createdAtValue.toISOString()
+        : typeof createdAtValue === "string"
+          ? createdAtValue
+          : undefined;
+
+    const id = typeof l.id === "string" ? l.id : "";
+    const businessName = typeof l.businessName === "string" ? l.businessName : "";
+    const phone = typeof l.phone === "string" ? l.phone : "";
+
     return {
-      ...l,
-      createdAt: l.createdAt instanceof Date ? l.createdAt.toISOString() : (l.createdAt as unknown as string),
+      id,
+      businessName,
+      phone,
+      contactName: typeof l.contactName === "string" ? l.contactName : (l.contactName ?? null),
+      contactEmail: typeof l.contactEmail === "string" ? l.contactEmail : (l.contactEmail ?? null),
       contactPhone,
       interestedService,
+      niche: typeof l.niche === "string" ? l.niche : (l.niche ?? null),
+      location: typeof l.location === "string" ? l.location : (l.location ?? null),
+      source: typeof l.source === "string" ? l.source : (l.source ?? null),
+      status: typeof l.status === "string" ? l.status : (l.status ?? null),
+      createdAt,
       notes: typeof notesValue === "string" ? notesValue : null,
-      appointments: (l.appointments ?? []).map((a) => ({
-        ...a,
+      appointments: appointments.map((a) => ({
+        id: typeof a.id === "string" ? a.id : "",
         startAt: a.startAt instanceof Date ? a.startAt.toISOString() : (a.startAt as unknown as string),
         endAt: a.endAt instanceof Date ? a.endAt.toISOString() : (a.endAt as unknown as string),
+        status: typeof a.status === "string" ? a.status : String(a.status ?? ""),
+        closer: a.closer ?? null,
       })),
       assignments: assignment
         ? [
@@ -131,7 +158,9 @@ export default async function ManagerLeadsPage() {
                 assignment.claimedAt instanceof Date
                   ? assignment.claimedAt.toISOString()
                   : (assignment.claimedAt as unknown as string),
-              user: assignedUser ? { name: assignedUser.name, email: assignedUser.email } : null,
+              user: assignedUser
+                ? { name: assignedUser.name ?? null, email: assignedUser.email ?? null }
+                : null,
             },
           ]
         : [],
