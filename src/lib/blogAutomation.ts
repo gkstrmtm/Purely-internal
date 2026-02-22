@@ -3,7 +3,7 @@ import { Prisma } from "@prisma/client";
 import { generateText } from "@/lib/ai";
 import { stripDoubleAsterisks } from "@/lib/blog";
 import { prisma } from "@/lib/db";
-import { hasPublicColumn, hasPublicTable } from "@/lib/dbSchema";
+import { hasPublicColumn, hasPublicTable, invalidatePublicTableCache } from "@/lib/dbSchema";
 
 export async function ensureBlogPostTableSafe() {
   try {
@@ -751,6 +751,7 @@ export async function runBackfillBatch(params: BackfillParams) {
   const hasBlogPostBefore = await hasPublicTable("BlogPost").catch(() => false);
   if (!hasBlogPostBefore) {
     await ensureBlogPostTableSafe();
+    invalidatePublicTableCache("BlogPost");
   }
 
   const hasBlogPost = await hasPublicTable("BlogPost").catch(() => false);

@@ -1,6 +1,7 @@
 import { prisma } from "@/lib/db";
 
 const CACHE_TTL_MS = 10 * 60 * 1000;
+const NEGATIVE_CACHE_TTL_MS = 5 * 1000;
 
 type CacheEntry = {
   checkedAt: number;
@@ -16,7 +17,10 @@ export async function hasPublicTable(tableName: string): Promise<boolean> {
   const cached = tableCache.get(cacheKey);
   const now = Date.now();
 
-  if (cached && now - cached.checkedAt < CACHE_TTL_MS) return cached.exists;
+  if (cached) {
+    const ttl = cached.exists ? CACHE_TTL_MS : NEGATIVE_CACHE_TTL_MS;
+    if (now - cached.checkedAt < ttl) return cached.exists;
+  }
 
   try {
     const rows = await prisma.$queryRaw<Array<{ exists: boolean }>>`
@@ -53,6 +57,11 @@ export async function hasPublicTable(tableName: string): Promise<boolean> {
       return false;
     }
   }
+}
+
+export function invalidatePublicTableCache(tableName: string) {
+  const cacheKey = String(tableName || "").toLowerCase();
+  tableCache.delete(cacheKey);
 }
 
 export async function hasPublicColumn(tableName: string, columnName: string): Promise<boolean> {
