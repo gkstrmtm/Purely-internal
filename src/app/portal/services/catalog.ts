@@ -63,7 +63,7 @@ export const PORTAL_SERVICES: PortalService[] = [
   {
     slug: "inbox",
     title: "Inbox / Outbox",
-    description: "Keep every conversation in one place—so you reply faster.",
+    description: "Keep every conversation in one place so you reply faster.",
     highlights: [
       "Keep SMS + email history together",
       "Reply with full context (no digging)",
@@ -123,7 +123,7 @@ export const PORTAL_SERVICES: PortalService[] = [
   {
     slug: "booking",
     title: "Booking Automation",
-    description: "Turn more leads into booked appointments—without the back-and-forth.",
+    description: "Turn more leads into booked appointments without the back-and-forth.",
     highlights: [
       "Book faster with instant confirmations",
       "Route bookings using simple rules",
@@ -148,7 +148,7 @@ export const PORTAL_SERVICES: PortalService[] = [
   {
     slug: "ai-outbound-calls",
     title: "AI Outbound Calls",
-    description: "Follow up instantly—without hiring more setters.",
+    description: "Follow up instantly without hiring more setters.",
     highlights: [
       "Reach leads fast while they’re still hot",
       "Consistent messaging with a tuned script",
@@ -184,7 +184,7 @@ export const PORTAL_SERVICES: PortalService[] = [
   {
     slug: "blogs",
     title: "Automated Blogs",
-    description: "Stay visible with consistent SEO content—without writing every week.",
+    description: "Stay visible with consistent SEO content without writing every week.",
     highlights: [
       "Publish consistently to build authority",
       "Drafts created + scheduled automatically",
@@ -209,7 +209,7 @@ export const PORTAL_SERVICES: PortalService[] = [
   {
     slug: "reviews",
     title: "Review Requests",
-    description: "Get more reviews consistently—without chasing customers.",
+    description: "Get more reviews consistently without chasing customers.",
     highlights: [
       "Automatically request reviews at the right time",
       "Increase response rates with SMS-first outreach",
