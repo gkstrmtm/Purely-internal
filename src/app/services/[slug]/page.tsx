@@ -51,7 +51,7 @@ function getMarketingService(slug: string): MarketingService | null {
       description: "Your home base for services, billing, onboarding, and reporting.",
       highlights: [
         "Turn services on and off as you grow",
-        "One place for billing, credits, and usage",
+        "One place for billing and usage",
         "Clear reporting on what ran and what got done",
         "Invite your team and control access",
       ],
@@ -139,11 +139,15 @@ function contentForSlug(slug: string) {
         faq: [
           { q: "Do we review posts before publishing?", a: "You can; drafts and light edits are part of the workflow." },
           { q: "Will this match our tone?", a: "Yes; we can tune prompts and examples so it fits your brand." },
+          { q: "How often can you publish?", a: "Weekly is common, but we can publish more often if you want to grow faster." },
+          { q: "Can you target local SEO?", a: "Yes; we can generate location-aware topics and service-specific content that supports local search." },
+          { q: "Do posts include internal links?", a: "Yes; we can include internal links to your key pages and keep the structure consistent." },
+          { q: "What if we want to edit a post?", a: "No problem—edit the draft, then publish when it looks right." },
         ],
       };
     case "lead-scraping":
       return {
-        headline: "Pull fresh leads on demand; cleaned, deduped, and ready.",
+        headline: "Get targeted leads on demand; cleaned, deduped, and ready to contact.",
         outcomes: [
           "Search by niche and location",
           "Exclude and dedupe against previous pulls",
@@ -151,8 +155,10 @@ function contentForSlug(slug: string) {
         ],
         useCases: ["B2B prospecting", "New territory launches", "Seasonal promos", "Pipeline fill"],
         faq: [
-          { q: "Is it usage-based?", a: "Yes; lead pulls use credits based on volume." },
+          { q: "How big is the data set?", a: "You get on-demand access to a large set of leads—pull what you need when you need it." },
           { q: "Can you filter by region?", a: "Yes; location-based targeting is a core workflow." },
+          { q: "Can we exclude existing customers?", a: "Yes; we can exclude lists and dedupe against past pulls to keep outreach clean." },
+          { q: "What happens after we pull leads?", a: "You can tag, segment, and route them into outbound calls, SMS, or email follow-ups." },
         ],
       };
     case "ai-outbound-calls":
@@ -517,9 +523,8 @@ export default async function ServiceFunnelPage({ params }: { params: Promise<{ 
                           href="/blogs"
                           className="inline-flex items-center justify-center rounded-2xl bg-[color:rgba(15,23,42,0.96)] px-5 py-3 text-sm font-semibold text-white transition hover:bg-[color:rgba(15,23,42,1)]"
                         >
-                          View the /blogs demo
+                          View how ours work
                         </Link>
-                        <div className="text-xs text-zinc-600">purelyautomation.com/blogs</div>
                       </div>
                     </div>
                   </div>

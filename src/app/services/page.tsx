@@ -30,7 +30,7 @@ function Icon({ path, title }: { path: string; title: string }) {
     <svg
       aria-hidden="true"
       viewBox="0 0 24 24"
-      className="h-5 w-5 text-[color:var(--color-brand-blue)]"
+      className="h-5 w-5 text-[color:var(--color-brand-pink)]"
       fill="none"
     >
       <title>{title}</title>
@@ -44,11 +44,60 @@ const ICONS = {
   calendar: "M8 2v3m8-3v3M4 9h16M6 6h12a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2Z",
   phone: "M22 16.92v3a2 2 0 0 1-2.18 2 19.86 19.86 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6A19.86 19.86 0 0 1 2.08 4.18 2 2 0 0 1 4.06 2h3a2 2 0 0 1 2 1.72c.12.86.3 1.7.54 2.51a2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.57-1.1a2 2 0 0 1 2.11-.45c.81.24 1.65.42 2.51.54A2 2 0 0 1 22 16.92Z",
   star: "M12 2l3.09 6.26L22 9.27l-5 4.87L18.18 22 12 18.77 5.82 22 7 14.14l-5-4.87 6.91-1.01L12 2Z",
+  message: "M21 15a4 4 0 0 1-4 4H8l-5 3V7a4 4 0 0 1 4-4h10a4 4 0 0 1 4 4v8Z",
+  chart: "M4 19V5m0 14h16M8 15v-3m4 3V9m4 6v-5",
 };
 
+function iconPathForServiceSlug(slug: string): { path: string; title: string } {
+  switch (slug) {
+    case "booking":
+      return { path: ICONS.calendar, title: "Booking" };
+    case "blogs":
+      return { path: ICONS.chart, title: "Blogs" };
+    case "reviews":
+      return { path: ICONS.star, title: "Reviews" };
+    case "ai-receptionist":
+    case "ai-outbound-calls":
+      return { path: ICONS.phone, title: "Calls" };
+    case "inbox":
+      return { path: ICONS.message, title: "Inbox" };
+    case "lead-scraping":
+    case "funnel-builder":
+      return { path: ICONS.bolt, title: "Lead generation" };
+    default:
+      return { path: ICONS.bolt, title: "Automation" };
+  }
+}
+
 export default function ServicesIndexPage() {
-  const visiblePortalServices = PORTAL_SERVICES.filter((s) => !s.hidden);
-  const groups = groupPortalServices(visiblePortalServices);
+  // Marketing /services page: hide credit-only services, but keep Funnel Builder.
+  const visiblePortalServices = PORTAL_SERVICES.filter((s) => !s.hidden).filter(
+    (s) => s.slug !== "dispute-letters" && s.slug !== "credit-reports",
+  );
+
+  // Start with the default grouping, then remove the Credit section and move Funnel Builder into Lead generation.
+  const groups = (() => {
+    const initial = groupPortalServices(visiblePortalServices);
+    const creditGroup = initial.find((g) => g.key === "credit");
+    const funnel = creditGroup?.services?.find((s) => s.slug === "funnel-builder");
+
+    const withoutCredit = initial.filter((g) => g.key !== "credit");
+    if (!funnel) return withoutCredit;
+
+    const leadsGroup = withoutCredit.find((g) => g.key === "leads");
+    if (leadsGroup) {
+      return withoutCredit.map((g) => (g.key === "leads" ? { ...g, services: [funnel, ...g.services] } : g));
+    }
+
+    return [
+      ...withoutCredit,
+      {
+        key: "leads",
+        title: "Lead generation",
+        services: [funnel],
+      },
+    ];
+  })();
 
   return (
     <main className="min-h-screen bg-white">
@@ -150,8 +199,15 @@ export default function ServicesIndexPage() {
                       href={`/services/${encodeURIComponent(s.slug)}`}
                       className="group rounded-3xl border border-zinc-200 bg-white p-6 shadow-sm transition hover:-translate-y-0.5 hover:border-zinc-300 hover:shadow-lg"
                     >
-                      <div className="text-sm font-semibold text-zinc-900">{s.title}</div>
-                      <div className="mt-2 text-sm text-zinc-600">{s.description}</div>
+                      <div className="flex items-start gap-3">
+                        <div className="mt-0.5 grid h-9 w-9 place-items-center rounded-2xl bg-[color:rgba(29,78,216,0.08)]">
+                          <Icon {...iconPathForServiceSlug(s.slug)} />
+                        </div>
+                        <div>
+                          <div className="text-sm font-semibold text-zinc-900">{s.title}</div>
+                          <div className="mt-2 text-sm text-zinc-600">{s.description}</div>
+                        </div>
+                      </div>
                       {s.highlights?.length ? (
                         <div className="mt-4 space-y-1 text-sm text-zinc-700">
                           {s.highlights.slice(0, 3).map((h) => (

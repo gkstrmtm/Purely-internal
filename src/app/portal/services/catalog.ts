@@ -160,7 +160,7 @@ export const PORTAL_SERVICES: PortalService[] = [
   {
     slug: "lead-scraping",
     title: "Lead Scraping",
-    description: "Pull fresh leads with exclusions and usage-based credits.",
+    description: "Have unlimited access to hundreds of thousands of leads on demand.",
     highlights: [
       "Search by niche and location",
       "Exclude lists + de-dupe against past pulls",
