@@ -288,7 +288,9 @@ export function PortalPeopleContactsClient() {
           setContactsNextCursor(null);
           setLeadsNextCursor(null);
         } else {
-          if (!res.ok || !json?.ok) throw new Error(String(json?.error || `Failed to load (HTTP ${res.status})`));
+          if (!res.ok || !json?.ok) {
+            throw new Error(String(json?.error || `Contacts aren’t available right now (HTTP ${res.status})`));
+          }
           setData(json as ContactsPayload);
           setContactsNextCursor(typeof json?.contactsNextCursor === "string" ? json.contactsNextCursor : null);
           setLeadsNextCursor(typeof json?.unlinkedLeadsNextCursor === "string" ? json.unlinkedLeadsNextCursor : null);
@@ -307,7 +309,10 @@ export function PortalPeopleContactsClient() {
       } catch (e: any) {
         const msg = String(e?.message || "Failed to load");
         setLoadError(msg);
-        toast.error(msg);
+        // Avoid showing scary red "Error" toasts for a non-critical page load.
+        // Save/import actions still use error toasts.
+        if (/unauthorized|forbidden|\b401\b|\b403\b/i.test(msg)) toast.error(msg);
+        else toast.info(msg);
         return false;
       } finally {
         setLoading(false);
@@ -727,9 +732,8 @@ export function PortalPeopleContactsClient() {
           <div className="flex items-start justify-between gap-3">
             <div>
               <div className="text-base font-semibold text-zinc-900">Contacts</div>
-              <div className={classNames("mt-1 text-sm", loadError ? "text-red-700" : "text-zinc-600")}
-                >
-                {loadError ? "Failed to load contacts/leads, but you can still import contacts." : "No contacts yet."}
+              <div className={classNames("mt-1 text-sm", loadError ? "text-zinc-700" : "text-zinc-600")}>
+                {loadError ? "Contacts aren’t available right now. You can still import contacts." : "No contacts yet."}
               </div>
             </div>
             <button

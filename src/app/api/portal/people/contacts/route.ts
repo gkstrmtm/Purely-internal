@@ -128,7 +128,7 @@ export async function GET(req: Request) {
     return NextResponse.json(
       {
         ok: false,
-        error: "Failed to load contacts/leads",
+        error: "Contacts aren’t available right now",
         details: e instanceof Error ? e.message : String(e ?? "Unknown error"),
       },
       { status: 500 },
