@@ -468,8 +468,17 @@ export async function generateManyDrafts(
 }
 
 async function blogPostNonArchivedWhere(): Promise<Prisma.BlogPostWhereInput> {
-  const hasArchivedAt = await hasPublicColumn("BlogPost", "archivedAt");
-  return hasArchivedAt ? { archivedAt: null } : {};
+  const hasArchivedAt = await hasPublicColumn("BlogPost", "archivedAt").catch(() => false);
+  if (!hasArchivedAt) return {};
+
+  // Some environments can drift (column missing even if checks are noisy),
+  // so only use the filter if Prisma can actually query it.
+  try {
+    await prisma.blogPost.findFirst({ where: { archivedAt: null }, select: { id: true } });
+    return { archivedAt: null };
+  } catch {
+    return {};
+  }
 }
 
 function normalizeTitleKey(title: string) {
@@ -708,11 +717,13 @@ export async function runBackfillBatch(params: BackfillParams) {
   let targetDates: Date[] = [];
 
   if (anchor === "OLDEST_POST") {
-    const nonArchivedWhere = await blogPostNonArchivedWhere();
-    const oldest = await prisma.blogPost.aggregate({
-      where: nonArchivedWhere,
-      _min: { publishedAt: true },
-    });
+    const nonArchivedWhere = await blogPostNonArchivedWhere().catch(() => ({} as Prisma.BlogPostWhereInput));
+    const oldest = await prisma.blogPost
+      .aggregate({
+        where: nonArchivedWhere,
+        _min: { publishedAt: true },
+      })
+      .catch(() => ({ _min: { publishedAt: null as Date | null } }));
 
     const anchorDateRaw = oldest._min.publishedAt ?? now;
     const anchorDate = new Date(
@@ -779,13 +790,15 @@ export async function runBackfillBatch(params: BackfillParams) {
   }
 
   const pending: Date[] = [];
-  const nonArchivedWhere = await blogPostNonArchivedWhere();
+  const nonArchivedWhere = await blogPostNonArchivedWhere().catch(() => ({} as Prisma.BlogPostWhereInput));
   for (const publishDate of targetDates) {
     const { dayStart, dayEnd } = dayRangeUtc(publishDate);
-    const already = await prisma.blogPost.findFirst({
-      where: { ...nonArchivedWhere, publishedAt: { gte: dayStart, lt: dayEnd } },
-      select: { id: true },
-    });
+    const already = await prisma.blogPost
+      .findFirst({
+        where: { ...nonArchivedWhere, publishedAt: { gte: dayStart, lt: dayEnd } },
+        select: { id: true },
+      })
+      .catch(() => null);
 
     if (already) {
       skipped.push({ date: isoDay(publishDate), reason: "Already has a post for that day" });
