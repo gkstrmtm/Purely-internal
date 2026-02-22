@@ -9,6 +9,52 @@ type CacheEntry = {
 
 const columnCache = new Map<string, CacheEntry>();
 
+const tableCache = new Map<string, CacheEntry>();
+
+export async function hasPublicTable(tableName: string): Promise<boolean> {
+  const cacheKey = String(tableName || "").toLowerCase();
+  const cached = tableCache.get(cacheKey);
+  const now = Date.now();
+
+  if (cached && now - cached.checkedAt < CACHE_TTL_MS) return cached.exists;
+
+  try {
+    const rows = await prisma.$queryRaw<Array<{ exists: boolean }>>`
+      select exists(
+        select 1
+        from information_schema.tables
+        where table_schema = 'public'
+          and lower(table_name) = lower(${tableName})
+      ) as "exists";
+    `;
+
+    const exists = Boolean(rows?.[0]?.exists);
+    tableCache.set(cacheKey, { checkedAt: now, exists });
+    return exists;
+  } catch {
+    // Fallback: pg_catalog
+    try {
+      const rows = await prisma.$queryRaw<Array<{ exists: boolean }>>`
+        select exists(
+          select 1
+          from pg_class c
+          join pg_namespace n on n.oid = c.relnamespace
+          where n.nspname = 'public'
+            and c.relkind in ('r','p','v','m','f')
+            and lower(c.relname) = lower(${tableName})
+        ) as "exists";
+      `;
+
+      const exists = Boolean(rows?.[0]?.exists);
+      tableCache.set(cacheKey, { checkedAt: now, exists });
+      return exists;
+    } catch {
+      tableCache.set(cacheKey, { checkedAt: now, exists: false });
+      return false;
+    }
+  }
+}
+
 export async function hasPublicColumn(tableName: string, columnName: string): Promise<boolean> {
   const cacheKey = `${tableName}.${columnName}`.toLowerCase();
   const cached = columnCache.get(cacheKey);

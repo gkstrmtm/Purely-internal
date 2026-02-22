@@ -4,6 +4,7 @@ import Link from "next/link";
 
 import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/db";
+import { hasPublicTable } from "@/lib/dbSchema";
 
 function fmtMoney(cents: number) {
   const dollars = (cents ?? 0) / 100;
@@ -36,6 +37,18 @@ export default async function ManagerHome() {
   const monthAgo = new Date(now);
   monthAgo.setDate(now.getDate() - 30);
 
+  const [hasLead, hasCallLog, hasAppointment, hasAppointmentOutcome, hasContractDraft] =
+    await Promise.all([
+      hasPublicTable("Lead"),
+      hasPublicTable("CallLog"),
+      hasPublicTable("Appointment"),
+      hasPublicTable("AppointmentOutcome"),
+      hasPublicTable("ContractDraft"),
+    ]);
+
+  const emptyAggregate = { _sum: { revenueCents: 0 } } as const;
+  const emptyMrrAggregate = { _sum: { monthlyFeeCents: 0 } } as const;
+
   const [
     totalLeads,
     totalCalls,
@@ -48,71 +61,92 @@ export default async function ManagerHome() {
     recentLeads,
     nextAppointments,
   ] = await Promise.all([
-    prisma.lead.count(),
-    prisma.callLog.count(),
-    prisma.callLog.count({ where: { disposition: "BOOKED" } }),
-    prisma.appointment.count({
-      where: { startAt: { gte: now }, status: "SCHEDULED" },
-    }),
-    prisma.appointmentOutcome.count({
-      where: { outcome: "CLOSED", createdAt: { gte: monthAgo } },
-    }),
-    prisma.appointmentOutcome.aggregate({
-      where: { createdAt: { gte: monthAgo } },
-      _sum: { revenueCents: true },
-    }),
-    prisma.contractDraft.aggregate({
-      where: {
-        OR: [{ status: "APPROVED" }, { status: "SENT" }],
-        appointmentOutcome: { outcome: "CLOSED" },
-      },
-      _sum: { monthlyFeeCents: true },
-    }),
-    prisma.callLog.findMany({
-      orderBy: { createdAt: "desc" },
-      take: 8,
-      select: {
-        id: true,
-        createdAt: true,
-        disposition: true,
-        lead: { select: { businessName: true } },
-        dialer: { select: { name: true, email: true } },
-      },
-    }),
-    prisma.lead.findMany({
-      orderBy: { createdAt: "desc" },
-      take: 8,
-      select: {
-        id: true,
-        businessName: true,
-        niche: true,
-        location: true,
-        status: true,
-        assignments: {
-          where: { releasedAt: null },
-          select: {
-            claimedAt: true,
-            user: { select: { name: true, email: true } },
-          },
-          orderBy: { claimedAt: "desc" },
-          take: 1,
-        },
-      },
-    }),
-    prisma.appointment.findMany({
-      where: { startAt: { gte: now } },
-      orderBy: { startAt: "asc" },
-      take: 8,
-      select: {
-        id: true,
-        startAt: true,
-        status: true,
-        lead: { select: { businessName: true } },
-        setter: { select: { name: true, email: true } },
-        closer: { select: { name: true, email: true } },
-        outcome: { select: { outcome: true } },
-      },
-    }),
+    hasLead ? prisma.lead.count().catch(() => 0) : 0,
+    hasCallLog ? prisma.callLog.count().catch(() => 0) : 0,
+    hasCallLog ? prisma.callLog.count({ where: { disposition: "BOOKED" } }).catch(() => 0) : 0,
+    hasAppointment
+      ? prisma.appointment
+          .count({ where: { startAt: { gte: now }, status: "SCHEDULED" } })
+          .catch(() => 0)
+      : 0,
+    hasAppointmentOutcome
+      ? prisma.appointmentOutcome
+          .count({ where: { outcome: "CLOSED", createdAt: { gte: monthAgo } } })
+          .catch(() => 0)
+      : 0,
+    hasAppointmentOutcome
+      ? prisma.appointmentOutcome
+          .aggregate({ where: { createdAt: { gte: monthAgo } }, _sum: { revenueCents: true } })
+          .catch(() => emptyAggregate)
+      : emptyAggregate,
+    hasContractDraft
+      ? prisma.contractDraft
+          .aggregate({
+            where: {
+              OR: [{ status: "APPROVED" }, { status: "SENT" }],
+              appointmentOutcome: { outcome: "CLOSED" },
+            },
+            _sum: { monthlyFeeCents: true },
+          })
+          .catch(() => emptyMrrAggregate)
+      : emptyMrrAggregate,
+    hasCallLog
+      ? prisma.callLog
+          .findMany({
+            orderBy: { createdAt: "desc" },
+            take: 8,
+            select: {
+              id: true,
+              createdAt: true,
+              disposition: true,
+              lead: { select: { businessName: true } },
+              dialer: { select: { name: true, email: true } },
+            },
+          })
+          .catch(() => [])
+      : [],
+    hasLead
+      ? prisma.lead
+          .findMany({
+            orderBy: { createdAt: "desc" },
+            take: 8,
+            select: {
+              id: true,
+              businessName: true,
+              niche: true,
+              location: true,
+              status: true,
+              assignments: {
+                where: { releasedAt: null },
+                select: {
+                  claimedAt: true,
+                  user: { select: { name: true, email: true } },
+                },
+                orderBy: { claimedAt: "desc" },
+                take: 1,
+              },
+            },
+          })
+          .catch(() => [])
+      : [],
+    hasAppointment
+      ? prisma.appointment
+          .findMany({
+            where: { startAt: { gte: now } },
+            orderBy: { startAt: "asc" },
+            take: 8,
+            select: {
+              id: true,
+              startAt: true,
+              status: true,
+              lead: { select: { businessName: true } },
+              setter: { select: { name: true, email: true } },
+              closer: { select: { name: true, email: true } },
+              outcome: { select: { outcome: true } },
+            },
+          })
+          .catch(() => [])
+      : [],
   ]);
 
   const bookingRate = totalCalls > 0 ? bookedCalls / totalCalls : 0;

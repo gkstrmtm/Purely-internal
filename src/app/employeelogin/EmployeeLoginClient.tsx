@@ -21,7 +21,7 @@ export default function EmployeeLoginClient() {
   const toast = useToast();
 
   const fromRaw = searchParams.get("from");
-  const from = useMemo(() => safeInternalPath(fromRaw, "/dashboard"), [fromRaw]);
+  const from = useMemo(() => safeInternalPath(fromRaw, "/app"), [fromRaw]);
 
   const shouldSwitch = searchParams.get("switch") === "1";
   const [switching, setSwitching] = useState(false);
