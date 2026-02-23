@@ -36,6 +36,23 @@ function safeText(s: string) {
   return String(s || "").trim();
 }
 
+type AvailabilityBlock = { id: string; startAt: string; endAt: string };
+
+function roundUpToNextMinutes(d: Date, minutes: number) {
+  const x = new Date(d);
+  const ms = minutes * 60_000;
+  x.setSeconds(0, 0);
+  const t = x.getTime();
+  const rounded = Math.ceil(t / ms) * ms;
+  return new Date(rounded);
+}
+
+function fmtSlotLabel(iso: string) {
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return iso;
+  return d.toLocaleString(undefined, { weekday: "short", month: "short", day: "numeric", hour: "numeric", minute: "2-digit" });
+}
+
 export default function HrCandidateDetailClient({ candidateId }: { candidateId: string }) {
   const [candidate, setCandidate] = useState<Candidate | null>(null);
   const [loading, setLoading] = useState(true);
@@ -56,6 +73,8 @@ export default function HrCandidateDetailClient({ candidateId }: { candidateId: 
     return d.toISOString().slice(0, 16);
   });
   const [creatingInterview, setCreatingInterview] = useState(false);
+  const [availabilityBlocks, setAvailabilityBlocks] = useState<AvailabilityBlock[]>([]);
+  const [selectedInterviewIso, setSelectedInterviewIso] = useState<string>("");
 
   const [screenDecision, setScreenDecision] = useState<"PASS" | "FAIL" | "MAYBE">("PASS");
   const [screenNotes, setScreenNotes] = useState("");
@@ -129,8 +148,24 @@ export default function HrCandidateDetailClient({ candidateId }: { candidateId: 
     setLoading(false);
   }
 
+  async function loadAvailability() {
+    const res = await fetch("/api/availability", { cache: "no-store" }).catch(() => null as any);
+    const body = res ? await res.json().catch(() => ({})) : null;
+    if (!res || !res.ok) {
+      setAvailabilityBlocks([]);
+      return;
+    }
+    const blocks: AvailabilityBlock[] = (body?.blocks ?? []).map((b: any) => ({
+      id: String(b.id),
+      startAt: String(b.startAt),
+      endAt: String(b.endAt),
+    }));
+    setAvailabilityBlocks(blocks);
+  }
+
   useEffect(() => {
     void load();
+    void loadAvailability();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [candidateId]);
 
@@ -184,7 +219,9 @@ export default function HrCandidateDetailClient({ candidateId }: { candidateId: 
     setCreatingInterview(true);
     setError(null);
 
-    const iso = new Date(interviewAt).toISOString();
+    const iso = selectedInterviewIso
+      ? new Date(selectedInterviewIso).toISOString()
+      : new Date(interviewAt).toISOString();
 
     const res = await fetch(`/api/hr/candidates/${candidateId}/interviews`, {
       method: "POST",
@@ -202,6 +239,40 @@ export default function HrCandidateDetailClient({ candidateId }: { candidateId: 
 
     await load();
   }
+
+  const availableInterviewSlots = useMemo(() => {
+    const now = new Date();
+    const maxDaysOut = 21;
+    const until = new Date(now.getTime() + maxDaysOut * 24 * 60 * 60_000);
+    const slotMinutes = 30;
+    const slots: string[] = [];
+
+    for (const b of availabilityBlocks) {
+      const start = new Date(b.startAt);
+      const end = new Date(b.endAt);
+      if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime())) continue;
+      if (end <= now) continue;
+
+      let cur = roundUpToNextMinutes(start < now ? now : start, slotMinutes);
+      const stop = end;
+
+      while (cur.getTime() + slotMinutes * 60_000 <= stop.getTime()) {
+        if (cur <= until) slots.push(cur.toISOString());
+        if (slots.length >= 240) break;
+        cur = new Date(cur.getTime() + slotMinutes * 60_000);
+      }
+      if (slots.length >= 240) break;
+    }
+
+    slots.sort();
+    return slots;
+  }, [availabilityBlocks]);
+
+  useEffect(() => {
+    if (!availableInterviewSlots.length) return;
+    if (selectedInterviewIso) return;
+    setSelectedInterviewIso(availableInterviewSlots[0]);
+  }, [availableInterviewSlots, selectedInterviewIso]);
 
   if (loading) return <div className="text-sm text-zinc-600">Loading...</div>;
   if (error)
@@ -485,18 +556,42 @@ export default function HrCandidateDetailClient({ candidateId }: { candidateId: 
           Use the <a className="font-semibold text-brand-ink hover:underline" href="/app/hr/availability">availability calendar</a> to set interviewer blocks.
         </div>
         <div className="mt-3 flex flex-col gap-3 sm:flex-row sm:items-end">
-          <label className="text-sm">
-            <div className="text-xs font-medium text-zinc-600">When</div>
+          <label className="text-sm sm:min-w-[340px]">
+            <div className="text-xs font-medium text-zinc-600">Pick a slot</div>
+            <select
+              className="mt-1 w-full rounded-xl border border-zinc-200 bg-white px-3 py-2"
+              value={selectedInterviewIso}
+              onChange={(e) => setSelectedInterviewIso(e.target.value)}
+              disabled={!availableInterviewSlots.length}
+            >
+              {!availableInterviewSlots.length ? (
+                <option value="">No availability slots found</option>
+              ) : null}
+              {availableInterviewSlots.map((iso) => (
+                <option key={iso} value={iso}>
+                  {fmtSlotLabel(iso)}
+                </option>
+              ))}
+            </select>
+            {!availableInterviewSlots.length ? (
+              <div className="mt-1 text-xs text-zinc-600">
+                Add blocks on <a className="font-semibold text-brand-ink hover:underline" href="/app/hr/availability">Interviewer availability</a>.
+              </div>
+            ) : null}
+          </label>
+
+          <div className="hidden">
             <input
               type="datetime-local"
               className="mt-1 w-full rounded-xl border border-zinc-200 bg-white px-3 py-2"
               value={interviewAt}
               onChange={(e) => setInterviewAt(e.target.value)}
             />
-          </label>
+          </div>
+
           <button
             className="rounded-xl bg-brand-ink px-4 py-2 text-sm font-medium text-white disabled:opacity-50"
-            disabled={creatingInterview}
+            disabled={creatingInterview || !selectedInterviewIso}
             onClick={() => void scheduleInterview()}
           >
             {creatingInterview ? "Scheduling..." : "Create interview + link"}

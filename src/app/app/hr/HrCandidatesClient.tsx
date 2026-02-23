@@ -41,6 +41,18 @@ export default function HrCandidatesClient() {
   const [targetRole, setTargetRole] = useState<"DIALER" | "CLOSER">("DIALER");
   const [notes, setNotes] = useState("");
 
+  const [timezone, setTimezone] = useState("");
+  const [availability, setAvailability] = useState("");
+  const [experience, setExperience] = useState("");
+
+  const [dialerColdCalling, setDialerColdCalling] = useState("");
+  const [dialerVolumeComfort, setDialerVolumeComfort] = useState("");
+  const [dialerTools, setDialerTools] = useState("");
+
+  const [closerClosingExperience, setCloserClosingExperience] = useState("");
+  const [closerTypicalTicket, setCloserTypicalTicket] = useState("");
+  const [closerPriceObjection, setCloserPriceObjection] = useState("");
+
   const query = useMemo(() => safeOneLine(q), [q]);
 
   async function load() {
@@ -85,6 +97,29 @@ export default function HrCandidatesClient() {
     setCreating(true);
     setError(null);
 
+    const intake: any = {
+      targetRole,
+      timezone: safeOneLine(timezone),
+      availability: safeOneLine(availability),
+      experience: safeOneLine(experience),
+    };
+
+    if (targetRole === "DIALER") {
+      intake.dialer = {
+        coldCalling: String(dialerColdCalling || "").trim(),
+        volumeComfort: safeOneLine(dialerVolumeComfort),
+        tools: safeOneLine(dialerTools),
+      };
+    }
+
+    if (targetRole === "CLOSER") {
+      intake.closer = {
+        closingExperience: String(closerClosingExperience || "").trim(),
+        typicalTicket: safeOneLine(closerTypicalTicket),
+        priceObjection: String(closerPriceObjection || "").trim(),
+      };
+    }
+
     const res = await fetch("/api/hr/candidates", {
       method: "POST",
       headers: { "content-type": "application/json" },
@@ -95,6 +130,7 @@ export default function HrCandidatesClient() {
         source,
         targetRole,
         notes,
+        intake,
       }),
     }).catch(() => null as any);
 
@@ -112,6 +148,16 @@ export default function HrCandidatesClient() {
     setSource("");
     setTargetRole("DIALER");
     setNotes("");
+
+    setTimezone("");
+    setAvailability("");
+    setExperience("");
+    setDialerColdCalling("");
+    setDialerVolumeComfort("");
+    setDialerTools("");
+    setCloserClosingExperience("");
+    setCloserTypicalTicket("");
+    setCloserPriceObjection("");
 
     await load();
   }
@@ -168,6 +214,104 @@ export default function HrCandidatesClient() {
               placeholder="Indeed, referral, etc"
             />
           </label>
+
+          <label className="text-sm">
+            <div className="text-xs font-medium text-zinc-600">Timezone</div>
+            <input
+              className="mt-1 w-full rounded-xl border border-zinc-200 bg-white px-3 py-2"
+              value={timezone}
+              onChange={(e) => setTimezone(e.target.value)}
+              placeholder="EST, CST, etc"
+            />
+          </label>
+          <label className="text-sm">
+            <div className="text-xs font-medium text-zinc-600">Availability</div>
+            <input
+              className="mt-1 w-full rounded-xl border border-zinc-200 bg-white px-3 py-2"
+              value={availability}
+              onChange={(e) => setAvailability(e.target.value)}
+              placeholder="Weekdays 9-5, evenings, etc"
+            />
+          </label>
+          <label className="text-sm sm:col-span-2">
+            <div className="text-xs font-medium text-zinc-600">Experience (short)</div>
+            <input
+              className="mt-1 w-full rounded-xl border border-zinc-200 bg-white px-3 py-2"
+              value={experience}
+              onChange={(e) => setExperience(e.target.value)}
+              placeholder="2y SDR, 1y closer, etc"
+            />
+          </label>
+
+          {targetRole === "DIALER" ? (
+            <>
+              <div className="sm:col-span-2 text-xs font-semibold uppercase tracking-wide text-zinc-500">Dialer questions</div>
+              <label className="text-sm sm:col-span-2">
+                <div className="text-xs font-medium text-zinc-600">Cold calling experience</div>
+                <textarea
+                  className="mt-1 w-full rounded-xl border border-zinc-200 bg-white px-3 py-2"
+                  value={dialerColdCalling}
+                  onChange={(e) => setDialerColdCalling(e.target.value)}
+                  rows={3}
+                  placeholder="Industries, volume, results, etc"
+                />
+              </label>
+              <label className="text-sm">
+                <div className="text-xs font-medium text-zinc-600">Comfort with volume</div>
+                <input
+                  className="mt-1 w-full rounded-xl border border-zinc-200 bg-white px-3 py-2"
+                  value={dialerVolumeComfort}
+                  onChange={(e) => setDialerVolumeComfort(e.target.value)}
+                  placeholder="Calls/day, talk time, etc"
+                />
+              </label>
+              <label className="text-sm">
+                <div className="text-xs font-medium text-zinc-600">Tools</div>
+                <input
+                  className="mt-1 w-full rounded-xl border border-zinc-200 bg-white px-3 py-2"
+                  value={dialerTools}
+                  onChange={(e) => setDialerTools(e.target.value)}
+                  placeholder="CRM, dialers, scripts"
+                />
+              </label>
+            </>
+          ) : null}
+
+          {targetRole === "CLOSER" ? (
+            <>
+              <div className="sm:col-span-2 text-xs font-semibold uppercase tracking-wide text-zinc-500">Closer questions</div>
+              <label className="text-sm sm:col-span-2">
+                <div className="text-xs font-medium text-zinc-600">Closing experience</div>
+                <textarea
+                  className="mt-1 w-full rounded-xl border border-zinc-200 bg-white px-3 py-2"
+                  value={closerClosingExperience}
+                  onChange={(e) => setCloserClosingExperience(e.target.value)}
+                  rows={3}
+                  placeholder="What have you sold, to who, and results?"
+                />
+              </label>
+              <label className="text-sm">
+                <div className="text-xs font-medium text-zinc-600">Typical ticket</div>
+                <input
+                  className="mt-1 w-full rounded-xl border border-zinc-200 bg-white px-3 py-2"
+                  value={closerTypicalTicket}
+                  onChange={(e) => setCloserTypicalTicket(e.target.value)}
+                  placeholder="$3k, $10k, etc"
+                />
+              </label>
+              <label className="text-sm">
+                <div className="text-xs font-medium text-zinc-600">Handling price objection</div>
+                <textarea
+                  className="mt-1 w-full rounded-xl border border-zinc-200 bg-white px-3 py-2"
+                  value={closerPriceObjection}
+                  onChange={(e) => setCloserPriceObjection(e.target.value)}
+                  rows={3}
+                  placeholder="How do you handle ‘too expensive’?"
+                />
+              </label>
+            </>
+          ) : null}
+
           <label className="text-sm sm:col-span-2">
             <div className="text-xs font-medium text-zinc-600">Notes</div>
             <textarea

@@ -89,6 +89,7 @@ export async function POST(req: Request) {
   const notes = String(body?.notes ?? "").trim().slice(0, 4000) || null;
   const status = safeOneLine(body?.status).slice(0, 60) || null;
   const targetRole = safeOneLine(body?.targetRole).slice(0, 20) || null;
+  const intakeRaw = body?.intake ?? null;
 
   if (!fullName) return NextResponse.json({ ok: false, error: "Missing fullName" }, { status: 400 });
   if (targetRole !== "DIALER" && targetRole !== "CLOSER") {
@@ -104,6 +105,15 @@ export async function POST(req: Request) {
     ...(status ? { status: status as any } : {}),
   };
 
+  const intake: any = intakeRaw && typeof intakeRaw === "object" ? intakeRaw : null;
+  const screeningCapabilities: any = intake
+    ? {
+        intake,
+        targetRole,
+        createdFrom: "candidate_create",
+      }
+    : null;
+
   try {
     const candidate = await prisma.hrCandidate.create({
       data: {
@@ -113,6 +123,31 @@ export async function POST(req: Request) {
       select: { id: true },
     });
 
+    if (screeningCapabilities) {
+      try {
+        await prisma.hrCandidateScreening.create({
+          data: {
+            candidateId: candidate.id,
+            capabilities: screeningCapabilities,
+          },
+          select: { id: true },
+        });
+      } catch (e: any) {
+        const emsg = String(e?.message ?? "").toLowerCase();
+        // Best-effort only; don't break candidate creation if screenings table/columns aren't deployed.
+        if (
+          emsg.includes("hrcandidatescreening") ||
+          emsg.includes("capabilities") ||
+          emsg.includes("does not exist") ||
+          emsg.includes("unknown")
+        ) {
+          // ignore
+        } else {
+          throw e;
+        }
+      }
+    }
+
     return NextResponse.json({ ok: true, candidate });
   } catch (err: any) {
     const msg = String(err?.message ?? "");
@@ -121,6 +156,21 @@ export async function POST(req: Request) {
         data: dataBase,
         select: { id: true },
       });
+
+      if (screeningCapabilities) {
+        try {
+          await prisma.hrCandidateScreening.create({
+            data: {
+              candidateId: candidate.id,
+              capabilities: screeningCapabilities,
+            },
+            select: { id: true },
+          });
+        } catch {
+          // ignore best-effort
+        }
+      }
+
       return NextResponse.json({ ok: true, candidate });
     }
 
