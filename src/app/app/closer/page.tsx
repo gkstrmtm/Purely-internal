@@ -9,7 +9,7 @@ export default async function CloserHome() {
   if (!session?.user) redirect("/employeelogin");
 
   const role = session.user.role;
-  if (role !== "CLOSER" && role !== "MANAGER" && role !== "ADMIN") {
+  if (role !== "CLOSER" && role !== "MANAGER" && role !== "HR" && role !== "ADMIN") {
     redirect("/app");
   }
 

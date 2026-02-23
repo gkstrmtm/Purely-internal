@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 
-type Role = "DIALER" | "CLOSER" | "MANAGER" | "ADMIN";
+type Role = "DIALER" | "CLOSER" | "MANAGER" | "HR" | "ADMIN";
 
 type NavItem = {
   href: string;
@@ -181,6 +181,7 @@ function toRole(role?: string): Role | undefined {
   if (role === "DIALER") return "DIALER";
   if (role === "CLOSER") return "CLOSER";
   if (role === "MANAGER") return "MANAGER";
+  if (role === "HR") return "HR";
   if (role === "ADMIN") return "ADMIN";
   return undefined;
 }
@@ -208,15 +209,23 @@ export function AppTopNav({ role }: { role?: string }) {
     { href: "/app/manager/leads", label: "Leads" },
     { href: "/app/manager/calls", label: "Calls" },
     { href: "/app/manager/appointments", label: "Appointments" },
+    { href: "/app/hr", label: "HR" },
     { href: "/app/manager/portal-overrides", label: "Portal overrides" },
   ];
 
+  const hrItems: NavItem[] = [
+    { href: "/app/hr", label: "Candidates" },
+    { href: "/app/hr/employees", label: "Employees" },
+  ];
 
-  if (effectiveRole === "MANAGER" || effectiveRole === "ADMIN") {
+
+  if (effectiveRole === "MANAGER" || effectiveRole === "HR" || effectiveRole === "ADMIN") {
     const sectionItems = pathname.startsWith("/app/dialer")
       ? dialerItems
       : pathname.startsWith("/app/closer")
         ? closerItems
+        : pathname.startsWith("/app/hr")
+          ? hrItems
         : managerItems;
 
     return (
@@ -262,14 +271,22 @@ export function AppSidebarNav({
     { href: "/app/manager/leads", label: "Leads" },
     { href: "/app/manager/calls", label: "Calls" },
     { href: "/app/manager/appointments", label: "Appointments", shortLabel: "Ap" },
+    { href: "/app/hr", label: "HR", shortLabel: "HR" },
     { href: "/app/manager/portal-overrides", label: "Portal overrides", shortLabel: "Po" },
   ];
 
-  if (effectiveRole === "MANAGER" || effectiveRole === "ADMIN") {
+  const hrItems: NavItem[] = [
+    { href: "/app/hr", label: "Candidates", shortLabel: "Ca" },
+    { href: "/app/hr/employees", label: "Employees", shortLabel: "Em" },
+  ];
+
+  if (effectiveRole === "MANAGER" || effectiveRole === "HR" || effectiveRole === "ADMIN") {
     const sectionItems = pathname.startsWith("/app/dialer")
       ? dialerItems
       : pathname.startsWith("/app/closer")
         ? closerItems
+        : pathname.startsWith("/app/hr")
+          ? hrItems
         : managerItems;
 
     return (

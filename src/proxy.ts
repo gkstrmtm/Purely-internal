@@ -336,7 +336,24 @@ export async function proxy(req: NextRequest) {
   if (path.startsWith("/app/closer") && role === "DIALER") {
     return NextResponse.redirect(new URL("/app/dialer", req.url));
   }
-  if (path.startsWith("/app/manager") && role !== "MANAGER" && role !== "ADMIN") {
+
+  if ((path === "/app/hr" || path.startsWith("/app/hr/")) && role !== "HR" && role !== "MANAGER" && role !== "ADMIN") {
+    return NextResponse.redirect(new URL("/app", req.url));
+  }
+
+  if (path.startsWith("/app/manager/admin") && role !== "MANAGER" && role !== "ADMIN") {
+    return NextResponse.redirect(new URL("/app", req.url));
+  }
+
+  if (path.startsWith("/app/manager/portal-overrides") && role !== "MANAGER" && role !== "ADMIN") {
+    return NextResponse.redirect(new URL("/app", req.url));
+  }
+
+  if (path.startsWith("/app/manager/blogs") && role !== "MANAGER" && role !== "ADMIN") {
+    return NextResponse.redirect(new URL("/app", req.url));
+  }
+
+  if (path.startsWith("/app/manager") && role !== "MANAGER" && role !== "HR" && role !== "ADMIN") {
     return NextResponse.redirect(new URL("/app", req.url));
   }
 

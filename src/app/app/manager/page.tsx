@@ -27,7 +27,7 @@ export default async function ManagerHome() {
   if (!session?.user) redirect("/employeelogin");
 
   const role = session.user.role;
-  if (role !== "MANAGER" && role !== "ADMIN") {
+  if (role !== "MANAGER" && role !== "HR" && role !== "ADMIN") {
     redirect("/app");
   }
 

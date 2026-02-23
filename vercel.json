@@ -47,6 +47,10 @@
     {
       "path": "/api/portal/reviews/cron",
       "schedule": "*/5 * * * *"
+    },
+    {
+      "path": "/api/hr/follow-ups/cron",
+      "schedule": "*/5 * * * *"
     }
   ]
 }

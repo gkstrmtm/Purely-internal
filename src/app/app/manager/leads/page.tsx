@@ -13,7 +13,7 @@ export default async function ManagerLeadsPage() {
   if (!session?.user) redirect("/employeelogin");
 
   const role = session.user.role;
-  if (role !== "MANAGER" && role !== "ADMIN") redirect("/app");
+  if (role !== "MANAGER" && role !== "HR" && role !== "ADMIN") redirect("/app");
 
   const [hasLead, hasUser, hasLeadAssignment, hasAppointment] = await Promise.all([
     hasPublicTable("Lead"),

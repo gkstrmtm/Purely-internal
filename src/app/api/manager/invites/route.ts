@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 import { randomBytes } from "crypto";
 
-import { requireManagerSession } from "@/lib/apiAuth";
+import { requireStaffSession } from "@/lib/apiAuth";
 import { prisma } from "@/lib/db";
 import { ensureEmployeeInvitesSchema } from "@/lib/employeeInvitesSchema";
 
@@ -20,7 +20,7 @@ const createSchema = z.object({
 });
 
 export async function GET() {
-  const auth = await requireManagerSession();
+  const auth = await requireStaffSession();
   if (!auth.ok) {
     return NextResponse.json(
       { error: auth.status === 401 ? "Unauthorized" : "Forbidden" },
@@ -58,7 +58,7 @@ export async function GET() {
 }
 
 export async function POST(req: Request) {
-  const auth = await requireManagerSession();
+  const auth = await requireStaffSession();
   if (!auth.ok) {
     return NextResponse.json(
       { error: auth.status === 401 ? "Unauthorized" : "Forbidden" },

@@ -20,7 +20,7 @@ export default async function CloserAppointmentsPage() {
     return <CloserAppointmentsClient initialAppointments={[]} />;
   }
 
-  if (role !== "CLOSER" && role !== "MANAGER" && role !== "ADMIN") {
+  if (role !== "CLOSER" && role !== "MANAGER" && role !== "HR" && role !== "ADMIN") {
     return <CloserAppointmentsClient initialAppointments={[]} />;
   }
 
@@ -49,7 +49,7 @@ export default async function CloserAppointmentsPage() {
     }
   }
 
-  // For closers: only their appointments. For managers/admin: all.
+  // For closers: only their appointments. For managers/hr/admin: all.
   const where = role === "CLOSER" ? { closerId: userId } : undefined;
 
   const [hasContactPhone, hasInterestedService, hasNotes, hasSource, hasWebsite, hasLocation, hasNiche] = await Promise.all([

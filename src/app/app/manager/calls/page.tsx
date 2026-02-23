@@ -9,7 +9,7 @@ export default async function ManagerCallsPage() {
   if (!session?.user) redirect("/employeelogin");
 
   const role = session.user.role;
-  if (role !== "MANAGER" && role !== "ADMIN") redirect("/app");
+  if (role !== "MANAGER" && role !== "HR" && role !== "ADMIN") redirect("/app");
 
   const calls = await prisma.callLog.findMany({
     orderBy: { createdAt: "desc" },

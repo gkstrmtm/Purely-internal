@@ -225,6 +225,14 @@ Nurture Campaigns are simple multi-step SMS/email sequences with tag-based audie
 - Cron processor: `GET /api/portal/nurture/cron`
 	- If `NURTURE_CRON_SECRET` is set, the request must include `x-nurture-cron-secret: <secret>` (or `Authorization: Bearer <secret>`).
 
+## HR follow-ups (internal)
+
+HR candidate follow-ups (email/SMS) are queued as `HrCandidateFollowUp` rows and sent by a cron processor.
+
+- Cron endpoint: `GET /api/hr/follow-ups/cron`
+- Auth (optional): set `HR_FOLLOWUPS_CRON_SECRET` and call with header `x-hr-followups-cron-secret: <secret>` (or `Authorization: Bearer <secret>`)
+- SMS config: uses env-based Twilio (`TWILIO_ACCOUNT_SID`, `TWILIO_AUTH_TOKEN`, and `TWILIO_HR_FROM_NUMBER` or `TWILIO_FROM_NUMBER`)
+
 ## Public marketing landing
 
 - `/` is the public landing page.

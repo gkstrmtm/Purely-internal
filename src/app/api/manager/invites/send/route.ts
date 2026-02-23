@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
 
-import { requireManagerSession } from "@/lib/apiAuth";
+import { requireStaffSession } from "@/lib/apiAuth";
 import { prisma } from "@/lib/db";
 import { ensureEmployeeInvitesSchema } from "@/lib/employeeInvitesSchema";
 import { trySendTransactionalEmail } from "@/lib/emailSender";
@@ -110,7 +110,7 @@ function buildInviteEmailHtml(opts: { inviteCode: string; signupUrl: string; not
 }
 
 export async function POST(req: Request) {
-	const auth = await requireManagerSession();
+	const auth = await requireStaffSession();
 	if (!auth.ok) {
 		return NextResponse.json(
 			{ error: auth.status === 401 ? "Unauthorized" : "Forbidden" },

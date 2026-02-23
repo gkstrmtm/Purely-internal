@@ -9,7 +9,7 @@ export default async function DialerHome() {
   if (!session?.user) redirect("/employeelogin");
 
   const role = session.user.role;
-  if (role !== "DIALER" && role !== "MANAGER" && role !== "ADMIN") {
+  if (role !== "DIALER" && role !== "MANAGER" && role !== "HR" && role !== "ADMIN") {
     redirect("/app");
   }
 

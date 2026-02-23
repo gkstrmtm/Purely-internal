@@ -16,7 +16,7 @@ export default async function ManagerAppointmentsPage() {
   const userId = session?.user?.id;
   const role = session?.user?.role;
 
-  if (!userId || (role !== "MANAGER" && role !== "ADMIN")) {
+  if (!userId || (role !== "MANAGER" && role !== "HR" && role !== "ADMIN")) {
     return <ManagerAppointmentsClient initialAppointments={[]} />;
   }
 

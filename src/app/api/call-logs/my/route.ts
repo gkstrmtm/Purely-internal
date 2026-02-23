@@ -27,8 +27,8 @@ export async function GET() {
       ...(hasNiche ? { niche: true } : {}),
     } as const;
 
-    // For now: dialers see their own, manager/admin can see all.
-    const where = role === "MANAGER" || role === "ADMIN" ? {} : { dialerId: userId };
+    // For now: dialers see their own, manager/hr/admin can see all.
+    const where = role === "MANAGER" || role === "HR" || role === "ADMIN" ? {} : { dialerId: userId };
 
     const logs = await prisma.callLog.findMany({
       where,

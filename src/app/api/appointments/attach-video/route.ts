@@ -10,7 +10,7 @@ export async function POST(req: Request) {
   const role = session?.user?.role;
   if (!userId) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
-  if (role !== "CLOSER" && role !== "MANAGER" && role !== "ADMIN") {
+  if (role !== "CLOSER" && role !== "MANAGER" && role !== "HR" && role !== "ADMIN") {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
 
@@ -32,7 +32,7 @@ export async function POST(req: Request) {
   const appointment = await prisma.appointment.findUnique({ where: { id: appointmentId } });
   if (!appointment) return NextResponse.json({ error: "Appointment not found" }, { status: 404 });
 
-  if (role !== "MANAGER" && role !== "ADMIN" && appointment.closerId !== userId) {
+  if (role !== "MANAGER" && role !== "HR" && role !== "ADMIN" && appointment.closerId !== userId) {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
 

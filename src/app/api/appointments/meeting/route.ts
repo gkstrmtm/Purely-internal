@@ -28,7 +28,7 @@ export async function POST(req: Request) {
   const role = session?.user?.role;
 
   if (!userId) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  if (role !== "CLOSER" && role !== "MANAGER" && role !== "ADMIN") {
+  if (role !== "CLOSER" && role !== "MANAGER" && role !== "HR" && role !== "ADMIN") {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
 

@@ -12,6 +12,7 @@ enum Role {
   DIALER
   CLOSER
   MANAGER
+  HR
   ADMIN
   CLIENT
 }
@@ -145,6 +146,12 @@ model User {
   employeeInvitesCreated EmployeeInvite[] @relation("EmployeeInviteCreatedBy")
   employeeInvitesUsed    EmployeeInvite[] @relation("EmployeeInviteUsedBy")
 
+  hrCandidateScreeningsCreated HrCandidateScreening[] @relation("HrCandidateScreeningCreatedBy")
+  hrCandidateInterviewsCreated HrCandidateInterview[] @relation("HrCandidateInterviewCreatedBy")
+  hrCandidateEvaluationsCreated HrCandidateEvaluation[] @relation("HrCandidateEvaluationCreatedBy")
+  hrCandidateFollowUpsCreated HrCandidateFollowUp[] @relation("HrCandidateFollowUpCreatedBy")
+  hrCandidateInvitesCreated HrCandidateInvite[] @relation("HrCandidateInviteCreatedBy")
+
   connectRoomsCreated  ConnectRoom[]
   connectParticipants  ConnectParticipant[]
 
@@ -174,8 +181,184 @@ model EmployeeInvite {
   createdBy User  @relation("EmployeeInviteCreatedBy", fields: [createdById], references: [id])
   usedBy    User? @relation("EmployeeInviteUsedBy", fields: [usedById], references: [id])
 
+  hrCandidateInvites HrCandidateInvite[] @relation("HrCandidateInviteEmployeeInvite")
+
   @@index([createdById, createdAt])
   @@index([usedAt])
+}
+
+enum HrCandidateStatus {
+  APPLIED
+  SCREENING
+  INTERVIEW
+  OFFER
+  HIRED
+  REJECTED
+  ARCHIVED
+}
+
+enum HrScreeningDecision {
+  APPROVE
+  REJECT
+  FOLLOW_UP
+}
+
+enum HrInterviewStatus {
+  SCHEDULED
+  COMPLETED
+  CANCELED
+  NO_SHOW
+}
+
+enum HrHiringDecision {
+  HIRE
+  NO_HIRE
+  MAYBE
+}
+
+enum HrFollowUpChannel {
+  EMAIL
+  SMS
+}
+
+enum HrFollowUpStatus {
+  PENDING
+  SENDING
+  SENT
+  FAILED
+  CANCELED
+}
+
+model HrCandidate {
+  id String @id @default(cuid())
+
+  fullName String
+  email    String?
+  phone    String?
+  source   String?
+  notes    String?
+
+  status HrCandidateStatus @default(APPLIED)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  screenings  HrCandidateScreening[]
+  interviews  HrCandidateInterview[]
+  evaluations HrCandidateEvaluation[]
+  followUps   HrCandidateFollowUp[]
+  invites     HrCandidateInvite[]
+
+  @@index([status, createdAt])
+  @@index([createdAt])
+}
+
+model HrCandidateScreening {
+  id String @id @default(cuid())
+
+  candidateId String
+  candidate   HrCandidate @relation(fields: [candidateId], references: [id], onDelete: Cascade)
+
+  scheduledAt DateTime?
+  completedAt DateTime?
+  decision    HrScreeningDecision?
+  notes       String?
+
+  createdByUserId String?
+  createdByUser   User? @relation("HrCandidateScreeningCreatedBy", fields: [createdByUserId], references: [id], onDelete: SetNull)
+
+  createdAt DateTime @default(now())
+
+  @@index([candidateId, createdAt])
+}
+
+model HrCandidateInterview {
+  id String @id @default(cuid())
+
+  candidateId String
+  candidate   HrCandidate @relation(fields: [candidateId], references: [id], onDelete: Cascade)
+
+  scheduledAt DateTime
+  status      HrInterviewStatus @default(SCHEDULED)
+
+  connectRoomId  String?
+  meetingJoinUrl String?
+
+  createdByUserId String?
+  createdByUser   User? @relation("HrCandidateInterviewCreatedBy", fields: [createdByUserId], references: [id], onDelete: SetNull)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  evaluations HrCandidateEvaluation[]
+
+  @@index([candidateId, scheduledAt])
+  @@index([scheduledAt])
+}
+
+model HrCandidateEvaluation {
+  id String @id @default(cuid())
+
+  candidateId String
+  candidate   HrCandidate @relation(fields: [candidateId], references: [id], onDelete: Cascade)
+
+  interviewId String?
+  interview   HrCandidateInterview? @relation(fields: [interviewId], references: [id], onDelete: SetNull)
+
+  decision      HrHiringDecision?
+  ratingOverall Int?
+  notes         String?
+
+  createdByUserId String?
+  createdByUser   User? @relation("HrCandidateEvaluationCreatedBy", fields: [createdByUserId], references: [id], onDelete: SetNull)
+
+  createdAt DateTime @default(now())
+
+  @@index([candidateId, createdAt])
+  @@index([interviewId])
+}
+
+model HrCandidateFollowUp {
+  id String @id @default(cuid())
+
+  candidateId String
+  candidate   HrCandidate @relation(fields: [candidateId], references: [id], onDelete: Cascade)
+
+  channel   HrFollowUpChannel
+  toAddress String
+  subject   String?
+  bodyText  String
+
+  sendAt DateTime
+  status HrFollowUpStatus @default(PENDING)
+  sentAt DateTime?
+  lastError String?
+
+  createdByUserId String?
+  createdByUser   User? @relation("HrCandidateFollowUpCreatedBy", fields: [createdByUserId], references: [id], onDelete: SetNull)
+
+  createdAt DateTime @default(now())
+
+  @@index([status, sendAt])
+  @@index([candidateId, sendAt])
+}
+
+model HrCandidateInvite {
+  id String @id @default(cuid())
+
+  candidateId String
+  candidate   HrCandidate @relation(fields: [candidateId], references: [id], onDelete: Cascade)
+
+  employeeInviteId String
+  employeeInvite   EmployeeInvite @relation("HrCandidateInviteEmployeeInvite", fields: [employeeInviteId], references: [id], onDelete: Cascade)
+
+  createdByUserId String?
+  createdByUser   User? @relation("HrCandidateInviteCreatedBy", fields: [createdByUserId], references: [id], onDelete: SetNull)
+
+  createdAt DateTime @default(now())
+
+  @@index([candidateId, createdAt])
+  @@index([employeeInviteId])
 }
 
 model ConnectRoom {
