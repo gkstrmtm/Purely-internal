@@ -101,7 +101,7 @@ function StaffViewSwitcher() {
         : "dashboard";
 
   const items: NavItem[] = [
-    { href: "/app/manager", label: "Dashboard" },
+    { href: "/app/manager", label: "Manager" },
     { href: "/app/hr", label: "HR" },
     { href: "/app/dialer", label: "Dialer view" },
     { href: "/app/closer", label: "Closer view" },
@@ -147,7 +147,7 @@ function StaffViewSwitcherVertical({ collapsed, onNavigate }: { collapsed: boole
         : "dashboard";
 
   const items: Array<{ href: string; label: string; short: string }> = [
-    { href: "/app/manager", label: "Dashboard", short: "Db" },
+    { href: "/app/manager", label: "Manager", short: "M" },
     { href: "/app/hr", label: "HR", short: "HR" },
     { href: "/app/dialer", label: "Dialer", short: "D" },
     { href: "/app/closer", label: "Closer", short: "C" },
@@ -230,7 +230,12 @@ export function AppTopNav({ role }: { role?: string }) {
 
   const hrItems: NavItem[] = [
     { href: "/app/hr", label: "Candidates" },
+    { href: "/app/hr/interviews", label: "Interviews" },
     { href: "/app/hr/employees", label: "Employees" },
+    { href: "/app/manager/leads", label: "Leads" },
+    { href: "/app/manager/calls", label: "Calls" },
+    { href: "/app/manager/appointments", label: "Appointments" },
+    { href: "/app/manager/invites", label: "Employee invites" },
   ];
 
 
@@ -300,7 +305,12 @@ export function AppSidebarNav({
 
   const hrItems: NavItem[] = [
     { href: "/app/hr", label: "Candidates", shortLabel: "Ca" },
+    { href: "/app/hr/interviews", label: "Interviews", shortLabel: "Iv" },
     { href: "/app/hr/employees", label: "Employees", shortLabel: "Em" },
+    { href: "/app/manager/leads", label: "Leads", shortLabel: "Le" },
+    { href: "/app/manager/calls", label: "Calls", shortLabel: "Cl" },
+    { href: "/app/manager/appointments", label: "Appointments", shortLabel: "Ap" },
+    { href: "/app/manager/invites", label: "Employee invites", shortLabel: "In" },
   ];
 
   if (effectiveRole === "MANAGER" || effectiveRole === "HR" || effectiveRole === "ADMIN") {

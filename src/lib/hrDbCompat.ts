@@ -5,6 +5,7 @@ export function isHrSchemaMissingError(err: unknown): boolean {
 
   if (err instanceof Prisma.PrismaClientKnownRequestError) {
     if (err.code === "P2021") return true; // table does not exist
+    if (err.code === "P2022") return true; // column does not exist
   }
 
   const rec = err && typeof err === "object" ? (err as Record<string, unknown>) : null;
@@ -17,6 +18,8 @@ export function isHrSchemaMissingError(err: unknown): boolean {
   if (message.includes("hrhiringdecision")) return true;
   if (message.includes("hrfollowupstatus")) return true;
   if (message.includes("hrfollowupchannel")) return true;
+  if (message.includes("targetrole")) return true;
+  if (message.includes("capabilities")) return true;
 
   return false;
 }

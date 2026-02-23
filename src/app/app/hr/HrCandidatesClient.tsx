@@ -10,6 +10,7 @@ type CandidateRow = {
   phone: string | null;
   status: string;
   source: string | null;
+  targetRole: string | null;
   createdAt: string;
 };
 
@@ -37,6 +38,7 @@ export default function HrCandidatesClient() {
   const [email, setEmail] = useState("");
   const [phone, setPhone] = useState("");
   const [source, setSource] = useState("");
+  const [targetRole, setTargetRole] = useState<"DIALER" | "CLOSER">("DIALER");
   const [notes, setNotes] = useState("");
 
   const query = useMemo(() => safeOneLine(q), [q]);
@@ -66,6 +68,7 @@ export default function HrCandidatesClient() {
       phone: c.phone ? String(c.phone) : null,
       status: String(c.status || ""),
       source: c.source ? String(c.source) : null,
+      targetRole: c.targetRole ? String(c.targetRole) : null,
       createdAt: typeof c.createdAt === "string" ? c.createdAt : new Date(c.createdAt).toISOString(),
     }));
 
@@ -90,6 +93,7 @@ export default function HrCandidatesClient() {
         email,
         phone,
         source,
+        targetRole,
         notes,
       }),
     }).catch(() => null as any);
@@ -106,6 +110,7 @@ export default function HrCandidatesClient() {
     setEmail("");
     setPhone("");
     setSource("");
+    setTargetRole("DIALER");
     setNotes("");
 
     await load();
@@ -116,6 +121,17 @@ export default function HrCandidatesClient() {
       <div className="rounded-3xl border border-zinc-200 bg-brand-mist p-6">
         <div className="text-base font-semibold text-brand-ink">Add candidate</div>
         <div className="mt-4 grid grid-cols-1 gap-3 sm:grid-cols-2">
+          <label className="text-sm">
+            <div className="text-xs font-medium text-zinc-600">Candidate for</div>
+            <select
+              className="mt-1 w-full rounded-xl border border-zinc-200 bg-white px-3 py-2"
+              value={targetRole}
+              onChange={(e) => setTargetRole(e.target.value as any)}
+            >
+              <option value="DIALER">Dialer</option>
+              <option value="CLOSER">Closer</option>
+            </select>
+          </label>
           <label className="text-sm">
             <div className="text-xs font-medium text-zinc-600">Full name</div>
             <input
@@ -208,7 +224,7 @@ export default function HrCandidatesClient() {
               <div>
                 <div className="font-medium text-zinc-900">{c.fullName}</div>
                 <div className="text-sm text-zinc-600">
-                  {[c.email, c.phone, c.source].filter(Boolean).join(" • ") || "No contact info"}
+                  {[c.targetRole, c.email, c.phone, c.source].filter(Boolean).join(" • ") || "No contact info"}
                 </div>
               </div>
               <div className="text-sm text-zinc-600">{c.status} • {fmtDate(c.createdAt)}</div>

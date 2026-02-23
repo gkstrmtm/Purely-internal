@@ -190,17 +190,17 @@ model EmployeeInvite {
 enum HrCandidateStatus {
   APPLIED
   SCREENING
-  INTERVIEW
-  OFFER
+  INTERVIEWING
+  OFFERED
   HIRED
   REJECTED
-  ARCHIVED
+  WITHDRAWN
 }
 
 enum HrScreeningDecision {
-  APPROVE
-  REJECT
-  FOLLOW_UP
+  PASS
+  FAIL
+  MAYBE
 }
 
 enum HrInterviewStatus {
@@ -213,7 +213,12 @@ enum HrInterviewStatus {
 enum HrHiringDecision {
   HIRE
   NO_HIRE
-  MAYBE
+  HOLD
+}
+
+enum HrCandidateTrackRole {
+  DIALER
+  CLOSER
 }
 
 enum HrFollowUpChannel {
@@ -240,6 +245,9 @@ model HrCandidate {
 
   status HrCandidateStatus @default(APPLIED)
 
+  // Which employee role they're being evaluated for (dialer vs closer).
+  targetRole HrCandidateTrackRole?
+
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
@@ -263,6 +271,9 @@ model HrCandidateScreening {
   completedAt DateTime?
   decision    HrScreeningDecision?
   notes       String?
+
+  // Structured intake fields from the screening call.
+  capabilities Json?
 
   createdByUserId String?
   createdByUser   User? @relation("HrCandidateScreeningCreatedBy", fields: [createdByUserId], references: [id], onDelete: SetNull)

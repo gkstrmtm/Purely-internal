@@ -26,6 +26,13 @@ END $$;
 
 DO $$
 BEGIN
+  CREATE TYPE "HrCandidateTrackRole" AS ENUM ('DIALER','CLOSER');
+EXCEPTION
+  WHEN duplicate_object THEN NULL;
+END $$;
+
+DO $$
+BEGIN
   CREATE TYPE "HrScreeningDecision" AS ENUM ('PASS','FAIL','MAYBE');
 EXCEPTION
   WHEN duplicate_object THEN NULL;
@@ -68,6 +75,7 @@ CREATE TABLE IF NOT EXISTS "HrCandidate" (
   "source" TEXT,
   "notes" TEXT,
   "status" "HrCandidateStatus" NOT NULL DEFAULT 'APPLIED',
+  "targetRole" "HrCandidateTrackRole",
   "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
   "updatedAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
   CONSTRAINT "HrCandidate_pkey" PRIMARY KEY ("id")
@@ -82,10 +90,35 @@ CREATE TABLE IF NOT EXISTS "HrCandidateScreening" (
   "completedAt" TIMESTAMP(3),
   "decision" "HrScreeningDecision",
   "notes" TEXT,
+  "capabilities" JSONB,
   "createdByUserId" TEXT,
   "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
   CONSTRAINT "HrCandidateScreening_pkey" PRIMARY KEY ("id")
 );
+
+-- Additive schema updates for environments where the tables already exist.
+DO $$
+BEGIN
+  IF EXISTS (
+    SELECT 1 FROM information_schema.tables
+    WHERE table_schema = 'public' AND table_name = 'HrCandidate'
+  ) THEN
+    BEGIN
+      ALTER TABLE "HrCandidate" ADD COLUMN IF NOT EXISTS "targetRole" "HrCandidateTrackRole";
+    EXCEPTION WHEN undefined_object THEN NULL;
+    END;
+  END IF;
+END $$;
+
+DO $$
+BEGIN
+  IF EXISTS (
+    SELECT 1 FROM information_schema.tables
+    WHERE table_schema = 'public' AND table_name = 'HrCandidateScreening'
+  ) THEN
+    ALTER TABLE "HrCandidateScreening" ADD COLUMN IF NOT EXISTS "capabilities" JSONB;
+  END IF;
+END $$;
 
 CREATE TABLE IF NOT EXISTS "HrCandidateInterview" (
   "id" TEXT NOT NULL,

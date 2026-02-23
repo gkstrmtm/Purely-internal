@@ -17,22 +17,102 @@ export async function GET(_req: Request, ctx: { params: Promise<{ candidateId: s
 
   const { candidateId } = await ctx.params;
 
+  const baseSelect = {
+    id: true,
+    fullName: true,
+    email: true,
+    phone: true,
+    source: true,
+    notes: true,
+    status: true,
+    createdAt: true,
+    updatedAt: true,
+    screenings: {
+      orderBy: { createdAt: "desc" as const },
+      take: 50,
+      select: {
+        id: true,
+        scheduledAt: true,
+        completedAt: true,
+        decision: true,
+        notes: true,
+        createdByUserId: true,
+        createdAt: true,
+      },
+    },
+    interviews: {
+      orderBy: { scheduledAt: "desc" as const },
+      take: 50,
+      select: {
+        id: true,
+        scheduledAt: true,
+        status: true,
+        connectRoomId: true,
+        meetingJoinUrl: true,
+        createdAt: true,
+        updatedAt: true,
+      },
+    },
+    evaluations: {
+      orderBy: { createdAt: "desc" as const },
+      take: 50,
+      select: {
+        id: true,
+        decision: true,
+        ratingOverall: true,
+        notes: true,
+        interviewId: true,
+        createdByUserId: true,
+        createdAt: true,
+      },
+    },
+    followUps: {
+      orderBy: { sendAt: "desc" as const },
+      take: 100,
+      select: {
+        id: true,
+        channel: true,
+        toAddress: true,
+        subject: true,
+        bodyText: true,
+        sendAt: true,
+        status: true,
+        sentAt: true,
+        lastError: true,
+        createdAt: true,
+      },
+    },
+    invites: {
+      orderBy: { createdAt: "desc" as const },
+      take: 20,
+      select: {
+        id: true,
+        employeeInviteId: true,
+        createdAt: true,
+      },
+    },
+  };
+
   try {
     const candidate = await prisma.hrCandidate.findUnique({
       where: { id: candidateId },
-      include: {
-        screenings: { orderBy: { createdAt: "desc" }, take: 50 },
-        interviews: { orderBy: { scheduledAt: "desc" }, take: 50 },
-        evaluations: { orderBy: { createdAt: "desc" }, take: 50 },
-        followUps: { orderBy: { sendAt: "desc" }, take: 100 },
-        invites: { orderBy: { createdAt: "desc" }, take: 20 },
-      },
+      select: { ...baseSelect, targetRole: true } as any,
     });
 
     if (!candidate) return NextResponse.json({ ok: false, error: "Not found" }, { status: 404 });
 
     return NextResponse.json({ ok: true, candidate });
-  } catch (err) {
+  } catch (err: any) {
+    const msg = String(err?.message ?? "");
+    if (msg.includes("targetRole") && msg.toLowerCase().includes("does not exist")) {
+      const candidate = await prisma.hrCandidate.findUnique({
+        where: { id: candidateId },
+        select: baseSelect as any,
+      });
+      if (!candidate) return NextResponse.json({ ok: false, error: "Not found" }, { status: 404 });
+      return NextResponse.json({ ok: true, candidate: { ...candidate, targetRole: null } });
+    }
+
     if (isHrSchemaMissingError(err)) return NextResponse.json(hrSchemaMissingResponse(), { status: 503 });
     throw err;
   }

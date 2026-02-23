@@ -11,6 +11,7 @@ type Candidate = {
   source: string | null;
   notes: string | null;
   status: string;
+  targetRole?: string | null;
   createdAt: string;
   updatedAt: string;
   interviews: Array<{ id: string; scheduledAt: string; status: string; meetingJoinUrl: string | null; connectRoomId: string | null }>;
@@ -54,6 +55,12 @@ export default function HrCandidateDetailClient({ candidateId }: { candidateId: 
 
   const [screenDecision, setScreenDecision] = useState<"PASS" | "FAIL" | "MAYBE">("PASS");
   const [screenNotes, setScreenNotes] = useState("");
+  const [screenTimezone, setScreenTimezone] = useState("");
+  const [screenAvailability, setScreenAvailability] = useState("");
+  const [screenExperience, setScreenExperience] = useState("");
+  const [screenCommunication, setScreenCommunication] = useState<number>(4);
+  const [screenObjections, setScreenObjections] = useState<number>(4);
+  const [screenCoachability, setScreenCoachability] = useState<number>(4);
   const [savingScreening, setSavingScreening] = useState(false);
 
   const [evalDecision, setEvalDecision] = useState<"HIRE" | "NO_HIRE" | "HOLD">("HOLD");
@@ -84,6 +91,7 @@ export default function HrCandidateDetailClient({ candidateId }: { candidateId: 
       source: c.source ? String(c.source) : null,
       notes: c.notes ? String(c.notes) : null,
       status: String(c.status || ""),
+      targetRole: c.targetRole ? String(c.targetRole) : null,
       createdAt: typeof c.createdAt === "string" ? c.createdAt : new Date(c.createdAt).toISOString(),
       updatedAt: typeof c.updatedAt === "string" ? c.updatedAt : new Date(c.updatedAt).toISOString(),
       interviews: (c.interviews ?? []).map((i: any) => ({
@@ -195,10 +203,19 @@ export default function HrCandidateDetailClient({ candidateId }: { candidateId: 
     setSavingScreening(true);
     setError(null);
 
+    const capabilities = {
+      timezone: safeOneLine(screenTimezone),
+      availability: safeOneLine(screenAvailability),
+      experience: safeOneLine(screenExperience),
+      communicationRating: Number(screenCommunication),
+      objectionHandlingRating: Number(screenObjections),
+      coachabilityRating: Number(screenCoachability),
+    };
+
     const res = await fetch(`/api/hr/candidates/${candidateId}/screenings`, {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ decision: screenDecision, notes: screenNotes }),
+      body: JSON.stringify({ decision: screenDecision, notes: screenNotes, capabilities }),
     }).catch(() => null as any);
 
     const body = res ? await res.json().catch(() => ({})) : null;
@@ -210,6 +227,9 @@ export default function HrCandidateDetailClient({ candidateId }: { candidateId: 
     }
 
     setScreenNotes("");
+    setScreenTimezone("");
+    setScreenAvailability("");
+    setScreenExperience("");
     await load();
   }
 
@@ -240,7 +260,7 @@ export default function HrCandidateDetailClient({ candidateId }: { candidateId: 
       <div className="rounded-2xl border border-zinc-200 bg-white p-5">
         <div className="text-lg font-semibold text-zinc-900">{candidate.fullName}</div>
         <div className="mt-1 text-sm text-zinc-600">
-          {[candidate.email, candidate.phone, candidate.source, candidate.status].filter(Boolean).join(" • ")}
+          {[candidate.targetRole, candidate.email, candidate.phone, candidate.source, candidate.status].filter(Boolean).join(" • ")}
         </div>
         {candidate.notes ? <div className="mt-3 whitespace-pre-wrap text-sm text-zinc-700">{candidate.notes}</div> : null}
         <div className="mt-3 text-xs text-zinc-500">Created {fmtDate(candidate.createdAt)} • Updated {fmtDate(candidate.updatedAt)}</div>
@@ -261,7 +281,76 @@ export default function HrCandidateDetailClient({ candidateId }: { candidateId: 
               <option value="FAIL">Fail</option>
             </select>
           </label>
-          <div />
+          <label className="text-sm">
+            <div className="text-xs font-medium text-zinc-600">Timezone</div>
+            <input
+              className="mt-1 w-full rounded-xl border border-zinc-200 bg-white px-3 py-2"
+              value={screenTimezone}
+              onChange={(e) => setScreenTimezone(e.target.value)}
+              placeholder="EST, CST, etc"
+            />
+          </label>
+          <label className="text-sm">
+            <div className="text-xs font-medium text-zinc-600">Availability</div>
+            <input
+              className="mt-1 w-full rounded-xl border border-zinc-200 bg-white px-3 py-2"
+              value={screenAvailability}
+              onChange={(e) => setScreenAvailability(e.target.value)}
+              placeholder="Weekdays 9-5, evenings, etc"
+            />
+          </label>
+          <label className="text-sm">
+            <div className="text-xs font-medium text-zinc-600">Experience (short)</div>
+            <input
+              className="mt-1 w-full rounded-xl border border-zinc-200 bg-white px-3 py-2"
+              value={screenExperience}
+              onChange={(e) => setScreenExperience(e.target.value)}
+              placeholder="2y SDR, 1y closer, etc"
+            />
+          </label>
+
+          <label className="text-sm">
+            <div className="text-xs font-medium text-zinc-600">Communication</div>
+            <select
+              className="mt-1 w-full rounded-xl border border-zinc-200 bg-white px-3 py-2"
+              value={screenCommunication}
+              onChange={(e) => setScreenCommunication(Number(e.target.value))}
+            >
+              {[5, 4, 3, 2, 1].map((n) => (
+                <option key={n} value={n}>
+                  {n}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label className="text-sm">
+            <div className="text-xs font-medium text-zinc-600">Objection handling</div>
+            <select
+              className="mt-1 w-full rounded-xl border border-zinc-200 bg-white px-3 py-2"
+              value={screenObjections}
+              onChange={(e) => setScreenObjections(Number(e.target.value))}
+            >
+              {[5, 4, 3, 2, 1].map((n) => (
+                <option key={n} value={n}>
+                  {n}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label className="text-sm">
+            <div className="text-xs font-medium text-zinc-600">Coachability</div>
+            <select
+              className="mt-1 w-full rounded-xl border border-zinc-200 bg-white px-3 py-2"
+              value={screenCoachability}
+              onChange={(e) => setScreenCoachability(Number(e.target.value))}
+            >
+              {[5, 4, 3, 2, 1].map((n) => (
+                <option key={n} value={n}>
+                  {n}
+                </option>
+              ))}
+            </select>
+          </label>
           <label className="text-sm sm:col-span-2">
             <div className="text-xs font-medium text-zinc-600">Notes</div>
             <textarea
