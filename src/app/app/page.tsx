@@ -10,6 +10,7 @@ export default async function AppIndexPage() {
   const role = session.user.role;
 
   if (role === "CLOSER") redirect("/app/closer");
+  if (role === "HR") redirect("/app/hr");
   if (role === "MANAGER" || role === "ADMIN") redirect("/app/manager");
   redirect("/app/dialer");
 }

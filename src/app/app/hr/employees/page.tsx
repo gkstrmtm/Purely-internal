@@ -2,9 +2,9 @@ import { getServerSession } from "next-auth";
 import { redirect } from "next/navigation";
 
 import { authOptions } from "@/lib/auth";
-import HrCandidatesClient from "./HrCandidatesClient";
+import HrEmployeesClient from "./HrEmployeesClient";
 
-export default async function HrHomePage() {
+export default async function HrEmployeesPage() {
   const session = await getServerSession(authOptions).catch(() => null);
   if (!session?.user) redirect("/employeelogin");
 
@@ -14,10 +14,10 @@ export default async function HrHomePage() {
   return (
     <div className="mx-auto max-w-5xl px-6 py-10">
       <div className="rounded-3xl border border-zinc-200 bg-white p-8 shadow-sm">
-        <h1 className="text-2xl font-semibold tracking-tight">Employee onboarding</h1>
-        <p className="mt-2 text-sm text-zinc-600">Track candidates, schedule interviews, and queue follow-ups.</p>
+        <h1 className="text-2xl font-semibold tracking-tight">Employees</h1>
+        <p className="mt-2 text-sm text-zinc-600">All active non-client users.</p>
         <div className="mt-6">
-          <HrCandidatesClient />
+          <HrEmployeesClient />
         </div>
       </div>
     </div>

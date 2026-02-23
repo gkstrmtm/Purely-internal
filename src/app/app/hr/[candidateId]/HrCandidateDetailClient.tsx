@@ -52,6 +52,15 @@ export default function HrCandidateDetailClient({ candidateId }: { candidateId: 
   });
   const [creatingInterview, setCreatingInterview] = useState(false);
 
+  const [screenDecision, setScreenDecision] = useState<"PASS" | "FAIL" | "MAYBE">("PASS");
+  const [screenNotes, setScreenNotes] = useState("");
+  const [savingScreening, setSavingScreening] = useState(false);
+
+  const [evalDecision, setEvalDecision] = useState<"HIRE" | "NO_HIRE" | "HOLD">("HOLD");
+  const [evalRating, setEvalRating] = useState<number>(4);
+  const [evalNotes, setEvalNotes] = useState("");
+  const [savingEval, setSavingEval] = useState(false);
+
   async function load() {
     setLoading(true);
     setError(null);
@@ -171,8 +180,60 @@ export default function HrCandidateDetailClient({ candidateId }: { candidateId: 
   }
 
   if (loading) return <div className="text-sm text-zinc-600">Loading...</div>;
-  if (error) return <div className="text-sm text-red-600">{error}</div>;
+  if (error)
+    return (
+      <div className="space-y-3">
+        <div className="text-sm text-red-600">{error}</div>
+        <a className="text-sm font-medium text-brand-ink hover:underline" href="/app/hr">
+          Back to candidates
+        </a>
+      </div>
+    );
   if (!candidate) return <div className="text-sm text-zinc-600">Not found.</div>;
+
+  async function saveScreening() {
+    setSavingScreening(true);
+    setError(null);
+
+    const res = await fetch(`/api/hr/candidates/${candidateId}/screenings`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ decision: screenDecision, notes: screenNotes }),
+    }).catch(() => null as any);
+
+    const body = res ? await res.json().catch(() => ({})) : null;
+    setSavingScreening(false);
+
+    if (!res || !res.ok || !body?.ok) {
+      setError([body?.error ?? "Failed to save screening", body?.code].filter(Boolean).join(" • "));
+      return;
+    }
+
+    setScreenNotes("");
+    await load();
+  }
+
+  async function saveEvaluation() {
+    setSavingEval(true);
+    setError(null);
+
+    const res = await fetch(`/api/hr/candidates/${candidateId}/evaluations`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ decision: evalDecision, ratingOverall: evalRating, notes: evalNotes }),
+    }).catch(() => null as any);
+
+    const body = res ? await res.json().catch(() => ({})) : null;
+    setSavingEval(false);
+
+    if (!res || !res.ok || !body?.ok) {
+      setError([body?.error ?? "Failed to save evaluation", body?.code].filter(Boolean).join(" • "));
+      return;
+    }
+
+    setEvalNotes("");
+    await load();
+  }
 
   return (
     <div className="space-y-8">
@@ -183,6 +244,44 @@ export default function HrCandidateDetailClient({ candidateId }: { candidateId: 
         </div>
         {candidate.notes ? <div className="mt-3 whitespace-pre-wrap text-sm text-zinc-700">{candidate.notes}</div> : null}
         <div className="mt-3 text-xs text-zinc-500">Created {fmtDate(candidate.createdAt)} • Updated {fmtDate(candidate.updatedAt)}</div>
+      </div>
+
+      <div className="rounded-2xl border border-zinc-200 bg-brand-mist p-6">
+        <div className="text-base font-semibold text-brand-ink">Screening call</div>
+        <div className="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-2">
+          <label className="text-sm">
+            <div className="text-xs font-medium text-zinc-600">Decision</div>
+            <select
+              className="mt-1 w-full rounded-xl border border-zinc-200 bg-white px-3 py-2"
+              value={screenDecision}
+              onChange={(e) => setScreenDecision(e.target.value as any)}
+            >
+              <option value="PASS">Pass</option>
+              <option value="MAYBE">Maybe</option>
+              <option value="FAIL">Fail</option>
+            </select>
+          </label>
+          <div />
+          <label className="text-sm sm:col-span-2">
+            <div className="text-xs font-medium text-zinc-600">Notes</div>
+            <textarea
+              className="mt-1 w-full rounded-xl border border-zinc-200 bg-white px-3 py-2"
+              value={screenNotes}
+              onChange={(e) => setScreenNotes(e.target.value)}
+              rows={4}
+              placeholder="Capabilities, experience, dialer/closer fit, etc"
+            />
+          </label>
+        </div>
+        <div className="mt-4 flex items-center gap-3">
+          <button
+            className="rounded-xl bg-brand-ink px-4 py-2 text-sm font-medium text-white disabled:opacity-50"
+            disabled={savingScreening}
+            onClick={() => void saveScreening()}
+          >
+            {savingScreening ? "Saving..." : "Save screening"}
+          </button>
+        </div>
       </div>
 
       <div className="rounded-2xl border border-zinc-200 bg-brand-mist p-6">
@@ -225,6 +324,64 @@ export default function HrCandidateDetailClient({ candidateId }: { candidateId: 
             </div>
           </div>
         ) : null}
+      </div>
+
+      <div className="rounded-2xl border border-zinc-200 bg-brand-mist p-6">
+        <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+          <div>
+            <div className="text-base font-semibold text-brand-ink">Post-interview evaluation</div>
+            <div className="mt-1 text-sm text-zinc-600">If hiring, use Employee invites to onboard.</div>
+          </div>
+          <a className="text-sm font-semibold text-brand-ink hover:underline" href="/app/manager/invites">
+            Employee invites
+          </a>
+        </div>
+
+        <div className="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-2">
+          <label className="text-sm">
+            <div className="text-xs font-medium text-zinc-600">Decision</div>
+            <select
+              className="mt-1 w-full rounded-xl border border-zinc-200 bg-white px-3 py-2"
+              value={evalDecision}
+              onChange={(e) => setEvalDecision(e.target.value as any)}
+            >
+              <option value="HOLD">Hold</option>
+              <option value="HIRE">Hire</option>
+              <option value="NO_HIRE">No hire</option>
+            </select>
+          </label>
+          <label className="text-sm">
+            <div className="text-xs font-medium text-zinc-600">Rating (1-5)</div>
+            <input
+              type="number"
+              min={1}
+              max={5}
+              className="mt-1 w-full rounded-xl border border-zinc-200 bg-white px-3 py-2"
+              value={evalRating}
+              onChange={(e) => setEvalRating(Number(e.target.value || "0"))}
+            />
+          </label>
+          <label className="text-sm sm:col-span-2">
+            <div className="text-xs font-medium text-zinc-600">Notes</div>
+            <textarea
+              className="mt-1 w-full rounded-xl border border-zinc-200 bg-white px-3 py-2"
+              value={evalNotes}
+              onChange={(e) => setEvalNotes(e.target.value)}
+              rows={5}
+              placeholder="Strengths, concerns, recommendation, next steps"
+            />
+          </label>
+        </div>
+
+        <div className="mt-4 flex items-center gap-3">
+          <button
+            className="rounded-xl bg-brand-ink px-4 py-2 text-sm font-medium text-white disabled:opacity-50"
+            disabled={savingEval}
+            onClick={() => void saveEvaluation()}
+          >
+            {savingEval ? "Saving..." : "Save evaluation"}
+          </button>
+        </div>
       </div>
 
       <div className="rounded-2xl border border-zinc-200 bg-brand-mist p-6">

@@ -89,17 +89,20 @@ function NavLinksVertical({
   );
 }
 
-function ManagerViewSwitcher() {
+function StaffViewSwitcher() {
   const pathname = usePathname();
 
   const active = pathname.startsWith("/app/dialer")
     ? "dialer"
     : pathname.startsWith("/app/closer")
       ? "closer"
-      : "manager";
+      : pathname.startsWith("/app/hr")
+        ? "hr"
+        : "dashboard";
 
   const items: NavItem[] = [
-    { href: "/app/manager", label: "Manager" },
+    { href: "/app/manager", label: "Dashboard" },
+    { href: "/app/hr", label: "HR" },
     { href: "/app/dialer", label: "Dialer view" },
     { href: "/app/closer", label: "Closer view" },
   ];
@@ -108,7 +111,8 @@ function ManagerViewSwitcher() {
     <div className="flex flex-nowrap items-center gap-1 overflow-x-auto whitespace-nowrap rounded-2xl border border-zinc-200 bg-white p-1">
       {items.map((i) => {
         const isOn =
-          (active === "manager" && i.href === "/app/manager") ||
+          (active === "dashboard" && i.href === "/app/manager") ||
+          (active === "hr" && i.href === "/app/hr") ||
           (active === "dialer" && i.href === "/app/dialer") ||
           (active === "closer" && i.href === "/app/closer");
 
@@ -131,17 +135,20 @@ function ManagerViewSwitcher() {
   );
 }
 
-function ManagerViewSwitcherVertical({ collapsed, onNavigate }: { collapsed: boolean; onNavigate?: () => void }) {
+function StaffViewSwitcherVertical({ collapsed, onNavigate }: { collapsed: boolean; onNavigate?: () => void }) {
   const pathname = usePathname();
 
   const active = pathname.startsWith("/app/dialer")
     ? "dialer"
     : pathname.startsWith("/app/closer")
       ? "closer"
-      : "manager";
+      : pathname.startsWith("/app/hr")
+        ? "hr"
+        : "dashboard";
 
   const items: Array<{ href: string; label: string; short: string }> = [
-    { href: "/app/manager", label: "Manager", short: "M" },
+    { href: "/app/manager", label: "Dashboard", short: "Db" },
+    { href: "/app/hr", label: "HR", short: "HR" },
     { href: "/app/dialer", label: "Dialer", short: "D" },
     { href: "/app/closer", label: "Closer", short: "C" },
   ];
@@ -150,7 +157,8 @@ function ManagerViewSwitcherVertical({ collapsed, onNavigate }: { collapsed: boo
     <div className="grid gap-1">
       {items.map((i) => {
         const isOn =
-          (active === "manager" && i.href === "/app/manager") ||
+          (active === "dashboard" && i.href === "/app/manager") ||
+          (active === "hr" && i.href === "/app/hr") ||
           (active === "dialer" && i.href === "/app/dialer") ||
           (active === "closer" && i.href === "/app/closer");
         return (
@@ -201,7 +209,7 @@ export function AppTopNav({ role }: { role?: string }) {
     { href: "/app/closer/availability", label: "Availability" },
   ];
 
-  const managerItems: NavItem[] = [
+  const managerItemsFull: NavItem[] = [
     { href: "/app/manager", label: "Dashboard" },
     { href: "/app/manager/admin", label: "Admin" },
     { href: "/app/manager/invites", label: "Employee invites" },
@@ -209,8 +217,15 @@ export function AppTopNav({ role }: { role?: string }) {
     { href: "/app/manager/leads", label: "Leads" },
     { href: "/app/manager/calls", label: "Calls" },
     { href: "/app/manager/appointments", label: "Appointments" },
-    { href: "/app/hr", label: "HR" },
     { href: "/app/manager/portal-overrides", label: "Portal overrides" },
+  ];
+
+  const managerItemsStaff: NavItem[] = [
+    { href: "/app/manager", label: "Dashboard" },
+    { href: "/app/manager/invites", label: "Employee invites" },
+    { href: "/app/manager/leads", label: "Leads" },
+    { href: "/app/manager/calls", label: "Calls" },
+    { href: "/app/manager/appointments", label: "Appointments" },
   ];
 
   const hrItems: NavItem[] = [
@@ -220,6 +235,7 @@ export function AppTopNav({ role }: { role?: string }) {
 
 
   if (effectiveRole === "MANAGER" || effectiveRole === "HR" || effectiveRole === "ADMIN") {
+    const managerItems = effectiveRole === "HR" ? managerItemsStaff : managerItemsFull;
     const sectionItems = pathname.startsWith("/app/dialer")
       ? dialerItems
       : pathname.startsWith("/app/closer")
@@ -230,7 +246,7 @@ export function AppTopNav({ role }: { role?: string }) {
 
     return (
       <div className="flex min-w-0 items-center gap-3">
-        <ManagerViewSwitcher />
+        <StaffViewSwitcher />
         <NavLinks items={sectionItems} />
       </div>
     );
@@ -263,16 +279,23 @@ export function AppSidebarNav({
     { href: "/app/closer/availability", label: "Availability", shortLabel: "Av" },
   ];
 
-  const managerItems: NavItem[] = [
+  const managerItemsFull: NavItem[] = [
     { href: "/app/manager", label: "Dashboard", shortLabel: "Db" },
     { href: "/app/manager/admin", label: "Admin", shortLabel: "Ad" },
     { href: "/app/manager/invites", label: "Employee invites", shortLabel: "In" },
-    { href: "/app/manager/blogs", label: "Blogs" },
+    { href: "/app/manager/blogs", label: "Blogs", shortLabel: "Bl" },
     { href: "/app/manager/leads", label: "Leads" },
     { href: "/app/manager/calls", label: "Calls" },
     { href: "/app/manager/appointments", label: "Appointments", shortLabel: "Ap" },
-    { href: "/app/hr", label: "HR", shortLabel: "HR" },
     { href: "/app/manager/portal-overrides", label: "Portal overrides", shortLabel: "Po" },
+  ];
+
+  const managerItemsStaff: NavItem[] = [
+    { href: "/app/manager", label: "Dashboard", shortLabel: "Db" },
+    { href: "/app/manager/invites", label: "Employee invites", shortLabel: "In" },
+    { href: "/app/manager/leads", label: "Leads" },
+    { href: "/app/manager/calls", label: "Calls" },
+    { href: "/app/manager/appointments", label: "Appointments", shortLabel: "Ap" },
   ];
 
   const hrItems: NavItem[] = [
@@ -281,6 +304,7 @@ export function AppSidebarNav({
   ];
 
   if (effectiveRole === "MANAGER" || effectiveRole === "HR" || effectiveRole === "ADMIN") {
+    const managerItems = effectiveRole === "HR" ? managerItemsStaff : managerItemsFull;
     const sectionItems = pathname.startsWith("/app/dialer")
       ? dialerItems
       : pathname.startsWith("/app/closer")
@@ -291,7 +315,7 @@ export function AppSidebarNav({
 
     return (
       <div className="grid gap-3">
-        <ManagerViewSwitcherVertical collapsed={collapsed} onNavigate={onNavigate} />
+        <StaffViewSwitcherVertical collapsed={collapsed} onNavigate={onNavigate} />
         <NavLinksVertical items={sectionItems} collapsed={collapsed} onNavigate={onNavigate} />
       </div>
     );

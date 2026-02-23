@@ -1,0 +1,63 @@
+import { NextResponse } from "next/server";
+
+import { prisma } from "@/lib/db";
+import { requireStaffSession } from "@/lib/apiAuth";
+import { hrSchemaMissingResponse, isHrSchemaMissingError } from "@/lib/hrDbCompat";
+
+function safeOneLine(s: unknown) {
+  return String(s ?? "")
+    .replace(/[\r\n]+/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+export async function POST(req: Request, ctx: { params: Promise<{ candidateId: string }> }) {
+  const auth = await requireStaffSession();
+  if (!auth.ok) return NextResponse.json({ ok: false, error: "Unauthorized" }, { status: auth.status });
+
+  const { candidateId } = await ctx.params;
+  const userId = auth.session.user.id;
+
+  const body = await req.json().catch(() => ({} as any));
+  const decision = safeOneLine(body?.decision);
+  const notes = String(body?.notes ?? "").trim().slice(0, 4000) || null;
+
+  if (decision && decision !== "PASS" && decision !== "FAIL" && decision !== "MAYBE") {
+    return NextResponse.json({ ok: false, error: "Invalid decision" }, { status: 400 });
+  }
+
+  try {
+    const screening = await prisma.hrCandidateScreening.create({
+      data: {
+        candidateId,
+        decision: (decision || null) as any,
+        notes,
+        completedAt: new Date(),
+        createdByUserId: userId,
+      },
+      select: { id: true },
+    });
+
+    // Basic funnel: if PASS, move candidate forward.
+    if (decision === "PASS") {
+      await prisma.hrCandidate.update({
+        where: { id: candidateId },
+        data: { status: "INTERVIEWING" as any },
+        select: { id: true },
+      });
+    }
+
+    if (decision === "FAIL") {
+      await prisma.hrCandidate.update({
+        where: { id: candidateId },
+        data: { status: "REJECTED" as any },
+        select: { id: true },
+      });
+    }
+
+    return NextResponse.json({ ok: true, screening });
+  } catch (err) {
+    if (isHrSchemaMissingError(err)) return NextResponse.json(hrSchemaMissingResponse(), { status: 503 });
+    throw err;
+  }
+}
