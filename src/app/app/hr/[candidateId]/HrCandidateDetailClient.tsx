@@ -32,6 +32,10 @@ function safeOneLine(s: string) {
     .trim();
 }
 
+function safeText(s: string) {
+  return String(s || "").trim();
+}
+
 export default function HrCandidateDetailClient({ candidateId }: { candidateId: string }) {
   const [candidate, setCandidate] = useState<Candidate | null>(null);
   const [loading, setLoading] = useState(true);
@@ -61,6 +65,14 @@ export default function HrCandidateDetailClient({ candidateId }: { candidateId: 
   const [screenCommunication, setScreenCommunication] = useState<number>(4);
   const [screenObjections, setScreenObjections] = useState<number>(4);
   const [screenCoachability, setScreenCoachability] = useState<number>(4);
+
+  const [dialerColdCalling, setDialerColdCalling] = useState("");
+  const [dialerVolumeComfort, setDialerVolumeComfort] = useState("");
+  const [dialerTools, setDialerTools] = useState("");
+
+  const [closerClosingExperience, setCloserClosingExperience] = useState("");
+  const [closerTypicalTicket, setCloserTypicalTicket] = useState("");
+  const [closerPriceObjection, setCloserPriceObjection] = useState("");
   const [savingScreening, setSavingScreening] = useState(false);
 
   const [evalDecision, setEvalDecision] = useState<"HIRE" | "NO_HIRE" | "HOLD">("HOLD");
@@ -127,6 +139,10 @@ export default function HrCandidateDetailClient({ candidateId }: { candidateId: 
     const phone = safeOneLine(candidate?.phone || "");
     return { email, phone };
   }, [candidate?.email, candidate?.phone]);
+
+  const normalizedTargetRole = String(candidate?.targetRole || "").toUpperCase();
+  const isDialerTarget = normalizedTargetRole === "DIALER";
+  const isCloserTarget = normalizedTargetRole === "CLOSER";
 
   useEffect(() => {
     if (!candidate) return;
@@ -203,7 +219,8 @@ export default function HrCandidateDetailClient({ candidateId }: { candidateId: 
     setSavingScreening(true);
     setError(null);
 
-    const capabilities = {
+    const capabilities: any = {
+      targetRole: candidate?.targetRole ?? null,
       timezone: safeOneLine(screenTimezone),
       availability: safeOneLine(screenAvailability),
       experience: safeOneLine(screenExperience),
@@ -211,6 +228,22 @@ export default function HrCandidateDetailClient({ candidateId }: { candidateId: 
       objectionHandlingRating: Number(screenObjections),
       coachabilityRating: Number(screenCoachability),
     };
+
+    if (isDialerTarget) {
+      capabilities.dialer = {
+        coldCalling: safeText(dialerColdCalling),
+        volumeComfort: safeOneLine(dialerVolumeComfort),
+        tools: safeOneLine(dialerTools),
+      };
+    }
+
+    if (isCloserTarget) {
+      capabilities.closer = {
+        closingExperience: safeText(closerClosingExperience),
+        typicalTicket: safeOneLine(closerTypicalTicket),
+        priceObjection: safeText(closerPriceObjection),
+      };
+    }
 
     const res = await fetch(`/api/hr/candidates/${candidateId}/screenings`, {
       method: "POST",
@@ -230,6 +263,12 @@ export default function HrCandidateDetailClient({ candidateId }: { candidateId: 
     setScreenTimezone("");
     setScreenAvailability("");
     setScreenExperience("");
+    setDialerColdCalling("");
+    setDialerVolumeComfort("");
+    setDialerTools("");
+    setCloserClosingExperience("");
+    setCloserTypicalTicket("");
+    setCloserPriceObjection("");
     await load();
   }
 
@@ -309,6 +348,73 @@ export default function HrCandidateDetailClient({ candidateId }: { candidateId: 
             />
           </label>
 
+          {isDialerTarget ? (
+            <>
+              <label className="text-sm sm:col-span-2">
+                <div className="text-xs font-medium text-zinc-600">Dialer: cold calling experience</div>
+                <textarea
+                  className="mt-1 w-full rounded-xl border border-zinc-200 bg-white px-3 py-2"
+                  value={dialerColdCalling}
+                  onChange={(e) => setDialerColdCalling(e.target.value)}
+                  rows={3}
+                  placeholder="Describe previous cold calling, industries, outcomes"
+                />
+              </label>
+              <label className="text-sm">
+                <div className="text-xs font-medium text-zinc-600">Dialer: volume comfort</div>
+                <input
+                  className="mt-1 w-full rounded-xl border border-zinc-200 bg-white px-3 py-2"
+                  value={dialerVolumeComfort}
+                  onChange={(e) => setDialerVolumeComfort(e.target.value)}
+                  placeholder="Calls/day, talk time, etc"
+                />
+              </label>
+              <label className="text-sm">
+                <div className="text-xs font-medium text-zinc-600">Dialer: tools</div>
+                <input
+                  className="mt-1 w-full rounded-xl border border-zinc-200 bg-white px-3 py-2"
+                  value={dialerTools}
+                  onChange={(e) => setDialerTools(e.target.value)}
+                  placeholder="CRM, dialers, scripts, etc"
+                />
+              </label>
+            </>
+          ) : null}
+
+          {isCloserTarget ? (
+            <>
+              <label className="text-sm sm:col-span-2">
+                <div className="text-xs font-medium text-zinc-600">Closer: closing experience</div>
+                <textarea
+                  className="mt-1 w-full rounded-xl border border-zinc-200 bg-white px-3 py-2"
+                  value={closerClosingExperience}
+                  onChange={(e) => setCloserClosingExperience(e.target.value)}
+                  rows={3}
+                  placeholder="What have you sold, to who, and what results?"
+                />
+              </label>
+              <label className="text-sm">
+                <div className="text-xs font-medium text-zinc-600">Closer: typical ticket</div>
+                <input
+                  className="mt-1 w-full rounded-xl border border-zinc-200 bg-white px-3 py-2"
+                  value={closerTypicalTicket}
+                  onChange={(e) => setCloserTypicalTicket(e.target.value)}
+                  placeholder="$3k, $10k, etc"
+                />
+              </label>
+              <label className="text-sm">
+                <div className="text-xs font-medium text-zinc-600">Closer: price objection</div>
+                <textarea
+                  className="mt-1 w-full rounded-xl border border-zinc-200 bg-white px-3 py-2"
+                  value={closerPriceObjection}
+                  onChange={(e) => setCloserPriceObjection(e.target.value)}
+                  rows={3}
+                  placeholder="How do you handle ‘too expensive’?"
+                />
+              </label>
+            </>
+          ) : null}
+
           <label className="text-sm">
             <div className="text-xs font-medium text-zinc-600">Communication</div>
             <select
@@ -375,6 +481,9 @@ export default function HrCandidateDetailClient({ candidateId }: { candidateId: 
 
       <div className="rounded-2xl border border-zinc-200 bg-brand-mist p-6">
         <div className="text-base font-semibold text-brand-ink">Schedule interview</div>
+        <div className="mt-1 text-sm text-zinc-600">
+          Use the <a className="font-semibold text-brand-ink hover:underline" href="/app/hr/availability">availability calendar</a> to set interviewer blocks.
+        </div>
         <div className="mt-3 flex flex-col gap-3 sm:flex-row sm:items-end">
           <label className="text-sm">
             <div className="text-xs font-medium text-zinc-600">When</div>
@@ -392,6 +501,35 @@ export default function HrCandidateDetailClient({ candidateId }: { candidateId: 
           >
             {creatingInterview ? "Scheduling..." : "Create interview + link"}
           </button>
+        </div>
+
+        <div className="mt-4 rounded-2xl border border-zinc-200 bg-white p-4">
+          <div className="text-sm font-semibold text-zinc-900">Interview question guide</div>
+          <div className="mt-2 space-y-1 text-sm text-zinc-700">
+            {isDialerTarget ? (
+              <>
+                <div>• Walk me through your cold call opener. Why it works?</div>
+                <div>• How do you handle rapid rejection for 2 hours straight?</div>
+                <div>• What’s your process for qualifying vs booking?</div>
+                <div>• What volume can you sustain daily and how?</div>
+                <div>• Roleplay: you call a lead who says “not interested.”</div>
+              </>
+            ) : isCloserTarget ? (
+              <>
+                <div>• What’s your discovery framework? What do you listen for?</div>
+                <div>• How do you handle price/“need to think” without pressure?</div>
+                <div>• Walk me through your close (timeline, authority, next step).</div>
+                <div>• How do you increase show rate / reduce no-shows?</div>
+                <div>• Roleplay: prospect says “I need to talk to my spouse.”</div>
+              </>
+            ) : (
+              <>
+                <div>• What are you best at in sales? What are you improving?</div>
+                <div>• How do you handle objections? Give an example.</div>
+                <div>• Why this role and why now?</div>
+              </>
+            )}
+          </div>
         </div>
 
         {candidate.interviews.length ? (
@@ -421,7 +559,7 @@ export default function HrCandidateDetailClient({ candidateId }: { candidateId: 
             <div className="text-base font-semibold text-brand-ink">Post-interview evaluation</div>
             <div className="mt-1 text-sm text-zinc-600">If hiring, use Employee invites to onboard.</div>
           </div>
-          <a className="text-sm font-semibold text-brand-ink hover:underline" href="/app/manager/invites">
+          <a className="text-sm font-semibold text-brand-ink hover:underline" href="/app/hr/invites">
             Employee invites
           </a>
         </div>

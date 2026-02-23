@@ -14,6 +14,7 @@ type NavItem = {
 function isActive(pathname: string, href: string) {
   if (href === "/app") return pathname === "/app";
   if (href === "/app/manager") return pathname === "/app/manager";
+  if (href === "/app/hr") return pathname === "/app/hr";
   return pathname === href || pathname.startsWith(href + "/");
 }
 
@@ -232,10 +233,11 @@ export function AppTopNav({ role }: { role?: string }) {
     { href: "/app/hr", label: "Candidates" },
     { href: "/app/hr/interviews", label: "Interviews" },
     { href: "/app/hr/employees", label: "Employees" },
-    { href: "/app/manager/leads", label: "Leads" },
-    { href: "/app/manager/calls", label: "Calls" },
-    { href: "/app/manager/appointments", label: "Appointments" },
-    { href: "/app/manager/invites", label: "Employee invites" },
+    { href: "/app/hr/leads", label: "Leads" },
+    { href: "/app/hr/calls", label: "Calls" },
+    { href: "/app/hr/appointments", label: "Appointments" },
+    { href: "/app/hr/invites", label: "Employee invites" },
+    { href: "/app/hr/availability", label: "Availability" },
   ];
 
 
@@ -307,10 +309,11 @@ export function AppSidebarNav({
     { href: "/app/hr", label: "Candidates", shortLabel: "Ca" },
     { href: "/app/hr/interviews", label: "Interviews", shortLabel: "Iv" },
     { href: "/app/hr/employees", label: "Employees", shortLabel: "Em" },
-    { href: "/app/manager/leads", label: "Leads", shortLabel: "Le" },
-    { href: "/app/manager/calls", label: "Calls", shortLabel: "Cl" },
-    { href: "/app/manager/appointments", label: "Appointments", shortLabel: "Ap" },
-    { href: "/app/manager/invites", label: "Employee invites", shortLabel: "In" },
+    { href: "/app/hr/leads", label: "Leads", shortLabel: "Le" },
+    { href: "/app/hr/calls", label: "Calls", shortLabel: "Cl" },
+    { href: "/app/hr/appointments", label: "Appointments", shortLabel: "Ap" },
+    { href: "/app/hr/invites", label: "Employee invites", shortLabel: "In" },
+    { href: "/app/hr/availability", label: "Availability", shortLabel: "Av" },
   ];
 
   if (effectiveRole === "MANAGER" || effectiveRole === "HR" || effectiveRole === "ADMIN") {
