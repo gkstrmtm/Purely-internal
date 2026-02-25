@@ -17,11 +17,19 @@ export async function GET() {
   }
 
   const ownerId = auth.session.user.id;
+  const portalVariant = (auth.session.user as any).portalVariant;
 
   const result = await getPortalServiceStatusesForOwner({
     ownerId,
     fallbackEmail: auth.session.user.email,
+    portalVariant,
   });
 
-  return NextResponse.json({ ok: true, ownerId: result.ownerId, entitlements: result.entitlements, statuses: result.statuses });
+  return NextResponse.json({
+    ok: true,
+    ownerId: result.ownerId,
+    billingModel: result.billingModel,
+    entitlements: result.entitlements,
+    statuses: result.statuses,
+  });
 }

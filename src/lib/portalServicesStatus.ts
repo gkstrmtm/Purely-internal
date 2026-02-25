@@ -4,6 +4,8 @@ import { PORTAL_SERVICES } from "@/app/portal/services/catalog";
 import { ensurePortalAiOutboundCallsSchema } from "@/lib/portalAiOutboundCallsSchema";
 import { getOwnerTwilioSmsConfig } from "@/lib/portalTwilio";
 import { isStripeConfigured } from "@/lib/stripeFetch";
+import { getPortalBillingModel, isCreditsOnlyBilling, type PortalBillingModel } from "@/lib/portalBillingModel";
+import type { PortalVariant } from "@/lib/portalVariant";
 
 const DEFAULT_FULL_DEMO_EMAIL = "demo-full@purelyautomation.dev";
 
@@ -44,6 +46,7 @@ function forceActiveForFullDemo(serviceSlug: string) {
 
 function isUnlocked(opts: {
   isFullDemo: boolean;
+  billingModel: PortalBillingModel;
   included?: boolean;
   entitlementKey?:
     | "blog"
@@ -62,6 +65,12 @@ function isUnlocked(opts: {
 }) {
   if (opts.isFullDemo) return true;
   if (opts.included) return true;
+
+  if (isCreditsOnlyBilling(opts.billingModel)) {
+    // Credits-only mode: services are available without module subscriptions.
+    // Individual actions should still enforce credits at execution time.
+    return true;
+  }
   // When Stripe is configured, Stripe subscriptions (monthly breakdown) are the source of truth.
   // Lifecycle state is still used to show paused/canceled, but not to grant ownership.
   if (!opts.stripeConfigured && opts.ownedByLifecycle) return true;
@@ -72,6 +81,7 @@ function isUnlocked(opts: {
 export async function getPortalServiceStatusesForOwner(opts: {
   ownerId: string;
   fallbackEmail: string | null | undefined;
+  portalVariant?: PortalVariant | null | undefined;
 }) {
   const owner = await prisma.user
     .findUnique({ where: { id: opts.ownerId }, select: { email: true } })
@@ -79,6 +89,7 @@ export async function getPortalServiceStatusesForOwner(opts: {
   const entitlementsEmail = String(owner?.email || opts.fallbackEmail || "");
 
   const isFullDemo = entitlementsEmail.toLowerCase().trim() === DEFAULT_FULL_DEMO_EMAIL;
+  const billingModel = getPortalBillingModel(opts.portalVariant ?? "portal");
   const entitlements = await resolveEntitlements(entitlementsEmail, { ownerId: opts.ownerId });
   const stripeConfigured = isStripeConfigured();
 
@@ -134,6 +145,7 @@ export async function getPortalServiceStatusesForOwner(opts: {
 
     const unlocked = isUnlocked({
       isFullDemo,
+      billingModel,
       included: s.included,
       entitlementKey: s.entitlementKey,
       ownedByLifecycle,
@@ -273,5 +285,5 @@ export async function getPortalServiceStatusesForOwner(opts: {
     statuses[s.slug] = { state: "active", label: "Ready" };
   }
 
-  return { ok: true as const, ownerId: opts.ownerId, entitlements, statuses, entitlementsEmail, isFullDemo };
+  return { ok: true as const, ownerId: opts.ownerId, entitlements, statuses, entitlementsEmail, isFullDemo, billingModel };
 }

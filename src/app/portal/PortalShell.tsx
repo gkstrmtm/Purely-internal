@@ -199,18 +199,17 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
     return pathname === href || pathname.startsWith(href + "/");
   }
 
-  function serviceUnlocked(service: Pick<PortalService, "entitlementKey" | "included">) {
+  function serviceUnlocked(service: Pick<PortalService, "slug" | "included">) {
     if (isFullDemo) return true;
     if (service.included) return true;
 
-    // While loading portal/me context, avoid showing incorrect paywall-style locks.
-    if (portalMe === null) return true;
+    // While loading, avoid showing incorrect paywall-style locks.
+    if (!serviceStatuses) return true;
 
-    const entitlementKey = service.entitlementKey;
-    if (!entitlementKey) return false;
-    const ent = me?.entitlements;
-    if (!ent) return true;
-    return Boolean(ent[entitlementKey]);
+    // Canonical ownership lives in `/api/portal/services/status` (computed for the owner).
+    const st = (serviceStatuses as any)?.[service.slug];
+    const state = String(st?.state || "").toLowerCase();
+    return !(state === "locked" || state === "paused" || state === "canceled" || state === "coming_soon");
   }
 
   function serviceLockedByStatus(slug: string) {

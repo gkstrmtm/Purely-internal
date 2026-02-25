@@ -6,6 +6,8 @@ import type { PortalServiceKey } from "@/lib/portalPermissions.shared";
 import { PORTAL_SERVICES } from "@/app/portal/services/catalog";
 import { resolveEntitlements } from "@/lib/entitlements";
 import { isStripeConfigured } from "@/lib/stripeFetch";
+import { getPortalBillingModel, isCreditsOnlyBilling } from "@/lib/portalBillingModel";
+import type { PortalVariant } from "@/lib/portalVariant";
 
 function serviceSlugForKey(key: PortalServiceKey): string | null {
   switch (key) {
@@ -86,6 +88,7 @@ async function isServiceUnlockedForOwner(opts: {
   ownerId: string;
   serviceKey: PortalServiceKey;
   sessionEmail: string | null | undefined;
+  portalVariant?: PortalVariant | null | undefined;
 }) {
   const slug = serviceSlugForKey(opts.serviceKey);
   if (!slug) return true;
@@ -95,6 +98,13 @@ async function isServiceUnlockedForOwner(opts: {
   // They should not be gated by module ownership.
   if (!svc) return true;
   if (svc?.included) return true;
+
+  const billingModel = getPortalBillingModel(opts.portalVariant ?? "portal");
+  if (isCreditsOnlyBilling(billingModel)) {
+    // Credits-only mode: services are accessible without Stripe module subscriptions.
+    // Specific actions should still enforce credits at the point of use.
+    return true;
+  }
 
   // Entitlements must be computed from the portal account owner identity.
   const owner = await prisma.user
@@ -126,6 +136,7 @@ export async function requireClientSessionForService(
   // Portal session encodes the portal account owner in user.id and the acting member in user.memberId.
   const ownerId = auth.session.user.id;
   const memberId = (auth.session.user as any).memberId || ownerId;
+  const portalVariant = ((auth.session.user as any).portalVariant as PortalVariant | undefined) ?? undefined;
 
   // Paused/canceled services are disabled for everyone (including owner).
   if (await isServiceLifecycleDisabled(ownerId, service).catch(() => false)) {
@@ -137,7 +148,14 @@ export async function requireClientSessionForService(
   }
 
   // Ownership gating: if the portal account doesn't have this service, deny access.
-  if (!(await isServiceUnlockedForOwner({ ownerId, serviceKey: service, sessionEmail: auth.session.user.email }).catch(() => false))) {
+  if (
+    !(await isServiceUnlockedForOwner({
+      ownerId,
+      serviceKey: service,
+      sessionEmail: auth.session.user.email,
+      portalVariant,
+    }).catch(() => false))
+  ) {
     return {
       ok: false as const,
       status: 403 as const,
@@ -187,10 +205,13 @@ export async function requireClientSessionForAnyService(
 
   const ownerId = auth.session.user.id;
   const memberId = (auth.session.user as any).memberId || ownerId;
+  const portalVariant = ((auth.session.user as any).portalVariant as PortalVariant | undefined) ?? undefined;
 
   const anyUnlocked = await (async () => {
     for (const s of services) {
-      const ok = await isServiceUnlockedForOwner({ ownerId, serviceKey: s, sessionEmail: auth.session.user.email }).catch(() => false);
+      const ok = await isServiceUnlockedForOwner({ ownerId, serviceKey: s, sessionEmail: auth.session.user.email, portalVariant }).catch(
+        () => false,
+      );
       if (ok) return true;
     }
     return false;

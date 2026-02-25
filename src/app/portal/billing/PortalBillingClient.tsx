@@ -46,6 +46,7 @@ type ServicesStatusResponse =
   | {
       ok: true;
       ownerId: string;
+      billingModel?: "subscription" | "credits";
       entitlements: Record<string, boolean>;
       statuses: Record<
         string,
@@ -95,6 +96,9 @@ export function PortalBillingClient() {
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [actionBusy, setActionBusy] = useState<string | null>(null);
+
+  const billingModel = services && "ok" in services && services.ok ? services.billingModel : undefined;
+  const creditsOnly = billingModel === "credits";
 
   const [purchaseModal, setPurchaseModal] = useState<null | {
     module: "blog" | "booking" | "automations" | "reviews" | "newsletter" | "nurture" | "aiReceptionist" | "leadScraping" | "crm" | "leadOutbound";
@@ -221,7 +225,21 @@ export function PortalBillingClient() {
   }, [toast]);
 
   useEffect(() => {
-    if (loading) return;
+    if (loading || creditsOnly) {
+      if (!loading && creditsOnly) {
+        try {
+          const url = new URL(window.location.href);
+          if (url.searchParams.has("buy")) {
+            url.searchParams.delete("buy");
+            url.searchParams.delete("autostart");
+            window.history.replaceState(null, "", url.toString());
+          }
+        } catch {
+          // ignore
+        }
+      }
+      return;
+    }
 
     try {
       const qs = new URLSearchParams(window.location.search);
@@ -239,7 +257,7 @@ export function PortalBillingClient() {
     } catch {
       // ignore
     }
-  }, [loading]);
+  }, [loading, creditsOnly]);
 
   useEffect(() => {
     if (!serviceMenuSlug) return;
@@ -268,6 +286,7 @@ export function PortalBillingClient() {
     module: "blog" | "booking" | "automations" | "reviews" | "newsletter" | "nurture" | "aiReceptionist" | "leadScraping" | "crm" | "leadOutbound",
     serviceTitle: string,
   ) {
+    if (creditsOnly) return;
     setServiceMenuSlug(null);
     setPurchaseModal({ module, serviceTitle });
   }
@@ -275,6 +294,10 @@ export function PortalBillingClient() {
   async function purchaseModule(
     module: "blog" | "booking" | "automations" | "reviews" | "newsletter" | "nurture" | "aiReceptionist" | "leadScraping" | "crm" | "leadOutbound",
   ) {
+    if (creditsOnly) {
+      setError("This portal uses credits-only billing. Subscriptions are disabled.");
+      return;
+    }
     setError(null);
     setActionBusy(`module:${module}`);
     const res = await fetch("/api/portal/billing/checkout-module", {
@@ -478,7 +501,7 @@ export function PortalBillingClient() {
 
   const modulePrices = pricing && "ok" in pricing && pricing.ok === true ? pricing.modules : null;
   const internalMonthlyBreakdown: Array<{ subscriptionId: string; title: string; monthlyCents: number; currency: string }> = [];
-  if (modulePrices && serviceStatuses) {
+  if (modulePrices && serviceStatuses && !creditsOnly) {
     const activeModules = new Set<string>();
     for (const s of PORTAL_SERVICES) {
       if (!s.entitlementKey) continue;
@@ -519,20 +542,22 @@ export function PortalBillingClient() {
       : "") ||
     (internalMonthlyBreakdown[0]?.currency || summaryCurrency || "usd");
 
-  const monthlyText = status?.configured ? formatMoney(displayMonthlyCents, displayCurrency) : "N/A";
+  const monthlyText = creditsOnly ? "No subscription" : status?.configured ? formatMoney(displayMonthlyCents, displayCurrency) : "N/A";
 
   const sub = summary && "ok" in summary && summary.ok === true && summary.configured ? summary.subscription : undefined;
-  const hasActiveSub = Boolean(sub?.id && ["active", "trialing", "past_due"].includes(String(sub.status)));
+  const hasActiveSub = creditsOnly ? false : Boolean(sub?.id && ["active", "trialing", "past_due"].includes(String(sub.status)));
 
-  const monthlyNote = !status?.configured
-    ? "Billing isn’t configured on this environment yet."
-    : summary && "ok" in summary && summary.ok === false
-      ? summary.error ?? "Unable to load summary"
-      : Boolean(sub?.id && ["active", "trialing", "past_due"].includes(String(sub.status)))
-        ? "Your subscription is active."
-        : internalMonthlyCents > 0
-          ? "Based on active services in the portal."
-          : "No active subscription.";
+  const monthlyNote = creditsOnly
+    ? "You’re on a credits-only plan — there is no monthly subscription."
+    : !status?.configured
+      ? "Billing isn’t configured on this environment yet."
+      : summary && "ok" in summary && summary.ok === false
+        ? summary.error ?? "Unable to load summary"
+        : Boolean(sub?.id && ["active", "trialing", "past_due"].includes(String(sub.status)))
+          ? "Your subscription is active."
+          : internalMonthlyCents > 0
+            ? "Based on active services in the portal."
+            : "No active subscription.";
   const periodEndText =
     sub?.currentPeriodEnd && typeof sub.currentPeriodEnd === "number"
       ? new Date(sub.currentPeriodEnd * 1000).toLocaleDateString()
@@ -602,7 +627,11 @@ export function PortalBillingClient() {
         const billingKey = s.slug === "follow-up" ? null : (s.entitlementKey ?? null);
         const p = billingKey && modulePrices ? (modulePrices as any)[billingKey] : null;
 
-        const monthlyCents = typeof p?.monthlyCents === "number" && Number.isFinite(p.monthlyCents) ? p.monthlyCents : 0;
+        const monthlyCents = creditsOnly
+          ? 0
+          : typeof p?.monthlyCents === "number" && Number.isFinite(p.monthlyCents)
+            ? p.monthlyCents
+            : 0;
         const currency = String(p?.currency || summaryCurrency || "usd");
 
         const included = Boolean(s.included) || billingKey === null;
@@ -644,7 +673,7 @@ export function PortalBillingClient() {
 
   return (
     <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
-      {purchaseModal ? (
+      {purchaseModal && !creditsOnly ? (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
           <div className="w-full max-w-xl rounded-3xl border border-zinc-200 bg-white p-6 shadow-xl">
             <div className="flex items-start justify-between gap-3">
@@ -727,8 +756,15 @@ export function PortalBillingClient() {
           <div>
             <div className="text-sm font-semibold text-zinc-900">Billing</div>
             <div className="mt-1 text-sm text-zinc-600">
-              Update payment method, view invoices, and manage your subscription.
+              {creditsOnly
+                ? "Top up credits, update your payment method, and view invoices."
+                : "Update payment method, view invoices, and manage your subscription."}
             </div>
+            {creditsOnly ? (
+              <div className="mt-2 inline-flex items-center rounded-full bg-emerald-100 px-2 py-0.5 text-xs font-semibold text-emerald-900">
+                Credits-only billing
+              </div>
+            ) : null}
           </div>
           <div className="flex flex-col gap-2 sm:flex-row">
             <button
@@ -736,7 +772,7 @@ export function PortalBillingClient() {
               onClick={manage}
               disabled={!status?.configured || actionBusy === "manage"}
             >
-              {actionBusy === "manage" ? "Opening…" : "Manage billing"}
+              {actionBusy === "manage" ? "Opening…" : creditsOnly ? "Payment & invoices" : "Manage billing"}
             </button>
           </div>
         </div>
@@ -761,19 +797,21 @@ export function PortalBillingClient() {
               <div className="text-sm font-semibold text-zinc-900">Monthly breakdown</div>
               <div className="mt-1 text-sm text-zinc-600">Everything you currently have access to (billed or included).</div>
             </div>
-            <div className="text-right">
-              <div className="text-xs text-zinc-500">Subscription status</div>
-              <div className="mt-1 flex items-center justify-end gap-2">
-                <span className={`h-2.5 w-2.5 rounded-full ${statusDotClass}`} />
-                <div className="text-sm font-semibold text-brand-ink">{hasActiveSub ? "Active" : "Not active"}</div>
-                {sub?.cancelAtPeriodEnd ? (
-                  <span className="rounded-full bg-amber-100 px-2 py-0.5 text-xs font-semibold text-amber-900">
-                    Canceling
-                  </span>
-                ) : null}
+            {!creditsOnly ? (
+              <div className="text-right">
+                <div className="text-xs text-zinc-500">Subscription status</div>
+                <div className="mt-1 flex items-center justify-end gap-2">
+                  <span className={`h-2.5 w-2.5 rounded-full ${statusDotClass}`} />
+                  <div className="text-sm font-semibold text-brand-ink">{hasActiveSub ? "Active" : "Not active"}</div>
+                  {sub?.cancelAtPeriodEnd ? (
+                    <span className="rounded-full bg-amber-100 px-2 py-0.5 text-xs font-semibold text-amber-900">
+                      Canceling
+                    </span>
+                  ) : null}
+                </div>
+                {periodEndText ? <div className="mt-1 text-xs text-zinc-500">Renews/ends: {periodEndText}</div> : null}
               </div>
-              {periodEndText ? <div className="mt-1 text-xs text-zinc-500">Renews/ends: {periodEndText}</div> : null}
-            </div>
+            ) : null}
           </div>
 
           {accessBreakdownRows.length ? (
@@ -785,11 +823,13 @@ export function PortalBillingClient() {
                       <div className="truncate text-sm font-semibold text-brand-ink">{x.title}</div>
                       <div className="mt-0.5 flex items-center gap-2">
                         <span className={`rounded-full px-2 py-0.5 text-[11px] font-semibold ${badgeClass(x.state)}`}>{x.label}</span>
-                        <span className="text-xs text-zinc-500">{x.included ? "Included" : "Billed"}</span>
+                        <span className="text-xs text-zinc-500">
+                          {x.included ? "Included" : creditsOnly ? "Credit-based" : "Billed"}
+                        </span>
                       </div>
                     </div>
                     <div className="shrink-0 text-sm font-semibold text-zinc-900">
-                      {x.included ? "Included" : `${formatMoney(x.monthlyCents, x.currency)}/mo`}
+                      {x.included ? "Included" : creditsOnly ? "Credit-based" : `${formatMoney(x.monthlyCents, x.currency)}/mo`}
                     </div>
                   </div>
                 ))}
@@ -800,75 +840,77 @@ export function PortalBillingClient() {
           )}
         </div>
 
-        <div className="mt-6 rounded-2xl border border-zinc-200 bg-zinc-50 p-4">
-          <div className="text-sm font-semibold text-zinc-900">Subscriptions</div>
-          <div className="mt-1 text-sm text-zinc-600">Cancel any service any time.</div>
+        {!creditsOnly ? (
+          <div className="mt-6 rounded-2xl border border-zinc-200 bg-zinc-50 p-4">
+            <div className="text-sm font-semibold text-zinc-900">Subscriptions</div>
+            <div className="mt-1 text-sm text-zinc-600">Cancel any service any time.</div>
 
-          {subscriptions && "ok" in subscriptions && subscriptions.ok === false ? (
-            <div className="mt-3 rounded-2xl border border-red-200 bg-red-50 p-4 text-sm text-red-800">
-              {subscriptions.error ?? "Unable to load subscriptions."}
-            </div>
-          ) : subscriptions && "ok" in subscriptions && subscriptions.ok === true && !subscriptions.configured ? (
-            <div className="mt-3 rounded-2xl border border-zinc-200 bg-white p-4 text-sm text-zinc-700">
-              Billing isn’t configured on this environment yet.
-            </div>
-          ) : activeSubs.length ? (
-            <div className="mt-4 grid gap-2">
-              {activeSubs.map((s) => {
-                const endText = s.currentPeriodEnd ? new Date(s.currentPeriodEnd * 1000).toLocaleDateString() : null;
-                const busy = actionBusy === `cancel:${s.id}` || actionBusy === `cancel-now:${s.id}`;
-                return (
-                  <div key={s.id} className="flex flex-col gap-2 rounded-2xl border border-zinc-200 bg-white p-3 sm:flex-row sm:items-center sm:justify-between">
-                    <div className="min-w-0">
-                      <div className="truncate text-sm font-semibold text-brand-ink">{s.title}</div>
-                      <div className="mt-0.5 text-xs text-zinc-500">
-                        Status: {s.status}{s.cancelAtPeriodEnd ? " • Canceling" : ""}{endText ? ` • Renews/ends: ${endText}` : ""}
+            {subscriptions && "ok" in subscriptions && subscriptions.ok === false ? (
+              <div className="mt-3 rounded-2xl border border-red-200 bg-red-50 p-4 text-sm text-red-800">
+                {subscriptions.error ?? "Unable to load subscriptions."}
+              </div>
+            ) : subscriptions && "ok" in subscriptions && subscriptions.ok === true && !subscriptions.configured ? (
+              <div className="mt-3 rounded-2xl border border-zinc-200 bg-white p-4 text-sm text-zinc-700">
+                Billing isn’t configured on this environment yet.
+              </div>
+            ) : activeSubs.length ? (
+              <div className="mt-4 grid gap-2">
+                {activeSubs.map((s) => {
+                  const endText = s.currentPeriodEnd ? new Date(s.currentPeriodEnd * 1000).toLocaleDateString() : null;
+                  const busy = actionBusy === `cancel:${s.id}` || actionBusy === `cancel-now:${s.id}`;
+                  return (
+                    <div key={s.id} className="flex flex-col gap-2 rounded-2xl border border-zinc-200 bg-white p-3 sm:flex-row sm:items-center sm:justify-between">
+                      <div className="min-w-0">
+                        <div className="truncate text-sm font-semibold text-brand-ink">{s.title}</div>
+                        <div className="mt-0.5 text-xs text-zinc-500">
+                          Status: {s.status}{s.cancelAtPeriodEnd ? " • Canceling" : ""}{endText ? ` • Renews/ends: ${endText}` : ""}
+                        </div>
+                      </div>
+                      <div className="flex flex-wrap gap-2">
+                        <button
+                          type="button"
+                          className="rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-sm font-semibold text-brand-ink hover:bg-zinc-50 disabled:opacity-60"
+                          disabled={busy}
+                          onClick={() =>
+                            setCancelModal({
+                              step: 1,
+                              subscriptionId: s.id,
+                              title: s.title,
+                              immediate: false,
+                              typed: "",
+                              ack: false,
+                            })
+                          }
+                        >
+                          {s.cancelAtPeriodEnd ? "Cancel scheduled" : "Cancel"}
+                        </button>
+                        <button
+                          type="button"
+                          className="rounded-2xl border border-red-200 bg-white px-3 py-2 text-sm font-semibold text-red-700 hover:bg-red-50 disabled:opacity-60"
+                          disabled={busy}
+                          onClick={() =>
+                            setCancelModal({
+                              step: 1,
+                              subscriptionId: s.id,
+                              title: s.title,
+                              immediate: true,
+                              typed: "",
+                              ack: false,
+                            })
+                          }
+                        >
+                          Cancel now
+                        </button>
                       </div>
                     </div>
-                    <div className="flex flex-wrap gap-2">
-                      <button
-                        type="button"
-                        className="rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-sm font-semibold text-brand-ink hover:bg-zinc-50 disabled:opacity-60"
-                        disabled={busy}
-                        onClick={() =>
-                          setCancelModal({
-                            step: 1,
-                            subscriptionId: s.id,
-                            title: s.title,
-                            immediate: false,
-                            typed: "",
-                            ack: false,
-                          })
-                        }
-                      >
-                        {s.cancelAtPeriodEnd ? "Cancel scheduled" : "Cancel"}
-                      </button>
-                      <button
-                        type="button"
-                        className="rounded-2xl border border-red-200 bg-white px-3 py-2 text-sm font-semibold text-red-700 hover:bg-red-50 disabled:opacity-60"
-                        disabled={busy}
-                        onClick={() =>
-                          setCancelModal({
-                            step: 1,
-                            subscriptionId: s.id,
-                            title: s.title,
-                            immediate: true,
-                            typed: "",
-                            ack: false,
-                          })
-                        }
-                      >
-                        Cancel now
-                      </button>
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
-          ) : (
-            <div className="mt-3 text-sm text-zinc-600">No active subscriptions found.</div>
-          )}
-        </div>
+                  );
+                })}
+              </div>
+            ) : (
+              <div className="mt-3 text-sm text-zinc-600">No active subscriptions found.</div>
+            )}
+          </div>
+        ) : null}
       </div>
 
       <div className="rounded-3xl border border-zinc-200 bg-white p-6">
@@ -1052,50 +1094,52 @@ export function PortalBillingClient() {
         </div>
       ) : null}
 
-      <div className="rounded-3xl border border-zinc-200 bg-white p-6 lg:col-span-2">
-        <div className="text-sm font-semibold text-zinc-900">Add services</div>
-        <div className="mt-2 text-sm text-zinc-600">Enable add-ons right here in the portal.</div>
+      {!creditsOnly ? (
+        <div className="rounded-3xl border border-zinc-200 bg-white p-6 lg:col-span-2">
+          <div className="text-sm font-semibold text-zinc-900">Add services</div>
+          <div className="mt-2 text-sm text-zinc-600">Enable add-ons right here in the portal.</div>
 
-        <div className="mt-4 grid gap-3 sm:grid-cols-2">
-          {(() => {
-            const owned = (serviceSlug: string) => {
-              const st = serviceStatuses?.[serviceSlug];
-              const state = st?.state;
-              return state && state !== "locked" && state !== "coming_soon";
-            };
+          <div className="mt-4 grid gap-3 sm:grid-cols-2">
+            {(() => {
+              const owned = (serviceSlug: string) => {
+                const st = serviceStatuses?.[serviceSlug];
+                const state = st?.state;
+                return state && state !== "locked" && state !== "coming_soon";
+              };
 
-            const cards: Array<{
-              module: "blog" | "booking" | "automations" | "reviews" | "newsletter" | "nurture" | "aiReceptionist" | "leadOutbound";
-              serviceSlug: string;
-              title: string;
-              desc: string;
-            }> = [
-              { module: "blog", serviceSlug: "blogs", title: "Automated Blogs", desc: "Enable blogging automation." },
-              { module: "booking", serviceSlug: "booking", title: "Booking Automation", desc: "Enable booking and reminders." },
-              { module: "automations", serviceSlug: "automations", title: "Automation Builder", desc: "Build workflows across your enabled services." },
-              { module: "reviews", serviceSlug: "reviews", title: "Review Requests", desc: "Automate requests and track responses." },
-              { module: "newsletter", serviceSlug: "newsletter", title: "Newsletter", desc: "Send newsletters to your contacts." },
-              { module: "aiReceptionist", serviceSlug: "ai-receptionist", title: "AI Receptionist", desc: "Inbound answers + routing." },
-              { module: "leadOutbound", serviceSlug: "ai-outbound-calls", title: "AI Outbound", desc: "Outbound calls + follow-up messaging." },
-            ];
+              const cards: Array<{
+                module: "blog" | "booking" | "automations" | "reviews" | "newsletter" | "nurture" | "aiReceptionist" | "leadOutbound";
+                serviceSlug: string;
+                title: string;
+                desc: string;
+              }> = [
+                { module: "blog", serviceSlug: "blogs", title: "Automated Blogs", desc: "Enable blogging automation." },
+                { module: "booking", serviceSlug: "booking", title: "Booking Automation", desc: "Enable booking and reminders." },
+                { module: "automations", serviceSlug: "automations", title: "Automation Builder", desc: "Build workflows across your enabled services." },
+                { module: "reviews", serviceSlug: "reviews", title: "Review Requests", desc: "Automate requests and track responses." },
+                { module: "newsletter", serviceSlug: "newsletter", title: "Newsletter", desc: "Send newsletters to your contacts." },
+                { module: "aiReceptionist", serviceSlug: "ai-receptionist", title: "AI Receptionist", desc: "Inbound answers + routing." },
+                { module: "leadOutbound", serviceSlug: "ai-outbound-calls", title: "AI Outbound", desc: "Outbound calls + follow-up messaging." },
+              ];
 
-            return cards.map((c) => (
-              <div key={c.module} className="rounded-2xl border border-zinc-200 bg-zinc-50 p-4">
-                <div className="text-sm font-semibold text-zinc-900">{c.title}</div>
-                <div className="mt-1 text-xs text-zinc-500">{c.desc}</div>
-                <button
-                  type="button"
-                  className="mt-3 w-full rounded-2xl bg-zinc-900 px-3 py-2 text-sm font-semibold text-white hover:bg-zinc-800 disabled:opacity-60"
-                  disabled={Boolean(owned(c.serviceSlug)) || actionBusy !== null}
-                  onClick={() => void purchaseModule(c.module as any)}
-                >
-                  {owned(c.serviceSlug) ? "Enabled" : actionBusy === `module:${c.module}` ? "Opening…" : "Enable"}
-                </button>
-              </div>
-            ));
-          })()}
+              return cards.map((c) => (
+                <div key={c.module} className="rounded-2xl border border-zinc-200 bg-zinc-50 p-4">
+                  <div className="text-sm font-semibold text-zinc-900">{c.title}</div>
+                  <div className="mt-1 text-xs text-zinc-500">{c.desc}</div>
+                  <button
+                    type="button"
+                    className="mt-3 w-full rounded-2xl bg-zinc-900 px-3 py-2 text-sm font-semibold text-white hover:bg-zinc-800 disabled:opacity-60"
+                    disabled={Boolean(owned(c.serviceSlug)) || actionBusy !== null}
+                    onClick={() => void purchaseModule(c.module as any)}
+                  >
+                    {owned(c.serviceSlug) ? "Enabled" : actionBusy === `module:${c.module}` ? "Opening…" : "Enable"}
+                  </button>
+                </div>
+              ));
+            })()}
+          </div>
         </div>
-      </div>
+      ) : null}
 
       <div className="rounded-3xl border border-zinc-200 bg-white p-6">
         <div className="text-sm font-semibold text-zinc-900">Services & status</div>
@@ -1115,6 +1159,7 @@ export function PortalBillingClient() {
                   : null;
 
               const priceText = (() => {
+                if (creditsOnly && !s.included) return "Credit-based";
                 if (s.included) return "Included";
                 if (s.entitlementKey && modulePrice) {
                   if (modulePrice.monthlyCents) return `${formatMoney(modulePrice.monthlyCents, modulePrice.currency)}/mo`;
@@ -1169,7 +1214,7 @@ export function PortalBillingClient() {
 
                   <div className="flex items-center gap-2">
                     {state === "locked" ? (
-                      s.entitlementKey && modulePurchasable(s.entitlementKey as any) ? (
+                      !creditsOnly && s.entitlementKey && modulePurchasable(s.entitlementKey as any) ? (
                         <button
                           type="button"
                           disabled={actionBusy !== null}
@@ -1209,7 +1254,7 @@ export function PortalBillingClient() {
                     {serviceMenuSlug === s.slug ? (
                       <div className="absolute right-0 top-9 z-20 w-48 rounded-2xl border border-zinc-200 bg-white p-1 shadow-lg">
                         {state === "locked" ? (
-                          s.entitlementKey && modulePurchasable(s.entitlementKey as any) ? (
+                          !creditsOnly && s.entitlementKey && modulePurchasable(s.entitlementKey as any) ? (
                             <button
                               type="button"
                               className="w-full rounded-xl px-3 py-2 text-left text-sm font-semibold text-zinc-900 hover:bg-zinc-50"
@@ -1289,7 +1334,9 @@ export function PortalBillingClient() {
         <div className="mt-6 rounded-2xl border border-brand-ink/10 bg-gradient-to-br from-[color:var(--color-brand-blue)]/10 to-white p-4 text-sm text-zinc-800">
           <div className="font-semibold text-zinc-900">Want to add more?</div>
           <div className="mt-1 text-sm text-zinc-700">
-            Enable add-ons above, or open a service to configure it.
+            {creditsOnly
+              ? "Top up credits above, or open a service to configure it."
+              : "Enable add-ons above, or open a service to configure it."}
           </div>
         </div>
       </div>

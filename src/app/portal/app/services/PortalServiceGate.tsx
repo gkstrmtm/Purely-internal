@@ -205,7 +205,7 @@ export async function PortalServiceGate({
       : await requirePortalUserForAnyService(keys.slice(), "view");
 
   const ownerId = user.id;
-  const result = await getPortalServiceStatusesForOwner({ ownerId, fallbackEmail: user.email });
+  const result = await getPortalServiceStatusesForOwner({ ownerId, fallbackEmail: user.email, portalVariant: variant });
   const st = result.statuses?.[slug];
   const state = String(st?.state || "").toLowerCase();
 

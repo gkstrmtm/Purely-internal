@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 
 import { requireClientSessionForService } from "@/lib/portalAccess";
+import { getPortalBillingModel, isCreditsOnlyBilling } from "@/lib/portalBillingModel";
 import {
   getOrCreateStripeCustomerId,
   isStripeConfigured,
@@ -27,6 +28,11 @@ export async function POST(req: Request) {
       { ok: false, error: auth.status === 401 ? "Unauthorized" : "Forbidden" },
       { status: auth.status },
     );
+  }
+
+  const billingModel = getPortalBillingModel((auth.session.user as any).portalVariant);
+  if (isCreditsOnlyBilling(billingModel)) {
+    return NextResponse.json({ ok: false, error: "This portal uses credits-only billing. Subscriptions are disabled." }, { status: 400 });
   }
 
   if (!isStripeConfigured()) {

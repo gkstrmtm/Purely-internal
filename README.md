@@ -61,6 +61,14 @@ Optional (Portal billing + entitlements):
 - `STRIPE_PRICE_BOOKING_AUTOMATION` (Stripe Price ID for Booking Automation)
 - `STRIPE_PRICE_CRM_AUTOMATION` (Stripe Price ID for Follow-up Automation)
 
+Optional (Portal billing model):
+
+- `PORTAL_BILLING_MODEL_PORTAL` (`subscription` | `credits`)
+	- `subscription` (default): services are unlocked via Stripe module subscriptions (entitlements)
+	- `credits`: services are available without module subscriptions; usage-based actions must consume credits
+- `PORTAL_BILLING_MODEL_CREDIT` (`subscription` | `credits`) (defaults to `credits`)
+- `PORTAL_BILLING_MODEL` (`subscription` | `credits`) (global fallback)
+
 Optional (Portal credits / top-ups):
 
 - `STRIPE_PRICE_CREDITS_TOPUP` (Stripe Price ID for a one-time credits top-up package)

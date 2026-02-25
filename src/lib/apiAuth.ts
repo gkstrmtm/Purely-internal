@@ -34,13 +34,31 @@ export async function requireClientSession() {
     return {
       ok: false as const,
       status: 403 as const,
-      session: { user: { id: user.id, email: user.email, role: user.role, name: user.name ?? undefined, memberId: user.memberId ?? undefined } },
+      session: {
+        user: {
+          id: user.id,
+          email: user.email,
+          role: user.role,
+          name: user.name ?? undefined,
+          memberId: user.memberId ?? undefined,
+          portalVariant: user.portalVariant ?? undefined,
+        },
+      },
     };
   }
 
   return {
     ok: true as const,
     status: 200 as const,
-    session: { user: { id: user.id, email: user.email, role: user.role, name: user.name ?? undefined, memberId: user.memberId ?? undefined } },
+    session: {
+      user: {
+        id: user.id,
+        email: user.email,
+        role: user.role,
+        name: user.name ?? undefined,
+        memberId: user.memberId ?? undefined,
+        portalVariant: user.portalVariant ?? undefined,
+      },
+    },
   };
 }
