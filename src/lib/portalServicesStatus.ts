@@ -4,7 +4,8 @@ import { PORTAL_SERVICES } from "@/app/portal/services/catalog";
 import { ensurePortalAiOutboundCallsSchema } from "@/lib/portalAiOutboundCallsSchema";
 import { getOwnerTwilioSmsConfig } from "@/lib/portalTwilio";
 import { isStripeConfigured } from "@/lib/stripeFetch";
-import { getPortalBillingModel, isCreditsOnlyBilling, type PortalBillingModel } from "@/lib/portalBillingModel";
+import { isCreditsOnlyBilling, type PortalBillingModel } from "@/lib/portalBillingModel";
+import { getPortalBillingModelForOwner } from "@/lib/portalBillingModel.server";
 import type { PortalVariant } from "@/lib/portalVariant";
 
 const DEFAULT_FULL_DEMO_EMAIL = "demo-full@purelyautomation.dev";
@@ -89,7 +90,10 @@ export async function getPortalServiceStatusesForOwner(opts: {
   const entitlementsEmail = String(owner?.email || opts.fallbackEmail || "");
 
   const isFullDemo = entitlementsEmail.toLowerCase().trim() === DEFAULT_FULL_DEMO_EMAIL;
-  const billingModel = getPortalBillingModel(opts.portalVariant ?? "portal");
+  const billingModel = await getPortalBillingModelForOwner({
+    ownerId: opts.ownerId,
+    portalVariant: opts.portalVariant ?? "portal",
+  });
   const entitlements = await resolveEntitlements(entitlementsEmail, { ownerId: opts.ownerId });
   const stripeConfigured = isStripeConfigured();
 

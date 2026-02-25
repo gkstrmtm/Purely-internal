@@ -6,6 +6,7 @@ import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/db";
 import { MODULE_KEYS, type ModuleKey } from "@/lib/entitlements.shared";
 import { normalizePhoneStrict } from "@/lib/phone";
+import { PORTAL_BILLING_MODEL_OVERRIDE_SETUP_SLUG } from "@/lib/portalBillingModel";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -22,10 +23,20 @@ function requireManager(session: any) {
 const moduleSchema = z.enum(MODULE_KEYS);
 
 const OVERRIDES_SETUP_SLUG = "__portal_entitlement_overrides";
+const BILLING_MODEL_SETUP_SLUG = PORTAL_BILLING_MODEL_OVERRIDE_SETUP_SLUG;
 const CREDITS_SETUP_SLUG = "credits";
 const PROFILE_SETUP_SLUG = "profile";
 const INTEGRATIONS_SETUP_SLUG = "integrations";
 const AI_RECEPTIONIST_SETUP_SLUG = "ai-receptionist";
+
+function parseCreditsOnlyOverride(dataJson: unknown): boolean {
+  if (!dataJson || typeof dataJson !== "object" || Array.isArray(dataJson)) return false;
+  const rec = dataJson as Record<string, unknown>;
+  const rawModel = typeof rec.billingModel === "string" ? rec.billingModel.trim().toLowerCase() : "";
+  if (rawModel === "credits" || rawModel === "credit" || rawModel === "credits_only" || rawModel === "credits-only") return true;
+  if (typeof rec.creditsOnly === "boolean") return rec.creditsOnly;
+  return false;
+}
 
 function parseOverrides(dataJson: unknown): Set<ModuleKey> {
   const rec = dataJson && typeof dataJson === "object" && !Array.isArray(dataJson)
@@ -159,6 +170,13 @@ export async function GET(req: Request) {
       })
     : [];
 
+  const billingModelRows = ownerIds.length
+    ? await prisma.portalServiceSetup.findMany({
+        where: { ownerId: { in: ownerIds }, serviceSlug: BILLING_MODEL_SETUP_SLUG },
+        select: { ownerId: true, dataJson: true },
+      })
+    : [];
+
   const creditRows = ownerIds.length
     ? await prisma.portalServiceSetup.findMany({
         where: { ownerId: { in: ownerIds }, serviceSlug: CREDITS_SETUP_SLUG },
@@ -183,6 +201,11 @@ export async function GET(req: Request) {
   const byOwner = new Map<string, Set<ModuleKey>>();
   for (const row of rows) {
     byOwner.set(row.ownerId, parseOverrides(row.dataJson));
+  }
+
+  const creditsOnlyByOwner = new Map<string, boolean>();
+  for (const row of billingModelRows) {
+    creditsOnlyByOwner.set(row.ownerId, parseCreditsOnlyOverride(row.dataJson));
   }
 
   const creditsByOwner = new Map<string, number>();
@@ -225,6 +248,7 @@ export async function GET(req: Request) {
       active: u.active,
       createdAt: u.createdAt,
       overrides: Array.from(byOwner.get(u.id) ?? []),
+      creditsOnlyOverride: creditsOnlyByOwner.get(u.id) ?? false,
       creditsBalance: creditsByOwner.get(u.id) ?? 0,
       phone: phoneByOwner.get(u.id) ?? null,
       businessName: u.businessProfile?.businessName ?? null,

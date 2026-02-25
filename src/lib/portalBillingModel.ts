@@ -2,6 +2,10 @@ import type { PortalVariant } from "@/lib/portalVariant";
 
 export type PortalBillingModel = "subscription" | "credits";
 
+// Stored in PortalServiceSetup.dataJson by manager tooling.
+// When present, it overrides the env-configured billing model for /portal.
+export const PORTAL_BILLING_MODEL_OVERRIDE_SETUP_SLUG = "__portal_billing_model_override";
+
 function normalizeBillingModel(raw: unknown): PortalBillingModel | null {
   if (typeof raw !== "string") return null;
   const v = raw.trim().toLowerCase();

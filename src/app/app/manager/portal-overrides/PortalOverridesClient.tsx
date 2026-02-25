@@ -13,6 +13,7 @@ type UserRow = {
   active: boolean;
   createdAt: string;
   overrides: ModuleKey[];
+  creditsOnlyOverride?: boolean;
   creditsBalance?: number;
   phone?: string | null;
   businessName?: string | null;
@@ -58,6 +59,20 @@ async function giftCredits(opts: { ownerId: string; amount: number }) {
     throw new Error(msg);
   }
   return body as { ok: true; balance: number };
+}
+
+async function setCreditsOnlyOverride(opts: { ownerIds: string[]; creditsOnly: boolean }) {
+  const res = await fetch("/api/manager/portal/billing-model", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ ownerIds: opts.ownerIds, creditsOnly: opts.creditsOnly }),
+  });
+  const body = await res.json().catch(() => ({}));
+  if (!res.ok) {
+    const msg = typeof body?.error === "string" && body.error ? body.error : `Request failed (HTTP ${res.status})`;
+    throw new Error(msg);
+  }
+  return body as { ok: true; creditsOnly: boolean };
 }
 
 export default function PortalOverridesClient() {
@@ -152,6 +167,41 @@ export default function PortalOverridesClient() {
     }
   }
 
+  async function toggleCreditsOnly(ownerId: string, creditsOnly: boolean) {
+    const key = `billingModel:${ownerId}`;
+    setSavingKey(key);
+    try {
+      await setCreditsOnlyOverride({ ownerIds: [ownerId], creditsOnly });
+      setUsers((prev) => prev.map((u) => (u.id === ownerId ? { ...u, creditsOnlyOverride: creditsOnly } : u)));
+      toast.success(creditsOnly ? "Credits-only enabled" : "Credits-only cleared (env default)");
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Update failed");
+    } finally {
+      setSavingKey(null);
+    }
+  }
+
+  async function bulkSetCreditsOnly(creditsOnly: boolean) {
+    const ownerIds = users.map((u) => u.id);
+    if (!ownerIds.length) return;
+    const confirmText = creditsOnly
+      ? `Enable credits-only billing for ${ownerIds.length} user(s)?`
+      : `Clear credits-only override for ${ownerIds.length} user(s) (revert to env default)?`;
+    if (!window.confirm(confirmText)) return;
+
+    const key = `billingModel:bulk:${creditsOnly ? "on" : "off"}`;
+    setSavingKey(key);
+    try {
+      await setCreditsOnlyOverride({ ownerIds, creditsOnly });
+      setUsers((prev) => prev.map((u) => ({ ...u, creditsOnlyOverride: creditsOnly })));
+      toast.success(creditsOnly ? "Credits-only enabled for all shown users" : "Credits-only cleared for all shown users");
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Bulk update failed");
+    } finally {
+      setSavingKey(null);
+    }
+  }
+
   return (
     <div>
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
@@ -169,6 +219,31 @@ export default function PortalOverridesClient() {
         </div>
       </div>
 
+      <div className="mt-4 flex flex-wrap items-center gap-2 text-sm">
+        <div className="text-zinc-700">
+          Credits-only billing override (affects <span className="font-mono">/portal</span>):
+        </div>
+        <button
+          type="button"
+          className="rounded-xl border border-zinc-200 bg-white px-3 py-2 font-semibold text-zinc-800 hover:bg-zinc-50 disabled:opacity-60"
+          onClick={() => void bulkSetCreditsOnly(true)}
+          disabled={savingKey === "billingModel:bulk:on" || loading || users.length === 0}
+        >
+          {savingKey === "billingModel:bulk:on" ? "Enabling…" : "Enable for all shown"}
+        </button>
+        <button
+          type="button"
+          className="rounded-xl border border-zinc-200 bg-white px-3 py-2 font-semibold text-zinc-800 hover:bg-zinc-50 disabled:opacity-60"
+          onClick={() => void bulkSetCreditsOnly(false)}
+          disabled={savingKey === "billingModel:bulk:off" || loading || users.length === 0}
+        >
+          {savingKey === "billingModel:bulk:off" ? "Clearing…" : "Clear for all shown"}
+        </button>
+        <div className="text-xs text-zinc-500">
+          When cleared, the portal uses env defaults.
+        </div>
+      </div>
+
       {error ? (
         <div className="mt-4 rounded-2xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-800">
           {error}
@@ -181,6 +256,7 @@ export default function PortalOverridesClient() {
             <tr className="text-left text-xs font-semibold uppercase tracking-wide text-zinc-500">
               <th className="sticky left-0 z-10 bg-white px-4 py-3">User</th>
               <th className="px-4 py-3">Credits</th>
+              <th className="px-4 py-3">Credits-only</th>
               {moduleList.map((m) => (
                 <th key={m} className="px-4 py-3">
                   {MODULE_LABELS[m]}
@@ -259,6 +335,30 @@ export default function PortalOverridesClient() {
                     </button>
                   </div>
                 </td>
+
+                <td className="px-4 py-4">
+                  {(() => {
+                    const enabled = Boolean(u.creditsOnlyOverride);
+                    const key = `billingModel:${u.id}`;
+                    const busy = savingKey === key;
+                    return (
+                      <label className="inline-flex items-center gap-2 text-sm text-zinc-700">
+                        <input
+                          type="checkbox"
+                          className="h-4 w-4 rounded border-zinc-300"
+                          checked={enabled}
+                          disabled={busy}
+                          onChange={(e) => void toggleCreditsOnly(u.id, e.target.checked)}
+                        />
+                        <span className={enabled ? "font-semibold text-emerald-700" : "text-zinc-500"}>
+                          {busy ? "Saving…" : enabled ? "On" : "Off"}
+                        </span>
+                      </label>
+                    );
+                  })()}
+                  <div className="mt-1 text-[11px] text-zinc-500">Off = env default</div>
+                </td>
+
                 {moduleList.map((m) => {
                   const enabled = u.overrides.includes(m);
                   const key = `${u.id}:${m}`;
@@ -285,7 +385,7 @@ export default function PortalOverridesClient() {
 
             {!loading && users.length === 0 ? (
               <tr>
-                <td className="px-4 py-10 text-sm text-zinc-600" colSpan={1 + moduleList.length}>
+                <td className="px-4 py-10 text-sm text-zinc-600" colSpan={3 + moduleList.length}>
                   No portal users found.
                 </td>
               </tr>

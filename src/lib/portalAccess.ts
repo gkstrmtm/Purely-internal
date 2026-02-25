@@ -6,7 +6,8 @@ import type { PortalServiceKey } from "@/lib/portalPermissions.shared";
 import { PORTAL_SERVICES } from "@/app/portal/services/catalog";
 import { resolveEntitlements } from "@/lib/entitlements";
 import { isStripeConfigured } from "@/lib/stripeFetch";
-import { getPortalBillingModel, isCreditsOnlyBilling } from "@/lib/portalBillingModel";
+import { isCreditsOnlyBilling } from "@/lib/portalBillingModel";
+import { getPortalBillingModelForOwner } from "@/lib/portalBillingModel.server";
 import type { PortalVariant } from "@/lib/portalVariant";
 
 function serviceSlugForKey(key: PortalServiceKey): string | null {
@@ -99,7 +100,10 @@ async function isServiceUnlockedForOwner(opts: {
   if (!svc) return true;
   if (svc?.included) return true;
 
-  const billingModel = getPortalBillingModel(opts.portalVariant ?? "portal");
+  const billingModel = await getPortalBillingModelForOwner({
+    ownerId: opts.ownerId,
+    portalVariant: opts.portalVariant ?? "portal",
+  });
   if (isCreditsOnlyBilling(billingModel)) {
     // Credits-only mode: services are accessible without Stripe module subscriptions.
     // Specific actions should still enforce credits at the point of use.
