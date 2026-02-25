@@ -62,6 +62,10 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
   const [portalMe, setPortalMe] = useState<PortalMe | null>(null);
   const [serviceStatuses, setServiceStatuses] = useState<Record<string, { state: string; label: string }> | null>(null);
   const [showGettingStartedHint, setShowGettingStartedHint] = useState(false);
+  const [sidebarCampaign, setSidebarCampaign] = useState<null | {
+    id: string;
+    creative?: { headline?: string; body?: string; ctaText?: string; linkUrl?: string };
+  }>(null);
 
   useEffect(() => {
     const saved = window.localStorage.getItem("portalSidebarCollapsed");
@@ -143,6 +147,26 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
 
   const isFullDemo = (me?.user.email ?? "").toLowerCase().trim() === DEFAULT_FULL_DEMO_EMAIL;
   const knownServiceKeys = useMemo(() => new Set<string>(PORTAL_SERVICE_KEYS as unknown as string[]), []);
+
+  useEffect(() => {
+    let alive = true;
+    (async () => {
+      const res = await fetch(
+        `/api/portal/ads/next?placement=SIDEBAR_BANNER&path=${encodeURIComponent(pathname || "")}`,
+        { cache: "no-store" },
+      ).catch(() => null as any);
+      const json = (await res?.json().catch(() => null)) as any;
+      if (!alive) return;
+      if (!res?.ok || !json?.ok) {
+        setSidebarCampaign(null);
+        return;
+      }
+      setSidebarCampaign(json.campaign ?? null);
+    })();
+    return () => {
+      alive = false;
+    };
+  }, [pathname]);
 
   const navItems = useMemo(() => {
     const can = (key: PortalServiceKey) => {
@@ -403,6 +427,21 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
             </div>
 
             <div className="border-t border-zinc-200 p-4">
+              {sidebarCampaign ? (
+                <div className="mb-4 rounded-2xl border border-brand-ink/10 bg-gradient-to-br from-[color:var(--color-brand-blue)]/10 to-white p-3 text-sm text-zinc-800">
+                  <div className="font-semibold text-zinc-900">
+                    {sidebarCampaign?.creative?.headline || "Sponsored by Purely Automation"}
+                  </div>
+                  <div className="mt-1 text-xs text-zinc-600">{sidebarCampaign?.creative?.body || "Explore add-ons and unlock more automation."}</div>
+                  <Link
+                    href={sidebarCampaign?.creative?.linkUrl || `${basePath}/app/billing`}
+                    className="mt-2 inline-flex rounded-xl bg-zinc-900 px-3 py-2 text-xs font-semibold text-white hover:bg-zinc-800"
+                  >
+                    {sidebarCampaign?.creative?.ctaText || "View upgrades"}
+                  </Link>
+                </div>
+              ) : null}
+
               <div className="text-xs text-zinc-500">Signed in as</div>
               <div className="mt-1 truncate text-sm font-semibold text-brand-ink">
                 {me?.user.email ?? ""}
@@ -573,6 +612,21 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
 
           <div className={classNames("border-t border-zinc-200 p-4", collapsed && "px-2")}
           >
+            {sidebarCampaign && !collapsed ? (
+              <div className="mb-4 rounded-2xl border border-brand-ink/10 bg-gradient-to-br from-[color:var(--color-brand-blue)]/10 to-white p-3 text-sm text-zinc-800">
+                <div className="font-semibold text-zinc-900">
+                  {sidebarCampaign?.creative?.headline || "Sponsored by Purely Automation"}
+                </div>
+                <div className="mt-1 text-xs text-zinc-600">{sidebarCampaign?.creative?.body || "Explore add-ons and unlock more automation."}</div>
+                <Link
+                  href={sidebarCampaign?.creative?.linkUrl || `${basePath}/app/billing`}
+                  className="mt-2 inline-flex rounded-xl bg-zinc-900 px-3 py-2 text-xs font-semibold text-white hover:bg-zinc-800"
+                >
+                  {sidebarCampaign?.creative?.ctaText || "View upgrades"}
+                </Link>
+              </div>
+            ) : null}
+
             {!collapsed ? (
               <div className="text-xs text-zinc-500">Signed in as</div>
             ) : null}

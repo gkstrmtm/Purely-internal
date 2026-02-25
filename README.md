@@ -131,6 +131,24 @@ The portal includes a lightweight credits system used by usage-based actions (e.
 
 Implementation note: credits state is stored in `PortalServiceSetup` (`serviceSlug = "credits"`) to avoid requiring DB migrations.
 
+Portal ad campaigns (HR/Manager managed):
+
+- Staff UI:
+	- `/app/manager/campaigns`
+	- `/app/hr/campaigns`
+- Portal runtime:
+	- `GET /api/portal/ads/next` (selects the next eligible campaign for a placement and logs impressions)
+	- `POST /api/portal/ads/claim` (claims a reward campaign and awards credits with cooldown enforcement)
+
+Note: portal ad campaigns are stored in the database and require Prisma migrations to be applied.
+
+Legacy (deprecated): credits-only sponsored rewards endpoint `POST /api/portal/ads/reward` can still exist for older UI paths, but the current portal uses the campaign system above.
+
+Implementation note: credit purchase pricing is computed server-side per owner. Defaults:
+
+- `subscription` billing model: $0.10 / credit
+- `credits` billing model (credits-only): $0.15 / credit
+
 ## Blog editor notes
 
 - The portal blog post editor saves content as Markdown.

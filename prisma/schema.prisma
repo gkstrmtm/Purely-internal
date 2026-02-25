@@ -22,6 +22,17 @@ enum ClientPortalVariant {
   CREDIT
 }
 
+enum PortalAdPlacement {
+  SIDEBAR_BANNER
+  BILLING_SPONSORED
+  FULLSCREEN_REWARD
+}
+
+enum PortalAdEventKind {
+  IMPRESSION
+  CLAIM
+}
+
 enum LeadStatus {
   NEW
   ASSIGNED
@@ -164,6 +175,11 @@ model User {
   creditDisputeLetters CreditDisputeLetter[]
 
   creditReports CreditReport[]
+
+  portalAdCampaignsCreated PortalAdCampaign[] @relation("PortalAdCampaignCreatedBy")
+  portalAdCampaignsUpdated PortalAdCampaign[] @relation("PortalAdCampaignUpdatedBy")
+  portalAdCampaignAssignments PortalAdCampaignAssignment[]
+  portalAdCampaignEvents PortalAdCampaignEvent[]
 }
 
 model EmployeeInvite {
@@ -1391,6 +1407,75 @@ model PortalServiceSetup {
 
   @@unique([ownerId, serviceSlug])
   @@index([ownerId])
+}
+
+model PortalAdCampaign {
+  id String @id @default(cuid())
+
+  name     String
+  enabled  Boolean @default(true)
+  priority Int     @default(0)
+
+  placement PortalAdPlacement
+
+  startAt DateTime?
+  endAt   DateTime?
+
+  // Flexible targeting rules (industry/businessModel/services/tabs/explicit owners, etc.)
+  targetJson   Json?
+  // Creative config (headline/body/mediaUrl/linkUrl/cta/etc.)
+  creativeJson Json
+  // Optional reward config (credits/cooldownHours/minWatchSeconds/etc.)
+  rewardJson   Json?
+
+  createdById String?
+  updatedById String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  createdBy User? @relation("PortalAdCampaignCreatedBy", fields: [createdById], references: [id])
+  updatedBy User? @relation("PortalAdCampaignUpdatedBy", fields: [updatedById], references: [id])
+
+  assignments PortalAdCampaignAssignment[]
+  events      PortalAdCampaignEvent[]
+
+  @@index([enabled, placement])
+  @@index([placement, priority])
+  @@index([startAt])
+  @@index([endAt])
+}
+
+model PortalAdCampaignAssignment {
+  id String @id @default(cuid())
+
+  campaignId String
+  ownerId    String
+
+  createdAt DateTime @default(now())
+
+  campaign PortalAdCampaign @relation(fields: [campaignId], references: [id])
+  owner    User            @relation(fields: [ownerId], references: [id])
+
+  @@unique([campaignId, ownerId])
+  @@index([ownerId])
+}
+
+model PortalAdCampaignEvent {
+  id String @id @default(cuid())
+
+  campaignId String
+  ownerId    String
+  kind       PortalAdEventKind
+  metaJson   Json?
+
+  createdAt DateTime @default(now())
+
+  campaign PortalAdCampaign @relation(fields: [campaignId], references: [id])
+  owner    User            @relation(fields: [ownerId], references: [id])
+
+  @@index([campaignId, ownerId, kind, createdAt])
+  @@index([ownerId, createdAt])
 }
 
 model BusinessProfile {

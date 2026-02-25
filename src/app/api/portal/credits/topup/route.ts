@@ -6,6 +6,8 @@ import { addCredits } from "@/lib/credits";
 import { creditsPerTopUpPackage } from "@/lib/creditsTopup";
 import { getOrCreateStripeCustomerId, isStripeConfigured, stripePost } from "@/lib/stripeFetch";
 import { getAppBaseUrl, tryNotifyPortalAccountUsers } from "@/lib/portalNotifications";
+import { getCentsPerCreditForOwner } from "@/lib/creditsPricing.server";
+import type { PortalVariant } from "@/lib/portalVariant";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
@@ -37,6 +39,7 @@ export async function POST(req: Request) {
 
   const ownerId = auth.session.user.id;
   const email = auth.session.user.email;
+  const portalVariant = ((auth.session.user as any).portalVariant as PortalVariant | undefined) ?? "portal";
 
   const priceId = (process.env.STRIPE_PRICE_CREDITS_TOPUP ?? "").trim();
   const stripeReady = isStripeConfigured() && Boolean(email);
@@ -79,7 +82,8 @@ export async function POST(req: Request) {
   ).toString();
   const cancelUrl = new URL("/portal/app/billing?topup=cancel", origin).toString();
 
-  const unitAmountCents = requestedCredits * 10;
+  const centsPerCredit = await getCentsPerCreditForOwner({ ownerId, portalVariant });
+  const unitAmountCents = requestedCredits * centsPerCredit;
 
   const params: Record<string, unknown> = {
     mode: "payment",

@@ -2,9 +2,10 @@ import { NextResponse } from "next/server";
 
 import { requireClientSessionForService } from "@/lib/portalAccess";
 import { creditsPerTopUpPackage } from "@/lib/creditsTopup";
-import { CREDIT_USD_VALUE } from "@/lib/pricing.shared";
 import { isStripeConfigured } from "@/lib/stripeFetch";
 import { moduleByKey, usdToCents } from "@/lib/portalModulesCatalog";
+import { getUsdPerCreditForOwner } from "@/lib/creditsPricing.server";
+import type { PortalVariant } from "@/lib/portalVariant";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
@@ -30,6 +31,9 @@ export async function GET() {
     );
   }
 
+  const ownerId = auth.session.user.id;
+  const portalVariant = ((auth.session.user as any).portalVariant as PortalVariant | undefined) ?? "portal";
+
   const blog = modulePricing("blog");
   const booking = modulePricing("booking");
   const automations = modulePricing("automations");
@@ -45,7 +49,7 @@ export async function GET() {
     ok: true,
     stripeConfigured: isStripeConfigured(),
     credits: {
-      usdValue: CREDIT_USD_VALUE,
+      usdValue: await getUsdPerCreditForOwner({ ownerId, portalVariant }),
       rollOver: true,
       topup: {
         creditsPerPackage: creditsPerTopUpPackage(),

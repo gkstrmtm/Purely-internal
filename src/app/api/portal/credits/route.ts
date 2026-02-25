@@ -5,8 +5,9 @@ import { requireClientSessionForService } from "@/lib/portalAccess";
 import { prisma } from "@/lib/db";
 import { getCreditsState, isFreeCreditsOwner, setAutoTopUp } from "@/lib/credits";
 import { creditsPerTopUpPackage } from "@/lib/creditsTopup";
-import { CREDIT_USD_VALUE } from "@/lib/pricing.shared";
 import { isStripeConfigured } from "@/lib/stripeFetch";
+import { getUsdPerCreditForOwner } from "@/lib/creditsPricing.server";
+import type { PortalVariant } from "@/lib/portalVariant";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
@@ -30,6 +31,7 @@ export async function GET() {
   }
 
   const ownerId = auth.session.user.id;
+  const portalVariant = ((auth.session.user as any).portalVariant as PortalVariant | undefined) ?? "portal";
   let state = await getCreditsState(ownerId);
   const free = await isFreeCreditsOwner(ownerId).catch(() => false);
 
@@ -71,7 +73,7 @@ export async function GET() {
     autoTopUp: state.autoTopUp,
     purchaseAvailable: purchaseAvailable(),
     billingPath: "/portal/app/billing",
-    creditUsdValue: CREDIT_USD_VALUE,
+    creditUsdValue: await getUsdPerCreditForOwner({ ownerId, portalVariant }),
     creditsPerPackage: creditsPerTopUpPackage(),
     freeCredits: free,
   });
