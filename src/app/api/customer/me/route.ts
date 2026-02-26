@@ -10,6 +10,7 @@ import { getPortalUser } from "@/lib/portalAuth";
 import { normalizePortalVariant, PORTAL_VARIANT_HEADER } from "@/lib/portalVariant";
 import { listAiReceptionistEvents, type AiReceptionistCallEvent } from "@/lib/aiReceptionist";
 import { listMissedCallTextBackEvents, type MissedCallTextBackEvent } from "@/lib/missedCallTextBack";
+import { sumHoursSavedSeconds } from "@/lib/hoursSaved";
 
 function safeDate(value: unknown): Date | null {
   if (typeof value !== "string" || !value.trim()) return null;
@@ -35,23 +36,60 @@ async function computeHoursSaved(ownerId: string): Promise<{ hoursSavedThisWeek:
     }
   }
 
-  const [aiEventsRaw, missedEventsRaw] = await Promise.all([
+  // NOTE: AI receptionist + missed-call-textback events are stored in a capped JSON log (200 events).
+  // For dashboard rollups we rely on the durable `PortalHoursSavedEvent` table.
+  const [savedSecondsWeek, savedSecondsAll, aiEventsRaw, missedEventsRaw] = await Promise.all([
+    safe(() => sumHoursSavedSeconds({ ownerId, since: weekStart }), 0),
+    safe(() => sumHoursSavedSeconds({ ownerId }), 0),
+    // Keep these around for back-compat until all users have durable events.
     safe(() => listAiReceptionistEvents(ownerId, 200), [] as AiReceptionistCallEvent[]),
     safe(() => listMissedCallTextBackEvents(ownerId, 200), [] as MissedCallTextBackEvent[]),
   ]);
 
-  const aiCompletedAll = aiEventsRaw.filter((e) => String(e.status || "").toUpperCase() === "COMPLETED").length;
-  const aiCompletedWeek = aiEventsRaw.filter((e) => {
-    if (String(e.status || "").toUpperCase() !== "COMPLETED") return false;
+  // Backfill (best-effort): if a site already has recent capped events but no durable rows yet,
+  // approximate hours saved from what we can see.
+  // This avoids showing "0" right after deploy for existing accounts.
+  const needsBackfill = savedSecondsAll <= 0;
+
+  const fallbackAiSecondsAll = aiEventsRaw
+    .filter((e) => String(e.status || "").toUpperCase() === "COMPLETED")
+    .reduce((acc, e) => {
+      const dur = typeof (e as any).recordingDurationSec === "number" && Number.isFinite((e as any).recordingDurationSec)
+        ? Math.max(0, Math.floor((e as any).recordingDurationSec))
+        : 0;
+      return acc + dur * 2;
+    }, 0);
+
+  const fallbackAiSecondsWeek = aiEventsRaw
+    .filter((e) => {
+      if (String(e.status || "").toUpperCase() !== "COMPLETED") return false;
+      const d = safeDate(e.createdAtIso);
+      return d ? d >= weekStart : false;
+    })
+    .reduce((acc, e) => {
+      const dur = typeof (e as any).recordingDurationSec === "number" && Number.isFinite((e as any).recordingDurationSec)
+        ? Math.max(0, Math.floor((e as any).recordingDurationSec))
+        : 0;
+      return acc + dur * 2;
+    }, 0);
+
+  const missedWeekFallbackCount = missedEventsRaw.filter((e) => {
     const d = safeDate(e.createdAtIso);
     return d ? d >= weekStart : false;
   }).length;
 
-  const missedAll = missedEventsRaw.length;
-  const missedWeek = missedEventsRaw.filter((e) => {
-    const d = safeDate(e.createdAtIso);
-    return d ? d >= weekStart : false;
-  }).length;
+  const missedAllFallbackCount = missedEventsRaw.length;
+
+  const durableSecondsWeek = savedSecondsWeek;
+  const durableSecondsAll = savedSecondsAll;
+
+  const fallbackSecondsWeek = fallbackAiSecondsWeek + missedWeekFallbackCount * 120;
+  const fallbackSecondsAll = fallbackAiSecondsAll + missedAllFallbackCount * 120;
+
+  // Use the larger of (durable table) vs (capped in-json estimate) so totals don't
+  // appear to decrease or reset right after deploying the durable table.
+  const aiAndMissedSecondsWeek = Math.max(durableSecondsWeek, fallbackSecondsWeek);
+  const aiAndMissedSecondsAll = Math.max(durableSecondsAll, fallbackSecondsAll);
 
   const [leadScrapeWeekAgg, leadScrapeAllAgg] = await Promise.all([
     safe(
@@ -126,21 +164,21 @@ async function computeHoursSaved(ownerId: string): Promise<{ hoursSavedThisWeek:
       ])
     : [0, 0];
 
-  // Heuristics (minutes saved per activity). Intentionally conservative.
+  // Heuristics (minutes saved per activity) for table-backed services.
+  // AI receptionist is duration-based elsewhere: saved seconds = call seconds * 2.
+  // Missed-call-textback is fixed at 2 minutes per successful auto-reply.
   const minutesWeek =
-    aiCompletedWeek * 4 +
-    missedWeek * 2 +
-    leadsCreatedWeek * 3 +
-    aiOutboundWeek * 2.5 +
+    aiAndMissedSecondsWeek / 60 +
+    leadsCreatedWeek * 2 +
+    aiOutboundWeek * 3 +
     bookingsWeek * 6 +
     blogWeek * 45 +
     newsletterWeek * 20;
 
   const minutesAll =
-    aiCompletedAll * 4 +
-    missedAll * 2 +
-    leadsCreatedAll * 3 +
-    aiOutboundAll * 2.5 +
+    aiAndMissedSecondsAll / 60 +
+    leadsCreatedAll * 2 +
+    aiOutboundAll * 3 +
     bookingsAll * 6 +
     blogAll * 45 +
     newsletterAll * 20;

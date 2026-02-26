@@ -4,6 +4,7 @@ import { prisma } from "@/lib/db";
 import { normalizePhoneStrict } from "@/lib/phone";
 import { sendOwnerTwilioSms } from "@/lib/portalTwilio";
 import { renderTextTemplate } from "@/lib/textTemplate";
+import { upsertHoursSavedEvent } from "@/lib/hoursSaved";
 
 const SERVICE_SLUG = "missed-call-textback";
 const PROFILE_EXTRAS_SERVICE_SLUG = "profile";
@@ -214,6 +215,32 @@ export async function upsertMissedCallEvent(ownerId: string, nextEvent: MissedCa
     update: { status: "COMPLETE", dataJson: payload as any },
     select: { id: true },
   });
+
+  // Persist hours saved outside the JSON event log (which is capped at 200 entries).
+  try {
+    const merged = idx >= 0 ? events[idx] : nextEvent;
+    const finalStatus = String(merged.finalStatus || "").toUpperCase();
+    const smsStatus = String(merged.smsStatus || "").toUpperCase();
+    const isMissedWithSms = finalStatus === "MISSED" && smsStatus === "SENT";
+    if (isMissedWithSms) {
+      const occurredAt = (() => {
+        const raw = typeof merged.createdAtIso === "string" ? merged.createdAtIso : "";
+        const d = raw ? new Date(raw) : null;
+        return d && Number.isFinite(d.getTime()) ? d : null;
+      })();
+
+      // Heuristic: a missed-call auto textback saves ~2 minutes.
+      await upsertHoursSavedEvent({
+        ownerId,
+        kind: "missed_call_textback",
+        sourceId: String(merged.callSid || "").trim(),
+        secondsSaved: 120,
+        occurredAt,
+      });
+    }
+  } catch {
+    // Best-effort only.
+  }
 }
 
 export async function findOwnerByMissedCallWebhookToken(token: string): Promise<{ ownerId: string; data: MissedCallTextBackServiceData } | null> {

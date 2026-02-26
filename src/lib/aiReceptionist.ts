@@ -2,6 +2,7 @@ import crypto from "crypto";
 
 import { prisma } from "@/lib/db";
 import { normalizePhoneStrict } from "@/lib/phone";
+import { upsertHoursSavedEvent } from "@/lib/hoursSaved";
 
 const SERVICE_SLUG = "ai-receptionist";
 const PROFILE_EXTRAS_SERVICE_SLUG = "profile";
@@ -345,6 +346,32 @@ export async function upsertAiReceptionistCallEvent(ownerId: string, nextEvent: 
     update: { status: "COMPLETE", dataJson: payload as any },
     select: { id: true },
   });
+
+  // Persist hours saved outside the JSON event log (which is capped at 200 entries).
+  try {
+    const merged = idx >= 0 ? events[idx] : nextEvent;
+    const isCompleted = String(merged.status || "").toUpperCase() === "COMPLETED";
+    const durationSec = typeof merged.recordingDurationSec === "number" && Number.isFinite(merged.recordingDurationSec)
+      ? Math.max(0, Math.floor(merged.recordingDurationSec))
+      : 0;
+    if (isCompleted && durationSec > 0) {
+      const occurredAt = (() => {
+        const raw = typeof merged.createdAtIso === "string" ? merged.createdAtIso : "";
+        const d = raw ? new Date(raw) : null;
+        return d && Number.isFinite(d.getTime()) ? d : null;
+      })();
+
+      await upsertHoursSavedEvent({
+        ownerId,
+        kind: "ai_receptionist_call",
+        sourceId: String(merged.callSid || "").trim(),
+        secondsSaved: durationSec * 2,
+        occurredAt,
+      });
+    }
+  } catch {
+    // Best-effort only; do not block webhook processing.
+  }
 }
 
 export async function deleteAiReceptionistCallEvent(ownerId: string, callSid: string): Promise<{ ok: true } | { ok: false; error: string }> {

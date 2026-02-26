@@ -133,6 +133,8 @@ model User {
 
   portalBlogGenerationEvents PortalBlogGenerationEvent[]
 
+  portalHoursSavedEvents PortalHoursSavedEvent[]
+
   portalNewsletterGenerationEvents PortalNewsletterGenerationEvent[]
   portalNewsletterSendEvents PortalNewsletterSendEvent[]
 
@@ -949,7 +951,6 @@ model MarketingMessage {
 
 model PortalNurtureCampaign {
   id String @id @default(cuid())
-
   ownerId String
 
   name String
@@ -976,6 +977,30 @@ model PortalNurtureCampaign {
 
   @@index([ownerId, updatedAt])
   @@index([ownerId, status, updatedAt])
+}
+
+model PortalHoursSavedEvent {
+  id String @id @default(cuid())
+
+  ownerId String
+  owner   User   @relation(fields: [ownerId], references: [id], onDelete: Cascade)
+
+  // What automation produced the savings (e.g., ai_receptionist_call).
+  kind String @db.VarChar(64)
+
+  // Stable id from the source system (e.g., callSid, event id).
+  sourceId String @db.VarChar(128)
+
+  // Whole seconds saved.
+  secondsSaved Int
+
+  // When the automation ran (used for weekly rollups).
+  occurredAt DateTime @default(now())
+
+  createdAt DateTime @default(now())
+
+  @@unique([ownerId, kind, sourceId], name: "ownerId_kind_sourceId")
+  @@index([ownerId, occurredAt])
 }
 
 model PortalNurtureStep {
