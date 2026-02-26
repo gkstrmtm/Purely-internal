@@ -55,8 +55,27 @@ export async function GET() {
     });
 
     return NextResponse.json({ ok: true, campaigns: rows });
-  } catch {
-    return NextResponse.json({ ok: false, error: "Unable to load campaigns." }, { status: 500 });
+  } catch (err) {
+    let msg = "Unable to load campaigns.";
+
+    // Common production failure mode: migrations not applied, so the table/columns don't exist.
+    try {
+      const code = (err as any)?.code;
+      if (err instanceof Prisma.PrismaClientKnownRequestError) {
+        if (err.code === "P2021" || err.code === "P2022") {
+          msg = "Campaigns database schema is missing or out of date. Apply the latest Prisma migrations.";
+        }
+      } else if (typeof code === "string" && code.trim()) {
+        // Postgres: undefined_table
+        if (code === "42P01") {
+          msg = "Campaigns database table is missing. Apply the latest Prisma migrations.";
+        }
+      }
+    } catch {
+      // ignore
+    }
+
+    return NextResponse.json({ ok: false, error: msg }, { status: 500 });
   }
 }
 

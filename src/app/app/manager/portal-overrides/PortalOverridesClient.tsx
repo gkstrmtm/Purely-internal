@@ -420,10 +420,10 @@ export default function PortalOverridesClient() {
             <div className="grid gap-5 p-5 lg:grid-cols-2">
               <div>
                 <div className="text-sm font-semibold text-zinc-900">AI Receptionist widget</div>
-                <div className="mt-1 text-xs text-zinc-500">Uses the account’s AI Receptionist agent ID (falls back to Profile if missing).</div>
+                <div className="mt-1 text-xs text-zinc-500">Uses the account’s AI Receptionist voice agent ID (falls back to Profile if missing).</div>
                 <div className="mt-3 rounded-2xl border border-zinc-200 bg-zinc-50 p-3">
                   <div className="text-xs text-zinc-600">
-                    Agent ID: <span className="font-mono text-zinc-800">{testingAiReceptionistAgentId ?? "N/A"}</span>
+                    Voice agent ID: <span className="font-mono text-zinc-800">{testingAiReceptionistAgentId ?? "N/A"}</span>
                   </div>
                   <div className="mt-3">
                     <ElevenLabsConvaiWidget agentId={testingAiReceptionistAgentId} />
@@ -436,7 +436,7 @@ export default function PortalOverridesClient() {
                 <div className="mt-1 text-xs text-zinc-500">Uses the account’s Profile voice agent ID.</div>
                 <div className="mt-3 rounded-2xl border border-zinc-200 bg-zinc-50 p-3">
                   <div className="text-xs text-zinc-600">
-                    Agent ID: <span className="font-mono text-zinc-800">{testingOutboundAgentId ?? "N/A"}</span>
+                    Voice agent ID: <span className="font-mono text-zinc-800">{testingOutboundAgentId ?? "N/A"}</span>
                   </div>
                   <div className="mt-3">
                     <ElevenLabsConvaiWidget agentId={testingOutboundAgentId} />

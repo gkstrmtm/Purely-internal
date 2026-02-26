@@ -244,7 +244,7 @@ export async function fetchElevenLabsConversationTranscript(opts: {
       status === 401 || status === 403
         ? " Check API key permissions/scopes."
         : status === 404 && saw404 && !sawNon404
-          ? " Conversation not found via ElevenLabs ConvAI API. Verify the conversationId is correct and that this API key belongs to the same ElevenLabs workspace that owns the conversation."
+          ? " Conversation not found via the voice agent API. Verify the conversationId is correct and that this API key belongs to the same voice agent workspace that owns the conversation."
           : "";
     return { ok: false, status, error: `${base}${hint}`.trim() };
   }

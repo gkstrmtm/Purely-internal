@@ -389,6 +389,15 @@ export function PortalAiReceptionistClient() {
     return data;
   }, [friendlyApiError, readJsonError]);
 
+  const loadEventsOnly = useCallback(async (): Promise<boolean> => {
+    const res = await fetch("/api/portal/ai-receptionist/settings", { cache: "no-store" }).catch(() => null as any);
+    if (!res?.ok) return false;
+    const data = (await res.json().catch(() => null)) as ApiPayload | null;
+    if (!data?.ok || !Array.isArray(data.events)) return false;
+    setEvents(data.events);
+    return true;
+  }, []);
+
   const syncCallArtifacts = useCallback(
     async (callSid: string) => {
       const sid = String(callSid || "").trim();
@@ -409,14 +418,16 @@ export function PortalAiReceptionistClient() {
         }
 
         toast.success("Refreshing… transcript may take a minute");
-        await load();
+        if (!(await loadEventsOnly())) {
+          await load();
+        }
       } catch (e) {
         toast.error(e instanceof Error ? e.message : "Unable to refresh call artifacts");
       } finally {
         setCallSyncBusy(false);
       }
     },
-    [callSyncBusy, load, toast],
+    [callSyncBusy, load, loadEventsOnly, toast],
   );
 
   const [confirmDeleteCallSid, setConfirmDeleteCallSid] = useState<string | null>(null);
@@ -440,14 +451,16 @@ export function PortalAiReceptionistClient() {
         }
 
         toast.success("Deleted call");
-        await load();
+        if (!(await loadEventsOnly())) {
+          await load();
+        }
       } catch (e) {
         toast.error(e instanceof Error ? e.message : "Unable to delete call");
       } finally {
         setCallSyncBusy(false);
       }
     },
-    [callSyncBusy, load, toast],
+    [callSyncBusy, load, loadEventsOnly, toast],
   );
 
   const deleteCallEvent = useCallback(
@@ -468,6 +481,7 @@ export function PortalAiReceptionistClient() {
   useEffect(() => {
     // Auto-refresh activity while calls are in-progress or the selected call lacks a transcript,
     // so transcripts/notes show up without manual refresh.
+    if (tab !== "activity") return;
     const hasPending = events.some((e) => {
       const inProgress = e.status === "IN_PROGRESS" || e.status === "UNKNOWN";
       const selectedWithoutTranscript = e.id === selectedCallId && !(e.transcript && e.transcript.trim());
@@ -498,11 +512,11 @@ export function PortalAiReceptionistClient() {
     if (!hasPending) return;
 
     const id = window.setInterval(() => {
-      void load();
+      void loadEventsOnly();
     }, 10000);
 
     return () => window.clearInterval(id);
-  }, [events, selectedCallId, load, syncCallArtifacts]);
+  }, [events, selectedCallId, loadEventsOnly, syncCallArtifacts, tab]);
 
   function setTabWithUrl(nextTab: "settings" | "testing" | "activity" | "missed-call-textback") {
     setTab(nextTab);

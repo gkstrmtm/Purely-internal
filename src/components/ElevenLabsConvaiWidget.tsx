@@ -28,7 +28,7 @@ export function ElevenLabsConvaiWidget(props: { agentId: string | null | undefin
     return (
       <div className={props.className ?? ""}>
         <div className="rounded-2xl border border-dashed border-zinc-200 bg-zinc-50 p-4 text-sm text-zinc-600">
-          No ElevenLabs agent ID configured.
+          No voice agent ID configured.
         </div>
       </div>
     );

@@ -42,6 +42,38 @@ function mulawToPcm16(u: number): number {
   return Math.max(-32768, Math.min(32767, pcm));
 }
 
+function pcm16ToMulawByte(sample: number): number {
+  // ITU-T G.711 mu-law (16-bit PCM -> 8-bit mu-law)
+  const BIAS = 0x84;
+  const CLIP = 32635;
+
+  let s = Math.max(-32768, Math.min(32767, Math.floor(sample)));
+  const sign = s < 0 ? 0x80 : 0x00;
+  if (s < 0) s = -s;
+  if (s > CLIP) s = CLIP;
+
+  s = s + BIAS;
+
+  let exponent = 7;
+  for (let expMask = 0x4000; (s & expMask) === 0 && exponent > 0; expMask >>= 1) {
+    exponent -= 1;
+  }
+
+  const mantissa = (s >> (exponent + 3)) & 0x0f;
+  const mu = ~(sign | (exponent << 4) | mantissa);
+  return mu & 0xff;
+}
+
+function mulawBytesFromFloat32(samples: Float32Array): Uint8Array {
+  const out = new Uint8Array(samples.length);
+  for (let i = 0; i < samples.length; i++) {
+    const s = Math.max(-1, Math.min(1, samples[i] ?? 0));
+    const pcm16 = s < 0 ? Math.round(s * 0x8000) : Math.round(s * 0x7fff);
+    out[i] = pcm16ToMulawByte(pcm16);
+  }
+  return out;
+}
+
 function base64FromBytes(bytes: Uint8Array): string {
   let binary = "";
   const chunk = 0x8000;
@@ -109,6 +141,7 @@ export function InlineElevenLabsAgentTester(props: {
   const [conversationId, setConversationId] = useState<string | null>(null);
   const [agentOutputFormat, setAgentOutputFormat] = useState<string | null>(null);
   const [userInputFormat, setUserInputFormat] = useState<string | null>(null);
+  const userInputFormatRef = useRef<string | null>(null);
 
   const micStreamRef = useRef<MediaStream | null>(null);
   const micCtxRef = useRef<AudioContext | null>(null);
@@ -116,6 +149,7 @@ export function InlineElevenLabsAgentTester(props: {
   const micSourceRef = useRef<MediaStreamAudioSourceNode | null>(null);
   const [micEnabled, setMicEnabled] = useState(false);
   const micCompatSendCountRef = useRef<number>(0);
+  const [micSentChunks, setMicSentChunks] = useState(0);
 
   const outCtxRef = useRef<AudioContext | null>(null);
   const outNextTimeRef = useRef<number>(0);
@@ -137,7 +171,9 @@ export function InlineElevenLabsAgentTester(props: {
     setConversationId(null);
     setAgentOutputFormat(null);
     setUserInputFormat(null);
+    userInputFormatRef.current = null;
     setCallStartedAt(null);
+    setMicSentChunks(0);
 
     try {
       micProcessorRef.current?.disconnect();
@@ -288,8 +324,10 @@ export function InlineElevenLabsAgentTester(props: {
     if (micEnabled) return;
     setError(null);
 
-    // Default input PCM format is typically pcm_16000. If server reports otherwise, honor it.
-    const inRate = parsePcmSampleRate(userInputFormat) ?? 16000;
+    if (!navigator.mediaDevices?.getUserMedia) {
+      setError("Microphone is not available in this browser.");
+      return;
+    }
 
     let stream: MediaStream;
     try {
@@ -330,10 +368,19 @@ export function InlineElevenLabsAgentTester(props: {
       const wsNow = wsRef.current;
       if (!wsNow || wsNow.readyState !== WebSocket.OPEN) return;
 
+      const fmt = (userInputFormatRef.current || "").trim().toLowerCase();
+      const pcmRate = parsePcmSampleRate(fmt);
+      const mulawRate = parseMulawSampleRate(fmt);
+      const targetRate = mulawRate ?? pcmRate ?? 16000;
+
       const input = ev.inputBuffer.getChannelData(0);
-      const resampled = resampleLinear(input, ctx.sampleRate, inRate);
-      const pcmBytes = pcm16leBytesFromFloat32(resampled);
-      const b64 = base64FromBytes(pcmBytes);
+      const resampled = resampleLinear(input, ctx.sampleRate, targetRate);
+
+      const bytes = mulawRate
+        ? mulawBytesFromFloat32(resampled)
+        : pcm16leBytesFromFloat32(resampled);
+
+      const b64 = base64FromBytes(bytes);
 
       try {
         // Compatibility: for the first few chunks, send both common variants.
@@ -346,6 +393,8 @@ export function InlineElevenLabsAgentTester(props: {
         } else {
           wsNow.send(JSON.stringify({ user_audio_chunk: b64 }));
         }
+
+        setMicSentChunks((prev) => prev + 1);
       } catch {
         // ignore
       }
@@ -359,7 +408,7 @@ export function InlineElevenLabsAgentTester(props: {
     zero.connect(ctx.destination);
 
     setMicEnabled(true);
-  }, [micEnabled, userInputFormat]);
+  }, [micEnabled]);
 
   const disableMic = useCallback(() => {
     try {
@@ -402,7 +451,7 @@ export function InlineElevenLabsAgentTester(props: {
       // ignore
     }
 
-    // Start mic capture immediately; audio chunks will begin sending once WS is open.
+    // Start mic capture from the click gesture; audio chunks will begin sending once WS is open.
     void enableMic();
 
     setError(null);
@@ -499,7 +548,10 @@ export function InlineElevenLabsAgentTester(props: {
           ? data.conversation_initiation_metadata_event.user_input_audio_format
           : null;
         if (outFmt) setAgentOutputFormat(outFmt);
-        if (inFmt) setUserInputFormat(inFmt);
+        if (inFmt) {
+          userInputFormatRef.current = inFmt;
+          setUserInputFormat(inFmt);
+        }
         return;
       }
 
@@ -541,7 +593,7 @@ export function InlineElevenLabsAgentTester(props: {
     return (
       <div className={props.className ?? ""}>
         <div className="rounded-2xl border border-dashed border-zinc-200 bg-zinc-50 p-4 text-sm text-zinc-600">
-          No ElevenLabs agent ID configured.
+          No voice agent ID configured.
         </div>
       </div>
     );
@@ -640,6 +692,12 @@ export function InlineElevenLabsAgentTester(props: {
             {micEnabled ? "Mic on" : "Mic off"}
           </button>
         </div>
+
+        {status === "connected" ? (
+          <div className="mt-2 text-center text-xs text-zinc-500">
+            {userInputFormat ? `Input: ${userInputFormat}` : "Input: auto"} · Sent chunks: {micSentChunks}
+          </div>
+        ) : null}
 
         <div className="sr-only" aria-live="polite">
           Status {status}. {conversationId ? `Conversation ${conversationId}.` : ""}

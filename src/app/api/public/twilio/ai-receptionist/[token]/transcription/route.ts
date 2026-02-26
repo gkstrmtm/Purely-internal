@@ -1,12 +1,12 @@
 import { NextResponse } from "next/server";
 
 import { generateText } from "@/lib/ai";
-import { trySendTransactionalEmail } from "@/lib/emailSender";
 import { prisma } from "@/lib/db";
 import { findPortalContactByPhone } from "@/lib/portalContacts";
 import { sendTwilioEnvSms } from "@/lib/twilioEnvSms";
 import { findOwnerByAiReceptionistWebhookToken, getAiReceptionistServiceData, upsertAiReceptionistCallEvent } from "@/lib/aiReceptionist";
 import { normalizePhoneStrict } from "@/lib/phone";
+import { getAppBaseUrl, tryNotifyPortalAccountUsers } from "@/lib/portalNotifications";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -142,28 +142,29 @@ export async function POST(req: Request, ctx: { params: Promise<{ token: string 
     const settings = settingsData.settings;
 
     if (settings.enabled) {
-      const user = await prisma.user.findUnique({
-        where: { id: ownerId },
-        select: { email: true, name: true },
-      });
+      const baseUrl = getAppBaseUrl();
 
-      if (user?.email) {
-        await trySendTransactionalEmail({
-          to: user.email,
-          subject: `AI Receptionist handled a call from ${contactName}`,
-          text: [
-            `Your AI receptionist just handled a call from ${contactName} (${fromE164}).`,
-            "",
-            "Summary & Context:",
-            summary || "(No summary available)",
-            "",
-            "Transcript:",
-            transcriptionText || "(No transcript)",
-            "",
-            "View details in your portal.",
-          ].join("\n"),
-        });
-      }
+      void tryNotifyPortalAccountUsers({
+        ownerId,
+        kind: "ai_receptionist_call_completed",
+        subject: `AI receptionist call transcript${contactName ? `: ${contactName}` : ""}`,
+        text: [
+          `Your AI receptionist handled a call from ${contactName} (${fromE164}).`,
+          "",
+          toE164 ? `To: ${toE164}` : null,
+          transcriptionStatus ? `Transcript status: ${transcriptionStatus}` : null,
+          "",
+          "Summary:",
+          summary || "(No summary available)",
+          "",
+          "Transcript:",
+          transcriptionText || "(No transcript)",
+          "",
+          `Open receptionist: ${baseUrl}/portal/app/ai-receptionist`,
+        ]
+          .filter(Boolean)
+          .join("\n"),
+      }).catch(() => null);
 
       // SMS Notification
       const destinations = new Set<string>();
