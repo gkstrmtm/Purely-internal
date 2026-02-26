@@ -6,7 +6,7 @@ import type { PortalVariant } from "@/lib/portalVariant";
 
 export type PortalAdPlacement = "SIDEBAR_BANNER" | "BILLING_SPONSORED" | "FULLSCREEN_REWARD";
 
-export type PortalAdCampaignCreative = {
+export type PortalAdCampaignCreativeVariant = {
   headline?: string;
   body?: string;
   ctaText?: string;
@@ -14,6 +14,8 @@ export type PortalAdCampaignCreative = {
   mediaUrl?: string;
   mediaKind?: "image" | "video";
 };
+
+export type PortalAdCampaignCreative = PortalAdCampaignCreativeVariant;
 
 export type PortalAdCampaignReward = {
   credits?: number;
@@ -35,6 +37,8 @@ export type PortalAdCampaignTarget = {
 
   includeOwnerIds?: string[];
   excludeOwnerIds?: string[];
+
+  bucketIds?: string[];
 };
 
 function normalizeStringArray(v: unknown): string[] {
@@ -62,10 +66,11 @@ function readTargetJson(data: unknown): PortalAdCampaignTarget {
     paths: normalizeStringArray(rec.paths),
     includeOwnerIds: normalizeStringArray(rec.includeOwnerIds),
     excludeOwnerIds: normalizeStringArray(rec.excludeOwnerIds),
+    bucketIds: normalizeStringArray((rec as any).bucketIds),
   };
 }
 
-function readCreativeJson(data: unknown): PortalAdCampaignCreative {
+function readCreativeVariant(data: unknown): PortalAdCampaignCreativeVariant {
   const rec = data && typeof data === "object" && !Array.isArray(data) ? (data as Record<string, unknown>) : {};
   const mediaKindRaw = typeof rec.mediaKind === "string" ? rec.mediaKind.trim().toLowerCase() : "";
   const mediaKind = mediaKindRaw === "video" ? "video" : mediaKindRaw === "image" ? "image" : undefined;
@@ -84,6 +89,30 @@ function readCreativeJson(data: unknown): PortalAdCampaignCreative {
     mediaUrl: mediaUrl || undefined,
     mediaKind,
   };
+}
+
+function hash32(input: string) {
+  let h = 2166136261;
+  for (let i = 0; i < input.length; i++) {
+    h ^= input.charCodeAt(i);
+    h = Math.imul(h, 16777619);
+  }
+  return h >>> 0;
+}
+
+function pickCreativeForOwner(data: unknown, key: { ownerId: string; campaignId: string }): PortalAdCampaignCreative {
+  const rec = data && typeof data === "object" && !Array.isArray(data) ? (data as Record<string, unknown>) : {};
+
+  const variantsRaw = (rec as any).variants;
+  if (Array.isArray(variantsRaw) && variantsRaw.length) {
+    const variants = variantsRaw.map((v) => readCreativeVariant(v)).filter((v) => v.headline || v.body || v.mediaUrl || v.linkUrl);
+    if (variants.length) {
+      const idx = hash32(`${key.ownerId}:${key.campaignId}`) % variants.length;
+      return variants[idx] || variants[0]!;
+    }
+  }
+
+  return readCreativeVariant(rec);
 }
 
 function readRewardJson(data: unknown): PortalAdCampaignReward | null {
@@ -193,6 +222,18 @@ export async function getNextPortalAdCampaignForOwner(opts: {
 
   if (!campaigns) return null;
 
+  const bucketIdsForOwner = new Set<string>();
+  try {
+    const rows = await (prisma as any).portalTargetingBucketMember.findMany({
+      where: { ownerId: opts.ownerId },
+      select: { bucketId: true },
+      take: 500,
+    });
+    for (const r of rows || []) bucketIdsForOwner.add(String((r as any).bucketId));
+  } catch {
+    // If buckets aren't migrated yet, just ignore.
+  }
+
   for (const c of campaigns) {
     if (!withinWindow(now, c.startAt, c.endAt)) continue;
 
@@ -203,11 +244,14 @@ export async function getNextPortalAdCampaignForOwner(opts: {
     const isAssignedToOwner = Array.isArray((c as any).assignments) && (c as any).assignments.length > 0;
     const assignmentsCount = typeof (c as any)?._count?.assignments === "number" ? Number((c as any)._count.assignments) : 0;
 
-    // If there are explicit assignments, treat this campaign as a whitelist.
-    if (assignmentsCount > 0 && !isAssignedToOwner) continue;
+    const targetBucketIds = target.bucketIds ?? [];
+    const isInBucket = targetBucketIds.length ? targetBucketIds.some((id) => bucketIdsForOwner.has(id)) : false;
 
-    // If includeOwnerIds is present, treat it as a whitelist.
-    if ((target.includeOwnerIds ?? []).length > 0 && !target.includeOwnerIds?.includes(opts.ownerId)) continue;
+    const hasWhitelist = assignmentsCount > 0 || (target.includeOwnerIds ?? []).length > 0 || targetBucketIds.length > 0;
+    const isWhitelisted = isAssignedToOwner || Boolean(target.includeOwnerIds?.includes(opts.ownerId)) || isInBucket;
+
+    // If there are explicit assignments/includeOwnerIds/buckets, treat this campaign as a whitelist.
+    if (hasWhitelist && !isWhitelisted) continue;
 
     const matchesVariant =
       !target.portalVariant ||
@@ -221,11 +265,13 @@ export async function getNextPortalAdCampaignForOwner(opts: {
 
     if (!matchPath(opts.path, target.paths ?? [])) continue;
 
-    const matchesIndustry = matchAnyCaseInsensitive(profile?.industry, target.industries ?? []);
-    if (!matchesIndustry && (target.industries ?? []).length) continue;
+    if (!isWhitelisted) {
+      const matchesIndustry = matchAnyCaseInsensitive(profile?.industry, target.industries ?? []);
+      if (!matchesIndustry && (target.industries ?? []).length) continue;
 
-    const matchesBusinessModel = matchAnyCaseInsensitive(profile?.businessModel, target.businessModels ?? []);
-    if (!matchesBusinessModel && (target.businessModels ?? []).length) continue;
+      const matchesBusinessModel = matchAnyCaseInsensitive(profile?.businessModel, target.businessModels ?? []);
+      if (!matchesBusinessModel && (target.businessModels ?? []).length) continue;
+    }
 
     if ((target.serviceSlugsAny ?? []).length) {
       const any = (target.serviceSlugsAny ?? []).some((s) => unlockedServiceSlugs.has(s));
@@ -237,8 +283,8 @@ export async function getNextPortalAdCampaignForOwner(opts: {
       if (!all) continue;
     }
 
-    // If it’s explicitly assigned, bypass remaining “needs profile” edge cases.
-    if (!isAssignedToOwner) {
+    // If it’s whitelisted (assignment/includeOwnerIds/bucket), bypass remaining “needs profile” edge cases.
+    if (!isWhitelisted) {
       // If campaign targets industry/businessModel but profile is missing, skip.
       if ((target.industries ?? []).length && !String(profile?.industry || "").trim()) continue;
       if ((target.businessModels ?? []).length && !String(profile?.businessModel || "").trim()) continue;
@@ -248,7 +294,7 @@ export async function getNextPortalAdCampaignForOwner(opts: {
       id: c.id,
       name: c.name,
       placement: c.placement as PortalAdPlacement,
-      creative: readCreativeJson(c.creativeJson),
+      creative: pickCreativeForOwner(c.creativeJson, { ownerId: opts.ownerId, campaignId: c.id }),
       reward: readRewardJson(c.rewardJson),
     };
   }
@@ -311,11 +357,24 @@ export async function getPortalAdCampaignForOwnerById(opts: {
   const isAssignedToOwner = Array.isArray((c as any).assignments) && (c as any).assignments.length > 0;
   const assignmentsCount = typeof (c as any)?._count?.assignments === "number" ? Number((c as any)._count.assignments) : 0;
 
-  // If there are explicit assignments, treat this campaign as a whitelist.
-  if (assignmentsCount > 0 && !isAssignedToOwner) return null;
+  const bucketIdsForOwner = new Set<string>();
+  try {
+    const rows = await (prisma as any).portalTargetingBucketMember.findMany({
+      where: { ownerId: opts.ownerId },
+      select: { bucketId: true },
+      take: 500,
+    });
+    for (const r of rows || []) bucketIdsForOwner.add(String((r as any).bucketId));
+  } catch {
+    // ignore
+  }
 
-  // If includeOwnerIds is present, treat it as a whitelist.
-  if ((target.includeOwnerIds ?? []).length > 0 && !target.includeOwnerIds?.includes(opts.ownerId)) return null;
+  const targetBucketIds = target.bucketIds ?? [];
+  const isInBucket = targetBucketIds.length ? targetBucketIds.some((id) => bucketIdsForOwner.has(id)) : false;
+  const hasWhitelist = assignmentsCount > 0 || (target.includeOwnerIds ?? []).length > 0 || targetBucketIds.length > 0;
+  const isWhitelisted = isAssignedToOwner || Boolean(target.includeOwnerIds?.includes(opts.ownerId)) || isInBucket;
+
+  if (hasWhitelist && !isWhitelisted) return null;
 
   const matchesVariant =
     !target.portalVariant ||
@@ -329,11 +388,13 @@ export async function getPortalAdCampaignForOwnerById(opts: {
 
   if (!matchPath(opts.path, target.paths ?? [])) return null;
 
-  const matchesIndustry = matchAnyCaseInsensitive(profile?.industry, target.industries ?? []);
-  if (!matchesIndustry && (target.industries ?? []).length) return null;
+  if (!isWhitelisted) {
+    const matchesIndustry = matchAnyCaseInsensitive(profile?.industry, target.industries ?? []);
+    if (!matchesIndustry && (target.industries ?? []).length) return null;
 
-  const matchesBusinessModel = matchAnyCaseInsensitive(profile?.businessModel, target.businessModels ?? []);
-  if (!matchesBusinessModel && (target.businessModels ?? []).length) return null;
+    const matchesBusinessModel = matchAnyCaseInsensitive(profile?.businessModel, target.businessModels ?? []);
+    if (!matchesBusinessModel && (target.businessModels ?? []).length) return null;
+  }
 
   if ((target.serviceSlugsAny ?? []).length) {
     const any = (target.serviceSlugsAny ?? []).some((s) => unlockedServiceSlugs.has(s));
@@ -345,7 +406,7 @@ export async function getPortalAdCampaignForOwnerById(opts: {
     if (!all) return null;
   }
 
-  if (!isAssignedToOwner) {
+  if (!isWhitelisted) {
     if ((target.industries ?? []).length && !String(profile?.industry || "").trim()) return null;
     if ((target.businessModels ?? []).length && !String(profile?.businessModel || "").trim()) return null;
   }
@@ -354,7 +415,7 @@ export async function getPortalAdCampaignForOwnerById(opts: {
     id: c.id,
     name: c.name,
     placement: c.placement as PortalAdPlacement,
-    creative: readCreativeJson(c.creativeJson),
+    creative: pickCreativeForOwner(c.creativeJson, { ownerId: opts.ownerId, campaignId: c.id }),
     reward: readRewardJson(c.rewardJson),
   };
 }

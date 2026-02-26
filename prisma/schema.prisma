@@ -135,6 +135,8 @@ model User {
 
   portalHoursSavedEvents PortalHoursSavedEvent[]
 
+  portalTargetingBucketMembers PortalTargetingBucketMember[]
+
   portalNewsletterGenerationEvents PortalNewsletterGenerationEvent[]
   portalNewsletterSendEvents PortalNewsletterSendEvent[]
 
@@ -1501,6 +1503,33 @@ model PortalAdCampaignEvent {
 
   @@index([campaignId, ownerId, kind, createdAt])
   @@index([ownerId, createdAt])
+}
+
+model PortalTargetingBucket {
+  id String @id @default(cuid())
+
+  name        String @unique
+  description String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  members PortalTargetingBucketMember[]
+}
+
+model PortalTargetingBucketMember {
+  id String @id @default(cuid())
+
+  bucketId String
+  ownerId  String
+
+  createdAt DateTime @default(now())
+
+  bucket PortalTargetingBucket @relation(fields: [bucketId], references: [id], onDelete: Cascade)
+  owner  User                 @relation(fields: [ownerId], references: [id], onDelete: Cascade)
+
+  @@unique([bucketId, ownerId])
+  @@index([ownerId])
 }
 
 model BusinessProfile {
