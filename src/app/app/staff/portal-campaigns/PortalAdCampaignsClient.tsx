@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 
 import { PortalListboxDropdown } from "@/components/PortalListboxDropdown";
 import { PortalMultiSelectDropdown } from "@/components/PortalMultiSelectDropdown";
@@ -99,8 +99,33 @@ function placementLabel(p: Placement) {
   return "Fullscreen reward";
 }
 
+function placementSupportsMedia(p: Placement): { image: boolean; video: boolean } {
+  if (p === "SIDEBAR_BANNER") return { image: true, video: false };
+  if (p === "TOP_BANNER") return { image: true, video: false };
+  if (p === "FULLSCREEN_REWARD") return { image: true, video: true };
+  return { image: false, video: false }; // BILLING_SPONSORED
+}
+
+function summarizeMediaVisibility(placements: Placement[], creative: Pick<CreativeVariantDraft, "mediaKind" | "mediaUrl">) {
+  const kind = creative.mediaKind;
+  const hasMedia = Boolean(String(creative.mediaUrl || "").trim());
+  if (!hasMedia) {
+    return { hasMedia: false, showIn: [] as Placement[], hideIn: [] as Placement[] };
+  }
+
+  const showIn: Placement[] = [];
+  const hideIn: Placement[] = [];
+  for (const p of placements) {
+    const supports = placementSupportsMedia(p);
+    const ok = kind === "video" ? supports.video : supports.image;
+    (ok ? showIn : hideIn).push(p);
+  }
+  return { hasMedia: true, showIn, hideIn };
+}
+
 export default function PortalAdCampaignsClient() {
   const toast = useToast();
+  const shownMediaWarningsRef = useRef<Set<string>>(new Set());
   const [campaigns, setCampaigns] = useState<CampaignRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -140,6 +165,38 @@ export default function PortalAdCampaignsClient() {
     // offers
     offers: OfferDraft[];
   }>(null);
+
+  useEffect(() => {
+    if (!editor) return;
+    const placements = (editor.placements || []) as Placement[];
+    if (!placements.length) return;
+
+    for (let i = 0; i < (editor.creatives || []).length; i++) {
+      const c = editor.creatives[i]!;
+      const sum = summarizeMediaVisibility(placements, c);
+      if (!sum.hasMedia) continue;
+
+      if (!sum.showIn.length) {
+        const key = `${editor.id || "new"}:creative:${i}:nomedia:${c.mediaKind}:${placements.join(",")}`;
+        if (shownMediaWarningsRef.current.has(key)) continue;
+        shownMediaWarningsRef.current.add(key);
+        toast.info(
+          `Heads up: this creative's ${c.mediaKind === "video" ? "video" : "image"} won't show for the selected placements (${placements
+            .map(placementLabel)
+            .join(", ")}).`,
+        );
+      } else if (sum.hideIn.length) {
+        const key = `${editor.id || "new"}:creative:${i}:partial:${c.mediaKind}:${placements.join(",")}`;
+        if (shownMediaWarningsRef.current.has(key)) continue;
+        shownMediaWarningsRef.current.add(key);
+        toast.info(
+          `Heads up: this creative's ${c.mediaKind === "video" ? "video" : "image"} won't show in: ${sum.hideIn
+            .map(placementLabel)
+            .join(", ")}.`,
+        );
+      }
+    }
+  }, [editor, toast]);
 
   const [assignOpen, setAssignOpen] = useState(false);
   const [assignCampaignId, setAssignCampaignId] = useState<string | null>(null);
@@ -1329,26 +1386,15 @@ export default function PortalAdCampaignsClient() {
 
                 <div className="mt-2 text-xs text-zinc-500">
                   {(() => {
-                    const placements = editor.placements || [];
-                    const supportsImages = placements.filter((p) => p === "SIDEBAR_BANNER" || p === "TOP_BANNER");
-                    const supportsVideo = placements.includes("FULLSCREEN_REWARD");
-                    const mediaIgnored = placements.filter((p) => p === "BILLING_SPONSORED");
+                    const placements = (editor.placements || []) as Placement[];
+                    const supportsImages = placements.filter((p) => placementSupportsMedia(p).image);
+                    const supportsVideo = placements.filter((p) => placementSupportsMedia(p).video);
+                    const mediaIgnored = placements.filter((p) => !placementSupportsMedia(p).image && !placementSupportsMedia(p).video);
 
                     const parts: string[] = [];
-                    if (supportsImages.length) {
-                      parts.push(
-                        `Images will display for: ${supportsImages.map(placementLabel).join(", ")}.`,
-                      );
-                    }
-                    if (supportsVideo) {
-                      parts.push("Videos will display for: Fullscreen reward.");
-                    }
-                    if (mediaIgnored.length) {
-                      parts.push(
-                        `Media is currently not shown for: ${mediaIgnored.map(placementLabel).join(", ")}.`,
-                      );
-                    }
-                    if (!parts.length) return "";
+                    if (supportsImages.length) parts.push(`Images can show in: ${supportsImages.map(placementLabel).join(", ")}.`);
+                    if (supportsVideo.length) parts.push(`Videos can show in: ${supportsVideo.map(placementLabel).join(", ")}.`);
+                    if (mediaIgnored.length) parts.push(`Media won't show in: ${mediaIgnored.map(placementLabel).join(", ")}.`);
                     return parts.join(" ");
                   })()}
                 </div>
@@ -1479,6 +1525,34 @@ export default function PortalAdCampaignsClient() {
                               setEditor({ ...editor, creatives: next });
                             }}
                           />
+
+                          {(() => {
+                            const placements = (editor.placements || []) as Placement[];
+                            const sum = summarizeMediaVisibility(placements, v);
+                            if (!sum.hasMedia) return null;
+
+                            const show = sum.showIn.map(placementLabel).join(", ");
+                            const hide = sum.hideIn.map(placementLabel).join(", ");
+
+                            if (!sum.showIn.length) {
+                              return (
+                                <div className="mt-1 text-xs font-semibold text-rose-700">
+                                  This {v.mediaKind === "video" ? "video" : "image"} will not show for the selected placements.
+                                </div>
+                              );
+                            }
+
+                            return (
+                              <div className="mt-1 text-xs text-zinc-500">
+                                Will show in: <span className="font-semibold text-zinc-700">{show || "—"}</span>
+                                {sum.hideIn.length ? (
+                                  <>
+                                    {" "}• Won’t show in: <span className="font-semibold text-zinc-700">{hide}</span>
+                                  </>
+                                ) : null}
+                              </div>
+                            );
+                          })()}
 
                           {v.mediaUrl && v.mediaKind === "image" ? (
                             /* eslint-disable-next-line @next/next/no-img-element */
