@@ -1162,19 +1162,34 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
                   ) : null}
                 </div>
 
-                {popupCampaign?.creative?.mediaUrl && popupCampaign?.creative?.mediaKind !== "video" ? (
-                  /* eslint-disable-next-line @next/next/no-img-element */
-                  <img
-                    src={popupCampaign.creative.mediaUrl}
-                    alt={popupCampaign?.creative?.headline || "Sponsored"}
-                    className="mt-4 w-full rounded-2xl border border-zinc-200 object-cover"
-                    style={{
-                      maxHeight: 320,
-                      objectFit: popupCampaign?.creative?.mediaFit || "cover",
-                      objectPosition: popupCampaign?.creative?.mediaPosition || "center",
-                    }}
-                    loading="lazy"
-                  />
+                {popupCampaign?.creative?.mediaUrl ? (
+                  popupCampaign?.creative?.mediaKind === "video" ? (
+                    <video
+                      className="mt-4 w-full rounded-2xl border border-zinc-200 bg-black"
+                      style={{
+                        maxHeight: 320,
+                        objectFit: popupCampaign?.creative?.mediaFit || "contain",
+                        objectPosition: popupCampaign?.creative?.mediaPosition || "center",
+                      }}
+                      controls
+                      playsInline
+                      preload="metadata"
+                      src={popupCampaign.creative.mediaUrl}
+                    />
+                  ) : (
+                    /* eslint-disable-next-line @next/next/no-img-element */
+                    <img
+                      src={popupCampaign.creative.mediaUrl}
+                      alt={popupCampaign?.creative?.headline || "Sponsored"}
+                      className="mt-4 w-full rounded-2xl border border-zinc-200 object-cover"
+                      style={{
+                        maxHeight: 320,
+                        objectFit: popupCampaign?.creative?.mediaFit || "cover",
+                        objectPosition: popupCampaign?.creative?.mediaPosition || "center",
+                      }}
+                      loading="lazy"
+                    />
+                  )
                 ) : null}
 
                 <div className="mt-4 flex flex-wrap items-center justify-end gap-2">

@@ -49,7 +49,40 @@ type CreativeVariantDraft = {
   dismissEnabled?: boolean;
   dismissDelaySeconds?: number;
   dismissReshowAfterSeconds?: number;
+  dismissReshowAfterValue?: number;
+  dismissReshowAfterUnit?: "seconds" | "minutes" | "hours" | "days";
 };
+
+const RESHOW_UNITS = ["seconds", "minutes", "hours", "days"] as const;
+const RESHOW_UNIT_SECONDS: Record<(typeof RESHOW_UNITS)[number], number> = {
+  seconds: 1,
+  minutes: 60,
+  hours: 60 * 60,
+  days: 60 * 60 * 24,
+};
+
+function normalizeReshowUnit(v: unknown): (typeof RESHOW_UNITS)[number] {
+  const s = typeof v === "string" ? v.trim().toLowerCase() : "";
+  return (RESHOW_UNITS as readonly string[]).includes(s) ? (s as any) : "hours";
+}
+
+function deriveReshowValueUnitFromSeconds(secondsRaw: unknown): {
+  seconds: number;
+  value: number;
+  unit: (typeof RESHOW_UNITS)[number];
+} {
+  const seconds = Number.isFinite(Number(secondsRaw)) ? Math.max(0, Math.floor(Number(secondsRaw))) : 3600;
+  const unit =
+    seconds > 0 && seconds % RESHOW_UNIT_SECONDS.days === 0
+      ? "days"
+      : seconds > 0 && seconds % RESHOW_UNIT_SECONDS.hours === 0
+        ? "hours"
+        : seconds > 0 && seconds % RESHOW_UNIT_SECONDS.minutes === 0
+          ? "minutes"
+          : "seconds";
+  const value = seconds / RESHOW_UNIT_SECONDS[unit];
+  return { seconds, value, unit };
+}
 
 type OfferDraft =
   | {
@@ -126,7 +159,7 @@ function placementSupportsMedia(p: Placement): { image: boolean; video: boolean 
   if (p === "SIDEBAR_BANNER") return { image: true, video: false };
   if (p === "TOP_BANNER") return { image: true, video: false };
   if (p === "FULLSCREEN_REWARD") return { image: true, video: true };
-  if (p === "POPUP_CARD") return { image: true, video: false };
+  if (p === "POPUP_CARD") return { image: true, video: true };
   return { image: false, video: false }; // BILLING_SPONSORED
 }
 
@@ -614,6 +647,8 @@ export default function PortalAdCampaignsClient() {
           dismissEnabled: false,
           dismissDelaySeconds: 0,
           dismissReshowAfterSeconds: 3600,
+          dismissReshowAfterValue: 1,
+          dismissReshowAfterUnit: "hours",
         },
       ],
 
@@ -635,7 +670,9 @@ export default function PortalAdCampaignsClient() {
 
     const variantsRaw = Array.isArray(c.variants) ? c.variants : null;
     const creatives: CreativeVariantDraft[] = variantsRaw?.length
-      ? variantsRaw.map((v: any) => ({
+      ? variantsRaw.map((v: any) => {
+          const reshow = deriveReshowValueUnitFromSeconds(v?.dismissReshowAfterSeconds);
+          return {
           headline: String(v?.headline ?? ""),
           body: String(v?.body ?? ""),
           ctaText: String(v?.ctaText ?? ""),
@@ -650,10 +687,21 @@ export default function PortalAdCampaignsClient() {
 
           dismissEnabled: Boolean(v?.dismissEnabled),
           dismissDelaySeconds: Number.isFinite(Number(v?.dismissDelaySeconds)) ? Math.max(0, Math.floor(Number(v?.dismissDelaySeconds))) : 0,
-          dismissReshowAfterSeconds: Number.isFinite(Number(v?.dismissReshowAfterSeconds)) ? Math.max(0, Math.floor(Number(v?.dismissReshowAfterSeconds))) : 3600,
-        }))
+          dismissReshowAfterSeconds: reshow.seconds,
+          dismissReshowAfterValue: reshow.value,
+          dismissReshowAfterUnit: reshow.unit,
+        };
+        })
       : [
           {
+            ...((): any => {
+              const reshow = deriveReshowValueUnitFromSeconds(c?.dismissReshowAfterSeconds);
+              return {
+                dismissReshowAfterSeconds: reshow.seconds,
+                dismissReshowAfterValue: reshow.value,
+                dismissReshowAfterUnit: reshow.unit,
+              };
+            })(),
             headline: String(c.headline ?? ""),
             body: String(c.body ?? ""),
             ctaText: String(c.ctaText ?? ""),
@@ -668,7 +716,6 @@ export default function PortalAdCampaignsClient() {
 
             dismissEnabled: Boolean(c?.dismissEnabled),
             dismissDelaySeconds: Number.isFinite(Number(c?.dismissDelaySeconds)) ? Math.max(0, Math.floor(Number(c?.dismissDelaySeconds))) : 0,
-            dismissReshowAfterSeconds: Number.isFinite(Number(c?.dismissReshowAfterSeconds)) ? Math.max(0, Math.floor(Number(c?.dismissReshowAfterSeconds))) : 3600,
           },
         ];
 
@@ -1892,18 +1939,55 @@ export default function PortalAdCampaignsClient() {
                               </div>
                               <div>
                                 <label className="text-xs font-semibold text-zinc-600">Reshow after dismiss (seconds)</label>
-                                <input
-                                  type="number"
-                                  min={0}
-                                  className="mt-1 w-full rounded-2xl border border-zinc-200 px-3 py-2 text-sm"
-                                  value={Number.isFinite(Number(v.dismissReshowAfterSeconds)) ? String(Math.max(0, Math.floor(Number(v.dismissReshowAfterSeconds)))) : "3600"}
-                                  onChange={(e) => {
-                                    const n = Math.max(0, Math.floor(Number(e.target.value) || 0));
-                                    const next = [...editor.creatives];
-                                    next[idx] = { ...next[idx]!, dismissReshowAfterSeconds: n };
-                                    setEditor({ ...editor, creatives: next });
-                                  }}
-                                />
+                                <div className="mt-1 grid grid-cols-2 gap-2">
+                                  <input
+                                    type="number"
+                                    min={0}
+                                    step={0.25}
+                                    className="w-full rounded-2xl border border-zinc-200 px-3 py-2 text-sm"
+                                    value={
+                                      Number.isFinite(Number(v.dismissReshowAfterValue))
+                                        ? String(Math.max(0, Number(v.dismissReshowAfterValue)))
+                                        : String(deriveReshowValueUnitFromSeconds(v.dismissReshowAfterSeconds).value)
+                                    }
+                                    onChange={(e) => {
+                                      const unit = normalizeReshowUnit(v.dismissReshowAfterUnit);
+                                      const value = Math.max(0, Number(e.target.value) || 0);
+                                      const seconds = Math.max(0, Math.round(value * RESHOW_UNIT_SECONDS[unit]));
+                                      const next = [...editor.creatives];
+                                      next[idx] = {
+                                        ...next[idx]!,
+                                        dismissReshowAfterUnit: unit,
+                                        dismissReshowAfterValue: value,
+                                        dismissReshowAfterSeconds: seconds,
+                                      };
+                                      setEditor({ ...editor, creatives: next });
+                                    }}
+                                  />
+                                  <select
+                                    className="w-full rounded-2xl border border-zinc-200 px-3 py-2 text-sm"
+                                    value={normalizeReshowUnit(v.dismissReshowAfterUnit)}
+                                    onChange={(e) => {
+                                      const currentSeconds = deriveReshowValueUnitFromSeconds(v.dismissReshowAfterSeconds).seconds;
+                                      const unit = normalizeReshowUnit(e.target.value);
+                                      const value = currentSeconds / RESHOW_UNIT_SECONDS[unit];
+                                      const next = [...editor.creatives];
+                                      next[idx] = {
+                                        ...next[idx]!,
+                                        dismissReshowAfterUnit: unit,
+                                        dismissReshowAfterValue: value,
+                                        dismissReshowAfterSeconds: currentSeconds,
+                                      };
+                                      setEditor({ ...editor, creatives: next });
+                                    }}
+                                  >
+                                    {RESHOW_UNITS.map((u) => (
+                                      <option key={u} value={u}>
+                                        {u}
+                                      </option>
+                                    ))}
+                                  </select>
+                                </div>
                               </div>
                             </div>
                             <div className="mt-2 text-xs text-zinc-500">
@@ -2130,7 +2214,7 @@ export default function PortalAdCampaignsClient() {
                                 );
                               }
 
-                              if (p === "POPUP_CARD" && v.mediaKind === "image") {
+                              if (p === "POPUP_CARD") {
                                 return (
                                   <div className="mt-3 rounded-2xl border border-zinc-200 bg-white p-3">
                                     <div className="text-xs font-semibold text-zinc-600">Popup card preview</div>
@@ -2138,17 +2222,32 @@ export default function PortalAdCampaignsClient() {
                                       <div className="text-[11px] font-semibold uppercase tracking-wide text-zinc-500">Sponsored</div>
                                       <div className="mt-1 text-sm font-semibold text-zinc-900">{v.headline || "Sponsored"}</div>
                                       {v.body ? <div className="mt-2 text-xs text-zinc-700">{v.body}</div> : null}
-                                      {/* eslint-disable-next-line @next/next/no-img-element */}
-                                      <img
-                                        src={v.mediaUrl}
-                                        alt="Creative"
-                                        className="mt-3 w-full rounded-2xl border border-zinc-200 object-cover"
-                                        style={{
-                                          maxHeight: 240,
-                                          objectFit: normalizeMediaFit(v.mediaFit) ?? "cover",
-                                          objectPosition: normalizeMediaPosition(v.mediaPosition) ?? "center",
-                                        }}
-                                      />
+                                      {v.mediaKind === "video" ? (
+                                        <video
+                                          className="mt-3 w-full rounded-2xl border border-zinc-200 bg-black"
+                                          style={{
+                                            maxHeight: 240,
+                                            objectFit: normalizeMediaFit(v.mediaFit) ?? "contain",
+                                            objectPosition: normalizeMediaPosition(v.mediaPosition) ?? "center",
+                                          }}
+                                          controls
+                                          playsInline
+                                          preload="metadata"
+                                          src={v.mediaUrl}
+                                        />
+                                      ) : (
+                                        // eslint-disable-next-line @next/next/no-img-element
+                                        <img
+                                          src={v.mediaUrl}
+                                          alt="Creative"
+                                          className="mt-3 w-full rounded-2xl border border-zinc-200 object-cover"
+                                          style={{
+                                            maxHeight: 240,
+                                            objectFit: normalizeMediaFit(v.mediaFit) ?? "cover",
+                                            objectPosition: normalizeMediaPosition(v.mediaPosition) ?? "center",
+                                          }}
+                                        />
+                                      )}
                                       <div className="mt-3 inline-flex rounded-2xl bg-zinc-900 px-4 py-2 text-xs font-semibold text-white">
                                         {v.ctaText || "Learn"}
                                       </div>
