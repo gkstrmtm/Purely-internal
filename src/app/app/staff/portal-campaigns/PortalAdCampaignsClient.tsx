@@ -358,16 +358,38 @@ export default function PortalAdCampaignsClient() {
     return xs.map((s) => ({ value: s, label: s }));
   }, []);
 
-  const pathSuggestions = useMemo(
-    () => [
-      { value: "/portal/app/billing", label: "/portal/app/billing" },
-      { value: "/portal/app/services/*", label: "/portal/app/services/*" },
-      { value: "/portal/app/dashboard", label: "/portal/app/dashboard" },
-      { value: "/credit/app/billing", label: "/credit/app/billing" },
-      { value: "/credit/app/services/*", label: "/credit/app/services/*" },
-    ],
-    [],
-  );
+  const [portalAppPathOptions, setPortalAppPathOptions] = useState<Array<{ value: string; label: string }>>([
+    { value: "/portal/app/*", label: "/portal/app/*" },
+    { value: "/portal/app/billing", label: "/portal/app/billing" },
+    { value: "/portal/app/services/*", label: "/portal/app/services/*" },
+    { value: "/portal/app/dashboard", label: "/portal/app/dashboard" },
+  ]);
+
+  useEffect(() => {
+    let alive = true;
+    (async () => {
+      const res = await fetch(`/api/staff/portal/app-paths?prefix=${encodeURIComponent("/portal/app")}`);
+      const json = (await res.json().catch(() => null)) as any;
+      if (!alive) return;
+      if (!res.ok || !json?.ok || !Array.isArray(json.paths)) return;
+
+      const base = [
+        "/portal/app/*",
+        "/portal/app/billing",
+        "/portal/app/services/*",
+        "/portal/app/dashboard",
+      ];
+      const merged = Array.from(new Set([...base, ...json.paths.map(String)])).filter(Boolean);
+      merged.sort((a, b) => a.localeCompare(b));
+      setPortalAppPathOptions(merged.map((p) => ({ value: p, label: p })));
+    })().catch(() => {
+      // ignore
+    });
+
+    return () => {
+      alive = false;
+    };
+  }, []);
 
   function openCreate() {
     setEditor({
@@ -668,12 +690,17 @@ export default function PortalAdCampaignsClient() {
     });
   }
 
+  const includeOwnerIds = useMemo(
+    () => (editor?.includeOwnerIds || []).filter(Boolean).slice(0, 200),
+    [editor?.includeOwnerIds],
+  );
+  const includeOwnerIdsKey = useMemo(() => includeOwnerIds.join(","), [includeOwnerIds]);
+
   useEffect(() => {
     if (!editor) return;
-    const ids = (editor.includeOwnerIds || []).filter(Boolean).slice(0, 200);
-    if (!ids.length) return;
+    if (!includeOwnerIds.length) return;
 
-    const missing = ids.filter((id) => !includedOwnerById[id]);
+    const missing = includeOwnerIds.filter((id) => !includedOwnerById[id]);
     if (!missing.length) return;
 
     let alive = true;
@@ -697,7 +724,7 @@ export default function PortalAdCampaignsClient() {
     return () => {
       alive = false;
     };
-  }, [editor, (editor?.includeOwnerIds || []).join(","), includedOwnerById]);
+  }, [editor, includeOwnerIds, includeOwnerIdsKey, includedOwnerById]);
 
   async function assignOwner(ownerId: string) {
     if (!assignCampaignId) return;
@@ -1075,7 +1102,7 @@ export default function PortalAdCampaignsClient() {
                         <PortalMultiSelectDropdown
                           label="Pages"
                           value={editor.paths}
-                          options={pathSuggestions}
+                          options={portalAppPathOptions}
                           onChange={(next) => setEditor({ ...editor, paths: next })}
                           allowCustom
                           placeholder="Type a page path…"
