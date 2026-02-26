@@ -255,7 +255,7 @@ export async function getNextPortalAdCampaignForOwner(opts: {
         enabled: true,
         placement: opts.placement as any,
       },
-      orderBy: [{ priority: "desc" }, { updatedAt: "desc" }],
+      orderBy: [{ priority: "desc" }, { updatedAt: "desc" }, { createdAt: "desc" }],
       take: 50,
       include: {
         assignments: { where: { ownerId: opts.ownerId }, select: { id: true } },

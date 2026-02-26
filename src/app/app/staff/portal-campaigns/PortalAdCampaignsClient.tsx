@@ -229,7 +229,7 @@ export default function PortalAdCampaignsClient() {
     const placements = (editor?.placements || []) as Placement[];
     if (placements.length && placements.includes(creativePreviewPlacement)) return creativePreviewPlacement;
     return placements[0] || "SIDEBAR_BANNER";
-  }, [placementsKey, creativePreviewPlacement]);
+  }, [creativePreviewPlacement, editor?.placements]);
 
   useEffect(() => {
     if (!editor) return;

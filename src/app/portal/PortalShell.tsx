@@ -3,7 +3,7 @@
 import Image from "next/image";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 
 import { SignOutButton } from "@/components/SignOutButton";
 import {
@@ -173,45 +173,53 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
   const isFullDemo = (me?.user.email ?? "").toLowerCase().trim() === DEFAULT_FULL_DEMO_EMAIL;
   const knownServiceKeys = useMemo(() => new Set<string>(PORTAL_SERVICE_KEYS as unknown as string[]), []);
 
-  useEffect(() => {
-    let alive = true;
-    (async () => {
-      const res = await fetch(
-        `/api/portal/ads/next?placement=SIDEBAR_BANNER&path=${encodeURIComponent(pathname || "")}`,
-        { cache: "no-store" },
-      ).catch(() => null as any);
+  const refreshAds = useCallback(
+    async (opts: { placement: "SIDEBAR_BANNER" | "TOP_BANNER"; reason: "path" | "focus" }) => {
+      const url = `/api/portal/ads/next?placement=${opts.placement}&path=${encodeURIComponent(pathname || "")}`;
+      const res = await fetch(url, { cache: "no-store" }).catch(() => null as any);
       const json = (await res?.json().catch(() => null)) as any;
-      if (!alive) return;
+
       if (!res?.ok || !json?.ok) {
-        setSidebarCampaign(null);
+        if (opts.placement === "SIDEBAR_BANNER") setSidebarCampaign(null);
+        if (opts.placement === "TOP_BANNER") setTopBannerCampaign(null);
         return;
       }
-      setSidebarCampaign(json.campaign ?? null);
-    })();
-    return () => {
-      alive = false;
-    };
-  }, [pathname]);
+
+      if (opts.placement === "SIDEBAR_BANNER") setSidebarCampaign(json.campaign ?? null);
+      if (opts.placement === "TOP_BANNER") setTopBannerCampaign(json.campaign ?? null);
+    },
+    [pathname],
+  );
+
+  useEffect(() => {
+    void refreshAds({ placement: "SIDEBAR_BANNER", reason: "path" });
+  }, [pathname, refreshAds]);
+
+  useEffect(() => {
+    void refreshAds({ placement: "TOP_BANNER", reason: "path" });
+  }, [pathname, refreshAds]);
 
   useEffect(() => {
     let alive = true;
-    (async () => {
-      const res = await fetch(
-        `/api/portal/ads/next?placement=TOP_BANNER&path=${encodeURIComponent(pathname || "")}`,
-        { cache: "no-store" },
-      ).catch(() => null as any);
-      const json = (await res?.json().catch(() => null)) as any;
+
+    const onVisibilityChange = () => {
       if (!alive) return;
-      if (!res?.ok || !json?.ok) {
-        setTopBannerCampaign(null);
-        return;
-      }
-      setTopBannerCampaign(json.campaign ?? null);
-    })();
+      if (document.visibilityState !== "visible") return;
+
+      // Common workflow: edit campaigns in staff tab -> switch back to portal tab.
+      // Refresh once on focus so disabled campaigns immediately fall back.
+      void refreshAds({ placement: "SIDEBAR_BANNER", reason: "focus" });
+      void refreshAds({ placement: "TOP_BANNER", reason: "focus" });
+    };
+
+    document.addEventListener("visibilitychange", onVisibilityChange);
+    window.addEventListener("focus", onVisibilityChange);
     return () => {
       alive = false;
+      document.removeEventListener("visibilitychange", onVisibilityChange);
+      window.removeEventListener("focus", onVisibilityChange);
     };
-  }, [pathname]);
+  }, [refreshAds]);
 
   const navItems = useMemo(() => {
     const can = (key: PortalServiceKey) => {
