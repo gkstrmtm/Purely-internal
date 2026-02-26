@@ -16,7 +16,7 @@ function detectDeviceFromUserAgent(ua: string | null): "mobile" | "desktop" {
 }
 
 function asPlacement(v: string | null): PortalAdPlacement | null {
-  if (v === "SIDEBAR_BANNER" || v === "TOP_BANNER" || v === "BILLING_SPONSORED" || v === "FULLSCREEN_REWARD") return v;
+  if (v === "SIDEBAR_BANNER" || v === "TOP_BANNER" || v === "BILLING_SPONSORED" || v === "FULLSCREEN_REWARD" || v === "POPUP_CARD") return v;
   return null;
 }
 
@@ -32,6 +32,8 @@ export async function GET(req: Request) {
   const url = new URL(req.url);
   const placement = asPlacement(url.searchParams.get("placement"));
   const path = (url.searchParams.get("path") || "").trim() || null;
+  const excludeParam = (url.searchParams.get("exclude") || "").trim();
+  const excludeCampaignIds = excludeParam ? excludeParam.split(",").map((s) => s.trim()).filter(Boolean).slice(0, 200) : [];
 
   if (!placement) {
     return NextResponse.json(
@@ -48,6 +50,7 @@ export async function GET(req: Request) {
     portalVariant,
     placement,
     path,
+    excludeCampaignIds,
   });
 
   if (campaign?.id) {

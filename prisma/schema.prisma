@@ -27,6 +27,7 @@ enum PortalAdPlacement {
   TOP_BANNER
   BILLING_SPONSORED
   FULLSCREEN_REWARD
+  POPUP_CARD
 }
 
 enum PortalAdEventKind {

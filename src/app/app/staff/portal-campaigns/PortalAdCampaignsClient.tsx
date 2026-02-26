@@ -7,7 +7,7 @@ import { PortalMultiSelectDropdown } from "@/components/PortalMultiSelectDropdow
 import { useToast } from "@/components/ToastProvider";
 import { BUSINESS_MODEL_SUGGESTIONS, INDUSTRY_SUGGESTIONS, PORTAL_ONBOARDING_PLANS } from "@/lib/portalOnboardingWizardCatalog";
 
-type Placement = "SIDEBAR_BANNER" | "TOP_BANNER" | "BILLING_SPONSORED" | "FULLSCREEN_REWARD";
+type Placement = "SIDEBAR_BANNER" | "TOP_BANNER" | "BILLING_SPONSORED" | "FULLSCREEN_REWARD" | "POPUP_CARD";
 
 type CampaignRow = {
   id: string;
@@ -45,6 +45,10 @@ type CreativeVariantDraft = {
   sidebarImageHeight?: number;
   topBannerImageSize?: number;
   fullscreenMediaMaxWidthPct?: number;
+
+  dismissEnabled?: boolean;
+  dismissDelaySeconds?: number;
+  dismissReshowAfterSeconds?: number;
 };
 
 type OfferDraft =
@@ -114,13 +118,15 @@ function placementLabel(p: Placement) {
   if (p === "SIDEBAR_BANNER") return "Sidebar banner";
   if (p === "TOP_BANNER") return "Top banner";
   if (p === "BILLING_SPONSORED") return "Billing sponsored";
-  return "Fullscreen reward";
+  if (p === "FULLSCREEN_REWARD") return "Fullscreen reward";
+  return "Popup card";
 }
 
 function placementSupportsMedia(p: Placement): { image: boolean; video: boolean } {
   if (p === "SIDEBAR_BANNER") return { image: true, video: false };
   if (p === "TOP_BANNER") return { image: true, video: false };
   if (p === "FULLSCREEN_REWARD") return { image: true, video: true };
+  if (p === "POPUP_CARD") return { image: true, video: false };
   return { image: false, video: false }; // BILLING_SPONSORED
 }
 
@@ -604,6 +610,10 @@ export default function PortalAdCampaignsClient() {
           sidebarImageHeight: 120,
           topBannerImageSize: 56,
           fullscreenMediaMaxWidthPct: 100,
+
+          dismissEnabled: false,
+          dismissDelaySeconds: 0,
+          dismissReshowAfterSeconds: 3600,
         },
       ],
 
@@ -637,6 +647,10 @@ export default function PortalAdCampaignsClient() {
           sidebarImageHeight: clampSidebarImageHeight(v?.sidebarImageHeight) ?? 120,
           topBannerImageSize: clampTopBannerSize(v?.topBannerImageSize) ?? 56,
           fullscreenMediaMaxWidthPct: clampFullscreenMaxWidthPct(v?.fullscreenMediaMaxWidthPct) ?? 100,
+
+          dismissEnabled: Boolean(v?.dismissEnabled),
+          dismissDelaySeconds: Number.isFinite(Number(v?.dismissDelaySeconds)) ? Math.max(0, Math.floor(Number(v?.dismissDelaySeconds))) : 0,
+          dismissReshowAfterSeconds: Number.isFinite(Number(v?.dismissReshowAfterSeconds)) ? Math.max(0, Math.floor(Number(v?.dismissReshowAfterSeconds))) : 3600,
         }))
       : [
           {
@@ -651,6 +665,10 @@ export default function PortalAdCampaignsClient() {
             sidebarImageHeight: clampSidebarImageHeight(c?.sidebarImageHeight) ?? 120,
             topBannerImageSize: clampTopBannerSize(c?.topBannerImageSize) ?? 56,
             fullscreenMediaMaxWidthPct: clampFullscreenMaxWidthPct(c?.fullscreenMediaMaxWidthPct) ?? 100,
+
+            dismissEnabled: Boolean(c?.dismissEnabled),
+            dismissDelaySeconds: Number.isFinite(Number(c?.dismissDelaySeconds)) ? Math.max(0, Math.floor(Number(c?.dismissDelaySeconds))) : 0,
+            dismissReshowAfterSeconds: Number.isFinite(Number(c?.dismissReshowAfterSeconds)) ? Math.max(0, Math.floor(Number(c?.dismissReshowAfterSeconds))) : 3600,
           },
         ];
 
@@ -746,6 +764,10 @@ export default function PortalAdCampaignsClient() {
         sidebarImageHeight: clampSidebarImageHeight(v.sidebarImageHeight) ?? 120,
         topBannerImageSize: clampTopBannerSize(v.topBannerImageSize) ?? 56,
         fullscreenMediaMaxWidthPct: clampFullscreenMaxWidthPct(v.fullscreenMediaMaxWidthPct) ?? 100,
+
+        dismissEnabled: Boolean(v.dismissEnabled) || undefined,
+        dismissDelaySeconds: Number.isFinite(Number(v.dismissDelaySeconds)) ? Math.max(0, Math.floor(Number(v.dismissDelaySeconds))) : 0,
+        dismissReshowAfterSeconds: Number.isFinite(Number(v.dismissReshowAfterSeconds)) ? Math.max(0, Math.floor(Number(v.dismissReshowAfterSeconds))) : 3600,
       }))
       .filter((v) => v.headline || v.body || v.mediaUrl || v.linkUrl);
 
@@ -1288,12 +1310,13 @@ export default function PortalAdCampaignsClient() {
                               { value: "TOP_BANNER", label: "Top banner" },
                               { value: "BILLING_SPONSORED", label: "Billing sponsored" },
                               { value: "FULLSCREEN_REWARD", label: "Fullscreen reward" },
+                              { value: "POPUP_CARD", label: "Popup card" },
                             ]}
                             onChange={(v) => setEditor({ ...editor, placements: [v] })}
                           />
                         ) : (
                           <div className="flex flex-wrap gap-2">
-                            {(["SIDEBAR_BANNER", "TOP_BANNER", "BILLING_SPONSORED", "FULLSCREEN_REWARD"] as Placement[]).map((p) => {
+                            {(["SIDEBAR_BANNER", "TOP_BANNER", "BILLING_SPONSORED", "FULLSCREEN_REWARD", "POPUP_CARD"] as Placement[]).map((p) => {
                               const on = editor.placements.includes(p);
                               return (
                                 <button
@@ -1837,6 +1860,57 @@ export default function PortalAdCampaignsClient() {
                             }}
                           />
 
+                          <div className="mt-3 rounded-2xl border border-zinc-200 bg-white p-3">
+                            <div className="text-xs font-semibold text-zinc-600">Dismiss / close button</div>
+                            <div className="mt-2 grid grid-cols-1 gap-2 sm:grid-cols-3">
+                              <label className="inline-flex items-center gap-2 text-sm text-zinc-800">
+                                <input
+                                  type="checkbox"
+                                  checked={Boolean(v.dismissEnabled)}
+                                  onChange={(e) => {
+                                    const next = [...editor.creatives];
+                                    next[idx] = { ...next[idx]!, dismissEnabled: e.target.checked };
+                                    setEditor({ ...editor, creatives: next });
+                                  }}
+                                />
+                                Allow dismiss (X)
+                              </label>
+                              <div>
+                                <label className="text-xs font-semibold text-zinc-600">X shows after (seconds)</label>
+                                <input
+                                  type="number"
+                                  min={0}
+                                  className="mt-1 w-full rounded-2xl border border-zinc-200 px-3 py-2 text-sm"
+                                  value={Number.isFinite(Number(v.dismissDelaySeconds)) ? String(Math.max(0, Math.floor(Number(v.dismissDelaySeconds)))) : "0"}
+                                  onChange={(e) => {
+                                    const n = Math.max(0, Math.floor(Number(e.target.value) || 0));
+                                    const next = [...editor.creatives];
+                                    next[idx] = { ...next[idx]!, dismissDelaySeconds: n };
+                                    setEditor({ ...editor, creatives: next });
+                                  }}
+                                />
+                              </div>
+                              <div>
+                                <label className="text-xs font-semibold text-zinc-600">Reshow after dismiss (seconds)</label>
+                                <input
+                                  type="number"
+                                  min={0}
+                                  className="mt-1 w-full rounded-2xl border border-zinc-200 px-3 py-2 text-sm"
+                                  value={Number.isFinite(Number(v.dismissReshowAfterSeconds)) ? String(Math.max(0, Math.floor(Number(v.dismissReshowAfterSeconds)))) : "3600"}
+                                  onChange={(e) => {
+                                    const n = Math.max(0, Math.floor(Number(e.target.value) || 0));
+                                    const next = [...editor.creatives];
+                                    next[idx] = { ...next[idx]!, dismissReshowAfterSeconds: n };
+                                    setEditor({ ...editor, creatives: next });
+                                  }}
+                                />
+                              </div>
+                            </div>
+                            <div className="mt-2 text-xs text-zinc-500">
+                              If reshow is 0, the portal uses a sensible default (1 hour).
+                            </div>
+                          </div>
+
                           {v.mediaKind === "image" ? (
                             <div className="mt-2 grid grid-cols-1 gap-2 sm:grid-cols-2">
                               <div>
@@ -2050,6 +2124,33 @@ export default function PortalAdCampaignsClient() {
                                         <div className="inline-flex shrink-0 rounded-2xl bg-zinc-900 px-4 py-2 text-xs font-semibold text-white">
                                           {v.ctaText || "Learn"}
                                         </div>
+                                      </div>
+                                    </div>
+                                  </div>
+                                );
+                              }
+
+                              if (p === "POPUP_CARD" && v.mediaKind === "image") {
+                                return (
+                                  <div className="mt-3 rounded-2xl border border-zinc-200 bg-white p-3">
+                                    <div className="text-xs font-semibold text-zinc-600">Popup card preview</div>
+                                    <div className="mt-2 rounded-3xl border border-zinc-200 bg-white p-4 shadow-sm">
+                                      <div className="text-[11px] font-semibold uppercase tracking-wide text-zinc-500">Sponsored</div>
+                                      <div className="mt-1 text-sm font-semibold text-zinc-900">{v.headline || "Sponsored"}</div>
+                                      {v.body ? <div className="mt-2 text-xs text-zinc-700">{v.body}</div> : null}
+                                      {/* eslint-disable-next-line @next/next/no-img-element */}
+                                      <img
+                                        src={v.mediaUrl}
+                                        alt="Creative"
+                                        className="mt-3 w-full rounded-2xl border border-zinc-200 object-cover"
+                                        style={{
+                                          maxHeight: 240,
+                                          objectFit: normalizeMediaFit(v.mediaFit) ?? "cover",
+                                          objectPosition: normalizeMediaPosition(v.mediaPosition) ?? "center",
+                                        }}
+                                      />
+                                      <div className="mt-3 inline-flex rounded-2xl bg-zinc-900 px-4 py-2 text-xs font-semibold text-white">
+                                        {v.ctaText || "Learn"}
                                       </div>
                                     </div>
                                   </div>

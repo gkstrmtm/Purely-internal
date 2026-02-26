@@ -4,7 +4,7 @@ import { isCreditsOnlyBilling } from "@/lib/portalBillingModel";
 import { getPortalServiceStatusesForOwner } from "@/lib/portalServicesStatus";
 import type { PortalVariant } from "@/lib/portalVariant";
 
-export type PortalAdPlacement = "SIDEBAR_BANNER" | "TOP_BANNER" | "BILLING_SPONSORED" | "FULLSCREEN_REWARD";
+export type PortalAdPlacement = "SIDEBAR_BANNER" | "TOP_BANNER" | "BILLING_SPONSORED" | "FULLSCREEN_REWARD" | "POPUP_CARD";
 
 export type PortalAdCampaignCreativeVariant = {
   headline?: string;
@@ -18,6 +18,10 @@ export type PortalAdCampaignCreativeVariant = {
   sidebarImageHeight?: number;
   topBannerImageSize?: number;
   fullscreenMediaMaxWidthPct?: number;
+
+  dismissEnabled?: boolean;
+  dismissDelaySeconds?: number;
+  dismissReshowAfterSeconds?: number;
 };
 
 export type PortalAdCampaignCreative = PortalAdCampaignCreativeVariant;
@@ -114,6 +118,28 @@ function readCreativeVariant(data: unknown): PortalAdCampaignCreativeVariant {
     ? Math.max(40, Math.min(100, Math.floor(fullscreenMaxWidthRaw)))
     : undefined;
 
+  const dismissEnabled = Boolean((rec as any).dismissEnabled);
+
+  const dismissDelayRaw =
+    typeof (rec as any).dismissDelaySeconds === "number"
+      ? (rec as any).dismissDelaySeconds
+      : typeof (rec as any).dismissDelaySeconds === "string"
+        ? Number((rec as any).dismissDelaySeconds)
+        : NaN;
+  const dismissDelaySeconds = Number.isFinite(dismissDelayRaw)
+    ? Math.max(0, Math.min(60 * 60, Math.floor(dismissDelayRaw)))
+    : undefined;
+
+  const dismissReshowRaw =
+    typeof (rec as any).dismissReshowAfterSeconds === "number"
+      ? (rec as any).dismissReshowAfterSeconds
+      : typeof (rec as any).dismissReshowAfterSeconds === "string"
+        ? Number((rec as any).dismissReshowAfterSeconds)
+        : NaN;
+  const dismissReshowAfterSeconds = Number.isFinite(dismissReshowRaw)
+    ? Math.max(0, Math.min(60 * 60 * 24 * 30, Math.floor(dismissReshowRaw)))
+    : undefined;
+
   const headline = typeof rec.headline === "string" ? rec.headline.trim().slice(0, 160) : "";
   const body = typeof rec.body === "string" ? rec.body.trim().slice(0, 800) : "";
   const ctaText = typeof rec.ctaText === "string" ? rec.ctaText.trim().slice(0, 80) : "";
@@ -132,6 +158,10 @@ function readCreativeVariant(data: unknown): PortalAdCampaignCreativeVariant {
     sidebarImageHeight,
     topBannerImageSize,
     fullscreenMediaMaxWidthPct,
+
+    dismissEnabled: dismissEnabled || undefined,
+    dismissDelaySeconds,
+    dismissReshowAfterSeconds,
   };
 }
 
@@ -215,6 +245,7 @@ export async function getNextPortalAdCampaignForOwner(opts: {
   portalVariant: PortalVariant;
   placement: PortalAdPlacement;
   path?: string | null | undefined;
+  excludeCampaignIds?: string[] | null | undefined;
 }) {
   const now = new Date();
 
@@ -254,6 +285,9 @@ export async function getNextPortalAdCampaignForOwner(opts: {
       where: {
         enabled: true,
         placement: opts.placement as any,
+        ...(Array.isArray(opts.excludeCampaignIds) && opts.excludeCampaignIds.length
+          ? { id: { notIn: opts.excludeCampaignIds.filter(Boolean).slice(0, 200) } }
+          : {}),
       },
       orderBy: [{ priority: "desc" }, { updatedAt: "desc" }, { createdAt: "desc" }],
       take: 50,

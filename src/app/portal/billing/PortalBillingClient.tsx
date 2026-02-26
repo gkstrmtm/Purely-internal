@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import Image from "next/image";
-import { useRouter } from "next/navigation";
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
 
 import { useToast } from "@/components/ToastProvider";
 import { formatUsd } from "@/lib/pricing.shared";
@@ -83,9 +83,12 @@ function formatMoney(cents: number, currency: string) {
 }
 
 export function PortalBillingClient() {
+  const pathname = usePathname();
   const router = useRouter();
+  const searchParams = useSearchParams();
   const toast = useToast();
-  const pathname = typeof window !== "undefined" ? window.location.pathname : "/portal/app/billing";
+
+  const variant = typeof pathname === "string" && (pathname === "/credit" || pathname.startsWith("/credit/")) ? "credit" : "portal";
   const [status, setStatus] = useState<BillingStatus | null>(null);
   const [summary, setSummary] = useState<BillingSummary | null>(null);
   const [pricing, setPricing] = useState<PortalPricing | null>(null);
@@ -125,11 +128,86 @@ export function PortalBillingClient() {
       mediaFit?: "cover" | "contain";
       mediaPosition?: string;
       fullscreenMediaMaxWidthPct?: number;
+
+      dismissEnabled?: boolean;
+      dismissDelaySeconds?: number;
+      dismissReshowAfterSeconds?: number;
     };
     reward?: { credits?: number; cooldownHours?: number; minWatchSeconds?: number } | null;
   }>(null);
 
   const [rewardStatus, setRewardStatus] = useState<null | { eligible: boolean; nextEligibleAtIso: string | null }>(null);
+  const [canShowRewardDismiss, setCanShowRewardDismiss] = useState(false);
+
+  useEffect(() => {
+    const enabled = Boolean(rewardCampaign?.creative?.dismissEnabled);
+    if (!enabled) {
+      setCanShowRewardDismiss(false);
+      return;
+    }
+
+    const delaySeconds = Math.max(0, Math.floor(Number(rewardCampaign?.creative?.dismissDelaySeconds ?? 0)));
+    if (delaySeconds <= 0) {
+      setCanShowRewardDismiss(true);
+      return;
+    }
+
+    setCanShowRewardDismiss(false);
+    const id = window.setTimeout(() => setCanShowRewardDismiss(true), delaySeconds * 1000);
+    return () => window.clearTimeout(id);
+  }, [rewardCampaign?.creative?.dismissDelaySeconds, rewardCampaign?.creative?.dismissEnabled, rewardCampaign?.id]);
+
+  const rewardDismissStorageKey = useCallback(() => `portalAdDismissed:${variant}:FULLSCREEN_REWARD`, [variant]);
+
+  const getRewardExcludeIds = useCallback((): string[] => {
+    try {
+      const key = rewardDismissStorageKey();
+      const raw = window.localStorage.getItem(key);
+      const json = raw ? (JSON.parse(raw) as unknown) : null;
+      if (!json || typeof json !== "object" || Array.isArray(json)) return [];
+
+      const nowMs = Date.now();
+      const map = json as Record<string, unknown>;
+      const out: string[] = [];
+      let changed = false;
+      for (const [idRaw, untilRaw] of Object.entries(map)) {
+        const id = String(idRaw || "").trim();
+        const untilMs = typeof untilRaw === "number" ? untilRaw : typeof untilRaw === "string" ? Number(untilRaw) : NaN;
+        if (!id || !Number.isFinite(untilMs) || untilMs <= nowMs) {
+          delete map[idRaw];
+          changed = true;
+          continue;
+        }
+        out.push(id);
+      }
+      if (changed) window.localStorage.setItem(key, JSON.stringify(map));
+      return out.slice(0, 200);
+    } catch {
+      return [];
+    }
+  }, [rewardDismissStorageKey]);
+
+  function dismissRewardCampaign() {
+    if (!rewardCampaign?.id) return;
+    const base = Number.isFinite(Number(rewardCampaign?.creative?.dismissReshowAfterSeconds))
+      ? Math.max(0, Math.floor(Number(rewardCampaign?.creative?.dismissReshowAfterSeconds)))
+      : 0;
+    const reshowAfterSeconds = base > 0 ? base : 60 * 60;
+    const hideUntilMs = Date.now() + reshowAfterSeconds * 1000;
+
+    try {
+      const raw = window.localStorage.getItem(rewardDismissStorageKey());
+      const json = raw ? (JSON.parse(raw) as unknown) : null;
+      const map = json && typeof json === "object" && !Array.isArray(json) ? (json as Record<string, unknown>) : {};
+      map[rewardCampaign.id] = hideUntilMs;
+      window.localStorage.setItem(rewardDismissStorageKey(), JSON.stringify(map));
+    } catch {
+      // ignore
+    }
+
+    setRewardCampaign(null);
+    setRewardStatus(null);
+  }
 
   const adMinWatchSeconds = Math.max(0, Math.floor(Number(rewardCampaign?.reward?.minWatchSeconds ?? 15)));
   const adRewardCredits = Math.max(0, Math.floor(Number(rewardCampaign?.reward?.credits ?? 0)));
@@ -171,6 +249,14 @@ export function PortalBillingClient() {
     setAutoTopUp(Boolean(c.autoTopUp));
     setPurchaseAvailable(Boolean(c.purchaseAvailable));
   }, []);
+
+  useEffect(() => {
+    const shouldOpen = (searchParams?.get("openRewardAd") || "").trim() === "1";
+    if (!shouldOpen) return;
+    if (!rewardCampaign?.id) return;
+    if (!adEligible) return;
+    setAdModalOpen(true);
+  }, [adEligible, rewardCampaign?.id, searchParams]);
 
   useEffect(() => {
     let mounted = true;
@@ -372,15 +458,17 @@ export function PortalBillingClient() {
   }, [adMediaReady, adModalOpen, adPlaying]);
 
   useEffect(() => {
-    let alive = true;
+    let mounted = true;
     (async () => {
       const path = window.location.pathname;
+      const excludeIds = getRewardExcludeIds();
       const res = await fetch(
-        `/api/portal/ads/next?placement=FULLSCREEN_REWARD&path=${encodeURIComponent(path)}`,
+        `/api/portal/ads/next?placement=FULLSCREEN_REWARD&path=${encodeURIComponent(path)}` +
+          (excludeIds.length ? `&exclude=${encodeURIComponent(excludeIds.join(","))}` : ""),
         { cache: "no-store" },
       ).catch(() => null as any);
       const json = (await res?.json().catch(() => null)) as any;
-      if (!alive) return;
+      if (!mounted) return;
       if (!res?.ok || !json?.ok) {
         setRewardCampaign(null);
         setRewardStatus(null);
@@ -400,9 +488,9 @@ export function PortalBillingClient() {
       );
     })();
     return () => {
-      alive = false;
+      mounted = false;
     };
-  }, []);
+  }, [getRewardExcludeIds]);
 
   const claimAdReward = useCallback(
     async (opts: { watchedSeconds: number; closeModalOnSuccess?: boolean }) => {
@@ -415,7 +503,6 @@ export function PortalBillingClient() {
         return { ok: false as const };
       }
       if (!adEligible) {
-        setError("Not available right now.");
         return { ok: false as const };
       }
       const path = window.location.pathname;
@@ -449,6 +536,8 @@ export function PortalBillingClient() {
     },
     [adEligible, refreshCredits, rewardCampaign?.id, toast],
   );
+
+  const showRewardCard = Boolean(rewardCampaign?.id) && (adRewardCredits <= 0 || adEligible);
 
   useEffect(() => {
     if (!adModalOpen) return;
@@ -1115,7 +1204,7 @@ export function PortalBillingClient() {
           </div>
         </div>
 
-        {rewardCampaign ? (
+        {showRewardCard ? (
           <div className="mt-4 rounded-2xl border border-brand-ink/10 bg-gradient-to-br from-[color:var(--color-brand-pink)]/15 via-[color:var(--color-brand-blue)]/10 to-white p-4">
             <div className="flex items-start justify-between gap-3">
               <div>
@@ -1131,14 +1220,26 @@ export function PortalBillingClient() {
                   {rewardCampaign?.creative?.body || "A short video from Purely Automation."}
                 </div>
               </div>
-              <button
-                type="button"
-                className="rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm font-semibold text-zinc-800 hover:bg-zinc-50 disabled:opacity-60"
-                onClick={() => setAdModalOpen(true)}
-                disabled={actionBusy !== null || !adEligible}
-              >
-                Watch
-              </button>
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  className="rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm font-semibold text-zinc-800 hover:bg-zinc-50 disabled:opacity-60"
+                  onClick={() => setAdModalOpen(true)}
+                  disabled={actionBusy !== null || !adEligible}
+                >
+                  Watch
+                </button>
+                {canShowRewardDismiss ? (
+                  <button
+                    type="button"
+                    className="inline-flex h-10 w-10 items-center justify-center rounded-full border border-zinc-200 bg-white text-zinc-700 hover:bg-zinc-50"
+                    aria-label="Dismiss"
+                    onClick={dismissRewardCampaign}
+                  >
+                    ×
+                  </button>
+                ) : null}
+              </div>
             </div>
 
             <div className="mt-3 rounded-2xl border border-zinc-200 bg-white p-3 text-sm text-zinc-700">
@@ -1149,7 +1250,6 @@ export function PortalBillingClient() {
               ) : (
                 <>Sponsored message</>
               )}
-              {!adEligible ? <div className="mt-2 text-xs font-semibold text-zinc-500">Not available right now.</div> : null}
             </div>
           </div>
         ) : null}

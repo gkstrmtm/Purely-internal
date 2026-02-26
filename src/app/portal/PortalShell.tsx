@@ -2,7 +2,7 @@
 
 import Image from "next/image";
 import Link from "next/link";
-import { usePathname } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
 import { useCallback, useEffect, useMemo, useState } from "react";
 
 import { SignOutButton } from "@/components/SignOutButton";
@@ -47,9 +47,12 @@ function classNames(...xs: Array<string | false | null | undefined>) {
 
 export function PortalShell({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
+  const router = useRouter();
   const variant = typeof pathname === "string" && (pathname === "/credit" || pathname.startsWith("/credit/")) ? "credit" : "portal";
   const basePath = variant === "credit" ? "/credit" : "/portal";
   const logoSrc = variant === "credit" ? "/brand/purely%20credit.png" : "/brand/purity-5.png";
+
+  type AdPlacement = "SIDEBAR_BANNER" | "TOP_BANNER" | "FULLSCREEN_REWARD" | "POPUP_CARD";
 
   const isFunnelBuilderEditor =
     typeof pathname === "string" &&
@@ -74,6 +77,10 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
       mediaFit?: "cover" | "contain";
       mediaPosition?: string;
       sidebarImageHeight?: number;
+
+      dismissEnabled?: boolean;
+      dismissDelaySeconds?: number;
+      dismissReshowAfterSeconds?: number;
     };
   }>(null);
 
@@ -89,8 +96,162 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
       mediaFit?: "cover" | "contain";
       mediaPosition?: string;
       topBannerImageSize?: number;
+
+      dismissEnabled?: boolean;
+      dismissDelaySeconds?: number;
+      dismissReshowAfterSeconds?: number;
     };
   }>(null);
+
+  const [rewardCampaign, setRewardCampaign] = useState<null | {
+    id: string;
+    reward?: { credits?: number; cooldownHours?: number; minWatchSeconds?: number } | null;
+    creative?: {
+      headline?: string;
+      body?: string;
+      ctaText?: string;
+      linkUrl?: string;
+      mediaUrl?: string;
+      mediaKind?: "image" | "video";
+      mediaFit?: "cover" | "contain";
+      mediaPosition?: string;
+
+      dismissEnabled?: boolean;
+      dismissDelaySeconds?: number;
+      dismissReshowAfterSeconds?: number;
+    };
+  }>(null);
+
+  const [rewardStatus, setRewardStatus] = useState<null | { eligible: boolean; nextEligibleAtIso: string | null }>(null);
+
+  const [popupCampaign, setPopupCampaign] = useState<null | {
+    id: string;
+    creative?: {
+      headline?: string;
+      body?: string;
+      ctaText?: string;
+      linkUrl?: string;
+      mediaUrl?: string;
+      mediaKind?: "image" | "video";
+      mediaFit?: "cover" | "contain";
+      mediaPosition?: string;
+
+      dismissEnabled?: boolean;
+      dismissDelaySeconds?: number;
+      dismissReshowAfterSeconds?: number;
+    };
+  }>(null);
+
+  const [sidebarShownAtMs, setSidebarShownAtMs] = useState(0);
+  const [topBannerShownAtMs, setTopBannerShownAtMs] = useState(0);
+  const [rewardShownAtMs, setRewardShownAtMs] = useState(0);
+  const [popupShownAtMs, setPopupShownAtMs] = useState(0);
+
+  const [nowMs, setNowMs] = useState(0);
+
+  useEffect(() => {
+    const tick = () => setNowMs(Date.now());
+    tick();
+    const id = window.setInterval(tick, 250);
+    return () => window.clearInterval(id);
+  }, []);
+
+  useEffect(() => {
+    if (sidebarCampaign?.id) setSidebarShownAtMs(Date.now());
+  }, [sidebarCampaign?.id]);
+
+  useEffect(() => {
+    if (topBannerCampaign?.id) setTopBannerShownAtMs(Date.now());
+  }, [topBannerCampaign?.id]);
+
+  useEffect(() => {
+    if (rewardCampaign?.id) setRewardShownAtMs(Date.now());
+  }, [rewardCampaign?.id]);
+
+  useEffect(() => {
+    if (popupCampaign?.id) setPopupShownAtMs(Date.now());
+  }, [popupCampaign?.id]);
+
+  const dismissStorageKey = useCallback(
+    (placement: AdPlacement) => `portalAdDismissed:${variant}:${placement}`,
+    [variant],
+  );
+
+  const readDismissMap = useCallback(
+    (placement: AdPlacement): Record<string, number> => {
+    try {
+      const raw = window.localStorage.getItem(dismissStorageKey(placement));
+      const json = raw ? (JSON.parse(raw) as unknown) : null;
+      if (!json || typeof json !== "object" || Array.isArray(json)) return {};
+
+      const out: Record<string, number> = {};
+      for (const [k, v] of Object.entries(json as Record<string, unknown>)) {
+        const id = String(k || "").trim();
+        const untilMs = typeof v === "number" ? v : typeof v === "string" ? Number(v) : NaN;
+        if (!id) continue;
+        if (!Number.isFinite(untilMs)) continue;
+        out[id] = untilMs;
+      }
+      return out;
+    } catch {
+      return {};
+    }
+    },
+    [dismissStorageKey],
+  );
+
+  const writeDismissMap = useCallback(
+    (placement: AdPlacement, map: Record<string, number>) => {
+    try {
+      window.localStorage.setItem(dismissStorageKey(placement), JSON.stringify(map));
+    } catch {
+      // ignore
+    }
+    },
+    [dismissStorageKey],
+  );
+
+  const getExcludedCampaignIds = useCallback(
+    (placement: AdPlacement): string[] => {
+    const nowMs = Date.now();
+    const map = readDismissMap(placement);
+    const out: string[] = [];
+    let changed = false;
+    for (const [id, untilMs] of Object.entries(map)) {
+      if (!Number.isFinite(untilMs) || untilMs <= nowMs) {
+        delete map[id];
+        changed = true;
+        continue;
+      }
+      out.push(id);
+    }
+    if (changed) writeDismissMap(placement, map);
+    return out.slice(0, 200);
+    },
+    [readDismissMap, writeDismissMap],
+  );
+
+  const dismissCampaign = useCallback((opts: {
+    placement: AdPlacement;
+    campaignId: string;
+    reshowAfterSeconds: number | null | undefined;
+  }) => {
+    const base = Number.isFinite(Number(opts.reshowAfterSeconds)) ? Math.max(0, Math.floor(Number(opts.reshowAfterSeconds))) : 0;
+    const reshowAfterSeconds = base > 0 ? base : 60 * 60;
+    const hideUntilMs = Date.now() + reshowAfterSeconds * 1000;
+
+    const map = readDismissMap(opts.placement);
+    map[opts.campaignId] = hideUntilMs;
+    writeDismissMap(opts.placement, map);
+  }, [readDismissMap, writeDismissMap]);
+
+  function canShowDismiss(campaign: { creative?: { dismissEnabled?: boolean; dismissDelaySeconds?: number } } | null, shownAtMs: number) {
+    if (!campaign?.creative?.dismissEnabled) return false;
+    const delaySeconds = Math.max(0, Math.floor(Number(campaign.creative.dismissDelaySeconds ?? 0)));
+    if (!shownAtMs) return delaySeconds <= 0;
+    if (!nowMs) return false;
+    return nowMs - shownAtMs >= delaySeconds * 1000;
+  }
 
   useEffect(() => {
     const saved = window.localStorage.getItem("portalSidebarCollapsed");
@@ -174,21 +335,44 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
   const knownServiceKeys = useMemo(() => new Set<string>(PORTAL_SERVICE_KEYS as unknown as string[]), []);
 
   const refreshAds = useCallback(
-    async (opts: { placement: "SIDEBAR_BANNER" | "TOP_BANNER"; reason: "path" | "focus" }) => {
-      const url = `/api/portal/ads/next?placement=${opts.placement}&path=${encodeURIComponent(pathname || "")}`;
+    async (opts: { placement: AdPlacement; reason: "path" | "focus" | "dismiss" }) => {
+      const excludeIds = getExcludedCampaignIds(opts.placement);
+      const url =
+        `/api/portal/ads/next?placement=${opts.placement}&path=${encodeURIComponent(pathname || "")}` +
+        (excludeIds.length ? `&exclude=${encodeURIComponent(excludeIds.join(","))}` : "");
       const res = await fetch(url, { cache: "no-store" }).catch(() => null as any);
       const json = (await res?.json().catch(() => null)) as any;
 
       if (!res?.ok || !json?.ok) {
         if (opts.placement === "SIDEBAR_BANNER") setSidebarCampaign(null);
         if (opts.placement === "TOP_BANNER") setTopBannerCampaign(null);
+        if (opts.placement === "FULLSCREEN_REWARD") {
+          setRewardCampaign(null);
+          setRewardStatus(null);
+        }
+        if (opts.placement === "POPUP_CARD") setPopupCampaign(null);
         return;
       }
 
       if (opts.placement === "SIDEBAR_BANNER") setSidebarCampaign(json.campaign ?? null);
       if (opts.placement === "TOP_BANNER") setTopBannerCampaign(json.campaign ?? null);
+      if (opts.placement === "FULLSCREEN_REWARD") {
+        setRewardCampaign(json.campaign ?? null);
+        setRewardStatus(
+          json?.rewardStatus && typeof json.rewardStatus === "object"
+            ? {
+                eligible: Boolean(json.rewardStatus.eligible),
+                nextEligibleAtIso:
+                  typeof json.rewardStatus.nextEligibleAtIso === "string" && json.rewardStatus.nextEligibleAtIso
+                    ? json.rewardStatus.nextEligibleAtIso
+                    : null,
+              }
+            : null,
+        );
+      }
+      if (opts.placement === "POPUP_CARD") setPopupCampaign(json.campaign ?? null);
     },
-    [pathname],
+    [getExcludedCampaignIds, pathname],
   );
 
   useEffect(() => {
@@ -200,22 +384,28 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
   }, [pathname, refreshAds]);
 
   useEffect(() => {
-    let alive = true;
+    void refreshAds({ placement: "FULLSCREEN_REWARD", reason: "path" });
+  }, [pathname, refreshAds]);
 
+  useEffect(() => {
+    void refreshAds({ placement: "POPUP_CARD", reason: "path" });
+  }, [pathname, refreshAds]);
+
+  useEffect(() => {
     const onVisibilityChange = () => {
-      if (!alive) return;
       if (document.visibilityState !== "visible") return;
 
       // Common workflow: edit campaigns in staff tab -> switch back to portal tab.
       // Refresh once on focus so disabled campaigns immediately fall back.
       void refreshAds({ placement: "SIDEBAR_BANNER", reason: "focus" });
       void refreshAds({ placement: "TOP_BANNER", reason: "focus" });
+      void refreshAds({ placement: "FULLSCREEN_REWARD", reason: "focus" });
+      void refreshAds({ placement: "POPUP_CARD", reason: "focus" });
     };
 
     document.addEventListener("visibilitychange", onVisibilityChange);
     window.addEventListener("focus", onVisibilityChange);
     return () => {
-      alive = false;
       document.removeEventListener("visibilitychange", onVisibilityChange);
       window.removeEventListener("focus", onVisibilityChange);
     };
@@ -482,6 +672,26 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
             <div className="border-t border-zinc-200 p-4">
               {sidebarCampaign ? (
                 <div className="mb-4 rounded-2xl border border-brand-ink/10 bg-gradient-to-br from-[color:var(--color-brand-blue)]/10 to-white p-3 text-sm text-zinc-800">
+                  {canShowDismiss(sidebarCampaign, sidebarShownAtMs) ? (
+                    <div className="mb-2 flex justify-end">
+                      <button
+                        type="button"
+                        className="inline-flex h-8 w-8 items-center justify-center rounded-full border border-zinc-200 bg-white text-zinc-700 hover:bg-zinc-50"
+                        aria-label="Dismiss"
+                        onClick={() => {
+                          dismissCampaign({
+                            placement: "SIDEBAR_BANNER",
+                            campaignId: sidebarCampaign.id,
+                            reshowAfterSeconds: sidebarCampaign?.creative?.dismissReshowAfterSeconds,
+                          });
+                          setSidebarCampaign(null);
+                          void refreshAds({ placement: "SIDEBAR_BANNER", reason: "dismiss" });
+                        }}
+                      >
+                        ×
+                      </button>
+                    </div>
+                  ) : null}
                   {sidebarCampaign?.creative?.mediaUrl && sidebarCampaign?.creative?.mediaKind !== "video" ? (
                     /* eslint-disable-next-line @next/next/no-img-element */
                     <img
@@ -686,6 +896,26 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
           >
             {sidebarCampaign && !collapsed ? (
               <div className="mb-4 rounded-2xl border border-brand-ink/10 bg-gradient-to-br from-[color:var(--color-brand-blue)]/10 to-white p-3 text-sm text-zinc-800">
+                {canShowDismiss(sidebarCampaign, sidebarShownAtMs) ? (
+                  <div className="mb-2 flex justify-end">
+                    <button
+                      type="button"
+                      className="inline-flex h-8 w-8 items-center justify-center rounded-full border border-zinc-200 bg-white text-zinc-700 hover:bg-zinc-50"
+                      aria-label="Dismiss"
+                      onClick={() => {
+                        dismissCampaign({
+                          placement: "SIDEBAR_BANNER",
+                          campaignId: sidebarCampaign.id,
+                          reshowAfterSeconds: sidebarCampaign?.creative?.dismissReshowAfterSeconds,
+                        });
+                        setSidebarCampaign(null);
+                        void refreshAds({ placement: "SIDEBAR_BANNER", reason: "dismiss" });
+                      }}
+                    >
+                      ×
+                    </button>
+                  </div>
+                ) : null}
                 {sidebarCampaign?.creative?.mediaUrl && sidebarCampaign?.creative?.mediaKind !== "video" ? (
                   /* eslint-disable-next-line @next/next/no-img-element */
                   <img
@@ -793,23 +1023,177 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
                     ) : null}
                     </div>
                   </div>
-                  <Link
-                    href={
-                      `/api/portal/ads/click?campaignId=${encodeURIComponent(topBannerCampaign.id)}` +
-                      `&placement=TOP_BANNER` +
-                      `&path=${encodeURIComponent(pathname || "")}` +
-                      `&to=${encodeURIComponent(topBannerCampaign?.creative?.linkUrl || `${basePath}/app/billing`)}`
-                    }
-                    className="inline-flex items-center justify-center rounded-2xl bg-zinc-900 px-4 py-2 text-sm font-semibold text-white hover:bg-zinc-800"
-                  >
-                    {topBannerCampaign?.creative?.ctaText || "Learn more"}
-                  </Link>
+                  <div className="flex items-center gap-2">
+                    <Link
+                      href={
+                        `/api/portal/ads/click?campaignId=${encodeURIComponent(topBannerCampaign.id)}` +
+                        `&placement=TOP_BANNER` +
+                        `&path=${encodeURIComponent(pathname || "")}` +
+                        `&to=${encodeURIComponent(topBannerCampaign?.creative?.linkUrl || `${basePath}/app/billing`)}`
+                      }
+                      className="inline-flex items-center justify-center rounded-2xl bg-zinc-900 px-4 py-2 text-sm font-semibold text-white hover:bg-zinc-800"
+                    >
+                      {topBannerCampaign?.creative?.ctaText || "Learn more"}
+                    </Link>
+
+                    {canShowDismiss(topBannerCampaign, topBannerShownAtMs) ? (
+                      <button
+                        type="button"
+                        className="inline-flex h-10 w-10 items-center justify-center rounded-full border border-zinc-200 bg-white text-zinc-700 hover:bg-zinc-50"
+                        aria-label="Dismiss"
+                        onClick={() => {
+                          dismissCampaign({
+                            placement: "TOP_BANNER",
+                            campaignId: topBannerCampaign.id,
+                            reshowAfterSeconds: topBannerCampaign?.creative?.dismissReshowAfterSeconds,
+                          });
+                          setTopBannerCampaign(null);
+                          void refreshAds({ placement: "TOP_BANNER", reason: "dismiss" });
+                        }}
+                      >
+                        ×
+                      </button>
+                    ) : null}
+                  </div>
                 </div>
               </div>
             ) : null}
 
             {children}
           </main>
+
+          {rewardCampaign && (rewardStatus?.eligible ?? true) ? (
+            <div className="fixed bottom-4 left-4 z-[9996] w-[min(420px,calc(100vw-2rem))] rounded-3xl border border-zinc-200 bg-white p-4 shadow-2xl ring-1 ring-[color:rgba(29,78,216,0.14)]">
+              <div className="flex items-start justify-between gap-3">
+                <div className="min-w-0">
+                  <div className="inline-flex items-center gap-2">
+                    <span className="rounded-full bg-[color:var(--color-brand-blue)]/15 px-2.5 py-1 text-[11px] font-bold uppercase tracking-wide text-[color:var(--color-brand-blue)]">
+                      Sponsored
+                    </span>
+                    <div className="truncate text-sm font-semibold text-zinc-900">
+                      {rewardCampaign?.creative?.headline || "Purely Automation"}
+                    </div>
+                  </div>
+                  <div className="mt-1 line-clamp-2 text-xs text-zinc-600">
+                    {rewardCampaign?.creative?.body || "Watch a short video."}
+                  </div>
+                </div>
+
+                <div className="flex shrink-0 items-center gap-2">
+                  <button
+                    type="button"
+                    className="rounded-2xl bg-zinc-900 px-4 py-2 text-sm font-semibold text-white hover:bg-zinc-800"
+                    onClick={() => {
+                      router.push(`${basePath}/app/billing?openRewardAd=1`);
+                    }}
+                  >
+                    Watch
+                  </button>
+
+                  {canShowDismiss(rewardCampaign, rewardShownAtMs) ? (
+                    <button
+                      type="button"
+                      className="inline-flex h-10 w-10 items-center justify-center rounded-full border border-zinc-200 bg-white text-zinc-700 hover:bg-zinc-50"
+                      aria-label="Dismiss"
+                      onClick={() => {
+                        dismissCampaign({
+                          placement: "FULLSCREEN_REWARD",
+                          campaignId: rewardCampaign.id,
+                          reshowAfterSeconds: rewardCampaign?.creative?.dismissReshowAfterSeconds,
+                        });
+                        setRewardCampaign(null);
+                        setRewardStatus(null);
+                        void refreshAds({ placement: "FULLSCREEN_REWARD", reason: "dismiss" });
+                      }}
+                    >
+                      ×
+                    </button>
+                  ) : null}
+                </div>
+              </div>
+            </div>
+          ) : null}
+
+          {popupCampaign ? (
+            <div className="fixed inset-0 z-[9995] flex items-center justify-center p-4">
+              <button
+                type="button"
+                className="absolute inset-0 bg-black/40"
+                aria-label="Dismiss"
+                onClick={() => {
+                  dismissCampaign({
+                    placement: "POPUP_CARD",
+                    campaignId: popupCampaign.id,
+                    reshowAfterSeconds: popupCampaign?.creative?.dismissReshowAfterSeconds,
+                  });
+                  setPopupCampaign(null);
+                  void refreshAds({ placement: "POPUP_CARD", reason: "dismiss" });
+                }}
+              />
+
+              <div className="relative w-full max-w-lg rounded-3xl border border-zinc-200 bg-white p-5 shadow-2xl">
+                <div className="flex items-start justify-between gap-3">
+                  <div className="min-w-0">
+                    <div className="text-xs font-semibold uppercase tracking-wide text-zinc-500">Sponsored</div>
+                    <div className="mt-1 text-base font-semibold text-zinc-900">
+                      {popupCampaign?.creative?.headline || "Sponsored"}
+                    </div>
+                    {popupCampaign?.creative?.body ? (
+                      <div className="mt-2 text-sm text-zinc-700">{popupCampaign.creative.body}</div>
+                    ) : null}
+                  </div>
+                  {canShowDismiss(popupCampaign, popupShownAtMs) ? (
+                    <button
+                      type="button"
+                      className="inline-flex h-10 w-10 items-center justify-center rounded-full border border-zinc-200 bg-white text-zinc-700 hover:bg-zinc-50"
+                      aria-label="Dismiss"
+                      onClick={() => {
+                        dismissCampaign({
+                          placement: "POPUP_CARD",
+                          campaignId: popupCampaign.id,
+                          reshowAfterSeconds: popupCampaign?.creative?.dismissReshowAfterSeconds,
+                        });
+                        setPopupCampaign(null);
+                        void refreshAds({ placement: "POPUP_CARD", reason: "dismiss" });
+                      }}
+                    >
+                      ×
+                    </button>
+                  ) : null}
+                </div>
+
+                {popupCampaign?.creative?.mediaUrl && popupCampaign?.creative?.mediaKind !== "video" ? (
+                  /* eslint-disable-next-line @next/next/no-img-element */
+                  <img
+                    src={popupCampaign.creative.mediaUrl}
+                    alt={popupCampaign?.creative?.headline || "Sponsored"}
+                    className="mt-4 w-full rounded-2xl border border-zinc-200 object-cover"
+                    style={{
+                      maxHeight: 320,
+                      objectFit: popupCampaign?.creative?.mediaFit || "cover",
+                      objectPosition: popupCampaign?.creative?.mediaPosition || "center",
+                    }}
+                    loading="lazy"
+                  />
+                ) : null}
+
+                <div className="mt-4 flex flex-wrap items-center justify-end gap-2">
+                  <a
+                    href={
+                      `/api/portal/ads/click?campaignId=${encodeURIComponent(popupCampaign.id)}` +
+                      `&placement=POPUP_CARD` +
+                      `&path=${encodeURIComponent(pathname || "")}` +
+                      `&to=${encodeURIComponent(popupCampaign?.creative?.linkUrl || `${basePath}/app/billing`)}`
+                    }
+                    className="inline-flex items-center justify-center rounded-2xl bg-zinc-900 px-4 py-2 text-sm font-semibold text-white hover:bg-zinc-800"
+                  >
+                    {popupCampaign?.creative?.ctaText || "Learn more"}
+                  </a>
+                </div>
+              </div>
+            </div>
+          ) : null}
+
           <PortalFloatingTools />
         </div>
       </div>
