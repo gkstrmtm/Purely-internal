@@ -13,6 +13,9 @@ export type PortalAdCampaignCreativeVariant = {
   linkUrl?: string;
   mediaUrl?: string;
   mediaKind?: "image" | "video";
+  mediaFit?: "cover" | "contain";
+  mediaPosition?: string;
+  topBannerImageSize?: number;
 };
 
 export type PortalAdCampaignCreative = PortalAdCampaignCreativeVariant;
@@ -75,6 +78,20 @@ function readCreativeVariant(data: unknown): PortalAdCampaignCreativeVariant {
   const mediaKindRaw = typeof rec.mediaKind === "string" ? rec.mediaKind.trim().toLowerCase() : "";
   const mediaKind = mediaKindRaw === "video" ? "video" : mediaKindRaw === "image" ? "image" : undefined;
 
+  const mediaFitRaw = typeof rec.mediaFit === "string" ? rec.mediaFit.trim().toLowerCase() : "";
+  const mediaFit = mediaFitRaw === "contain" ? "contain" : mediaFitRaw === "cover" ? "cover" : undefined;
+  const mediaPosition = typeof rec.mediaPosition === "string" ? rec.mediaPosition.trim().slice(0, 40) : "";
+
+  const topBannerImageSizeRaw =
+    typeof rec.topBannerImageSize === "number"
+      ? rec.topBannerImageSize
+      : typeof rec.topBannerImageSize === "string"
+        ? Number(rec.topBannerImageSize)
+        : NaN;
+  const topBannerImageSize = Number.isFinite(topBannerImageSizeRaw)
+    ? Math.max(40, Math.min(160, Math.floor(topBannerImageSizeRaw)))
+    : undefined;
+
   const headline = typeof rec.headline === "string" ? rec.headline.trim().slice(0, 160) : "";
   const body = typeof rec.body === "string" ? rec.body.trim().slice(0, 800) : "";
   const ctaText = typeof rec.ctaText === "string" ? rec.ctaText.trim().slice(0, 80) : "";
@@ -88,6 +105,9 @@ function readCreativeVariant(data: unknown): PortalAdCampaignCreativeVariant {
     linkUrl: linkUrl || undefined,
     mediaUrl: mediaUrl || undefined,
     mediaKind,
+    mediaFit,
+    mediaPosition: mediaPosition || undefined,
+    topBannerImageSize,
   };
 }
 

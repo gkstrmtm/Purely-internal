@@ -1112,7 +1112,7 @@ export function PortalBillingClient() {
         </div>
 
         {rewardCampaign ? (
-          <div className="mt-4 rounded-2xl border border-zinc-200 bg-zinc-50 p-4">
+          <div className="mt-4 rounded-2xl border border-brand-ink/10 bg-gradient-to-br from-[color:var(--color-brand-pink)]/15 via-[color:var(--color-brand-blue)]/10 to-white p-4">
             <div className="flex items-start justify-between gap-3">
               <div>
                 <div className="inline-flex items-center gap-2">

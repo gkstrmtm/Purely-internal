@@ -71,6 +71,8 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
       linkUrl?: string;
       mediaUrl?: string;
       mediaKind?: "image" | "video";
+      mediaFit?: "cover" | "contain";
+      mediaPosition?: string;
     };
   }>(null);
 
@@ -83,6 +85,9 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
       linkUrl?: string;
       mediaUrl?: string;
       mediaKind?: "image" | "video";
+      mediaFit?: "cover" | "contain";
+      mediaPosition?: string;
+      topBannerImageSize?: number;
     };
   }>(null);
 
@@ -474,6 +479,10 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
                       src={sidebarCampaign.creative.mediaUrl}
                       alt={sidebarCampaign?.creative?.headline || "Sponsored"}
                       className="mb-2 max-h-[120px] w-full rounded-xl border border-zinc-200 object-cover"
+                      style={{
+                        objectFit: sidebarCampaign?.creative?.mediaFit || "cover",
+                        objectPosition: sidebarCampaign?.creative?.mediaPosition || "center",
+                      }}
                       loading="lazy"
                     />
                   ) : null}
@@ -662,6 +671,19 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
           >
             {sidebarCampaign && !collapsed ? (
               <div className="mb-4 rounded-2xl border border-brand-ink/10 bg-gradient-to-br from-[color:var(--color-brand-blue)]/10 to-white p-3 text-sm text-zinc-800">
+                {sidebarCampaign?.creative?.mediaUrl && sidebarCampaign?.creative?.mediaKind !== "video" ? (
+                  /* eslint-disable-next-line @next/next/no-img-element */
+                  <img
+                    src={sidebarCampaign.creative.mediaUrl}
+                    alt={sidebarCampaign?.creative?.headline || "Sponsored"}
+                    className="mb-2 max-h-[120px] w-full rounded-xl border border-zinc-200 object-cover"
+                    style={{
+                      objectFit: sidebarCampaign?.creative?.mediaFit || "cover",
+                      objectPosition: sidebarCampaign?.creative?.mediaPosition || "center",
+                    }}
+                    loading="lazy"
+                  />
+                ) : null}
                 <div className="font-semibold text-zinc-900">
                   {sidebarCampaign?.creative?.headline || "Sponsored by Purely Automation"}
                 </div>
@@ -730,7 +752,13 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
                       <img
                         src={topBannerCampaign.creative.mediaUrl}
                         alt={topBannerCampaign?.creative?.headline || "Sponsored"}
-                        className="h-14 w-14 shrink-0 rounded-2xl border border-zinc-200 object-cover"
+                        className="shrink-0 rounded-2xl border border-zinc-200 object-cover"
+                        style={{
+                          height: Math.max(40, Math.min(160, Math.floor(Number(topBannerCampaign?.creative?.topBannerImageSize || 56)))),
+                          width: Math.max(40, Math.min(160, Math.floor(Number(topBannerCampaign?.creative?.topBannerImageSize || 56)))),
+                          objectFit: topBannerCampaign?.creative?.mediaFit || "cover",
+                          objectPosition: topBannerCampaign?.creative?.mediaPosition || "center",
+                        }}
                         loading="lazy"
                       />
                     ) : null}

@@ -40,6 +40,9 @@ type CreativeVariantDraft = {
   linkUrl: string;
   mediaKind: "image" | "video";
   mediaUrl: string;
+  mediaFit?: "cover" | "contain";
+  mediaPosition?: string;
+  topBannerImageSize?: number;
 };
 
 type OfferDraft =
@@ -121,6 +124,25 @@ function summarizeMediaVisibility(placements: Placement[], creative: Pick<Creati
     (ok ? showIn : hideIn).push(p);
   }
   return { hasMedia: true, showIn, hideIn };
+}
+
+function normalizeMediaFit(v: unknown): "cover" | "contain" | undefined {
+  const s = typeof v === "string" ? v.trim().toLowerCase() : "";
+  if (s === "contain") return "contain";
+  if (s === "cover") return "cover";
+  return undefined;
+}
+
+function normalizeMediaPosition(v: unknown): string | undefined {
+  const s = typeof v === "string" ? v.trim() : "";
+  if (!s) return undefined;
+  return s.slice(0, 40);
+}
+
+function clampTopBannerSize(v: unknown): number | undefined {
+  const n = typeof v === "number" ? v : typeof v === "string" ? Number(v) : NaN;
+  if (!Number.isFinite(n)) return undefined;
+  return Math.max(40, Math.min(160, Math.floor(n)));
 }
 
 export default function PortalAdCampaignsClient() {
@@ -485,6 +507,9 @@ export default function PortalAdCampaignsClient() {
           linkUrl: "/portal/app/billing",
           mediaKind: "image",
           mediaUrl: "",
+          mediaFit: "cover",
+          mediaPosition: "center",
+          topBannerImageSize: 56,
         },
       ],
 
@@ -513,6 +538,9 @@ export default function PortalAdCampaignsClient() {
           linkUrl: String(v?.linkUrl ?? ""),
           mediaKind: v?.mediaKind === "video" ? "video" : "image",
           mediaUrl: String(v?.mediaUrl ?? ""),
+          mediaFit: normalizeMediaFit(v?.mediaFit) ?? "cover",
+          mediaPosition: normalizeMediaPosition(v?.mediaPosition) ?? "center",
+          topBannerImageSize: clampTopBannerSize(v?.topBannerImageSize) ?? 56,
         }))
       : [
           {
@@ -522,6 +550,9 @@ export default function PortalAdCampaignsClient() {
             linkUrl: String(c.linkUrl ?? ""),
             mediaKind: c.mediaKind === "video" ? "video" : "image",
             mediaUrl: String(c.mediaUrl ?? ""),
+            mediaFit: normalizeMediaFit(c?.mediaFit) ?? "cover",
+            mediaPosition: normalizeMediaPosition(c?.mediaPosition) ?? "center",
+            topBannerImageSize: clampTopBannerSize(c?.topBannerImageSize) ?? 56,
           },
         ];
 
@@ -612,6 +643,9 @@ export default function PortalAdCampaignsClient() {
         linkUrl: String(v.linkUrl || "").trim(),
         mediaKind: v.mediaKind === "video" ? "video" : "image",
         mediaUrl: String(v.mediaUrl || "").trim(),
+        mediaFit: normalizeMediaFit(v.mediaFit) ?? "cover",
+        mediaPosition: normalizeMediaPosition(v.mediaPosition) ?? "center",
+        topBannerImageSize: clampTopBannerSize(v.topBannerImageSize) ?? 56,
       }))
       .filter((v) => v.headline || v.body || v.mediaUrl || v.linkUrl);
 
@@ -620,7 +654,17 @@ export default function PortalAdCampaignsClient() {
         ? { variants: cleanedCreatives }
         : cleanedCreatives.length === 1
           ? cleanedCreatives[0]
-          : { headline: "", body: "", ctaText: "", linkUrl: "", mediaKind: "image", mediaUrl: "" };
+          : {
+              headline: "",
+              body: "",
+              ctaText: "",
+              linkUrl: "",
+              mediaKind: "image",
+              mediaUrl: "",
+              mediaFit: "cover",
+              mediaPosition: "center",
+              topBannerImageSize: 56,
+            };
 
     const offers = (editor.offers || []).filter(Boolean);
     const creditsOffer = offers.find((o) => o.kind === "credits") as Extract<OfferDraft, { kind: "credits" }> | undefined;
@@ -1526,6 +1570,67 @@ export default function PortalAdCampaignsClient() {
                             }}
                           />
 
+                          {v.mediaKind === "image" ? (
+                            <div className="mt-2 grid grid-cols-1 gap-2 sm:grid-cols-2">
+                              <div>
+                                <label className="text-xs font-semibold text-zinc-600">Image fit</label>
+                                <select
+                                  className="mt-1 w-full rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-sm"
+                                  value={normalizeMediaFit(v.mediaFit) ?? "cover"}
+                                  onChange={(e) => {
+                                    const fit = normalizeMediaFit(e.target.value) ?? "cover";
+                                    const next = [...editor.creatives];
+                                    next[idx] = { ...next[idx]!, mediaFit: fit };
+                                    setEditor({ ...editor, creatives: next });
+                                  }}
+                                >
+                                  <option value="cover">Cover (crop)</option>
+                                  <option value="contain">Contain (no crop)</option>
+                                </select>
+                              </div>
+                              <div>
+                                <label className="text-xs font-semibold text-zinc-600">Image focus</label>
+                                <select
+                                  className="mt-1 w-full rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-sm"
+                                  value={normalizeMediaPosition(v.mediaPosition) ?? "center"}
+                                  onChange={(e) => {
+                                    const pos = normalizeMediaPosition(e.target.value) ?? "center";
+                                    const next = [...editor.creatives];
+                                    next[idx] = { ...next[idx]!, mediaPosition: pos };
+                                    setEditor({ ...editor, creatives: next });
+                                  }}
+                                >
+                                  <option value="center">Center</option>
+                                  <option value="top">Top</option>
+                                  <option value="bottom">Bottom</option>
+                                  <option value="left">Left</option>
+                                  <option value="right">Right</option>
+                                  <option value="top left">Top left</option>
+                                  <option value="top right">Top right</option>
+                                  <option value="bottom left">Bottom left</option>
+                                  <option value="bottom right">Bottom right</option>
+                                </select>
+                              </div>
+                              <div className="sm:col-span-2">
+                                <label className="text-xs font-semibold text-zinc-600">Top banner image size</label>
+                                <select
+                                  className="mt-1 w-full rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-sm"
+                                  value={String(clampTopBannerSize(v.topBannerImageSize) ?? 56)}
+                                  onChange={(e) => {
+                                    const size = clampTopBannerSize(e.target.value) ?? 56;
+                                    const next = [...editor.creatives];
+                                    next[idx] = { ...next[idx]!, topBannerImageSize: size };
+                                    setEditor({ ...editor, creatives: next });
+                                  }}
+                                >
+                                  <option value="56">Small</option>
+                                  <option value="72">Medium</option>
+                                  <option value="96">Large</option>
+                                </select>
+                              </div>
+                            </div>
+                          ) : null}
+
                           {(() => {
                             const placements = (editor.placements || []) as Placement[];
                             const sum = summarizeMediaVisibility(placements, v);
@@ -1555,8 +1660,58 @@ export default function PortalAdCampaignsClient() {
                           })()}
 
                           {v.mediaUrl && v.mediaKind === "image" ? (
-                            /* eslint-disable-next-line @next/next/no-img-element */
-                            <img src={v.mediaUrl} alt="Creative" className="mt-1 max-h-[180px] w-full rounded-2xl border border-zinc-200 object-cover" />
+                            <div className="mt-3 grid gap-3 sm:grid-cols-2">
+                              <div className="rounded-2xl border border-zinc-200 bg-white p-3">
+                                <div className="text-xs font-semibold text-zinc-600">Sidebar banner preview</div>
+                                <div className="mt-2 rounded-2xl border border-brand-ink/10 bg-gradient-to-br from-[color:var(--color-brand-blue)]/10 to-white p-3">
+                                  {/* eslint-disable-next-line @next/next/no-img-element */}
+                                  <img
+                                    src={v.mediaUrl}
+                                    alt="Creative"
+                                    className="mb-2 max-h-[120px] w-full rounded-xl border border-zinc-200 object-cover"
+                                    style={{
+                                      objectFit: normalizeMediaFit(v.mediaFit) ?? "cover",
+                                      objectPosition: normalizeMediaPosition(v.mediaPosition) ?? "center",
+                                    }}
+                                  />
+                                  <div className="text-sm font-semibold text-zinc-900">{v.headline || "Sponsored"}</div>
+                                  <div className="mt-1 line-clamp-2 text-xs text-zinc-600">{v.body || "Preview copy"}</div>
+                                  <div className="mt-2 inline-flex rounded-xl bg-zinc-900 px-3 py-2 text-xs font-semibold text-white">
+                                    {v.ctaText || "View"}
+                                  </div>
+                                </div>
+                              </div>
+
+                              <div className="rounded-2xl border border-zinc-200 bg-white p-3">
+                                <div className="text-xs font-semibold text-zinc-600">Top banner preview</div>
+                                <div className="mt-2 rounded-3xl border border-brand-ink/10 bg-gradient-to-r from-[color:var(--color-brand-blue)]/15 via-white to-white p-4">
+                                  <div className="flex items-center justify-between gap-3">
+                                    <div className="flex min-w-0 items-center gap-3">
+                                      {/* eslint-disable-next-line @next/next/no-img-element */}
+                                      <img
+                                        src={v.mediaUrl}
+                                        alt="Creative"
+                                        className="shrink-0 rounded-2xl border border-zinc-200 object-cover"
+                                        style={{
+                                          height: clampTopBannerSize(v.topBannerImageSize) ?? 56,
+                                          width: clampTopBannerSize(v.topBannerImageSize) ?? 56,
+                                          objectFit: normalizeMediaFit(v.mediaFit) ?? "cover",
+                                          objectPosition: normalizeMediaPosition(v.mediaPosition) ?? "center",
+                                        }}
+                                      />
+                                      <div className="min-w-0">
+                                        <div className="text-[11px] font-semibold uppercase tracking-wide text-zinc-500">Sponsored</div>
+                                        <div className="truncate text-sm font-semibold text-zinc-900">{v.headline || "Sponsored"}</div>
+                                        {v.body ? <div className="mt-1 line-clamp-2 text-xs text-zinc-700">{v.body}</div> : null}
+                                      </div>
+                                    </div>
+                                    <div className="inline-flex shrink-0 rounded-2xl bg-zinc-900 px-4 py-2 text-xs font-semibold text-white">
+                                      {v.ctaText || "Learn"}
+                                    </div>
+                                  </div>
+                                </div>
+                              </div>
+                            </div>
                           ) : null}
                         </div>
                       </div>
