@@ -136,6 +136,28 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
       mediaFit?: "cover" | "contain";
       mediaPosition?: string;
 
+      showDelaySeconds?: number;
+
+      dismissEnabled?: boolean;
+      dismissDelaySeconds?: number;
+      dismissReshowAfterSeconds?: number;
+    };
+  }>(null);
+
+  const [popupCampaignPending, setPopupCampaignPending] = useState<null | {
+    id: string;
+    creative?: {
+      headline?: string;
+      body?: string;
+      ctaText?: string;
+      linkUrl?: string;
+      mediaUrl?: string;
+      mediaKind?: "image" | "video";
+      mediaFit?: "cover" | "contain";
+      mediaPosition?: string;
+
+      showDelaySeconds?: number;
+
       dismissEnabled?: boolean;
       dismissDelaySeconds?: number;
       dismissReshowAfterSeconds?: number;
@@ -148,6 +170,7 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
   const [popupShownAtMs, setPopupShownAtMs] = useState(0);
 
   const popupVideoRef = useRef<HTMLVideoElement | null>(null);
+  const popupShowTimeoutRef = useRef<number | null>(null);
   const [popupVideoMuted, setPopupVideoMuted] = useState(false);
   const [popupVideoNeedsUserGesture, setPopupVideoNeedsUserGesture] = useState(false);
 
@@ -175,6 +198,40 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     if (popupCampaign?.id) setPopupShownAtMs(Date.now());
   }, [popupCampaign?.id]);
+
+  useEffect(() => {
+    if (popupShowTimeoutRef.current) {
+      window.clearTimeout(popupShowTimeoutRef.current);
+      popupShowTimeoutRef.current = null;
+    }
+
+    if (!popupCampaignPending?.id) {
+      setPopupCampaign(null);
+      return;
+    }
+
+    const delaySeconds = Math.max(0, Math.floor(Number(popupCampaignPending?.creative?.showDelaySeconds ?? 0)));
+    if (delaySeconds <= 0) {
+      setPopupCampaign(popupCampaignPending);
+      return;
+    }
+
+    const campaignToShow = popupCampaignPending;
+    const pendingId = campaignToShow.id;
+    popupShowTimeoutRef.current = window.setTimeout(() => {
+      setPopupCampaign((prev) => {
+        if (prev?.id === pendingId) return prev;
+        return campaignToShow;
+      });
+    }, delaySeconds * 1000);
+
+    return () => {
+      if (popupShowTimeoutRef.current) {
+        window.clearTimeout(popupShowTimeoutRef.current);
+        popupShowTimeoutRef.current = null;
+      }
+    };
+  }, [popupCampaignPending]);
 
   useEffect(() => {
     const isVideo =
@@ -393,7 +450,10 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
           setRewardCampaign(null);
           setRewardStatus(null);
         }
-        if (opts.placement === "POPUP_CARD") setPopupCampaign(null);
+        if (opts.placement === "POPUP_CARD") {
+          setPopupCampaign(null);
+          setPopupCampaignPending(null);
+        }
         return;
       }
 
@@ -413,7 +473,10 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
             : null,
         );
       }
-      if (opts.placement === "POPUP_CARD") setPopupCampaign(json.campaign ?? null);
+      if (opts.placement === "POPUP_CARD") {
+        setPopupCampaign(null);
+        setPopupCampaignPending(json.campaign ?? null);
+      }
     },
     [getExcludedCampaignIds, pathname],
   );
@@ -1170,6 +1233,7 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
                     reshowAfterSeconds: popupCampaign?.creative?.dismissReshowAfterSeconds,
                   });
                   setPopupCampaign(null);
+                  setPopupCampaignPending(null);
                   void refreshAds({ placement: "POPUP_CARD", reason: "dismiss" });
                 }}
               />
@@ -1197,6 +1261,7 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
                           reshowAfterSeconds: popupCampaign?.creative?.dismissReshowAfterSeconds,
                         });
                         setPopupCampaign(null);
+                        setPopupCampaignPending(null);
                         void refreshAds({ placement: "POPUP_CARD", reason: "dismiss" });
                       }}
                     >

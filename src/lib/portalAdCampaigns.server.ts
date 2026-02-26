@@ -19,6 +19,8 @@ export type PortalAdCampaignCreativeVariant = {
   topBannerImageSize?: number;
   fullscreenMediaMaxWidthPct?: number;
 
+  showDelaySeconds?: number;
+
   dismissEnabled?: boolean;
   dismissDelaySeconds?: number;
   dismissReshowAfterSeconds?: number;
@@ -120,6 +122,16 @@ function readCreativeVariant(data: unknown): PortalAdCampaignCreativeVariant {
 
   const dismissEnabled = Boolean((rec as any).dismissEnabled);
 
+  const showDelayRaw =
+    typeof (rec as any).showDelaySeconds === "number"
+      ? (rec as any).showDelaySeconds
+      : typeof (rec as any).showDelaySeconds === "string"
+        ? Number((rec as any).showDelaySeconds)
+        : NaN;
+  const showDelaySeconds = Number.isFinite(showDelayRaw)
+    ? Math.max(0, Math.min(60 * 60 * 24 * 7, Math.floor(showDelayRaw)))
+    : undefined;
+
   const dismissDelayRaw =
     typeof (rec as any).dismissDelaySeconds === "number"
       ? (rec as any).dismissDelaySeconds
@@ -158,6 +170,8 @@ function readCreativeVariant(data: unknown): PortalAdCampaignCreativeVariant {
     sidebarImageHeight,
     topBannerImageSize,
     fullscreenMediaMaxWidthPct,
+
+    showDelaySeconds,
 
     dismissEnabled: dismissEnabled || undefined,
     dismissDelaySeconds,

@@ -51,6 +51,10 @@ type CreativeVariantDraft = {
   dismissReshowAfterSeconds?: number;
   dismissReshowAfterValue?: number;
   dismissReshowAfterUnit?: "seconds" | "minutes" | "hours" | "days";
+
+  showDelaySeconds?: number;
+  showDelayValue?: number;
+  showDelayUnit?: "seconds" | "minutes" | "hours" | "days";
 };
 
 const RESHOW_UNITS = ["seconds", "minutes", "hours", "days"] as const;
@@ -82,6 +86,10 @@ function deriveReshowValueUnitFromSeconds(secondsRaw: unknown): {
           : "seconds";
   const value = seconds / RESHOW_UNIT_SECONDS[unit];
   return { seconds, value, unit };
+}
+
+function deriveShowDelayValueUnitFromSeconds(secondsRaw: unknown) {
+  return deriveReshowValueUnitFromSeconds(secondsRaw);
 }
 
 type OfferDraft =
@@ -649,6 +657,10 @@ export default function PortalAdCampaignsClient() {
           dismissReshowAfterSeconds: 3600,
           dismissReshowAfterValue: 1,
           dismissReshowAfterUnit: "hours",
+
+          showDelaySeconds: 0,
+          showDelayValue: 0,
+          showDelayUnit: "seconds",
         },
       ],
 
@@ -672,6 +684,7 @@ export default function PortalAdCampaignsClient() {
     const creatives: CreativeVariantDraft[] = variantsRaw?.length
       ? variantsRaw.map((v: any) => {
           const reshow = deriveReshowValueUnitFromSeconds(v?.dismissReshowAfterSeconds);
+          const showDelay = deriveShowDelayValueUnitFromSeconds(v?.showDelaySeconds);
           return {
           headline: String(v?.headline ?? ""),
           body: String(v?.body ?? ""),
@@ -690,16 +703,25 @@ export default function PortalAdCampaignsClient() {
           dismissReshowAfterSeconds: reshow.seconds,
           dismissReshowAfterValue: reshow.value,
           dismissReshowAfterUnit: reshow.unit,
+
+          showDelaySeconds: showDelay.seconds,
+          showDelayValue: showDelay.value,
+          showDelayUnit: showDelay.unit,
         };
         })
       : [
           {
             ...((): any => {
               const reshow = deriveReshowValueUnitFromSeconds(c?.dismissReshowAfterSeconds);
+              const showDelay = deriveShowDelayValueUnitFromSeconds(c?.showDelaySeconds);
               return {
                 dismissReshowAfterSeconds: reshow.seconds,
                 dismissReshowAfterValue: reshow.value,
                 dismissReshowAfterUnit: reshow.unit,
+
+                showDelaySeconds: showDelay.seconds,
+                showDelayValue: showDelay.value,
+                showDelayUnit: showDelay.unit,
               };
             })(),
             headline: String(c.headline ?? ""),
@@ -811,6 +833,8 @@ export default function PortalAdCampaignsClient() {
         sidebarImageHeight: clampSidebarImageHeight(v.sidebarImageHeight) ?? 120,
         topBannerImageSize: clampTopBannerSize(v.topBannerImageSize) ?? 56,
         fullscreenMediaMaxWidthPct: clampFullscreenMaxWidthPct(v.fullscreenMediaMaxWidthPct) ?? 100,
+
+        showDelaySeconds: Number.isFinite(Number(v.showDelaySeconds)) ? Math.max(0, Math.floor(Number(v.showDelaySeconds))) : 0,
 
         dismissEnabled: Boolean(v.dismissEnabled) || undefined,
         dismissDelaySeconds: Number.isFinite(Number(v.dismissDelaySeconds)) ? Math.max(0, Math.floor(Number(v.dismissDelaySeconds))) : 0,
@@ -1989,6 +2013,64 @@ export default function PortalAdCampaignsClient() {
                                   </select>
                                 </div>
                               </div>
+
+                              {editor.placements.includes("POPUP_CARD") ? (
+                                <div>
+                                  <label className="text-xs font-semibold text-zinc-600">Show popup after</label>
+                                  <div className="mt-1 grid grid-cols-2 gap-2">
+                                    <input
+                                      type="number"
+                                      min={0}
+                                      step={0.25}
+                                      className="w-full rounded-2xl border border-zinc-200 px-3 py-2 text-sm"
+                                      value={
+                                        Number.isFinite(Number(v.showDelayValue))
+                                          ? String(Math.max(0, Number(v.showDelayValue)))
+                                          : String(deriveShowDelayValueUnitFromSeconds(v.showDelaySeconds).value)
+                                      }
+                                      onChange={(e) => {
+                                        const unit = normalizeReshowUnit(v.showDelayUnit);
+                                        const value = Math.max(0, Number(e.target.value) || 0);
+                                        const seconds = Math.max(0, Math.round(value * RESHOW_UNIT_SECONDS[unit]));
+                                        const next = [...editor.creatives];
+                                        next[idx] = {
+                                          ...next[idx]!,
+                                          showDelayUnit: unit,
+                                          showDelayValue: value,
+                                          showDelaySeconds: seconds,
+                                        };
+                                        setEditor({ ...editor, creatives: next });
+                                      }}
+                                    />
+                                    <select
+                                      className="w-full rounded-2xl border border-zinc-200 px-3 py-2 text-sm"
+                                      value={normalizeReshowUnit(v.showDelayUnit)}
+                                      onChange={(e) => {
+                                        const currentSeconds = deriveShowDelayValueUnitFromSeconds(v.showDelaySeconds).seconds;
+                                        const unit = normalizeReshowUnit(e.target.value);
+                                        const value = currentSeconds / RESHOW_UNIT_SECONDS[unit];
+                                        const next = [...editor.creatives];
+                                        next[idx] = {
+                                          ...next[idx]!,
+                                          showDelayUnit: unit,
+                                          showDelayValue: value,
+                                          showDelaySeconds: currentSeconds,
+                                        };
+                                        setEditor({ ...editor, creatives: next });
+                                      }}
+                                    >
+                                      {RESHOW_UNITS.map((u) => (
+                                        <option key={u} value={u}>
+                                          {u}
+                                        </option>
+                                      ))}
+                                    </select>
+                                  </div>
+                                  <div className="mt-2 text-xs text-zinc-500">
+                                    The popup waits this long after the ad is fetched for the current page.
+                                  </div>
+                                </div>
+                              ) : null}
                             </div>
                             <div className="mt-2 text-xs text-zinc-500">
                               If reshow is 0, the portal uses a sensible default (1 hour).
