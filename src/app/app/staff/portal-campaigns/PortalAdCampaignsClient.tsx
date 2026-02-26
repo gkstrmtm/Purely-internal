@@ -931,7 +931,7 @@ export default function PortalAdCampaignsClient() {
                       />
                     </div>
                     <div className="rounded-2xl border border-zinc-200 bg-zinc-50 p-3 text-xs text-zinc-600">
-                      Uses your browser’s calendar picker. Leave blank for “always”.
+                      Pick a start/end date and time. Leave blank to run anytime.
                     </div>
                   </div>
                 </div>
@@ -1001,10 +1001,10 @@ export default function PortalAdCampaignsClient() {
                     </div>
 
                     <div>
-                      <label className="text-xs font-semibold text-zinc-600">Service slugs (ANY)</label>
+                      <label className="text-xs font-semibold text-zinc-600">Services (any)</label>
                       <div className="mt-1">
                         <PortalMultiSelectDropdown
-                          label="Service slugs"
+                          label="Services"
                           value={editor.serviceSlugsAny}
                           options={serviceSlugOptions}
                           onChange={(next) => setEditor({ ...editor, serviceSlugsAny: next })}
@@ -1014,10 +1014,10 @@ export default function PortalAdCampaignsClient() {
                     </div>
 
                     <div>
-                      <label className="text-xs font-semibold text-zinc-600">Service slugs (ALL)</label>
+                      <label className="text-xs font-semibold text-zinc-600">Services (all)</label>
                       <div className="mt-1">
                         <PortalMultiSelectDropdown
-                          label="Service slugs"
+                          label="Services"
                           value={editor.serviceSlugsAll}
                           options={serviceSlugOptions}
                           onChange={(next) => setEditor({ ...editor, serviceSlugsAll: next })}
@@ -1027,15 +1027,15 @@ export default function PortalAdCampaignsClient() {
                     </div>
 
                     <div>
-                      <label className="text-xs font-semibold text-zinc-600">Paths</label>
+                      <label className="text-xs font-semibold text-zinc-600">Pages</label>
                       <div className="mt-1">
                         <PortalMultiSelectDropdown
-                          label="Paths"
+                          label="Pages"
                           value={editor.paths}
                           options={pathSuggestions}
                           onChange={(next) => setEditor({ ...editor, paths: next })}
                           allowCustom
-                          placeholder="Type a path… (supports prefix*)"
+                          placeholder="Type a page path…"
                         />
                       </div>
                     </div>
@@ -1114,7 +1114,7 @@ export default function PortalAdCampaignsClient() {
                               <div key={id} className="flex items-center justify-between gap-2 rounded-xl border border-zinc-200 bg-white px-3 py-2">
                                 <div className="min-w-0">
                                   <div className="truncate text-sm font-semibold text-zinc-900">{id}</div>
-                                  <div className="truncate text-xs text-zinc-500">Owner ID</div>
+                                  <div className="truncate text-xs text-zinc-500">Account</div>
                                 </div>
                                 <button
                                   type="button"
@@ -1185,7 +1185,7 @@ export default function PortalAdCampaignsClient() {
                 <div className="flex flex-wrap items-center justify-between gap-2">
                   <div>
                     <div className="text-sm font-semibold text-zinc-900">Creatives</div>
-                    <div className="mt-1 text-sm text-zinc-600">Add multiple creatives (variants). One will be shown per owner.</div>
+                    <div className="mt-1 text-sm text-zinc-600">Add multiple creatives. Each account will consistently see one of them.</div>
                   </div>
                   <div className="flex flex-wrap items-center gap-2">
                     <label className="rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-sm font-semibold text-zinc-800 hover:bg-zinc-50">
@@ -1389,7 +1389,7 @@ export default function PortalAdCampaignsClient() {
               <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
                 <div>
                   <div className="text-sm font-semibold text-zinc-900">Offers</div>
-                  <div className="mt-1 text-sm text-zinc-600">Credits rewards are claimable in the portal. Discounts are stored but require billing integration.</div>
+                  <div className="mt-1 text-sm text-zinc-600">Credits can be claimed in the portal. Discounts are saved for now (not auto-applied at checkout yet).</div>
 
                   <div className="mt-3 grid gap-3">
                     {editor.offers.map((o, idx) => (
@@ -1518,7 +1518,7 @@ export default function PortalAdCampaignsClient() {
                 <div>
                   <div className="text-sm font-semibold text-zinc-900">Notes</div>
                   <div className="mt-2 rounded-2xl border border-zinc-200 bg-zinc-50 p-3 text-sm text-zinc-600">
-                    Discounts are stored on the campaign, but automatic checkout discounts require billing integration (Stripe promotion codes or internal pricing).
+                    Discounts are saved on the campaign, but automatic checkout discounts aren’t enabled yet.
                   </div>
                 </div>
               </div>
