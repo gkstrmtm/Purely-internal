@@ -18,6 +18,14 @@ export async function GET(req: Request) {
 
   const url = new URL(req.url);
   const q = (url.searchParams.get("q") ?? "").trim();
+  const idsRaw = (url.searchParams.get("ids") ?? "").trim();
+  const ids = idsRaw
+    ? idsRaw
+        .split(",")
+        .map((s) => s.trim())
+        .filter(Boolean)
+        .slice(0, 200)
+    : [];
   const takeRaw = url.searchParams.get("take");
   const takeParsed = takeRaw ? Number(takeRaw) : undefined;
   const take = Math.max(1, Math.min(200, Number.isFinite(takeParsed as number) ? (takeParsed as number) : 50));
@@ -26,6 +34,7 @@ export async function GET(req: Request) {
     const owners = await prisma.user.findMany({
       where: {
         role: "CLIENT",
+        ...(ids.length ? { id: { in: ids } } : {}),
         ...(q
           ? {
               OR: [
@@ -39,7 +48,7 @@ export async function GET(req: Request) {
           : {}),
       },
       orderBy: { createdAt: "desc" },
-      take,
+      take: ids.length ? Math.min(ids.length, 200) : take,
       select: {
         id: true,
         email: true,

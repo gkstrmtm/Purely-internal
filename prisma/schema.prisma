@@ -24,6 +24,7 @@ enum ClientPortalVariant {
 
 enum PortalAdPlacement {
   SIDEBAR_BANNER
+  TOP_BANNER
   BILLING_SPONSORED
   FULLSCREEN_REWARD
 }

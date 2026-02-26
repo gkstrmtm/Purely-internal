@@ -10,7 +10,7 @@ export const dynamic = "force-dynamic";
 export const revalidate = 0;
 
 function asPlacement(v: string | null): PortalAdPlacement | null {
-  if (v === "SIDEBAR_BANNER" || v === "BILLING_SPONSORED" || v === "FULLSCREEN_REWARD") return v;
+  if (v === "SIDEBAR_BANNER" || v === "TOP_BANNER" || v === "BILLING_SPONSORED" || v === "FULLSCREEN_REWARD") return v;
   return null;
 }
 

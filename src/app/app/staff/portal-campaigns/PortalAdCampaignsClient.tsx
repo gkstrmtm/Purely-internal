@@ -6,7 +6,7 @@ import { PortalListboxDropdown } from "@/components/PortalListboxDropdown";
 import { PortalMultiSelectDropdown } from "@/components/PortalMultiSelectDropdown";
 import { BUSINESS_MODEL_SUGGESTIONS, INDUSTRY_SUGGESTIONS, PORTAL_ONBOARDING_PLANS } from "@/lib/portalOnboardingWizardCatalog";
 
-type Placement = "SIDEBAR_BANNER" | "BILLING_SPONSORED" | "FULLSCREEN_REWARD";
+type Placement = "SIDEBAR_BANNER" | "TOP_BANNER" | "BILLING_SPONSORED" | "FULLSCREEN_REWARD";
 
 type CampaignRow = {
   id: string;
@@ -93,6 +93,7 @@ function localDateTimeInputToIsoOrNull(v: string): string | null {
 
 function placementLabel(p: Placement) {
   if (p === "SIDEBAR_BANNER") return "Sidebar banner";
+  if (p === "TOP_BANNER") return "Top banner";
   if (p === "BILLING_SPONSORED") return "Billing sponsored";
   return "Fullscreen reward";
 }
@@ -143,6 +144,8 @@ export default function PortalAdCampaignsClient() {
   const [targetOwnerQuery, setTargetOwnerQuery] = useState("");
   const [targetOwnerResults, setTargetOwnerResults] = useState<OwnerRow[]>([]);
   const [targetOwnerLoading, setTargetOwnerLoading] = useState(false);
+
+  const [includedOwnerById, setIncludedOwnerById] = useState<Record<string, OwnerRow>>({});
 
   const [buckets, setBuckets] = useState<Array<{ id: string; name: string; description: string | null; membersCount: number }>>([]);
   const [bucketManagerOpen, setBucketManagerOpen] = useState(false);
@@ -655,7 +658,46 @@ export default function PortalAdCampaignsClient() {
       return;
     }
     setTargetOwnerResults(json.owners);
+
+    setIncludedOwnerById((prev) => {
+      const next = { ...prev };
+      for (const o of json.owners as OwnerRow[]) {
+        if (o && typeof o.id === "string" && o.id) next[o.id] = o;
+      }
+      return next;
+    });
   }
+
+  useEffect(() => {
+    if (!editor) return;
+    const ids = (editor.includeOwnerIds || []).filter(Boolean).slice(0, 200);
+    if (!ids.length) return;
+
+    const missing = ids.filter((id) => !includedOwnerById[id]);
+    if (!missing.length) return;
+
+    let alive = true;
+    (async () => {
+      const res = await fetch(`/api/staff/portal/owners?ids=${encodeURIComponent(missing.join(","))}`, {
+        cache: "no-store",
+      }).catch(() => null as any);
+      const json = (await res?.json().catch(() => null)) as any;
+      if (!alive) return;
+      if (!res?.ok || !json?.ok || !Array.isArray(json.owners)) return;
+
+      setIncludedOwnerById((prev) => {
+        const next = { ...prev };
+        for (const o of json.owners as OwnerRow[]) {
+          if (o && typeof o.id === "string" && o.id) next[o.id] = o;
+        }
+        return next;
+      });
+    })();
+
+    return () => {
+      alive = false;
+    };
+  }, [editor, (editor?.includeOwnerIds || []).join(","), includedOwnerById]);
 
   async function assignOwner(ownerId: string) {
     if (!assignCampaignId) return;
@@ -705,7 +747,7 @@ export default function PortalAdCampaignsClient() {
         <div>
           <div className="text-lg font-semibold text-brand-ink">Campaigns</div>
           <div className="mt-1 text-sm text-zinc-600">
-            Create targeted portal ads (sidebar banners, billing sponsored cards, and fullscreen reward videos).
+            Create targeted portal ads (sidebar banners, top banners, billing sponsored cards, and fullscreen reward videos).
           </div>
         </div>
         <button
@@ -871,6 +913,7 @@ export default function PortalAdCampaignsClient() {
                             value={editor.placements[0] as Placement}
                             options={[
                               { value: "SIDEBAR_BANNER", label: "Sidebar banner" },
+                              { value: "TOP_BANNER", label: "Top banner" },
                               { value: "BILLING_SPONSORED", label: "Billing sponsored" },
                               { value: "FULLSCREEN_REWARD", label: "Fullscreen reward" },
                             ]}
@@ -878,7 +921,7 @@ export default function PortalAdCampaignsClient() {
                           />
                         ) : (
                           <div className="flex flex-wrap gap-2">
-                            {(["SIDEBAR_BANNER", "BILLING_SPONSORED", "FULLSCREEN_REWARD"] as Placement[]).map((p) => {
+                            {(["SIDEBAR_BANNER", "TOP_BANNER", "BILLING_SPONSORED", "FULLSCREEN_REWARD"] as Placement[]).map((p) => {
                               const on = editor.placements.includes(p);
                               return (
                                 <button
@@ -1110,21 +1153,26 @@ export default function PortalAdCampaignsClient() {
                         <div className="mt-3 rounded-2xl border border-zinc-200 bg-zinc-50 p-3">
                           <div className="text-xs font-semibold uppercase tracking-wide text-zinc-500">Included owners</div>
                           <div className="mt-2 grid gap-2">
-                            {editor.includeOwnerIds.slice(0, 50).map((id) => (
-                              <div key={id} className="flex items-center justify-between gap-2 rounded-xl border border-zinc-200 bg-white px-3 py-2">
-                                <div className="min-w-0">
-                                  <div className="truncate text-sm font-semibold text-zinc-900">{id}</div>
-                                  <div className="truncate text-xs text-zinc-500">Account</div>
+                            {editor.includeOwnerIds.slice(0, 50).map((id) => {
+                              const o = includedOwnerById[id];
+                              const primary = (o?.email || o?.name || id || "").trim();
+                              const secondary = (o?.businessProfile?.businessName || o?.name || "Account").trim();
+                              return (
+                                <div key={id} className="flex items-center justify-between gap-2 rounded-xl border border-zinc-200 bg-white px-3 py-2">
+                                  <div className="min-w-0">
+                                    <div className="truncate text-sm font-semibold text-zinc-900">{primary}</div>
+                                    <div className="truncate text-xs text-zinc-500">{secondary}</div>
+                                  </div>
+                                  <button
+                                    type="button"
+                                    className="rounded-xl border border-zinc-200 bg-white px-3 py-1.5 text-xs font-semibold text-zinc-800 hover:bg-zinc-50"
+                                    onClick={() => setEditor({ ...editor, includeOwnerIds: editor.includeOwnerIds.filter((x) => x !== id) })}
+                                  >
+                                    Remove
+                                  </button>
                                 </div>
-                                <button
-                                  type="button"
-                                  className="rounded-xl border border-zinc-200 bg-white px-3 py-1.5 text-xs font-semibold text-zinc-800 hover:bg-zinc-50"
-                                  onClick={() => setEditor({ ...editor, includeOwnerIds: editor.includeOwnerIds.filter((x) => x !== id) })}
-                                >
-                                  Remove
-                                </button>
-                              </div>
-                            ))}
+                              );
+                            })}
                           </div>
                         </div>
                       ) : null}

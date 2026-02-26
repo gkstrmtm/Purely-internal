@@ -4,7 +4,7 @@ import { isCreditsOnlyBilling } from "@/lib/portalBillingModel";
 import { getPortalServiceStatusesForOwner } from "@/lib/portalServicesStatus";
 import type { PortalVariant } from "@/lib/portalVariant";
 
-export type PortalAdPlacement = "SIDEBAR_BANNER" | "BILLING_SPONSORED" | "FULLSCREEN_REWARD";
+export type PortalAdPlacement = "SIDEBAR_BANNER" | "TOP_BANNER" | "BILLING_SPONSORED" | "FULLSCREEN_REWARD";
 
 export type PortalAdCampaignCreativeVariant = {
   headline?: string;

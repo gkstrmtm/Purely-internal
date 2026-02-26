@@ -67,6 +67,11 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
     creative?: { headline?: string; body?: string; ctaText?: string; linkUrl?: string };
   }>(null);
 
+  const [topBannerCampaign, setTopBannerCampaign] = useState<null | {
+    id: string;
+    creative?: { headline?: string; body?: string; ctaText?: string; linkUrl?: string };
+  }>(null);
+
   useEffect(() => {
     const saved = window.localStorage.getItem("portalSidebarCollapsed");
     if (saved === "1") setCollapsed(true);
@@ -162,6 +167,26 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
         return;
       }
       setSidebarCampaign(json.campaign ?? null);
+    })();
+    return () => {
+      alive = false;
+    };
+  }, [pathname]);
+
+  useEffect(() => {
+    let alive = true;
+    (async () => {
+      const res = await fetch(
+        `/api/portal/ads/next?placement=TOP_BANNER&path=${encodeURIComponent(pathname || "")}`,
+        { cache: "no-store" },
+      ).catch(() => null as any);
+      const json = (await res?.json().catch(() => null)) as any;
+      if (!alive) return;
+      if (!res?.ok || !json?.ok) {
+        setTopBannerCampaign(null);
+        return;
+      }
+      setTopBannerCampaign(json.campaign ?? null);
     })();
     return () => {
       alive = false;
@@ -672,7 +697,31 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
             </div>
           </header>
 
-          <main className="min-w-0 flex-1 p-4 sm:p-8">{children}</main>
+          <main className="min-w-0 flex-1 p-4 sm:p-8">
+            {topBannerCampaign ? (
+              <div className="mb-4 rounded-3xl border border-brand-ink/10 bg-gradient-to-r from-[color:var(--color-brand-blue)]/15 via-white to-white p-4 text-brand-ink">
+                <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                  <div className="min-w-0">
+                    <div className="text-xs font-semibold uppercase tracking-wide text-zinc-500">Sponsored by Purely Automation</div>
+                    <div className="mt-1 truncate text-base font-semibold text-zinc-900">
+                      {topBannerCampaign?.creative?.headline || "Sponsored"}
+                    </div>
+                    {topBannerCampaign?.creative?.body ? (
+                      <div className="mt-1 line-clamp-2 text-sm text-zinc-700">{topBannerCampaign.creative.body}</div>
+                    ) : null}
+                  </div>
+                  <Link
+                    href={topBannerCampaign?.creative?.linkUrl || `${basePath}/app/billing`}
+                    className="inline-flex items-center justify-center rounded-2xl bg-zinc-900 px-4 py-2 text-sm font-semibold text-white hover:bg-zinc-800"
+                  >
+                    {topBannerCampaign?.creative?.ctaText || "Learn more"}
+                  </Link>
+                </div>
+              </div>
+            ) : null}
+
+            {children}
+          </main>
           <PortalFloatingTools />
         </div>
       </div>
