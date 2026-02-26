@@ -25,6 +25,30 @@ const campaignCreateSchema = z.object({
 
 const campaignUpdateSchema = campaignCreateSchema.extend({ id: z.string().trim().min(1).max(64) });
 
+function describeWriteError(err: unknown): string {
+  // Helpful context for the most common prod failure:
+  // schema/migrations not applied (e.g. adding a new enum value).
+  try {
+    const msg = String((err as any)?.message || "");
+    const code = String((err as any)?.code || "");
+
+    if (msg.includes("PortalAdPlacement") && (msg.includes("invalid input value for enum") || code === "22P02")) {
+      return "Database enum PortalAdPlacement is out of date (missing a value). Apply the latest Prisma migrations, then try again.";
+    }
+    if (err instanceof Prisma.PrismaClientKnownRequestError) {
+      if (err.code === "P2021" || err.code === "P2022") {
+        return "Campaigns database schema is missing or out of date. Apply the latest Prisma migrations.";
+      }
+    } else if (code === "42P01") {
+      return "Campaigns database table is missing. Apply the latest Prisma migrations.";
+    }
+  } catch {
+    // ignore
+  }
+
+  return "Unable to create campaign.";
+}
+
 export async function GET() {
   const auth = await requireStaffSession();
   if (!auth.ok) {
@@ -116,8 +140,8 @@ export async function POST(req: Request) {
     });
 
     return NextResponse.json({ ok: true, id: row.id });
-  } catch {
-    return NextResponse.json({ ok: false, error: "Unable to create campaign." }, { status: 500 });
+  } catch (err) {
+    return NextResponse.json({ ok: false, error: describeWriteError(err) }, { status: 500 });
   }
 }
 
@@ -158,7 +182,8 @@ export async function PUT(req: Request) {
     });
 
     return NextResponse.json({ ok: true });
-  } catch {
-    return NextResponse.json({ ok: false, error: "Unable to update campaign." }, { status: 500 });
+  } catch (err) {
+    const msg = describeWriteError(err);
+    return NextResponse.json({ ok: false, error: msg === "Unable to create campaign." ? "Unable to update campaign." : msg }, { status: 500 });
   }
 }

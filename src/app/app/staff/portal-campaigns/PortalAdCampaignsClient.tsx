@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 
 import { PortalListboxDropdown } from "@/components/PortalListboxDropdown";
 import { PortalMultiSelectDropdown } from "@/components/PortalMultiSelectDropdown";
+import { useToast } from "@/components/ToastProvider";
 import { BUSINESS_MODEL_SUGGESTIONS, INDUSTRY_SUGGESTIONS, PORTAL_ONBOARDING_PLANS } from "@/lib/portalOnboardingWizardCatalog";
 
 type Placement = "SIDEBAR_BANNER" | "TOP_BANNER" | "BILLING_SPONSORED" | "FULLSCREEN_REWARD";
@@ -99,9 +100,16 @@ function placementLabel(p: Placement) {
 }
 
 export default function PortalAdCampaignsClient() {
+  const toast = useToast();
   const [campaigns, setCampaigns] = useState<CampaignRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!error) return;
+    toast.error(error);
+    setError(null);
+  }, [error, toast]);
 
   const [editor, setEditor] = useState<null | {
     id?: string;
@@ -786,9 +794,7 @@ export default function PortalAdCampaignsClient() {
         </button>
       </div>
 
-      {error ? (
-        <div className="mt-4 rounded-2xl border border-red-200 bg-red-50 p-3 text-sm text-red-800">{error}</div>
-      ) : null}
+
 
       <div className="mt-4 overflow-x-auto rounded-3xl border border-zinc-200 bg-white">
         <table className="min-w-full text-left text-sm">
@@ -1319,6 +1325,32 @@ export default function PortalAdCampaignsClient() {
                       + Add empty creative
                     </button>
                   </div>
+                </div>
+
+                <div className="mt-2 text-xs text-zinc-500">
+                  {(() => {
+                    const placements = editor.placements || [];
+                    const supportsImages = placements.filter((p) => p === "SIDEBAR_BANNER" || p === "TOP_BANNER");
+                    const supportsVideo = placements.includes("FULLSCREEN_REWARD");
+                    const mediaIgnored = placements.filter((p) => p === "BILLING_SPONSORED");
+
+                    const parts: string[] = [];
+                    if (supportsImages.length) {
+                      parts.push(
+                        `Images will display for: ${supportsImages.map(placementLabel).join(", ")}.`,
+                      );
+                    }
+                    if (supportsVideo) {
+                      parts.push("Videos will display for: Fullscreen reward.");
+                    }
+                    if (mediaIgnored.length) {
+                      parts.push(
+                        `Media is currently not shown for: ${mediaIgnored.map(placementLabel).join(", ")}.`,
+                      );
+                    }
+                    if (!parts.length) return "";
+                    return parts.join(" ");
+                  })()}
                 </div>
 
                 <div className="mt-4 grid gap-4">

@@ -64,12 +64,26 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
   const [showGettingStartedHint, setShowGettingStartedHint] = useState(false);
   const [sidebarCampaign, setSidebarCampaign] = useState<null | {
     id: string;
-    creative?: { headline?: string; body?: string; ctaText?: string; linkUrl?: string };
+    creative?: {
+      headline?: string;
+      body?: string;
+      ctaText?: string;
+      linkUrl?: string;
+      mediaUrl?: string;
+      mediaKind?: "image" | "video";
+    };
   }>(null);
 
   const [topBannerCampaign, setTopBannerCampaign] = useState<null | {
     id: string;
-    creative?: { headline?: string; body?: string; ctaText?: string; linkUrl?: string };
+    creative?: {
+      headline?: string;
+      body?: string;
+      ctaText?: string;
+      linkUrl?: string;
+      mediaUrl?: string;
+      mediaKind?: "image" | "video";
+    };
   }>(null);
 
   useEffect(() => {
@@ -454,6 +468,15 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
             <div className="border-t border-zinc-200 p-4">
               {sidebarCampaign ? (
                 <div className="mb-4 rounded-2xl border border-brand-ink/10 bg-gradient-to-br from-[color:var(--color-brand-blue)]/10 to-white p-3 text-sm text-zinc-800">
+                  {sidebarCampaign?.creative?.mediaUrl && sidebarCampaign?.creative?.mediaKind !== "video" ? (
+                    /* eslint-disable-next-line @next/next/no-img-element */
+                    <img
+                      src={sidebarCampaign.creative.mediaUrl}
+                      alt={sidebarCampaign?.creative?.headline || "Sponsored"}
+                      className="mb-2 max-h-[120px] w-full rounded-xl border border-zinc-200 object-cover"
+                      loading="lazy"
+                    />
+                  ) : null}
                   <div className="font-semibold text-zinc-900">
                     {sidebarCampaign?.creative?.headline || "Sponsored by Purely Automation"}
                   </div>
@@ -701,7 +724,18 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
             {topBannerCampaign ? (
               <div className="mb-4 rounded-3xl border border-brand-ink/10 bg-gradient-to-r from-[color:var(--color-brand-blue)]/15 via-white to-white p-4 text-brand-ink">
                 <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-                  <div className="min-w-0">
+                  <div className="flex min-w-0 items-start gap-3">
+                    {topBannerCampaign?.creative?.mediaUrl && topBannerCampaign?.creative?.mediaKind !== "video" ? (
+                      /* eslint-disable-next-line @next/next/no-img-element */
+                      <img
+                        src={topBannerCampaign.creative.mediaUrl}
+                        alt={topBannerCampaign?.creative?.headline || "Sponsored"}
+                        className="h-14 w-14 shrink-0 rounded-2xl border border-zinc-200 object-cover"
+                        loading="lazy"
+                      />
+                    ) : null}
+
+                    <div className="min-w-0">
                     <div className="text-xs font-semibold uppercase tracking-wide text-zinc-500">Sponsored by Purely Automation</div>
                     <div className="mt-1 truncate text-base font-semibold text-zinc-900">
                       {topBannerCampaign?.creative?.headline || "Sponsored"}
@@ -709,6 +743,7 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
                     {topBannerCampaign?.creative?.body ? (
                       <div className="mt-1 line-clamp-2 text-sm text-zinc-700">{topBannerCampaign.creative.body}</div>
                     ) : null}
+                    </div>
                   </div>
                   <Link
                     href={topBannerCampaign?.creative?.linkUrl || `${basePath}/app/billing`}
