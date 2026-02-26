@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import Image from "next/image";
 import { useRouter } from "next/navigation";
 
@@ -104,6 +104,11 @@ export function PortalBillingClient() {
 
   const [adModalOpen, setAdModalOpen] = useState(false);
   const [adWatchedSeconds, setAdWatchedSeconds] = useState(0);
+  const [adMediaReady, setAdMediaReady] = useState(false);
+  const [adPlaying, setAdPlaying] = useState(false);
+  const [adConfirmExit, setAdConfirmExit] = useState(false);
+  const [adAutoClaimed, setAdAutoClaimed] = useState(false);
+  const adVideoRef = useRef<HTMLVideoElement | null>(null);
 
   const [rewardCampaign, setRewardCampaign] = useState<null | {
     id: string;
@@ -124,9 +129,10 @@ export function PortalBillingClient() {
 
   const adMinWatchSeconds = Math.max(0, Math.floor(Number(rewardCampaign?.reward?.minWatchSeconds ?? 15)));
   const adRewardCredits = Math.max(0, Math.floor(Number(rewardCampaign?.reward?.credits ?? 0)));
-  const adCooldownHours = Math.max(0, Math.floor(Number(rewardCampaign?.reward?.cooldownHours ?? 0)));
 
   const adEligible = rewardStatus?.eligible ?? true;
+
+  const adRemainingSeconds = Math.max(0, (adMinWatchSeconds || 0) - Math.floor(adWatchedSeconds || 0));
 
   const [purchaseModal, setPurchaseModal] = useState<null | {
     module: "blog" | "booking" | "automations" | "reviews" | "newsletter" | "nurture" | "aiReceptionist" | "leadScraping" | "crm" | "leadOutbound";
@@ -148,6 +154,19 @@ export function PortalBillingClient() {
   useEffect(() => {
     if (error) toast.error(error);
   }, [error, toast]);
+
+  const refreshCredits = useCallback(async () => {
+    const res = await fetch("/api/portal/credits", { cache: "no-store" });
+    if (!res.ok) return;
+    const c = (await res.json().catch(() => ({}))) as {
+      credits?: number;
+      autoTopUp?: boolean;
+      purchaseAvailable?: boolean;
+    };
+    setCredits(typeof c.credits === "number" && Number.isFinite(c.credits) ? c.credits : 0);
+    setAutoTopUp(Boolean(c.autoTopUp));
+    setPurchaseAvailable(Boolean(c.purchaseAvailable));
+  }, []);
 
   useEffect(() => {
     let mounted = true;
@@ -253,7 +272,7 @@ export function PortalBillingClient() {
     } catch {
       // ignore
     }
-  }, [toast]);
+  }, [toast, refreshCredits]);
 
   useEffect(() => {
     if (loading || creditsOnly) {
@@ -316,11 +335,37 @@ export function PortalBillingClient() {
   useEffect(() => {
     if (!adModalOpen) return;
     setAdWatchedSeconds(0);
-    const t = window.setInterval(() => {
-      setAdWatchedSeconds((s) => Math.min(120, s + 1));
-    }, 1000);
-    return () => window.clearInterval(t);
-  }, [adModalOpen]);
+    setAdMediaReady(false);
+    setAdPlaying(false);
+    setAdConfirmExit(false);
+    setAdAutoClaimed(false);
+  }, [adModalOpen, rewardCampaign?.id]);
+
+  useEffect(() => {
+    if (!adModalOpen) return;
+    if (!adMediaReady) return;
+    if (!adPlaying) return;
+
+    let raf = 0;
+    let last = performance.now();
+
+    const tick = () => {
+      const video = adVideoRef.current;
+      const isReallyPlaying = Boolean(video && !video.paused && !video.ended && video.readyState >= 2);
+      const now = performance.now();
+      const dt = Math.max(0, now - last);
+      last = now;
+
+      if (isReallyPlaying) {
+        setAdWatchedSeconds((s) => Math.min(600, s + dt / 1000));
+      }
+
+      raf = window.requestAnimationFrame(tick);
+    };
+
+    raf = window.requestAnimationFrame(tick);
+    return () => window.cancelAnimationFrame(raf);
+  }, [adMediaReady, adModalOpen, adPlaying]);
 
   useEffect(() => {
     let alive = true;
@@ -355,23 +400,26 @@ export function PortalBillingClient() {
     };
   }, []);
 
-  async function claimAdReward() {
+  const claimAdReward = useCallback(
+    async (opts: { watchedSeconds: number; closeModalOnSuccess?: boolean }) => {
     setError(null);
     setActionBusy("adReward");
     try {
-      if (!rewardCampaign?.id) {
+      const campaignId = rewardCampaign?.id ?? "";
+      if (!campaignId) {
         setError("No reward campaign available right now.");
-        return;
+        return { ok: false as const };
       }
       if (!adEligible) {
-        setError("Reward not eligible yet.");
-        return;
+        setError("Not available right now.");
+        return { ok: false as const };
       }
       const path = window.location.pathname;
+      const watchedSeconds = Math.max(0, Math.floor(opts.watchedSeconds));
       const res = await fetch("/api/portal/ads/claim", {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ campaignId: rewardCampaign.id, watchedSeconds: adWatchedSeconds, path }),
+        body: JSON.stringify({ campaignId, watchedSeconds, path }),
       });
       const body = await res.json().catch(() => ({}));
       if (!res.ok) {
@@ -379,17 +427,38 @@ export function PortalBillingClient() {
         if (res.status === 429 && typeof body?.nextAtIso === "string" && body.nextAtIso) {
           setRewardStatus({ eligible: false, nextEligibleAtIso: body.nextAtIso });
         }
-        return;
+        return { ok: false as const };
       }
       if (body?.ok) {
-        toast.success("Bonus credits added.");
+        toast.success("Credits added.");
         await refreshCredits();
         setRewardStatus(typeof body?.nextAtIso === "string" && body.nextAtIso ? { eligible: false, nextEligibleAtIso: body.nextAtIso } : null);
+        if (opts?.closeModalOnSuccess) {
+          setAdModalOpen(false);
+        }
+        return { ok: true as const };
       }
+      return { ok: false as const };
     } finally {
       setActionBusy(null);
     }
-  }
+    },
+    [adEligible, refreshCredits, rewardCampaign?.id, toast],
+  );
+
+  useEffect(() => {
+    if (!adModalOpen) return;
+    if (adAutoClaimed) return;
+    if (!rewardCampaign?.id) return;
+    if (!adEligible) return;
+    if (adRewardCredits <= 0) return;
+    const minWatch = adMinWatchSeconds || 0;
+    if (minWatch <= 0) return;
+    if (Math.floor(adWatchedSeconds || 0) < minWatch) return;
+
+    setAdAutoClaimed(true);
+    void claimAdReward({ watchedSeconds: Math.floor(adWatchedSeconds || 0), closeModalOnSuccess: true });
+  }, [adAutoClaimed, adEligible, adMinWatchSeconds, adModalOpen, adRewardCredits, adWatchedSeconds, rewardCampaign?.id, claimAdReward]);
 
   function openPurchaseModal(
     module: "blog" | "booking" | "automations" | "reviews" | "newsletter" | "nurture" | "aiReceptionist" | "leadScraping" | "crm" | "leadOutbound",
@@ -474,19 +543,6 @@ export function PortalBillingClient() {
       return;
     }
     setSubscriptions((await res.json().catch(() => null)) as SubscriptionsResponse | null);
-  }
-
-  async function refreshCredits() {
-    const res = await fetch("/api/portal/credits", { cache: "no-store" });
-    if (!res.ok) return;
-    const c = (await res.json().catch(() => ({}))) as {
-      credits?: number;
-      autoTopUp?: boolean;
-      purchaseAvailable?: boolean;
-    };
-    setCredits(typeof c.credits === "number" && Number.isFinite(c.credits) ? c.credits : 0);
-    setAutoTopUp(Boolean(c.autoTopUp));
-    setPurchaseAvailable(Boolean(c.purchaseAvailable));
   }
 
   async function refreshServices() {
@@ -1059,18 +1115,23 @@ export function PortalBillingClient() {
           <div className="mt-4 rounded-2xl border border-zinc-200 bg-zinc-50 p-4">
             <div className="flex items-start justify-between gap-3">
               <div>
-                <div className="text-sm font-semibold text-zinc-900">
-                  {rewardCampaign?.creative?.headline || "Sponsored"}
+                <div className="inline-flex items-center gap-2">
+                  <span className="rounded-full bg-[color:var(--color-brand-blue)]/15 px-2.5 py-1 text-[11px] font-bold uppercase tracking-wide text-[color:var(--color-brand-blue)]">
+                    Sponsored
+                  </span>
+                  <div className="text-sm font-semibold text-zinc-900">
+                    {rewardCampaign?.creative?.headline || "Purely Automation"}
+                  </div>
                 </div>
-                <div className="mt-1 text-xs text-zinc-500">
-                  {rewardCampaign?.creative?.body || "Purely Automation — upgrade any time to unlock subscription options."}
+                <div className="mt-1 text-xs text-zinc-600">
+                  {rewardCampaign?.creative?.body || "A short video from Purely Automation."}
                 </div>
               </div>
               <button
                 type="button"
                 className="rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm font-semibold text-zinc-800 hover:bg-zinc-50 disabled:opacity-60"
                 onClick={() => setAdModalOpen(true)}
-                disabled={actionBusy !== null}
+                disabled={actionBusy !== null || !adEligible}
               >
                 Watch
               </button>
@@ -1079,35 +1140,12 @@ export function PortalBillingClient() {
             <div className="mt-3 rounded-2xl border border-zinc-200 bg-white p-3 text-sm text-zinc-700">
               {adRewardCredits > 0 ? (
                 <>
-                  Watch a short demo and claim <span className="font-semibold">{adRewardCredits}</span> credits
-                  {adCooldownHours ? <> (cooldown: {adCooldownHours}h)</> : null}.
+                  Watch the short video to earn <span className="font-semibold">{adRewardCredits}</span> credits.
                 </>
               ) : (
                 <>Sponsored message</>
               )}
-            </div>
-
-            <div className="mt-3 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-              <div className="text-xs text-zinc-500">
-                {!adEligible && rewardStatus?.nextEligibleAtIso ? (
-                  <>Next eligible: {new Date(rewardStatus.nextEligibleAtIso).toLocaleString()}</>
-                ) : adModalOpen
-                  ? `Watched: ${adWatchedSeconds}s`
-                  : `Open the video to start the timer (${adMinWatchSeconds || 15}s minimum).`}
-              </div>
-              <button
-                type="button"
-                className="rounded-2xl bg-zinc-900 px-4 py-2 text-sm font-semibold text-white hover:bg-zinc-800 disabled:opacity-60"
-                onClick={() => void claimAdReward()}
-                disabled={
-                  actionBusy !== null ||
-                  !rewardCampaign ||
-                  !adEligible ||
-                  (adRewardCredits > 0 && adWatchedSeconds < (adMinWatchSeconds || 15))
-                }
-              >
-                {actionBusy === "adReward" ? "Claiming…" : "Claim bonus credits"}
-              </button>
+              {!adEligible ? <div className="mt-2 text-xs font-semibold text-zinc-500">Not available right now.</div> : null}
             </div>
           </div>
         ) : null}
@@ -1175,54 +1213,163 @@ export function PortalBillingClient() {
       </div>
 
       {adModalOpen ? (
-        <div className="fixed inset-0 z-[9999] flex items-center justify-center bg-black/40 p-4" onMouseDown={() => setAdModalOpen(false)}>
-          <div className="w-full max-w-2xl rounded-3xl border border-zinc-200 bg-white p-5 shadow-xl" onMouseDown={(e) => e.stopPropagation()}>
-            <div className="flex items-start justify-between gap-3">
-              <div>
-                <div className="text-sm font-semibold text-zinc-900">{rewardCampaign?.creative?.headline || "Purely Automation"}</div>
-                <div className="mt-1 text-sm text-zinc-600">{rewardCampaign?.creative?.body || "A quick walkthrough of what you can unlock."}</div>
-              </div>
-              <button
-                type="button"
-                className="inline-flex h-10 w-10 items-center justify-center rounded-full border border-zinc-200 bg-white text-zinc-700 hover:bg-zinc-50"
-                onClick={() => setAdModalOpen(false)}
-                aria-label="Close"
-              >
-                ×
-              </button>
-            </div>
-
-            <div className="mt-4 overflow-hidden rounded-2xl border border-zinc-200 bg-zinc-50">
-              {rewardCampaign?.creative?.mediaUrl ? (
-                rewardCampaign.creative?.mediaKind === "video" ? (
-                  <video className="h-[320px] w-full bg-black" controls playsInline src={rewardCampaign.creative.mediaUrl} />
-                ) : (
-                  <Image
-                    className="h-[320px] w-full object-cover"
-                    src={rewardCampaign.creative.mediaUrl}
-                    alt={rewardCampaign.creative?.headline || "Sponsored"}
-                    width={1280}
-                    height={720}
-                    unoptimized
-                  />
-                )
-              ) : (
-                <div className="flex h-[320px] w-full items-center justify-center p-8 text-center text-sm text-zinc-600">
-                  No media URL is configured for this campaign.
+        <div className="fixed inset-0 z-[9999] bg-black/70">
+          <div className="absolute inset-0 bg-white">
+            <div className="flex h-full flex-col">
+              <div className="flex items-center justify-between gap-3 border-b border-zinc-200 px-5 py-4">
+                <div className="min-w-0">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <span className="rounded-full bg-[color:var(--color-brand-blue)]/15 px-3 py-1 text-[12px] font-bold uppercase tracking-wide text-[color:var(--color-brand-blue)]">
+                      Sponsored by Purely Automation
+                    </span>
+                    {adRewardCredits > 0 ? (
+                      <span className="rounded-full bg-emerald-100 px-3 py-1 text-[12px] font-bold uppercase tracking-wide text-emerald-900">
+                        Earn {adRewardCredits} credits
+                      </span>
+                    ) : null}
+                  </div>
+                  <div className="mt-2 truncate text-lg font-semibold text-zinc-900">
+                    {rewardCampaign?.creative?.headline || "Purely Automation"}
+                  </div>
+                  <div className="mt-1 truncate text-sm text-zinc-600">
+                    {rewardCampaign?.creative?.body || ""}
+                  </div>
                 </div>
-              )}
+
+                <div className="flex items-center gap-2">
+                  {rewardCampaign?.creative?.linkUrl ? (
+                    <a
+                      href={rewardCampaign.creative.linkUrl}
+                      className="hidden rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm font-semibold text-zinc-800 hover:bg-zinc-50 sm:inline-flex"
+                      target="_blank"
+                      rel="noreferrer"
+                    >
+                      {rewardCampaign?.creative?.ctaText || "Open"}
+                    </a>
+                  ) : null}
+                  <button
+                    type="button"
+                    className="inline-flex h-10 w-10 items-center justify-center rounded-full border border-zinc-200 bg-white text-zinc-700 hover:bg-zinc-50"
+                    onClick={() => {
+                      if (adRewardCredits > 0 && adRemainingSeconds > 0) setAdConfirmExit(true);
+                      else setAdModalOpen(false);
+                    }}
+                    aria-label="Close"
+                  >
+                    ×
+                  </button>
+                </div>
+              </div>
+
+              <div className="flex-1 bg-black">
+                {rewardCampaign?.creative?.mediaUrl ? (
+                  rewardCampaign.creative?.mediaKind === "video" ? (
+                    <video
+                      ref={adVideoRef}
+                      className="h-full w-full object-contain"
+                      controls
+                      playsInline
+                      preload="auto"
+                      src={rewardCampaign.creative.mediaUrl}
+                      onLoadedData={() => setAdMediaReady(true)}
+                      onCanPlay={() => setAdMediaReady(true)}
+                      onPlay={() => setAdPlaying(true)}
+                      onPause={() => setAdPlaying(false)}
+                      onEnded={() => setAdPlaying(false)}
+                    />
+                  ) : (
+                    <Image
+                      className="h-full w-full object-contain"
+                      src={rewardCampaign.creative.mediaUrl}
+                      alt={rewardCampaign.creative?.headline || "Sponsored"}
+                      width={1920}
+                      height={1080}
+                      unoptimized
+                    />
+                  )
+                ) : (
+                  <div className="flex h-full w-full items-center justify-center p-8 text-center text-sm text-white/80">
+                    Media isn’t configured for this campaign.
+                  </div>
+                )}
+              </div>
+
+              <div className="border-t border-zinc-200 bg-white px-5 py-4">
+                <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                  <div className="text-sm text-zinc-700">
+                    {adRewardCredits > 0 ? (
+                      adRemainingSeconds > 0 ? (
+                        <>
+                          Keep watching for <span className="font-semibold">{adRemainingSeconds}s</span> to unlock your credits.
+                        </>
+                      ) : (
+                        <>
+                          You’re all set. Adding your credits…
+                        </>
+                      )
+                    ) : (
+                      <>Sponsored message</>
+                    )}
+                    {rewardCampaign?.creative?.mediaKind === "video" && !adMediaReady ? (
+                      <div className="mt-1 text-xs text-zinc-500">Loading video…</div>
+                    ) : null}
+                  </div>
+
+                  <div className="flex flex-wrap items-center gap-2">
+                    {rewardCampaign?.creative?.linkUrl ? (
+                      <a
+                        href={rewardCampaign.creative.linkUrl}
+                        className="inline-flex rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm font-semibold text-zinc-800 hover:bg-zinc-50 sm:hidden"
+                        target="_blank"
+                        rel="noreferrer"
+                      >
+                        {rewardCampaign?.creative?.ctaText || "Open"}
+                      </a>
+                    ) : null}
+                    <button
+                      type="button"
+                      className="rounded-2xl bg-zinc-900 px-4 py-2 text-sm font-semibold text-white hover:bg-zinc-800"
+                      onClick={() => {
+                        if (adRewardCredits > 0 && adRemainingSeconds > 0) setAdConfirmExit(true);
+                        else setAdModalOpen(false);
+                      }}
+                    >
+                      {adRewardCredits > 0 && adRemainingSeconds > 0 ? `Done (${adRemainingSeconds}s)` : "Done"}
+                    </button>
+                  </div>
+                </div>
+              </div>
             </div>
 
-            <div className="mt-4 flex items-center justify-between gap-3">
-              <div className="text-xs text-zinc-500">Keep this open for {adMinWatchSeconds || 15}s to enable rewards.</div>
-              <button
-                type="button"
-                className="rounded-2xl bg-zinc-900 px-4 py-2 text-sm font-semibold text-white hover:bg-zinc-800"
-                onClick={() => setAdModalOpen(false)}
-              >
-                Done
-              </button>
-            </div>
+            {adConfirmExit ? (
+              <div className="absolute inset-0 z-[10000] flex items-center justify-center bg-black/60 p-4" onMouseDown={() => setAdConfirmExit(false)}>
+                <div className="w-full max-w-lg rounded-3xl border border-zinc-200 bg-white p-5 shadow-xl" onMouseDown={(e) => e.stopPropagation()}>
+                  <div className="text-base font-semibold text-zinc-900">Stop watching?</div>
+                  <div className="mt-2 text-sm text-zinc-700">
+                    If you stop now, you won’t receive the {adRewardCredits} credits.
+                  </div>
+                  <div className="mt-4 flex flex-col gap-2 sm:flex-row sm:justify-end">
+                    <button
+                      type="button"
+                      className="rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm font-semibold text-zinc-800 hover:bg-zinc-50"
+                      onClick={() => setAdConfirmExit(false)}
+                    >
+                      Keep watching
+                    </button>
+                    <button
+                      type="button"
+                      className="rounded-2xl bg-zinc-900 px-4 py-2 text-sm font-semibold text-white hover:bg-zinc-800"
+                      onClick={() => {
+                        setAdConfirmExit(false);
+                        setAdModalOpen(false);
+                      }}
+                    >
+                      Stop
+                    </button>
+                  </div>
+                </div>
+              </div>
+            ) : null}
           </div>
         </div>
       ) : null}
