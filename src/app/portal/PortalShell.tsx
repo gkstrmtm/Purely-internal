@@ -73,6 +73,7 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
       mediaKind?: "image" | "video";
       mediaFit?: "cover" | "contain";
       mediaPosition?: string;
+      sidebarImageHeight?: number;
     };
   }>(null);
 
@@ -478,8 +479,9 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
                     <img
                       src={sidebarCampaign.creative.mediaUrl}
                       alt={sidebarCampaign?.creative?.headline || "Sponsored"}
-                      className="mb-2 max-h-[120px] w-full rounded-xl border border-zinc-200 object-cover"
+                      className="mb-2 w-full rounded-xl border border-zinc-200 object-cover"
                       style={{
+                        height: Math.max(60, Math.min(240, Math.floor(Number(sidebarCampaign?.creative?.sidebarImageHeight || 120)))),
                         objectFit: sidebarCampaign?.creative?.mediaFit || "cover",
                         objectPosition: sidebarCampaign?.creative?.mediaPosition || "center",
                       }}
@@ -490,12 +492,17 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
                     {sidebarCampaign?.creative?.headline || "Sponsored by Purely Automation"}
                   </div>
                   <div className="mt-1 text-xs text-zinc-600">{sidebarCampaign?.creative?.body || "Explore add-ons and unlock more automation."}</div>
-                  <Link
-                    href={sidebarCampaign?.creative?.linkUrl || `${basePath}/app/billing`}
+                  <a
+                    href={
+                      `/api/portal/ads/click?campaignId=${encodeURIComponent(sidebarCampaign.id)}` +
+                      `&placement=SIDEBAR_BANNER` +
+                      `&path=${encodeURIComponent(pathname || "")}` +
+                      `&to=${encodeURIComponent(sidebarCampaign?.creative?.linkUrl || `${basePath}/app/billing`)}`
+                    }
                     className="mt-2 inline-flex rounded-xl bg-zinc-900 px-3 py-2 text-xs font-semibold text-white hover:bg-zinc-800"
                   >
                     {sidebarCampaign?.creative?.ctaText || "View upgrades"}
-                  </Link>
+                  </a>
                 </div>
               ) : null}
 
@@ -688,12 +695,17 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
                   {sidebarCampaign?.creative?.headline || "Sponsored by Purely Automation"}
                 </div>
                 <div className="mt-1 text-xs text-zinc-600">{sidebarCampaign?.creative?.body || "Explore add-ons and unlock more automation."}</div>
-                <Link
-                  href={sidebarCampaign?.creative?.linkUrl || `${basePath}/app/billing`}
+                <a
+                  href={
+                    `/api/portal/ads/click?campaignId=${encodeURIComponent(sidebarCampaign.id)}` +
+                    `&placement=SIDEBAR_BANNER` +
+                    `&path=${encodeURIComponent(pathname || "")}` +
+                    `&to=${encodeURIComponent(sidebarCampaign?.creative?.linkUrl || `${basePath}/app/billing`)}`
+                  }
                   className="mt-2 inline-flex rounded-xl bg-zinc-900 px-3 py-2 text-xs font-semibold text-white hover:bg-zinc-800"
                 >
                   {sidebarCampaign?.creative?.ctaText || "View upgrades"}
-                </Link>
+                </a>
               </div>
             ) : null}
 
@@ -774,7 +786,12 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
                     </div>
                   </div>
                   <Link
-                    href={topBannerCampaign?.creative?.linkUrl || `${basePath}/app/billing`}
+                    href={
+                      `/api/portal/ads/click?campaignId=${encodeURIComponent(topBannerCampaign.id)}` +
+                      `&placement=TOP_BANNER` +
+                      `&path=${encodeURIComponent(pathname || "")}` +
+                      `&to=${encodeURIComponent(topBannerCampaign?.creative?.linkUrl || `${basePath}/app/billing`)}`
+                    }
                     className="inline-flex items-center justify-center rounded-2xl bg-zinc-900 px-4 py-2 text-sm font-semibold text-white hover:bg-zinc-800"
                   >
                     {topBannerCampaign?.creative?.ctaText || "Learn more"}

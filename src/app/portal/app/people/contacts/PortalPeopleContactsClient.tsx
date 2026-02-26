@@ -1032,7 +1032,7 @@ export function PortalPeopleContactsClient() {
                         onChange={(e) => setImportMapping((m) => ({ ...m, [f.key]: e.target.value }))}
                         className="mt-1 w-full rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-sm"
                       >
-                        <option value="">—</option>
+                        <option value="">None</option>
                         {importHeaders.map((h) => (
                           <option key={h} value={h}>
                             {h}
@@ -1095,10 +1095,10 @@ export function PortalPeopleContactsClient() {
 
                           return (
                             <tr key={idx} className="border-t border-zinc-200">
-                              <td className="px-3 py-2 max-w-[180px] truncate">{name || "—"}</td>
-                              <td className="px-3 py-2 max-w-[180px] truncate">{importMapping.email ? cell(importMapping.email) : "—"}</td>
-                              <td className="px-3 py-2 max-w-[160px] truncate">{importMapping.phone ? cell(importMapping.phone) : "—"}</td>
-                              <td className="px-3 py-2 max-w-[180px] truncate">{tagsText || "—"}</td>
+                              <td className="px-3 py-2 max-w-[180px] truncate">{name || "n/a"}</td>
+                              <td className="px-3 py-2 max-w-[180px] truncate">{importMapping.email ? cell(importMapping.email) : "n/a"}</td>
+                              <td className="px-3 py-2 max-w-[160px] truncate">{importMapping.phone ? cell(importMapping.phone) : "n/a"}</td>
+                              <td className="px-3 py-2 max-w-[180px] truncate">{tagsText || "n/a"}</td>
                             </tr>
                           );
                         })}

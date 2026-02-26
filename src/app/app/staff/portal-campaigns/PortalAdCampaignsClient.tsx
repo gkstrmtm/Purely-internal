@@ -42,7 +42,9 @@ type CreativeVariantDraft = {
   mediaUrl: string;
   mediaFit?: "cover" | "contain";
   mediaPosition?: string;
+  sidebarImageHeight?: number;
   topBannerImageSize?: number;
+  fullscreenMediaMaxWidthPct?: number;
 };
 
 type OfferDraft =
@@ -71,6 +73,19 @@ function uniq(xs: string[]) {
   }
   return out;
 }
+
+type CampaignUserAnalyticsRow = {
+  ownerId: string;
+  email: string;
+  businessName: string | null;
+  lastSeenAt: string | null;
+  impressions: number;
+  impressionsMobile: number;
+  impressionsDesktop: number;
+  clicks: number;
+  clicksMobile: number;
+  clicksDesktop: number;
+};
 
 function toLocalDateTimeInputValue(iso: string | null | undefined): string {
   const s = String(iso || "").trim();
@@ -145,12 +160,32 @@ function clampTopBannerSize(v: unknown): number | undefined {
   return Math.max(40, Math.min(160, Math.floor(n)));
 }
 
+function clampSidebarImageHeight(v: unknown): number | undefined {
+  const n = typeof v === "number" ? v : typeof v === "string" ? Number(v) : NaN;
+  if (!Number.isFinite(n)) return undefined;
+  return Math.max(60, Math.min(240, Math.floor(n)));
+}
+
+function clampFullscreenMaxWidthPct(v: unknown): number | undefined {
+  const n = typeof v === "number" ? v : typeof v === "string" ? Number(v) : NaN;
+  if (!Number.isFinite(n)) return undefined;
+  return Math.max(40, Math.min(100, Math.floor(n)));
+}
+
 export default function PortalAdCampaignsClient() {
   const toast = useToast();
   const shownMediaWarningsRef = useRef<Set<string>>(new Set());
+  const [tab, setTab] = useState<"campaigns" | "users">("campaigns");
   const [campaigns, setCampaigns] = useState<CampaignRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+
+  const [usersLoading, setUsersLoading] = useState(false);
+  const [usersError, setUsersError] = useState<string | null>(null);
+  const [usersDays, setUsersDays] = useState(30);
+  const [usersCampaignId, setUsersCampaignId] = useState<string>("");
+  const [usersQuery, setUsersQuery] = useState("");
+  const [usersRows, setUsersRows] = useState<CampaignUserAnalyticsRow[]>([]);
 
   useEffect(() => {
     if (!error) return;
@@ -188,6 +223,21 @@ export default function PortalAdCampaignsClient() {
     offers: OfferDraft[];
   }>(null);
 
+  const placementsKey = useMemo(() => (editor?.placements || []).join("|"), [editor?.placements]);
+  const [creativePreviewPlacement, setCreativePreviewPlacement] = useState<Placement>("SIDEBAR_BANNER");
+  const activeCreativePlacement = useMemo(() => {
+    const placements = (editor?.placements || []) as Placement[];
+    if (placements.length && placements.includes(creativePreviewPlacement)) return creativePreviewPlacement;
+    return placements[0] || "SIDEBAR_BANNER";
+  }, [placementsKey, creativePreviewPlacement]);
+
+  useEffect(() => {
+    if (!editor) return;
+    const placements = (editor.placements || []) as Placement[];
+    if (!placements.length) return;
+    if (!placements.includes(creativePreviewPlacement)) setCreativePreviewPlacement(placements[0]!);
+  }, [placementsKey, editor, creativePreviewPlacement]);
+
   useEffect(() => {
     if (!editor) return;
     const placements = (editor.placements || []) as Placement[];
@@ -203,7 +253,7 @@ export default function PortalAdCampaignsClient() {
         if (shownMediaWarningsRef.current.has(key)) continue;
         shownMediaWarningsRef.current.add(key);
         toast.info(
-          `Heads up: this creative's ${c.mediaKind === "video" ? "video" : "image"} won't show for the selected placements (${placements
+          `Heads up: this creative's ${c.mediaKind === "video" ? "video" : "image"} won't show on desktop or mobile for the selected placements (${placements
             .map(placementLabel)
             .join(", ")}).`,
         );
@@ -212,13 +262,55 @@ export default function PortalAdCampaignsClient() {
         if (shownMediaWarningsRef.current.has(key)) continue;
         shownMediaWarningsRef.current.add(key);
         toast.info(
-          `Heads up: this creative's ${c.mediaKind === "video" ? "video" : "image"} won't show in: ${sum.hideIn
+          `Heads up: this creative's ${c.mediaKind === "video" ? "video" : "image"} won't show on desktop or mobile in: ${sum.hideIn
             .map(placementLabel)
             .join(", ")}.`,
         );
       }
     }
   }, [editor, toast]);
+
+  useEffect(() => {
+    if (tab !== "users") return;
+    let mounted = true;
+    (async () => {
+      setUsersLoading(true);
+      setUsersError(null);
+
+      const qs = new URLSearchParams();
+      qs.set("days", String(usersDays));
+      if (usersCampaignId.trim()) qs.set("campaignId", usersCampaignId.trim());
+
+      const res = await fetch(`/api/staff/portal/ad-campaigns/users?${qs.toString()}`, { cache: "no-store" }).catch(() => null as any);
+      const json = (await res?.json().catch(() => null)) as any;
+      if (!mounted) return;
+      if (!res?.ok || !json?.ok || !Array.isArray(json.rows)) {
+        setUsersRows([]);
+        setUsersError(String(json?.error || "Unable to load"));
+        setUsersLoading(false);
+        return;
+      }
+
+      setUsersRows(
+        json.rows.map((r: any) => ({
+          ownerId: String(r.ownerId || ""),
+          email: String(r.email || ""),
+          businessName: r.businessName ? String(r.businessName) : null,
+          lastSeenAt: r.lastSeenAt ? String(r.lastSeenAt) : null,
+          impressions: Number(r.impressions || 0),
+          impressionsMobile: Number(r.impressionsMobile || 0),
+          impressionsDesktop: Number(r.impressionsDesktop || 0),
+          clicks: Number(r.clicks || 0),
+          clicksMobile: Number(r.clicksMobile || 0),
+          clicksDesktop: Number(r.clicksDesktop || 0),
+        })),
+      );
+      setUsersLoading(false);
+    })();
+    return () => {
+      mounted = false;
+    };
+  }, [tab, usersCampaignId, usersDays]);
 
   const [assignOpen, setAssignOpen] = useState(false);
   const [assignCampaignId, setAssignCampaignId] = useState<string | null>(null);
@@ -509,7 +601,9 @@ export default function PortalAdCampaignsClient() {
           mediaUrl: "",
           mediaFit: "cover",
           mediaPosition: "center",
+          sidebarImageHeight: 120,
           topBannerImageSize: 56,
+          fullscreenMediaMaxWidthPct: 100,
         },
       ],
 
@@ -540,7 +634,9 @@ export default function PortalAdCampaignsClient() {
           mediaUrl: String(v?.mediaUrl ?? ""),
           mediaFit: normalizeMediaFit(v?.mediaFit) ?? "cover",
           mediaPosition: normalizeMediaPosition(v?.mediaPosition) ?? "center",
+          sidebarImageHeight: clampSidebarImageHeight(v?.sidebarImageHeight) ?? 120,
           topBannerImageSize: clampTopBannerSize(v?.topBannerImageSize) ?? 56,
+          fullscreenMediaMaxWidthPct: clampFullscreenMaxWidthPct(v?.fullscreenMediaMaxWidthPct) ?? 100,
         }))
       : [
           {
@@ -552,7 +648,9 @@ export default function PortalAdCampaignsClient() {
             mediaUrl: String(c.mediaUrl ?? ""),
             mediaFit: normalizeMediaFit(c?.mediaFit) ?? "cover",
             mediaPosition: normalizeMediaPosition(c?.mediaPosition) ?? "center",
+            sidebarImageHeight: clampSidebarImageHeight(c?.sidebarImageHeight) ?? 120,
             topBannerImageSize: clampTopBannerSize(c?.topBannerImageSize) ?? 56,
+            fullscreenMediaMaxWidthPct: clampFullscreenMaxWidthPct(c?.fullscreenMediaMaxWidthPct) ?? 100,
           },
         ];
 
@@ -645,7 +743,9 @@ export default function PortalAdCampaignsClient() {
         mediaUrl: String(v.mediaUrl || "").trim(),
         mediaFit: normalizeMediaFit(v.mediaFit) ?? "cover",
         mediaPosition: normalizeMediaPosition(v.mediaPosition) ?? "center",
+        sidebarImageHeight: clampSidebarImageHeight(v.sidebarImageHeight) ?? 120,
         topBannerImageSize: clampTopBannerSize(v.topBannerImageSize) ?? 56,
+        fullscreenMediaMaxWidthPct: clampFullscreenMaxWidthPct(v.fullscreenMediaMaxWidthPct) ?? 100,
       }))
       .filter((v) => v.headline || v.body || v.mediaUrl || v.linkUrl);
 
@@ -663,7 +763,9 @@ export default function PortalAdCampaignsClient() {
               mediaUrl: "",
               mediaFit: "cover",
               mediaPosition: "center",
+              sidebarImageHeight: 120,
               topBannerImageSize: 56,
+              fullscreenMediaMaxWidthPct: 100,
             };
 
     const offers = (editor.offers || []).filter(Boolean);
@@ -881,22 +983,157 @@ export default function PortalAdCampaignsClient() {
     <div>
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
-          <div className="text-lg font-semibold text-brand-ink">Campaigns</div>
+          <div className="text-lg font-semibold text-brand-ink">Portal ad campaigns</div>
           <div className="mt-1 text-sm text-zinc-600">
             Create targeted portal ads (sidebar banners, top banners, billing sponsored cards, and fullscreen reward videos).
           </div>
         </div>
-        <button
-          type="button"
-          className="rounded-2xl bg-brand-ink px-4 py-2 text-sm font-semibold text-white hover:opacity-95"
-          onClick={openCreate}
-        >
-          New campaign
-        </button>
+
+        <div className="flex flex-wrap items-center gap-2">
+          <div className="inline-flex rounded-2xl border border-zinc-200 bg-white p-1">
+            <button
+              type="button"
+              onClick={() => setTab("campaigns")}
+              className={
+                "rounded-xl px-4 py-2 text-sm font-semibold " +
+                (tab === "campaigns" ? "bg-zinc-900 text-white" : "text-zinc-700 hover:bg-zinc-50")
+              }
+            >
+              Campaigns
+            </button>
+            <button
+              type="button"
+              onClick={() => setTab("users")}
+              className={
+                "rounded-xl px-4 py-2 text-sm font-semibold " +
+                (tab === "users" ? "bg-zinc-900 text-white" : "text-zinc-700 hover:bg-zinc-50")
+              }
+            >
+              Users
+            </button>
+          </div>
+
+          {tab === "campaigns" ? (
+            <button
+              type="button"
+              className="rounded-2xl bg-brand-ink px-4 py-2 text-sm font-semibold text-white hover:opacity-95"
+              onClick={openCreate}
+            >
+              New campaign
+            </button>
+          ) : null}
+        </div>
       </div>
 
+      {tab === "users" ? (
+        <div className="mt-6 rounded-3xl border border-zinc-200 bg-white p-5">
+          <div className="flex flex-wrap items-end justify-between gap-3">
+            <div>
+              <div className="text-lg font-semibold text-zinc-900">User monitoring</div>
+              <div className="mt-1 text-sm text-zinc-600">Tracks ad impressions and clicks split by device.</div>
+            </div>
 
+            <div className="flex flex-wrap items-center gap-2">
+              <PortalListboxDropdown
+                value={usersCampaignId}
+                onChange={(v) => setUsersCampaignId(v)}
+                buttonClassName="flex w-[260px] items-center justify-between gap-2 rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-sm hover:bg-zinc-50"
+                options={[
+                  { value: "", label: "All campaigns" },
+                  ...campaigns.map((c) => ({ value: c.id, label: c.name })),
+                ]}
+              />
 
+              <PortalListboxDropdown
+                value={String(usersDays) as any}
+                onChange={(v) => setUsersDays(Math.max(1, Math.min(365, Number(v) || 30)))}
+                buttonClassName="flex w-[160px] items-center justify-between gap-2 rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-sm hover:bg-zinc-50"
+                options={[
+                  { value: "7", label: "Last 7 days" },
+                  { value: "30", label: "Last 30 days" },
+                  { value: "90", label: "Last 90 days" },
+                ] as any}
+              />
+
+              <input
+                className="w-64 rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-sm"
+                placeholder="Search email or business"
+                value={usersQuery}
+                onChange={(e) => setUsersQuery(e.target.value)}
+              />
+            </div>
+          </div>
+
+          {usersError ? <div className="mt-3 text-sm font-semibold text-rose-700">{usersError}</div> : null}
+
+          <div className="mt-4 overflow-x-auto">
+            <table className="min-w-full text-left text-sm">
+              <thead>
+                <tr className="border-b border-zinc-200 text-xs font-semibold uppercase tracking-wide text-zinc-500">
+                  <th className="py-2 pr-4">User</th>
+                  <th className="py-2 pr-4">Device</th>
+                  <th className="py-2 pr-4">Impressions</th>
+                  <th className="py-2 pr-4">Clicks</th>
+                  <th className="py-2 pr-4">CTR</th>
+                  <th className="py-2 pr-4">Last seen</th>
+                </tr>
+              </thead>
+              <tbody>
+                {(usersRows || [])
+                  .filter((r) => {
+                    const q = usersQuery.trim().toLowerCase();
+                    if (!q) return true;
+                    return (
+                      r.email.toLowerCase().includes(q) ||
+                      String(r.businessName || "").toLowerCase().includes(q) ||
+                      r.ownerId.toLowerCase().includes(q)
+                    );
+                  })
+                  .map((r) => {
+                    const impressions = Math.max(0, Math.floor(r.impressions || 0));
+                    const clicks = Math.max(0, Math.floor(r.clicks || 0));
+                    const mobile = Math.max(0, Math.floor(r.impressionsMobile || 0));
+                    const desktop = Math.max(0, Math.floor(r.impressionsDesktop || 0));
+                    const denom = Math.max(1, mobile + desktop);
+                    const mobilePct = Math.round((mobile / denom) * 100);
+                    const desktopPct = 100 - mobilePct;
+                    const ctr = impressions ? (clicks / impressions) * 100 : 0;
+                    return (
+                      <tr key={r.ownerId} className="border-b border-zinc-100">
+                        <td className="py-3 pr-4">
+                          <div className="font-semibold text-zinc-900">{r.email}</div>
+                          <div className="text-xs text-zinc-500">{r.businessName || r.ownerId}</div>
+                        </td>
+                        <td className="py-3 pr-4">
+                          <div className="text-xs text-zinc-600">Desktop {desktopPct}% • Mobile {mobilePct}%</div>
+                          <div className="mt-1 h-2 w-40 overflow-hidden rounded-full bg-zinc-100">
+                            <div className="h-full bg-[color:var(--color-brand-blue)]" style={{ width: `${desktopPct}%` }} />
+                          </div>
+                        </td>
+                        <td className="py-3 pr-4 font-semibold text-zinc-900">{impressions.toLocaleString()}</td>
+                        <td className="py-3 pr-4 font-semibold text-zinc-900">{clicks.toLocaleString()}</td>
+                        <td className="py-3 pr-4 font-semibold text-zinc-900">{ctr.toFixed(1)}%</td>
+                        <td className="py-3 pr-4 text-zinc-700">
+                          {r.lastSeenAt ? new Date(r.lastSeenAt).toLocaleString() : "n/a"}
+                        </td>
+                      </tr>
+                    );
+                  })}
+
+                {!usersLoading && (!usersRows || usersRows.length === 0) ? (
+                  <tr>
+                    <td colSpan={6} className="py-6 text-center text-sm text-zinc-500">
+                      No analytics yet.
+                    </td>
+                  </tr>
+                ) : null}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      ) : null}
+
+      {tab === "campaigns" ? (
       <div className="mt-4 overflow-x-auto rounded-3xl border border-zinc-200 bg-white">
         <table className="min-w-full text-left text-sm">
           <thead className="bg-zinc-50 text-xs font-semibold uppercase tracking-wide text-zinc-500">
@@ -936,7 +1173,7 @@ export default function PortalAdCampaignsClient() {
                     </span>
                   </td>
                   <td className="px-4 py-3 text-xs text-zinc-600">
-                    {c.startAt ? new Date(c.startAt).toLocaleString() : "—"} → {c.endAt ? new Date(c.endAt).toLocaleString() : "—"}
+                    {c.startAt ? new Date(c.startAt).toLocaleString() : "Anytime"} → {c.endAt ? new Date(c.endAt).toLocaleString() : "Anytime"}
                   </td>
                   <td className="px-4 py-3 text-right">
                     <div className="flex flex-wrap justify-end gap-2">
@@ -962,8 +1199,9 @@ export default function PortalAdCampaignsClient() {
           </tbody>
         </table>
       </div>
+      ) : null}
 
-      {editor ? (
+      {tab === "campaigns" && editor ? (
         <div id="campaign-editor" className="mt-6 rounded-3xl border border-zinc-200 bg-white p-5">
           <div className="flex items-start justify-between gap-3">
             <div>
@@ -1329,7 +1567,7 @@ export default function PortalAdCampaignsClient() {
                                     <div className="text-xs text-zinc-500">{o.id}</div>
                                   </td>
                                   <td className="px-3 py-2 text-xs text-zinc-600">
-                                    <div className="font-semibold text-zinc-800">{o.businessProfile?.businessName || "—"}</div>
+                                    <div className="font-semibold text-zinc-800">{o.businessProfile?.businessName || "n/a"}</div>
                                     <div>
                                       {o.businessProfile?.industry || ""}
                                       {o.businessProfile?.businessModel ? ` • ${o.businessProfile.businessModel}` : ""}
@@ -1388,6 +1626,11 @@ export default function PortalAdCampaignsClient() {
                             linkUrl: "",
                             mediaKind: "image" as const,
                             mediaUrl: "",
+                            mediaFit: "cover" as const,
+                            mediaPosition: "center",
+                            sidebarImageHeight: 120,
+                            topBannerImageSize: 56,
+                            fullscreenMediaMaxWidthPct: 100,
                           };
                           const next = [...editor.creatives];
                           for (const it of uploaded) {
@@ -1418,6 +1661,11 @@ export default function PortalAdCampaignsClient() {
                               linkUrl: editor.creatives[0]?.linkUrl || "",
                               mediaKind: "image",
                               mediaUrl: "",
+                              mediaFit: "cover",
+                              mediaPosition: "center",
+                              sidebarImageHeight: 120,
+                              topBannerImageSize: 56,
+                              fullscreenMediaMaxWidthPct: 100,
                             },
                           ],
                         })
@@ -1440,6 +1688,25 @@ export default function PortalAdCampaignsClient() {
                     if (supportsVideo.length) parts.push(`Videos can show in: ${supportsVideo.map(placementLabel).join(", ")}.`);
                     if (mediaIgnored.length) parts.push(`Media won't show in: ${mediaIgnored.map(placementLabel).join(", ")}.`);
                     return parts.join(" ");
+                  })()}
+                </div>
+
+                <div className="mt-3 flex flex-wrap items-center gap-2">
+                  <div className="text-xs font-semibold text-zinc-600">Preview placement</div>
+                  {(() => {
+                    const placements = (editor.placements || []) as Placement[];
+                    if (placements.length <= 1) {
+                      return <div className="text-xs text-zinc-700">{placementLabel(placements[0] || "SIDEBAR_BANNER")}</div>;
+                    }
+                    return (
+                      <div className="w-[240px]">
+                        <PortalListboxDropdown
+                          value={activeCreativePlacement}
+                          onChange={(v) => setCreativePreviewPlacement(v as any)}
+                          options={placements.map((p) => ({ value: p, label: placementLabel(p) })) as any}
+                        />
+                      </div>
+                    );
                   })()}
                 </div>
 
@@ -1574,60 +1841,113 @@ export default function PortalAdCampaignsClient() {
                             <div className="mt-2 grid grid-cols-1 gap-2 sm:grid-cols-2">
                               <div>
                                 <label className="text-xs font-semibold text-zinc-600">Image fit</label>
-                                <select
-                                  className="mt-1 w-full rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-sm"
-                                  value={normalizeMediaFit(v.mediaFit) ?? "cover"}
-                                  onChange={(e) => {
-                                    const fit = normalizeMediaFit(e.target.value) ?? "cover";
-                                    const next = [...editor.creatives];
-                                    next[idx] = { ...next[idx]!, mediaFit: fit };
-                                    setEditor({ ...editor, creatives: next });
-                                  }}
-                                >
-                                  <option value="cover">Cover (crop)</option>
-                                  <option value="contain">Contain (no crop)</option>
-                                </select>
+                                <div className="mt-1">
+                                  <PortalListboxDropdown
+                                    value={(normalizeMediaFit(v.mediaFit) ?? "cover") as any}
+                                    onChange={(val) => {
+                                      const fit = normalizeMediaFit(val) ?? "cover";
+                                      const next = [...editor.creatives];
+                                      next[idx] = { ...next[idx]!, mediaFit: fit };
+                                      setEditor({ ...editor, creatives: next });
+                                    }}
+                                    options={[
+                                      { value: "cover", label: "Cover (crop)" },
+                                      { value: "contain", label: "Contain (no crop)" },
+                                    ] as any}
+                                  />
+                                </div>
                               </div>
                               <div>
                                 <label className="text-xs font-semibold text-zinc-600">Image focus</label>
-                                <select
-                                  className="mt-1 w-full rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-sm"
-                                  value={normalizeMediaPosition(v.mediaPosition) ?? "center"}
-                                  onChange={(e) => {
-                                    const pos = normalizeMediaPosition(e.target.value) ?? "center";
-                                    const next = [...editor.creatives];
-                                    next[idx] = { ...next[idx]!, mediaPosition: pos };
-                                    setEditor({ ...editor, creatives: next });
-                                  }}
-                                >
-                                  <option value="center">Center</option>
-                                  <option value="top">Top</option>
-                                  <option value="bottom">Bottom</option>
-                                  <option value="left">Left</option>
-                                  <option value="right">Right</option>
-                                  <option value="top left">Top left</option>
-                                  <option value="top right">Top right</option>
-                                  <option value="bottom left">Bottom left</option>
-                                  <option value="bottom right">Bottom right</option>
-                                </select>
+                                <div className="mt-1">
+                                  <PortalListboxDropdown
+                                    value={(normalizeMediaPosition(v.mediaPosition) ?? "center") as any}
+                                    onChange={(val) => {
+                                      const pos = normalizeMediaPosition(val) ?? "center";
+                                      const next = [...editor.creatives];
+                                      next[idx] = { ...next[idx]!, mediaPosition: pos };
+                                      setEditor({ ...editor, creatives: next });
+                                    }}
+                                    options={[
+                                      { value: "center", label: "Center" },
+                                      { value: "top", label: "Top" },
+                                      { value: "bottom", label: "Bottom" },
+                                      { value: "left", label: "Left" },
+                                      { value: "right", label: "Right" },
+                                      { value: "top left", label: "Top left" },
+                                      { value: "top right", label: "Top right" },
+                                      { value: "bottom left", label: "Bottom left" },
+                                      { value: "bottom right", label: "Bottom right" },
+                                    ] as any}
+                                  />
+                                </div>
                               </div>
-                              <div className="sm:col-span-2">
-                                <label className="text-xs font-semibold text-zinc-600">Top banner image size</label>
-                                <select
-                                  className="mt-1 w-full rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-sm"
-                                  value={String(clampTopBannerSize(v.topBannerImageSize) ?? 56)}
-                                  onChange={(e) => {
-                                    const size = clampTopBannerSize(e.target.value) ?? 56;
-                                    const next = [...editor.creatives];
-                                    next[idx] = { ...next[idx]!, topBannerImageSize: size };
-                                    setEditor({ ...editor, creatives: next });
-                                  }}
-                                >
-                                  <option value="56">Small</option>
-                                  <option value="72">Medium</option>
-                                  <option value="96">Large</option>
-                                </select>
-                              </div>
+
+                              {activeCreativePlacement === "SIDEBAR_BANNER" ? (
+                                <div className="sm:col-span-2">
+                                  <label className="text-xs font-semibold text-zinc-600">Sidebar image height</label>
+                                  <div className="mt-1">
+                                    <PortalListboxDropdown
+                                      value={String(clampSidebarImageHeight(v.sidebarImageHeight) ?? 120) as any}
+                                      onChange={(val) => {
+                                        const size = clampSidebarImageHeight(val) ?? 120;
+                                        const next = [...editor.creatives];
+                                        next[idx] = { ...next[idx]!, sidebarImageHeight: size };
+                                        setEditor({ ...editor, creatives: next });
+                                      }}
+                                      options={[
+                                        { value: "80", label: "Small" },
+                                        { value: "120", label: "Medium" },
+                                        { value: "160", label: "Large" },
+                                      ] as any}
+                                    />
+                                  </div>
+                                </div>
+                              ) : null}
+
+                              {activeCreativePlacement === "TOP_BANNER" ? (
+                                <div className="sm:col-span-2">
+                                  <label className="text-xs font-semibold text-zinc-600">Top banner image size</label>
+                                  <div className="mt-1">
+                                    <PortalListboxDropdown
+                                      value={String(clampTopBannerSize(v.topBannerImageSize) ?? 56) as any}
+                                      onChange={(val) => {
+                                        const size = clampTopBannerSize(val) ?? 56;
+                                        const next = [...editor.creatives];
+                                        next[idx] = { ...next[idx]!, topBannerImageSize: size };
+                                        setEditor({ ...editor, creatives: next });
+                                      }}
+                                      options={[
+                                        { value: "56", label: "Small" },
+                                        { value: "72", label: "Medium" },
+                                        { value: "96", label: "Large" },
+                                      ] as any}
+                                    />
+                                  </div>
+                                </div>
+                              ) : null}
+
+                              {activeCreativePlacement === "FULLSCREEN_REWARD" ? (
+                                <div className="sm:col-span-2">
+                                  <label className="text-xs font-semibold text-zinc-600">Fullscreen media width</label>
+                                  <div className="mt-1">
+                                    <PortalListboxDropdown
+                                      value={String(clampFullscreenMaxWidthPct(v.fullscreenMediaMaxWidthPct) ?? 100) as any}
+                                      onChange={(val) => {
+                                        const pct = clampFullscreenMaxWidthPct(val) ?? 100;
+                                        const next = [...editor.creatives];
+                                        next[idx] = { ...next[idx]!, fullscreenMediaMaxWidthPct: pct };
+                                        setEditor({ ...editor, creatives: next });
+                                      }}
+                                      options={[
+                                        { value: "60", label: "Narrow" },
+                                        { value: "80", label: "Medium" },
+                                        { value: "100", label: "Full" },
+                                      ] as any}
+                                    />
+                                  </div>
+                                </div>
+                              ) : null}
                             </div>
                           ) : null}
 
@@ -1636,8 +1956,8 @@ export default function PortalAdCampaignsClient() {
                             const sum = summarizeMediaVisibility(placements, v);
                             if (!sum.hasMedia) return null;
 
-                            const show = sum.showIn.map(placementLabel).join(", ");
-                            const hide = sum.hideIn.map(placementLabel).join(", ");
+                            const show = sum.showIn.map(placementLabel).join(", ") || "None";
+                            const hide = sum.hideIn.map(placementLabel).join(", ") || "None";
 
                             if (!sum.showIn.length) {
                               return (
@@ -1649,69 +1969,135 @@ export default function PortalAdCampaignsClient() {
 
                             return (
                               <div className="mt-1 text-xs text-zinc-500">
-                                Will show in: <span className="font-semibold text-zinc-700">{show || "—"}</span>
+                                Will show on desktop: <span className="font-semibold text-zinc-700">{show}</span> • Will show on mobile{" "}
+                                <span className="font-semibold text-zinc-700">{show}</span>
                                 {sum.hideIn.length ? (
                                   <>
-                                    {" "}• Won’t show in: <span className="font-semibold text-zinc-700">{hide}</span>
+                                    {" "}• Won’t show on desktop: <span className="font-semibold text-zinc-700">{hide}</span> • Won’t show on mobile{" "}
+                                    <span className="font-semibold text-zinc-700">{hide}</span>
                                   </>
                                 ) : null}
                               </div>
                             );
                           })()}
 
-                          {v.mediaUrl && v.mediaKind === "image" ? (
-                            <div className="mt-3 grid gap-3 sm:grid-cols-2">
-                              <div className="rounded-2xl border border-zinc-200 bg-white p-3">
-                                <div className="text-xs font-semibold text-zinc-600">Sidebar banner preview</div>
-                                <div className="mt-2 rounded-2xl border border-brand-ink/10 bg-gradient-to-br from-[color:var(--color-brand-blue)]/10 to-white p-3">
-                                  {/* eslint-disable-next-line @next/next/no-img-element */}
-                                  <img
-                                    src={v.mediaUrl}
-                                    alt="Creative"
-                                    className="mb-2 max-h-[120px] w-full rounded-xl border border-zinc-200 object-cover"
-                                    style={{
-                                      objectFit: normalizeMediaFit(v.mediaFit) ?? "cover",
-                                      objectPosition: normalizeMediaPosition(v.mediaPosition) ?? "center",
-                                    }}
-                                  />
-                                  <div className="text-sm font-semibold text-zinc-900">{v.headline || "Sponsored"}</div>
-                                  <div className="mt-1 line-clamp-2 text-xs text-zinc-600">{v.body || "Preview copy"}</div>
-                                  <div className="mt-2 inline-flex rounded-xl bg-zinc-900 px-3 py-2 text-xs font-semibold text-white">
-                                    {v.ctaText || "View"}
-                                  </div>
-                                </div>
-                              </div>
+                          {v.mediaUrl ? (
+                            (() => {
+                              const p = activeCreativePlacement;
+                              const supports = placementSupportsMedia(p);
+                              const canShow = v.mediaKind === "video" ? supports.video : supports.image;
+                              if (!canShow) return null;
 
-                              <div className="rounded-2xl border border-zinc-200 bg-white p-3">
-                                <div className="text-xs font-semibold text-zinc-600">Top banner preview</div>
-                                <div className="mt-2 rounded-3xl border border-brand-ink/10 bg-gradient-to-r from-[color:var(--color-brand-blue)]/15 via-white to-white p-4">
-                                  <div className="flex items-center justify-between gap-3">
-                                    <div className="flex min-w-0 items-center gap-3">
+                              if (p === "BILLING_SPONSORED") {
+                                return (
+                                  <div className="mt-3 rounded-2xl border border-zinc-200 bg-zinc-50 p-3 text-xs text-zinc-600">
+                                    Media is not shown for Billing sponsored placement.
+                                  </div>
+                                );
+                              }
+
+                              if (p === "SIDEBAR_BANNER" && v.mediaKind === "image") {
+                                return (
+                                  <div className="mt-3 rounded-2xl border border-zinc-200 bg-white p-3">
+                                    <div className="text-xs font-semibold text-zinc-600">Sidebar banner preview</div>
+                                    <div className="mt-2 rounded-2xl border border-brand-ink/10 bg-gradient-to-br from-[color:var(--color-brand-blue)]/10 to-white p-3">
                                       {/* eslint-disable-next-line @next/next/no-img-element */}
                                       <img
                                         src={v.mediaUrl}
                                         alt="Creative"
-                                        className="shrink-0 rounded-2xl border border-zinc-200 object-cover"
+                                        className="mb-2 w-full rounded-xl border border-zinc-200 object-cover"
                                         style={{
-                                          height: clampTopBannerSize(v.topBannerImageSize) ?? 56,
-                                          width: clampTopBannerSize(v.topBannerImageSize) ?? 56,
+                                          height: clampSidebarImageHeight(v.sidebarImageHeight) ?? 120,
                                           objectFit: normalizeMediaFit(v.mediaFit) ?? "cover",
                                           objectPosition: normalizeMediaPosition(v.mediaPosition) ?? "center",
                                         }}
                                       />
-                                      <div className="min-w-0">
-                                        <div className="text-[11px] font-semibold uppercase tracking-wide text-zinc-500">Sponsored</div>
-                                        <div className="truncate text-sm font-semibold text-zinc-900">{v.headline || "Sponsored"}</div>
-                                        {v.body ? <div className="mt-1 line-clamp-2 text-xs text-zinc-700">{v.body}</div> : null}
+                                      <div className="text-sm font-semibold text-zinc-900">{v.headline || "Sponsored"}</div>
+                                      <div className="mt-1 line-clamp-2 text-xs text-zinc-600">{v.body || "Preview copy"}</div>
+                                      <div className="mt-2 inline-flex rounded-xl bg-zinc-900 px-3 py-2 text-xs font-semibold text-white">
+                                        {v.ctaText || "View"}
                                       </div>
                                     </div>
-                                    <div className="inline-flex shrink-0 rounded-2xl bg-zinc-900 px-4 py-2 text-xs font-semibold text-white">
-                                      {v.ctaText || "Learn"}
+                                  </div>
+                                );
+                              }
+
+                              if (p === "TOP_BANNER" && v.mediaKind === "image") {
+                                return (
+                                  <div className="mt-3 rounded-2xl border border-zinc-200 bg-white p-3">
+                                    <div className="text-xs font-semibold text-zinc-600">Top banner preview</div>
+                                    <div className="mt-2 rounded-3xl border border-brand-ink/10 bg-gradient-to-r from-[color:var(--color-brand-blue)]/15 via-white to-white p-4">
+                                      <div className="flex items-center justify-between gap-3">
+                                        <div className="flex min-w-0 items-center gap-3">
+                                          {/* eslint-disable-next-line @next/next/no-img-element */}
+                                          <img
+                                            src={v.mediaUrl}
+                                            alt="Creative"
+                                            className="shrink-0 rounded-2xl border border-zinc-200 object-cover"
+                                            style={{
+                                              height: clampTopBannerSize(v.topBannerImageSize) ?? 56,
+                                              width: clampTopBannerSize(v.topBannerImageSize) ?? 56,
+                                              objectFit: normalizeMediaFit(v.mediaFit) ?? "cover",
+                                              objectPosition: normalizeMediaPosition(v.mediaPosition) ?? "center",
+                                            }}
+                                          />
+                                          <div className="min-w-0">
+                                            <div className="text-[11px] font-semibold uppercase tracking-wide text-zinc-500">Sponsored</div>
+                                            <div className="truncate text-sm font-semibold text-zinc-900">{v.headline || "Sponsored"}</div>
+                                            {v.body ? <div className="mt-1 line-clamp-2 text-xs text-zinc-700">{v.body}</div> : null}
+                                          </div>
+                                        </div>
+                                        <div className="inline-flex shrink-0 rounded-2xl bg-zinc-900 px-4 py-2 text-xs font-semibold text-white">
+                                          {v.ctaText || "Learn"}
+                                        </div>
+                                      </div>
                                     </div>
                                   </div>
-                                </div>
-                              </div>
-                            </div>
+                                );
+                              }
+
+                              if (p === "FULLSCREEN_REWARD") {
+                                const pct = clampFullscreenMaxWidthPct(v.fullscreenMediaMaxWidthPct) ?? 100;
+                                return (
+                                  <div className="mt-3 rounded-2xl border border-zinc-200 bg-white p-3">
+                                    <div className="text-xs font-semibold text-zinc-600">Fullscreen reward preview</div>
+                                    <div className="mt-2 overflow-hidden rounded-2xl border border-zinc-200 bg-black">
+                                      <div className="p-2 text-xs font-semibold text-white/80">Ad</div>
+                                      <div className="h-[240px] w-full">
+                                        <div className="mx-auto h-full w-full" style={{ maxWidth: `min(${pct}vw, 480px)` }}>
+                                          {v.mediaKind === "video" ? (
+                                            <video
+                                              className="h-full w-full"
+                                              style={{
+                                                objectFit: normalizeMediaFit(v.mediaFit) ?? "contain",
+                                                objectPosition: normalizeMediaPosition(v.mediaPosition) ?? "center",
+                                              }}
+                                              controls
+                                              playsInline
+                                              preload="metadata"
+                                              src={v.mediaUrl}
+                                            />
+                                          ) : (
+                                            // eslint-disable-next-line @next/next/no-img-element
+                                            <img
+                                              src={v.mediaUrl}
+                                              alt="Creative"
+                                              className="h-full w-full"
+                                              style={{
+                                                objectFit: normalizeMediaFit(v.mediaFit) ?? "contain",
+                                                objectPosition: normalizeMediaPosition(v.mediaPosition) ?? "center",
+                                              }}
+                                            />
+                                          )}
+                                        </div>
+                                      </div>
+                                    </div>
+                                  </div>
+                                );
+                              }
+
+                              return null;
+                            })()
                           ) : null}
                         </div>
                       </div>
@@ -2023,7 +2409,7 @@ export default function PortalAdCampaignsClient() {
                                     <div className="text-xs text-zinc-500">{o.id}</div>
                                   </td>
                                   <td className="px-3 py-2 text-xs text-zinc-600">
-                                    <div className="font-semibold text-zinc-800">{o.businessProfile?.businessName || "—"}</div>
+                                    <div className="font-semibold text-zinc-800">{o.businessProfile?.businessName || "n/a"}</div>
                                     <div>
                                       {o.businessProfile?.industry || ""}
                                       {o.businessProfile?.businessModel ? ` • ${o.businessProfile.businessModel}` : ""}
@@ -2171,7 +2557,7 @@ export default function PortalAdCampaignsClient() {
                               <div className="text-xs text-zinc-500">{o.id}</div>
                             </td>
                             <td className="px-3 py-2 text-xs text-zinc-600">
-                              <div className="font-semibold text-zinc-800">{o.businessProfile?.businessName || "—"}</div>
+                              <div className="font-semibold text-zinc-800">{o.businessProfile?.businessName || "n/a"}</div>
                               <div>{o.businessProfile?.industry || ""}{o.businessProfile?.businessModel ? ` • ${o.businessProfile.businessModel}` : ""}</div>
                             </td>
                             <td className="px-3 py-2 text-right">

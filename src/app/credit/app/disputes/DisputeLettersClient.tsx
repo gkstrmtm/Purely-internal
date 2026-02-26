@@ -346,7 +346,7 @@ export default function DisputeLettersClient() {
                     ? contacts.map(
                         (c): PortalListboxOption<string> => ({
                           value: c.id,
-                          label: `${c.name}${c.email ? ` — ${c.email}` : ""}`,
+                          label: `${c.name}${c.email ? ` - ${c.email}` : ""}`,
                         }),
                       )
                     : ([{ value: "", label: "No contacts yet", disabled: true }] as PortalListboxOption<string>[]))

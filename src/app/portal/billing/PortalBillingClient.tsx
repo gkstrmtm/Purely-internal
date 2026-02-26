@@ -85,6 +85,7 @@ function formatMoney(cents: number, currency: string) {
 export function PortalBillingClient() {
   const router = useRouter();
   const toast = useToast();
+  const pathname = typeof window !== "undefined" ? window.location.pathname : "/portal/app/billing";
   const [status, setStatus] = useState<BillingStatus | null>(null);
   const [summary, setSummary] = useState<BillingSummary | null>(null);
   const [pricing, setPricing] = useState<PortalPricing | null>(null);
@@ -121,6 +122,9 @@ export function PortalBillingClient() {
       linkUrl?: string;
       mediaUrl?: string;
       mediaKind?: "image" | "video";
+      mediaFit?: "cover" | "contain";
+      mediaPosition?: string;
+      fullscreenMediaMaxWidthPct?: number;
     };
     reward?: { credits?: number; cooldownHours?: number; minWatchSeconds?: number } | null;
   }>(null);
@@ -713,7 +717,7 @@ export function PortalBillingClient() {
   const hasActiveSub = creditsOnly ? false : Boolean(sub?.id && ["active", "trialing", "past_due"].includes(String(sub.status)));
 
   const monthlyNote = creditsOnly
-    ? "You’re on a credits-only plan — there is no monthly subscription."
+    ? "You’re on a credits-only plan. There is no monthly subscription."
     : !status?.configured
       ? "Billing isn’t configured on this environment yet."
       : summary && "ok" in summary && summary.ok === false
@@ -1239,7 +1243,12 @@ export function PortalBillingClient() {
                 <div className="flex items-center gap-2">
                   {rewardCampaign?.creative?.linkUrl ? (
                     <a
-                      href={rewardCampaign.creative.linkUrl}
+                      href={
+                        `/api/portal/ads/click?campaignId=${encodeURIComponent(rewardCampaign.id)}` +
+                        `&placement=FULLSCREEN_REWARD` +
+                        `&path=${encodeURIComponent(pathname || "")}` +
+                        `&to=${encodeURIComponent(rewardCampaign.creative.linkUrl)}`
+                      }
                       className="hidden rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm font-semibold text-zinc-800 hover:bg-zinc-50 sm:inline-flex"
                       target="_blank"
                       rel="noreferrer"
@@ -1263,30 +1272,48 @@ export function PortalBillingClient() {
 
               <div className="flex-1 bg-black">
                 {rewardCampaign?.creative?.mediaUrl ? (
-                  rewardCampaign.creative?.mediaKind === "video" ? (
-                    <video
-                      ref={adVideoRef}
-                      className="h-full w-full object-contain"
-                      controls
-                      playsInline
-                      preload="auto"
-                      src={rewardCampaign.creative.mediaUrl}
-                      onLoadedData={() => setAdMediaReady(true)}
-                      onCanPlay={() => setAdMediaReady(true)}
-                      onPlay={() => setAdPlaying(true)}
-                      onPause={() => setAdPlaying(false)}
-                      onEnded={() => setAdPlaying(false)}
-                    />
-                  ) : (
-                    <Image
-                      className="h-full w-full object-contain"
-                      src={rewardCampaign.creative.mediaUrl}
-                      alt={rewardCampaign.creative?.headline || "Sponsored"}
-                      width={1920}
-                      height={1080}
-                      unoptimized
-                    />
-                  )
+                  <div
+                    className="mx-auto h-full w-full"
+                    style={{
+                      maxWidth: `min(${Math.max(
+                        40,
+                        Math.min(100, Math.floor(Number(rewardCampaign.creative?.fullscreenMediaMaxWidthPct || 100))),
+                      )}vw, 960px)`,
+                    }}
+                  >
+                    {rewardCampaign.creative?.mediaKind === "video" ? (
+                      <video
+                        ref={adVideoRef}
+                        className="h-full w-full"
+                        style={{
+                          objectFit: rewardCampaign.creative?.mediaFit || "contain",
+                          objectPosition: rewardCampaign.creative?.mediaPosition || "center",
+                        }}
+                        controls
+                        playsInline
+                        preload="auto"
+                        src={rewardCampaign.creative.mediaUrl}
+                        onLoadedData={() => setAdMediaReady(true)}
+                        onCanPlay={() => setAdMediaReady(true)}
+                        onPlay={() => setAdPlaying(true)}
+                        onPause={() => setAdPlaying(false)}
+                        onEnded={() => setAdPlaying(false)}
+                      />
+                    ) : (
+                      <Image
+                        className="h-full w-full"
+                        style={{
+                          objectFit: rewardCampaign.creative?.mediaFit || "contain",
+                          objectPosition: rewardCampaign.creative?.mediaPosition || "center",
+                        }}
+                        src={rewardCampaign.creative.mediaUrl}
+                        alt={rewardCampaign.creative?.headline || "Sponsored"}
+                        width={1920}
+                        height={1080}
+                        unoptimized
+                      />
+                    )}
+                  </div>
                 ) : (
                   <div className="flex h-full w-full items-center justify-center p-8 text-center text-sm text-white/80">
                     Media isn’t configured for this campaign.
@@ -1318,7 +1345,12 @@ export function PortalBillingClient() {
                   <div className="flex flex-wrap items-center gap-2">
                     {rewardCampaign?.creative?.linkUrl ? (
                       <a
-                        href={rewardCampaign.creative.linkUrl}
+                        href={
+                          `/api/portal/ads/click?campaignId=${encodeURIComponent(rewardCampaign.id)}` +
+                          `&placement=FULLSCREEN_REWARD` +
+                          `&path=${encodeURIComponent(pathname || "")}` +
+                          `&to=${encodeURIComponent(rewardCampaign.creative.linkUrl)}`
+                        }
                         className="inline-flex rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm font-semibold text-zinc-800 hover:bg-zinc-50 sm:hidden"
                         target="_blank"
                         rel="noreferrer"

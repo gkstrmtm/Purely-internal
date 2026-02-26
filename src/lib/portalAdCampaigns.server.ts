@@ -15,7 +15,9 @@ export type PortalAdCampaignCreativeVariant = {
   mediaKind?: "image" | "video";
   mediaFit?: "cover" | "contain";
   mediaPosition?: string;
+  sidebarImageHeight?: number;
   topBannerImageSize?: number;
+  fullscreenMediaMaxWidthPct?: number;
 };
 
 export type PortalAdCampaignCreative = PortalAdCampaignCreativeVariant;
@@ -82,6 +84,16 @@ function readCreativeVariant(data: unknown): PortalAdCampaignCreativeVariant {
   const mediaFit = mediaFitRaw === "contain" ? "contain" : mediaFitRaw === "cover" ? "cover" : undefined;
   const mediaPosition = typeof rec.mediaPosition === "string" ? rec.mediaPosition.trim().slice(0, 40) : "";
 
+  const sidebarImageHeightRaw =
+    typeof rec.sidebarImageHeight === "number"
+      ? rec.sidebarImageHeight
+      : typeof rec.sidebarImageHeight === "string"
+        ? Number(rec.sidebarImageHeight)
+        : NaN;
+  const sidebarImageHeight = Number.isFinite(sidebarImageHeightRaw)
+    ? Math.max(60, Math.min(240, Math.floor(sidebarImageHeightRaw)))
+    : undefined;
+
   const topBannerImageSizeRaw =
     typeof rec.topBannerImageSize === "number"
       ? rec.topBannerImageSize
@@ -90,6 +102,16 @@ function readCreativeVariant(data: unknown): PortalAdCampaignCreativeVariant {
         : NaN;
   const topBannerImageSize = Number.isFinite(topBannerImageSizeRaw)
     ? Math.max(40, Math.min(160, Math.floor(topBannerImageSizeRaw)))
+    : undefined;
+
+  const fullscreenMaxWidthRaw =
+    typeof rec.fullscreenMediaMaxWidthPct === "number"
+      ? rec.fullscreenMediaMaxWidthPct
+      : typeof rec.fullscreenMediaMaxWidthPct === "string"
+        ? Number(rec.fullscreenMediaMaxWidthPct)
+        : NaN;
+  const fullscreenMediaMaxWidthPct = Number.isFinite(fullscreenMaxWidthRaw)
+    ? Math.max(40, Math.min(100, Math.floor(fullscreenMaxWidthRaw)))
     : undefined;
 
   const headline = typeof rec.headline === "string" ? rec.headline.trim().slice(0, 160) : "";
@@ -107,7 +129,9 @@ function readCreativeVariant(data: unknown): PortalAdCampaignCreativeVariant {
     mediaKind,
     mediaFit,
     mediaPosition: mediaPosition || undefined,
+    sidebarImageHeight,
     topBannerImageSize,
+    fullscreenMediaMaxWidthPct,
   };
 }
 

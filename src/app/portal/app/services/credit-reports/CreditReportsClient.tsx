@@ -238,7 +238,7 @@ export default function CreditReportsClient() {
                   ...contacts.map(
                     (c): PortalListboxOption<string> => ({
                       value: c.id,
-                      label: `${c.name}${c.email ? ` — ${c.email}` : ""}`,
+                      label: `${c.name}${c.email ? ` - ${c.email}` : ""}`,
                     }),
                   ),
                 ] as PortalListboxOption<string>[])}

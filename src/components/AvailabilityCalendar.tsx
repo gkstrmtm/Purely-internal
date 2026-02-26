@@ -332,7 +332,7 @@ export default function AvailabilityCalendar({ title, description, backHref, bac
                             applySlot(ymd, mins);
                           }}
                         >
-                          {on ? "Available" : "—"}
+                          {on ? "Available" : "n/a"}
                         </button>
                       </td>
                     );

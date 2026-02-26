@@ -9,6 +9,12 @@ export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
 
+function detectDeviceFromUserAgent(ua: string | null): "mobile" | "desktop" {
+  const s = String(ua || "");
+  if (!s) return "desktop";
+  return /Mobi|Android|iPhone|iPad|iPod|Mobile|IEMobile|BlackBerry/i.test(s) ? "mobile" : "desktop";
+}
+
 function asPlacement(v: string | null): PortalAdPlacement | null {
   if (v === "SIDEBAR_BANNER" || v === "TOP_BANNER" || v === "BILLING_SPONSORED" || v === "FULLSCREEN_REWARD") return v;
   return null;
@@ -45,13 +51,15 @@ export async function GET(req: Request) {
   });
 
   if (campaign?.id) {
+    const userAgent = req.headers.get("user-agent");
+    const device = detectDeviceFromUserAgent(userAgent);
     await prisma.portalAdCampaignEvent
       .create({
         data: {
           campaignId: campaign.id,
           ownerId,
           kind: "IMPRESSION",
-          metaJson: { path },
+          metaJson: { action: "IMPRESSION", placement, path, device, userAgent },
         },
         select: { id: true },
       })
