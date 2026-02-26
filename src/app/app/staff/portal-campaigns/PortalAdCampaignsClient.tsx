@@ -2230,9 +2230,11 @@ export default function PortalAdCampaignsClient() {
                                             objectFit: normalizeMediaFit(v.mediaFit) ?? "contain",
                                             objectPosition: normalizeMediaPosition(v.mediaPosition) ?? "center",
                                           }}
-                                          controls
+                                          autoPlay
+                                          loop
                                           playsInline
                                           preload="metadata"
+                                          muted
                                           src={v.mediaUrl}
                                         />
                                       ) : (

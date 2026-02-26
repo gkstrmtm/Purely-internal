@@ -3,7 +3,7 @@
 import Image from "next/image";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { SignOutButton } from "@/components/SignOutButton";
 import {
@@ -147,6 +147,10 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
   const [rewardShownAtMs, setRewardShownAtMs] = useState(0);
   const [popupShownAtMs, setPopupShownAtMs] = useState(0);
 
+  const popupVideoRef = useRef<HTMLVideoElement | null>(null);
+  const [popupVideoMuted, setPopupVideoMuted] = useState(false);
+  const [popupVideoNeedsUserGesture, setPopupVideoNeedsUserGesture] = useState(false);
+
   const [nowMs, setNowMs] = useState(0);
 
   useEffect(() => {
@@ -171,6 +175,45 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     if (popupCampaign?.id) setPopupShownAtMs(Date.now());
   }, [popupCampaign?.id]);
+
+  useEffect(() => {
+    const isVideo =
+      Boolean(popupCampaign?.id) &&
+      popupCampaign?.creative?.mediaKind === "video" &&
+      Boolean(String(popupCampaign?.creative?.mediaUrl || "").trim());
+
+    if (!isVideo) {
+      setPopupVideoMuted(false);
+      setPopupVideoNeedsUserGesture(false);
+      return;
+    }
+
+    setPopupVideoMuted(false);
+    setPopupVideoNeedsUserGesture(false);
+
+    const el = popupVideoRef.current;
+    if (!el) return;
+
+    el.volume = 1;
+    el.muted = false;
+
+    (async () => {
+      try {
+        await el.play();
+      } catch {
+        // Many browsers block autoplay with sound. Fallback to muted autoplay,
+        // and let the user tap once to enable sound.
+        try {
+          el.muted = true;
+          setPopupVideoMuted(true);
+          await el.play();
+        } catch {
+          // ignore
+        }
+        setPopupVideoNeedsUserGesture(true);
+      }
+    })();
+  }, [popupCampaign?.creative?.mediaKind, popupCampaign?.creative?.mediaUrl, popupCampaign?.id]);
 
   const dismissStorageKey = useCallback(
     (placement: AdPlacement) => `portalAdDismissed:${variant}:${placement}`,
@@ -1164,18 +1207,45 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
 
                 {popupCampaign?.creative?.mediaUrl ? (
                   popupCampaign?.creative?.mediaKind === "video" ? (
-                    <video
-                      className="mt-4 w-full rounded-2xl border border-zinc-200 bg-black"
-                      style={{
-                        maxHeight: 320,
-                        objectFit: popupCampaign?.creative?.mediaFit || "contain",
-                        objectPosition: popupCampaign?.creative?.mediaPosition || "center",
-                      }}
-                      controls
-                      playsInline
-                      preload="metadata"
-                      src={popupCampaign.creative.mediaUrl}
-                    />
+                    <div className="relative">
+                      <video
+                        ref={popupVideoRef}
+                        className="mt-4 w-full rounded-2xl border border-zinc-200 bg-black"
+                        style={{
+                          maxHeight: 320,
+                          objectFit: popupCampaign?.creative?.mediaFit || "contain",
+                          objectPosition: popupCampaign?.creative?.mediaPosition || "center",
+                        }}
+                        autoPlay
+                        loop
+                        playsInline
+                        preload="metadata"
+                        muted={popupVideoMuted}
+                        src={popupCampaign.creative.mediaUrl}
+                      />
+
+                      {popupVideoNeedsUserGesture ? (
+                        <button
+                          type="button"
+                          className="absolute bottom-3 right-3 rounded-full bg-black/70 px-4 py-2 text-xs font-semibold text-white hover:bg-black/80"
+                          onClick={async () => {
+                            const el = popupVideoRef.current;
+                            if (!el) return;
+                            try {
+                              el.volume = 1;
+                              el.muted = false;
+                              setPopupVideoMuted(false);
+                              await el.play();
+                              setPopupVideoNeedsUserGesture(false);
+                            } catch {
+                              setPopupVideoNeedsUserGesture(true);
+                            }
+                          }}
+                        >
+                          Tap for sound
+                        </button>
+                      ) : null}
+                    </div>
                   ) : (
                     /* eslint-disable-next-line @next/next/no-img-element */
                     <img
