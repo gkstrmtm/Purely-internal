@@ -5,6 +5,7 @@ import { useEffect, useMemo, useState } from "react";
 import type { ComponentType } from "react";
 
 import { useToast } from "@/components/ToastProvider";
+import { formatSavedTime } from "@/lib/formatSavedTime";
 
 import { Responsive as ResponsiveGridLayout } from "react-grid-layout";
 import type { Layout, LayoutItem, ResponsiveLayouts } from "react-grid-layout";
@@ -687,10 +688,10 @@ export function PortalDashboardClient() {
       case "hoursSaved":
         return (
           <AccentCard title={widgetTitle(id)} widgetId={id} showHandle={editMode}>
-            <div className="text-2xl font-bold text-brand-ink">{Math.round(me.metrics.hoursSavedThisWeek)}h</div>
+            <div className="text-2xl font-bold text-brand-ink">{formatSavedTime(me.metrics.hoursSavedThisWeek)}</div>
             <div className="mt-1 text-xs text-zinc-500">This week</div>
             <div className="mt-3 text-sm text-zinc-700">
-              All-time: <span className="font-semibold">{Math.round(me.metrics.hoursSavedAllTime)}h</span>
+              All-time: <span className="font-semibold">{formatSavedTime(me.metrics.hoursSavedAllTime)}</span>
             </div>
           </AccentCard>
         );

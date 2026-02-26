@@ -46,11 +46,6 @@ async function computeHoursSaved(ownerId: string): Promise<{ hoursSavedThisWeek:
     safe(() => listMissedCallTextBackEvents(ownerId, 200), [] as MissedCallTextBackEvent[]),
   ]);
 
-  // Backfill (best-effort): if a site already has recent capped events but no durable rows yet,
-  // approximate hours saved from what we can see.
-  // This avoids showing "0" right after deploy for existing accounts.
-  const needsBackfill = savedSecondsAll <= 0;
-
   const fallbackAiSecondsAll = aiEventsRaw
     .filter((e) => String(e.status || "").toUpperCase() === "COMPLETED")
     .reduce((acc, e) => {

@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 
 import { useToast } from "@/components/ToastProvider";
+import { formatSavedTime } from "@/lib/formatSavedTime";
 
 type ModuleKey = "blog" | "booking" | "crm" | "leadOutbound";
 
@@ -126,11 +127,11 @@ export function CustomerDashboardClient() {
     <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
       <Card title="Hours saved">
         <div className="text-2xl font-bold text-brand-ink">
-          {Math.round(data.metrics.hoursSavedThisWeek)}h
+          {formatSavedTime(data.metrics.hoursSavedThisWeek)}
         </div>
         <div className="mt-1 text-xs text-zinc-500">This week</div>
         <div className="mt-3 text-sm text-zinc-700">
-          All-time: <span className="font-semibold">{Math.round(data.metrics.hoursSavedAllTime)}h</span>
+          All-time: <span className="font-semibold">{formatSavedTime(data.metrics.hoursSavedAllTime)}</span>
         </div>
       </Card>
 
