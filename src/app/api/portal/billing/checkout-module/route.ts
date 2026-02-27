@@ -4,7 +4,7 @@ import { z } from "zod";
 import { requireClientSessionForService } from "@/lib/portalAccess";
 import { isCreditsOnlyBilling } from "@/lib/portalBillingModel";
 import { getPortalBillingModelForOwner } from "@/lib/portalBillingModel.server";
-import { getOrCreateStripeCustomerId, isStripeConfigured, stripePost } from "@/lib/stripeFetch";
+import { getOrCreateStripeCustomerId, isStripeConfigured, stripeGet, stripePost } from "@/lib/stripeFetch";
 import { moduleByKey, usdToCents } from "@/lib/portalModulesCatalog";
 
 export const runtime = "nodejs";
@@ -26,7 +26,24 @@ const bodySchema = z.object({
   ]),
   successPath: z.string().min(1).optional(),
   cancelPath: z.string().min(1).optional(),
+  promoCode: z.string().min(1).max(64).optional(),
 });
+
+async function promotionCodeIdForCode(code: string): Promise<string | null> {
+  const c = String(code || "").trim();
+  if (!c) return null;
+  try {
+    const list = await stripeGet<{ data?: Array<{ id?: string }> }>("/v1/promotion_codes", {
+      code: c,
+      active: true,
+      limit: 1,
+    });
+    const id = String(list?.data?.[0]?.id || "").trim();
+    return id || null;
+  } catch {
+    return null;
+  }
+}
 
 function originFromReq(req: Request) {
   return (
@@ -93,6 +110,18 @@ export async function POST(req: Request) {
       "subscription_data[metadata][source]": "portal_billing_addon",
       "subscription_data[metadata][module]": parsed.data.module,
     };
+
+    const promoCode = String(parsed.data.promoCode || "").trim();
+    if (promoCode) {
+      const promoId = await promotionCodeIdForCode(promoCode);
+      if (promoId) {
+        params["discounts[0][promotion_code]"] = promoId;
+        params["subscription_data[metadata][promoCode]"] = promoCode;
+      } else {
+        // If code isn't found, keep allow_promotion_codes so the user can still enter it.
+        params["subscription_data[metadata][promoCodeMissing]"] = promoCode;
+      }
+    }
 
     let idx = 0;
     if (setupCents && setupCents > 0) {

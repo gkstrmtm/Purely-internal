@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 
 import { prisma } from "@/lib/db";
-import { requireClientSessionForService } from "@/lib/portalAccess";
+import { requireClientSession } from "@/lib/apiAuth";
 import type { PortalVariant } from "@/lib/portalVariant";
 
 export const runtime = "nodejs";
@@ -37,8 +37,47 @@ function safeRedirectUrl(raw: string | null, fallback: string) {
   return fallback;
 }
 
+function normalizePortalVariantPath(path: string, portalVariant: PortalVariant): string {
+  const s = String(path || "").trim();
+  if (!s.startsWith("/")) return s;
+
+  const basePath = portalVariant === "credit" ? "/credit" : "/portal";
+
+  if (s === "/portal" || s.startsWith("/portal/")) return basePath + s.slice("/portal".length);
+  if (s === "/credit" || s.startsWith("/credit/")) return basePath + s.slice("/credit".length);
+
+  if (s === "/app" || s.startsWith("/app/")) return basePath + s;
+
+  return s;
+}
+
+function toAbsoluteRedirectUrl(raw: string, reqUrl: string) {
+  const v = String(raw || "").trim();
+  if (v.startsWith("/")) return new URL(v, reqUrl);
+  return new URL(v);
+}
+
+function readDiscountOffer(rewardJson: unknown): { promoCode: string; appliesToServiceSlugs: string[] } | null {
+  if (!rewardJson || typeof rewardJson !== "object" || Array.isArray(rewardJson)) return null;
+  const offers = (rewardJson as any).offers;
+  if (!Array.isArray(offers)) return null;
+
+  for (const o of offers) {
+    if (!o || typeof o !== "object" || Array.isArray(o)) continue;
+    if (String((o as any).kind || "") !== "discount") continue;
+    const promoCode = String((o as any).promoCode || "").trim().slice(0, 64);
+    const appliesToServiceSlugs = Array.isArray((o as any).appliesToServiceSlugs)
+      ? (o as any).appliesToServiceSlugs.map((x: any) => String(x || "").trim()).filter(Boolean).slice(0, 50)
+      : [];
+    if (!promoCode) continue;
+    return { promoCode, appliesToServiceSlugs };
+  }
+
+  return null;
+}
+
 export async function GET(req: Request) {
-  const auth = await requireClientSessionForService("billing");
+  const auth = await requireClientSession();
   if (!auth.ok) {
     return NextResponse.json(
       { ok: false, error: auth.status === 401 ? "Unauthorized" : "Forbidden" },
@@ -56,7 +95,30 @@ export async function GET(req: Request) {
   const portalVariant = (((auth.session.user as any).portalVariant as PortalVariant | undefined) ?? "portal") as PortalVariant;
 
   const fallback = portalVariant === "credit" ? "/credit/app/billing" : "/portal/app/billing";
-  const redirectTo = safeRedirectUrl(to, fallback);
+
+  // Prefer an explicit `to=` override (client passes the exact URL it rendered),
+  // but normalize it for the current portal variant.
+  let redirectTo = normalizePortalVariantPath(safeRedirectUrl(to, fallback), portalVariant);
+
+  // If this campaign includes a discount offer and the configured link points at Billing,
+  // route users to a dedicated discount checkout flow that pre-applies the promo code.
+  if (campaignId && placement) {
+    const row = await prisma.portalAdCampaign
+      .findUnique({ where: { id: campaignId }, select: { rewardJson: true } })
+      .catch(() => null);
+
+    const discount = readDiscountOffer(row?.rewardJson);
+    const billingBase = portalVariant === "credit" ? "/credit/app/billing" : "/portal/app/billing";
+    if (discount && (redirectTo === billingBase || redirectTo.startsWith(billingBase + "?"))) {
+      const basePath = portalVariant === "credit" ? "/credit" : "/portal";
+      const serviceSlug = String(discount.appliesToServiceSlugs?.[0] || "").trim();
+      if (serviceSlug) {
+        redirectTo = `${basePath}/app/discount/${encodeURIComponent(serviceSlug)}?promoCode=${encodeURIComponent(discount.promoCode)}&campaignId=${encodeURIComponent(campaignId)}`;
+      } else if ((discount.appliesToServiceSlugs || []).length) {
+        redirectTo = `${basePath}/app/discount?promoCode=${encodeURIComponent(discount.promoCode)}&services=${encodeURIComponent(discount.appliesToServiceSlugs.join(","))}&campaignId=${encodeURIComponent(campaignId)}`;
+      }
+    }
+  }
 
   if (campaignId && placement) {
     const userAgent = req.headers.get("user-agent");
@@ -75,5 +137,5 @@ export async function GET(req: Request) {
       .catch(() => null);
   }
 
-  return NextResponse.redirect(redirectTo);
+  return NextResponse.redirect(toAbsoluteRedirectUrl(redirectTo, req.url));
 }

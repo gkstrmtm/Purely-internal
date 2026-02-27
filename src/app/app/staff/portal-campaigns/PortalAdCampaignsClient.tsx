@@ -820,7 +820,7 @@ export default function PortalAdCampaignsClient() {
       excludeOwnerIds: uniq(editor.excludeOwnerIds),
     };
 
-    const cleanedCreatives = (editor.creatives || [])
+    const cleanedCreativesBase = (editor.creatives || [])
       .map((v) => ({
         headline: String(v.headline || "").trim(),
         body: String(v.body || "").trim(),
@@ -842,6 +842,36 @@ export default function PortalAdCampaignsClient() {
       }))
       .filter((v) => v.headline || v.body || v.mediaUrl || v.linkUrl);
 
+    const offers = (editor.offers || []).filter(Boolean);
+    const creditsOffer = offers.find((o) => o.kind === "credits") as Extract<OfferDraft, { kind: "credits" }> | undefined;
+    const credits = Math.max(0, Math.floor(Number(creditsOffer?.credits || 0)));
+    const cooldownHours = Math.max(0, Math.floor(Number(creditsOffer?.cooldownHours || 0)));
+    const minWatchSeconds = Math.max(0, Math.floor(Number(creditsOffer?.minWatchSeconds || 0)));
+
+    const discountOffer = offers.find((o) => o.kind === "discount") as Extract<OfferDraft, { kind: "discount" }> | undefined;
+    const discountPromoCode = String(discountOffer?.promoCode || "").trim();
+    const discountSlugs = Array.isArray(discountOffer?.appliesToServiceSlugs) ? discountOffer!.appliesToServiceSlugs.map(String).map((s) => s.trim()).filter(Boolean) : [];
+
+    const discountLinkUrl = (() => {
+      if (!discountPromoCode) return "";
+      if (discountSlugs.length === 1) {
+        return `/portal/app/discount/${encodeURIComponent(discountSlugs[0] || "")}?promoCode=${encodeURIComponent(discountPromoCode)}`;
+      }
+      if (discountSlugs.length > 1) {
+        return `/portal/app/discount?promoCode=${encodeURIComponent(discountPromoCode)}&services=${encodeURIComponent(discountSlugs.join(","))}`;
+      }
+      return "";
+    })();
+
+    const cleanedCreatives = cleanedCreativesBase.map((v) => {
+      if (!discountLinkUrl) return v;
+      const current = String(v.linkUrl || "").trim();
+      const normalized = current === "/app/billing" ? "/portal/app/billing" : current;
+      const looksLikeBilling = !normalized || normalized === "/portal/app/billing" || normalized === "/credit/app/billing";
+      if (!looksLikeBilling) return v;
+      return { ...v, linkUrl: discountLinkUrl };
+    });
+
     const creativeJson: any =
       cleanedCreatives.length > 1
         ? { variants: cleanedCreatives }
@@ -860,12 +890,6 @@ export default function PortalAdCampaignsClient() {
               topBannerImageSize: 56,
               fullscreenMediaMaxWidthPct: 100,
             };
-
-    const offers = (editor.offers || []).filter(Boolean);
-    const creditsOffer = offers.find((o) => o.kind === "credits") as Extract<OfferDraft, { kind: "credits" }> | undefined;
-    const credits = Math.max(0, Math.floor(Number(creditsOffer?.credits || 0)));
-    const cooldownHours = Math.max(0, Math.floor(Number(creditsOffer?.cooldownHours || 0)));
-    const minWatchSeconds = Math.max(0, Math.floor(Number(creditsOffer?.minWatchSeconds || 0)));
 
     const rewardJson: any =
       credits || cooldownHours || minWatchSeconds || offers.some((o) => o.kind !== "credits")
@@ -1988,12 +2012,12 @@ export default function PortalAdCampaignsClient() {
                                       setEditor({ ...editor, creatives: next });
                                     }}
                                   />
-                                  <select
-                                    className="w-full rounded-2xl border border-zinc-200 px-3 py-2 text-sm"
+                                  <PortalListboxDropdown
                                     value={normalizeReshowUnit(v.dismissReshowAfterUnit)}
-                                    onChange={(e) => {
+                                    options={RESHOW_UNITS.map((u) => ({ value: u, label: u })) as any}
+                                    onChange={(val) => {
                                       const currentSeconds = deriveReshowValueUnitFromSeconds(v.dismissReshowAfterSeconds).seconds;
-                                      const unit = normalizeReshowUnit(e.target.value);
+                                      const unit = normalizeReshowUnit(val);
                                       const value = currentSeconds / RESHOW_UNIT_SECONDS[unit];
                                       const next = [...editor.creatives];
                                       next[idx] = {
@@ -2004,13 +2028,7 @@ export default function PortalAdCampaignsClient() {
                                       };
                                       setEditor({ ...editor, creatives: next });
                                     }}
-                                  >
-                                    {RESHOW_UNITS.map((u) => (
-                                      <option key={u} value={u}>
-                                        {u}
-                                      </option>
-                                    ))}
-                                  </select>
+                                  />
                                 </div>
                               </div>
 
@@ -2042,12 +2060,12 @@ export default function PortalAdCampaignsClient() {
                                         setEditor({ ...editor, creatives: next });
                                       }}
                                     />
-                                    <select
-                                      className="w-full rounded-2xl border border-zinc-200 px-3 py-2 text-sm"
+                                    <PortalListboxDropdown
                                       value={normalizeReshowUnit(v.showDelayUnit)}
-                                      onChange={(e) => {
+                                      options={RESHOW_UNITS.map((u) => ({ value: u, label: u })) as any}
+                                      onChange={(val) => {
                                         const currentSeconds = deriveShowDelayValueUnitFromSeconds(v.showDelaySeconds).seconds;
-                                        const unit = normalizeReshowUnit(e.target.value);
+                                        const unit = normalizeReshowUnit(val);
                                         const value = currentSeconds / RESHOW_UNIT_SECONDS[unit];
                                         const next = [...editor.creatives];
                                         next[idx] = {
@@ -2058,13 +2076,7 @@ export default function PortalAdCampaignsClient() {
                                         };
                                         setEditor({ ...editor, creatives: next });
                                       }}
-                                    >
-                                      {RESHOW_UNITS.map((u) => (
-                                        <option key={u} value={u}>
-                                          {u}
-                                        </option>
-                                      ))}
-                                    </select>
+                                    />
                                   </div>
                                   <div className="mt-2 text-xs text-zinc-500">
                                     The popup waits this long after the ad is fetched for the current page.
