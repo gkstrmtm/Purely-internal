@@ -2,10 +2,11 @@
 
 import Image from "next/image";
 import Link from "next/link";
-import { usePathname } from "next/navigation";
+import { usePathname, useSearchParams } from "next/navigation";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { SignOutButton } from "@/components/SignOutButton";
+import { useToast } from "@/components/ToastProvider";
 import {
   IconBilling,
   IconChevron,
@@ -47,6 +48,8 @@ function classNames(...xs: Array<string | false | null | undefined>) {
 
 export function PortalShell({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
+  const searchParams = useSearchParams();
+  const toast = useToast();
   const variant = typeof pathname === "string" && (pathname === "/credit" || pathname.startsWith("/credit/")) ? "credit" : "portal";
   const basePath = variant === "credit" ? "/credit" : "/portal";
   const logoSrc = variant === "credit" ? "/brand/purely%20credit.png" : "/brand/purity-5.png";
@@ -114,6 +117,7 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
       mediaKind?: "image" | "video";
       mediaFit?: "cover" | "contain";
       mediaPosition?: string;
+      fullscreenMediaMaxWidthPct?: number;
 
       dismissEnabled?: boolean;
       dismissDelaySeconds?: number;
@@ -122,6 +126,16 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
   }>(null);
 
   const [rewardStatus, setRewardStatus] = useState<null | { eligible: boolean; nextEligibleAtIso: string | null }>(null);
+
+  const [rewardModalOpen, setRewardModalOpen] = useState(false);
+  const [rewardWatchedSeconds, setRewardWatchedSeconds] = useState(0);
+  const [rewardMediaReady, setRewardMediaReady] = useState(false);
+  const [rewardPlaying, setRewardPlaying] = useState(false);
+  const [rewardNeedsUserGesture, setRewardNeedsUserGesture] = useState(false);
+  const [rewardConfirmExit, setRewardConfirmExit] = useState(false);
+  const [rewardAutoClaimed, setRewardAutoClaimed] = useState(false);
+  const [rewardActionBusy, setRewardActionBusy] = useState(false);
+  const rewardVideoRef = useRef<HTMLVideoElement | null>(null);
 
   const [popupCampaign, setPopupCampaign] = useState<null | {
     id: string;
@@ -480,12 +494,6 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
     [getExcludedCampaignIds, pathname],
   );
 
-  const isBillingPage = useMemo(() => {
-    const p = String(pathname || "");
-    const billing = `${basePath}/app/billing`;
-    return p === billing || p.startsWith(billing + "/");
-  }, [basePath, pathname]);
-
   useEffect(() => {
     void refreshAds({ placement: "SIDEBAR_BANNER", reason: "path" });
   }, [pathname, refreshAds]);
@@ -495,13 +503,8 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
   }, [pathname, refreshAds]);
 
   useEffect(() => {
-    if (!isBillingPage) {
-      setRewardCampaign(null);
-      setRewardStatus(null);
-      return;
-    }
     void refreshAds({ placement: "FULLSCREEN_REWARD", reason: "path" });
-  }, [isBillingPage, pathname, refreshAds]);
+  }, [pathname, refreshAds]);
 
   useEffect(() => {
     void refreshAds({ placement: "POPUP_CARD", reason: "path" });
@@ -515,7 +518,7 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
       // Refresh once on focus so disabled campaigns immediately fall back.
       void refreshAds({ placement: "SIDEBAR_BANNER", reason: "focus" });
       void refreshAds({ placement: "TOP_BANNER", reason: "focus" });
-      if (isBillingPage) void refreshAds({ placement: "FULLSCREEN_REWARD", reason: "focus" });
+      void refreshAds({ placement: "FULLSCREEN_REWARD", reason: "focus" });
       void refreshAds({ placement: "POPUP_CARD", reason: "focus" });
     };
 
@@ -525,7 +528,170 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
       document.removeEventListener("visibilitychange", onVisibilityChange);
       window.removeEventListener("focus", onVisibilityChange);
     };
-  }, [isBillingPage, refreshAds]);
+  }, [refreshAds]);
+
+  const rewardEligible = rewardStatus?.eligible ?? true;
+  const rewardMinWatchSeconds = Math.max(0, Math.floor(Number(rewardCampaign?.reward?.minWatchSeconds ?? 15)));
+  const rewardCredits = Math.max(0, Math.floor(Number(rewardCampaign?.reward?.credits ?? 0)));
+  const rewardRemainingSeconds = Math.max(0, (rewardMinWatchSeconds || 0) - Math.floor(rewardWatchedSeconds || 0));
+
+  const rewardRemainingLabel = useMemo(() => {
+    const s = Math.max(0, Math.floor(rewardRemainingSeconds || 0));
+    const mm = String(Math.floor(s / 60)).padStart(2, "0");
+    const ss = String(s % 60).padStart(2, "0");
+    return `${mm}:${ss}`;
+  }, [rewardRemainingSeconds]);
+
+  const rewardTotalLabel = useMemo(() => {
+    const s = Math.max(0, Math.floor(rewardMinWatchSeconds || 0));
+    const mm = String(Math.floor(s / 60)).padStart(2, "0");
+    const ss = String(s % 60).padStart(2, "0");
+    return `${mm}:${ss}`;
+  }, [rewardMinWatchSeconds]);
+
+  const claimReward = useCallback(
+    async (opts: { watchedSeconds: number; closeModalOnSuccess?: boolean }) => {
+      const campaignId = rewardCampaign?.id ?? "";
+      if (!campaignId) return { ok: false as const };
+      if (!rewardEligible) return { ok: false as const };
+
+      setRewardActionBusy(true);
+      try {
+        const watchedSeconds = Math.max(0, Math.floor(Number(opts.watchedSeconds) || 0));
+        const res = await fetch("/api/portal/ads/claim", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ campaignId, watchedSeconds, path: pathname || "" }),
+        });
+        const body = await res.json().catch(() => ({}));
+        if (!res.ok) {
+          const msg = String(body?.error || "Unable to claim reward");
+          toast.error(msg);
+          if (res.status === 429 && typeof body?.nextAtIso === "string" && body.nextAtIso) {
+            setRewardStatus({ eligible: false, nextEligibleAtIso: body.nextAtIso });
+          }
+          return { ok: false as const };
+        }
+
+        if (body?.ok) {
+          toast.success("Credits added.");
+          setRewardStatus(
+            typeof body?.nextAtIso === "string" && body.nextAtIso
+              ? { eligible: false, nextEligibleAtIso: body.nextAtIso }
+              : null,
+          );
+          if (opts.closeModalOnSuccess) {
+            setRewardModalOpen(false);
+          }
+          void refreshAds({ placement: "FULLSCREEN_REWARD", reason: "focus" });
+          return { ok: true as const };
+        }
+
+        toast.error("Unable to claim reward");
+        return { ok: false as const };
+      } finally {
+        setRewardActionBusy(false);
+      }
+    },
+    [pathname, refreshAds, rewardCampaign?.id, rewardEligible, toast],
+  );
+
+  useEffect(() => {
+    if (!rewardModalOpen) return;
+    setRewardWatchedSeconds(0);
+    setRewardMediaReady(false);
+    setRewardPlaying(false);
+    setRewardNeedsUserGesture(false);
+    setRewardConfirmExit(false);
+    setRewardAutoClaimed(false);
+  }, [rewardCampaign?.id, rewardModalOpen]);
+
+  useEffect(() => {
+    const shouldOpen = (searchParams?.get("openRewardAd") || "").trim() === "1";
+    if (!shouldOpen) return;
+    if (!rewardCampaign?.id) return;
+    if (!rewardEligible) return;
+    setRewardModalOpen(true);
+    try {
+      const url = new URL(window.location.href);
+      url.searchParams.delete("openRewardAd");
+      window.history.replaceState(null, "", url.toString());
+    } catch {
+      // ignore
+    }
+  }, [rewardCampaign?.id, rewardEligible, searchParams]);
+
+  useEffect(() => {
+    if (!rewardModalOpen) return;
+    if (!rewardMediaReady) return;
+
+    const kind = rewardCampaign?.creative?.mediaKind || "image";
+    if (kind === "video" && !rewardPlaying) return;
+
+    let raf = 0;
+    let last = performance.now();
+
+    const tick = () => {
+      const now = performance.now();
+      const dt = Math.max(0, now - last);
+      last = now;
+
+      if (kind === "video") {
+        const video = rewardVideoRef.current;
+        const isReallyPlaying = Boolean(video && !video.paused && !video.ended && video.readyState >= 2);
+        if (isReallyPlaying) setRewardWatchedSeconds((s) => Math.min(600, s + dt / 1000));
+      } else {
+        if (document.visibilityState === "visible") setRewardWatchedSeconds((s) => Math.min(600, s + dt / 1000));
+      }
+
+      raf = window.requestAnimationFrame(tick);
+    };
+
+    raf = window.requestAnimationFrame(tick);
+    return () => window.cancelAnimationFrame(raf);
+  }, [rewardCampaign?.creative?.mediaKind, rewardMediaReady, rewardModalOpen, rewardPlaying]);
+
+  useEffect(() => {
+    if (!rewardModalOpen) return;
+    if (!rewardCampaign?.id) return;
+    if (!rewardMediaReady) return;
+    if (rewardCampaign?.creative?.mediaKind !== "video") return;
+
+    const el = rewardVideoRef.current;
+    if (!el) return;
+
+    setRewardNeedsUserGesture(false);
+
+    (async () => {
+      try {
+        el.muted = false;
+        await el.play();
+        setRewardPlaying(true);
+      } catch {
+        try {
+          el.muted = true;
+          await el.play();
+          setRewardPlaying(true);
+        } catch {
+          setRewardNeedsUserGesture(true);
+        }
+      }
+    })();
+  }, [rewardCampaign?.creative?.mediaKind, rewardCampaign?.id, rewardMediaReady, rewardModalOpen]);
+
+  useEffect(() => {
+    if (!rewardModalOpen) return;
+    if (rewardAutoClaimed) return;
+    if (!rewardCampaign?.id) return;
+    if (!rewardEligible) return;
+    if (rewardCredits <= 0) return;
+    const minWatch = rewardMinWatchSeconds || 0;
+    if (minWatch <= 0) return;
+    if (Math.floor(rewardWatchedSeconds || 0) < minWatch) return;
+
+    setRewardAutoClaimed(true);
+    void claimReward({ watchedSeconds: Math.floor(rewardWatchedSeconds || 0), closeModalOnSuccess: true });
+  }, [claimReward, rewardAutoClaimed, rewardCampaign?.id, rewardCredits, rewardEligible, rewardMinWatchSeconds, rewardModalOpen, rewardWatchedSeconds]);
 
   const navItems = useMemo(() => {
     const can = (key: PortalServiceKey) => {
@@ -1178,7 +1344,7 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
             {children}
           </main>
 
-          {isBillingPage && rewardCampaign && (rewardStatus?.eligible ?? true) ? (
+          {rewardCampaign && rewardEligible ? (
             <div className="fixed bottom-4 left-4 z-[9996] w-[min(420px,calc(100vw-2rem))] rounded-3xl border border-zinc-200 bg-white p-4 shadow-2xl ring-1 ring-[color:rgba(29,78,216,0.14)]">
               <div className="flex items-start justify-between gap-3">
                 <div className="min-w-0">
@@ -1196,13 +1362,13 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
                 </div>
 
                 <div className="flex shrink-0 items-center gap-2">
-                  <Link
-                    href={`${basePath}/app/billing?openRewardAd=1`}
-                    prefetch={false}
+                  <button
+                    type="button"
                     className="rounded-2xl bg-zinc-900 px-4 py-2 text-sm font-semibold text-white hover:bg-zinc-800"
+                    onClick={() => setRewardModalOpen(true)}
                   >
                     Watch
-                  </Link>
+                  </button>
 
                   {canShowDismiss(rewardCampaign, rewardShownAtMs) ? (
                     <button
@@ -1224,6 +1390,309 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
                     </button>
                   ) : null}
                 </div>
+              </div>
+            </div>
+          ) : null}
+
+          {rewardModalOpen ? (
+            <div
+              className="fixed inset-0 z-[9999] flex items-center justify-center bg-black/70 p-3 sm:p-6"
+              onMouseDown={() => {
+                if (rewardCredits > 0 && rewardRemainingSeconds > 0) setRewardConfirmExit(true);
+                else setRewardModalOpen(false);
+              }}
+            >
+              <div
+                className="flex w-full max-w-5xl flex-col overflow-hidden rounded-3xl bg-white shadow-2xl ring-1 ring-black/10"
+                style={{ maxHeight: "100%" }}
+                onMouseDown={(e) => e.stopPropagation()}
+              >
+                <div className="shrink-0 border-b border-zinc-200 px-5 py-4">
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="min-w-0">
+                      <div className="flex flex-wrap items-center gap-2">
+                        <span className="rounded-full bg-[color:var(--color-brand-blue)]/15 px-3 py-1 text-[12px] font-bold uppercase tracking-wide text-[color:var(--color-brand-blue)]">
+                          Sponsored by Purely Automation
+                        </span>
+                        {rewardCredits > 0 ? (
+                          <span className="rounded-full bg-emerald-100 px-3 py-1 text-[12px] font-bold uppercase tracking-wide text-emerald-900">
+                            Earn {rewardCredits} credits
+                          </span>
+                        ) : null}
+                        {rewardCredits > 0 && rewardMinWatchSeconds > 0 ? (
+                          <span className="rounded-full bg-zinc-100 px-3 py-1 text-[12px] font-bold uppercase tracking-wide text-zinc-800">
+                            {rewardCampaign?.creative?.mediaKind === "video" && !rewardPlaying && rewardMediaReady
+                              ? "Press play to start"
+                              : rewardRemainingSeconds > 0
+                                ? `${rewardRemainingSeconds}s remaining`
+                                : "Complete"}
+                          </span>
+                        ) : null}
+                      </div>
+                      <div className="mt-2 truncate text-lg font-semibold text-zinc-900">
+                        {rewardCampaign?.creative?.headline || "Purely Automation"}
+                      </div>
+                      <div className="mt-1 truncate text-sm text-zinc-600">
+                        {rewardCampaign?.creative?.body || ""}
+                      </div>
+                    </div>
+
+                    <div className="flex shrink-0 items-center gap-2">
+                      {rewardCampaign?.creative?.linkUrl ? (
+                        <a
+                          href={
+                            `/api/portal/ads/click?campaignId=${encodeURIComponent(rewardCampaign.id)}` +
+                            `&placement=FULLSCREEN_REWARD` +
+                            `&path=${encodeURIComponent(pathname || "")}` +
+                            `&to=${encodeURIComponent(rewardCampaign.creative.linkUrl)}`
+                          }
+                          className="hidden rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm font-semibold text-zinc-800 hover:bg-zinc-50 sm:inline-flex"
+                          target="_blank"
+                          rel="noreferrer"
+                        >
+                          {rewardCampaign?.creative?.ctaText || "Open"}
+                        </a>
+                      ) : null}
+                      <button
+                        type="button"
+                        className="inline-flex h-10 w-10 items-center justify-center rounded-full border border-zinc-200 bg-white text-zinc-700 hover:bg-zinc-50"
+                        onClick={() => {
+                          if (rewardCredits > 0 && rewardRemainingSeconds > 0) setRewardConfirmExit(true);
+                          else setRewardModalOpen(false);
+                        }}
+                        aria-label="Close"
+                      >
+                        ×
+                      </button>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="min-h-0 flex-1 bg-black">
+                  {rewardCampaign?.creative?.mediaUrl ? (
+                    <div
+                      className="mx-auto flex h-full w-full items-center justify-center"
+                      style={{
+                        maxWidth: `min(${Math.max(
+                          40,
+                          Math.min(
+                            100,
+                            Math.floor(Number(rewardCampaign?.creative?.fullscreenMediaMaxWidthPct || 100)),
+                          ),
+                        )}vw, 960px)`,
+                      }}
+                    >
+                      {rewardCampaign?.creative?.mediaKind === "video" ? (
+                        <div className="relative h-full w-full">
+                          <video
+                            ref={rewardVideoRef}
+                            className="h-full w-full"
+                            style={{
+                              objectFit: rewardCampaign?.creative?.mediaFit || "contain",
+                              objectPosition: rewardCampaign?.creative?.mediaPosition || "center",
+                            }}
+                            controls
+                            playsInline
+                            preload="auto"
+                            src={rewardCampaign.creative.mediaUrl}
+                            onLoadedData={() => setRewardMediaReady(true)}
+                            onCanPlay={() => setRewardMediaReady(true)}
+                            onPlay={() => setRewardPlaying(true)}
+                            onPause={() => setRewardPlaying(false)}
+                            onEnded={() => setRewardPlaying(false)}
+                          />
+
+                          {rewardNeedsUserGesture ? (
+                            <div className="absolute inset-0 flex items-center justify-center bg-black/40 p-6">
+                              <button
+                                type="button"
+                                className="rounded-2xl bg-white px-4 py-2 text-sm font-semibold text-zinc-900"
+                                onClick={async () => {
+                                  const el = rewardVideoRef.current;
+                                  if (!el) return;
+                                  setRewardNeedsUserGesture(false);
+                                  try {
+                                    el.muted = false;
+                                    await el.play();
+                                    setRewardPlaying(true);
+                                  } catch {
+                                    try {
+                                      el.muted = true;
+                                      await el.play();
+                                      setRewardPlaying(true);
+                                    } catch {
+                                      setRewardNeedsUserGesture(true);
+                                    }
+                                  }
+                                }}
+                              >
+                                Tap to play
+                              </button>
+                            </div>
+                          ) : null}
+                        </div>
+                      ) : (
+                        <Image
+                          className="h-full w-full"
+                          style={{
+                            objectFit: rewardCampaign?.creative?.mediaFit || "contain",
+                            objectPosition: rewardCampaign?.creative?.mediaPosition || "center",
+                          }}
+                          src={rewardCampaign.creative.mediaUrl}
+                          alt={rewardCampaign?.creative?.headline || "Sponsored"}
+                          width={1920}
+                          height={1080}
+                          unoptimized
+                          onLoad={() => setRewardMediaReady(true)}
+                        />
+                      )}
+                    </div>
+                  ) : (
+                    <div className="flex h-full w-full items-center justify-center p-8 text-center text-sm text-white/80">
+                      Media isn’t configured for this campaign.
+                    </div>
+                  )}
+                </div>
+
+                <div className="shrink-0 border-t border-zinc-200 bg-white px-5 py-4 pb-[calc(1rem+env(safe-area-inset-bottom))]">
+                  {rewardCredits > 0 && rewardMinWatchSeconds > 0 ? (
+                    <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
+                      <div className="text-sm font-semibold text-zinc-900">Time remaining</div>
+                      <div className="font-mono text-2xl font-bold tabular-nums text-zinc-900">
+                        {rewardRemainingLabel}
+                        <span className="ml-2 text-sm font-semibold text-zinc-500">/ {rewardTotalLabel}</span>
+                      </div>
+                    </div>
+                  ) : null}
+
+                  <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                    <div className="text-sm text-zinc-700">
+                      {rewardCredits > 0 ? (
+                        rewardMinWatchSeconds > 0 ? (
+                          rewardCampaign?.creative?.mediaKind === "video" && !rewardPlaying && rewardMediaReady ? (
+                            <>Press play to start the countdown.</>
+                          ) : rewardRemainingSeconds > 0 ? (
+                            <>
+                              Keep watching to earn <span className="font-semibold">{rewardCredits}</span> credits.
+                            </>
+                          ) : (
+                            <>You’re all set. Adding your credits…</>
+                          )
+                        ) : (
+                          <>Sponsored message</>
+                        )
+                      ) : (
+                        <>Sponsored message</>
+                      )}
+                      {rewardCampaign?.creative?.mediaKind === "video" && !rewardMediaReady ? (
+                        <div className="mt-1 text-xs text-zinc-500">Loading video…</div>
+                      ) : null}
+                    </div>
+
+                    <div className="flex flex-wrap items-center gap-2">
+                      {rewardCampaign?.creative?.linkUrl ? (
+                        <a
+                          href={
+                            `/api/portal/ads/click?campaignId=${encodeURIComponent(rewardCampaign.id)}` +
+                            `&placement=FULLSCREEN_REWARD` +
+                            `&path=${encodeURIComponent(pathname || "")}` +
+                            `&to=${encodeURIComponent(rewardCampaign.creative.linkUrl)}`
+                          }
+                          className="inline-flex rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm font-semibold text-zinc-800 hover:bg-zinc-50 sm:hidden"
+                          target="_blank"
+                          rel="noreferrer"
+                        >
+                          {rewardCampaign?.creative?.ctaText || "Open"}
+                        </a>
+                      ) : null}
+
+                      <button
+                        type="button"
+                        className="rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm font-semibold text-zinc-900 hover:bg-zinc-50 disabled:opacity-60"
+                        disabled={rewardActionBusy}
+                        onClick={() => {
+                          if (rewardCredits > 0 && rewardRemainingSeconds > 0) setRewardConfirmExit(true);
+                          else setRewardModalOpen(false);
+                        }}
+                      >
+                        Stop
+                      </button>
+
+                      <button
+                        type="button"
+                        className="rounded-2xl bg-zinc-900 px-4 py-2 text-sm font-semibold text-white hover:bg-zinc-800 disabled:opacity-60"
+                        disabled={rewardActionBusy}
+                        onClick={() => setRewardModalOpen(false)}
+                      >
+                        Close
+                      </button>
+                    </div>
+                  </div>
+
+                  {rewardCredits > 0 && rewardMinWatchSeconds > 0 ? (
+                    <div className="mt-3 h-2 w-full overflow-hidden rounded-full bg-zinc-100">
+                      <div
+                        className="h-full bg-emerald-500"
+                        style={{
+                          width: `${Math.max(
+                            0,
+                            Math.min(
+                              100,
+                              (Math.max(0, Math.floor(rewardWatchedSeconds || 0)) / Math.max(1, rewardMinWatchSeconds)) * 100,
+                            ),
+                          )}%`,
+                        }}
+                      />
+                    </div>
+                  ) : null}
+                </div>
+
+                {rewardConfirmExit ? (
+                  <div
+                    className="absolute inset-0 z-[10000] flex items-center justify-center bg-black/60 p-4"
+                    onMouseDown={() => setRewardConfirmExit(false)}
+                  >
+                    <div
+                      className="w-full max-w-lg rounded-3xl border border-zinc-200 bg-white p-5 shadow-xl"
+                      onMouseDown={(e) => e.stopPropagation()}
+                    >
+                      <div className="text-base font-semibold text-zinc-900">Stop watching?</div>
+                      <div className="mt-2 text-sm text-zinc-700">
+                        If you stop now, you won’t receive the {rewardCredits} credits.
+                      </div>
+                      {rewardMinWatchSeconds > 0 ? (
+                        <div className="mt-2 text-sm text-zinc-700">
+                          {rewardRemainingSeconds > 0 ? (
+                            <>
+                              <span className="font-semibold">{rewardRemainingSeconds}s</span> remaining.
+                            </>
+                          ) : (
+                            <>You’re done — claiming now…</>
+                          )}
+                        </div>
+                      ) : null}
+                      <div className="mt-4 flex flex-col gap-2 sm:flex-row sm:justify-end">
+                        <button
+                          type="button"
+                          className="rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm font-semibold text-zinc-800 hover:bg-zinc-50"
+                          onClick={() => setRewardConfirmExit(false)}
+                        >
+                          Keep watching
+                        </button>
+                        <button
+                          type="button"
+                          className="rounded-2xl bg-zinc-900 px-4 py-2 text-sm font-semibold text-white hover:bg-zinc-800"
+                          onClick={() => {
+                            setRewardConfirmExit(false);
+                            setRewardModalOpen(false);
+                          }}
+                        >
+                          Stop
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                ) : null}
               </div>
             </div>
           ) : null}
