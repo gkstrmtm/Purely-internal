@@ -6,7 +6,12 @@ import { useMemo, useState } from "react";
 type Mode = "monthly" | "credit" | "combined";
 
 const MRR_PRESETS = [25_000, 50_000, 100_000, 200_000, 500_000, 1_000_000] as const;
-const MONTH_PRESETS = [3, 6, 12] as const;
+const MONTH_PRESETS = [1, 3, 6, 12] as const;
+const MAX_MONTHS = 60;
+
+const GROWTH_PRESETS_PCT = [0, 10, 20, 40] as const;
+const GROWTH_MIN_PCT = -50;
+const GROWTH_MAX_PCT = 200;
 
 const KEEP_PRESETS = [0.85, 0.9] as const;
 const KEEP_DEFAULT = 0.88;
@@ -72,6 +77,22 @@ function calcProfitPerMonth(mrr: number, keep: number) {
 
 function calcProfitOverTime(mrr: number, keep: number, months: number) {
   return calcProfitPerMonth(mrr, keep) * months;
+}
+
+function sum(ns: number[]) {
+  let s = 0;
+  for (const n of ns) s += Number.isFinite(n) ? n : 0;
+  return s;
+}
+
+function cumulative(ns: number[]) {
+  const out: number[] = [];
+  let s = 0;
+  for (const n of ns) {
+    s += Number.isFinite(n) ? n : 0;
+    out.push(s);
+  }
+  return out;
 }
 
 function customersNeeded(opts: {
@@ -190,6 +211,54 @@ function SparkArea(props: {
   );
 }
 
+function DualLineChart(props: {
+  a: number[];
+  b: number[];
+  aStroke?: string;
+  bStroke?: string;
+  height?: number;
+}) {
+  const height = props.height ?? 96;
+  const width = 320;
+  const aStroke = props.aStroke ?? "var(--color-brand-blue)";
+  const bStroke = props.bStroke ?? "var(--color-brand-pink)";
+
+  const paths = useMemo(() => {
+    const a = props.a.length ? props.a : [0];
+    const b = props.b.length ? props.b : [0];
+    const n = Math.max(a.length, b.length);
+
+    const aa = Array.from({ length: n }, (_, i) => a[Math.min(i, a.length - 1)] ?? 0);
+    const bb = Array.from({ length: n }, (_, i) => b[Math.min(i, b.length - 1)] ?? 0);
+
+    const vals = [...aa, ...bb];
+    const max = Math.max(1, ...vals);
+    const min = Math.min(0, ...vals);
+    const span = Math.max(1, max - min);
+
+    const stepX = n <= 1 ? 0 : width / (n - 1);
+
+    function toPoints(series: number[]) {
+      return series
+        .map((v, i) => {
+          const x = i * stepX;
+          const y = height - ((v - min) / span) * height;
+          return `${x.toFixed(2)},${y.toFixed(2)}`;
+        })
+        .join(" ");
+    }
+
+    return { aPts: toPoints(aa), bPts: toPoints(bb) };
+  }, [props.a, props.b, height]);
+
+  return (
+    <svg viewBox={`0 0 ${width} ${height}`} className="h-full w-full" aria-hidden>
+      <polyline points={paths.aPts} fill="none" stroke={aStroke} strokeWidth="3" strokeLinejoin="round" strokeLinecap="round" />
+      <polyline points={paths.bPts} fill="none" stroke={bStroke} strokeWidth="3" strokeLinejoin="round" strokeLinecap="round" opacity={0.95} />
+    </svg>
+  );
+}
+
 function MiniBars(props: { values: number[]; color?: string }) {
   const width = 320;
   const height = 72;
@@ -277,12 +346,16 @@ function DonutMix(props: { aPct: number; aLabel: string; bLabel: string }) {
 }
 
 export default function ProfitVisualizationDashboardPage() {
+  const [assumptionsOpen, setAssumptionsOpen] = useState(false);
+
   const [mode, setMode] = useState<Mode>("combined");
   const [selectedMrr, setSelectedMrr] = useState<number>(100_000);
   const [customMrr, setCustomMrr] = useState<string>("");
 
   const [months, setMonths] = useState<number>(3);
   const [keep, setKeep] = useState<number>(KEEP_DEFAULT);
+
+  const [growthPct, setGrowthPct] = useState<number>(0);
 
   const [monthlyArpu, setMonthlyArpu] = useState<number>(ARPU_DEFAULT_MONTHLY);
   const [creditArpu, setCreditArpu] = useState<number>(ARPU_DEFAULT_CREDIT);
@@ -304,8 +377,21 @@ export default function ProfitVisualizationDashboardPage() {
   const monthlyShare = clampNum(monthlySharePct / 100, 0, 1);
   const creditShare = 1 - monthlyShare;
 
-  const profitMo = calcProfitPerMonth(appliedMrr, keep);
-  const profitTime = calcProfitOverTime(appliedMrr, keep, months);
+  const appliedMonths = clampNum(Math.floor(months || 0), 1, MAX_MONTHS);
+  const appliedGrowthRate = clampNum((growthPct || 0) / 100, GROWTH_MIN_PCT / 100, GROWTH_MAX_PCT / 100);
+
+  const revenueSeries = useMemo(() => {
+    return Array.from({ length: appliedMonths }, (_, i) => appliedMrr * Math.pow(1 + appliedGrowthRate, i));
+  }, [appliedMonths, appliedMrr, appliedGrowthRate]);
+
+  const profitSeries = useMemo(() => revenueSeries.map((r) => r * keep), [revenueSeries, keep]);
+  const cumulativeProfitSeries = useMemo(() => cumulative(profitSeries), [profitSeries]);
+
+  const month1Revenue = revenueSeries[0] ?? 0;
+  const endRevenue = revenueSeries[revenueSeries.length - 1] ?? 0;
+
+  const profitMo = profitSeries[0] ?? calcProfitPerMonth(appliedMrr, keep);
+  const profitTime = sum(profitSeries);
 
   const cust = customersNeeded({
     mrr: appliedMrr,
@@ -330,28 +416,30 @@ export default function ProfitVisualizationDashboardPage() {
         customers: c.customers,
         monthlyCustomers: c.monthlyCustomers,
         creditCustomers: c.creditCustomers,
-        profitMo: calcProfitPerMonth(appliedMrr, keep),
-        profitTime: calcProfitOverTime(appliedMrr, keep, months),
+        profitMo,
+        profitTime,
       };
     });
-  }, [appliedMrr, keep, months, effectiveMonthlyArpu, effectiveCreditArpu, monthlyShare]);
+  }, [appliedMrr, effectiveMonthlyArpu, effectiveCreditArpu, monthlyShare, profitMo, profitTime]);
 
   const summaryLine = useMemo(() => {
     const labelMrr = appliedMrr >= 1_000_000 ? `${appliedMrr / 1_000_000}M` : `${Math.round(appliedMrr / 1000)}k`;
     const profitMoK = Math.round(profitMo / 1000);
     const profitTimeK = Math.round(profitTime / 1000);
+    const endK = Math.round(endRevenue / 1000);
+    const growthLabel = (growthPct || 0) === 0 ? "flat" : `${growthPct > 0 ? "+" : ""}${growthPct}%/mo`;
 
     if (mode !== "combined") {
       const modeLabel = mode === "monthly" ? "Monthly-fee" : "Credit-only";
       const arpuLabel = mode === "monthly" ? effectiveMonthlyArpu : effectiveCreditArpu;
-      return `At $${labelMrr} MRR keeping ${formatKeep(keep)} per $1: profit/mo $${profitMoK}k, profit ${months}mo $${profitTimeK}k. ${modeLabel} ARPU ${arpuLabel}: customers ${cust.customers}.`;
+      return `Tier $${labelMrr}/mo (${growthLabel}; end ~$${endK}k/mo). Keep ${formatKeep(keep)} per $1 → month-1 profit ~$${profitMoK}k, total ${appliedMonths}mo ~$${profitTimeK}k. ${modeLabel} ARPU ${arpuLabel}: customers ${cust.customers}.`;
     }
 
     const customers = cust.customers;
     const monthlyCustomers = cust.monthlyCustomers;
     const creditCustomers = cust.creditCustomers;
-    return `At $${labelMrr} MRR keeping ${formatKeep(keep)} per $1: profit/mo $${profitMoK}k, profit ${months}mo $${profitTimeK}k. Combined ${Math.round(monthlyShare * 100)}/${Math.round(creditShare * 100)} with ARPU ${effectiveMonthlyArpu}/${effectiveCreditArpu}: customers ${customers} (${monthlyCustomers} monthly, ${creditCustomers} credit).`;
-  }, [appliedMrr, keep, profitMo, profitTime, months, mode, cust, effectiveMonthlyArpu, effectiveCreditArpu, monthlyShare, creditShare]);
+    return `Tier $${labelMrr}/mo (${growthLabel}; end ~$${endK}k/mo). Keep ${formatKeep(keep)} per $1 → month-1 profit ~$${profitMoK}k, total ${appliedMonths}mo ~$${profitTimeK}k. Mixed ${Math.round(monthlyShare * 100)}/${Math.round(creditShare * 100)} with ARPU ${effectiveMonthlyArpu}/${effectiveCreditArpu}: customers ${customers} (${monthlyCustomers} membership, ${creditCustomers} credits).`;
+  }, [appliedMrr, keep, profitMo, profitTime, mode, cust, effectiveMonthlyArpu, effectiveCreditArpu, monthlyShare, creditShare, endRevenue, growthPct, appliedMonths]);
 
   function reset() {
     setMode("combined");
@@ -359,6 +447,7 @@ export default function ProfitVisualizationDashboardPage() {
     setCustomMrr("");
     setMonths(3);
     setKeep(KEEP_DEFAULT);
+    setGrowthPct(0);
     setMonthlyArpu(ARPU_DEFAULT_MONTHLY);
     setCreditArpu(ARPU_DEFAULT_CREDIT);
     setWhale(false);
@@ -403,6 +492,15 @@ export default function ProfitVisualizationDashboardPage() {
             </button>
             <button
               type="button"
+              onClick={() => setAssumptionsOpen(true)}
+              className="h-10 rounded-2xl border border-zinc-200 bg-white px-4 text-sm font-semibold text-zinc-800 shadow-sm hover:bg-zinc-50"
+              aria-haspopup="dialog"
+              aria-expanded={assumptionsOpen}
+            >
+              Assumptions
+            </button>
+            <button
+              type="button"
               onClick={() => void copySummary()}
               className="h-10 rounded-2xl bg-[color:var(--color-brand-blue)] px-4 text-sm font-semibold text-white shadow-sm hover:opacity-95"
             >
@@ -411,76 +509,35 @@ export default function ProfitVisualizationDashboardPage() {
           </div>
         </div>
 
-        {/* Filters */}
-        <div className="mt-6 rounded-3xl border border-zinc-200 bg-white p-4 shadow-sm">
-          <div className="grid gap-4 lg:grid-cols-[1.2fr_0.8fr_1fr]">
-            <div>
-              <div className="text-xs font-semibold uppercase tracking-wide text-zinc-500">Monthly revenue</div>
-              <div className="mt-2 flex flex-wrap gap-2">
-                {MRR_PRESETS.map((mrr) => (
-                  <SegButton
-                    key={mrr}
-                    active={!customMrr.trim() && selectedMrr === mrr}
-                    onClick={() => {
-                      setCustomMrr("");
-                      setSelectedMrr(mrr);
-                    }}
-                  >
-                    {formatMoneyCompact(mrr)}
-                  </SegButton>
-                ))}
-              </div>
-              <div className="mt-3 flex items-center gap-3">
-                <div className="text-xs font-semibold text-zinc-600">Custom</div>
-                <input
-                  value={customMrr}
-                  onChange={(e) => setCustomMrr(e.target.value)}
-                  inputMode="numeric"
-                  placeholder="100000"
-                  className="h-10 w-full rounded-2xl border border-zinc-200 bg-white px-4 text-sm font-semibold text-zinc-900 outline-none focus:border-zinc-400"
-                />
-              </div>
-            </div>
-
-            <div>
-              <div className="text-xs font-semibold uppercase tracking-wide text-zinc-500">Timeframe</div>
-              <div className="mt-2 flex flex-wrap gap-2">
-                {MONTH_PRESETS.map((m) => (
-                  <SegButton key={m} active={months === m} onClick={() => setMonths(m)}>
-                    {m} months
-                  </SegButton>
-                ))}
-              </div>
-              <div className="mt-3 text-xs text-zinc-600">
-                Monthly profit × months.
-              </div>
-            </div>
-
-            <div>
-              <div className="text-xs font-semibold uppercase tracking-wide text-zinc-500">Revenue style</div>
-              <div className="mt-2 flex flex-wrap gap-2">
-                <SegButton active={mode === "monthly"} onClick={() => setMode("monthly")}>Membership</SegButton>
-                <SegButton active={mode === "credit"} onClick={() => setMode("credit")}>Credits</SegButton>
-                <SegButton active={mode === "combined"} onClick={() => setMode("combined")}>Mixed</SegButton>
-              </div>
-              <div className="mt-3">
-                <DonutMix aPct={mode === "credit" ? 0 : mode === "monthly" ? 100 : Math.round(monthlyShare * 100)} aLabel="Membership" bLabel="Credits" />
-              </div>
-            </div>
+        <div className="mt-4 flex flex-wrap items-center gap-2">
+          <div className="rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-xs font-semibold text-zinc-800 shadow-sm">
+            Start: {formatMoneyCompact(month1Revenue)} / mo
+          </div>
+          <div className="rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-xs font-semibold text-zinc-800 shadow-sm">
+            End: {formatMoneyCompact(endRevenue)} / mo
+          </div>
+          <div className="rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-xs font-semibold text-zinc-800 shadow-sm">
+            {appliedMonths} months
+          </div>
+          <div className="rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-xs font-semibold text-zinc-800 shadow-sm">
+            Growth: {growthPct > 0 ? "+" : ""}{growthPct}% / mo
+          </div>
+          <div className="rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-xs font-semibold text-zinc-800 shadow-sm">
+            Keep: {formatKeep(keep)}
           </div>
         </div>
 
         {/* Main */}
-        <div className="mt-6 grid gap-6 lg:grid-cols-[1fr_360px]">
-          <div className="space-y-6">
-            <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
-              <SurfaceCard title="Selected tier" value={formatMoneyCompact(appliedMrr)} sub="Monthly recurring revenue" accent="ink" />
-              <SurfaceCard title="Net retained" value={formatPct1(keep)} sub={`${formatKeep(keep)} per $1 collected`} accent="blue" />
-              <SurfaceCard title="Profit per month" value={formatMoneyCompact(profitMo)} sub="Run-rate" accent="pink" />
-              <SurfaceCard title={`Profit (${months} months)`} value={formatMoneyCompact(profitTime)} sub="Total" accent="blue" />
-            </div>
+        <div className="mt-6 space-y-6">
+          <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-5">
+            <SurfaceCard title="Start monthly revenue" value={formatMoneyCompact(month1Revenue)} sub="Tier" accent="ink" />
+            <SurfaceCard title={`End monthly revenue`} value={formatMoneyCompact(endRevenue)} sub={`${growthPct > 0 ? "+" : ""}${growthPct}% per month`} accent="blue" />
+            <SurfaceCard title="Net retained" value={formatPct1(keep)} sub={`${formatKeep(keep)} per $1 collected`} accent="ink" />
+            <SurfaceCard title="Month 1 profit" value={formatMoneyCompact(profitMo)} sub="Starts here" accent="pink" />
+            <SurfaceCard title={`Total profit (${appliedMonths} months)`} value={formatMoneyCompact(profitTime)} sub="Sum of all months" accent="blue" />
+          </div>
 
-            <div className="grid gap-6 lg:grid-cols-2">
+            <div className="grid gap-6 lg:grid-cols-3">
               <div className="rounded-3xl border border-zinc-200 bg-white p-6 shadow-sm">
                 <div className="flex items-end justify-between gap-4">
                   <div>
@@ -494,22 +551,22 @@ export default function ProfitVisualizationDashboardPage() {
                 </div>
                 <div className="mt-4 h-28">
                   <SparkArea
-                    values={Array.from({ length: Math.max(1, months) }, (_, i) => (i + 1) * profitMo)}
+                    values={cumulativeProfitSeries}
                     stroke="var(--color-brand-blue)"
                   />
                 </div>
                 <div className="mt-3 grid grid-cols-3 gap-3 text-xs">
                   <div className="rounded-2xl bg-zinc-50 px-3 py-2">
                     <div className="font-semibold text-zinc-900">Month 1</div>
-                    <div className="text-zinc-600">{formatMoneyCompact(profitMo)}</div>
+                    <div className="text-zinc-600">{formatMoneyCompact(profitSeries[0] ?? profitMo)}</div>
                   </div>
                   <div className="rounded-2xl bg-zinc-50 px-3 py-2">
-                    <div className="font-semibold text-zinc-900">Month {Math.min(3, months)}</div>
-                    <div className="text-zinc-600">{formatMoneyCompact(calcProfitOverTime(appliedMrr, keep, Math.min(3, months)))}</div>
+                    <div className="font-semibold text-zinc-900">Month {Math.min(3, appliedMonths)}</div>
+                    <div className="text-zinc-600">{formatMoneyCompact(cumulativeProfitSeries[Math.min(3, appliedMonths) - 1] ?? profitTime)}</div>
                   </div>
                   <div className="rounded-2xl bg-zinc-50 px-3 py-2">
-                    <div className="font-semibold text-zinc-900">Month {months}</div>
-                    <div className="text-zinc-600">{formatMoneyCompact(profitTime)}</div>
+                    <div className="font-semibold text-zinc-900">Month {appliedMonths}</div>
+                    <div className="text-zinc-600">{formatMoneyCompact(cumulativeProfitSeries[appliedMonths - 1] ?? profitTime)}</div>
                   </div>
                 </div>
               </div>
@@ -518,7 +575,7 @@ export default function ProfitVisualizationDashboardPage() {
                 <div className="flex items-end justify-between gap-4">
                   <div>
                     <div className="text-sm font-semibold text-zinc-900">Monthly profit</div>
-                    <div className="mt-1 text-xs text-zinc-600">Same run-rate each month (simple view).</div>
+                    <div className="mt-1 text-xs text-zinc-600">Month-by-month (growth applied).</div>
                   </div>
                   <div className="text-right">
                     <div className="text-xs font-semibold uppercase tracking-wide text-zinc-500">Per month</div>
@@ -527,14 +584,38 @@ export default function ProfitVisualizationDashboardPage() {
                 </div>
                 <div className="mt-4 h-20">
                   <MiniBars
-                    values={Array.from({ length: Math.max(1, months) }, () => profitMo)}
+                    values={profitSeries}
                     color="var(--color-brand-ink)"
                   />
                 </div>
                 <div className="mt-4 rounded-2xl bg-gradient-to-br from-[color:var(--color-brand-blue)]/10 to-white px-4 py-3">
                   <div className="text-xs font-semibold uppercase tracking-wide text-zinc-600">Quick read</div>
                   <div className="mt-1 text-sm font-semibold text-zinc-900">
-                    {formatMoneyCompact(profitMo)} / month → {formatMoneyCompact(profitTime)} in {months} months
+                    {formatMoneyCompact(profitSeries[0] ?? profitMo)} (month 1) → {formatMoneyCompact(profitSeries[profitSeries.length - 1] ?? profitMo)} (month {appliedMonths})
+                  </div>
+                </div>
+              </div>
+
+              <div className="rounded-3xl border border-zinc-200 bg-white p-6 shadow-sm">
+                <div className="flex items-end justify-between gap-4">
+                  <div>
+                    <div className="text-sm font-semibold text-zinc-900">Revenue vs profit</div>
+                    <div className="mt-1 text-xs text-zinc-600">Two lines: revenue and profit.</div>
+                  </div>
+                  <div className="text-right">
+                    <div className="text-xs font-semibold uppercase tracking-wide text-zinc-500">End</div>
+                    <div className="text-lg font-bold text-zinc-900">{formatMoneyCompact(endRevenue)}</div>
+                  </div>
+                </div>
+                <div className="mt-4 h-24">
+                  <DualLineChart a={revenueSeries} b={profitSeries} aStroke="var(--color-brand-blue)" bStroke="var(--color-brand-pink)" />
+                </div>
+                <div className="mt-3 flex flex-wrap items-center gap-2 text-xs">
+                  <div className="rounded-2xl bg-zinc-50 px-3 py-2">
+                    <span className="font-semibold text-[color:var(--color-brand-blue)]">Revenue</span> {formatMoneyCompact(month1Revenue)} → {formatMoneyCompact(endRevenue)}
+                  </div>
+                  <div className="rounded-2xl bg-zinc-50 px-3 py-2">
+                    <span className="font-semibold text-[color:var(--color-brand-pink)]">Profit</span> {formatMoneyCompact(profitSeries[0] ?? 0)} → {formatMoneyCompact(profitSeries[profitSeries.length - 1] ?? 0)}
                   </div>
                 </div>
               </div>
@@ -576,22 +657,178 @@ export default function ProfitVisualizationDashboardPage() {
                 </div>
               </div>
             </div>
-          </div>
+        </div>
 
-          {/* Settings */}
-          <div className="space-y-6">
-            <div className="rounded-3xl border border-zinc-200 bg-white p-6 shadow-sm">
-              <div className="text-sm font-semibold text-zinc-900">Assumptions</div>
-              <div className="mt-1 text-xs text-zinc-600">Tweak these if you need it tighter.</div>
+        {/* Assumptions Drawer */}
+        {assumptionsOpen ? (
+          <div className="fixed inset-0 z-50">
+            <button
+              type="button"
+              className="absolute inset-0 bg-black/30"
+              aria-label="Close assumptions"
+              onClick={() => setAssumptionsOpen(false)}
+            />
+            <div
+              role="dialog"
+              aria-modal="true"
+              className="absolute right-0 top-0 h-full w-full max-w-md overflow-y-auto bg-white shadow-2xl"
+            >
+              <div className="sticky top-0 z-10 border-b border-zinc-200 bg-white px-5 py-4">
+                <div className="flex items-center justify-between gap-3">
+                  <div>
+                    <div className="text-base font-bold text-zinc-900">Assumptions</div>
+                    <div className="mt-0.5 text-xs text-zinc-600">Everything that drives the numbers.</div>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => setAssumptionsOpen(false)}
+                    className="h-10 rounded-2xl border border-zinc-200 bg-white px-4 text-sm font-semibold text-zinc-800 hover:bg-zinc-50"
+                  >
+                    Close
+                  </button>
+                </div>
+              </div>
 
-              <div className="mt-5 grid gap-5">
-                <div>
-                  <div className="flex items-center justify-between gap-3">
-                    <div>
-                      <div className="text-sm font-semibold text-zinc-900">Net retained</div>
-                      <div className="text-xs text-zinc-600">How much you keep from each $1.</div>
+              <div className="space-y-6 px-5 py-6">
+                <div className="rounded-3xl border border-zinc-200 bg-white p-5 shadow-sm">
+                  <div className="text-sm font-semibold text-zinc-900">Monthly revenue</div>
+                  <div className="mt-1 text-xs text-zinc-600">Pick one tier at a time.</div>
+                  <div className="mt-3 flex flex-wrap gap-2">
+                    {MRR_PRESETS.map((mrr) => (
+                      <SegButton
+                        key={mrr}
+                        active={!customMrr.trim() && selectedMrr === mrr}
+                        onClick={() => {
+                          setCustomMrr("");
+                          setSelectedMrr(mrr);
+                        }}
+                      >
+                        {formatMoneyCompact(mrr)}
+                      </SegButton>
+                    ))}
+                  </div>
+                  <div className="mt-3 flex items-center gap-3">
+                    <div className="text-xs font-semibold text-zinc-600">Custom</div>
+                    <input
+                      value={customMrr}
+                      onChange={(e) => setCustomMrr(e.target.value)}
+                      inputMode="numeric"
+                      placeholder="100000"
+                      className="h-10 w-full rounded-2xl border border-zinc-200 bg-white px-4 text-sm font-semibold text-zinc-900 outline-none focus:border-zinc-400"
+                    />
+                  </div>
+                </div>
+
+                <div className="rounded-3xl border border-zinc-200 bg-white p-5 shadow-sm">
+                  <div className="text-sm font-semibold text-zinc-900">Timeframe</div>
+                  <div className="mt-1 text-xs text-zinc-600">Set any month count (1–{MAX_MONTHS}).</div>
+                  <div className="mt-3 flex flex-wrap gap-2">
+                    {MONTH_PRESETS.map((m) => (
+                      <SegButton key={m} active={appliedMonths === m} onClick={() => setMonths(m)}>
+                        {m} months
+                      </SegButton>
+                    ))}
+                  </div>
+                  <div className="mt-3 grid gap-3">
+                    <input
+                      type="range"
+                      min={1}
+                      max={MAX_MONTHS}
+                      step={1}
+                      value={appliedMonths}
+                      onChange={(e) => setMonths(clampNum(Number(e.target.value), 1, MAX_MONTHS))}
+                      className="w-full"
+                    />
+                    <div className="flex items-center justify-between gap-3">
+                      <div className="text-xs font-semibold text-zinc-600">Months</div>
+                      <input
+                        value={appliedMonths}
+                        onChange={(e) => setMonths(clampNum(toInt(e.target.value, appliedMonths), 1, MAX_MONTHS))}
+                        inputMode="numeric"
+                        className="h-10 w-28 rounded-2xl border border-zinc-200 bg-white px-4 text-sm font-semibold text-zinc-900 outline-none focus:border-zinc-400"
+                      />
                     </div>
+                  </div>
+                </div>
+
+                <div className="rounded-3xl border border-zinc-200 bg-white p-5 shadow-sm">
+                  <div className="text-sm font-semibold text-zinc-900">Growth</div>
+                  <div className="mt-1 text-xs text-zinc-600">Monthly compounding growth for the tier.</div>
+                  <div className="mt-3 flex flex-wrap gap-2">
+                    {GROWTH_PRESETS_PCT.map((p) => (
+                      <button
+                        key={p}
+                        type="button"
+                        onClick={() => setGrowthPct(p)}
+                        className={classNames(
+                          "h-9 rounded-2xl border px-3 text-sm font-semibold",
+                          growthPct === p ? "border-zinc-900 bg-zinc-900 text-white" : "border-zinc-200 bg-white text-zinc-800 hover:bg-zinc-50",
+                        )}
+                      >
+                        {p}%
+                      </button>
+                    ))}
+                  </div>
+                  <div className="mt-3 grid gap-3">
+                    <input
+                      type="range"
+                      min={GROWTH_MIN_PCT}
+                      max={GROWTH_MAX_PCT}
+                      step={1}
+                      value={growthPct}
+                      onChange={(e) => setGrowthPct(clampNum(Number(e.target.value), GROWTH_MIN_PCT, GROWTH_MAX_PCT))}
+                      className="w-full"
+                    />
+                    <div className="flex items-center justify-between gap-3">
+                      <div className="text-xs font-semibold text-zinc-600">% per month</div>
+                      <input
+                        value={growthPct}
+                        onChange={(e) => setGrowthPct(clampNum(toInt(e.target.value, growthPct), GROWTH_MIN_PCT, GROWTH_MAX_PCT))}
+                        inputMode="numeric"
+                        className="h-10 w-28 rounded-2xl border border-zinc-200 bg-white px-4 text-sm font-semibold text-zinc-900 outline-none focus:border-zinc-400"
+                      />
+                    </div>
+                  </div>
+                </div>
+
+                <div className="rounded-3xl border border-zinc-200 bg-white p-5 shadow-sm">
+                  <div className="text-sm font-semibold text-zinc-900">Revenue style</div>
+                  <div className="mt-3 flex flex-wrap gap-2">
+                    <SegButton active={mode === "monthly"} onClick={() => setMode("monthly")}>Membership</SegButton>
+                    <SegButton active={mode === "credit"} onClick={() => setMode("credit")}>Credits</SegButton>
+                    <SegButton active={mode === "combined"} onClick={() => setMode("combined")}>Mixed</SegButton>
+                  </div>
+                  <div className="mt-3">
+                    <DonutMix aPct={mode === "credit" ? 0 : mode === "monthly" ? 100 : Math.round(monthlyShare * 100)} aLabel="Membership" bLabel="Credits" />
+                  </div>
+                  {mode === "combined" ? (
+                    <div className="mt-4">
+                      <div className="flex items-center justify-between gap-3">
+                        <div>
+                          <div className="text-sm font-semibold text-zinc-900">Mix</div>
+                          <div className="text-xs text-zinc-600">Split of membership vs credits.</div>
+                        </div>
+                        <div className="text-sm font-bold text-zinc-900">{Math.round(monthlyShare * 100)}% / {Math.round(creditShare * 100)}%</div>
+                      </div>
+                      <input
+                        type="range"
+                        min={0}
+                        max={100}
+                        step={1}
+                        value={monthlySharePct}
+                        onChange={(e) => setMonthlySharePct(clampNum(Number(e.target.value), 0, 100))}
+                        className="mt-3 w-full"
+                      />
+                    </div>
+                  ) : null}
+                </div>
+
+                <div className="rounded-3xl border border-zinc-200 bg-white p-5 shadow-sm">
+                  <div className="text-sm font-semibold text-zinc-900">Net retained</div>
+                  <div className="mt-1 text-xs text-zinc-600">How much you keep from each $1.</div>
+                  <div className="mt-3 flex items-center justify-between gap-3">
                     <div className="text-sm font-bold text-zinc-900">{formatKeep(keep)} ({formatPct1(keep)})</div>
+                    <div className="text-xs font-semibold text-zinc-600">{KEEP_MIN}–{KEEP_MAX}</div>
                   </div>
                   <input
                     type="range"
@@ -619,7 +856,7 @@ export default function ProfitVisualizationDashboardPage() {
                   </div>
                 </div>
 
-                <div className="grid gap-3">
+                <div className="rounded-3xl border border-zinc-200 bg-white p-5 shadow-sm">
                   <div className="flex items-center justify-between gap-3">
                     <div>
                       <div className="text-sm font-semibold text-zinc-900">Customer value</div>
@@ -630,8 +867,7 @@ export default function ProfitVisualizationDashboardPage() {
                       High-value
                     </label>
                   </div>
-
-                  <div className="grid gap-3 sm:grid-cols-2">
+                  <div className="mt-3 grid gap-3 sm:grid-cols-2">
                     <label className="block">
                       <div className="text-xs font-semibold text-zinc-600">Membership</div>
                       <input
@@ -655,71 +891,50 @@ export default function ProfitVisualizationDashboardPage() {
                   </div>
                 </div>
 
-                {mode === "combined" ? (
-                  <div>
-                    <div className="flex items-center justify-between gap-3">
-                      <div>
-                        <div className="text-sm font-semibold text-zinc-900">Mix</div>
-                        <div className="text-xs text-zinc-600">Split of membership vs credits.</div>
-                      </div>
-                      <div className="text-sm font-bold text-zinc-900">{Math.round(monthlyShare * 100)}% / {Math.round(creditShare * 100)}%</div>
-                    </div>
-                    <input
-                      type="range"
-                      min={0}
-                      max={100}
-                      step={1}
-                      value={monthlySharePct}
-                      onChange={(e) => setMonthlySharePct(clampNum(Number(e.target.value), 0, 100))}
-                      className="mt-3 w-full"
-                    />
+                <div className="rounded-3xl border border-zinc-200 bg-white p-5 shadow-sm">
+                  <div className="text-sm font-semibold text-zinc-900">Comparison</div>
+                  <div className="mt-1 text-xs text-zinc-600">Same tier, different revenue styles.</div>
+                  <div className="mt-4 overflow-x-auto">
+                    <table className="w-full min-w-[520px]">
+                      <thead>
+                        <tr className="text-left text-xs font-semibold uppercase tracking-wide text-zinc-500">
+                          <th className="py-2">Style</th>
+                          <th className="py-2">Customers</th>
+                          <th className="py-2">Month 1 profit</th>
+                          <th className="py-2">Total ({appliedMonths} mo)</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {comparisonRows.map((r) => (
+                          <tr key={r.mode} className="border-t border-zinc-200">
+                            <td className="py-3 font-semibold text-zinc-900">
+                              {r.mode === "monthly" ? "Membership" : r.mode === "credit" ? "Credits" : "Mixed"}
+                            </td>
+                            <td className="py-3 text-zinc-700">
+                              {r.customers.toLocaleString()}
+                              {r.mode === "combined" ? (
+                                <div className="text-xs text-zinc-500">
+                                  {r.monthlyCustomers.toLocaleString()} membership • {r.creditCustomers.toLocaleString()} credits
+                                </div>
+                              ) : null}
+                            </td>
+                            <td className="py-3 text-zinc-700">{formatMoneyCompact(r.profitMo)}</td>
+                            <td className="py-3 text-zinc-700">{formatMoneyCompact(r.profitTime)}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
                   </div>
-                ) : null}
-              </div>
-            </div>
+                </div>
 
-            <div className="rounded-3xl border border-zinc-200 bg-white p-6 shadow-sm">
-              <div className="text-sm font-semibold text-zinc-900">Comparison</div>
-              <div className="mt-1 text-xs text-zinc-600">Same tier, different revenue styles.</div>
-              <div className="mt-4 overflow-x-auto">
-                <table className="w-full min-w-[520px]">
-                  <thead>
-                    <tr className="text-left text-xs font-semibold uppercase tracking-wide text-zinc-500">
-                      <th className="py-2">Style</th>
-                      <th className="py-2">Customers</th>
-                      <th className="py-2">Profit / mo</th>
-                      <th className="py-2">Profit ({months} mo)</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {comparisonRows.map((r) => (
-                      <tr key={r.mode} className="border-t border-zinc-200">
-                        <td className="py-3 font-semibold text-zinc-900">
-                          {r.mode === "monthly" ? "Membership" : r.mode === "credit" ? "Credits" : "Mixed"}
-                        </td>
-                        <td className="py-3 text-zinc-700">
-                          {r.customers.toLocaleString()}
-                          {r.mode === "combined" ? (
-                            <div className="text-xs text-zinc-500">
-                              {r.monthlyCustomers.toLocaleString()} membership • {r.creditCustomers.toLocaleString()} credits
-                            </div>
-                          ) : null}
-                        </td>
-                        <td className="py-3 text-zinc-700">{formatMoneyCompact(r.profitMo)}</td>
-                        <td className="py-3 text-zinc-700">{formatMoneyCompact(r.profitTime)}</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
+                <div className="rounded-3xl border border-zinc-200 bg-white p-5 shadow-sm">
+                  <div className="text-xs font-semibold uppercase tracking-wide text-zinc-500">Snapshot text</div>
+                  <div className="mt-2 text-sm text-zinc-800">{summaryLine}</div>
+                </div>
               </div>
-            </div>
-
-            <div className="rounded-3xl border border-zinc-200 bg-white p-5 shadow-sm">
-              <div className="text-xs font-semibold uppercase tracking-wide text-zinc-500">Snapshot text</div>
-              <div className="mt-2 text-sm text-zinc-800">{summaryLine}</div>
             </div>
           </div>
-        </div>
+        ) : null}
       </div>
     </div>
   );
