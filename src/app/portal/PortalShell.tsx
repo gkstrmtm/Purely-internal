@@ -134,6 +134,7 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
   const [rewardNeedsUserGesture, setRewardNeedsUserGesture] = useState(false);
   const [rewardConfirmExit, setRewardConfirmExit] = useState(false);
   const [rewardAutoClaimed, setRewardAutoClaimed] = useState(false);
+  const [rewardClaimed, setRewardClaimed] = useState(false);
   const rewardVideoRef = useRef<HTMLVideoElement | null>(null);
 
   const [popupCampaign, setPopupCampaign] = useState<null | {
@@ -534,20 +535,6 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
   const rewardCredits = Math.max(0, Math.floor(Number(rewardCampaign?.reward?.credits ?? 0)));
   const rewardRemainingSeconds = Math.max(0, (rewardMinWatchSeconds || 0) - Math.floor(rewardWatchedSeconds || 0));
 
-  const rewardRemainingLabel = useMemo(() => {
-    const s = Math.max(0, Math.floor(rewardRemainingSeconds || 0));
-    const mm = String(Math.floor(s / 60)).padStart(2, "0");
-    const ss = String(s % 60).padStart(2, "0");
-    return `${mm}:${ss}`;
-  }, [rewardRemainingSeconds]);
-
-  const rewardTotalLabel = useMemo(() => {
-    const s = Math.max(0, Math.floor(rewardMinWatchSeconds || 0));
-    const mm = String(Math.floor(s / 60)).padStart(2, "0");
-    const ss = String(s % 60).padStart(2, "0");
-    return `${mm}:${ss}`;
-  }, [rewardMinWatchSeconds]);
-
   const claimReward = useCallback(
     async (opts: { watchedSeconds: number; closeModalOnSuccess?: boolean }) => {
       const campaignId = rewardCampaign?.id ?? "";
@@ -572,6 +559,7 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
 
         if (body?.ok) {
           toast.success("Credits added.");
+          setRewardClaimed(true);
           setRewardStatus(
             typeof body?.nextAtIso === "string" && body.nextAtIso
               ? { eligible: false, nextEligibleAtIso: body.nextAtIso }
@@ -600,6 +588,7 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
     setRewardNeedsUserGesture(false);
     setRewardConfirmExit(false);
     setRewardAutoClaimed(false);
+    setRewardClaimed(false);
   }, [rewardCampaign?.id, rewardModalOpen]);
 
   useEffect(() => {
@@ -686,7 +675,7 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
     if (Math.floor(rewardWatchedSeconds || 0) < minWatch) return;
 
     setRewardAutoClaimed(true);
-    void claimReward({ watchedSeconds: Math.floor(rewardWatchedSeconds || 0), closeModalOnSuccess: true });
+    void claimReward({ watchedSeconds: Math.floor(rewardWatchedSeconds || 0), closeModalOnSuccess: false });
   }, [claimReward, rewardAutoClaimed, rewardCampaign?.id, rewardCredits, rewardEligible, rewardMinWatchSeconds, rewardModalOpen, rewardWatchedSeconds]);
 
   const navItems = useMemo(() => {
@@ -1551,16 +1540,6 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
                 </div>
 
                 <div className="shrink-0 border-t border-zinc-200 bg-white px-5 py-4 pb-[calc(1rem+env(safe-area-inset-bottom))]">
-                  {rewardCredits > 0 && rewardMinWatchSeconds > 0 ? (
-                    <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
-                      <div className="text-sm font-semibold text-zinc-900">Time remaining</div>
-                      <div className="font-mono text-2xl font-bold tabular-nums text-zinc-900">
-                        {rewardRemainingLabel}
-                        <span className="ml-2 text-sm font-semibold text-zinc-500">/ {rewardTotalLabel}</span>
-                      </div>
-                    </div>
-                  ) : null}
-
                   <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
                     <div className="text-sm text-zinc-700">
                       {rewardCredits > 0 ? (
@@ -1572,7 +1551,13 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
                               Keep watching to earn <span className="font-semibold">{rewardCredits}</span> credits.
                             </>
                           ) : (
-                            <>You’re all set. Adding your credits…</>
+                            <>
+                              {rewardClaimed ? (
+                                <>Credits added.</>
+                              ) : (
+                                <>You’re all set. Claiming your credits…</>
+                              )}
+                            </>
                           )
                         ) : (
                           <>Sponsored message</>
