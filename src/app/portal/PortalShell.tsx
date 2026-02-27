@@ -134,7 +134,6 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
   const [rewardNeedsUserGesture, setRewardNeedsUserGesture] = useState(false);
   const [rewardConfirmExit, setRewardConfirmExit] = useState(false);
   const [rewardAutoClaimed, setRewardAutoClaimed] = useState(false);
-  const [rewardActionBusy, setRewardActionBusy] = useState(false);
   const rewardVideoRef = useRef<HTMLVideoElement | null>(null);
 
   const [popupCampaign, setPopupCampaign] = useState<null | {
@@ -554,8 +553,6 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
       const campaignId = rewardCampaign?.id ?? "";
       if (!campaignId) return { ok: false as const };
       if (!rewardEligible) return { ok: false as const };
-
-      setRewardActionBusy(true);
       try {
         const watchedSeconds = Math.max(0, Math.floor(Number(opts.watchedSeconds) || 0));
         const res = await fetch("/api/portal/ads/claim", {
@@ -590,7 +587,6 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
         toast.error("Unable to claim reward");
         return { ok: false as const };
       } finally {
-        setRewardActionBusy(false);
       }
     },
     [pathname, refreshAds, rewardCampaign?.id, rewardEligible, toast],
@@ -1589,44 +1585,21 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
                       ) : null}
                     </div>
 
-                    <div className="flex flex-wrap items-center gap-2">
-                      {rewardCampaign?.creative?.linkUrl ? (
-                        <a
-                          href={
-                            `/api/portal/ads/click?campaignId=${encodeURIComponent(rewardCampaign.id)}` +
-                            `&placement=FULLSCREEN_REWARD` +
-                            `&path=${encodeURIComponent(pathname || "")}` +
-                            `&to=${encodeURIComponent(rewardCampaign.creative.linkUrl)}`
-                          }
-                          className="inline-flex rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm font-semibold text-zinc-800 hover:bg-zinc-50 sm:hidden"
-                          target="_blank"
-                          rel="noreferrer"
-                        >
-                          {rewardCampaign?.creative?.ctaText || "Open"}
-                        </a>
-                      ) : null}
-
-                      <button
-                        type="button"
-                        className="rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm font-semibold text-zinc-900 hover:bg-zinc-50 disabled:opacity-60"
-                        disabled={rewardActionBusy}
-                        onClick={() => {
-                          if (rewardCredits > 0 && rewardRemainingSeconds > 0) setRewardConfirmExit(true);
-                          else setRewardModalOpen(false);
-                        }}
+                    {rewardCampaign?.creative?.linkUrl ? (
+                      <a
+                        href={
+                          `/api/portal/ads/click?campaignId=${encodeURIComponent(rewardCampaign.id)}` +
+                          `&placement=FULLSCREEN_REWARD` +
+                          `&path=${encodeURIComponent(pathname || "")}` +
+                          `&to=${encodeURIComponent(rewardCampaign.creative.linkUrl)}`
+                        }
+                        className="inline-flex rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm font-semibold text-zinc-800 hover:bg-zinc-50 sm:hidden"
+                        target="_blank"
+                        rel="noreferrer"
                       >
-                        Stop
-                      </button>
-
-                      <button
-                        type="button"
-                        className="rounded-2xl bg-zinc-900 px-4 py-2 text-sm font-semibold text-white hover:bg-zinc-800 disabled:opacity-60"
-                        disabled={rewardActionBusy}
-                        onClick={() => setRewardModalOpen(false)}
-                      >
-                        Close
-                      </button>
-                    </div>
+                        {rewardCampaign?.creative?.ctaText || "Open"}
+                      </a>
+                    ) : null}
                   </div>
 
                   {rewardCredits > 0 && rewardMinWatchSeconds > 0 ? (
