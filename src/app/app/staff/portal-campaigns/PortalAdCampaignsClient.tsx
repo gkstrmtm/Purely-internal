@@ -2536,7 +2536,7 @@ export default function PortalAdCampaignsClient() {
                 <div>
                   <div className="text-sm font-semibold text-zinc-900">Notes</div>
                   <div className="mt-2 rounded-2xl border border-zinc-200 bg-zinc-50 p-3 text-sm text-zinc-600">
-                    Discounts are saved on the campaign, but automatic checkout discounts aren’t enabled yet.
+                    Discount offers are enabled. If the ad links to Billing (or has no link), clicks route users to the discount checkout flow and the promo code is auto-applied at Stripe checkout.
                   </div>
                 </div>
               </div>
