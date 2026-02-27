@@ -54,16 +54,24 @@ export async function stripeGet<T>(path: string, params?: Record<string, unknown
   return json as T;
 }
 
-export async function stripePost<T>(path: string, params: Record<string, unknown>): Promise<T> {
+export async function stripePost<T>(
+  path: string,
+  params: Record<string, unknown>,
+  opts?: { idempotencyKey?: string },
+): Promise<T> {
   const key = stripeKey();
   if (!key) throw new Error("Stripe is not configured");
 
+  const headers: Record<string, string> = {
+    authorization: `Bearer ${key}`,
+    "content-type": "application/x-www-form-urlencoded",
+  };
+  const idempotencyKey = String(opts?.idempotencyKey || "").trim();
+  if (idempotencyKey) headers["idempotency-key"] = idempotencyKey;
+
   const res = await fetch(`https://api.stripe.com${path}`, {
     method: "POST",
-    headers: {
-      authorization: `Bearer ${key}`,
-      "content-type": "application/x-www-form-urlencoded",
-    },
+    headers,
     body: toFormBody(params).toString(),
   });
 

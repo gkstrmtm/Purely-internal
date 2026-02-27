@@ -41,7 +41,12 @@ function serviceTitle(serviceSlug: string) {
   return svc?.title ?? "Service";
 }
 
-export function DiscountCheckoutClient(props: { basePath: "/portal" | "/credit"; serviceSlug: string; promoCode: string | null }) {
+export function DiscountCheckoutClient(props: {
+  basePath: "/portal" | "/credit";
+  serviceSlug: string;
+  promoCode: string | null;
+  campaignId?: string | null;
+}) {
   const title = useMemo(() => serviceTitle(props.serviceSlug), [props.serviceSlug]);
   const [error, setError] = useState<string | null>(null);
 
@@ -51,12 +56,13 @@ export function DiscountCheckoutClient(props: { basePath: "/portal" | "/credit";
     (async () => {
       const moduleKey = moduleKeyForServiceSlug(props.serviceSlug);
       const promoCode = String(props.promoCode || "").trim();
+      const campaignId = String(props.campaignId || "").trim();
       if (!moduleKey) {
         if (mounted) setError("Unknown service for discount.");
         return;
       }
-      if (!promoCode) {
-        if (mounted) setError("Missing promo code.");
+      if (!promoCode && !campaignId) {
+        if (mounted) setError("Missing discount details.");
         return;
       }
 
@@ -66,7 +72,7 @@ export function DiscountCheckoutClient(props: { basePath: "/portal" | "/credit";
       const res = await fetch("/api/portal/billing/checkout-module", {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ module: moduleKey, promoCode, successPath, cancelPath }),
+        body: JSON.stringify({ module: moduleKey, promoCode: promoCode || undefined, campaignId: campaignId || undefined, serviceSlug: props.serviceSlug, successPath, cancelPath }),
       }).catch(() => null);
 
       const body = (await res?.json().catch(() => ({}))) as any;
@@ -82,13 +88,13 @@ export function DiscountCheckoutClient(props: { basePath: "/portal" | "/credit";
     return () => {
       mounted = false;
     };
-  }, [props.basePath, props.promoCode, props.serviceSlug]);
+  }, [props.basePath, props.campaignId, props.promoCode, props.serviceSlug]);
 
   return (
     <div className="mx-auto w-full max-w-xl p-6">
       <div className="rounded-3xl border border-zinc-200 bg-white p-6">
         <div className="text-sm font-semibold text-zinc-900">Discount checkout</div>
-        <div className="mt-2 text-sm text-zinc-600">Applying your promo code for {title}…</div>
+        <div className="mt-2 text-sm text-zinc-600">Applying your discount for {title}…</div>
 
         {error ? (
           <>
@@ -103,7 +109,7 @@ export function DiscountCheckoutClient(props: { basePath: "/portal" | "/credit";
             </div>
           </>
         ) : (
-          <div className="mt-4 text-xs text-zinc-500">If nothing happens, make sure Stripe is configured and the promo code exists.</div>
+          <div className="mt-4 text-xs text-zinc-500">If nothing happens, make sure Stripe is configured.</div>
         )}
       </div>
     </div>

@@ -104,7 +104,48 @@ type OfferDraft =
       label: string;
       promoCode: string;
       appliesToServiceSlugs: string[];
+
+      discountType?: "percent" | "amount" | "free_month";
+      percentOff?: number;
+      amountOffUsd?: number;
+      duration?: "once" | "repeating" | "forever";
+      durationMonths?: number;
     };
+
+type DiscountType = NonNullable<Extract<OfferDraft, { kind: "discount" }>['discountType']>;
+type DiscountDuration = NonNullable<Extract<OfferDraft, { kind: "discount" }>['duration']>;
+
+function normalizeDiscountType(v: unknown): DiscountType {
+  const s = String(v || "").trim();
+  if (s === "amount") return "amount";
+  if (s === "free_month") return "free_month";
+  return "percent";
+}
+
+function normalizeDiscountDuration(v: unknown): DiscountDuration {
+  const s = String(v || "").trim();
+  if (s === "forever") return "forever";
+  if (s === "repeating") return "repeating";
+  return "once";
+}
+
+function clampPercentOff(v: unknown) {
+  const n = Number(v);
+  if (!Number.isFinite(n)) return 20;
+  return Math.max(1, Math.min(100, Math.round(n)));
+}
+
+function clampAmountOffUsd(v: unknown) {
+  const n = Number(v);
+  if (!Number.isFinite(n)) return 25;
+  return Math.max(0.5, Math.min(10000, Math.round(n * 100) / 100));
+}
+
+function clampDurationMonths(v: unknown) {
+  const n = Number(v);
+  if (!Number.isFinite(n)) return 1;
+  return Math.max(1, Math.min(24, Math.floor(n)));
+}
 
 function uniq(xs: string[]) {
   const out: string[] = [];
@@ -747,12 +788,29 @@ export default function PortalAdCampaignsClient() {
           .map((o: any) => {
             const kind = String(o?.kind || "").trim().toLowerCase();
             if (kind === "discount") {
-              return {
+              const discountType = normalizeDiscountType(o?.discountType);
+              const duration = normalizeDiscountDuration(o?.duration);
+              const normalized: Extract<OfferDraft, { kind: "discount" }> = {
                 kind: "discount" as const,
                 label: String(o?.label ?? ""),
                 promoCode: String(o?.promoCode ?? ""),
                 appliesToServiceSlugs: Array.isArray(o?.appliesToServiceSlugs) ? o.appliesToServiceSlugs.map(String) : [],
+
+                discountType,
+                duration,
+                durationMonths: duration === "repeating" ? clampDurationMonths(o?.durationMonths) : undefined,
+                percentOff: discountType === "percent" ? clampPercentOff(o?.percentOff) : discountType === "free_month" ? 100 : undefined,
+                amountOffUsd: discountType === "amount" ? clampAmountOffUsd(o?.amountOffUsd) : undefined,
               };
+
+              if (discountType === "free_month") {
+                normalized.duration = "repeating";
+                normalized.durationMonths = 1;
+                normalized.percentOff = 100;
+                normalized.amountOffUsd = undefined;
+              }
+
+              return normalized;
             }
             return {
               kind: "credits" as const,
@@ -842,7 +900,45 @@ export default function PortalAdCampaignsClient() {
       }))
       .filter((v) => v.headline || v.body || v.mediaUrl || v.linkUrl);
 
-    const offers = (editor.offers || []).filter(Boolean);
+    const offersDraft = (editor.offers || []).filter(Boolean);
+    const offers = offersDraft
+      .map((o) => {
+        if (o.kind === "credits") {
+          return {
+            kind: "credits" as const,
+            credits: Math.max(0, Math.floor(Number(o.credits || 0))),
+            cooldownHours: Math.max(0, Math.floor(Number(o.cooldownHours || 0))),
+            minWatchSeconds: Math.max(0, Math.floor(Number(o.minWatchSeconds || 0))),
+          };
+        }
+
+        const discountType = normalizeDiscountType(o.discountType);
+        let duration = normalizeDiscountDuration(o.duration);
+        let durationMonths = duration === "repeating" ? clampDurationMonths(o.durationMonths) : undefined;
+        let percentOff = discountType === "percent" ? clampPercentOff(o.percentOff) : undefined;
+        let amountOffUsd = discountType === "amount" ? clampAmountOffUsd(o.amountOffUsd) : undefined;
+
+        if (discountType === "free_month") {
+          duration = "repeating";
+          durationMonths = 1;
+          percentOff = 100;
+          amountOffUsd = undefined;
+        }
+
+        return {
+          kind: "discount" as const,
+          label: String(o.label || "").trim(),
+          promoCode: String(o.promoCode || "").trim(),
+          appliesToServiceSlugs: uniq(Array.isArray(o.appliesToServiceSlugs) ? o.appliesToServiceSlugs.map(String) : []),
+          discountType,
+          percentOff,
+          amountOffUsd,
+          duration,
+          durationMonths,
+        };
+      })
+      .filter(Boolean) as OfferDraft[];
+
     const creditsOffer = offers.find((o) => o.kind === "credits") as Extract<OfferDraft, { kind: "credits" }> | undefined;
     const credits = Math.max(0, Math.floor(Number(creditsOffer?.credits || 0)));
     const cooldownHours = Math.max(0, Math.floor(Number(creditsOffer?.cooldownHours || 0)));
@@ -853,12 +949,19 @@ export default function PortalAdCampaignsClient() {
     const discountSlugs = Array.isArray(discountOffer?.appliesToServiceSlugs) ? discountOffer!.appliesToServiceSlugs.map(String).map((s) => s.trim()).filter(Boolean) : [];
 
     const discountLinkUrl = (() => {
-      if (!discountPromoCode) return "";
+      if (!discountPromoCode && !editor.id) return "";
+      if (!discountPromoCode && !discountSlugs.length) return "";
+
+      const qs = new URLSearchParams();
+      if (discountPromoCode) qs.set("promoCode", discountPromoCode);
+      if (editor.id) qs.set("campaignId", editor.id);
+
       if (discountSlugs.length === 1) {
-        return `/portal/app/discount/${encodeURIComponent(discountSlugs[0] || "")}?promoCode=${encodeURIComponent(discountPromoCode)}`;
+        return `/portal/app/discount/${encodeURIComponent(discountSlugs[0] || "")}?${qs.toString()}`;
       }
       if (discountSlugs.length > 1) {
-        return `/portal/app/discount?promoCode=${encodeURIComponent(discountPromoCode)}&services=${encodeURIComponent(discountSlugs.join(","))}`;
+        qs.set("services", discountSlugs.join(","));
+        return `/portal/app/discount?${qs.toString()}`;
       }
       return "";
     })();
@@ -2407,7 +2510,7 @@ export default function PortalAdCampaignsClient() {
               <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
                 <div>
                   <div className="text-sm font-semibold text-zinc-900">Offers</div>
-                  <div className="mt-1 text-sm text-zinc-600">Credits can be claimed in the portal. Discounts are saved for now (not auto-applied at checkout yet).</div>
+                  <div className="mt-1 text-sm text-zinc-600">Credits can be claimed in the portal. Discount offers define the checkout discount (percent / amount / free month) and can be auto-applied.</div>
 
                   <div className="mt-3 grid gap-3">
                     {editor.offers.map((o, idx) => (
@@ -2483,10 +2586,131 @@ export default function PortalAdCampaignsClient() {
                               }}
                             />
 
-                            <label className="text-xs font-semibold text-zinc-600">Promo code</label>
+                            <label className="text-xs font-semibold text-zinc-600">Discount type</label>
+                            <PortalListboxDropdown
+                              value={normalizeDiscountType((o as any).discountType)}
+                              options={[
+                                { value: "percent", label: "% off" },
+                                { value: "amount", label: "$ off" },
+                                { value: "free_month", label: "Free month" },
+                              ]}
+                              onChange={(val) => {
+                                const next = [...editor.offers] as OfferDraft[];
+                                const cur = next[idx] as any;
+                                const discountType = normalizeDiscountType(val);
+
+                                if (discountType === "free_month") {
+                                  next[idx] = {
+                                    ...cur,
+                                    discountType,
+                                    percentOff: 100,
+                                    amountOffUsd: undefined,
+                                    duration: "repeating",
+                                    durationMonths: 1,
+                                  };
+                                } else if (discountType === "amount") {
+                                  next[idx] = {
+                                    ...cur,
+                                    discountType,
+                                    amountOffUsd: clampAmountOffUsd(cur.amountOffUsd),
+                                    percentOff: undefined,
+                                  };
+                                } else {
+                                  next[idx] = {
+                                    ...cur,
+                                    discountType,
+                                    percentOff: clampPercentOff(cur.percentOff),
+                                    amountOffUsd: undefined,
+                                  };
+                                }
+
+                                setEditor({ ...editor, offers: next });
+                              }}
+                            />
+
+                            {normalizeDiscountType((o as any).discountType) === "percent" ? (
+                              <>
+                                <label className="text-xs font-semibold text-zinc-600">Percent off</label>
+                                <input
+                                  className="rounded-2xl border border-zinc-200 px-3 py-2 text-sm"
+                                  type="number"
+                                  min={1}
+                                  max={100}
+                                  value={Number.isFinite(Number((o as any).percentOff)) ? String((o as any).percentOff) : "20"}
+                                  onChange={(e) => {
+                                    const next = [...editor.offers] as OfferDraft[];
+                                    const cur = next[idx] as any;
+                                    next[idx] = { ...cur, percentOff: clampPercentOff(e.target.value) };
+                                    setEditor({ ...editor, offers: next });
+                                  }}
+                                />
+                              </>
+                            ) : null}
+
+                            {normalizeDiscountType((o as any).discountType) === "amount" ? (
+                              <>
+                                <label className="text-xs font-semibold text-zinc-600">Amount off (USD)</label>
+                                <input
+                                  className="rounded-2xl border border-zinc-200 px-3 py-2 text-sm"
+                                  type="number"
+                                  min={0}
+                                  step={0.01}
+                                  value={Number.isFinite(Number((o as any).amountOffUsd)) ? String((o as any).amountOffUsd) : "25"}
+                                  onChange={(e) => {
+                                    const next = [...editor.offers] as OfferDraft[];
+                                    const cur = next[idx] as any;
+                                    next[idx] = { ...cur, amountOffUsd: clampAmountOffUsd(e.target.value) };
+                                    setEditor({ ...editor, offers: next });
+                                  }}
+                                />
+                              </>
+                            ) : null}
+
+                            <label className="text-xs font-semibold text-zinc-600">Duration</label>
+                            <PortalListboxDropdown
+                              value={normalizeDiscountType((o as any).discountType) === "free_month" ? "repeating" : normalizeDiscountDuration((o as any).duration)}
+                              options={[
+                                { value: "once", label: "Once" },
+                                { value: "repeating", label: "Repeating" },
+                                { value: "forever", label: "Forever" },
+                              ]}
+                              onChange={(val) => {
+                                const next = [...editor.offers] as OfferDraft[];
+                                const cur = next[idx] as any;
+                                if (normalizeDiscountType(cur.discountType) === "free_month") return;
+                                const duration = normalizeDiscountDuration(val);
+                                next[idx] = {
+                                  ...cur,
+                                  duration,
+                                  durationMonths: duration === "repeating" ? clampDurationMonths(cur.durationMonths) : undefined,
+                                };
+                                setEditor({ ...editor, offers: next });
+                              }}
+                            />
+
+                            {normalizeDiscountType((o as any).discountType) !== "free_month" && normalizeDiscountDuration((o as any).duration) === "repeating" ? (
+                              <>
+                                <label className="text-xs font-semibold text-zinc-600">Duration months</label>
+                                <input
+                                  className="rounded-2xl border border-zinc-200 px-3 py-2 text-sm"
+                                  type="number"
+                                  min={1}
+                                  max={24}
+                                  value={Number.isFinite(Number((o as any).durationMonths)) ? String((o as any).durationMonths) : "1"}
+                                  onChange={(e) => {
+                                    const next = [...editor.offers] as OfferDraft[];
+                                    const cur = next[idx] as any;
+                                    next[idx] = { ...cur, durationMonths: clampDurationMonths(e.target.value) };
+                                    setEditor({ ...editor, offers: next });
+                                  }}
+                                />
+                              </>
+                            ) : null}
+
+                            <label className="text-xs font-semibold text-zinc-600">Promo code (optional)</label>
                             <input
                               className="rounded-2xl border border-zinc-200 px-3 py-2 text-sm"
-                              placeholder="(e.g. BUILD20)"
+                              placeholder="(e.g. BUILD20, optional)"
                               value={o.promoCode}
                               onChange={(e) => {
                                 const next = [...editor.offers] as OfferDraft[];
@@ -2495,6 +2719,10 @@ export default function PortalAdCampaignsClient() {
                                 setEditor({ ...editor, offers: next });
                               }}
                             />
+
+                            {!String(o.promoCode || "").trim() ? (
+                              <div className="text-xs text-zinc-500">If left blank, a promo code is generated on save for sharing.</div>
+                            ) : null}
 
                             <label className="text-xs font-semibold text-zinc-600">Applies to services</label>
                             <PortalMultiSelectDropdown
@@ -2525,7 +2753,25 @@ export default function PortalAdCampaignsClient() {
                       <button
                         type="button"
                         className="rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-sm font-semibold text-zinc-800 hover:bg-zinc-50"
-                        onClick={() => setEditor({ ...editor, offers: [...editor.offers, { kind: "discount", label: "Discount", promoCode: "", appliesToServiceSlugs: [] }] })}
+                        onClick={() =>
+                          setEditor({
+                            ...editor,
+                            offers: [
+                              ...editor.offers,
+                              {
+                                kind: "discount",
+                                label: "Discount",
+                                promoCode: "",
+                                appliesToServiceSlugs: [],
+                                discountType: "percent",
+                                percentOff: 20,
+                                amountOffUsd: 25,
+                                duration: "once",
+                                durationMonths: 1,
+                              },
+                            ],
+                          })
+                        }
                       >
                         + Add discount offer
                       </button>
@@ -2536,7 +2782,7 @@ export default function PortalAdCampaignsClient() {
                 <div>
                   <div className="text-sm font-semibold text-zinc-900">Notes</div>
                   <div className="mt-2 rounded-2xl border border-zinc-200 bg-zinc-50 p-3 text-sm text-zinc-600">
-                    Discount offers are enabled. If the ad links to Billing (or has no link), clicks route users to the discount checkout flow and the promo code is auto-applied at Stripe checkout.
+                    Discount offers are enabled. If the ad links to Billing (or has no link), clicks route users to the discount checkout flow and the discount is auto-applied at Stripe checkout (promo code optional).
                   </div>
                 </div>
               </div>

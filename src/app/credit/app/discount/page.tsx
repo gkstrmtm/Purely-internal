@@ -18,10 +18,11 @@ function uniq(xs: string[]) {
 export default async function CreditDiscountChooserPage({
   searchParams,
 }: {
-  searchParams: Promise<{ promoCode?: string; services?: string }>;
+  searchParams: Promise<{ promoCode?: string; services?: string; campaignId?: string }>;
 }) {
   const sp = await searchParams;
   const promoCode = typeof sp?.promoCode === "string" ? sp.promoCode.trim() : "";
+  const campaignId = typeof sp?.campaignId === "string" ? sp.campaignId.trim() : "";
   const servicesRaw = typeof sp?.services === "string" ? sp.services : "";
   const serviceSlugs = uniq(servicesRaw.split(",")).slice(0, 20);
 
@@ -31,22 +32,28 @@ export default async function CreditDiscountChooserPage({
         <div className="text-sm font-semibold text-zinc-900">Choose a service</div>
         <div className="mt-2 text-sm text-zinc-600">Select which service to apply your discount to.</div>
 
-        {!promoCode ? (
+        {!promoCode && !campaignId ? (
           <div className="mt-4 rounded-2xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-800">
-            Missing promo code.
+            Missing discount details.
           </div>
         ) : null}
 
         <div className="mt-4 grid gap-2">
-          {serviceSlugs.map((slug) => (
-            <Link
-              key={slug}
-              href={`/credit/app/discount/${encodeURIComponent(slug)}?promoCode=${encodeURIComponent(promoCode)}`}
-              className="rounded-2xl border border-zinc-200 bg-white px-4 py-3 text-sm font-semibold text-zinc-900 hover:bg-zinc-50"
-            >
-              {slug}
-            </Link>
-          ))}
+          {serviceSlugs.map((slug) => {
+            const qs = new URLSearchParams();
+            if (promoCode) qs.set("promoCode", promoCode);
+            if (campaignId) qs.set("campaignId", campaignId);
+            const href = `/credit/app/discount/${encodeURIComponent(slug)}?${qs.toString()}`;
+            return (
+              <Link
+                key={slug}
+                href={href}
+                className="rounded-2xl border border-zinc-200 bg-white px-4 py-3 text-sm font-semibold text-zinc-900 hover:bg-zinc-50"
+              >
+                {slug}
+              </Link>
+            );
+          })}
         </div>
 
         <div className="mt-4">

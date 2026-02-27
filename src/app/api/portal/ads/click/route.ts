@@ -69,7 +69,6 @@ function readDiscountOffer(rewardJson: unknown): { promoCode: string; appliesToS
     const appliesToServiceSlugs = Array.isArray((o as any).appliesToServiceSlugs)
       ? (o as any).appliesToServiceSlugs.map((x: any) => String(x || "").trim()).filter(Boolean).slice(0, 50)
       : [];
-    if (!promoCode) continue;
     return { promoCode, appliesToServiceSlugs };
   }
 
@@ -112,10 +111,18 @@ export async function GET(req: Request) {
     if (discount && (redirectTo === billingBase || redirectTo.startsWith(billingBase + "?"))) {
       const basePath = portalVariant === "credit" ? "/credit" : "/portal";
       const serviceSlug = String(discount.appliesToServiceSlugs?.[0] || "").trim();
+      const hasServices = (discount.appliesToServiceSlugs || []).length > 0;
       if (serviceSlug) {
-        redirectTo = `${basePath}/app/discount/${encodeURIComponent(serviceSlug)}?promoCode=${encodeURIComponent(discount.promoCode)}&campaignId=${encodeURIComponent(campaignId)}`;
-      } else if ((discount.appliesToServiceSlugs || []).length) {
-        redirectTo = `${basePath}/app/discount?promoCode=${encodeURIComponent(discount.promoCode)}&services=${encodeURIComponent(discount.appliesToServiceSlugs.join(","))}&campaignId=${encodeURIComponent(campaignId)}`;
+        const qs = new URLSearchParams();
+        if (discount.promoCode) qs.set("promoCode", discount.promoCode);
+        qs.set("campaignId", campaignId);
+        redirectTo = `${basePath}/app/discount/${encodeURIComponent(serviceSlug)}?${qs.toString()}`;
+      } else if (hasServices) {
+        const qs = new URLSearchParams();
+        if (discount.promoCode) qs.set("promoCode", discount.promoCode);
+        qs.set("services", discount.appliesToServiceSlugs.join(","));
+        qs.set("campaignId", campaignId);
+        redirectTo = `${basePath}/app/discount?${qs.toString()}`;
       }
     }
   }
