@@ -94,6 +94,20 @@ This repo supports a second, isolated client portal variant under `/credit` (sep
 - Client-facing credit routes live under `/credit/*`.
 - Credit-only services are filtered out of `/portal` and public marketing pages.
 
+## Ads Manager (/ads)
+
+Customer-facing, standalone ads manager UI:
+
+- Landing: `/ads`
+- Sign in: `/ads/login`
+- Create campaigns: `/ads/app` → New campaign
+
+Notes:
+
+- Uses a dedicated session cookie (`pa.ads.session`) so signing into Ads Manager does not sign users out of `/portal` or `/credit`.
+- Campaigns created here are stored as `PortalAdCampaign` rows (with restricted fields enforced server-side).
+- Advertiser balance/spend tracking requires the migration that adds `AdsAdvertiserAccount` + `AdsAdvertiserLedgerEntry`.
+
 ### Credit Dispute Letters
 
 Credit-only workflow to generate and send credit dispute letters:

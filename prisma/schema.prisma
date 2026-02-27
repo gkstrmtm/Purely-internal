@@ -35,6 +35,12 @@ enum PortalAdEventKind {
   CLAIM
 }
 
+enum AdsLedgerKind {
+  TOPUP
+  SPEND
+  REFUND
+}
+
 enum LeadStatus {
   NEW
   ASSIGNED
@@ -186,6 +192,63 @@ model User {
   portalAdCampaignsUpdated PortalAdCampaign[] @relation("PortalAdCampaignUpdatedBy")
   portalAdCampaignAssignments PortalAdCampaignAssignment[]
   portalAdCampaignEvents PortalAdCampaignEvent[]
+
+  adsAdvertiserAccount AdsAdvertiserAccount?
+  adsAudienceProfiles AdsAudienceProfile[]
+}
+
+model AdsAudienceProfile {
+  id String @id @default(cuid())
+
+  createdById String
+  name        String
+
+  // Targeting config (industries/businessModels/services/buckets/etc.)
+  targetingJson Json
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  createdBy User @relation(fields: [createdById], references: [id], onDelete: Cascade)
+
+  @@unique([createdById, name])
+  @@index([createdById, updatedAt])
+}
+
+model AdsAdvertiserAccount {
+  id String @id @default(cuid())
+
+  userId String @unique
+
+  balanceCents Int    @default(0)
+  currency    String @default("USD")
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  user   User                      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  ledger AdsAdvertiserLedgerEntry[]
+
+  @@index([balanceCents])
+}
+
+model AdsAdvertiserLedgerEntry {
+  id String @id @default(cuid())
+
+  accountId String
+  kind      AdsLedgerKind
+  amountCents Int
+
+  campaignId String?
+  metaJson   Json?
+
+  createdAt DateTime @default(now())
+
+  account AdsAdvertiserAccount @relation(fields: [accountId], references: [id], onDelete: Cascade)
+
+  @@index([accountId, createdAt])
+  @@index([campaignId, createdAt])
+  @@index([kind, createdAt])
 }
 
 model EmployeeInvite {

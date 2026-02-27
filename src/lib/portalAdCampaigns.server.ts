@@ -38,6 +38,12 @@ export type PortalAdCampaignTarget = {
   portalVariant?: "portal" | "credit" | "any";
   billingModel?: "subscription" | "credits" | "any";
 
+  billing?: {
+    model?: "cpc";
+    dailyBudgetCents?: number;
+    costPerClickCents?: number;
+  };
+
   industries?: string[];
   businessModels?: string[];
 
@@ -65,6 +71,34 @@ function readTargetJson(data: unknown): PortalAdCampaignTarget {
   const portalVariantRaw = typeof rec.portalVariant === "string" ? rec.portalVariant.trim().toLowerCase() : "";
   const billingModelRaw = typeof rec.billingModel === "string" ? rec.billingModel.trim().toLowerCase() : "";
 
+  const billingRec = (rec as any).billing && typeof (rec as any).billing === "object" && !Array.isArray((rec as any).billing)
+    ? ((rec as any).billing as Record<string, unknown>)
+    : null;
+  const billingModelKeyRaw = typeof billingRec?.model === "string" ? String(billingRec?.model).trim().toLowerCase() : "";
+  const costPerClickCentsRaw =
+    typeof billingRec?.costPerClickCents === "number"
+      ? billingRec.costPerClickCents
+      : typeof billingRec?.costPerClickCents === "string"
+        ? Number(billingRec.costPerClickCents)
+        : NaN;
+  const dailyBudgetCentsRaw =
+    typeof billingRec?.dailyBudgetCents === "number"
+      ? billingRec.dailyBudgetCents
+      : typeof billingRec?.dailyBudgetCents === "string"
+        ? Number(billingRec.dailyBudgetCents)
+        : NaN;
+
+  const billing =
+    billingModelKeyRaw === "cpc" && Number.isFinite(costPerClickCentsRaw) && costPerClickCentsRaw > 0
+      ? {
+          model: "cpc" as const,
+          costPerClickCents: Math.max(1, Math.min(50_000, Math.floor(costPerClickCentsRaw))),
+          dailyBudgetCents: Number.isFinite(dailyBudgetCentsRaw)
+            ? Math.max(0, Math.min(1_000_000_00, Math.floor(dailyBudgetCentsRaw)))
+            : undefined,
+        }
+      : undefined;
+
   return {
     portalVariant:
       portalVariantRaw === "portal" || portalVariantRaw === "credit" ? (portalVariantRaw as any) : portalVariantRaw === "any" ? "any" : undefined,
@@ -78,7 +112,60 @@ function readTargetJson(data: unknown): PortalAdCampaignTarget {
     includeOwnerIds: normalizeStringArray(rec.includeOwnerIds),
     excludeOwnerIds: normalizeStringArray(rec.excludeOwnerIds),
     bucketIds: normalizeStringArray((rec as any).bucketIds),
+    billing,
   };
+}
+
+function startOfUtcDay(d: Date) {
+  return new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate(), 0, 0, 0, 0));
+}
+
+async function getCpcBudgetStatus(opts: {
+  now: Date;
+  campaignId: string;
+  advertiserUserId: string;
+  dailyBudgetCents?: number;
+  costPerClickCents: number;
+  cache: {
+    accountByUserId: Map<string, { id: string; balanceCents: number } | null>;
+    spendTodayByCampaignId: Map<string, number>;
+  };
+}) {
+  const { now, campaignId, advertiserUserId, dailyBudgetCents, costPerClickCents, cache } = opts;
+
+  try {
+    if (!cache.accountByUserId.has(advertiserUserId)) {
+      const row = await prisma.adsAdvertiserAccount
+        .findUnique({ where: { userId: advertiserUserId }, select: { id: true, balanceCents: true } })
+        .catch(() => null);
+      cache.accountByUserId.set(advertiserUserId, row ? { id: row.id, balanceCents: row.balanceCents } : null);
+    }
+
+    const account = cache.accountByUserId.get(advertiserUserId) || null;
+    if (!account) return { ok: false as const, reason: "no_account" as const };
+    if (account.balanceCents < costPerClickCents) return { ok: false as const, reason: "insufficient_balance" as const };
+
+    if (!cache.spendTodayByCampaignId.has(campaignId)) {
+      const dayStart = startOfUtcDay(now);
+      const sum = await prisma.adsAdvertiserLedgerEntry
+        .aggregate({
+          where: { campaignId, kind: "SPEND", createdAt: { gte: dayStart } },
+          _sum: { amountCents: true },
+        })
+        .catch(() => null);
+      cache.spendTodayByCampaignId.set(campaignId, Number(sum?._sum?.amountCents || 0));
+    }
+
+    const spendToday = cache.spendTodayByCampaignId.get(campaignId) || 0;
+    if (dailyBudgetCents && dailyBudgetCents > 0 && spendToday >= dailyBudgetCents) {
+      return { ok: false as const, reason: "daily_budget_exhausted" as const };
+    }
+
+    return { ok: true as const };
+  } catch {
+    // If the ads billing tables aren't available yet, don't break ad serving.
+    return { ok: true as const };
+  }
 }
 
 function readCreativeVariant(data: unknown): PortalAdCampaignCreativeVariant {
@@ -263,6 +350,11 @@ export async function getNextPortalAdCampaignForOwner(opts: {
 }) {
   const now = new Date();
 
+  const adsCache = {
+    accountByUserId: new Map<string, { id: string; balanceCents: number } | null>(),
+    spendTodayByCampaignId: new Map<string, number>(),
+  };
+
   const billingModel = await getPortalBillingModelForOwner({ ownerId: opts.ownerId, portalVariant: opts.portalVariant });
   const billingModelKey = isCreditsOnlyBilling(billingModel) ? "credits" : "subscription";
 
@@ -330,6 +422,22 @@ export async function getNextPortalAdCampaignForOwner(opts: {
     if (!withinWindow(now, c.startAt, c.endAt)) continue;
 
     const target = readTargetJson(c.targetJson);
+
+    // If this is an advertiser-funded CPC campaign, ensure it has budget + balance.
+    if (target.billing?.model === "cpc" && target.billing.costPerClickCents && c.createdById) {
+      const advertiserUserId = String(c.createdById || "").trim();
+      if (advertiserUserId) {
+        const status = await getCpcBudgetStatus({
+          now,
+          campaignId: c.id,
+          advertiserUserId,
+          dailyBudgetCents: target.billing.dailyBudgetCents,
+          costPerClickCents: target.billing.costPerClickCents,
+          cache: adsCache,
+        });
+        if (!status.ok) continue;
+      }
+    }
 
     if (target.excludeOwnerIds?.includes(opts.ownerId)) continue;
 

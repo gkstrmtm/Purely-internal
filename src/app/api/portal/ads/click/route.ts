@@ -75,6 +75,38 @@ function readDiscountOffer(rewardJson: unknown): { promoCode: string; appliesToS
   return null;
 }
 
+function startOfUtcDay(d: Date) {
+  return new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate(), 0, 0, 0, 0));
+}
+
+function readCpcBillingFromTarget(targetJson: unknown): { dailyBudgetCents: number; costPerClickCents: number } | null {
+  if (!targetJson || typeof targetJson !== "object" || Array.isArray(targetJson)) return null;
+  const billing = (targetJson as any).billing;
+  if (!billing || typeof billing !== "object" || Array.isArray(billing)) return null;
+
+  const modelRaw = typeof (billing as any).model === "string" ? String((billing as any).model).trim().toLowerCase() : "";
+  if (modelRaw !== "cpc") return null;
+
+  const dailyRaw =
+    typeof (billing as any).dailyBudgetCents === "number"
+      ? (billing as any).dailyBudgetCents
+      : typeof (billing as any).dailyBudgetCents === "string"
+        ? Number((billing as any).dailyBudgetCents)
+        : NaN;
+  const cpcRaw =
+    typeof (billing as any).costPerClickCents === "number"
+      ? (billing as any).costPerClickCents
+      : typeof (billing as any).costPerClickCents === "string"
+        ? Number((billing as any).costPerClickCents)
+        : NaN;
+
+  const dailyBudgetCents = Number.isFinite(dailyRaw) ? Math.max(0, Math.min(1_000_000_00, Math.floor(dailyRaw))) : 0;
+  const costPerClickCents = Number.isFinite(cpcRaw) ? Math.max(1, Math.min(50_000, Math.floor(cpcRaw))) : 0;
+  if (!costPerClickCents) return null;
+
+  return { dailyBudgetCents, costPerClickCents };
+}
+
 export async function GET(req: Request) {
   const auth = await requireClientSession();
   if (!auth.ok) {
@@ -142,6 +174,62 @@ export async function GET(req: Request) {
         select: { id: true },
       })
       .catch(() => null);
+
+    // Best-effort CPC billing: decrement advertiser balance and record spend.
+    // This never blocks the redirect.
+    try {
+      const campaign = await prisma.portalAdCampaign.findUnique({
+        where: { id: campaignId },
+        select: { createdById: true, targetJson: true },
+      });
+
+      const advertiserUserId = String(campaign?.createdById || "").trim();
+      const billing = readCpcBillingFromTarget(campaign?.targetJson);
+
+      if (advertiserUserId && billing) {
+        const now = new Date();
+        const dayStart = startOfUtcDay(now);
+
+        await prisma.$transaction(async (tx) => {
+          const account = await tx.adsAdvertiserAccount.upsert({
+            where: { userId: advertiserUserId },
+            update: {},
+            create: { userId: advertiserUserId },
+            select: { id: true, balanceCents: true },
+          });
+
+          if (account.balanceCents < billing.costPerClickCents) return;
+
+          if (billing.dailyBudgetCents > 0) {
+            const sum = await tx.adsAdvertiserLedgerEntry.aggregate({
+              where: { campaignId, kind: "SPEND", createdAt: { gte: dayStart } },
+              _sum: { amountCents: true },
+            });
+            const spentToday = Number(sum?._sum?.amountCents || 0);
+            if (spentToday + billing.costPerClickCents > billing.dailyBudgetCents) return;
+          }
+
+          const updated = await tx.adsAdvertiserAccount.updateMany({
+            where: { id: account.id, balanceCents: { gte: billing.costPerClickCents } },
+            data: { balanceCents: { decrement: billing.costPerClickCents } },
+          });
+          if (!updated.count) return;
+
+          await tx.adsAdvertiserLedgerEntry.create({
+            data: {
+              accountId: account.id,
+              kind: "SPEND",
+              amountCents: billing.costPerClickCents,
+              campaignId,
+              metaJson: { source: "portal_click", placement, path, ownerId },
+            },
+            select: { id: true },
+          });
+        });
+      }
+    } catch {
+      // ignore
+    }
   }
 
   return NextResponse.redirect(toAbsoluteRedirectUrl(redirectTo, req.url));

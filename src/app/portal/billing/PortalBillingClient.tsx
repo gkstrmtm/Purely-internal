@@ -931,7 +931,7 @@ export function PortalBillingClient() {
           </div>
         </div>
 
-        {!creditsOnly && typeof creditUsdValue === "number" ? (
+        {typeof creditUsdValue === "number" ? (
           <div className="mt-2 text-xs text-zinc-500">1 credit = {formatUsd(creditUsdValue)}.</div>
         ) : null}
 
@@ -993,7 +993,7 @@ export function PortalBillingClient() {
 
               <div className="text-xs text-zinc-500">
                 Total: <span className="font-semibold text-zinc-700">{creditsRequested.toLocaleString()}</span> credits
-                {!creditsOnly && typeof creditUsdValue === "number" ? (
+                {typeof creditUsdValue === "number" ? (
                   <>
                     {" "}• <span className="font-semibold text-zinc-700">{formatUsd(creditsTotalUsd)}</span>
                   </>
