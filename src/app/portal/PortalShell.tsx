@@ -2,7 +2,7 @@
 
 import Image from "next/image";
 import Link from "next/link";
-import { usePathname, useRouter } from "next/navigation";
+import { usePathname } from "next/navigation";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { SignOutButton } from "@/components/SignOutButton";
@@ -47,7 +47,6 @@ function classNames(...xs: Array<string | false | null | undefined>) {
 
 export function PortalShell({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
-  const router = useRouter();
   const variant = typeof pathname === "string" && (pathname === "/credit" || pathname.startsWith("/credit/")) ? "credit" : "portal";
   const basePath = variant === "credit" ? "/credit" : "/portal";
   const logoSrc = variant === "credit" ? "/brand/purely%20credit.png" : "/brand/purity-5.png";
@@ -481,6 +480,12 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
     [getExcludedCampaignIds, pathname],
   );
 
+  const isBillingPage = useMemo(() => {
+    const p = String(pathname || "");
+    const billing = `${basePath}/app/billing`;
+    return p === billing || p.startsWith(billing + "/");
+  }, [basePath, pathname]);
+
   useEffect(() => {
     void refreshAds({ placement: "SIDEBAR_BANNER", reason: "path" });
   }, [pathname, refreshAds]);
@@ -490,8 +495,13 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
   }, [pathname, refreshAds]);
 
   useEffect(() => {
+    if (!isBillingPage) {
+      setRewardCampaign(null);
+      setRewardStatus(null);
+      return;
+    }
     void refreshAds({ placement: "FULLSCREEN_REWARD", reason: "path" });
-  }, [pathname, refreshAds]);
+  }, [isBillingPage, pathname, refreshAds]);
 
   useEffect(() => {
     void refreshAds({ placement: "POPUP_CARD", reason: "path" });
@@ -505,7 +515,7 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
       // Refresh once on focus so disabled campaigns immediately fall back.
       void refreshAds({ placement: "SIDEBAR_BANNER", reason: "focus" });
       void refreshAds({ placement: "TOP_BANNER", reason: "focus" });
-      void refreshAds({ placement: "FULLSCREEN_REWARD", reason: "focus" });
+      if (isBillingPage) void refreshAds({ placement: "FULLSCREEN_REWARD", reason: "focus" });
       void refreshAds({ placement: "POPUP_CARD", reason: "focus" });
     };
 
@@ -515,7 +525,7 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
       document.removeEventListener("visibilitychange", onVisibilityChange);
       window.removeEventListener("focus", onVisibilityChange);
     };
-  }, [refreshAds]);
+  }, [isBillingPage, refreshAds]);
 
   const navItems = useMemo(() => {
     const can = (key: PortalServiceKey) => {
@@ -1168,15 +1178,15 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
             {children}
           </main>
 
-          {rewardCampaign && (rewardStatus?.eligible ?? true) ? (
+          {isBillingPage && rewardCampaign && (rewardStatus?.eligible ?? true) ? (
             <div className="fixed bottom-4 left-4 z-[9996] w-[min(420px,calc(100vw-2rem))] rounded-3xl border border-zinc-200 bg-white p-4 shadow-2xl ring-1 ring-[color:rgba(29,78,216,0.14)]">
               <div className="flex items-start justify-between gap-3">
                 <div className="min-w-0">
-                  <div className="inline-flex items-center gap-2">
+                  <div className="flex min-w-0 items-center gap-2">
                     <span className="rounded-full bg-[color:var(--color-brand-blue)]/15 px-2.5 py-1 text-[11px] font-bold uppercase tracking-wide text-[color:var(--color-brand-blue)]">
                       Sponsored
                     </span>
-                    <div className="truncate text-sm font-semibold text-zinc-900">
+                    <div className="min-w-0 truncate text-sm font-semibold text-zinc-900">
                       {rewardCampaign?.creative?.headline || "Purely Automation"}
                     </div>
                   </div>
@@ -1186,15 +1196,13 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
                 </div>
 
                 <div className="flex shrink-0 items-center gap-2">
-                  <button
-                    type="button"
+                  <Link
+                    href={`${basePath}/app/billing?openRewardAd=1`}
+                    prefetch={false}
                     className="rounded-2xl bg-zinc-900 px-4 py-2 text-sm font-semibold text-white hover:bg-zinc-800"
-                    onClick={() => {
-                      router.push(`${basePath}/app/billing?openRewardAd=1`);
-                    }}
                   >
                     Watch
-                  </button>
+                  </Link>
 
                   {canShowDismiss(rewardCampaign, rewardShownAtMs) ? (
                     <button
