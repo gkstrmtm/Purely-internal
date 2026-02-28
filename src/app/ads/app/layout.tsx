@@ -1,5 +1,4 @@
 import Link from "next/link";
-import Image from "next/image";
 
 import { requireAdsUser } from "@/lib/adsAuth";
 import { AdsSignOutButton } from "@/app/ads/app/signout/AdsSignOutButton";
@@ -13,14 +12,8 @@ export default async function AdsAppLayout({ children }: { children: React.React
         <div className="mx-auto max-w-6xl px-6 py-4">
           <div className="flex flex-col justify-between gap-3 sm:flex-row sm:items-center">
             <div className="flex items-center justify-between gap-4">
-              <Link href="/ads" className="flex items-center gap-3">
-                <span className="relative h-8 w-8 overflow-hidden rounded-xl bg-white shadow-sm ring-1 ring-zinc-200">
-                  <Image src="/brand/purity-5.png" alt="Purely" fill className="object-contain p-1" />
-                </span>
-                <div className="leading-tight">
-                  <div className="text-sm font-bold text-zinc-900">Ads Manager</div>
-                  <div className="text-xs text-zinc-500">Run portal ads that convert</div>
-                </div>
+              <Link href="/ads" className="text-sm font-semibold text-zinc-900">
+                Ads Manager
               </Link>
 
               <div className="sm:hidden">
@@ -35,7 +28,19 @@ export default async function AdsAppLayout({ children }: { children: React.React
                   href="/ads/app"
                   className="rounded-2xl px-3 py-2 text-sm font-semibold text-zinc-700 hover:bg-zinc-50"
                 >
-                  Dashboard
+                  Overview
+                </Link>
+                <Link
+                  href="/ads/app/billing"
+                  className="rounded-2xl px-3 py-2 text-sm font-semibold text-zinc-700 hover:bg-zinc-50"
+                >
+                  Billing
+                </Link>
+                <Link
+                  href="/ads/app/settings"
+                  className="rounded-2xl px-3 py-2 text-sm font-semibold text-zinc-700 hover:bg-zinc-50"
+                >
+                  Settings
                 </Link>
                 <Link
                   href="/ads/app/campaigns/new"
@@ -49,8 +54,6 @@ export default async function AdsAppLayout({ children }: { children: React.React
               </nav>
             </div>
           </div>
-
-          <div className="mt-4 h-px w-full bg-gradient-to-r from-[color:var(--color-brand-pink)]/40 via-zinc-200 to-[color:var(--color-brand-blue)]/40" />
         </div>
       </header>
 

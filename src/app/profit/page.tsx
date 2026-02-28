@@ -1,7 +1,7 @@
 "use client";
 
 import Image from "next/image";
-import { useId, useMemo, useState } from "react";
+import { useEffect, useId, useMemo, useState } from "react";
 
 import { PORTAL_MODULE_CATALOG, type PortalModuleKey } from "@/lib/portalModulesCatalog";
 
@@ -465,6 +465,13 @@ export default function ProfitVisualizationDashboardPage() {
   const [assumptionsOpen, setAssumptionsOpen] = useState(false);
   const [hoverMonthIndex, setHoverMonthIndex] = useState<number | null>(null);
 
+  const [roiPlan, setRoiPlan] = useState<"membership" | "credits">("membership");
+  const [roiEnabledModules, setRoiEnabledModules] = useState<Partial<Record<PortalModuleKey, boolean>>>({});
+  const [roiCreditsPerMonth, setRoiCreditsPerMonth] = useState<number>(120);
+  const [roiExtraRevenueUsdPerMonth, setRoiExtraRevenueUsdPerMonth] = useState<number>(600);
+  const [roiHoursSavedPerMonth, setRoiHoursSavedPerMonth] = useState<number>(6);
+  const [roiHourlyRateUsd, setRoiHourlyRateUsd] = useState<number>(75);
+
   const [mode, setMode] = useState<Mode>("combined");
   const [selectedMrr, setSelectedMrr] = useState<number>(100_000);
   const [customMrr, setCustomMrr] = useState<string>("");
@@ -550,6 +557,94 @@ export default function ProfitVisualizationDashboardPage() {
   });
 
   const moduleKeys = useMemo(() => Object.keys(PORTAL_MODULE_CATALOG) as PortalModuleKey[], []);
+
+  useEffect(() => {
+    setRoiEnabledModules((cur) => {
+      if (cur && Object.keys(cur).length) return cur;
+      const defaults: Partial<Record<PortalModuleKey, boolean>> = {};
+      for (const k of moduleKeys) {
+        if (k === "crm") continue;
+        defaults[k] = k === "booking" || k === "reviews" || k === "blog";
+      }
+      return defaults;
+    });
+  }, [moduleKeys]);
+
+  const profitSensitivity = useMemo(() => {
+    const scenariosPct = [-10, -5, 0, 5, 10, 20] as const;
+    const totals = scenariosPct.map((pct) => {
+      const g = clampNum(pct / 100, GROWTH_MIN_PCT / 100, GROWTH_MAX_PCT / 100);
+      let total = 0;
+      for (let i = 0; i < appliedMonths; i++) {
+        const rev = appliedMrr * Math.pow(1 + g, i);
+        total += rev * keep;
+      }
+      return total;
+    });
+
+    return { scenariosPct, totals };
+  }, [appliedMonths, appliedMrr, keep]);
+
+  const singleCustomerRoi = useMemo(() => {
+    const enabledKeys = moduleKeys.filter((k) => k !== "crm" && roiEnabledModules?.[k]);
+
+    const moduleCostUsd =
+      roiPlan === "membership"
+        ? sum(
+            enabledKeys.map((k) => {
+              const price = PORTAL_MODULE_CATALOG[k]?.monthlyUsd ?? 0;
+              return Math.max(0, price);
+            }),
+          )
+        : 0;
+
+    const usdPerCredit = roiPlan === "membership" ? usdPerCreditSubscription : usdPerCreditCreditsOnly;
+    const creditsCostUsd = Math.max(0, roiCreditsPerMonth || 0) * Math.max(0, usdPerCredit || 0);
+    const costUsd = moduleCostUsd + creditsCostUsd;
+
+    const moduleValueUsd = sum(
+      enabledKeys.map((k) => {
+        const v = valueUsdPerEnabledCustomer[k] ?? 0;
+        return Math.max(0, v);
+      }),
+    );
+
+    const extraRevenue = Math.max(0, roiExtraRevenueUsdPerMonth || 0);
+    const timeValue = Math.max(0, roiHoursSavedPerMonth || 0) * Math.max(0, roiHourlyRateUsd || 0);
+
+    const valueUsd = moduleValueUsd + extraRevenue + timeValue;
+    const netUsd = valueUsd - costUsd;
+
+    const roiMultiple = costUsd > 0 ? valueUsd / costUsd : 0;
+    const roiPct = costUsd > 0 ? ((valueUsd - costUsd) / costUsd) * 100 : 0;
+    const paybackMonths = netUsd > 0 ? costUsd / netUsd : null;
+
+    return {
+      enabledKeys,
+      moduleCostUsd,
+      creditsCostUsd,
+      costUsd,
+      moduleValueUsd,
+      extraRevenue,
+      timeValue,
+      valueUsd,
+      netUsd,
+      roiMultiple,
+      roiPct,
+      paybackMonths,
+    };
+  }, [
+    moduleKeys,
+    roiEnabledModules,
+    roiPlan,
+    roiCreditsPerMonth,
+    roiExtraRevenueUsdPerMonth,
+    roiHoursSavedPerMonth,
+    roiHourlyRateUsd,
+    usdPerCreditSubscription,
+    usdPerCreditCreditsOnly,
+    valueUsdPerEnabledCustomer,
+  ]);
 
   const serviceModel = useMemo(() => {
     const monthlyCustomers = cust.monthlyCustomers;
@@ -909,24 +1004,24 @@ export default function ProfitVisualizationDashboardPage() {
               <div className="rounded-3xl border border-zinc-200 bg-white p-6 shadow-sm">
                 <div className="flex items-end justify-between gap-4">
                   <div>
-                    <div className="text-sm font-semibold text-zinc-900">Revenue vs profit</div>
-                    <div className="mt-1 text-xs text-zinc-600">Two lines: revenue and profit.</div>
+                    <div className="text-sm font-semibold text-zinc-900">Profit sensitivity</div>
+                    <div className="mt-1 text-xs text-zinc-600">Total profit across growth scenarios (same timeframe).</div>
                   </div>
                   <div className="text-right">
                     <div className="text-xs font-semibold uppercase tracking-wide text-zinc-500">End</div>
                     <div className="text-lg font-bold text-zinc-900">{formatMoneyCompact(endRevenue)}</div>
                   </div>
                 </div>
-                <div className="mt-4 h-24">
-                  <DualLineChart a={revenueSeries} b={profitSeries} aStroke="var(--color-brand-blue)" bStroke="var(--color-brand-pink)" />
+                <div className="mt-4 h-20">
+                  <MiniBars values={profitSensitivity.totals} color="var(--color-brand-pink)" />
                 </div>
-                <div className="mt-3 flex flex-wrap items-center gap-2 text-xs">
-                  <div className="rounded-2xl bg-zinc-50 px-3 py-2">
-                    <span className="font-semibold text-[color:var(--color-brand-blue)]">Revenue</span> {formatMoneyCompact(month1Revenue)} → {formatMoneyCompact(endRevenue)}
-                  </div>
-                  <div className="rounded-2xl bg-zinc-50 px-3 py-2">
-                    <span className="font-semibold text-[color:var(--color-brand-pink)]">Profit</span> {formatMoneyCompact(profitSeries[0] ?? 0)} → {formatMoneyCompact(profitSeries[profitSeries.length - 1] ?? 0)}
-                  </div>
+                <div className="mt-3 grid grid-cols-3 gap-2 text-xs">
+                  {profitSensitivity.scenariosPct.map((pct, i) => (
+                    <div key={pct} className="rounded-2xl bg-zinc-50 px-3 py-2">
+                      <div className="font-semibold text-zinc-900">{pct > 0 ? "+" : ""}{pct}% / mo</div>
+                      <div className="text-zinc-600">{formatMoneyCompact(profitSensitivity.totals[i] ?? 0)}</div>
+                    </div>
+                  ))}
                 </div>
               </div>
             </div>
@@ -963,6 +1058,194 @@ export default function ProfitVisualizationDashboardPage() {
                     {formatMoneyCompact(cust.customers ? profitMo / cust.customers : 0)}
                   </div>
                   <div className="mt-1 text-xs text-zinc-600">(monthly profit / customers)</div>
+                </div>
+              </div>
+            </div>
+
+            <div className="rounded-3xl border border-zinc-200 bg-white p-6 shadow-sm">
+              <div className="flex flex-col items-start justify-between gap-3 md:flex-row md:items-end">
+                <div>
+                  <div className="text-sm font-semibold text-zinc-900">Single customer ROI</div>
+                  <div className="mt-1 text-xs text-zinc-600">
+                    Model one customer: what they pay, the value created, and payback.
+                  </div>
+                </div>
+                <div className="text-right">
+                  <div className="text-xs font-semibold uppercase tracking-wide text-zinc-500">ROI</div>
+                  <div className="text-2xl font-bold tracking-tight text-zinc-900">
+                    {(Math.round(singleCustomerRoi.roiMultiple * 10) / 10).toFixed(1)}×
+                  </div>
+                  <div className="mt-1 text-xs text-zinc-600">
+                    {singleCustomerRoi.roiPct >= 0 ? "+" : ""}{Math.round(singleCustomerRoi.roiPct)}%
+                    {singleCustomerRoi.paybackMonths ? (
+                      <>
+                        <span className="mx-2 text-zinc-300">•</span>
+                        Payback ~{Math.max(0, Math.round(singleCustomerRoi.paybackMonths * 10) / 10)} mo
+                      </>
+                    ) : null}
+                  </div>
+                </div>
+              </div>
+
+              <div className="mt-5 grid gap-4 lg:grid-cols-3">
+                <div className="rounded-2xl bg-zinc-50 p-4">
+                  <div className="text-xs font-semibold uppercase tracking-wide text-zinc-500">Plan</div>
+                  <div className="mt-2 flex flex-wrap gap-2">
+                    <button
+                      type="button"
+                      onClick={() => setRoiPlan("membership")}
+                      className={classNames(
+                        "rounded-2xl px-3 py-2 text-sm font-semibold transition",
+                        roiPlan === "membership" ? "bg-[color:var(--color-brand-ink)] text-white" : "bg-white text-zinc-800 hover:bg-zinc-100",
+                      )}
+                    >
+                      Membership
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setRoiPlan("credits")}
+                      className={classNames(
+                        "rounded-2xl px-3 py-2 text-sm font-semibold transition",
+                        roiPlan === "credits" ? "bg-[color:var(--color-brand-ink)] text-white" : "bg-white text-zinc-800 hover:bg-zinc-100",
+                      )}
+                    >
+                      Credits-only
+                    </button>
+                  </div>
+
+                  <div className="mt-4 grid gap-3">
+                    <label className="block">
+                      <div className="text-xs font-semibold uppercase tracking-wide text-zinc-500">Credits used / month</div>
+                      <input
+                        type="number"
+                        value={roiCreditsPerMonth}
+                        onChange={(e) => setRoiCreditsPerMonth(toInt(e.target.value, 0))}
+                        className="mt-1 w-full rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-sm"
+                        min={0}
+                      />
+                      <div className="mt-1 text-[11px] text-zinc-600">
+                        Charged at {formatKeep(roiPlan === "membership" ? usdPerCreditSubscription : usdPerCreditCreditsOnly)} per credit.
+                      </div>
+                    </label>
+                  </div>
+                </div>
+
+                <div className="rounded-2xl bg-zinc-50 p-4 lg:col-span-2">
+                  <div className="flex items-end justify-between gap-3">
+                    <div>
+                      <div className="text-xs font-semibold uppercase tracking-wide text-zinc-500">Enabled services</div>
+                      <div className="mt-1 text-sm font-semibold text-zinc-900">
+                        {singleCustomerRoi.enabledKeys.length ? `${singleCustomerRoi.enabledKeys.length} selected` : "None selected"}
+                      </div>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setRoiEnabledModules((cur) => {
+                          const next: Partial<Record<PortalModuleKey, boolean>> = { ...(cur || {}) };
+                          for (const k of moduleKeys) if (k !== "crm") next[k] = false;
+                          return next;
+                        });
+                      }}
+                      className="rounded-2xl bg-white px-3 py-2 text-xs font-semibold text-zinc-800 hover:bg-zinc-100"
+                    >
+                      Clear
+                    </button>
+                  </div>
+
+                  <div className="mt-3 grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
+                    {moduleKeys
+                      .filter((k) => k !== "crm")
+                      .map((k) => {
+                        const mod = PORTAL_MODULE_CATALOG[k];
+                        const title = mod?.title ?? k;
+                        const price = mod?.monthlyUsd ?? 0;
+                        const enabled = Boolean(roiEnabledModules?.[k]);
+                        return (
+                          <label key={k} className="flex cursor-pointer items-start gap-3 rounded-2xl bg-white px-3 py-3">
+                            <input
+                              type="checkbox"
+                              checked={enabled}
+                              onChange={() =>
+                                setRoiEnabledModules((cur) => ({
+                                  ...(cur || {}),
+                                  [k]: !Boolean(cur?.[k]),
+                                }))
+                              }
+                              className="mt-0.5"
+                            />
+                            <div className="min-w-0">
+                              <div className="truncate text-sm font-semibold text-zinc-900">{title}</div>
+                              <div className="truncate text-xs text-zinc-600">
+                                {roiPlan === "membership" ? `${formatMoneyCompact(price)} / mo` : "Included (credits-only)"}
+                              </div>
+                            </div>
+                          </label>
+                        );
+                      })}
+                  </div>
+
+                  <div className="mt-4 grid gap-3 sm:grid-cols-3">
+                    <label className="block">
+                      <div className="text-xs font-semibold uppercase tracking-wide text-zinc-500">Extra revenue / month</div>
+                      <input
+                        type="number"
+                        value={roiExtraRevenueUsdPerMonth}
+                        onChange={(e) => setRoiExtraRevenueUsdPerMonth(toInt(e.target.value, 0))}
+                        className="mt-1 w-full rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-sm"
+                        min={0}
+                      />
+                    </label>
+                    <label className="block">
+                      <div className="text-xs font-semibold uppercase tracking-wide text-zinc-500">Hours saved / month</div>
+                      <input
+                        type="number"
+                        value={roiHoursSavedPerMonth}
+                        onChange={(e) => setRoiHoursSavedPerMonth(toInt(e.target.value, 0))}
+                        className="mt-1 w-full rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-sm"
+                        min={0}
+                      />
+                    </label>
+                    <label className="block">
+                      <div className="text-xs font-semibold uppercase tracking-wide text-zinc-500">Hourly rate</div>
+                      <input
+                        type="number"
+                        value={roiHourlyRateUsd}
+                        onChange={(e) => setRoiHourlyRateUsd(toInt(e.target.value, 0))}
+                        className="mt-1 w-full rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-sm"
+                        min={0}
+                      />
+                    </label>
+                  </div>
+
+                  <div className="mt-4 grid gap-3 md:grid-cols-4">
+                    <div className="rounded-2xl bg-white px-4 py-3">
+                      <div className="text-xs font-semibold uppercase tracking-wide text-zinc-500">Cost / mo</div>
+                      <div className="mt-1 text-lg font-bold text-zinc-900">{formatMoneyCompact(singleCustomerRoi.costUsd)}</div>
+                      <div className="mt-1 text-[11px] text-zinc-600">
+                        {formatMoneyCompact(singleCustomerRoi.moduleCostUsd)} modules + {formatMoneyCompact(singleCustomerRoi.creditsCostUsd)} credits
+                      </div>
+                    </div>
+                    <div className="rounded-2xl bg-white px-4 py-3">
+                      <div className="text-xs font-semibold uppercase tracking-wide text-zinc-500">Value / mo</div>
+                      <div className="mt-1 text-lg font-bold text-zinc-900">{formatMoneyCompact(singleCustomerRoi.valueUsd)}</div>
+                      <div className="mt-1 text-[11px] text-zinc-600">
+                        {formatMoneyCompact(singleCustomerRoi.moduleValueUsd)} services + {formatMoneyCompact(singleCustomerRoi.extraRevenue + singleCustomerRoi.timeValue)} manual
+                      </div>
+                    </div>
+                    <div className="rounded-2xl bg-white px-4 py-3">
+                      <div className="text-xs font-semibold uppercase tracking-wide text-zinc-500">Net / mo</div>
+                      <div className="mt-1 text-lg font-bold text-zinc-900">{formatMoneyCompact(singleCustomerRoi.netUsd)}</div>
+                      <div className="mt-1 text-[11px] text-zinc-600">Value minus cost</div>
+                    </div>
+                    <div className="rounded-2xl bg-white px-4 py-3">
+                      <div className="text-xs font-semibold uppercase tracking-wide text-zinc-500">Payback</div>
+                      <div className="mt-1 text-lg font-bold text-zinc-900">
+                        {singleCustomerRoi.paybackMonths ? `${Math.max(0, Math.round(singleCustomerRoi.paybackMonths * 10) / 10)} mo` : "—"}
+                      </div>
+                      <div className="mt-1 text-[11px] text-zinc-600">If net is positive</div>
+                    </div>
+                  </div>
                 </div>
               </div>
             </div>

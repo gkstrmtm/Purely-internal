@@ -40,15 +40,7 @@ export default function AdsAppHomePage() {
   const [campaigns, setCampaigns] = useState<CampaignRow[] | null>(null);
   const [error, setError] = useState<string | null>(null);
 
-  const [topupUsd, setTopupUsd] = useState("50");
-  const [topupBusy, setTopupBusy] = useState(false);
-
   const [toggleBusyId, setToggleBusyId] = useState<string | null>(null);
-
-  const [autoEnabled, setAutoEnabled] = useState(false);
-  const [autoThresholdUsd, setAutoThresholdUsd] = useState("20");
-  const [autoAmountUsd, setAutoAmountUsd] = useState("50");
-  const [autoBusy, setAutoBusy] = useState(false);
 
   const balanceCents = Number(me?.account?.balanceCents || 0);
 
@@ -70,10 +62,6 @@ export default function AdsAppHomePage() {
 
     if (statsRes?.ok) {
       setStats(statsRes as AdsStats);
-      const a = (statsRes as AdsStats).account;
-      setAutoEnabled(Boolean(a?.autoTopUpEnabled));
-      setAutoThresholdUsd(String(Math.round(Number(a?.autoTopUpThresholdCents || 0) / 100)));
-      setAutoAmountUsd(String(Math.round(Number(a?.autoTopUpAmountCents || 0) / 100)));
     } else {
       setStats(null);
     }
@@ -88,28 +76,6 @@ export default function AdsAppHomePage() {
   useEffect(() => {
     load();
   }, []);
-
-  async function doTopup() {
-    const amountUsd = Number(topupUsd);
-    if (!Number.isFinite(amountUsd) || amountUsd <= 0) return;
-
-    setTopupBusy(true);
-    try {
-      const amountCents = Math.round(amountUsd * 100);
-      const res = await fetch("/ads/api/topup", {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({ amountCents }),
-      });
-      const json = await res.json().catch(() => null);
-      if (!res.ok || !json?.ok) throw new Error(String(json?.error || "Top up failed"));
-      await load();
-    } catch (err: any) {
-      setError(String(err?.message || "Top up failed"));
-    } finally {
-      setTopupBusy(false);
-    }
-  }
 
   async function setCampaignEnabled(campaignId: string, enabled: boolean) {
     setToggleBusyId(campaignId);
@@ -130,68 +96,36 @@ export default function AdsAppHomePage() {
     }
   }
 
-  async function saveAutoTopUp(next: {
-    enabled: boolean;
-    thresholdUsd: string;
-    amountUsd: string;
-  }) {
-    const thresholdUsdNum = Number(next.thresholdUsd);
-    const amountUsdNum = Number(next.amountUsd);
-
-    if (!Number.isFinite(thresholdUsdNum) || thresholdUsdNum < 0) {
-      setError("Invalid auto top-up threshold");
-      return;
-    }
-    if (!Number.isFinite(amountUsdNum) || amountUsdNum <= 0) {
-      setError("Invalid auto top-up amount");
-      return;
-    }
-
-    setAutoBusy(true);
-    setError(null);
-    try {
-      const res = await fetch("/ads/api/account", {
-        method: "PATCH",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({
-          autoTopUpEnabled: next.enabled,
-          autoTopUpThresholdCents: Math.round(thresholdUsdNum * 100),
-          autoTopUpAmountCents: Math.round(amountUsdNum * 100),
-        }),
-      });
-      const json = await res.json().catch(() => null);
-      if (!res.ok || !json?.ok) throw new Error(String(json?.error || "Save failed"));
-      await load();
-    } catch (err: any) {
-      setError(String(err?.message || "Save failed"));
-    } finally {
-      setAutoBusy(false);
-    }
-  }
-
   return (
     <div className="space-y-6">
       <div className="grid gap-4 lg:grid-cols-4">
         <div className="rounded-3xl border border-zinc-200 bg-white p-6">
           <div className="text-xs font-semibold uppercase tracking-wide text-zinc-500">Balance</div>
           <div className="mt-2 text-2xl font-bold text-zinc-900">{usd(balanceCents)}</div>
-          <div className="mt-4 flex items-center gap-2">
-            <input
-              value={topupUsd}
-              onChange={(e) => setTopupUsd(e.target.value)}
-              inputMode="decimal"
-              className="w-24 rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-sm outline-none focus:border-zinc-400"
-              aria-label="Top up amount"
-            />
-            <button
-              onClick={doTopup}
-              disabled={topupBusy}
-              className="rounded-2xl bg-brand-ink px-4 py-2 text-sm font-semibold text-white hover:opacity-95 disabled:opacity-60"
-            >
-              {topupBusy ? "Adding…" : "Add funds"}
-            </button>
+          <div className="mt-3 text-sm text-zinc-600">
+            {stats ? (
+              <>
+                {stats.account.autoTopUpEnabled ? "Auto-reload enabled" : "Auto-reload disabled"}
+                {stats.topups.last30dCents ? ` · ${usd(stats.topups.last30dCents)} added (30d)` : ""}
+              </>
+            ) : (
+              "Loading…"
+            )}
           </div>
-          <div className="mt-2 text-xs text-zinc-500">Manual top-up.</div>
+          <div className="mt-4 flex flex-col gap-2 sm:flex-row">
+            <Link
+              href="/ads/app/billing"
+              className="inline-flex items-center justify-center rounded-2xl bg-brand-ink px-4 py-2 text-sm font-semibold text-white hover:opacity-95"
+            >
+              Add funds
+            </Link>
+            <Link
+              href="/ads/app/settings"
+              className="inline-flex items-center justify-center rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm font-semibold text-zinc-700 hover:bg-zinc-50"
+            >
+              Auto-reload
+            </Link>
+          </div>
         </div>
 
         <div className="rounded-3xl border border-zinc-200 bg-white p-6">
@@ -212,51 +146,28 @@ export default function AdsAppHomePage() {
         </div>
 
         <div className="rounded-3xl border border-zinc-200 bg-white p-6">
-          <div className="text-xs font-semibold uppercase tracking-wide text-zinc-500">Auto top-up</div>
-          <div className="mt-2 flex items-center justify-between gap-3">
-            <div className="text-sm font-semibold text-zinc-900">Auto-reload</div>
-            <button
-              onClick={() => {
-                const next = !autoEnabled;
-                setAutoEnabled(next);
-                void saveAutoTopUp({ enabled: next, thresholdUsd: autoThresholdUsd, amountUsd: autoAmountUsd });
-              }}
-              disabled={autoBusy}
-              className={
-                "rounded-2xl px-3 py-2 text-sm font-semibold disabled:opacity-60 " +
-                (autoEnabled ? "bg-brand-ink text-white" : "border border-zinc-200 bg-white text-zinc-700 hover:bg-zinc-50")
-              }
+          <div className="text-xs font-semibold uppercase tracking-wide text-zinc-500">Quick actions</div>
+          <div className="mt-3 flex flex-col gap-2">
+            <Link
+              href="/ads/app/campaigns/new"
+              className="inline-flex items-center justify-center rounded-2xl bg-brand-ink px-4 py-2 text-sm font-semibold text-white hover:opacity-95"
             >
-              {autoBusy ? "Saving…" : autoEnabled ? "Enabled" : "Disabled"}
-            </button>
+              Create a campaign
+            </Link>
+            <Link
+              href="/ads/app/billing"
+              className="inline-flex items-center justify-center rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm font-semibold text-zinc-700 hover:bg-zinc-50"
+            >
+              Billing
+            </Link>
+            <Link
+              href="/ads/app/settings"
+              className="inline-flex items-center justify-center rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm font-semibold text-zinc-700 hover:bg-zinc-50"
+            >
+              Settings
+            </Link>
           </div>
-          <div className="mt-3 grid gap-3 sm:grid-cols-2">
-            <label className="block">
-              <div className="text-xs font-semibold uppercase tracking-wide text-zinc-500">Threshold ($)</div>
-              <input
-                value={autoThresholdUsd}
-                onChange={(e) => setAutoThresholdUsd(e.target.value)}
-                inputMode="decimal"
-                className="mt-2 w-full rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-sm outline-none focus:border-zinc-400"
-              />
-            </label>
-            <label className="block">
-              <div className="text-xs font-semibold uppercase tracking-wide text-zinc-500">Reload ($)</div>
-              <input
-                value={autoAmountUsd}
-                onChange={(e) => setAutoAmountUsd(e.target.value)}
-                inputMode="decimal"
-                className="mt-2 w-full rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-sm outline-none focus:border-zinc-400"
-              />
-            </label>
-          </div>
-          <button
-            onClick={() => void saveAutoTopUp({ enabled: autoEnabled, thresholdUsd: autoThresholdUsd, amountUsd: autoAmountUsd })}
-            disabled={autoBusy}
-            className="mt-3 inline-flex w-full items-center justify-center rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm font-semibold text-zinc-700 hover:bg-zinc-50 disabled:opacity-60"
-          >
-            {autoBusy ? "Saving…" : "Save auto top-up"}
-          </button>
+          <div className="mt-3 text-xs text-zinc-500">Auto-reload and thresholds live under Settings.</div>
         </div>
       </div>
 
@@ -278,14 +189,13 @@ export default function AdsAppHomePage() {
       <div className="rounded-3xl border border-zinc-200 bg-white">
         <div className="border-b border-zinc-200 px-6 py-4">
           <div className="text-sm font-semibold text-zinc-900">Your campaigns</div>
-          <div className="mt-1 text-sm text-zinc-600">Budgets and CPC billing are enforced automatically.</div>
+          <div className="mt-1 text-sm text-zinc-600">Budgets and billing are enforced automatically.</div>
         </div>
 
         <div className="divide-y divide-zinc-100">
           {(campaigns || []).map((c) => {
             const billing = c?.targetJson?.billing;
             const dailyBudgetCents = Number(billing?.dailyBudgetCents || 0);
-            const costPerClickCents = Number(billing?.costPerClickCents || 0);
 
             return (
               <div key={c.id} className="px-6 py-4">
@@ -297,7 +207,6 @@ export default function AdsAppHomePage() {
                     <div className="mt-1 text-xs text-zinc-500">
                       {c.placement} · {c.enabled ? "Enabled" : "Paused"}
                       {dailyBudgetCents ? ` · ${usd(dailyBudgetCents)}/day` : ""}
-                      {costPerClickCents ? ` · ${usd(costPerClickCents)}/click` : ""}
                     </div>
                   </div>
                   <div className="flex items-center gap-2">

@@ -1,8 +1,9 @@
 "use client";
 
+import Link from "next/link";
 import Image from "next/image";
 import { useRouter } from "next/navigation";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 
 import { BUSINESS_MODEL_SUGGESTIONS, INDUSTRY_SUGGESTIONS } from "@/lib/portalOnboardingWizardCatalog";
 import { PORTAL_SERVICES } from "@/app/portal/services/catalog";
@@ -46,21 +47,22 @@ export default function NewAdsCampaignPage() {
   const [endAt, setEndAt] = useState<string>("");
 
   const [dailyBudgetUsd, setDailyBudgetUsd] = useState("50.00");
-  const [costPerClickUsd, setCostPerClickUsd] = useState("2.00");
 
   const [industries, setIndustries] = useState<string[]>([]);
   const [businessModels, setBusinessModels] = useState<string[]>([]);
-  const [serviceSlugsAny, setServiceSlugsAny] = useState<string[]>([]);
-  const [serviceSlugsAll, setServiceSlugsAll] = useState<string[]>([]);
+  const [serviceMatch, setServiceMatch] = useState<"ANY" | "ALL">("ANY");
+  const [serviceSlugs, setServiceSlugs] = useState<string[]>([]);
+  const [serviceSearch, setServiceSearch] = useState("");
   const [bucketIds, setBucketIds] = useState<string[]>([]);
 
   const [customIndustry, setCustomIndustry] = useState("");
   const [customBusinessModel, setCustomBusinessModel] = useState("");
 
-  const [headline, setHeadline] = useState("Try Purely Automation");
-  const [body, setBody] = useState("Automations, reviews, inbox, and more — all in one portal.");
-  const [ctaText, setCtaText] = useState("Learn more");
+  const [headline, setHeadline] = useState("");
+  const [body, setBody] = useState("");
+  const [ctaText, setCtaText] = useState("");
   const [linkUrl, setLinkUrl] = useState("https://purelyautomation.com");
+  const [creativeBusy, setCreativeBusy] = useState(false);
 
   const [mediaUrl, setMediaUrl] = useState<string>("");
   const [mediaKind, setMediaKind] = useState<"image" | "video" | "">("");
@@ -71,6 +73,8 @@ export default function NewAdsCampaignPage() {
 
   const [buckets, setBuckets] = useState<Bucket[]>([]);
   const [uploadBusy, setUploadBusy] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement | null>(null);
+  const [selectedFileName, setSelectedFileName] = useState<string>("");
 
   const [audiences, setAudiences] = useState<Audience[]>([]);
   const [audienceId, setAudienceId] = useState<string>("");
@@ -79,13 +83,6 @@ export default function NewAdsCampaignPage() {
 
   const [me, setMe] = useState<any>(null);
   const [accountBusy, setAccountBusy] = useState(false);
-  const [topupUsd, setTopupUsd] = useState("50");
-  const [topupBusy, setTopupBusy] = useState(false);
-
-  const [autoEnabled, setAutoEnabled] = useState(false);
-  const [autoThresholdUsd, setAutoThresholdUsd] = useState("20");
-  const [autoAmountUsd, setAutoAmountUsd] = useState("50");
-  const [autoBusy, setAutoBusy] = useState(false);
 
   const balanceCents = Number(me?.account?.balanceCents || 0);
 
@@ -126,11 +123,6 @@ export default function NewAdsCampaignPage() {
       const json = await res.json().catch(() => null);
       if (!res.ok || !json?.ok) throw new Error(String(json?.error || "Failed to load account"));
       setMe(json);
-
-      const a = json?.account;
-      setAutoEnabled(Boolean(a?.autoTopUpEnabled));
-      setAutoThresholdUsd(String(Math.round(Number(a?.autoTopUpThresholdCents || 0) / 100)));
-      setAutoAmountUsd(String(Math.round(Number(a?.autoTopUpAmountCents || 0) / 100)));
     } catch {
       // ignore
     } finally {
@@ -142,64 +134,6 @@ export default function NewAdsCampaignPage() {
     void loadMe();
   }, []);
 
-  async function doTopup() {
-    const amountUsd = Number(topupUsd);
-    if (!Number.isFinite(amountUsd) || amountUsd <= 0) return;
-
-    setTopupBusy(true);
-    setError(null);
-    try {
-      const amountCents = Math.round(amountUsd * 100);
-      const res = await fetch("/ads/api/topup", {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({ amountCents }),
-      });
-      const json = await res.json().catch(() => null);
-      if (!res.ok || !json?.ok) throw new Error(String(json?.error || "Top up failed"));
-      await loadMe();
-    } catch (err: any) {
-      setError(String(err?.message || "Top up failed"));
-    } finally {
-      setTopupBusy(false);
-    }
-  }
-
-  async function saveAutoTopUp(next: { enabled: boolean; thresholdUsd: string; amountUsd: string }) {
-    const thresholdUsdNum = Number(next.thresholdUsd);
-    const amountUsdNum = Number(next.amountUsd);
-
-    if (!Number.isFinite(thresholdUsdNum) || thresholdUsdNum < 0) {
-      setError("Invalid auto top-up threshold");
-      return;
-    }
-    if (!Number.isFinite(amountUsdNum) || amountUsdNum <= 0) {
-      setError("Invalid auto top-up amount");
-      return;
-    }
-
-    setAutoBusy(true);
-    setError(null);
-    try {
-      const res = await fetch("/ads/api/account", {
-        method: "PATCH",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({
-          autoTopUpEnabled: next.enabled,
-          autoTopUpThresholdCents: Math.round(thresholdUsdNum * 100),
-          autoTopUpAmountCents: Math.round(amountUsdNum * 100),
-        }),
-      });
-      const json = await res.json().catch(() => null);
-      if (!res.ok || !json?.ok) throw new Error(String(json?.error || "Save failed"));
-      await loadMe();
-    } catch (err: any) {
-      setError(String(err?.message || "Save failed"));
-    } finally {
-      setAutoBusy(false);
-    }
-  }
-
   useEffect(() => {
     if (!audienceId) return;
     const a = audiences.find((x) => x.id === audienceId);
@@ -207,8 +141,15 @@ export default function NewAdsCampaignPage() {
     const t = (a.targetingJson ?? {}) as any;
     setIndustries(dedupe(Array.isArray(t.industries) ? t.industries : []));
     setBusinessModels(dedupe(Array.isArray(t.businessModels) ? t.businessModels : []));
-    setServiceSlugsAny(dedupe(Array.isArray(t.serviceSlugsAny) ? t.serviceSlugsAny : []));
-    setServiceSlugsAll(dedupe(Array.isArray(t.serviceSlugsAll) ? t.serviceSlugsAll : []));
+    const any = dedupe(Array.isArray(t.serviceSlugsAny) ? t.serviceSlugsAny : []);
+    const all = dedupe(Array.isArray(t.serviceSlugsAll) ? t.serviceSlugsAll : []);
+    if (all.length) {
+      setServiceMatch("ALL");
+      setServiceSlugs(all);
+    } else {
+      setServiceMatch("ANY");
+      setServiceSlugs(any);
+    }
     setBucketIds(dedupe(Array.isArray(t.bucketIds) ? t.bucketIds : []));
   }, [audienceId, audiences]);
 
@@ -230,8 +171,8 @@ export default function NewAdsCampaignPage() {
           targeting: {
             industries: dedupe(industries),
             businessModels: dedupe(businessModels),
-            serviceSlugsAny: dedupe(serviceSlugsAny),
-            serviceSlugsAll: dedupe(serviceSlugsAll),
+            serviceSlugsAny: serviceMatch === "ANY" ? dedupe(serviceSlugs) : [],
+            serviceSlugsAll: serviceMatch === "ALL" ? dedupe(serviceSlugs) : [],
             bucketIds: dedupe(bucketIds),
           },
         }),
@@ -293,15 +234,47 @@ export default function NewAdsCampaignPage() {
     }
   }
 
+  async function generateCreative() {
+    setCreativeBusy(true);
+    setError(null);
+    try {
+      const res = await fetch("/ads/api/creative/generate", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          placement,
+          campaignName: name,
+          linkUrl,
+          targeting: {
+            industries: dedupe(industries),
+            businessModels: dedupe(businessModels),
+            serviceMatch,
+            serviceSlugs: dedupe(serviceSlugs),
+            bucketIds: dedupe(bucketIds),
+          },
+        }),
+      });
+      const json = await res.json().catch(() => null);
+      if (!res.ok || !json?.ok) throw new Error(String(json?.error || "Generate failed"));
+
+      if (typeof json?.headline === "string") setHeadline(json.headline);
+      if (typeof json?.body === "string") setBody(json.body);
+      if (typeof json?.ctaText === "string") setCtaText(json.ctaText);
+      if (typeof json?.linkUrl === "string" && json.linkUrl) setLinkUrl(json.linkUrl);
+    } catch (err: any) {
+      setError(String(err?.message || "Generate failed"));
+    } finally {
+      setCreativeBusy(false);
+    }
+  }
+
   async function onSubmit() {
     setBusy(true);
     setError(null);
 
     try {
       const dailyBudgetCents = usdToCents(dailyBudgetUsd);
-      const costPerClickCents = usdToCents(costPerClickUsd);
       if (!Number.isFinite(dailyBudgetCents) || dailyBudgetCents < 0) throw new Error("Invalid daily budget");
-      if (!Number.isFinite(costPerClickCents) || costPerClickCents <= 0) throw new Error("Invalid cost per click");
 
       const res = await fetch("/ads/api/campaigns", {
         method: "POST",
@@ -311,12 +284,12 @@ export default function NewAdsCampaignPage() {
           placement,
           startAtIso: startAt ? new Date(startAt).toISOString() : null,
           endAtIso: endAt ? new Date(endAt).toISOString() : null,
-          budget: { dailyBudgetCents, costPerClickCents },
+          budget: { dailyBudgetCents },
           targeting: {
             industries: dedupe(industries),
             businessModels: dedupe(businessModels),
-            serviceSlugsAny: dedupe(serviceSlugsAny),
-            serviceSlugsAll: dedupe(serviceSlugsAll),
+            serviceSlugsAny: serviceMatch === "ANY" ? dedupe(serviceSlugs) : [],
+            serviceSlugsAll: serviceMatch === "ALL" ? dedupe(serviceSlugs) : [],
             bucketIds: dedupe(bucketIds),
           },
           creative: {
@@ -407,8 +380,10 @@ export default function NewAdsCampaignPage() {
         </div>
 
         <div className="rounded-3xl border border-zinc-200 bg-white p-6">
-          <div className="text-sm font-semibold text-zinc-900">Budget (CPC)</div>
-          <div className="mt-2 text-sm text-zinc-600">Charged only when a portal user clicks your ad.</div>
+          <div className="text-sm font-semibold text-zinc-900">Budget</div>
+          <div className="mt-2 text-sm text-zinc-600">
+            You’re charged on click. CPC is optimized internally, you only set a daily budget.
+          </div>
           <div className="mt-4 grid gap-3 sm:grid-cols-2">
             <label className="block">
               <div className="text-xs font-semibold uppercase tracking-wide text-zinc-500">Daily budget (USD)</div>
@@ -419,25 +394,8 @@ export default function NewAdsCampaignPage() {
                 className="mt-2 w-full rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-sm outline-none focus:border-zinc-400"
               />
             </label>
-            <label className="block">
-              <div className="text-xs font-semibold uppercase tracking-wide text-zinc-500">Cost per click (USD)</div>
-              <input
-                value={costPerClickUsd}
-                onChange={(e) => setCostPerClickUsd(e.target.value)}
-                inputMode="decimal"
-                className="mt-2 w-full rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-sm outline-none focus:border-zinc-400"
-              />
-            </label>
           </div>
-          <div className="mt-3 text-xs text-zinc-500">
-            Example: {dailyBudgetUsd} / day at {costPerClickUsd} / click ≈{" "}
-            {(() => {
-              const d = usdToCents(dailyBudgetUsd);
-              const c = usdToCents(costPerClickUsd);
-              if (!Number.isFinite(d) || !Number.isFinite(c) || c <= 0) return "—";
-              return Math.floor(d / c);
-            })()} clicks/day
-          </div>
+          <div className="mt-3 text-xs text-zinc-500">Tip: start small, then scale after you see performance.</div>
         </div>
 
         <div className="rounded-3xl border border-zinc-200 bg-white p-6">
@@ -580,44 +538,86 @@ export default function NewAdsCampaignPage() {
               </div>
             </div>
 
-            <div className="grid gap-4 sm:grid-cols-2">
-              <div>
-                <div className="text-xs font-semibold uppercase tracking-wide text-zinc-500">Services (any)</div>
-                <div className="mt-3 grid gap-2">
-                  {selectableServices.slice(0, 10).map((s) => (
-                    <label key={s.slug} className="flex items-center justify-between rounded-2xl border border-zinc-200 bg-white px-4 py-2">
-                      <div className="text-sm text-zinc-900">{s.title}</div>
-                      <input
-                        type="checkbox"
-                        checked={serviceSlugsAny.includes(s.slug)}
-                        onChange={() => setServiceSlugsAny((cur) => toggle(cur, s.slug))}
-                      />
-                    </label>
-                  ))}
+            <div className="rounded-2xl border border-zinc-200 bg-white p-4">
+              <div className="flex flex-col justify-between gap-3 sm:flex-row sm:items-center">
+                <div>
+                  <div className="text-sm font-semibold text-zinc-900">Services</div>
+                  <div className="mt-1 text-xs text-zinc-500">
+                    Choose which services the viewer must have unlocked to see this ad.
+                  </div>
                 </div>
-                <div className="mt-2 text-xs text-zinc-500">Any means at least one must be unlocked.</div>
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setServiceMatch("ANY")}
+                    className={
+                      "rounded-2xl px-3 py-2 text-xs font-semibold " +
+                      (serviceMatch === "ANY"
+                        ? "bg-brand-ink text-white"
+                        : "border border-zinc-200 bg-white text-zinc-700 hover:bg-zinc-50")
+                    }
+                  >
+                    Match any
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setServiceMatch("ALL")}
+                    className={
+                      "rounded-2xl px-3 py-2 text-xs font-semibold " +
+                      (serviceMatch === "ALL"
+                        ? "bg-brand-ink text-white"
+                        : "border border-zinc-200 bg-white text-zinc-700 hover:bg-zinc-50")
+                    }
+                  >
+                    Match all
+                  </button>
+                </div>
               </div>
 
-              <div>
-                <div className="text-xs font-semibold uppercase tracking-wide text-zinc-500">Services (all)</div>
-                <div className="mt-3 grid gap-2">
-                  {selectableServices.slice(0, 10).map((s) => (
-                    <label key={s.slug} className="flex items-center justify-between rounded-2xl border border-zinc-200 bg-white px-4 py-2">
-                      <div className="text-sm text-zinc-900">{s.title}</div>
+              <div className="mt-4">
+                <input
+                  value={serviceSearch}
+                  onChange={(e) => setServiceSearch(e.target.value)}
+                  placeholder="Search services…"
+                  className="w-full rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-sm outline-none focus:border-zinc-400"
+                />
+              </div>
+
+              <div className="mt-3 max-h-64 overflow-auto rounded-2xl border border-zinc-200">
+                {selectableServices
+                  .filter((s) => {
+                    const q = serviceSearch.trim().toLowerCase();
+                    if (!q) return true;
+                    return s.title.toLowerCase().includes(q) || s.slug.toLowerCase().includes(q);
+                  })
+                  .map((s) => (
+                    <label
+                      key={s.slug}
+                      className="flex cursor-pointer items-center justify-between gap-3 border-b border-zinc-100 bg-white px-4 py-3 last:border-b-0"
+                    >
+                      <div className="min-w-0">
+                        <div className="truncate text-sm font-medium text-zinc-900">{s.title}</div>
+                        <div className="truncate text-xs text-zinc-500">{s.slug}</div>
+                      </div>
                       <input
                         type="checkbox"
-                        checked={serviceSlugsAll.includes(s.slug)}
-                        onChange={() => setServiceSlugsAll((cur) => toggle(cur, s.slug))}
+                        checked={serviceSlugs.includes(s.slug)}
+                        onChange={() => setServiceSlugs((cur) => toggle(cur, s.slug))}
                       />
                     </label>
                   ))}
-                </div>
-                <div className="mt-2 text-xs text-zinc-500">All means every selected service must be unlocked.</div>
+              </div>
+
+              <div className="mt-2 text-xs text-zinc-500">
+                {serviceMatch === "ANY"
+                  ? "Match any: the viewer must have at least one selected service unlocked."
+                  : "Match all: the viewer must have every selected service unlocked."}
               </div>
             </div>
 
             <div>
               <div className="text-xs font-semibold uppercase tracking-wide text-zinc-500">Targeting buckets</div>
+              <div className="mt-1 text-xs text-zinc-500">Buckets target portal users by context (example: “new lead”, “payment due”).</div>
               <div className="mt-3 grid gap-2 sm:grid-cols-2">
                 {buckets.map((b) => (
                   <label key={b.id} className="flex items-center justify-between rounded-2xl border border-zinc-200 bg-white px-4 py-2">
@@ -632,6 +632,12 @@ export default function NewAdsCampaignPage() {
                     />
                   </label>
                 ))}
+
+                {buckets.length === 0 ? (
+                  <div className="rounded-2xl border border-zinc-200 bg-white px-4 py-3 text-sm text-zinc-600 sm:col-span-2">
+                    No buckets configured yet.
+                  </div>
+                ) : null}
               </div>
             </div>
           </div>
@@ -642,8 +648,8 @@ export default function NewAdsCampaignPage() {
         <div className="rounded-3xl border border-zinc-200 bg-white p-6">
           <div className="flex items-start justify-between gap-4">
             <div>
-              <div className="text-sm font-semibold text-zinc-900">Balance</div>
-              <div className="mt-1 text-xs text-zinc-500">Auto top-up keeps campaigns running.</div>
+              <div className="text-sm font-semibold text-zinc-900">Account</div>
+              <div className="mt-1 text-xs text-zinc-500">Manage funds and auto-reload in Billing and Settings.</div>
             </div>
             <div className="text-right">
               <div className="text-lg font-bold text-zinc-900">${(balanceCents / 100).toFixed(2)}</div>
@@ -651,92 +657,48 @@ export default function NewAdsCampaignPage() {
             </div>
           </div>
 
-          <div className="mt-4 grid gap-3 sm:grid-cols-2">
-            <label className="block">
-              <div className="text-xs font-semibold uppercase tracking-wide text-zinc-500">Add funds ($)</div>
-              <div className="mt-2 flex items-center gap-2">
-                <input
-                  value={topupUsd}
-                  onChange={(e) => setTopupUsd(e.target.value)}
-                  inputMode="decimal"
-                  disabled={topupBusy || busy}
-                  className="w-full rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-sm outline-none focus:border-zinc-400 disabled:opacity-60"
-                />
-                <button
-                  type="button"
-                  onClick={() => void doTopup()}
-                  disabled={topupBusy || busy}
-                  className="shrink-0 rounded-2xl bg-brand-ink px-4 py-2 text-sm font-semibold text-white hover:opacity-95 disabled:opacity-60"
-                >
-                  {topupBusy ? "Adding…" : "Add"}
-                </button>
-              </div>
-            </label>
-
-            <div className="rounded-2xl border border-zinc-200 bg-white p-4">
-              <div className="flex items-center justify-between gap-3">
-                <div>
-                  <div className="text-xs font-semibold uppercase tracking-wide text-zinc-500">Auto top-up</div>
-                  <div className="mt-1 text-sm font-semibold text-zinc-900">Auto-reload</div>
-                </div>
-                <button
-                  type="button"
-                  onClick={() => {
-                    const next = !autoEnabled;
-                    setAutoEnabled(next);
-                    void saveAutoTopUp({ enabled: next, thresholdUsd: autoThresholdUsd, amountUsd: autoAmountUsd });
-                  }}
-                  disabled={autoBusy || busy}
-                  className={
-                    "rounded-2xl px-3 py-2 text-sm font-semibold disabled:opacity-60 " +
-                    (autoEnabled ? "bg-brand-ink text-white" : "border border-zinc-200 bg-white text-zinc-700 hover:bg-zinc-50")
-                  }
-                >
-                  {autoBusy ? "Saving…" : autoEnabled ? "Enabled" : "Disabled"}
-                </button>
-              </div>
-
-              <div className="mt-3 grid gap-3 sm:grid-cols-2">
-                <label className="block">
-                  <div className="text-[11px] font-semibold uppercase tracking-wide text-zinc-500">Threshold ($)</div>
-                  <input
-                    value={autoThresholdUsd}
-                    onChange={(e) => setAutoThresholdUsd(e.target.value)}
-                    inputMode="decimal"
-                    disabled={autoBusy || busy}
-                    className="mt-1.5 w-full rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-sm outline-none focus:border-zinc-400 disabled:opacity-60"
-                  />
-                </label>
-                <label className="block">
-                  <div className="text-[11px] font-semibold uppercase tracking-wide text-zinc-500">Reload ($)</div>
-                  <input
-                    value={autoAmountUsd}
-                    onChange={(e) => setAutoAmountUsd(e.target.value)}
-                    inputMode="decimal"
-                    disabled={autoBusy || busy}
-                    className="mt-1.5 w-full rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-sm outline-none focus:border-zinc-400 disabled:opacity-60"
-                  />
-                </label>
-              </div>
-
-              <button
-                type="button"
-                onClick={() => void saveAutoTopUp({ enabled: autoEnabled, thresholdUsd: autoThresholdUsd, amountUsd: autoAmountUsd })}
-                disabled={autoBusy || busy}
-                className="mt-3 inline-flex w-full items-center justify-center rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm font-semibold text-zinc-700 hover:bg-zinc-50 disabled:opacity-60"
-              >
-                {autoBusy ? "Saving…" : "Save"}
-              </button>
-            </div>
-          </div>
-
-          <div className="mt-3 text-xs text-zinc-500">
-            Auto top-up triggers when your balance falls below the threshold.
+          <div className="mt-4 flex flex-col gap-2 sm:flex-row">
+            <Link
+              href="/ads/app/billing"
+              className="inline-flex w-full items-center justify-center rounded-2xl bg-brand-ink px-4 py-2 text-sm font-semibold text-white hover:opacity-95 sm:w-auto"
+            >
+              Billing
+            </Link>
+            <Link
+              href="/ads/app/settings"
+              className="inline-flex w-full items-center justify-center rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm font-semibold text-zinc-700 hover:bg-zinc-50 sm:w-auto"
+            >
+              Auto-reload
+            </Link>
           </div>
         </div>
 
         <div className="rounded-3xl border border-zinc-200 bg-white p-6">
-          <div className="text-sm font-semibold text-zinc-900">Creative</div>
+          <div className="flex items-center justify-between gap-3">
+            <div className="text-sm font-semibold text-zinc-900">Creative</div>
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                onClick={() => void generateCreative()}
+                disabled={creativeBusy || busy}
+                className="rounded-2xl bg-brand-ink px-4 py-2 text-sm font-semibold text-white hover:opacity-95 disabled:opacity-60"
+              >
+                {creativeBusy ? "Generating…" : "Generate"}
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setHeadline("");
+                  setBody("");
+                  setCtaText("");
+                }}
+                disabled={creativeBusy || busy}
+                className="rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-sm font-semibold text-zinc-700 hover:bg-zinc-50 disabled:opacity-60"
+              >
+                Clear
+              </button>
+            </div>
+          </div>
 
           <div className="mt-4 grid gap-4">
             <label className="block">
@@ -744,6 +706,7 @@ export default function NewAdsCampaignPage() {
               <input
                 value={headline}
                 onChange={(e) => setHeadline(e.target.value)}
+                placeholder="Example: “Book more jobs this week”"
                 className="mt-2 w-full rounded-2xl border border-zinc-200 bg-white px-4 py-3 text-sm outline-none focus:border-zinc-400"
               />
             </label>
@@ -754,6 +717,7 @@ export default function NewAdsCampaignPage() {
                 value={body}
                 onChange={(e) => setBody(e.target.value)}
                 rows={4}
+                placeholder="What do you offer, and why should they click?"
                 className="mt-2 w-full rounded-2xl border border-zinc-200 bg-white px-4 py-3 text-sm outline-none focus:border-zinc-400"
               />
             </label>
@@ -764,6 +728,7 @@ export default function NewAdsCampaignPage() {
                 <input
                   value={ctaText}
                   onChange={(e) => setCtaText(e.target.value)}
+                  placeholder="Example: “Get a quote”"
                   className="mt-2 w-full rounded-2xl border border-zinc-200 bg-white px-4 py-3 text-sm outline-none focus:border-zinc-400"
                 />
               </label>
@@ -773,6 +738,7 @@ export default function NewAdsCampaignPage() {
                 <input
                   value={linkUrl}
                   onChange={(e) => setLinkUrl(e.target.value)}
+                  placeholder="https://… or /book"
                   className="mt-2 w-full rounded-2xl border border-zinc-200 bg-white px-4 py-3 text-sm outline-none focus:border-zinc-400"
                 />
               </label>
@@ -782,20 +748,38 @@ export default function NewAdsCampaignPage() {
               <div className="text-xs font-semibold uppercase tracking-wide text-zinc-500">Media</div>
               <div className="mt-2 flex flex-col gap-3 sm:flex-row sm:items-center">
                 <input
+                  ref={fileInputRef}
                   type="file"
                   accept="image/*,video/*"
                   onChange={(e) => {
                     const f = e.target.files?.[0];
-                    if (f) uploadFile(f);
+                    if (f) {
+                      setSelectedFileName(f.name);
+                      uploadFile(f);
+                    }
                   }}
                   disabled={uploadBusy}
-                  className="block w-full text-sm"
+                  className="hidden"
                 />
+                <div className="flex w-full flex-col gap-2 sm:flex-row sm:items-center">
+                  <button
+                    type="button"
+                    onClick={() => fileInputRef.current?.click()}
+                    disabled={uploadBusy}
+                    className="inline-flex items-center justify-center rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm font-semibold text-zinc-900 hover:bg-zinc-50 disabled:opacity-60"
+                  >
+                    {uploadBusy ? "Uploading…" : "Choose file"}
+                  </button>
+                  <div className="min-w-0 text-xs text-zinc-500">
+                    {mediaUrl ? "Uploaded" : selectedFileName ? selectedFileName : "PNG, JPG, MP4"}
+                  </div>
+                </div>
                 <button
                   type="button"
                   onClick={() => {
                     setMediaUrl("");
                     setMediaKind("");
+                    setSelectedFileName("");
                   }}
                   className="rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm font-semibold text-zinc-900 hover:bg-zinc-50"
                 >
@@ -900,8 +884,8 @@ export default function NewAdsCampaignPage() {
         </div>
 
         <div className="rounded-3xl border border-zinc-200 bg-white p-6">
-          <div className="text-sm font-semibold text-zinc-900">Preview</div>
-          <div className="mt-2 text-sm text-zinc-600">Approximate rendering (placement styles differ in-app).</div>
+          <div className="text-sm font-semibold text-zinc-900">Rendering</div>
+          <div className="mt-2 text-sm text-zinc-600">Approximate example (final styling can vary by placement).</div>
 
           <div className="mt-4 rounded-3xl border border-zinc-200 bg-zinc-50 p-4">
             <div className="text-xs font-semibold uppercase tracking-wide text-zinc-500">{placement}</div>

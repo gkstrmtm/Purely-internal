@@ -40,7 +40,17 @@ export async function POST(req: Request) {
   });
 
   await prisma.adsAdvertiserAccount
-    .create({ data: { userId: user.id }, select: { id: true } })
+    .create(
+      {
+        data: {
+          userId: user.id,
+          autoTopUpEnabled: true,
+          autoTopUpThresholdCents: 2000,
+          autoTopUpAmountCents: 5000,
+        },
+        select: { id: true },
+      }
+    )
     .catch(() => null);
 
   const token = await encode({

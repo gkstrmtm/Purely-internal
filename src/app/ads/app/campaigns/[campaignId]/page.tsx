@@ -55,7 +55,6 @@ export default async function AdsCampaignDetailsPage(props: { params: Promise<{ 
 
   const billing = (campaign.targetJson as any)?.billing ?? null;
   const dailyBudgetCents = Number(billing?.dailyBudgetCents || 0);
-  const costPerClickCents = Number(billing?.costPerClickCents || 0);
 
   const creative = (campaign.creativeJson as any) ?? {};
   const headline = String(creative?.headline || "").trim();
@@ -168,17 +167,15 @@ export default async function AdsCampaignDetailsPage(props: { params: Promise<{ 
       <div className="grid gap-4 lg:grid-cols-2">
         <div className="rounded-3xl border border-zinc-200 bg-white p-6">
           <div className="text-sm font-semibold text-zinc-900">Budget</div>
-          <div className="mt-3 grid gap-3 sm:grid-cols-2">
+          <div className="mt-3">
             <div className="rounded-2xl border border-zinc-200 bg-white p-4">
               <div className="text-xs font-semibold uppercase tracking-wide text-zinc-500">Daily budget</div>
               <div className="mt-2 text-lg font-bold text-zinc-900">{dailyBudgetCents ? usd(dailyBudgetCents) : "—"}</div>
             </div>
-            <div className="rounded-2xl border border-zinc-200 bg-white p-4">
-              <div className="text-xs font-semibold uppercase tracking-wide text-zinc-500">Cost per click</div>
-              <div className="mt-2 text-lg font-bold text-zinc-900">{costPerClickCents ? usd(costPerClickCents) : "—"}</div>
-            </div>
           </div>
-          <div className="mt-3 text-xs text-zinc-500">Billing is charged when a portal user clicks your ad.</div>
+          <div className="mt-3 text-xs text-zinc-500">
+            Billing is charged when a portal user clicks your ad. Cost-per-click is optimized automatically.
+          </div>
         </div>
 
         <div className="rounded-3xl border border-zinc-200 bg-white p-6">

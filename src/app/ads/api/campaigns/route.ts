@@ -7,6 +7,19 @@ import { requireAdsUser } from "@/lib/adsAuth";
 
 const placementSchema = z.enum(["SIDEBAR_BANNER", "TOP_BANNER", "POPUP_CARD"]);
 
+function getDefaultCostPerClickCents(placement: z.infer<typeof placementSchema>, dailyBudgetCents: number) {
+  const envRaw = Number(process.env.PORTAL_AD_DEFAULT_CPC_CENTS ?? "");
+  const env = Number.isFinite(envRaw) ? Math.max(1, Math.floor(envRaw)) : null;
+
+  const byPlacement =
+    placement === "POPUP_CARD" ? 150 : placement === "TOP_BANNER" ? 125 : placement === "SIDEBAR_BANNER" ? 100 : 100;
+
+  const base = env ?? byPlacement;
+
+  if (dailyBudgetCents > 0) return Math.max(1, Math.min(50_000, Math.min(base, dailyBudgetCents)));
+  return Math.max(1, Math.min(50_000, base));
+}
+
 const createSchema = z.object({
   name: z.string().min(3).max(80),
   placement: placementSchema,
@@ -19,6 +32,8 @@ const createSchema = z.object({
     .object({
       industries: z.array(z.string().min(1).max(80)).max(50).optional(),
       businessModels: z.array(z.string().min(1).max(80)).max(50).optional(),
+      serviceMatch: z.enum(["ANY", "ALL"]).optional(),
+      serviceSlugs: z.array(z.string().min(1).max(80)).max(50).optional(),
       serviceSlugsAny: z.array(z.string().min(1).max(80)).max(50).optional(),
       serviceSlugsAll: z.array(z.string().min(1).max(80)).max(50).optional(),
       bucketIds: z.array(z.string().min(1).max(80)).max(50).optional(),
@@ -27,7 +42,6 @@ const createSchema = z.object({
 
   budget: z.object({
     dailyBudgetCents: z.number().int().min(0).max(1_000_000_00),
-    costPerClickCents: z.number().int().min(1).max(50_000),
   }),
 
   creative: z.object({
@@ -118,9 +132,16 @@ export async function POST(req: Request) {
 
   const industries = uniqStrings(parsed.data.targeting?.industries).slice(0, 50);
   const businessModels = uniqStrings(parsed.data.targeting?.businessModels).slice(0, 50);
-  const serviceSlugsAny = uniqStrings(parsed.data.targeting?.serviceSlugsAny).slice(0, 50);
-  const serviceSlugsAll = uniqStrings(parsed.data.targeting?.serviceSlugsAll).slice(0, 50);
+  const serviceMatch = parsed.data.targeting?.serviceMatch;
+  const serviceSlugs = uniqStrings(parsed.data.targeting?.serviceSlugs).slice(0, 50);
+  const legacyAny = uniqStrings(parsed.data.targeting?.serviceSlugsAny).slice(0, 50);
+  const legacyAll = uniqStrings(parsed.data.targeting?.serviceSlugsAll).slice(0, 50);
+
+  const serviceSlugsAny = serviceSlugs.length ? (serviceMatch === "ALL" ? [] : serviceSlugs) : legacyAny;
+  const serviceSlugsAll = serviceSlugs.length ? (serviceMatch === "ALL" ? serviceSlugs : []) : legacyAll;
   const bucketIds = uniqStrings(parsed.data.targeting?.bucketIds).slice(0, 50);
+
+  const costPerClickCents = getDefaultCostPerClickCents(parsed.data.placement, parsed.data.budget.dailyBudgetCents);
 
   const targetJson = omitUndefinedDeep({
     industries: industries.length ? industries : undefined,
@@ -137,7 +158,7 @@ export async function POST(req: Request) {
     billing: {
       model: "cpc",
       dailyBudgetCents: parsed.data.budget.dailyBudgetCents,
-      costPerClickCents: parsed.data.budget.costPerClickCents,
+      costPerClickCents,
     },
   }) as Prisma.InputJsonValue;
 

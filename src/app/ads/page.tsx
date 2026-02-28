@@ -3,17 +3,12 @@ import Image from "next/image";
 
 export default function AdsLandingPage() {
   return (
-    <main className="min-h-[100dvh] bg-brand-mist text-brand-ink">
+    <main className="min-h-[100dvh] bg-brand-mist pb-28 text-brand-ink">
       <div className="mx-auto max-w-6xl px-6 py-10">
         <header className="flex items-center justify-between">
-          <Link href="/" className="flex items-center gap-3">
-            <span className="relative h-10 w-10 overflow-hidden rounded-2xl bg-white shadow-sm ring-1 ring-zinc-200">
-              <Image src="/brand/purity-5.png" alt="Purely" fill className="object-contain p-1" />
-            </span>
-            <div className="leading-tight">
-              <div className="text-sm font-bold text-zinc-900">Purely</div>
-              <div className="text-xs text-zinc-500">Portal Ads</div>
-            </div>
+          <Link href="/" className="flex items-center">
+            <Image src="/brand/purity-5.png" alt="" width={56} height={56} className="h-14 w-14 object-contain" priority />
+            <span className="sr-only">Home</span>
           </Link>
 
           <nav className="flex items-center gap-2">
@@ -41,8 +36,8 @@ export default function AdsLandingPage() {
               Run high-intent ads inside the portal
             </h1>
             <p className="mt-4 max-w-xl text-sm text-zinc-600 sm:text-base">
-              Launch CPC campaigns, target by industry and services, and control spend with daily budgets — all from a
-              clean, simple Ads Manager.
+              Launch CPC campaigns, target by industry and services, and control spend with daily budgets, all from a clean,
+              simple Ads Manager.
             </p>
 
             <div className="mt-7 flex flex-col gap-3 sm:flex-row">
@@ -61,13 +56,22 @@ export default function AdsLandingPage() {
             </div>
 
             <div className="mt-6 grid gap-3 sm:grid-cols-2">
-              {["CPC billing (charged on click)", "Daily budget guardrails", "Audience profiles (saved targeting)", "Upload images and video"].map(
-                (t) => (
-                  <div key={t} className="rounded-2xl border border-zinc-200 bg-white/70 px-4 py-3 text-sm text-zinc-700">
-                    {t}
+              {[
+                { title: "CPC billing", body: "You only pay when a portal user clicks." },
+                { title: "Daily budgets", body: "Guardrails keep spend predictable." },
+                { title: "Audience profiles", body: "Save targeting presets and reuse them." },
+                { title: "Image + video", body: "Upload once, it renders across placements." },
+              ].map((c) => (
+                <div key={c.title} className="rounded-3xl border border-zinc-200 bg-white p-4 shadow-sm">
+                  <div className="flex items-start gap-3">
+                    <div className="mt-0.5 h-8 w-8 rounded-2xl bg-gradient-to-br from-[color:var(--color-brand-blue)]/25 to-[color:var(--color-brand-pink)]/20" />
+                    <div>
+                      <div className="text-sm font-semibold text-zinc-900">{c.title}</div>
+                      <div className="mt-1 text-sm text-zinc-600">{c.body}</div>
+                    </div>
                   </div>
-                ),
-              )}
+                </div>
+              ))}
             </div>
           </div>
 
@@ -77,7 +81,6 @@ export default function AdsLandingPage() {
               <div className="border-b border-zinc-200 bg-white px-6 py-4">
                 <div className="flex items-center justify-between">
                   <div className="text-sm font-semibold text-zinc-900">Ads Manager</div>
-                  <div className="text-xs text-zinc-500">Preview</div>
                 </div>
               </div>
               <div className="p-6">
@@ -120,36 +123,92 @@ export default function AdsLandingPage() {
             {[
               { title: "Targeting that feels native", body: "Industry, business model, services, and targeting buckets." },
               { title: "Premium placements", body: "Sidebar banners, top banners, and popup cards." },
-              { title: "Simple budgets", body: "Set daily spend + CPC. Guardrails enforce limits automatically." },
+              { title: "Simple budgets", body: "Set daily spend. Guardrails enforce limits automatically." },
             ].map((c) => (
-              <div key={c.title} className="rounded-[2rem] border border-zinc-200 bg-white p-6">
+              <div key={c.title} className="rounded-[2rem] border border-zinc-200 bg-white p-6 shadow-sm">
                 <div className="text-sm font-semibold text-zinc-900">{c.title}</div>
                 <div className="mt-2 text-sm text-zinc-600">{c.body}</div>
               </div>
             ))}
           </div>
+        </section>
 
-          <div className="mt-8 flex flex-col items-start justify-between gap-4 rounded-[2rem] border border-zinc-200 bg-white p-6 sm:flex-row sm:items-center">
+        <footer className="mt-16 rounded-[2.5rem] border border-zinc-200 bg-white p-8 shadow-sm">
+          <div className="grid gap-8 md:grid-cols-3">
             <div>
-              <div className="text-sm font-semibold text-zinc-900">Ready to launch your first campaign?</div>
-              <div className="mt-1 text-sm text-zinc-600">It takes ~2 minutes to create targeting + creative.</div>
+              <div className="flex items-center gap-3">
+                <Image src="/brand/purity-5.png" alt="" width={56} height={56} className="h-14 w-14 object-contain" />
+                <div>
+                  <div className="text-sm font-semibold text-zinc-900">Contact</div>
+                  <div className="mt-1 text-sm text-zinc-600">Questions, onboarding, or help.</div>
+                </div>
+              </div>
+              <div className="mt-4 text-sm text-zinc-700">
+                <div className="font-semibold text-zinc-900">Email</div>
+                <a className="text-[color:var(--color-brand-blue)] hover:underline" href="mailto:support@purelyautomation.com">
+                  support@purelyautomation.com
+                </a>
+              </div>
             </div>
-            <div className="flex w-full flex-col gap-3 sm:w-auto sm:flex-row">
-              <Link
-                href="/ads/app/campaigns/new"
-                className="inline-flex items-center justify-center rounded-2xl bg-brand-ink px-6 py-3 text-sm font-semibold text-white hover:opacity-95"
-              >
-                Create a campaign
-              </Link>
-              <Link
-                href="/ads/login"
-                className="inline-flex items-center justify-center rounded-2xl border border-zinc-200 bg-white px-6 py-3 text-sm font-semibold text-brand-ink hover:bg-zinc-50"
-              >
-                I already have an account
-              </Link>
+
+            <div>
+              <div className="text-sm font-semibold text-zinc-900">Directory</div>
+              <div className="mt-4 grid gap-2 text-sm">
+                <Link className="text-zinc-700 hover:text-zinc-900" href="/">Home</Link>
+                <Link className="text-zinc-700 hover:text-zinc-900" href="/portal">Portal</Link>
+                <Link className="text-zinc-700 hover:text-zinc-900" href="/ads/app">Ads Manager</Link>
+                <Link className="text-zinc-700 hover:text-zinc-900" href="/blogs">Blog</Link>
+              </div>
+            </div>
+
+            <div>
+              <div className="text-sm font-semibold text-zinc-900">Get started</div>
+              <div className="mt-2 text-sm text-zinc-600">Create a campaign in minutes.</div>
+              <div className="mt-5 flex flex-col gap-3">
+                <Link
+                  href="/ads/signup"
+                  className="inline-flex items-center justify-center rounded-2xl bg-brand-ink px-6 py-3 text-sm font-semibold text-white hover:opacity-95"
+                >
+                  Create advertiser account
+                </Link>
+                <Link
+                  href="/ads/login"
+                  className="inline-flex items-center justify-center rounded-2xl border border-zinc-200 bg-white px-6 py-3 text-sm font-semibold text-brand-ink hover:bg-zinc-50"
+                >
+                  Sign in
+                </Link>
+              </div>
             </div>
           </div>
-        </section>
+
+          <div className="mt-8 flex flex-wrap items-center justify-between gap-3 border-t border-zinc-200 pt-6 text-xs text-zinc-500">
+            <div>© {new Date().getFullYear()} Purely Automation</div>
+            <div>Portal Ads Manager</div>
+          </div>
+        </footer>
+      </div>
+
+      <div className="fixed inset-x-0 bottom-0 z-40 border-t border-zinc-200 bg-white/80 backdrop-blur">
+        <div className="mx-auto flex max-w-6xl flex-col items-start justify-between gap-3 px-6 py-4 sm:flex-row sm:items-center">
+          <div>
+            <div className="text-sm font-semibold text-zinc-900">Ready to launch your first campaign?</div>
+            <div className="mt-0.5 text-sm text-zinc-600">Create targeting and creative in a couple minutes.</div>
+          </div>
+          <div className="flex w-full flex-col gap-3 sm:w-auto sm:flex-row">
+            <Link
+              href="/ads/app/campaigns/new"
+              className="inline-flex items-center justify-center rounded-2xl bg-brand-ink px-6 py-3 text-sm font-semibold text-white hover:opacity-95"
+            >
+              Create a campaign
+            </Link>
+            <Link
+              href="/ads/app"
+              className="inline-flex items-center justify-center rounded-2xl border border-zinc-200 bg-white px-6 py-3 text-sm font-semibold text-brand-ink hover:bg-zinc-50"
+            >
+              Open Ads Manager
+            </Link>
+          </div>
+        </div>
       </div>
     </main>
   );
