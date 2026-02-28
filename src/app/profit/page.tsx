@@ -58,6 +58,26 @@ const DEFAULT_VALUE_USD_PER_ENABLED_CUSTOMER: ModuleUsdMap = {
   crm: 150,
 };
 
+type RoiServiceDefaults = {
+  creditsPerMonth: number;
+  extraRevenueUsdPerMonth: number;
+  hoursSavedPerMonth: number;
+};
+
+const ROI_DEFAULTS_BY_SERVICE: Partial<Record<PortalModuleKey, RoiServiceDefaults>> = {
+  // These are intentionally rough heuristics used for the visualizer.
+  blog: { creditsPerMonth: 20, extraRevenueUsdPerMonth: 300, hoursSavedPerMonth: 1 },
+  booking: { creditsPerMonth: 25, extraRevenueUsdPerMonth: 600, hoursSavedPerMonth: 2 },
+  automations: { creditsPerMonth: 50, extraRevenueUsdPerMonth: 250, hoursSavedPerMonth: 2 },
+  reviews: { creditsPerMonth: 10, extraRevenueUsdPerMonth: 450, hoursSavedPerMonth: 1 },
+  newsletter: { creditsPerMonth: 30, extraRevenueUsdPerMonth: 200, hoursSavedPerMonth: 1 },
+  nurture: { creditsPerMonth: 40, extraRevenueUsdPerMonth: 350, hoursSavedPerMonth: 1.5 },
+  aiReceptionist: { creditsPerMonth: 250, extraRevenueUsdPerMonth: 1200, hoursSavedPerMonth: 6 },
+  leadScraping: { creditsPerMonth: 180, extraRevenueUsdPerMonth: 1500, hoursSavedPerMonth: 2.5 },
+  leadOutbound: { creditsPerMonth: 220, extraRevenueUsdPerMonth: 2000, hoursSavedPerMonth: 3 },
+  crm: { creditsPerMonth: 10, extraRevenueUsdPerMonth: 150, hoursSavedPerMonth: 1 },
+};
+
 type ServiceMixPresetKey = "Lean" | "Standard" | "Aggressive" | "All-in";
 
 const SERVICE_MIX_PRESETS: Record<
@@ -466,6 +486,7 @@ export default function ProfitVisualizationDashboardPage() {
   const [hoverMonthIndex, setHoverMonthIndex] = useState<number | null>(null);
 
   const [roiPlan, setRoiPlan] = useState<"membership" | "credits">("membership");
+  const [roiUseEstimates, setRoiUseEstimates] = useState(true);
   const [roiEnabledModules, setRoiEnabledModules] = useState<Partial<Record<PortalModuleKey, boolean>>>({});
   const [roiCreditsPerMonth, setRoiCreditsPerMonth] = useState<number>(120);
   const [roiExtraRevenueUsdPerMonth, setRoiExtraRevenueUsdPerMonth] = useState<number>(600);
@@ -585,8 +606,39 @@ export default function ProfitVisualizationDashboardPage() {
     return { scenariosPct, totals };
   }, [appliedMonths, appliedMrr, keep]);
 
-  const singleCustomerRoi = useMemo(() => {
+  const roiEstimates = useMemo(() => {
     const enabledKeys = moduleKeys.filter((k) => k !== "crm" && roiEnabledModules?.[k]);
+
+    let creditsPerMonth = 0;
+    let extraRevenueUsdPerMonth = 0;
+    let hoursSavedPerMonth = 0;
+
+    const breakdown = enabledKeys
+      .map((k) => {
+        const d = ROI_DEFAULTS_BY_SERVICE[k];
+        if (!d) return null;
+        creditsPerMonth += Math.max(0, d.creditsPerMonth);
+        extraRevenueUsdPerMonth += Math.max(0, d.extraRevenueUsdPerMonth);
+        hoursSavedPerMonth += Math.max(0, d.hoursSavedPerMonth);
+        return {
+          key: k,
+          title: PORTAL_MODULE_CATALOG[k]?.title ?? k,
+          ...d,
+        };
+      })
+      .filter(Boolean) as Array<{ key: PortalModuleKey; title: string } & RoiServiceDefaults>;
+
+    return {
+      enabledKeys,
+      creditsPerMonth: Math.round(creditsPerMonth),
+      extraRevenueUsdPerMonth: Math.round(extraRevenueUsdPerMonth),
+      hoursSavedPerMonth: Math.round(hoursSavedPerMonth * 10) / 10,
+      breakdown,
+    };
+  }, [moduleKeys, roiEnabledModules]);
+
+  const singleCustomerRoi = useMemo(() => {
+    const enabledKeys = roiEstimates.enabledKeys;
 
     const moduleCostUsd =
       roiPlan === "membership"
@@ -599,20 +651,17 @@ export default function ProfitVisualizationDashboardPage() {
         : 0;
 
     const usdPerCredit = roiPlan === "membership" ? usdPerCreditSubscription : usdPerCreditCreditsOnly;
-    const creditsCostUsd = Math.max(0, roiCreditsPerMonth || 0) * Math.max(0, usdPerCredit || 0);
+
+    const creditsUsed = roiUseEstimates ? roiEstimates.creditsPerMonth : Math.max(0, roiCreditsPerMonth || 0);
+    const revenueLift = roiUseEstimates ? roiEstimates.extraRevenueUsdPerMonth : Math.max(0, roiExtraRevenueUsdPerMonth || 0);
+    const hoursSaved = roiUseEstimates ? roiEstimates.hoursSavedPerMonth : Math.max(0, roiHoursSavedPerMonth || 0);
+
+    const creditsCostUsd = creditsUsed * Math.max(0, usdPerCredit || 0);
     const costUsd = moduleCostUsd + creditsCostUsd;
 
-    const moduleValueUsd = sum(
-      enabledKeys.map((k) => {
-        const v = valueUsdPerEnabledCustomer[k] ?? 0;
-        return Math.max(0, v);
-      }),
-    );
+    const timeValue = hoursSaved * Math.max(0, roiHourlyRateUsd || 0);
 
-    const extraRevenue = Math.max(0, roiExtraRevenueUsdPerMonth || 0);
-    const timeValue = Math.max(0, roiHoursSavedPerMonth || 0) * Math.max(0, roiHourlyRateUsd || 0);
-
-    const valueUsd = moduleValueUsd + extraRevenue + timeValue;
+    const valueUsd = revenueLift + timeValue;
     const netUsd = valueUsd - costUsd;
 
     const roiMultiple = costUsd > 0 ? valueUsd / costUsd : 0;
@@ -623,10 +672,11 @@ export default function ProfitVisualizationDashboardPage() {
       enabledKeys,
       moduleCostUsd,
       creditsCostUsd,
+      creditsUsed,
       costUsd,
-      moduleValueUsd,
-      extraRevenue,
-      timeValue,
+      revenueLift,
+      hoursSaved,
+      timeValueUsd: timeValue,
       valueUsd,
       netUsd,
       roiMultiple,
@@ -634,16 +684,15 @@ export default function ProfitVisualizationDashboardPage() {
       paybackMonths,
     };
   }, [
-    moduleKeys,
-    roiEnabledModules,
     roiPlan,
+    roiUseEstimates,
+    roiEstimates,
     roiCreditsPerMonth,
     roiExtraRevenueUsdPerMonth,
     roiHoursSavedPerMonth,
     roiHourlyRateUsd,
     usdPerCreditSubscription,
     usdPerCreditCreditsOnly,
-    valueUsdPerEnabledCustomer,
   ]);
 
   const serviceModel = useMemo(() => {
@@ -1113,20 +1162,82 @@ export default function ProfitVisualizationDashboardPage() {
                     </button>
                   </div>
 
+                  <div className="mt-3 rounded-2xl border border-zinc-200 bg-white px-3 py-2">
+                    <div className="flex items-center justify-between gap-3">
+                      <div className="text-xs font-semibold text-zinc-900">Estimates</div>
+                      <div className="flex items-center gap-1">
+                        <button
+                          type="button"
+                          onClick={() => setRoiUseEstimates(true)}
+                          className={classNames(
+                            "rounded-xl px-2 py-1 text-xs font-semibold transition",
+                            roiUseEstimates ? "bg-[color:var(--color-brand-ink)] text-white" : "bg-zinc-50 text-zinc-700 hover:bg-zinc-100",
+                          )}
+                        >
+                          Auto
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setRoiUseEstimates(false);
+                            setRoiCreditsPerMonth(roiEstimates.creditsPerMonth);
+                            setRoiExtraRevenueUsdPerMonth(roiEstimates.extraRevenueUsdPerMonth);
+                            setRoiHoursSavedPerMonth(Math.round(roiEstimates.hoursSavedPerMonth));
+                          }}
+                          className={classNames(
+                            "rounded-xl px-2 py-1 text-xs font-semibold transition",
+                            !roiUseEstimates ? "bg-[color:var(--color-brand-ink)] text-white" : "bg-zinc-50 text-zinc-700 hover:bg-zinc-100",
+                          )}
+                        >
+                          Custom
+                        </button>
+                      </div>
+                    </div>
+                    <div className="mt-1 text-[11px] text-zinc-600">
+                      {roiUseEstimates
+                        ? "Auto uses rough averages per selected service."
+                        : "Custom lets you override the averages."}
+                    </div>
+                  </div>
+
                   <div className="mt-4 grid gap-3">
                     <label className="block">
                       <div className="text-xs font-semibold uppercase tracking-wide text-zinc-500">Credits used / month</div>
                       <input
                         type="number"
-                        value={roiCreditsPerMonth}
+                        value={roiUseEstimates ? roiEstimates.creditsPerMonth : roiCreditsPerMonth}
                         onChange={(e) => setRoiCreditsPerMonth(toInt(e.target.value, 0))}
-                        className="mt-1 w-full rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-sm"
+                        disabled={roiUseEstimates}
+                        className={classNames(
+                          "mt-1 w-full rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-sm",
+                          roiUseEstimates ? "opacity-70" : "",
+                        )}
                         min={0}
                       />
                       <div className="mt-1 text-[11px] text-zinc-600">
                         Charged at {formatKeep(roiPlan === "membership" ? usdPerCreditSubscription : usdPerCreditCreditsOnly)} per credit.
                       </div>
                     </label>
+
+                    {roiUseEstimates && roiEstimates.breakdown.length ? (
+                      <div className="rounded-2xl bg-white px-3 py-2 text-[11px] text-zinc-700">
+                        <div className="font-semibold text-zinc-900">What’s driving the estimate</div>
+                        <div className="mt-1 text-zinc-600">(credits, revenue, hours saved per month)</div>
+                        <div className="mt-2 space-y-1">
+                          {roiEstimates.breakdown.slice(0, 6).map((b) => (
+                            <div key={b.key} className="flex items-center justify-between gap-3">
+                              <div className="truncate font-semibold text-zinc-900">{b.title}</div>
+                              <div className="shrink-0 text-zinc-700">
+                                {Math.round(b.creditsPerMonth)}c • {formatMoneyCompact(b.extraRevenueUsdPerMonth)} • {b.hoursSavedPerMonth}h
+                              </div>
+                            </div>
+                          ))}
+                          {roiEstimates.breakdown.length > 6 ? (
+                            <div className="text-zinc-500">+ {roiEstimates.breakdown.length - 6} more</div>
+                          ) : null}
+                        </div>
+                      </div>
+                    ) : null}
                   </div>
                 </div>
 
@@ -1187,12 +1298,16 @@ export default function ProfitVisualizationDashboardPage() {
 
                   <div className="mt-4 grid gap-3 sm:grid-cols-3">
                     <label className="block">
-                      <div className="text-xs font-semibold uppercase tracking-wide text-zinc-500">Extra revenue / month</div>
+                      <div className="text-xs font-semibold uppercase tracking-wide text-zinc-500">Revenue lift / month</div>
                       <input
                         type="number"
-                        value={roiExtraRevenueUsdPerMonth}
+                        value={roiUseEstimates ? roiEstimates.extraRevenueUsdPerMonth : roiExtraRevenueUsdPerMonth}
                         onChange={(e) => setRoiExtraRevenueUsdPerMonth(toInt(e.target.value, 0))}
-                        className="mt-1 w-full rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-sm"
+                        disabled={roiUseEstimates}
+                        className={classNames(
+                          "mt-1 w-full rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-sm",
+                          roiUseEstimates ? "opacity-70" : "",
+                        )}
                         min={0}
                       />
                     </label>
@@ -1200,14 +1315,18 @@ export default function ProfitVisualizationDashboardPage() {
                       <div className="text-xs font-semibold uppercase tracking-wide text-zinc-500">Hours saved / month</div>
                       <input
                         type="number"
-                        value={roiHoursSavedPerMonth}
+                        value={roiUseEstimates ? roiEstimates.hoursSavedPerMonth : roiHoursSavedPerMonth}
                         onChange={(e) => setRoiHoursSavedPerMonth(toInt(e.target.value, 0))}
-                        className="mt-1 w-full rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-sm"
+                        disabled={roiUseEstimates}
+                        className={classNames(
+                          "mt-1 w-full rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-sm",
+                          roiUseEstimates ? "opacity-70" : "",
+                        )}
                         min={0}
                       />
                     </label>
                     <label className="block">
-                      <div className="text-xs font-semibold uppercase tracking-wide text-zinc-500">Hourly rate</div>
+                      <div className="text-xs font-semibold uppercase tracking-wide text-zinc-500">Time value ($/hour)</div>
                       <input
                         type="number"
                         value={roiHourlyRateUsd}
@@ -1215,6 +1334,9 @@ export default function ProfitVisualizationDashboardPage() {
                         className="mt-1 w-full rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-sm"
                         min={0}
                       />
+                      <div className="mt-1 text-[11px] text-zinc-600">
+                        What an hour of owner/staff time is worth (wage + overhead + opportunity cost).
+                      </div>
                     </label>
                   </div>
 
@@ -1223,14 +1345,14 @@ export default function ProfitVisualizationDashboardPage() {
                       <div className="text-xs font-semibold uppercase tracking-wide text-zinc-500">Cost / mo</div>
                       <div className="mt-1 text-lg font-bold text-zinc-900">{formatMoneyCompact(singleCustomerRoi.costUsd)}</div>
                       <div className="mt-1 text-[11px] text-zinc-600">
-                        {formatMoneyCompact(singleCustomerRoi.moduleCostUsd)} modules + {formatMoneyCompact(singleCustomerRoi.creditsCostUsd)} credits
+                        {formatMoneyCompact(singleCustomerRoi.moduleCostUsd)} modules + {formatMoneyCompact(singleCustomerRoi.creditsCostUsd)} credits ({Math.round(singleCustomerRoi.creditsUsed)}c)
                       </div>
                     </div>
                     <div className="rounded-2xl bg-white px-4 py-3">
                       <div className="text-xs font-semibold uppercase tracking-wide text-zinc-500">Value / mo</div>
                       <div className="mt-1 text-lg font-bold text-zinc-900">{formatMoneyCompact(singleCustomerRoi.valueUsd)}</div>
                       <div className="mt-1 text-[11px] text-zinc-600">
-                        {formatMoneyCompact(singleCustomerRoi.moduleValueUsd)} services + {formatMoneyCompact(singleCustomerRoi.extraRevenue + singleCustomerRoi.timeValue)} manual
+                        {formatMoneyCompact(singleCustomerRoi.revenueLift)} revenue + {formatMoneyCompact(singleCustomerRoi.timeValueUsd)} time value
                       </div>
                     </div>
                     <div className="rounded-2xl bg-white px-4 py-3">
