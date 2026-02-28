@@ -64,6 +64,12 @@ type RoiServiceDefaults = {
   hoursSavedPerMonth: number;
 };
 
+type RoiServiceRationale = {
+  credits: string[];
+  revenue: string[];
+  hours: string[];
+};
+
 const ROI_DEFAULTS_BY_SERVICE: Partial<Record<PortalModuleKey, RoiServiceDefaults>> = {
   // These are intentionally rough heuristics used for the visualizer.
   blog: { creditsPerMonth: 20, extraRevenueUsdPerMonth: 300, hoursSavedPerMonth: 1 },
@@ -76,6 +82,134 @@ const ROI_DEFAULTS_BY_SERVICE: Partial<Record<PortalModuleKey, RoiServiceDefault
   leadScraping: { creditsPerMonth: 180, extraRevenueUsdPerMonth: 1500, hoursSavedPerMonth: 2.5 },
   leadOutbound: { creditsPerMonth: 220, extraRevenueUsdPerMonth: 2000, hoursSavedPerMonth: 3 },
   crm: { creditsPerMonth: 10, extraRevenueUsdPerMonth: 150, hoursSavedPerMonth: 1 },
+};
+
+const ROI_RATIONALE_BY_SERVICE: Partial<Record<PortalModuleKey, RoiServiceRationale>> = {
+  blog: {
+    credits: [
+      "AI drafts + edits multiple posts/month (outlines, writing, images/meta) and occasionally rewrites/refreshes older pages.",
+      "Credits here are a proxy for content generation + optimization work that would otherwise be done by staff or an agency.",
+    ],
+    revenue: [
+      "The $300/mo lift assumes content creates a small but steady increase in inbound leads (local SEO + long-tail queries).",
+      "A conservative mental model: even 1 additional booked job every 1–3 months (depending on AOV) can justify a few hundred dollars of incremental revenue.",
+    ],
+    hours: [
+      "Hours saved comes from eliminating writing, formatting, internal reviews, and posting steps for the owner/staff.",
+    ],
+  },
+  booking: {
+    credits: [
+      "Credits cover automated messages (confirmations/reminders) and any AI text used to customize scheduling flows.",
+      "Booking systems tend to generate small but frequent credit events (reminders, reschedules, follow-ups).",
+    ],
+    revenue: [
+      "Revenue lift comes from fewer missed leads (after-hours capture) and fewer no-shows via reminders.",
+      "The $600/mo assumption is roughly: a couple of saved appointments or one extra closed job per month.",
+    ],
+    hours: [
+      "Time saved is mainly scheduling back-and-forth (calls/texts), reschedules, and sending reminders manually.",
+    ],
+  },
+  automations: {
+    credits: [
+      "Automations spend credits on message generation + personalization across multiple touchpoints (SMS/email) and trigger-based workflows.",
+      "They look ‘credit-heavy’ because they run every day across many small events (new lead, missed call, form fill, no-response follow-up).",
+    ],
+    revenue: [
+      "Revenue lift is modeled as ‘leads that would have gone cold now get an extra touch’ → slightly higher appointment/close rate.",
+      "The $250/mo number is intentionally modest because it assumes only a small conversion bump, not a full pipeline overhaul.",
+    ],
+    hours: [
+      "Hours saved is fewer manual follow-ups, fewer ‘did we respond?’ checks, and fewer copy/paste messages.",
+    ],
+  },
+  reviews: {
+    credits: [
+      "Credits are mostly review request + reminder messages and optional AI replies/triage.",
+    ],
+    revenue: [
+      "Revenue lift is driven by trust: better review velocity and response rates tend to increase conversion from existing website/GBP traffic.",
+      "The $450/mo assumption is a conservative conversion-rate improvement on already-existing lead volume.",
+    ],
+    hours: [
+      "Time saved is not chasing reviews manually and not writing/approving replies one-by-one.",
+    ],
+  },
+  newsletter: {
+    credits: [
+      "Credits represent ongoing content drafting + segmentation/personalization work (subject lines, sections, CTAs).",
+    ],
+    revenue: [
+      "Revenue lift assumes occasional reactivation and repeat business from a warmed list.",
+      "At $200/mo, the model is ‘a small number of repeat purchases spread across the month’.",
+    ],
+    hours: [
+      "Hours saved is the owner/staff not having to plan, write, format, and schedule a newsletter.",
+    ],
+  },
+  nurture: {
+    credits: [
+      "Nurture sequences run multiple messages per lead across days/weeks; each message can incur credits for generation/personalization.",
+    ],
+    revenue: [
+      "Revenue lift assumes improved close rate from consistent follow-up and better ‘speed to lead’.",
+      "$350/mo is modeled as a small uplift across the funnel rather than a single big win.",
+    ],
+    hours: [
+      "Hours saved is fewer manual follow-ups and less pipeline babysitting.",
+    ],
+  },
+  aiReceptionist: {
+    credits: [
+      "This is intentionally one of the most credit-intensive services: calls generate transcription + reasoning + summaries, and can include tool calls (booking, FAQs, routing).",
+      "A rough mental model: a few calls/day × minutes/call adds up quickly even when individual calls are cheap.",
+    ],
+    revenue: [
+      "Revenue lift is primarily ‘captured opportunities’: answered after-hours, fewer missed calls, and better lead qualification/booking.",
+      "$1,200/mo is conservative if the business has meaningful inbound calls; it can be as simple as 1–3 extra booked jobs/month depending on AOV.",
+    ],
+    hours: [
+      "Hours saved is time not spent answering repetitive calls, collecting details, and writing summaries.",
+    ],
+  },
+  leadScraping: {
+    credits: [
+      "Credits represent enrichment work: collecting lead lists, cleaning/normalizing, deduping, and generating notes/segments.",
+      "It’s ‘credit heavy’ because it processes many records even if only a fraction convert.",
+    ],
+    revenue: [
+      "Revenue lift assumes a small number of additional qualified leads per month and a conservative close rate.",
+      "$1,500/mo can be modeled as: a handful of incremental appointments with 10–30% close rate at typical SMB ticket sizes.",
+    ],
+    hours: [
+      "Hours saved is not manually building lists, copying data, and researching prospects.",
+    ],
+  },
+  leadOutbound: {
+    credits: [
+      "Outbound spends credits on personalization at scale (first lines, offers, follow-up sequences) and reply handling/triage.",
+      "If it runs weekly with multiple touches per prospect, credits accumulate fast by design.",
+    ],
+    revenue: [
+      "Revenue lift assumes incremental pipeline created from outbound (new conversations → booked appointments → closes).",
+      "$2,000/mo is a ‘small pipeline’ assumption: a few extra deals per quarter or 1 extra deal/month depending on ticket size.",
+    ],
+    hours: [
+      "Hours saved is prospecting + message writing + follow-ups that would otherwise be manual.",
+    ],
+  },
+  crm: {
+    credits: [
+      "Credits represent AI help for notes, summaries, and occasional data cleanup/enrichment.",
+    ],
+    revenue: [
+      "Revenue lift is modeled as fewer dropped balls (better tracking, reminders, follow-ups), typically a small uplift.",
+    ],
+    hours: [
+      "Hours saved is less admin time logging notes and updating records.",
+    ],
+  },
 };
 
 type ServiceMixPresetKey = "Lean" | "Standard" | "Aggressive" | "All-in";
@@ -1223,7 +1357,7 @@ export default function ProfitVisualizationDashboardPage() {
                       <div className="rounded-2xl bg-white px-3 py-2 text-[11px] text-zinc-700">
                         <div className="font-semibold text-zinc-900">What’s driving the estimate</div>
                         <div className="mt-1 text-zinc-600">
-                          Auto totals are the sum of per-service heuristics below: credits used/mo, incremental revenue/mo, and hours saved/mo.
+                          Auto totals are a simple funnel model: per-service defaults for credits used/mo, incremental revenue/mo, and hours saved/mo.
                         </div>
                         <div className="mt-2 space-y-1">
                           {roiEstimates.breakdown.slice(0, 6).map((b) => (
@@ -1459,6 +1593,67 @@ export default function ProfitVisualizationDashboardPage() {
                     <div className="mt-3 text-[11px] text-zinc-600">
                       Value/mo = revenue lift + time value. Cost/mo = modules (membership only) + credits used. Defaults come from rough heuristics per service (ROI_DEFAULTS_BY_SERVICE) and should be tuned per niche.
                     </div>
+
+                    <details className="mt-4 rounded-2xl border border-zinc-200 bg-white p-4">
+                      <summary className="cursor-pointer text-sm font-semibold text-zinc-900">
+                        Why these defaults? (the reasoning)
+                      </summary>
+                      <div className="mt-2 text-[11px] text-zinc-600">
+                        These are not pulled from your live usage — they’re intentionally conservative starter assumptions. The mental model is:
+                        credits ≈ how often the service runs (messages, content, calls, enrichment), revenue lift ≈ small conversion/coverage gains,
+                        and hours saved ≈ removing repetitive admin work. Tune them after you observe real call volume, lead volume, and AOV.
+                      </div>
+
+                      {roiEstimates.breakdown.length ? (
+                        <div className="mt-3 grid gap-3 md:grid-cols-2">
+                          {roiEstimates.breakdown.map((b) => {
+                            const r = ROI_RATIONALE_BY_SERVICE[b.key];
+                            if (!r) return null;
+                            return (
+                              <div key={b.key} className="rounded-2xl bg-zinc-50 p-3">
+                                <div className="flex items-start justify-between gap-3">
+                                  <div className="min-w-0">
+                                    <div className="truncate text-sm font-semibold text-zinc-900">{b.title}</div>
+                                    <div className="mt-0.5 text-[11px] text-zinc-600">
+                                      Defaults: {Math.round(b.creditsPerMonth)}c • {formatMoneyCompact(b.extraRevenueUsdPerMonth)} • {b.hoursSavedPerMonth}h
+                                    </div>
+                                  </div>
+                                </div>
+
+                                <div className="mt-2 space-y-2 text-[11px]">
+                                  <div>
+                                    <div className="font-semibold text-zinc-900">Why credits</div>
+                                    <ul className="mt-1 list-disc space-y-1 pl-4 text-zinc-700">
+                                      {r.credits.map((t, i) => (
+                                        <li key={i}>{t}</li>
+                                      ))}
+                                    </ul>
+                                  </div>
+                                  <div>
+                                    <div className="font-semibold text-zinc-900">Why revenue lift</div>
+                                    <ul className="mt-1 list-disc space-y-1 pl-4 text-zinc-700">
+                                      {r.revenue.map((t, i) => (
+                                        <li key={i}>{t}</li>
+                                      ))}
+                                    </ul>
+                                  </div>
+                                  <div>
+                                    <div className="font-semibold text-zinc-900">Why hours saved</div>
+                                    <ul className="mt-1 list-disc space-y-1 pl-4 text-zinc-700">
+                                      {r.hours.map((t, i) => (
+                                        <li key={i}>{t}</li>
+                                      ))}
+                                    </ul>
+                                  </div>
+                                </div>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      ) : (
+                        <div className="mt-3 text-[11px] text-zinc-600">Select services above to see the reasoning per service.</div>
+                      )}
+                    </details>
                   </div>
                 </div>
               </div>
