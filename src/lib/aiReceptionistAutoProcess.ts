@@ -1,6 +1,8 @@
 import { generateText, transcribeAudio } from "@/lib/ai";
 import { findPortalContactByPhone } from "@/lib/portalContacts";
 import { getAiReceptionistServiceData, upsertAiReceptionistCallEvent } from "@/lib/aiReceptionist";
+import { prisma } from "@/lib/db";
+import { fetchElevenLabsConversationTranscript } from "@/lib/elevenLabsConvai";
 import { getOwnerTwilioSmsConfig } from "@/lib/portalTwilio";
 import { normalizePhoneStrict } from "@/lib/phone";
 import { getAppBaseUrl, listPortalAccountRecipientContacts, tryNotifyPortalAccountUsers } from "@/lib/portalNotifications";
@@ -10,6 +12,106 @@ function safeTranscript(raw: unknown) {
   const s = typeof raw === "string" ? raw.trim() : "";
   if (!s) return "";
   return s.slice(0, 20000);
+}
+
+const PROFILE_EXTRAS_SERVICE_SLUG = "profile";
+
+async function getProfileVoiceAgentApiKey(ownerId: string): Promise<string | null> {
+  const row = await prisma.portalServiceSetup.findUnique({
+    where: { ownerId_serviceSlug: { ownerId, serviceSlug: PROFILE_EXTRAS_SERVICE_SLUG } },
+    select: { dataJson: true },
+  });
+
+  const rec =
+    row?.dataJson && typeof row.dataJson === "object" && !Array.isArray(row.dataJson)
+      ? (row.dataJson as Record<string, unknown>)
+      : null;
+
+  const raw = rec?.voiceAgentApiKey;
+  const key = typeof raw === "string" ? raw.trim().slice(0, 400) : "";
+  return key || null;
+}
+
+function normalizeRoleLabel(raw: string): string {
+  const r = String(raw || "").trim().toLowerCase();
+  if (!r) return "";
+  if (r === "agent" || r === "assistant" || r === "ai" || r === "bot" || r === "system") return "Agent";
+  if (r === "recipient" || r === "user" || r === "caller" || r === "human") return "Recipient";
+  if (r.includes("agent")) return "Agent";
+  if (r.includes("user") || r.includes("caller") || r.includes("recipient")) return "Recipient";
+  return raw.trim().slice(0, 40);
+}
+
+function normalizeSpeakerTranscript(raw: string): string {
+  const text = String(raw || "").trim();
+  if (!text) return "";
+
+  const lines = text
+    .split(/\r?\n/)
+    .map((l) => l.trim())
+    .filter(Boolean);
+
+  const out: string[] = [];
+  for (const line of lines) {
+    const m = line.match(/^([^:]{1,24})\s*:\s*(.+)$/);
+    if (!m) {
+      out.push(line);
+      continue;
+    }
+
+    const role = normalizeRoleLabel(m[1] || "");
+    const msg = String(m[2] || "").trim();
+    if (!msg) continue;
+    out.push(role ? `${role}: ${msg}` : msg);
+  }
+
+  return out.join("\n").trim().slice(0, 25000);
+}
+
+function chunkText(s: string, maxChars: number): string[] {
+  const max = Math.max(80, Math.floor(maxChars || 0));
+  const text = String(s || "").trim();
+  if (!text) return [];
+
+  const paras = text
+    .split(/\n{2,}/)
+    .map((p) => p.trim())
+    .filter(Boolean);
+
+  const chunks: string[] = [];
+  let cur = "";
+
+  const push = () => {
+    const t = cur.trim();
+    if (t) chunks.push(t);
+    cur = "";
+  };
+
+  for (const p of paras.length ? paras : [text]) {
+    if (!cur) {
+      cur = p;
+      if (cur.length >= max) {
+        chunks.push(cur.slice(0, max));
+        cur = "";
+      }
+      continue;
+    }
+
+    if ((cur + "\n\n" + p).length <= max) {
+      cur = cur + "\n\n" + p;
+      continue;
+    }
+
+    push();
+    cur = p;
+    if (cur.length >= max) {
+      chunks.push(cur.slice(0, max));
+      cur = "";
+    }
+  }
+
+  push();
+  return chunks;
 }
 
 function safeOneLine(raw: unknown, max = 220) {
@@ -127,6 +229,25 @@ export async function autoProcessAiReceptionistCall(opts: {
   // Step 1: obtain transcript without relying on a signed-in browser.
   let transcript = safeTranscript(event?.transcript);
 
+  // Prefer ElevenLabs conversation transcript when possible (speaker formatted).
+  const conversationId = typeof (event as any)?.conversationId === "string" ? String((event as any).conversationId).trim() : "";
+  if (!transcript && conversationId) {
+    const profileKey = (await getProfileVoiceAgentApiKey(ownerId).catch(() => null)) || "";
+    const legacyKey = typeof data?.settings?.voiceAgentApiKey === "string" ? String(data.settings.voiceAgentApiKey).trim() : "";
+    const voiceApiKey = profileKey.trim() || legacyKey.trim();
+
+    if (voiceApiKey) {
+      const conv = await fetchElevenLabsConversationTranscript({ apiKey: voiceApiKey, conversationId }).catch((e) => ({
+        ok: false as const,
+        error: e instanceof Error ? e.message : String(e ?? "fetch failed"),
+      }));
+
+      if (conv.ok && conv.transcript.trim()) {
+        transcript = safeTranscript(normalizeSpeakerTranscript(conv.transcript));
+      }
+    }
+  }
+
   if (!transcript && recordingSid) {
     const twilioTranscript = await fetchTwilioTranscriptTextForRecording({ ownerId, recordingSid }).catch(() => null);
     transcript = safeTranscript(twilioTranscript);
@@ -242,6 +363,79 @@ export async function autoProcessAiReceptionistCall(opts: {
     }
   }
 
+  // SMS transcript (split into chunks): send full transcript + notes after completion.
+  if (finalTranscript && !ev2?.smsTranscriptSentAtIso) {
+    const destinations = contacts.map((c) => c.phoneE164).filter(Boolean) as string[];
+
+    if (!destinations.length) {
+      await upsertAiReceptionistCallEvent(ownerId, {
+        id: `call_${callSid}`,
+        callSid,
+        from: fromE164 || ev2?.from || "unknown",
+        to: toE164 ?? ev2?.to ?? null,
+        createdAtIso: typeof ev2?.createdAtIso === "string" ? ev2.createdAtIso : new Date().toISOString(),
+        status: "COMPLETED",
+        smsTranscriptSendError: "No recipient profile phones configured",
+      } as any);
+    } else {
+      const header = [
+        `AI receptionist transcript${contactName ? `: ${contactName}` : ""}`,
+        fromE164 ? `From: ${fromE164}` : null,
+        toE164 ? `To: ${toE164}` : null,
+        finalNotes ? `Notes: ${finalNotes}` : null,
+        portalLink,
+      ]
+        .filter(Boolean)
+        .join("\n");
+
+      const chunks = chunkText(finalTranscript, 820);
+      const messages = [header, ...chunks.map((c, i) => `Transcript ${i + 1}/${chunks.length}:\n${c}`)];
+
+      const results = await Promise.all(
+        destinations.map(async (to) => {
+          const sends = await Promise.all(
+            messages.map((body) =>
+              sendTwilioEnvSms({
+                to,
+                body: String(body || "").slice(0, 900),
+                fromNumberEnvKeys: ["TWILIO_FROM_NUMBER", "TWILIO_MARKETING_FROM_NUMBER"],
+              }),
+            ),
+          );
+          const anyOk = sends.some((r) => r.ok);
+          const firstBad = sends.find((r) => !r.ok);
+          const firstErr = firstBad && !firstBad.ok ? firstBad.reason : "";
+          return { to, anyOk, firstErr };
+        }),
+      );
+
+      const anyOk = results.some((r) => r.anyOk);
+      if (anyOk) {
+        await upsertAiReceptionistCallEvent(ownerId, {
+          id: `call_${callSid}`,
+          callSid,
+          from: fromE164 || ev2?.from || "unknown",
+          to: toE164 ?? ev2?.to ?? null,
+          createdAtIso: typeof ev2?.createdAtIso === "string" ? ev2.createdAtIso : new Date().toISOString(),
+          status: "COMPLETED",
+          smsTranscriptSentAtIso: new Date().toISOString(),
+          smsTranscriptSendError: "",
+        } as any);
+      } else {
+        const reason = safeOneLine(results.find((r) => r.firstErr)?.firstErr || "Unable to send SMS transcript", 280);
+        await upsertAiReceptionistCallEvent(ownerId, {
+          id: `call_${callSid}`,
+          callSid,
+          from: fromE164 || ev2?.from || "unknown",
+          to: toE164 ?? ev2?.to ?? null,
+          createdAtIso: typeof ev2?.createdAtIso === "string" ? ev2.createdAtIso : new Date().toISOString(),
+          status: "COMPLETED",
+          smsTranscriptSendError: reason,
+        } as any);
+      }
+    }
+  }
+
   if (finalTranscript && !ev2?.emailTranscriptSentAtIso) {
     const recordingUrl = finalRecordingSid
       ? `${baseUrl}/api/portal/ai-receptionist/recordings/${encodeURIComponent(finalRecordingSid)}`
@@ -280,6 +474,19 @@ export async function autoProcessAiReceptionistCall(opts: {
         createdAtIso: typeof ev2?.createdAtIso === "string" ? ev2.createdAtIso : new Date().toISOString(),
         status: "COMPLETED",
         emailTranscriptSentAtIso: new Date().toISOString(),
+        emailTranscriptSendError: "",
+      } as any);
+    } else {
+      const reason = safeOneLine(res.reason || "Email send failed", 380);
+      console.error("AI receptionist: transcript email failed", { ownerId, callSid, reason });
+      await upsertAiReceptionistCallEvent(ownerId, {
+        id: `call_${callSid}`,
+        callSid,
+        from: fromE164 || ev2?.from || "unknown",
+        to: toE164 ?? ev2?.to ?? null,
+        createdAtIso: typeof ev2?.createdAtIso === "string" ? ev2.createdAtIso : new Date().toISOString(),
+        status: "COMPLETED",
+        emailTranscriptSendError: reason,
       } as any);
     }
   }

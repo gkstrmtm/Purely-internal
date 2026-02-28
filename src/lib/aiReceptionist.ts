@@ -71,8 +71,13 @@ export type AiReceptionistCallEvent = {
 
   // Notification guards (Twilio callbacks may be retried).
   smsNotesSentAtIso?: string;
+  smsTranscriptSentAtIso?: string;
   emailTranscriptSentAtIso?: string;
   emailRecordingSentAtIso?: string;
+
+  // Last-known notification errors (useful for debugging Postmark/env issues).
+  smsTranscriptSendError?: string;
+  emailTranscriptSendError?: string;
 };
 
 export type AiReceptionistServiceData = {
@@ -228,8 +233,12 @@ function parseServiceData(raw: unknown): AiReceptionistServiceData {
           const creditsChargeAttempted = typeof (r as any).creditsChargeAttempted === "boolean" ? (r as any).creditsChargeAttempted : undefined;
 
           const smsNotesSentAtIso = typeof (r as any).smsNotesSentAtIso === "string" ? String((r as any).smsNotesSentAtIso).trim() : "";
+          const smsTranscriptSentAtIso = typeof (r as any).smsTranscriptSentAtIso === "string" ? String((r as any).smsTranscriptSentAtIso).trim() : "";
           const emailTranscriptSentAtIso = typeof (r as any).emailTranscriptSentAtIso === "string" ? String((r as any).emailTranscriptSentAtIso).trim() : "";
           const emailRecordingSentAtIso = typeof (r as any).emailRecordingSentAtIso === "string" ? String((r as any).emailRecordingSentAtIso).trim() : "";
+
+          const smsTranscriptSendError = typeof (r as any).smsTranscriptSendError === "string" ? String((r as any).smsTranscriptSendError).trim() : "";
+          const emailTranscriptSendError = typeof (r as any).emailTranscriptSendError === "string" ? String((r as any).emailTranscriptSendError).trim() : "";
 
           return [
             {
@@ -252,8 +261,11 @@ function parseServiceData(raw: unknown): AiReceptionistServiceData {
               ...(typeof creditsChargedPartial === "boolean" ? { creditsChargedPartial } : {}),
               ...(typeof creditsChargeAttempted === "boolean" ? { creditsChargeAttempted } : {}),
               ...(smsNotesSentAtIso ? { smsNotesSentAtIso: smsNotesSentAtIso.slice(0, 40) } : {}),
+              ...(smsTranscriptSentAtIso ? { smsTranscriptSentAtIso: smsTranscriptSentAtIso.slice(0, 40) } : {}),
               ...(emailTranscriptSentAtIso ? { emailTranscriptSentAtIso: emailTranscriptSentAtIso.slice(0, 40) } : {}),
               ...(emailRecordingSentAtIso ? { emailRecordingSentAtIso: emailRecordingSentAtIso.slice(0, 40) } : {}),
+              ...(smsTranscriptSendError ? { smsTranscriptSendError: smsTranscriptSendError.slice(0, 400) } : {}),
+              ...(emailTranscriptSendError ? { emailTranscriptSendError: emailTranscriptSendError.slice(0, 400) } : {}),
             },
           ];
         })

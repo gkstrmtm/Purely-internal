@@ -34,9 +34,6 @@ function envVoiceAgentApiKey(): string {
   return envFirst(["VOICE_AGENT_API_KEY", "ELEVENLABS_API_KEY", "ELEVEN_LABS_API_KEY"]).slice(0, 400);
 }
 
-// Keep retrying stream reconnects rather than hanging up quickly.
-// Twilio calls have natural time limits; this just prevents instant drop-offs.
-const MAX_STREAM_RETRIES = 50;
 const MAX_REGISTER_RETRIES = 1;
 
 async function getProfileVoiceAgentId(ownerId: string): Promise<string | null> {
@@ -174,17 +171,18 @@ function injectStreamStatusCallback(twiml: string, opts: { statusCallbackUrl: st
   return injected;
 }
 
-function appendPauseAndRedirectAfterResponse(twiml: string, redirectUrl: string, pauseSeconds = 1): string {
-  const xml = String(twiml || "").trim();
-  if (!xml) return xml;
-  if (!/<Response[\s>]/i.test(xml)) return xml;
+function stripRedirectVerbs(twiml: string): string {
+  const xml = String(twiml || "");
+  if (!xml) return "";
 
-  const safeUrl = xmlEscape(redirectUrl);
-  const pause = Math.max(0, Math.min(30, Math.floor(pauseSeconds)));
-  const pauseXml = pause > 0 ? `  <Pause length="${pause}"/>\n` : "";
-  const redirect = `  <Redirect method="POST">${safeUrl}</Redirect>\n`;
-  return xml.replace(/\n?\s*<\/Response>\s*$/i, `\n${pauseXml}${redirect}</Response>`);
+  // Defensive: some third-party TwiML generators include <Redirect> retry loops.
+  // After a Media Stream ends, any Redirect back to this webhook can cause the caller
+  // to hear the greeting again as if a new call started.
+  return xml
+    .replace(/<Redirect\b[^>]*>[^]*?<\/Redirect>/gi, "")
+    .replace(/<Redirect\b[^>]*\/\s*>/gi, "");
 }
+
 
 async function withTimeout<T>(promise: Promise<T>, ms: number, label: string): Promise<T> {
   const timeoutMs = Math.max(1, Math.floor(ms));
@@ -536,24 +534,17 @@ async function handle(req: Request, token: string) {
     ...(conversationId ? ({ conversationId } as any) : {}),
   });
 
-  // Add Stream status callbacks + retry redirect so we can (a) capture StreamError details and
+  // Add Stream status callbacks so we can (a) capture StreamError details and
   // (b) avoid 0-second calls if the remote WebSocket closes immediately.
+  // Important: don't append any retry Redirect after the Stream; that can cause looping after end-call.
   const streamStatusCallback = webhookUrlFromRequest(
     req,
     `/api/public/twilio/ai-receptionist/${encodeURIComponent(token)}/stream-status`,
   );
 
-  const nextAttempt = streamAttempt + 1;
-  const retryUrl = webhookUrlFromRequest(
-    req,
-    `/api/public/twilio/ai-receptionist/${encodeURIComponent(token)}/voice?streamAttempt=${encodeURIComponent(String(nextAttempt))}`,
-  );
-
   const withCallbacks = injectStreamStatusCallback(register.twiml, { statusCallbackUrl: streamStatusCallback });
-  const allowRetry = nextAttempt <= MAX_STREAM_RETRIES + 1;
-  const withRetry = allowRetry ? appendPauseAndRedirectAfterResponse(withCallbacks, retryUrl, 1) : withCallbacks;
-
-  return xmlResponse(withRetry);
+  const sanitized = stripRedirectVerbs(withCallbacks);
+  return xmlResponse(sanitized);
 }
 
 export async function POST(req: Request, ctx: { params: Promise<{ token: string }> }) {
