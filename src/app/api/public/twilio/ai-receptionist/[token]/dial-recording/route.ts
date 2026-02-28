@@ -1,6 +1,8 @@
 import { NextResponse } from "next/server";
+import { after } from "next/server";
 
 import { findOwnerByAiReceptionistWebhookToken, getAiReceptionistServiceData, upsertAiReceptionistCallEvent } from "@/lib/aiReceptionist";
+import { autoProcessAiReceptionistCall } from "@/lib/aiReceptionistAutoProcess";
 import { normalizePhoneStrict } from "@/lib/phone";
 import { getOwnerTwilioSmsConfig } from "@/lib/portalTwilio";
 import { webhookUrlFromRequest } from "@/lib/webhookBase";
@@ -126,6 +128,11 @@ export async function POST(req: Request, ctx: { params: Promise<{ token: string 
       }).catch(() => null);
     }
   }
+
+  // Ensure transcripts/notes/notifications happen even if Twilio's transcription callback never fires.
+  after(async () => {
+    await autoProcessAiReceptionistCall({ ownerId, callSid, recordingSid, from: fromE164, to: toE164 ?? null }).catch(() => null);
+  });
 
   const xml = `<?xml version="1.0" encoding="UTF-8"?>
 <Response>

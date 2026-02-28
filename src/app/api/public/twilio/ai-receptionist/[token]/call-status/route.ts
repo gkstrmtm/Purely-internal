@@ -1,10 +1,12 @@
 import { NextResponse } from "next/server";
+import { after } from "next/server";
 
 import {
   findOwnerByAiReceptionistWebhookToken,
   listAiReceptionistEvents,
   upsertAiReceptionistCallEvent,
 } from "@/lib/aiReceptionist";
+import { autoProcessAiReceptionistCall } from "@/lib/aiReceptionistAutoProcess";
 import { getOwnerTwilioSmsConfig } from "@/lib/portalTwilio";
 import { webhookUrlFromRequest } from "@/lib/webhookBase";
 
@@ -159,6 +161,23 @@ async function handle(req: Request, token: string) {
   const needsRecordingBackfill =
     (currentAfter === "COMPLETED" || currentAfter === "FAILED") && !String(existing?.recordingSid || "").trim();
 
+  const shouldAutoProcessExistingRecording =
+    (currentAfter === "COMPLETED" || currentAfter === "FAILED") &&
+    Boolean(String(existing?.recordingSid || "").trim()) &&
+    (!String(existing?.transcript || "").trim() || !existing?.emailTranscriptSentAtIso || !existing?.smsNotesSentAtIso);
+
+  if (shouldAutoProcessExistingRecording) {
+    after(async () => {
+      await autoProcessAiReceptionistCall({
+        ownerId,
+        callSid,
+        recordingSid: String(existing?.recordingSid || "").trim(),
+        from: existing?.from || null,
+        to: existing?.to ?? null,
+      }).catch(() => null);
+    });
+  }
+
   if (needsRecordingBackfill) {
     const recordingSid = await fetchLatestRecordingSidForCall({ ownerId, callSid });
     if (recordingSid) {
@@ -176,6 +195,17 @@ async function handle(req: Request, token: string) {
       } as any);
 
       await requestTranscription({ ownerId, recordingSid, token: t, req });
+
+      // Backstop: if Twilio never calls our transcription callback, self-process from recording.
+      after(async () => {
+        await autoProcessAiReceptionistCall({
+          ownerId,
+          callSid,
+          recordingSid,
+          from: existing?.from || null,
+          to: existing?.to ?? null,
+        }).catch(() => null);
+      });
     }
   }
 
