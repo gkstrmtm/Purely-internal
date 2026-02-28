@@ -49,8 +49,7 @@ export async function POST(req: Request, ctx: { params: Promise<{ token: string 
   const to = typeof toRaw === "string" ? toRaw : null;
   const recordingSid = typeof recordingSidRaw === "string" ? recordingSidRaw : "";
   const transcriptionText = safeTranscript(transcriptionTextRaw);
-  const transcriptionStatus = typeof transcriptionStatusRaw === "string" ? transcriptionStatusRaw.trim() : "";
-  const transcriptionStatusLower = transcriptionStatus.toLowerCase();
+  const transcriptionStatusLower = typeof transcriptionStatusRaw === "string" ? transcriptionStatusRaw.trim().toLowerCase() : "";
   const transcriptionLooksFinal = transcriptionStatusLower === "completed" || transcriptionStatusLower.includes("complete");
 
   if (!callSid) {

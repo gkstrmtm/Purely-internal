@@ -1,12 +1,14 @@
-import { generateText, transcribeAudio } from "@/lib/ai";
+import { generateText, transcribeAudio, transcribeAudioVerbose } from "@/lib/ai";
 import { findPortalContactByPhone } from "@/lib/portalContacts";
 import { getAiReceptionistServiceData, upsertAiReceptionistCallEvent } from "@/lib/aiReceptionist";
 import { prisma } from "@/lib/db";
 import { fetchElevenLabsConversationTranscript } from "@/lib/elevenLabsConvai";
+import { buildSpeakerTranscriptAlignedToFull } from "@/lib/dualChannelTranscript";
 import { getOwnerTwilioSmsConfig } from "@/lib/portalTwilio";
 import { normalizePhoneStrict } from "@/lib/phone";
 import { getAppBaseUrl, listPortalAccountRecipientContacts, tryNotifyPortalAccountUsers } from "@/lib/portalNotifications";
 import { sendTwilioEnvSms } from "@/lib/twilioEnvSms";
+import { splitStereoPcmWavToMonoWavs } from "@/lib/wav";
 
 function safeTranscript(raw: unknown) {
   const s = typeof raw === "string" ? raw.trim() : "";
@@ -120,6 +122,26 @@ function safeOneLine(raw: unknown, max = 220) {
   return cleaned.length > max ? `${cleaned.slice(0, max - 1)}…` : cleaned;
 }
 
+function isTechnicalNotes(raw: string): boolean {
+  const text = String(raw || "").trim().toLowerCase();
+  if (!text) return false;
+  if (text.startsWith("media stream callback")) return true;
+  if (text.includes("stream-started") || text.includes("stream-stopped") || text.includes("stream-error")) return true;
+  if (text.startsWith("recording detected:")) return true;
+  if (text.startsWith("recording started:")) return true;
+  if (text.includes("recording start requested")) return true;
+  if (text.startsWith("live agent connected")) return true;
+  if (text.startsWith("ai mode unavailable")) return true;
+  if (text.startsWith("insufficient credits")) return true;
+  if (text.startsWith("call status:")) return true;
+  return false;
+}
+
+function hasSpeakerLabels(raw: string): boolean {
+  const text = String(raw || "");
+  return /^(agent|recipient|receptionist|ai receptionist)\s*:/im.test(text);
+}
+
 async function fetchTwilioTranscriptTextForRecording(opts: {
   ownerId: string;
   recordingSid: string;
@@ -158,9 +180,10 @@ async function fetchTwilioTranscriptTextForRecording(opts: {
   }
 }
 
-async function fetchTwilioRecordingMp3(opts: {
+async function fetchTwilioRecordingAudio(opts: {
   ownerId: string;
   recordingSid: string;
+  ext: "mp3" | "wav";
 }): Promise<{ ok: true; bytes: ArrayBuffer; mimeType: string } | { ok: false; error: string }> {
   const rid = String(opts.recordingSid || "").trim();
   if (!rid) return { ok: false, error: "Missing recording sid" };
@@ -168,7 +191,7 @@ async function fetchTwilioRecordingMp3(opts: {
   const config = await getOwnerTwilioSmsConfig(opts.ownerId).catch(() => null);
   if (!config) return { ok: false, error: "Twilio is not configured" };
 
-  const url = `https://api.twilio.com/2010-04-01/Accounts/${encodeURIComponent(config.accountSid)}/Recordings/${encodeURIComponent(rid)}.mp3`;
+  const url = `https://api.twilio.com/2010-04-01/Accounts/${encodeURIComponent(config.accountSid)}/Recordings/${encodeURIComponent(rid)}.${opts.ext}`;
   const basic = Buffer.from(`${config.accountSid}:${config.authToken}`).toString("base64");
 
   const res = await fetch(url, {
@@ -188,7 +211,7 @@ async function fetchTwilioRecordingMp3(opts: {
   if (size <= 0) return { ok: false, error: "Recording is empty" };
   if (size > 24 * 1024 * 1024) return { ok: false, error: "Recording too large to transcribe automatically" };
 
-  const mimeType = res.headers.get("content-type") || "audio/mpeg";
+  const mimeType = res.headers.get("content-type") || (opts.ext === "wav" ? "audio/wav" : "audio/mpeg");
   return { ok: true, bytes, mimeType };
 }
 
@@ -253,8 +276,51 @@ export async function autoProcessAiReceptionistCall(opts: {
     transcript = safeTranscript(twilioTranscript);
   }
 
+  // Prefer a speaker-labeled transcript when we have dual-channel audio.
+  if (recordingSid && (!transcript || !hasSpeakerLabels(transcript))) {
+    try {
+      const [wav, mp3] = await Promise.all([
+        fetchTwilioRecordingAudio({ ownerId, recordingSid, ext: "wav" }).catch(() => ({ ok: false as const, error: "fetch failed" })),
+        fetchTwilioRecordingAudio({ ownerId, recordingSid, ext: "mp3" }).catch(() => ({ ok: false as const, error: "fetch failed" })),
+      ]);
+
+      if (wav.ok) {
+        try {
+          const split = splitStereoPcmWavToMonoWavs(wav.bytes);
+          const [left, right, full] = await Promise.all([
+            transcribeAudioVerbose({ bytes: split.leftWav, filename: `${recordingSid}-left.wav`, mimeType: "audio/wav" }),
+            transcribeAudioVerbose({ bytes: split.rightWav, filename: `${recordingSid}-right.wav`, mimeType: "audio/wav" }),
+            mp3.ok
+              ? transcribeAudioVerbose({ bytes: mp3.bytes, filename: `${recordingSid}.mp3`, mimeType: mp3.mimeType || "audio/mpeg" })
+              : Promise.resolve({ text: "", segments: [] }),
+          ]);
+
+          const combined = buildSpeakerTranscriptAlignedToFull({
+            full,
+            left,
+            right,
+            leftLabel: "Recipient",
+            rightLabel: "Agent",
+            maxChars: 25000,
+          });
+
+          if (combined.trim()) transcript = safeTranscript(combined);
+        } catch (err) {
+          console.warn("AI receptionist: unable to split WAV for stereo transcript; falling back", {
+            ownerId,
+            callSid,
+            recordingSid,
+            error: err instanceof Error ? err.message : String(err ?? "unknown"),
+          });
+        }
+      }
+    } catch {
+      // Ignore; we'll fall back to other transcript sources.
+    }
+  }
+
   if (!transcript && recordingSid) {
-    const rec = await fetchTwilioRecordingMp3({ ownerId, recordingSid }).catch(() => ({ ok: false as const, error: "fetch failed" }));
+    const rec = await fetchTwilioRecordingAudio({ ownerId, recordingSid, ext: "mp3" }).catch(() => ({ ok: false as const, error: "fetch failed" }));
     if (rec.ok) {
       try {
         transcript = safeTranscript(
@@ -268,7 +334,7 @@ export async function autoProcessAiReceptionistCall(opts: {
 
   // Step 2: generate concise notes (if missing / technical).
   const existingNotes = typeof event?.notes === "string" ? event.notes.trim() : "";
-  const looksTechnical = existingNotes.toLowerCase().startsWith("media stream callback") || existingNotes.toLowerCase().startsWith("recording ");
+  const looksTechnical = isTechnicalNotes(existingNotes);
 
   let notes = existingNotes;
   if (transcript && (!notes || looksTechnical)) {
@@ -325,7 +391,7 @@ export async function autoProcessAiReceptionistCall(opts: {
   const portalLink = `${baseUrl}/portal/app/services/ai-receptionist`;
   const contacts = await listPortalAccountRecipientContacts(ownerId).catch(() => []);
 
-  if (finalNotes && !ev2?.smsNotesSentAtIso) {
+  if (finalNotes && !isTechnicalNotes(finalNotes) && !ev2?.smsNotesSentAtIso) {
     const smsBody = [
       `AI receptionist notes${contactName ? `: ${contactName}` : ""}`,
       finalNotes,
@@ -382,7 +448,7 @@ export async function autoProcessAiReceptionistCall(opts: {
         `AI receptionist transcript${contactName ? `: ${contactName}` : ""}`,
         fromE164 ? `From: ${fromE164}` : null,
         toE164 ? `To: ${toE164}` : null,
-        finalNotes ? `Notes: ${finalNotes}` : null,
+        finalNotes && !isTechnicalNotes(finalNotes) ? `Notes: ${finalNotes}` : null,
         portalLink,
       ]
         .filter(Boolean)
@@ -452,7 +518,7 @@ export async function autoProcessAiReceptionistCall(opts: {
         toE164 ? `To: ${toE164}` : null,
         "",
         "Notes:",
-        finalNotes || "(No notes)",
+        finalNotes && !isTechnicalNotes(finalNotes) ? finalNotes : "(No notes)",
         "",
         "Transcript:",
         finalTranscript || "(No transcript)",
