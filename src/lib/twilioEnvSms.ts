@@ -18,7 +18,7 @@ export async function sendTwilioEnvSms(opts: {
 }): Promise<EnvTwilioSmsResult> {
   const accountSid = process.env.TWILIO_ACCOUNT_SID;
   const authToken = process.env.TWILIO_AUTH_TOKEN;
-  const fromNumber = resolveFromNumber(opts.fromNumberEnvKeys ?? ["TWILIO_FROM_NUMBER"]);
+  const fromNumber = resolveFromNumber(opts.fromNumberEnvKeys ?? ["TWILIO_FROM_NUMBER", "TWILIO_MARKETING_FROM_NUMBER"]);
 
   if (!accountSid || !authToken || !fromNumber) {
     return {

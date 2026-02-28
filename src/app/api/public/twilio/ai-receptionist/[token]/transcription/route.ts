@@ -152,32 +152,52 @@ export async function POST(req: Request, ctx: { params: Promise<{ token: string 
 
     // 1) SMS: send NOTES ONLY to profile phones (optional), once.
     if (hasNotes && !event?.smsNotesSentAtIso) {
+      const portalLink = `${baseUrl}/portal/app/services/ai-receptionist`;
+
       const smsBody = [
         `AI receptionist notes${contactName ? `: ${contactName}` : ""}`,
         notes,
         fromE164 ? `From: ${fromE164}` : null,
         toE164 ? `To: ${toE164}` : null,
+        portalLink,
       ]
         .filter(Boolean)
         .join("\n")
         .slice(0, 900);
 
-      await Promise.all(
-        contacts
-          .map((c) => c.phoneE164)
-          .filter(Boolean)
-          .map((to) => sendTwilioEnvSms({ to: to as string, body: smsBody, fromNumberEnvKeys: ["TWILIO_FROM_NUMBER"] })),
-      );
+      const destinations = contacts.map((c) => c.phoneE164).filter(Boolean) as string[];
+      if (destinations.length === 0) {
+        console.info("AI receptionist SMS skipped: no profile phones configured", { ownerId, callSid });
+      } else {
+        const results = await Promise.all(
+          destinations.map((to) =>
+            sendTwilioEnvSms({
+              to,
+              body: smsBody,
+              fromNumberEnvKeys: ["TWILIO_FROM_NUMBER", "TWILIO_MARKETING_FROM_NUMBER"],
+            }),
+          ),
+        );
 
-      await upsertAiReceptionistCallEvent(ownerId, {
-        id: `call_${callSid}`,
-        callSid,
-        from: fromE164,
-        to: toE164,
-        createdAtIso: new Date().toISOString(),
-        status: "COMPLETED",
-        smsNotesSentAtIso: new Date().toISOString(),
-      });
+        const anyOk = results.some((r) => r.ok);
+        const allSkipped = results.length > 0 && results.every((r: any) => r && r.ok === false && r.skipped === true);
+
+        if (!anyOk && allSkipped) {
+          console.error("AI receptionist SMS skipped due to missing env", { ownerId, callSid, results });
+        }
+
+        if (anyOk) {
+          await upsertAiReceptionistCallEvent(ownerId, {
+            id: `call_${callSid}`,
+            callSid,
+            from: fromE164,
+            to: toE164,
+            createdAtIso: new Date().toISOString(),
+            status: "COMPLETED",
+            smsNotesSentAtIso: new Date().toISOString(),
+          });
+        }
+      }
     }
 
     // 2) Email: send TRANSCRIPT (and recording link if available), once.
