@@ -1222,7 +1222,9 @@ export default function ProfitVisualizationDashboardPage() {
                     {roiUseEstimates && roiEstimates.breakdown.length ? (
                       <div className="rounded-2xl bg-white px-3 py-2 text-[11px] text-zinc-700">
                         <div className="font-semibold text-zinc-900">What’s driving the estimate</div>
-                        <div className="mt-1 text-zinc-600">(credits, revenue, hours saved per month)</div>
+                        <div className="mt-1 text-zinc-600">
+                          Auto totals are the sum of per-service heuristics below: credits used/mo, incremental revenue/mo, and hours saved/mo.
+                        </div>
                         <div className="mt-2 space-y-1">
                           {roiEstimates.breakdown.slice(0, 6).map((b) => (
                             <div key={b.key} className="flex items-center justify-between gap-3">
@@ -1366,6 +1368,96 @@ export default function ProfitVisualizationDashboardPage() {
                         {singleCustomerRoi.paybackMonths ? `${Math.max(0, Math.round(singleCustomerRoi.paybackMonths * 10) / 10)} mo` : "—"}
                       </div>
                       <div className="mt-1 text-[11px] text-zinc-600">If net is positive</div>
+                    </div>
+                  </div>
+
+                  <div className="mt-4 rounded-2xl border border-zinc-200 bg-white p-4">
+                    <div className="flex flex-col gap-1 sm:flex-row sm:items-end sm:justify-between">
+                      <div className="text-sm font-semibold text-zinc-900">How we calculated the ROI inputs</div>
+                      <div className="text-[11px] text-zinc-600">
+                        {roiUseEstimates
+                          ? "Auto = sum of per-service heuristics (below)."
+                          : "Custom = you override totals (heuristics shown for reference)."}
+                      </div>
+                    </div>
+
+                    <div className="mt-3 grid gap-3 md:grid-cols-3">
+                      <div className="rounded-2xl bg-zinc-50 p-3">
+                        <div className="text-xs font-semibold uppercase tracking-wide text-zinc-500">Credits</div>
+                        <div className="mt-1 text-sm font-semibold text-zinc-900">
+                          {Math.round(singleCustomerRoi.creditsUsed)} credits / month
+                        </div>
+                        <div className="mt-1 text-[11px] text-zinc-600">
+                          Credits cost {formatMoneyCompact(singleCustomerRoi.creditsCostUsd)} = {Math.round(singleCustomerRoi.creditsUsed)} × {formatKeep(roiPlan === "membership" ? usdPerCreditSubscription : usdPerCreditCreditsOnly)}.
+                        </div>
+                        {roiEstimates.breakdown.length ? (
+                          <div className="mt-2 space-y-1 text-[11px] text-zinc-700">
+                            {roiEstimates.breakdown.slice(0, 4).map((b) => (
+                              <div key={b.key} className="flex items-center justify-between gap-3">
+                                <div className="truncate font-semibold text-zinc-900">{b.title}</div>
+                                <div className="shrink-0 text-zinc-700">{Math.round(b.creditsPerMonth)}c</div>
+                              </div>
+                            ))}
+                            {roiEstimates.breakdown.length > 4 ? (
+                              <div className="text-zinc-500">+ {roiEstimates.breakdown.length - 4} more</div>
+                            ) : null}
+                          </div>
+                        ) : (
+                          <div className="mt-2 text-[11px] text-zinc-600">Select services to see the credit assumptions.</div>
+                        )}
+                      </div>
+
+                      <div className="rounded-2xl bg-zinc-50 p-3">
+                        <div className="text-xs font-semibold uppercase tracking-wide text-zinc-500">Revenue lift</div>
+                        <div className="mt-1 text-sm font-semibold text-zinc-900">
+                          {formatMoneyCompact(singleCustomerRoi.revenueLift)} / month
+                        </div>
+                        <div className="mt-1 text-[11px] text-zinc-600">
+                          This is the estimated incremental revenue from using the selected services (e.g. more booked appointments, higher close rate).
+                        </div>
+                        {roiEstimates.breakdown.length ? (
+                          <div className="mt-2 space-y-1 text-[11px] text-zinc-700">
+                            {roiEstimates.breakdown.slice(0, 4).map((b) => (
+                              <div key={b.key} className="flex items-center justify-between gap-3">
+                                <div className="truncate font-semibold text-zinc-900">{b.title}</div>
+                                <div className="shrink-0 text-zinc-700">{formatMoneyCompact(b.extraRevenueUsdPerMonth)}</div>
+                              </div>
+                            ))}
+                            {roiEstimates.breakdown.length > 4 ? (
+                              <div className="text-zinc-500">+ {roiEstimates.breakdown.length - 4} more</div>
+                            ) : null}
+                          </div>
+                        ) : (
+                          <div className="mt-2 text-[11px] text-zinc-600">Select services to see the revenue assumptions.</div>
+                        )}
+                      </div>
+
+                      <div className="rounded-2xl bg-zinc-50 p-3">
+                        <div className="text-xs font-semibold uppercase tracking-wide text-zinc-500">Hours saved</div>
+                        <div className="mt-1 text-sm font-semibold text-zinc-900">{singleCustomerRoi.hoursSaved} hours / month</div>
+                        <div className="mt-1 text-[11px] text-zinc-600">
+                          Time value {formatMoneyCompact(singleCustomerRoi.timeValueUsd)} = {singleCustomerRoi.hoursSaved} × {formatMoneyCompact(roiHourlyRateUsd)} / hour.
+                        </div>
+                        {roiEstimates.breakdown.length ? (
+                          <div className="mt-2 space-y-1 text-[11px] text-zinc-700">
+                            {roiEstimates.breakdown.slice(0, 4).map((b) => (
+                              <div key={b.key} className="flex items-center justify-between gap-3">
+                                <div className="truncate font-semibold text-zinc-900">{b.title}</div>
+                                <div className="shrink-0 text-zinc-700">{b.hoursSavedPerMonth}h</div>
+                              </div>
+                            ))}
+                            {roiEstimates.breakdown.length > 4 ? (
+                              <div className="text-zinc-500">+ {roiEstimates.breakdown.length - 4} more</div>
+                            ) : null}
+                          </div>
+                        ) : (
+                          <div className="mt-2 text-[11px] text-zinc-600">Select services to see the time-savings assumptions.</div>
+                        )}
+                      </div>
+                    </div>
+
+                    <div className="mt-3 text-[11px] text-zinc-600">
+                      Value/mo = revenue lift + time value. Cost/mo = modules (membership only) + credits used. Defaults come from rough heuristics per service (ROI_DEFAULTS_BY_SERVICE) and should be tuned per niche.
                     </div>
                   </div>
                 </div>
