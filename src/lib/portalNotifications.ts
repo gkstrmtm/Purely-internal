@@ -11,12 +11,26 @@ function safeOneLine(s: string) {
 }
 
 export function getAppBaseUrl() {
-  const raw = process.env.NEXTAUTH_URL ?? process.env.NEXT_PUBLIC_APP_URL ?? "http://localhost:3000";
-  try {
-    return new URL(raw).toString().replace(/\/$/, "");
-  } catch {
-    return "http://localhost:3000";
+  const candidates = [
+    process.env.NEXT_PUBLIC_APP_CANONICAL_URL,
+    process.env.APP_CANONICAL_URL,
+    process.env.NEXTAUTH_URL,
+    process.env.NEXT_PUBLIC_APP_URL,
+  ]
+    .map((v) => String(v ?? "").trim())
+    .filter(Boolean);
+
+  for (const raw of candidates) {
+    // Guard against the common placeholder value so we don't ship links to it.
+    if (/your-vercel-domain\.vercel\.app/i.test(raw)) continue;
+    try {
+      return new URL(raw).toString().replace(/\/$/, "");
+    } catch {
+      continue;
+    }
   }
+
+  return "https://purelyautomation.com";
 }
 
 export type PortalNotificationKind =
