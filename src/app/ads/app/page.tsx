@@ -105,25 +105,18 @@ export default function AdsAppHomePage() {
           <div className="mt-3 text-sm text-zinc-600">
             {stats ? (
               <>
-                {stats.account.autoTopUpEnabled ? "Auto-reload enabled" : "Auto-reload disabled"}
-                {stats.topups.last30dCents ? ` · ${usd(stats.topups.last30dCents)} added (30d)` : ""}
+                {stats.topups.last30dCents ? `${usd(stats.topups.last30dCents)} added (30d)` : "Funds available for charged clicks."}
               </>
             ) : (
               "Loading…"
             )}
           </div>
-          <div className="mt-4 flex flex-col gap-2 sm:flex-row">
-            <Link
-              href="/ads/app/billing"
-              className="inline-flex items-center justify-center rounded-2xl bg-brand-ink px-4 py-2 text-sm font-semibold text-white hover:opacity-95"
-            >
-              Add funds
-            </Link>
+          <div className="mt-4">
             <Link
               href="/ads/app/settings"
-              className="inline-flex items-center justify-center rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm font-semibold text-zinc-700 hover:bg-zinc-50"
+              className="inline-flex w-full items-center justify-center rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm font-semibold text-zinc-700 hover:bg-zinc-50"
             >
-              Auto-reload
+              Settings
             </Link>
           </div>
         </div>
@@ -154,20 +147,8 @@ export default function AdsAppHomePage() {
             >
               Create a campaign
             </Link>
-            <Link
-              href="/ads/app/billing"
-              className="inline-flex items-center justify-center rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm font-semibold text-zinc-700 hover:bg-zinc-50"
-            >
-              Billing
-            </Link>
-            <Link
-              href="/ads/app/settings"
-              className="inline-flex items-center justify-center rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm font-semibold text-zinc-700 hover:bg-zinc-50"
-            >
-              Settings
-            </Link>
           </div>
-          <div className="mt-3 text-xs text-zinc-500">Auto-reload and thresholds live under Settings.</div>
+          <div className="mt-3 text-xs text-zinc-500">Everything else is under Settings.</div>
         </div>
       </div>
 

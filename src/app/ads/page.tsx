@@ -1,6 +1,67 @@
 import Link from "next/link";
 import Image from "next/image";
 
+function IconTarget(props: { className?: string }) {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" aria-hidden="true" className={props.className}>
+      <path
+        d="M12 21a9 9 0 1 1 0-18 9 9 0 0 1 0 18Z"
+        stroke="currentColor"
+        strokeWidth="1.7"
+      />
+      <path
+        d="M12 17a5 5 0 1 1 0-10 5 5 0 0 1 0 10Z"
+        stroke="currentColor"
+        strokeWidth="1.7"
+        opacity="0.8"
+      />
+      <path d="M12 13.25a1.25 1.25 0 1 1 0-2.5 1.25 1.25 0 0 1 0 2.5Z" fill="currentColor" />
+    </svg>
+  );
+}
+
+function IconSpark(props: { className?: string }) {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" aria-hidden="true" className={props.className}>
+      <path
+        d="M12 2l1.2 5.1L18 9l-4.8 1.9L12 16l-1.2-5.1L6 9l4.8-1.9L12 2Z"
+        fill="currentColor"
+        opacity="0.9"
+      />
+      <path
+        d="M19 13l.7 2.7L22 17l-2.3.9L19 20l-.7-2.1L16 17l2.3-1.3L19 13Z"
+        fill="currentColor"
+        opacity="0.75"
+      />
+    </svg>
+  );
+}
+
+function IconBolt(props: { className?: string }) {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" aria-hidden="true" className={props.className}>
+      <path
+        d="M13 2 4 14h7l-1 8 10-14h-7l0-6Z"
+        fill="currentColor"
+        opacity="0.9"
+      />
+    </svg>
+  );
+}
+
+function IconShield(props: { className?: string }) {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" aria-hidden="true" className={props.className}>
+      <path
+        d="M12 2 20 6v6c0 5.25-3.4 9.9-8 10-4.6-.1-8-4.75-8-10V6l8-4Z"
+        stroke="currentColor"
+        strokeWidth="1.7"
+      />
+      <path d="M8.5 12.1 11 14.6 15.7 9.9" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
+  );
+}
+
 export default function AdsLandingPage() {
   return (
     <main className="min-h-[100dvh] bg-brand-mist pb-28 text-brand-ink">
@@ -30,14 +91,14 @@ export default function AdsLandingPage() {
         <div className="mt-10 grid gap-10 lg:grid-cols-2 lg:items-center">
           <div>
             <div className="inline-flex items-center gap-2 rounded-full border border-zinc-200 bg-white px-4 py-2 text-xs font-semibold text-zinc-700">
-              Reach portal users when they’re ready to buy
+              Niche targeting · pay-per-click · fast setup
             </div>
             <h1 className="mt-5 text-4xl font-bold tracking-tight text-zinc-900 sm:text-6xl">
-              Run high-intent ads inside the portal
+              Run ads directly to your niche
             </h1>
             <p className="mt-4 max-w-xl text-sm text-zinc-600 sm:text-base">
-              Launch CPC campaigns, target by industry and services, and control spend with daily budgets, all from a clean,
-              simple Ads Manager.
+              Launch pay‑per‑click campaigns that show up where buyers already are. Target by industry and services, control spend
+              with daily budgets, and iterate fast.
             </p>
 
             <div className="mt-7 flex flex-col gap-3 sm:flex-row">
@@ -55,17 +116,40 @@ export default function AdsLandingPage() {
               </Link>
             </div>
 
-            <div className="mt-6 grid gap-3 sm:grid-cols-2">
+            <div className="mt-7 grid gap-3 sm:grid-cols-2">
               {[
-                { title: "CPC billing", body: "You only pay when a portal user clicks." },
-                { title: "Daily budgets", body: "Guardrails keep spend predictable." },
-                { title: "Audience profiles", body: "Save targeting presets and reuse them." },
-                { title: "Image + video", body: "Upload once, it renders across placements." },
+                {
+                  title: "High-intent reach",
+                  body: "Show up at the moment buyers are deciding.",
+                  icon: IconTarget,
+                  blob: "from-[color:var(--color-brand-blue)]/35 via-[color:var(--color-brand-pink)]/20 to-white/0",
+                },
+                {
+                  title: "Pay-per-click",
+                  body: "Only pay when someone clicks.",
+                  icon: IconShield,
+                  blob: "from-[color:var(--color-brand-pink)]/35 via-[color:var(--color-brand-blue)]/15 to-white/0",
+                },
+                {
+                  title: "Fast creative iterations",
+                  body: "Generate, test, and refine in minutes.",
+                  icon: IconSpark,
+                  blob: "from-[color:var(--color-brand-pink)]/25 via-[color:var(--color-brand-blue)]/25 to-white/0",
+                },
+                {
+                  title: "Guardrails by default",
+                  body: "Daily budgets keep spend predictable.",
+                  icon: IconBolt,
+                  blob: "from-[color:var(--color-brand-blue)]/25 via-[color:var(--color-brand-pink)]/25 to-white/0",
+                },
               ].map((c) => (
-                <div key={c.title} className="rounded-3xl border border-zinc-200 bg-white p-4 shadow-sm">
-                  <div className="flex items-start gap-3">
-                    <div className="mt-0.5 h-8 w-8 rounded-2xl bg-gradient-to-br from-[color:var(--color-brand-blue)]/25 to-[color:var(--color-brand-pink)]/20" />
-                    <div>
+                <div key={c.title} className="relative overflow-hidden rounded-[1.75rem] border border-white/70 bg-white/70 p-5 shadow-sm backdrop-blur">
+                  <div className={`pointer-events-none absolute -right-10 -top-10 h-40 w-40 rounded-full bg-gradient-to-br ${c.blob} blur-2xl`} />
+                  <div className="relative flex items-start gap-3">
+                    <div className="grid h-10 w-10 place-items-center rounded-2xl bg-brand-ink text-white">
+                      <c.icon className="h-5 w-5" />
+                    </div>
+                    <div className="min-w-0">
                       <div className="text-sm font-semibold text-zinc-900">{c.title}</div>
                       <div className="mt-1 text-sm text-zinc-600">{c.body}</div>
                     </div>
@@ -125,9 +209,10 @@ export default function AdsLandingPage() {
               { title: "Premium placements", body: "Sidebar banners, top banners, and popup cards." },
               { title: "Simple budgets", body: "Set daily spend. Guardrails enforce limits automatically." },
             ].map((c) => (
-              <div key={c.title} className="rounded-[2rem] border border-zinc-200 bg-white p-6 shadow-sm">
-                <div className="text-sm font-semibold text-zinc-900">{c.title}</div>
-                <div className="mt-2 text-sm text-zinc-600">{c.body}</div>
+              <div key={c.title} className="relative overflow-hidden rounded-[2rem] border border-zinc-200 bg-white p-6 shadow-sm">
+                <div className="pointer-events-none absolute -left-14 -top-14 h-40 w-40 rounded-full bg-gradient-to-br from-[color:var(--color-brand-pink)]/20 via-[color:var(--color-brand-blue)]/15 to-white/0 blur-2xl" />
+                <div className="relative text-sm font-semibold text-zinc-900">{c.title}</div>
+                <div className="relative mt-2 text-sm text-zinc-600">{c.body}</div>
               </div>
             ))}
           </div>
@@ -183,7 +268,7 @@ export default function AdsLandingPage() {
 
           <div className="mt-8 flex flex-wrap items-center justify-between gap-3 border-t border-zinc-200 pt-6 text-xs text-zinc-500">
             <div>© {new Date().getFullYear()} Purely Automation</div>
-            <div>Portal Ads Manager</div>
+            <div>Ads Manager</div>
           </div>
         </footer>
       </div>

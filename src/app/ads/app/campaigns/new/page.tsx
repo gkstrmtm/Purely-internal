@@ -320,225 +320,225 @@ export default function NewAdsCampaignPage() {
 
   return (
     <div className="grid gap-6 lg:grid-cols-2">
-      <div className="space-y-6">
-        <div className="rounded-3xl border border-zinc-200 bg-white p-6">
-          <div className="text-sm font-semibold text-zinc-900">Basics</div>
-          <div className="mt-4 grid gap-4">
-            <label className="block">
-              <div className="text-xs font-semibold uppercase tracking-wide text-zinc-500">Campaign name</div>
-              <input
-                value={name}
-                onChange={(e) => setName(e.target.value)}
-                className="mt-2 w-full rounded-2xl border border-zinc-200 bg-white px-4 py-3 text-sm outline-none focus:border-zinc-400"
-              />
-            </label>
-
-            <div className="grid gap-3 sm:grid-cols-2">
-              <label className="block">
-                <div className="text-xs font-semibold uppercase tracking-wide text-zinc-500">Start</div>
-                <input
-                  value={startAt}
-                  onChange={(e) => setStartAt(e.target.value)}
-                  type="datetime-local"
-                  className="mt-2 w-full rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-sm outline-none focus:border-zinc-400"
-                />
-              </label>
-              <label className="block">
-                <div className="text-xs font-semibold uppercase tracking-wide text-zinc-500">End</div>
-                <input
-                  value={endAt}
-                  onChange={(e) => setEndAt(e.target.value)}
-                  type="datetime-local"
-                  className="mt-2 w-full rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-sm outline-none focus:border-zinc-400"
-                />
-              </label>
-            </div>
-          </div>
-        </div>
-
-        <div className="rounded-3xl border border-zinc-200 bg-white p-6">
-          <div className="text-sm font-semibold text-zinc-900">Placement</div>
-          <div className="mt-4 grid gap-2">
-            {(
-              [
-                { id: "POPUP_CARD", label: "Popup card" },
-                { id: "SIDEBAR_BANNER", label: "Sidebar banner" },
-                { id: "TOP_BANNER", label: "Top banner" },
-              ] as const
-            ).map((p) => (
-              <label key={p.id} className="flex cursor-pointer items-center justify-between rounded-2xl border border-zinc-200 bg-white px-4 py-3">
-                <div className="text-sm font-semibold text-zinc-900">{p.label}</div>
-                <input
-                  type="radio"
-                  name="placement"
-                  checked={placement === p.id}
-                  onChange={() => setPlacement(p.id)}
-                />
-              </label>
-            ))}
-          </div>
-        </div>
-
-        <div className="rounded-3xl border border-zinc-200 bg-white p-6">
-          <div className="text-sm font-semibold text-zinc-900">Budget</div>
-          <div className="mt-2 text-sm text-zinc-600">
-            You’re charged on click. CPC is optimized internally, you only set a daily budget.
-          </div>
-          <div className="mt-4 grid gap-3 sm:grid-cols-2">
-            <label className="block">
-              <div className="text-xs font-semibold uppercase tracking-wide text-zinc-500">Daily budget (USD)</div>
-              <input
-                value={dailyBudgetUsd}
-                onChange={(e) => setDailyBudgetUsd(e.target.value)}
-                inputMode="decimal"
-                className="mt-2 w-full rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-sm outline-none focus:border-zinc-400"
-              />
-            </label>
-          </div>
-          <div className="mt-3 text-xs text-zinc-500">Tip: start small, then scale after you see performance.</div>
-        </div>
-
-        <div className="rounded-3xl border border-zinc-200 bg-white p-6">
-          <div className="text-sm font-semibold text-zinc-900">Targeting</div>
-          <div className="mt-2 text-sm text-zinc-600">Choose who you want to reach.</div>
-
-          <div className="mt-5 grid gap-6">
-            <div className="rounded-2xl border border-zinc-200 bg-white p-4">
-              <div className="flex items-start justify-between gap-3">
-                <div>
-                  <div className="text-sm font-semibold text-zinc-900">Audience profile</div>
-                  <div className="mt-1 text-xs text-zinc-500">Save and reuse targeting presets.</div>
-                </div>
-              </div>
-
-              <div className="mt-3 grid gap-2">
-                <select
-                  value={audienceId}
-                  onChange={(e) => setAudienceId(e.target.value)}
-                  disabled={audienceBusy || busy}
-                  className="w-full rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-sm outline-none focus:border-zinc-400 disabled:opacity-60"
-                >
-                  <option value="">— No profile —</option>
-                  {audiences.map((a) => (
-                    <option key={a.id} value={a.id}>
-                      {a.name}
-                    </option>
-                  ))}
-                </select>
-
-                <div className="grid gap-2 sm:grid-cols-3">
+      <div>
+        <div className="overflow-hidden rounded-3xl border border-zinc-200 bg-white">
+          <div className="divide-y divide-zinc-100">
+            <div className="p-6">
+              <div className="text-sm font-semibold text-zinc-900">Basics</div>
+              <div className="mt-4 grid gap-4">
+                <label className="block">
+                  <div className="text-xs font-semibold uppercase tracking-wide text-zinc-500">Campaign name</div>
                   <input
-                    value={audienceName}
-                    onChange={(e) => setAudienceName(e.target.value)}
-                    placeholder="Save current targeting as…"
-                    disabled={audienceBusy || busy}
-                    className="rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-sm outline-none focus:border-zinc-400 disabled:opacity-60 sm:col-span-2"
+                    value={name}
+                    onChange={(e) => setName(e.target.value)}
+                    className="mt-2 w-full rounded-2xl border border-zinc-200 bg-white px-4 py-3 text-sm outline-none focus:border-zinc-400"
                   />
-                  <button
-                    type="button"
-                    onClick={() => void saveAudience()}
-                    disabled={audienceBusy || busy}
-                    className="rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-sm font-semibold text-zinc-900 hover:bg-zinc-50 disabled:opacity-60"
+                </label>
+
+                <div className="grid gap-3 sm:grid-cols-2">
+                  <label className="block">
+                    <div className="text-xs font-semibold uppercase tracking-wide text-zinc-500">Start</div>
+                    <input
+                      value={startAt}
+                      onChange={(e) => setStartAt(e.target.value)}
+                      type="datetime-local"
+                      className="mt-2 w-full rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-sm outline-none focus:border-zinc-400"
+                    />
+                  </label>
+                  <label className="block">
+                    <div className="text-xs font-semibold uppercase tracking-wide text-zinc-500">End</div>
+                    <input
+                      value={endAt}
+                      onChange={(e) => setEndAt(e.target.value)}
+                      type="datetime-local"
+                      className="mt-2 w-full rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-sm outline-none focus:border-zinc-400"
+                    />
+                  </label>
+                </div>
+              </div>
+            </div>
+
+            <div className="p-6">
+              <div className="text-sm font-semibold text-zinc-900">Placement</div>
+              <div className="mt-4 grid gap-2">
+                {(
+                  [
+                    { id: "POPUP_CARD", label: "Popup card" },
+                    { id: "SIDEBAR_BANNER", label: "Sidebar banner" },
+                    { id: "TOP_BANNER", label: "Top banner" },
+                  ] as const
+                ).map((p) => (
+                  <label
+                    key={p.id}
+                    className="flex cursor-pointer items-center justify-between rounded-2xl border border-zinc-200 bg-white px-4 py-3"
                   >
-                    {audienceBusy ? "Saving…" : "Save"}
-                  </button>
+                    <div className="text-sm font-semibold text-zinc-900">{p.label}</div>
+                    <input type="radio" name="placement" checked={placement === p.id} onChange={() => setPlacement(p.id)} />
+                  </label>
+                ))}
+              </div>
+            </div>
+
+            <div className="p-6">
+              <div className="text-sm font-semibold text-zinc-900">Budget</div>
+              <div className="mt-2 text-sm text-zinc-600">
+                You’re charged on click. CPC is optimized internally, you only set a daily budget.
+              </div>
+              <div className="mt-4 grid gap-3 sm:grid-cols-2">
+                <label className="block">
+                  <div className="text-xs font-semibold uppercase tracking-wide text-zinc-500">Daily budget (USD)</div>
+                  <input
+                    value={dailyBudgetUsd}
+                    onChange={(e) => setDailyBudgetUsd(e.target.value)}
+                    inputMode="decimal"
+                    className="mt-2 w-full rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-sm outline-none focus:border-zinc-400"
+                  />
+                </label>
+              </div>
+              <div className="mt-3 text-xs text-zinc-500">Tip: start small, then scale after you see performance.</div>
+            </div>
+
+            <div className="p-6">
+              <div className="text-sm font-semibold text-zinc-900">Targeting</div>
+              <div className="mt-2 text-sm text-zinc-600">Choose who you want to reach.</div>
+
+              <div className="mt-5 grid gap-6">
+                <div className="rounded-2xl bg-zinc-50 p-4">
+                  <div className="flex items-start justify-between gap-3">
+                    <div>
+                      <div className="text-sm font-semibold text-zinc-900">Audience profile</div>
+                      <div className="mt-1 text-xs text-zinc-500">Save and reuse targeting presets.</div>
+                    </div>
+                  </div>
+
+                  <div className="mt-3 grid gap-2">
+                    <select
+                      value={audienceId}
+                      onChange={(e) => setAudienceId(e.target.value)}
+                      disabled={audienceBusy || busy}
+                      className="w-full rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-sm outline-none focus:border-zinc-400 disabled:opacity-60"
+                    >
+                      <option value="">— No profile —</option>
+                      {audiences.map((a) => (
+                        <option key={a.id} value={a.id}>
+                          {a.name}
+                        </option>
+                      ))}
+                    </select>
+
+                    <div className="grid gap-2 sm:grid-cols-3">
+                      <input
+                        value={audienceName}
+                        onChange={(e) => setAudienceName(e.target.value)}
+                        placeholder="Save current targeting as…"
+                        disabled={audienceBusy || busy}
+                        className="rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-sm outline-none focus:border-zinc-400 disabled:opacity-60 sm:col-span-2"
+                      />
+                      <button
+                        type="button"
+                        onClick={() => void saveAudience()}
+                        disabled={audienceBusy || busy}
+                        className="rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-sm font-semibold text-zinc-900 hover:bg-zinc-50 disabled:opacity-60"
+                      >
+                        {audienceBusy ? "Saving…" : "Save"}
+                      </button>
+                    </div>
+
+                    {audienceId ? (
+                      <button
+                        type="button"
+                        onClick={() => void deleteAudience()}
+                        disabled={audienceBusy || busy}
+                        className="text-left text-xs font-semibold text-red-700 hover:text-red-800 disabled:opacity-60"
+                      >
+                        Delete selected profile
+                      </button>
+                    ) : null}
+                  </div>
+                </div>
+                <div>
+                  <div className="text-xs font-semibold uppercase tracking-wide text-zinc-500">Industries</div>
+                  <div className="mt-3 flex flex-wrap gap-2">
+                    {INDUSTRY_SUGGESTIONS.map((x) => (
+                      <button
+                        key={x}
+                        type="button"
+                        onClick={() => setIndustries((cur) => toggle(cur, x))}
+                        className={
+                          industries.includes(x)
+                            ? "rounded-full bg-brand-ink px-3 py-1.5 text-xs font-semibold text-white"
+                            : "rounded-full border border-zinc-200 bg-white px-3 py-1.5 text-xs font-semibold text-zinc-700 hover:bg-zinc-50"
+                        }
+                      >
+                        {x}
+                      </button>
+                    ))}
+                  </div>
+
+                  <div className="mt-3 flex items-center gap-2">
+                    <input
+                      value={customIndustry}
+                      onChange={(e) => setCustomIndustry(e.target.value)}
+                      placeholder="Add industry…"
+                      className="w-full rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-sm outline-none focus:border-zinc-400"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const v = customIndustry.trim();
+                        if (!v) return;
+                        setIndustries((cur) => dedupe([...cur, v]));
+                        setCustomIndustry("");
+                      }}
+                      className="shrink-0 rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm font-semibold text-zinc-900 hover:bg-zinc-50"
+                    >
+                      Add
+                    </button>
+                  </div>
                 </div>
 
-                {audienceId ? (
-                  <button
-                    type="button"
-                    onClick={() => void deleteAudience()}
-                    disabled={audienceBusy || busy}
-                    className="text-left text-xs font-semibold text-red-700 hover:text-red-800 disabled:opacity-60"
-                  >
-                    Delete selected profile
-                  </button>
-                ) : null}
-              </div>
-            </div>
-            <div>
-              <div className="text-xs font-semibold uppercase tracking-wide text-zinc-500">Industries</div>
-              <div className="mt-3 flex flex-wrap gap-2">
-                {INDUSTRY_SUGGESTIONS.map((x) => (
-                  <button
-                    key={x}
-                    type="button"
-                    onClick={() => setIndustries((cur) => toggle(cur, x))}
-                    className={
-                      industries.includes(x)
-                        ? "rounded-full bg-brand-ink px-3 py-1.5 text-xs font-semibold text-white"
-                        : "rounded-full border border-zinc-200 bg-white px-3 py-1.5 text-xs font-semibold text-zinc-700 hover:bg-zinc-50"
-                    }
-                  >
-                    {x}
-                  </button>
-                ))}
-              </div>
+                <div>
+                  <div className="text-xs font-semibold uppercase tracking-wide text-zinc-500">Business models</div>
+                  <div className="mt-3 flex flex-wrap gap-2">
+                    {BUSINESS_MODEL_SUGGESTIONS.map((x) => (
+                      <button
+                        key={x}
+                        type="button"
+                        onClick={() => setBusinessModels((cur) => toggle(cur, x))}
+                        className={
+                          businessModels.includes(x)
+                            ? "rounded-full bg-brand-ink px-3 py-1.5 text-xs font-semibold text-white"
+                            : "rounded-full border border-zinc-200 bg-white px-3 py-1.5 text-xs font-semibold text-zinc-700 hover:bg-zinc-50"
+                        }
+                      >
+                        {x}
+                      </button>
+                    ))}
+                  </div>
 
-              <div className="mt-3 flex items-center gap-2">
-                <input
-                  value={customIndustry}
-                  onChange={(e) => setCustomIndustry(e.target.value)}
-                  placeholder="Add industry…"
-                  className="w-full rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-sm outline-none focus:border-zinc-400"
-                />
-                <button
-                  type="button"
-                  onClick={() => {
-                    const v = customIndustry.trim();
-                    if (!v) return;
-                    setIndustries((cur) => dedupe([...cur, v]));
-                    setCustomIndustry("");
-                  }}
-                  className="shrink-0 rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm font-semibold text-zinc-900 hover:bg-zinc-50"
-                >
-                  Add
-                </button>
-              </div>
-            </div>
+                  <div className="mt-3 flex items-center gap-2">
+                    <input
+                      value={customBusinessModel}
+                      onChange={(e) => setCustomBusinessModel(e.target.value)}
+                      placeholder="Add business model…"
+                      className="w-full rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-sm outline-none focus:border-zinc-400"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const v = customBusinessModel.trim();
+                        if (!v) return;
+                        setBusinessModels((cur) => dedupe([...cur, v]));
+                        setCustomBusinessModel("");
+                      }}
+                      className="shrink-0 rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm font-semibold text-zinc-900 hover:bg-zinc-50"
+                    >
+                      Add
+                    </button>
+                  </div>
+                </div>
 
-            <div>
-              <div className="text-xs font-semibold uppercase tracking-wide text-zinc-500">Business models</div>
-              <div className="mt-3 flex flex-wrap gap-2">
-                {BUSINESS_MODEL_SUGGESTIONS.map((x) => (
-                  <button
-                    key={x}
-                    type="button"
-                    onClick={() => setBusinessModels((cur) => toggle(cur, x))}
-                    className={
-                      businessModels.includes(x)
-                        ? "rounded-full bg-brand-ink px-3 py-1.5 text-xs font-semibold text-white"
-                        : "rounded-full border border-zinc-200 bg-white px-3 py-1.5 text-xs font-semibold text-zinc-700 hover:bg-zinc-50"
-                    }
-                  >
-                    {x}
-                  </button>
-                ))}
-              </div>
-
-              <div className="mt-3 flex items-center gap-2">
-                <input
-                  value={customBusinessModel}
-                  onChange={(e) => setCustomBusinessModel(e.target.value)}
-                  placeholder="Add business model…"
-                  className="w-full rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-sm outline-none focus:border-zinc-400"
-                />
-                <button
-                  type="button"
-                  onClick={() => {
-                    const v = customBusinessModel.trim();
-                    if (!v) return;
-                    setBusinessModels((cur) => dedupe([...cur, v]));
-                    setCustomBusinessModel("");
-                  }}
-                  className="shrink-0 rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm font-semibold text-zinc-900 hover:bg-zinc-50"
-                >
-                  Add
-                </button>
-              </div>
-            </div>
-
-            <div className="rounded-2xl border border-zinc-200 bg-white p-4">
+            <div className="rounded-2xl bg-zinc-50 p-4">
               <div className="flex flex-col justify-between gap-3 sm:flex-row sm:items-center">
                 <div>
                   <div className="text-sm font-semibold text-zinc-900">Services</div>
@@ -640,6 +640,9 @@ export default function NewAdsCampaignPage() {
                 ) : null}
               </div>
             </div>
+
+              </div>
+            </div>
           </div>
         </div>
       </div>
@@ -649,7 +652,7 @@ export default function NewAdsCampaignPage() {
           <div className="flex items-start justify-between gap-4">
             <div>
               <div className="text-sm font-semibold text-zinc-900">Account</div>
-              <div className="mt-1 text-xs text-zinc-500">Manage funds and auto-reload in Billing and Settings.</div>
+              <div className="mt-1 text-xs text-zinc-500">Manage funds and auto-reload in Settings.</div>
             </div>
             <div className="text-right">
               <div className="text-lg font-bold text-zinc-900">${(balanceCents / 100).toFixed(2)}</div>
@@ -657,18 +660,12 @@ export default function NewAdsCampaignPage() {
             </div>
           </div>
 
-          <div className="mt-4 flex flex-col gap-2 sm:flex-row">
-            <Link
-              href="/ads/app/billing"
-              className="inline-flex w-full items-center justify-center rounded-2xl bg-brand-ink px-4 py-2 text-sm font-semibold text-white hover:opacity-95 sm:w-auto"
-            >
-              Billing
-            </Link>
+          <div className="mt-4">
             <Link
               href="/ads/app/settings"
-              className="inline-flex w-full items-center justify-center rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm font-semibold text-zinc-700 hover:bg-zinc-50 sm:w-auto"
+              className="inline-flex w-full items-center justify-center rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm font-semibold text-zinc-700 hover:bg-zinc-50"
             >
-              Auto-reload
+              Settings
             </Link>
           </div>
         </div>

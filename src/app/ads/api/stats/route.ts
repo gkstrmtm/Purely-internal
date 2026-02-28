@@ -70,7 +70,7 @@ export async function GET() {
       : {
           balanceCents: 0,
           currency: "USD",
-          autoTopUpEnabled: false,
+          autoTopUpEnabled: true,
           autoTopUpThresholdCents: 2000,
           autoTopUpAmountCents: 5000,
         },

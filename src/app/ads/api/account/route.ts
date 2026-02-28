@@ -33,7 +33,7 @@ export async function PATCH(req: Request) {
       },
       create: {
         userId: user.id,
-        autoTopUpEnabled: parsed.data.autoTopUpEnabled ?? false,
+        autoTopUpEnabled: parsed.data.autoTopUpEnabled ?? true,
         autoTopUpThresholdCents: parsed.data.autoTopUpThresholdCents ?? 2000,
         autoTopUpAmountCents: parsed.data.autoTopUpAmountCents ?? 5000,
       },
@@ -47,11 +47,13 @@ export async function PATCH(req: Request) {
     });
 
     return NextResponse.json({ ok: true, account });
-  } catch {
+  } catch (err) {
+    console.error("ads/api/account PATCH failed", err);
     return NextResponse.json(
       {
         ok: false,
-        error: "Auto top-up settings are not available yet (database not migrated).",
+        error:
+          "Auto top-up settings are unavailable because the database schema is missing required columns. Apply the latest Prisma migrations to your database (e.g. prisma migrate deploy), then retry.",
       },
       { status: 503 },
     );

@@ -31,12 +31,6 @@ export default async function AdsAppLayout({ children }: { children: React.React
                   Overview
                 </Link>
                 <Link
-                  href="/ads/app/billing"
-                  className="rounded-2xl px-3 py-2 text-sm font-semibold text-zinc-700 hover:bg-zinc-50"
-                >
-                  Billing
-                </Link>
-                <Link
                   href="/ads/app/settings"
                   className="rounded-2xl px-3 py-2 text-sm font-semibold text-zinc-700 hover:bg-zinc-50"
                 >

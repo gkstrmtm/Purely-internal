@@ -26,7 +26,7 @@ export async function GET() {
     account: account ?? {
       balanceCents: 0,
       currency: "USD",
-      autoTopUpEnabled: false,
+      autoTopUpEnabled: true,
       autoTopUpThresholdCents: 2000,
       autoTopUpAmountCents: 5000,
     },
