@@ -68,6 +68,11 @@ export type AiReceptionistCallEvent = {
   creditsChargedPartial?: boolean;
   // Idempotency guard: Twilio callbacks may be retried.
   creditsChargeAttempted?: boolean;
+
+  // Notification guards (Twilio callbacks may be retried).
+  smsNotesSentAtIso?: string;
+  emailTranscriptSentAtIso?: string;
+  emailRecordingSentAtIso?: string;
 };
 
 export type AiReceptionistServiceData = {
@@ -222,6 +227,10 @@ function parseServiceData(raw: unknown): AiReceptionistServiceData {
           const creditsChargedPartial = typeof r.creditsChargedPartial === "boolean" ? r.creditsChargedPartial : undefined;
           const creditsChargeAttempted = typeof (r as any).creditsChargeAttempted === "boolean" ? (r as any).creditsChargeAttempted : undefined;
 
+          const smsNotesSentAtIso = typeof (r as any).smsNotesSentAtIso === "string" ? String((r as any).smsNotesSentAtIso).trim() : "";
+          const emailTranscriptSentAtIso = typeof (r as any).emailTranscriptSentAtIso === "string" ? String((r as any).emailTranscriptSentAtIso).trim() : "";
+          const emailRecordingSentAtIso = typeof (r as any).emailRecordingSentAtIso === "string" ? String((r as any).emailRecordingSentAtIso).trim() : "";
+
           return [
             {
               id: typeof r.id === "string" ? r.id : `call_${callSid}`,
@@ -242,6 +251,9 @@ function parseServiceData(raw: unknown): AiReceptionistServiceData {
               ...(typeof chargedCredits === "number" ? { chargedCredits } : {}),
               ...(typeof creditsChargedPartial === "boolean" ? { creditsChargedPartial } : {}),
               ...(typeof creditsChargeAttempted === "boolean" ? { creditsChargeAttempted } : {}),
+              ...(smsNotesSentAtIso ? { smsNotesSentAtIso: smsNotesSentAtIso.slice(0, 40) } : {}),
+              ...(emailTranscriptSentAtIso ? { emailTranscriptSentAtIso: emailTranscriptSentAtIso.slice(0, 40) } : {}),
+              ...(emailRecordingSentAtIso ? { emailRecordingSentAtIso: emailRecordingSentAtIso.slice(0, 40) } : {}),
             },
           ];
         })

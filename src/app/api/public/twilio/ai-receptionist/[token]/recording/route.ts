@@ -99,29 +99,52 @@ export async function POST(req: Request, ctx: { params: Promise<{ token: string 
     ...(chargedPartial ? { creditsChargedPartial: true } : {}),
   });
 
-  // Best-effort: notify portal users.
+  // Best-effort: email the recording link (idempotent).
   try {
     const baseUrl = getAppBaseUrl();
     const duration = Number.isFinite(durationSec) ? Math.max(0, Math.floor(durationSec)) : null;
-    void tryNotifyPortalAccountUsers({
-      ownerId,
-      kind: "ai_receptionist_call_completed",
-      subject: `AI receptionist call completed${fromE164 ? `: ${fromE164}` : ""}`,
-      text: [
-        "An AI receptionist call completed.",
-        "",
-        `From: ${fromE164}`,
-        toE164 ? `To: ${toE164}` : null,
-        duration !== null ? `Duration (sec): ${duration}` : null,
-        chargedCredits ? `Credits charged: ${chargedCredits}${chargedPartial ? " (partial)" : ""}` : null,
-        recordingSid ? `RecordingSid: ${recordingSid}` : null,
-        callSid ? `CallSid: ${callSid}` : null,
-        "",
-        `Open receptionist: ${baseUrl}/portal/app/ai-receptionist`,
-      ]
-        .filter(Boolean)
-        .join("\n"),
-    }).catch(() => null);
+
+    // Avoid duplicate sends on Twilio retries by reading current event state.
+    const { getAiReceptionistServiceData } = await import("@/lib/aiReceptionist");
+    const data = await getAiReceptionistServiceData(ownerId).catch(() => null);
+    const event = (data?.events || []).find((e: any) => String(e?.callSid || "").trim() === callSid) as any;
+
+    if (recordingSid && !event?.emailRecordingSentAtIso) {
+      const recordingUrl = `${baseUrl}/api/portal/ai-receptionist/recordings/${encodeURIComponent(recordingSid)}`;
+
+      const res = await tryNotifyPortalAccountUsers({
+        ownerId,
+        kind: "ai_receptionist_call_completed",
+        subject: `AI receptionist recording ready${fromE164 ? `: ${fromE164}` : ""}`,
+        smsMirror: false,
+        text: [
+          "Your AI receptionist call recording is ready.",
+          "",
+          `From: ${fromE164}`,
+          toE164 ? `To: ${toE164}` : null,
+          duration !== null ? `Duration (sec): ${duration}` : null,
+          chargedCredits ? `Credits charged: ${chargedCredits}${chargedPartial ? " (partial)" : ""}` : null,
+          "",
+          `Recording: ${recordingUrl}`,
+          "",
+          `Open AI receptionist: ${baseUrl}/portal/app/services/ai-receptionist`,
+        ]
+          .filter(Boolean)
+          .join("\n"),
+      });
+
+      if (res.ok) {
+        await upsertAiReceptionistCallEvent(ownerId, {
+          id: `call_${callSid}`,
+          callSid,
+          from: fromE164,
+          to: toE164,
+          createdAtIso: new Date().toISOString(),
+          status: "COMPLETED",
+          emailRecordingSentAtIso: new Date().toISOString(),
+        });
+      }
+    }
   } catch {
     // ignore
   }

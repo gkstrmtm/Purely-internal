@@ -39,6 +39,8 @@ const PROFILE_EXTRAS_SERVICE_SLUG = "profile";
 
 type PortalRecipient = { userId: string; email: string };
 
+export type PortalRecipientContact = { userId: string; email: string; phoneE164: string | null };
+
 async function getPortalAccountRecipients(ownerId: string): Promise<PortalRecipient[]> {
   const [owner, members] = await Promise.all([
     prisma.user.findUnique({ where: { id: ownerId }, select: { id: true, email: true, active: true } }),
@@ -88,6 +90,14 @@ async function getRecipientPhones(userIds: string[]): Promise<Map<string, string
   return map;
 }
 
+export async function listPortalAccountRecipientContacts(ownerId: string): Promise<PortalRecipientContact[]> {
+  const recipients = await getPortalAccountRecipients(ownerId).catch(() => []);
+  if (!recipients.length) return [];
+
+  const phones = await getRecipientPhones(recipients.map((r) => r.userId)).catch(() => new Map<string, string>());
+  return recipients.map((r) => ({ ...r, phoneE164: phones.get(r.userId) || null }));
+}
+
 export async function getPortalAccountRecipientEmails(ownerId: string): Promise<string[]> {
   const recips = await getPortalAccountRecipients(ownerId);
   const seen = new Set<string>();
@@ -109,6 +119,8 @@ export async function tryNotifyPortalAccountUsers(opts: {
   html?: string | null;
   fromName?: string | null;
   replyTo?: string | null;
+  smsMirror?: boolean;
+  smsFromNumberEnvKeys?: string[];
 }): Promise<{ ok: true; recipients: string[] } | { ok: false; reason: string }> {
   const recipients = await getPortalAccountRecipients(opts.ownerId).catch(() => []);
   if (!recipients.length) return { ok: false, reason: "No recipients" };
@@ -119,15 +131,11 @@ export async function tryNotifyPortalAccountUsers(opts: {
 
   const fromName = safeOneLine(opts.fromName || "") || safeOneLine(profile?.businessName || "") || "Purely Automation";
 
-  // If your email provider requires verified senders, make sure this is verified.
-  const fromEmail = "contact@purelyautomation.com";
-
   const res = await trySendTransactionalEmail({
     to: recipients.map((r) => r.email),
     subject: opts.subject,
     text: opts.text,
     html: opts.html ?? null,
-    fromEmail,
     fromName,
     replyTo: opts.replyTo ?? null,
     messageStream: opts.kind,
@@ -135,22 +143,31 @@ export async function tryNotifyPortalAccountUsers(opts: {
 
   if (!res.ok) return { ok: false, reason: res.reason };
 
-  // Best-effort SMS mirror (only to users who have a profile phone configured).
-  try {
-    const phones = await getRecipientPhones(recipients.map((r) => r.userId));
-    const smsBody = [safeOneLine(opts.subject), String(opts.text || "").trim()]
-      .filter(Boolean)
-      .join("\n\n")
-      .slice(0, 900);
+  const smsMirror = opts.smsMirror !== false;
+  if (smsMirror) {
+    // Best-effort SMS mirror (only to users who have a profile phone configured).
+    try {
+      const phones = await getRecipientPhones(recipients.map((r) => r.userId));
+      const smsBody = [safeOneLine(opts.subject), String(opts.text || "").trim()]
+        .filter(Boolean)
+        .join("\n\n")
+        .slice(0, 900);
 
-    await Promise.all(
-      recipients
-        .map((r) => ({ userId: r.userId, phone: phones.get(r.userId) || "" }))
-        .filter((r) => Boolean(r.phone))
-        .map((r) => sendTwilioEnvSms({ to: r.phone, body: smsBody, fromNumberEnvKeys: ["TWILIO_FROM_NUMBER"] })),
-    );
-  } catch {
-    // ignore
+      await Promise.all(
+        recipients
+          .map((r) => ({ userId: r.userId, phone: phones.get(r.userId) || "" }))
+          .filter((r) => Boolean(r.phone))
+          .map((r) =>
+            sendTwilioEnvSms({
+              to: r.phone,
+              body: smsBody,
+              fromNumberEnvKeys: opts.smsFromNumberEnvKeys ?? ["TWILIO_FROM_NUMBER"],
+            }),
+          ),
+      );
+    } catch {
+      // ignore
+    }
   }
 
   return { ok: true, recipients: recipients.map((r) => r.email) };
