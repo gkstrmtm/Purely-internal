@@ -1,4 +1,5 @@
 import Link from "next/link";
+import Image from "next/image";
 
 import { requireAdsUser } from "@/lib/adsAuth";
 import { AdsSignOutButton } from "@/app/ads/app/signout/AdsSignOutButton";
@@ -8,29 +9,48 @@ export default async function AdsAppLayout({ children }: { children: React.React
 
   return (
     <div className="min-h-[100dvh] bg-brand-mist text-brand-ink">
-      <header className="border-b border-zinc-200 bg-white">
-        <div className="mx-auto flex max-w-6xl items-center justify-between gap-4 px-6 py-4">
-          <div className="flex items-center gap-3">
-            <Link href="/ads" className="text-sm font-semibold text-zinc-900">
-              Ads Manager
-            </Link>
-            <span className="hidden text-xs text-zinc-500 sm:inline">{user.email}</span>
+      <header className="border-b border-zinc-200 bg-white/80 backdrop-blur">
+        <div className="mx-auto max-w-6xl px-6 py-4">
+          <div className="flex flex-col justify-between gap-3 sm:flex-row sm:items-center">
+            <div className="flex items-center justify-between gap-4">
+              <Link href="/ads" className="flex items-center gap-3">
+                <span className="relative h-8 w-8 overflow-hidden rounded-xl bg-white shadow-sm ring-1 ring-zinc-200">
+                  <Image src="/brand/purity-5.png" alt="Purely" fill className="object-contain p-1" />
+                </span>
+                <div className="leading-tight">
+                  <div className="text-sm font-bold text-zinc-900">Ads Manager</div>
+                  <div className="text-xs text-zinc-500">Run portal ads that convert</div>
+                </div>
+              </Link>
+
+              <div className="sm:hidden">
+                <AdsSignOutButton />
+              </div>
+            </div>
+
+            <div className="flex items-center justify-between gap-3">
+              <span className="hidden text-xs text-zinc-500 sm:inline">{user.email}</span>
+              <nav className="flex items-center gap-2">
+                <Link
+                  href="/ads/app"
+                  className="rounded-2xl px-3 py-2 text-sm font-semibold text-zinc-700 hover:bg-zinc-50"
+                >
+                  Dashboard
+                </Link>
+                <Link
+                  href="/ads/app/campaigns/new"
+                  className="rounded-2xl bg-brand-ink px-4 py-2 text-sm font-semibold text-white hover:opacity-95"
+                >
+                  New campaign
+                </Link>
+                <div className="hidden sm:block">
+                  <AdsSignOutButton />
+                </div>
+              </nav>
+            </div>
           </div>
-          <nav className="flex items-center gap-2">
-            <Link
-              href="/ads/app"
-              className="rounded-2xl px-3 py-2 text-sm font-semibold text-zinc-700 hover:bg-zinc-50"
-            >
-              Campaigns
-            </Link>
-            <Link
-              href="/ads/app/campaigns/new"
-              className="rounded-2xl bg-brand-ink px-4 py-2 text-sm font-semibold text-white hover:opacity-95"
-            >
-              New campaign
-            </Link>
-            <AdsSignOutButton />
-          </nav>
+
+          <div className="mt-4 h-px w-full bg-gradient-to-r from-[color:var(--color-brand-pink)]/40 via-zinc-200 to-[color:var(--color-brand-blue)]/40" />
         </div>
       </header>
 

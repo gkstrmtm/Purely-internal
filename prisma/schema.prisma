@@ -223,6 +223,10 @@ model AdsAdvertiserAccount {
   balanceCents Int    @default(0)
   currency    String @default("USD")
 
+  autoTopUpEnabled        Boolean @default(false)
+  autoTopUpThresholdCents Int     @default(2000)
+  autoTopUpAmountCents    Int     @default(5000)
+
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 

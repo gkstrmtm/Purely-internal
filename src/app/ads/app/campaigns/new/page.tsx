@@ -77,6 +77,18 @@ export default function NewAdsCampaignPage() {
   const [audienceName, setAudienceName] = useState<string>("");
   const [audienceBusy, setAudienceBusy] = useState(false);
 
+  const [me, setMe] = useState<any>(null);
+  const [accountBusy, setAccountBusy] = useState(false);
+  const [topupUsd, setTopupUsd] = useState("50");
+  const [topupBusy, setTopupBusy] = useState(false);
+
+  const [autoEnabled, setAutoEnabled] = useState(false);
+  const [autoThresholdUsd, setAutoThresholdUsd] = useState("20");
+  const [autoAmountUsd, setAutoAmountUsd] = useState("50");
+  const [autoBusy, setAutoBusy] = useState(false);
+
+  const balanceCents = Number(me?.account?.balanceCents || 0);
+
   const selectableServices = useMemo(
     () => PORTAL_SERVICES.filter((s) => !s.hidden).map((s) => ({ slug: s.slug, title: s.title })),
     [],
@@ -106,6 +118,87 @@ export default function NewAdsCampaignPage() {
   useEffect(() => {
     void loadAudiences();
   }, []);
+
+  async function loadMe() {
+    setAccountBusy(true);
+    try {
+      const res = await fetch("/ads/api/me", { cache: "no-store" });
+      const json = await res.json().catch(() => null);
+      if (!res.ok || !json?.ok) throw new Error(String(json?.error || "Failed to load account"));
+      setMe(json);
+
+      const a = json?.account;
+      setAutoEnabled(Boolean(a?.autoTopUpEnabled));
+      setAutoThresholdUsd(String(Math.round(Number(a?.autoTopUpThresholdCents || 0) / 100)));
+      setAutoAmountUsd(String(Math.round(Number(a?.autoTopUpAmountCents || 0) / 100)));
+    } catch {
+      // ignore
+    } finally {
+      setAccountBusy(false);
+    }
+  }
+
+  useEffect(() => {
+    void loadMe();
+  }, []);
+
+  async function doTopup() {
+    const amountUsd = Number(topupUsd);
+    if (!Number.isFinite(amountUsd) || amountUsd <= 0) return;
+
+    setTopupBusy(true);
+    setError(null);
+    try {
+      const amountCents = Math.round(amountUsd * 100);
+      const res = await fetch("/ads/api/topup", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ amountCents }),
+      });
+      const json = await res.json().catch(() => null);
+      if (!res.ok || !json?.ok) throw new Error(String(json?.error || "Top up failed"));
+      await loadMe();
+    } catch (err: any) {
+      setError(String(err?.message || "Top up failed"));
+    } finally {
+      setTopupBusy(false);
+    }
+  }
+
+  async function saveAutoTopUp(next: { enabled: boolean; thresholdUsd: string; amountUsd: string }) {
+    const thresholdUsdNum = Number(next.thresholdUsd);
+    const amountUsdNum = Number(next.amountUsd);
+
+    if (!Number.isFinite(thresholdUsdNum) || thresholdUsdNum < 0) {
+      setError("Invalid auto top-up threshold");
+      return;
+    }
+    if (!Number.isFinite(amountUsdNum) || amountUsdNum <= 0) {
+      setError("Invalid auto top-up amount");
+      return;
+    }
+
+    setAutoBusy(true);
+    setError(null);
+    try {
+      const res = await fetch("/ads/api/account", {
+        method: "PATCH",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          autoTopUpEnabled: next.enabled,
+          autoTopUpThresholdCents: Math.round(thresholdUsdNum * 100),
+          autoTopUpAmountCents: Math.round(amountUsdNum * 100),
+        }),
+      });
+      const json = await res.json().catch(() => null);
+      if (!res.ok || !json?.ok) throw new Error(String(json?.error || "Save failed"));
+      await loadMe();
+    } catch (err: any) {
+      setError(String(err?.message || "Save failed"));
+    } finally {
+      setAutoBusy(false);
+    }
+  }
 
   useEffect(() => {
     if (!audienceId) return;
@@ -349,7 +442,7 @@ export default function NewAdsCampaignPage() {
 
         <div className="rounded-3xl border border-zinc-200 bg-white p-6">
           <div className="text-sm font-semibold text-zinc-900">Targeting</div>
-          <div className="mt-2 text-sm text-zinc-600">Choose who you want to reach. (No path targeting.)</div>
+          <div className="mt-2 text-sm text-zinc-600">Choose who you want to reach.</div>
 
           <div className="mt-5 grid gap-6">
             <div className="rounded-2xl border border-zinc-200 bg-white p-4">
@@ -546,6 +639,102 @@ export default function NewAdsCampaignPage() {
       </div>
 
       <div className="space-y-6">
+        <div className="rounded-3xl border border-zinc-200 bg-white p-6">
+          <div className="flex items-start justify-between gap-4">
+            <div>
+              <div className="text-sm font-semibold text-zinc-900">Balance</div>
+              <div className="mt-1 text-xs text-zinc-500">Auto top-up keeps campaigns running.</div>
+            </div>
+            <div className="text-right">
+              <div className="text-lg font-bold text-zinc-900">${(balanceCents / 100).toFixed(2)}</div>
+              <div className="mt-1 text-xs text-zinc-500">{accountBusy ? "Loading…" : "USD"}</div>
+            </div>
+          </div>
+
+          <div className="mt-4 grid gap-3 sm:grid-cols-2">
+            <label className="block">
+              <div className="text-xs font-semibold uppercase tracking-wide text-zinc-500">Add funds ($)</div>
+              <div className="mt-2 flex items-center gap-2">
+                <input
+                  value={topupUsd}
+                  onChange={(e) => setTopupUsd(e.target.value)}
+                  inputMode="decimal"
+                  disabled={topupBusy || busy}
+                  className="w-full rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-sm outline-none focus:border-zinc-400 disabled:opacity-60"
+                />
+                <button
+                  type="button"
+                  onClick={() => void doTopup()}
+                  disabled={topupBusy || busy}
+                  className="shrink-0 rounded-2xl bg-brand-ink px-4 py-2 text-sm font-semibold text-white hover:opacity-95 disabled:opacity-60"
+                >
+                  {topupBusy ? "Adding…" : "Add"}
+                </button>
+              </div>
+            </label>
+
+            <div className="rounded-2xl border border-zinc-200 bg-white p-4">
+              <div className="flex items-center justify-between gap-3">
+                <div>
+                  <div className="text-xs font-semibold uppercase tracking-wide text-zinc-500">Auto top-up</div>
+                  <div className="mt-1 text-sm font-semibold text-zinc-900">Auto-reload</div>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => {
+                    const next = !autoEnabled;
+                    setAutoEnabled(next);
+                    void saveAutoTopUp({ enabled: next, thresholdUsd: autoThresholdUsd, amountUsd: autoAmountUsd });
+                  }}
+                  disabled={autoBusy || busy}
+                  className={
+                    "rounded-2xl px-3 py-2 text-sm font-semibold disabled:opacity-60 " +
+                    (autoEnabled ? "bg-brand-ink text-white" : "border border-zinc-200 bg-white text-zinc-700 hover:bg-zinc-50")
+                  }
+                >
+                  {autoBusy ? "Saving…" : autoEnabled ? "Enabled" : "Disabled"}
+                </button>
+              </div>
+
+              <div className="mt-3 grid gap-3 sm:grid-cols-2">
+                <label className="block">
+                  <div className="text-[11px] font-semibold uppercase tracking-wide text-zinc-500">Threshold ($)</div>
+                  <input
+                    value={autoThresholdUsd}
+                    onChange={(e) => setAutoThresholdUsd(e.target.value)}
+                    inputMode="decimal"
+                    disabled={autoBusy || busy}
+                    className="mt-1.5 w-full rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-sm outline-none focus:border-zinc-400 disabled:opacity-60"
+                  />
+                </label>
+                <label className="block">
+                  <div className="text-[11px] font-semibold uppercase tracking-wide text-zinc-500">Reload ($)</div>
+                  <input
+                    value={autoAmountUsd}
+                    onChange={(e) => setAutoAmountUsd(e.target.value)}
+                    inputMode="decimal"
+                    disabled={autoBusy || busy}
+                    className="mt-1.5 w-full rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-sm outline-none focus:border-zinc-400 disabled:opacity-60"
+                  />
+                </label>
+              </div>
+
+              <button
+                type="button"
+                onClick={() => void saveAutoTopUp({ enabled: autoEnabled, thresholdUsd: autoThresholdUsd, amountUsd: autoAmountUsd })}
+                disabled={autoBusy || busy}
+                className="mt-3 inline-flex w-full items-center justify-center rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm font-semibold text-zinc-700 hover:bg-zinc-50 disabled:opacity-60"
+              >
+                {autoBusy ? "Saving…" : "Save"}
+              </button>
+            </div>
+          </div>
+
+          <div className="mt-3 text-xs text-zinc-500">
+            Auto top-up triggers when your balance falls below the threshold.
+          </div>
+        </div>
+
         <div className="rounded-3xl border border-zinc-200 bg-white p-6">
           <div className="text-sm font-semibold text-zinc-900">Creative</div>
 

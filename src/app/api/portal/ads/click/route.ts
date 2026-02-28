@@ -195,10 +195,41 @@ export async function GET(req: Request) {
             where: { userId: advertiserUserId },
             update: {},
             create: { userId: advertiserUserId },
-            select: { id: true, balanceCents: true },
+            select: {
+              id: true,
+              balanceCents: true,
+              autoTopUpEnabled: true,
+              autoTopUpThresholdCents: true,
+              autoTopUpAmountCents: true,
+            },
           });
 
-          if (account.balanceCents < billing.costPerClickCents) return;
+          let balanceCents = account.balanceCents;
+          if (
+            account.autoTopUpEnabled &&
+            account.autoTopUpAmountCents > 0 &&
+            balanceCents < Math.max(0, account.autoTopUpThresholdCents)
+          ) {
+            await tx.adsAdvertiserAccount.update({
+              where: { id: account.id },
+              data: { balanceCents: { increment: account.autoTopUpAmountCents } },
+              select: { id: true },
+            });
+
+            await tx.adsAdvertiserLedgerEntry.create({
+              data: {
+                accountId: account.id,
+                kind: "TOPUP",
+                amountCents: account.autoTopUpAmountCents,
+                metaJson: { source: "auto_topup", reason: "balance_below_threshold" },
+              },
+              select: { id: true },
+            });
+
+            balanceCents += account.autoTopUpAmountCents;
+          }
+
+          if (balanceCents < billing.costPerClickCents) return;
 
           if (billing.dailyBudgetCents > 0) {
             const sum = await tx.adsAdvertiserLedgerEntry.aggregate({
