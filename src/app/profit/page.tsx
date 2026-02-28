@@ -1,7 +1,9 @@
 "use client";
 
 import Image from "next/image";
-import { useMemo, useState } from "react";
+import { useId, useMemo, useState } from "react";
+
+import { PORTAL_MODULE_CATALOG, type PortalModuleKey } from "@/lib/portalModulesCatalog";
 
 type Mode = "monthly" | "credit" | "combined";
 
@@ -21,6 +23,101 @@ const KEEP_MAX = 0.92;
 const ARPU_DEFAULT_MONTHLY = 606;
 const ARPU_DEFAULT_CREDIT = 800;
 const ARPU_WHALE = 2500;
+
+const DEFAULT_USD_PER_CREDIT_SUBSCRIPTION = 0.1;
+const DEFAULT_USD_PER_CREDIT_CREDITS_ONLY = 0.15;
+
+type AovSource = "modules" | "manual";
+
+type ModulePctMap = Record<PortalModuleKey, number>; // 0..100
+type ModuleUsdMap = Record<PortalModuleKey, number>; // USD per enabled customer per month
+
+const DEFAULT_MODULE_ADOPTION_PCT: ModulePctMap = {
+  blog: 55,
+  booking: 70,
+  automations: 35,
+  reviews: 60,
+  newsletter: 35,
+  nurture: 20,
+  aiReceptionist: 45,
+  leadScraping: 40,
+  leadOutbound: 25,
+  crm: 0,
+};
+
+const DEFAULT_VALUE_USD_PER_ENABLED_CUSTOMER: ModuleUsdMap = {
+  blog: 300,
+  booking: 150,
+  automations: 200,
+  reviews: 500,
+  newsletter: 250,
+  nurture: 200,
+  aiReceptionist: 900,
+  leadScraping: 600,
+  leadOutbound: 1200,
+  crm: 150,
+};
+
+type ServiceMixPresetKey = "Lean" | "Standard" | "Aggressive" | "All-in";
+
+const SERVICE_MIX_PRESETS: Record<
+  ServiceMixPresetKey,
+  { adoptionPct: ModulePctMap; creditsPerMonthlyCustomer: number; creditsPerCreditCustomer: number }
+> = {
+  Lean: {
+    adoptionPct: {
+      blog: 35,
+      booking: 55,
+      automations: 20,
+      reviews: 35,
+      newsletter: 20,
+      nurture: 10,
+      aiReceptionist: 25,
+      leadScraping: 20,
+      leadOutbound: 10,
+      crm: 0,
+    },
+    creditsPerMonthlyCustomer: 60,
+    creditsPerCreditCustomer: 120,
+  },
+  Standard: {
+    adoptionPct: DEFAULT_MODULE_ADOPTION_PCT,
+    creditsPerMonthlyCustomer: 100,
+    creditsPerCreditCustomer: 200,
+  },
+  Aggressive: {
+    adoptionPct: {
+      blog: 75,
+      booking: 85,
+      automations: 60,
+      reviews: 75,
+      newsletter: 60,
+      nurture: 40,
+      aiReceptionist: 70,
+      leadScraping: 65,
+      leadOutbound: 55,
+      crm: 0,
+    },
+    creditsPerMonthlyCustomer: 160,
+    creditsPerCreditCustomer: 280,
+  },
+  "All-in": {
+    adoptionPct: {
+      blog: 100,
+      booking: 100,
+      automations: 100,
+      reviews: 100,
+      newsletter: 100,
+      nurture: 100,
+      aiReceptionist: 100,
+      leadScraping: 100,
+      leadOutbound: 100,
+      crm: 0,
+    },
+    creditsPerMonthlyCustomer: 220,
+    creditsPerCreditCustomer: 350,
+  },
+};
 
 function clampNum(n: number, min: number, max: number) {
   if (!Number.isFinite(n)) return min;
@@ -52,11 +149,6 @@ function formatMoneyCompact(n: number) {
   }).format(v);
 }
 
-function formatPct(n: number) {
-  const v = Number.isFinite(n) ? n : 0;
-  return `${Math.round(v * 100)}%`;
-}
-
 function formatKeep(n: number) {
   const v = Number.isFinite(n) ? n : 0;
   return `$${v.toFixed(2)}`;
@@ -73,10 +165,6 @@ function classNames(...xs: Array<string | false | null | undefined>) {
 
 function calcProfitPerMonth(mrr: number, keep: number) {
   return mrr * keep;
-}
-
-function calcProfitOverTime(mrr: number, keep: number, months: number) {
-  return calcProfitPerMonth(mrr, keep) * months;
 }
 
 function sum(ns: number[]) {
@@ -169,44 +257,72 @@ function SurfaceCard(props: {
   );
 }
 
-function SparkArea(props: {
+function HoverSparkArea(props: {
   values: number[];
   stroke?: string;
   height?: number;
+  onHoverIndex?: (idx: number | null) => void;
 }) {
   const height = props.height ?? 96;
   const width = 320;
+  const stroke = props.stroke ?? "var(--color-brand-blue)";
+  const gid = useId();
 
-  const d = useMemo(() => {
+  const shape = useMemo(() => {
     const vals = props.values.length ? props.values : [0];
     const max = Math.max(1, ...vals);
     const min = Math.min(0, ...vals);
     const span = Math.max(1, max - min);
-
     const stepX = vals.length <= 1 ? 0 : width / (vals.length - 1);
+
     const pts = vals.map((v, i) => {
       const x = i * stepX;
       const y = height - ((v - min) / span) * height;
-      return [x, y] as const;
+      return { x, y };
     });
 
-    const line = pts.map(([x, y]) => `${x.toFixed(2)},${y.toFixed(2)}`).join(" ");
+    const line = pts.map((p) => `${p.x.toFixed(2)},${p.y.toFixed(2)}`).join(" ");
     const area = `M 0 ${height} L ${line} L ${width} ${height} Z`;
-    return { line, area };
+    return { pts, line, area, stepX };
   }, [props.values, height]);
 
-  const stroke = props.stroke ?? "var(--color-brand-blue)";
+  const [hoverIdx, setHoverIdx] = useState<number | null>(null);
+
+  function setIdx(idx: number | null) {
+    setHoverIdx(idx);
+    props.onHoverIndex?.(idx);
+  }
 
   return (
-    <svg viewBox={`0 0 ${width} ${height}`} className="h-full w-full" aria-hidden>
+    <svg
+      viewBox={`0 0 ${width} ${height}`}
+      className="h-full w-full"
+      aria-hidden
+      onMouseLeave={() => setIdx(null)}
+      onMouseMove={(e) => {
+        const rect = (e.currentTarget as SVGSVGElement).getBoundingClientRect();
+        const x = clampNum(e.clientX - rect.left, 0, rect.width);
+        const t = rect.width > 0 ? x / rect.width : 0;
+        const idx = Math.round(t * Math.max(0, shape.pts.length - 1));
+        setIdx(clampNum(idx, 0, Math.max(0, shape.pts.length - 1)));
+      }}
+    >
       <defs>
-        <linearGradient id="profitArea" x1="0" y1="0" x2="1" y2="0">
+        <linearGradient id={`profitArea-${gid}`} x1="0" y1="0" x2="1" y2="0">
           <stop offset="0%" stopColor={stroke} stopOpacity={0.35} />
           <stop offset="100%" stopColor={stroke} stopOpacity={0.05} />
         </linearGradient>
       </defs>
-      <path d={d.area} fill="url(#profitArea)" />
-      <polyline points={d.line} fill="none" stroke={stroke} strokeWidth="3" strokeLinejoin="round" strokeLinecap="round" />
+      <path d={shape.area} fill={`url(#profitArea-${gid})`} />
+      <polyline points={shape.line} fill="none" stroke={stroke} strokeWidth="3" strokeLinejoin="round" strokeLinecap="round" />
+
+      {typeof hoverIdx === "number" && shape.pts[hoverIdx] ? (
+        <g>
+          <line x1={shape.pts[hoverIdx].x} x2={shape.pts[hoverIdx].x} y1={0} y2={height} stroke="rgba(15,23,42,0.12)" strokeWidth="2" />
+          <circle cx={shape.pts[hoverIdx].x} cy={shape.pts[hoverIdx].y} r="5" fill={stroke} />
+          <circle cx={shape.pts[hoverIdx].x} cy={shape.pts[hoverIdx].y} r="9" fill={stroke} opacity={0.18} />
+        </g>
+      ) : null}
     </svg>
   );
 }
@@ -347,6 +463,7 @@ function DonutMix(props: { aPct: number; aLabel: string; bLabel: string }) {
 
 export default function ProfitVisualizationDashboardPage() {
   const [assumptionsOpen, setAssumptionsOpen] = useState(false);
+  const [hoverMonthIndex, setHoverMonthIndex] = useState<number | null>(null);
 
   const [mode, setMode] = useState<Mode>("combined");
   const [selectedMrr, setSelectedMrr] = useState<number>(100_000);
@@ -361,6 +478,17 @@ export default function ProfitVisualizationDashboardPage() {
   const [creditArpu, setCreditArpu] = useState<number>(ARPU_DEFAULT_CREDIT);
   const [whale, setWhale] = useState(false);
 
+  const [aovSource, setAovSource] = useState<AovSource>("modules");
+  const [serviceMixPreset, setServiceMixPreset] = useState<ServiceMixPresetKey>("Standard");
+
+  const [usdPerCreditSubscription, setUsdPerCreditSubscription] = useState<number>(DEFAULT_USD_PER_CREDIT_SUBSCRIPTION);
+  const [usdPerCreditCreditsOnly, setUsdPerCreditCreditsOnly] = useState<number>(DEFAULT_USD_PER_CREDIT_CREDITS_ONLY);
+  const [creditsPerMonthlyCustomer, setCreditsPerMonthlyCustomer] = useState<number>(SERVICE_MIX_PRESETS.Standard.creditsPerMonthlyCustomer);
+  const [creditsPerCreditCustomer, setCreditsPerCreditCustomer] = useState<number>(SERVICE_MIX_PRESETS.Standard.creditsPerCreditCustomer);
+
+  const [moduleAdoptionPct, setModuleAdoptionPct] = useState<ModulePctMap>(SERVICE_MIX_PRESETS.Standard.adoptionPct);
+  const [valueUsdPerEnabledCustomer, setValueUsdPerEnabledCustomer] = useState<ModuleUsdMap>(DEFAULT_VALUE_USD_PER_ENABLED_CUSTOMER);
+
   const [monthlySharePct, setMonthlySharePct] = useState<number>(60);
 
   const appliedMrr = useMemo(() => {
@@ -371,8 +499,28 @@ export default function ProfitVisualizationDashboardPage() {
     return Math.max(0, Math.floor(n));
   }, [customMrr, selectedMrr]);
 
-  const effectiveMonthlyArpu = whale ? ARPU_WHALE : Math.max(1, Math.floor(monthlyArpu || 0));
-  const effectiveCreditArpu = whale ? ARPU_WHALE : Math.max(1, Math.floor(creditArpu || 0));
+  const computedMembershipArpu = useMemo(() => {
+    const base = sum(
+      (Object.keys(PORTAL_MODULE_CATALOG) as PortalModuleKey[]).map((k) => {
+        const pct = clampNum((moduleAdoptionPct[k] ?? 0) / 100, 0, 1);
+        const price = PORTAL_MODULE_CATALOG[k]?.monthlyUsd ?? 0;
+        return price * pct;
+      }),
+    );
+    const credits = Math.max(0, creditsPerMonthlyCustomer || 0) * Math.max(0, usdPerCreditSubscription || 0);
+    return base + credits;
+  }, [moduleAdoptionPct, creditsPerMonthlyCustomer, usdPerCreditSubscription]);
+
+  const computedCreditsOnlyArpu = useMemo(() => {
+    return Math.max(0, creditsPerCreditCustomer || 0) * Math.max(0, usdPerCreditCreditsOnly || 0);
+  }, [creditsPerCreditCustomer, usdPerCreditCreditsOnly]);
+
+  const effectiveMonthlyArpu = whale
+    ? ARPU_WHALE
+    : Math.max(1, Math.floor((aovSource === "modules" ? computedMembershipArpu : monthlyArpu) || 0));
+  const effectiveCreditArpu = whale
+    ? ARPU_WHALE
+    : Math.max(1, Math.floor((aovSource === "modules" ? computedCreditsOnlyArpu : creditArpu) || 0));
 
   const monthlyShare = clampNum(monthlySharePct / 100, 0, 1);
   const creditShare = 1 - monthlyShare;
@@ -400,6 +548,156 @@ export default function ProfitVisualizationDashboardPage() {
     creditArpu: effectiveCreditArpu,
     monthlyShare,
   });
+
+  const moduleKeys = useMemo(() => Object.keys(PORTAL_MODULE_CATALOG) as PortalModuleKey[], []);
+
+  const serviceModel = useMemo(() => {
+    const monthlyCustomers = cust.monthlyCustomers;
+    const creditCustomers = cust.creditCustomers;
+
+    const moduleRows = moduleKeys
+      .filter((k) => k !== "crm")
+      .map((k) => {
+        const pct = clampNum(moduleAdoptionPct[k] ?? 0, 0, 100);
+        const enabled = Math.max(0, monthlyCustomers) * (pct / 100);
+        const enabledDisplay = Math.round(enabled);
+        const mod = PORTAL_MODULE_CATALOG[k];
+        const priceUsd = mod?.monthlyUsd ?? 0;
+        const title = mod?.title ?? k;
+        const purelyRevenueUsd = enabled * priceUsd;
+        const valuePerEnabled = Math.max(0, valueUsdPerEnabledCustomer[k] ?? 0);
+        const customerValueUsd = enabled * valuePerEnabled;
+
+        return {
+          key: k,
+          title,
+          pct,
+          enabled,
+          enabledDisplay,
+          priceUsd,
+          purelyRevenueUsd,
+          valuePerEnabled,
+          customerValueUsd,
+          netValueUsd: customerValueUsd - purelyRevenueUsd,
+        };
+      });
+
+    const creditsUsd =
+      Math.max(0, monthlyCustomers) * Math.max(0, creditsPerMonthlyCustomer || 0) * Math.max(0, usdPerCreditSubscription || 0) +
+      Math.max(0, creditCustomers) * Math.max(0, creditsPerCreditCustomer || 0) * Math.max(0, usdPerCreditCreditsOnly || 0);
+
+    const purelyModuleRevenueUsd = sum(moduleRows.map((r) => r.purelyRevenueUsd));
+    const customerValueUsd = sum(moduleRows.map((r) => r.customerValueUsd));
+    const customerCostUsd = purelyModuleRevenueUsd + creditsUsd;
+    const netCustomerValueUsd = customerValueUsd - customerCostUsd;
+    const roiMultiple = customerCostUsd > 0 ? customerValueUsd / customerCostUsd : 0;
+
+    const topByRevenue = [...moduleRows].sort((a, b) => b.purelyRevenueUsd - a.purelyRevenueUsd).slice(0, 3);
+    const topByValue = [...moduleRows].sort((a, b) => b.netValueUsd - a.netValueUsd).slice(0, 3);
+
+    const opportunities = [...moduleRows]
+      .map((r) => {
+        const price = Math.max(1, r.priceUsd);
+        const score = (r.valuePerEnabled / price) * (1 - r.pct / 100);
+        return { ...r, score };
+      })
+      .sort((a, b) => b.score - a.score)
+      .slice(0, 4);
+
+    return {
+      moduleRows,
+      creditsUsd,
+      purelyModuleRevenueUsd,
+      customerValueUsd,
+      customerCostUsd,
+      netCustomerValueUsd,
+      roiMultiple,
+      topByRevenue,
+      topByValue,
+      opportunities,
+    };
+  }, [
+    cust.monthlyCustomers,
+    cust.creditCustomers,
+    moduleKeys,
+    moduleAdoptionPct,
+    valueUsdPerEnabledCustomer,
+    creditsPerMonthlyCustomer,
+    creditsPerCreditCustomer,
+    usdPerCreditSubscription,
+    usdPerCreditCreditsOnly,
+  ]);
+
+  const serviceValueSeries = useMemo(() => {
+    const cost: number[] = [];
+    const value: number[] = [];
+    const net: number[] = [];
+
+    for (const mrr of revenueSeries) {
+      const c = customersNeeded({
+        mrr,
+        mode,
+        monthlyArpu: effectiveMonthlyArpu,
+        creditArpu: effectiveCreditArpu,
+        monthlyShare,
+      });
+
+      const monthlyCustomers = c.monthlyCustomers;
+      const creditCustomers = c.creditCustomers;
+
+      const moduleRevenueUsd = sum(
+        moduleKeys
+          .filter((k) => k !== "crm")
+          .map((k) => {
+            const pct = clampNum((moduleAdoptionPct[k] ?? 0) / 100, 0, 1);
+            const price = PORTAL_MODULE_CATALOG[k]?.monthlyUsd ?? 0;
+            return Math.max(0, monthlyCustomers) * pct * price;
+          }),
+      );
+
+      const creditsUsd =
+        Math.max(0, monthlyCustomers) * Math.max(0, creditsPerMonthlyCustomer || 0) * Math.max(0, usdPerCreditSubscription || 0) +
+        Math.max(0, creditCustomers) * Math.max(0, creditsPerCreditCustomer || 0) * Math.max(0, usdPerCreditCreditsOnly || 0);
+
+      const customerCostUsd = moduleRevenueUsd + creditsUsd;
+
+      const customerValueUsd = sum(
+        moduleKeys
+          .filter((k) => k !== "crm")
+          .map((k) => {
+            const pct = clampNum((moduleAdoptionPct[k] ?? 0) / 100, 0, 1);
+            const v = Math.max(0, valueUsdPerEnabledCustomer[k] ?? 0);
+            return Math.max(0, monthlyCustomers) * pct * v;
+          }),
+      );
+
+      cost.push(customerCostUsd);
+      value.push(customerValueUsd);
+      net.push(customerValueUsd - customerCostUsd);
+    }
+
+    return { cost, value, net };
+  }, [
+    revenueSeries,
+    mode,
+    effectiveMonthlyArpu,
+    effectiveCreditArpu,
+    monthlyShare,
+    moduleKeys,
+    moduleAdoptionPct,
+    valueUsdPerEnabledCustomer,
+    creditsPerMonthlyCustomer,
+    creditsPerCreditCustomer,
+    usdPerCreditSubscription,
+    usdPerCreditCreditsOnly,
+  ]);
+
+  const weeklyBreakdown = useMemo(() => {
+    const w = [0.24, 0.26, 0.25, 0.25];
+    const profit = w.map((pct) => profitMo * pct);
+    const revenue = w.map((pct) => month1Revenue * pct);
+    return { profit, revenue };
+  }, [profitMo, month1Revenue]);
 
   const comparisonRows = useMemo(() => {
     const modes: Mode[] = ["monthly", "credit", "combined"];
@@ -452,6 +750,15 @@ export default function ProfitVisualizationDashboardPage() {
     setCreditArpu(ARPU_DEFAULT_CREDIT);
     setWhale(false);
     setMonthlySharePct(60);
+
+    setAovSource("modules");
+    setServiceMixPreset("Standard");
+    setUsdPerCreditSubscription(DEFAULT_USD_PER_CREDIT_SUBSCRIPTION);
+    setUsdPerCreditCreditsOnly(DEFAULT_USD_PER_CREDIT_CREDITS_ONLY);
+    setCreditsPerMonthlyCustomer(SERVICE_MIX_PRESETS.Standard.creditsPerMonthlyCustomer);
+    setCreditsPerCreditCustomer(SERVICE_MIX_PRESETS.Standard.creditsPerCreditCustomer);
+    setModuleAdoptionPct(SERVICE_MIX_PRESETS.Standard.adoptionPct);
+    setValueUsdPerEnabledCustomer(DEFAULT_VALUE_USD_PER_ENABLED_CUSTOMER);
   }
 
   async function copySummary() {
@@ -478,7 +785,6 @@ export default function ProfitVisualizationDashboardPage() {
             </div>
             <div>
               <div className="text-2xl font-bold tracking-tight text-zinc-900">Profit dashboard</div>
-              <div className="mt-0.5 text-sm text-zinc-600">Pick a tier. See the profit. Move on.</div>
             </div>
           </div>
 
@@ -547,13 +853,17 @@ export default function ProfitVisualizationDashboardPage() {
                   <div className="text-right">
                     <div className="text-xs font-semibold uppercase tracking-wide text-zinc-500">Total</div>
                     <div className="text-lg font-bold text-zinc-900">{formatMoneyCompact(profitTime)}</div>
+                    {typeof hoverMonthIndex === "number" ? (
+                      <div className="mt-1 text-[11px] font-semibold text-zinc-600">
+                        Month {hoverMonthIndex + 1}: {formatMoneyCompact(cumulativeProfitSeries[hoverMonthIndex] ?? 0)}
+                        <span className="mx-1 text-zinc-300">•</span>
+                        {formatMoneyCompact(profitSeries[hoverMonthIndex] ?? 0)} / mo
+                      </div>
+                    ) : null}
                   </div>
                 </div>
                 <div className="mt-4 h-28">
-                  <SparkArea
-                    values={cumulativeProfitSeries}
-                    stroke="var(--color-brand-blue)"
-                  />
+                  <HoverSparkArea values={cumulativeProfitSeries} stroke="var(--color-brand-blue)" onHoverIndex={setHoverMonthIndex} />
                 </div>
                 <div className="mt-3 grid grid-cols-3 gap-3 text-xs">
                   <div className="rounded-2xl bg-zinc-50 px-3 py-2">
@@ -625,10 +935,9 @@ export default function ProfitVisualizationDashboardPage() {
               <div className="flex flex-col items-start justify-between gap-3 md:flex-row md:items-end">
                 <div>
                   <div className="text-sm font-semibold text-zinc-900">Customer math</div>
-                  <div className="mt-1 text-xs text-zinc-600">How many customers it takes to hit the selected tier.</div>
                 </div>
                 <div className="text-right">
-                  <div className="text-xs font-semibold uppercase tracking-wide text-zinc-500">Needed</div>
+                  <div className="text-xs font-semibold uppercase tracking-wide text-zinc-500">Total customers</div>
                   <div className="text-2xl font-bold tracking-tight text-zinc-900">{cust.customers.toLocaleString()}</div>
                 </div>
               </div>
@@ -649,12 +958,183 @@ export default function ProfitVisualizationDashboardPage() {
                   <div className="mt-1 text-xs text-zinc-600">Avg {formatMoneyCompact(effectiveCreditArpu)} / month</div>
                 </div>
                 <div className="rounded-2xl bg-zinc-50 p-4">
-                  <div className="text-xs font-semibold uppercase tracking-wide text-zinc-500">Profit per customer</div>
+                  <div className="text-xs font-semibold uppercase tracking-wide text-zinc-500">Average profit per customer</div>
                   <div className="mt-2 text-2xl font-bold text-zinc-900">
                     {formatMoneyCompact(cust.customers ? profitMo / cust.customers : 0)}
                   </div>
                   <div className="mt-1 text-xs text-zinc-600">(monthly profit / customers)</div>
                 </div>
+              </div>
+            </div>
+
+            <div className="grid gap-6 lg:grid-cols-2">
+              <div className="rounded-3xl border border-zinc-200 bg-white p-6 shadow-sm">
+                <div className="flex items-end justify-between gap-4">
+                  <div>
+                    <div className="text-sm font-semibold text-zinc-900">AOV breakdown</div>
+                    <div className="mt-1 text-xs text-zinc-600">Real module prices + credits assumptions.</div>
+                  </div>
+                  <div className="text-right">
+                    <div className="text-xs font-semibold uppercase tracking-wide text-zinc-500">Credits spend</div>
+                    <div className="text-lg font-bold text-zinc-900">{formatMoneyCompact(serviceModel.creditsUsd)}</div>
+                  </div>
+                </div>
+
+                <div className="mt-4 overflow-x-auto">
+                  <table className="w-full min-w-[680px]">
+                    <thead>
+                      <tr className="text-left text-xs font-semibold uppercase tracking-wide text-zinc-500">
+                        <th className="py-2">Service</th>
+                        <th className="py-2">Adoption</th>
+                        <th className="py-2">Customers</th>
+                        <th className="py-2">Price</th>
+                        <th className="py-2">Purely revenue</th>
+                        <th className="py-2">Customer value</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {serviceModel.moduleRows.map((r) => (
+                        <tr key={r.key} className="border-t border-zinc-200">
+                          <td className="py-3 font-semibold text-zinc-900">{r.title}</td>
+                          <td className="py-3 text-zinc-700">{Math.round(r.pct)}%</td>
+                          <td className="py-3 text-zinc-700">{r.enabledDisplay.toLocaleString()}</td>
+                          <td className="py-3 text-zinc-700">{formatMoneyCompact(r.priceUsd)} / mo</td>
+                          <td className="py-3 text-zinc-700">{formatMoneyCompact(r.purelyRevenueUsd)}</td>
+                          <td className="py-3 text-zinc-700">{formatMoneyCompact(r.customerValueUsd)}</td>
+                        </tr>
+                      ))}
+                      <tr className="border-t border-zinc-200">
+                        <td className="py-3 font-semibold text-zinc-900">Credits (usage)</td>
+                        <td className="py-3 text-zinc-700">—</td>
+                        <td className="py-3 text-zinc-700">—</td>
+                        <td className="py-3 text-zinc-700">—</td>
+                        <td className="py-3 text-zinc-700">{formatMoneyCompact(serviceModel.creditsUsd)}</td>
+                        <td className="py-3 text-zinc-700">—</td>
+                      </tr>
+                    </tbody>
+                  </table>
+                </div>
+
+                <div className="mt-4 grid gap-3 md:grid-cols-3">
+                  <div className="rounded-2xl bg-zinc-50 px-4 py-3">
+                    <div className="text-xs font-semibold uppercase tracking-wide text-zinc-500">Purely revenue</div>
+                    <div className="mt-1 text-lg font-bold text-zinc-900">{formatMoneyCompact(serviceModel.customerCostUsd)}</div>
+                    <div className="mt-1 text-xs text-zinc-600">Modules + credits</div>
+                  </div>
+                  <div className="rounded-2xl bg-zinc-50 px-4 py-3">
+                    <div className="text-xs font-semibold uppercase tracking-wide text-zinc-500">Customer value</div>
+                    <div className="mt-1 text-lg font-bold text-zinc-900">{formatMoneyCompact(serviceModel.customerValueUsd)}</div>
+                    <div className="mt-1 text-xs text-zinc-600">Estimated value created</div>
+                  </div>
+                  <div className="rounded-2xl bg-zinc-50 px-4 py-3">
+                    <div className="text-xs font-semibold uppercase tracking-wide text-zinc-500">Net value</div>
+                    <div className="mt-1 text-lg font-bold text-zinc-900">{formatMoneyCompact(serviceModel.netCustomerValueUsd)}</div>
+                    <div className="mt-1 text-xs text-zinc-600">Value minus cost</div>
+                  </div>
+                </div>
+              </div>
+
+              <div className="rounded-3xl border border-zinc-200 bg-white p-6 shadow-sm">
+                <div className="flex items-end justify-between gap-4">
+                  <div>
+                    <div className="text-sm font-semibold text-zinc-900">Customer ROI</div>
+                    <div className="mt-1 text-xs text-zinc-600">Which services drive the most value.</div>
+                  </div>
+                  <div className="text-right">
+                    <div className="text-xs font-semibold uppercase tracking-wide text-zinc-500">ROI multiple</div>
+                    <div className="text-lg font-bold text-zinc-900">{(Math.round(serviceModel.roiMultiple * 10) / 10).toFixed(1)}×</div>
+                  </div>
+                </div>
+
+                <div className="mt-4 grid gap-4 md:grid-cols-2">
+                  <div className="rounded-2xl bg-zinc-50 p-4">
+                    <div className="text-xs font-semibold uppercase tracking-wide text-zinc-500">Top by Purely revenue</div>
+                    <div className="mt-2 space-y-2 text-sm">
+                      {serviceModel.topByRevenue.map((r) => (
+                        <div key={r.key} className="flex items-center justify-between gap-3">
+                          <div className="font-semibold text-zinc-900">{r.title}</div>
+                          <div className="text-zinc-700">{formatMoneyCompact(r.purelyRevenueUsd)}</div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                  <div className="rounded-2xl bg-zinc-50 p-4">
+                    <div className="text-xs font-semibold uppercase tracking-wide text-zinc-500">Top by net customer value</div>
+                    <div className="mt-2 space-y-2 text-sm">
+                      {serviceModel.topByValue.map((r) => (
+                        <div key={r.key} className="flex items-center justify-between gap-3">
+                          <div className="font-semibold text-zinc-900">{r.title}</div>
+                          <div className="text-zinc-700">{formatMoneyCompact(r.netValueUsd)}</div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+
+                <div className="mt-4 rounded-2xl border border-zinc-200 bg-white p-4">
+                  <div className="flex items-end justify-between gap-4">
+                    <div>
+                      <div className="text-sm font-semibold text-zinc-900">Value vs cost (per month)</div>
+                      <div className="mt-1 text-xs text-zinc-600">Estimated customer value created vs what they pay you.</div>
+                    </div>
+                    <div className="text-right">
+                      <div className="text-xs font-semibold uppercase tracking-wide text-zinc-500">Net (month 1)</div>
+                      <div className="text-base font-bold text-zinc-900">{formatMoneyCompact(serviceValueSeries.net[0] ?? 0)}</div>
+                    </div>
+                  </div>
+                  <div className="mt-3 h-24">
+                    <DualLineChart
+                      a={serviceValueSeries.value}
+                      b={serviceValueSeries.cost}
+                      aStroke="var(--color-brand-blue)"
+                      bStroke="var(--color-brand-ink)"
+                    />
+                  </div>
+                  <div className="mt-3 flex flex-wrap items-center gap-2 text-xs">
+                    <div className="rounded-2xl bg-zinc-50 px-3 py-2">
+                      <span className="font-semibold text-[color:var(--color-brand-blue)]">Value</span> {formatMoneyCompact(serviceValueSeries.value[0] ?? 0)} → {formatMoneyCompact(serviceValueSeries.value[serviceValueSeries.value.length - 1] ?? 0)}
+                    </div>
+                    <div className="rounded-2xl bg-zinc-50 px-3 py-2">
+                      <span className="font-semibold text-[color:var(--color-brand-ink)]">Cost</span> {formatMoneyCompact(serviceValueSeries.cost[0] ?? 0)} → {formatMoneyCompact(serviceValueSeries.cost[serviceValueSeries.cost.length - 1] ?? 0)}
+                    </div>
+                  </div>
+                </div>
+
+                <div className="mt-4 rounded-2xl bg-zinc-50 p-4">
+                  <div className="text-xs font-semibold uppercase tracking-wide text-zinc-500">Upsell opportunities</div>
+                  <div className="mt-2 text-xs text-zinc-600">High value/price with low adoption (simple heuristic).</div>
+                  <div className="mt-3 space-y-2 text-sm">
+                    {serviceModel.opportunities.map((r) => (
+                      <div key={r.key} className="flex items-center justify-between gap-3">
+                        <div className="font-semibold text-zinc-900">{r.title}</div>
+                        <div className="text-zinc-700">{Math.round(r.pct)}% • {formatMoneyCompact(r.valuePerEnabled)} value</div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+
+                {appliedMonths === 1 ? (
+                  <div className="mt-4 rounded-2xl border border-zinc-200 bg-white p-4">
+                    <div className="flex items-center justify-between gap-3">
+                      <div>
+                        <div className="text-sm font-semibold text-zinc-900">Weekly view (month 1)</div>
+                        <div className="text-xs text-zinc-600">A simple 4-week split for readability.</div>
+                      </div>
+                      <div className="text-sm font-bold text-zinc-900">{formatMoneyCompact(profitMo)} / mo</div>
+                    </div>
+                    <div className="mt-3 h-20">
+                      <MiniBars values={weeklyBreakdown.profit} color="var(--color-brand-pink)" />
+                    </div>
+                    <div className="mt-3 grid grid-cols-4 gap-2 text-xs">
+                      {weeklyBreakdown.profit.map((v, i) => (
+                        <div key={i} className="rounded-2xl bg-zinc-50 px-3 py-2">
+                          <div className="font-semibold text-zinc-900">Week {i + 1}</div>
+                          <div className="text-zinc-600">{formatMoneyCompact(v)}</div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                ) : null}
               </div>
             </div>
         </div>
@@ -859,35 +1339,188 @@ export default function ProfitVisualizationDashboardPage() {
                 <div className="rounded-3xl border border-zinc-200 bg-white p-5 shadow-sm">
                   <div className="flex items-center justify-between gap-3">
                     <div>
-                      <div className="text-sm font-semibold text-zinc-900">Customer value</div>
-                      <div className="text-xs text-zinc-600">Average monthly revenue per customer.</div>
+                      <div className="text-sm font-semibold text-zinc-900">AOV model</div>
+                      <div className="text-xs text-zinc-600">Where the per-customer revenue numbers come from.</div>
                     </div>
                     <label className="flex items-center gap-2 text-xs font-semibold text-zinc-700">
                       <input type="checkbox" checked={whale} onChange={(e) => setWhale(e.target.checked)} />
                       High-value
                     </label>
                   </div>
-                  <div className="mt-3 grid gap-3 sm:grid-cols-2">
-                    <label className="block">
-                      <div className="text-xs font-semibold text-zinc-600">Membership</div>
-                      <input
-                        value={whale ? ARPU_WHALE : monthlyArpu}
-                        onChange={(e) => setMonthlyArpu(toInt(e.target.value, ARPU_DEFAULT_MONTHLY))}
-                        inputMode="numeric"
-                        disabled={whale}
-                        className="mt-1 h-10 w-full rounded-2xl border border-zinc-200 bg-white px-4 text-sm font-semibold text-zinc-900 outline-none focus:border-zinc-400 disabled:opacity-60"
-                      />
-                    </label>
-                    <label className="block">
-                      <div className="text-xs font-semibold text-zinc-600">Credits</div>
-                      <input
-                        value={whale ? ARPU_WHALE : creditArpu}
-                        onChange={(e) => setCreditArpu(toInt(e.target.value, ARPU_DEFAULT_CREDIT))}
-                        inputMode="numeric"
-                        disabled={whale}
-                        className="mt-1 h-10 w-full rounded-2xl border border-zinc-200 bg-white px-4 text-sm font-semibold text-zinc-900 outline-none focus:border-zinc-400 disabled:opacity-60"
-                      />
-                    </label>
+
+                  <div className="mt-3 flex flex-wrap gap-2">
+                    <SegButton active={aovSource === "modules"} onClick={() => setAovSource("modules")}>Modules</SegButton>
+                    <SegButton active={aovSource === "manual"} onClick={() => setAovSource("manual")}>Manual</SegButton>
+                  </div>
+
+                  {aovSource === "modules" ? (
+                    <div className="mt-4 space-y-4">
+                      <div className="rounded-2xl bg-zinc-50 p-4">
+                        <div className="flex items-center justify-between gap-3">
+                          <div>
+                            <div className="text-xs font-semibold uppercase tracking-wide text-zinc-500">Computed AOV</div>
+                            <div className="mt-1 text-sm font-semibold text-zinc-900">Uses portal module prices + credits assumptions.</div>
+                          </div>
+                          <div className="text-right">
+                            <div className="text-xs font-semibold text-zinc-600">Membership</div>
+                            <div className="text-base font-bold text-zinc-900">{formatMoneyCompact(computedMembershipArpu)}</div>
+                            <div className="mt-1 text-xs font-semibold text-zinc-600">Credits-only</div>
+                            <div className="text-base font-bold text-zinc-900">{formatMoneyCompact(computedCreditsOnlyArpu)}</div>
+                          </div>
+                        </div>
+                      </div>
+
+                      <div>
+                        <div className="text-xs font-semibold uppercase tracking-wide text-zinc-500">Service mix presets</div>
+                        <div className="mt-2 flex flex-wrap gap-2">
+                          {(Object.keys(SERVICE_MIX_PRESETS) as ServiceMixPresetKey[]).map((k) => (
+                            <button
+                              key={k}
+                              type="button"
+                              onClick={() => {
+                                setServiceMixPreset(k);
+                                setModuleAdoptionPct(SERVICE_MIX_PRESETS[k].adoptionPct);
+                                setCreditsPerMonthlyCustomer(SERVICE_MIX_PRESETS[k].creditsPerMonthlyCustomer);
+                                setCreditsPerCreditCustomer(SERVICE_MIX_PRESETS[k].creditsPerCreditCustomer);
+                              }}
+                              className={classNames(
+                                "h-9 rounded-2xl border px-3 text-sm font-semibold",
+                                serviceMixPreset === k ? "border-zinc-900 bg-zinc-900 text-white" : "border-zinc-200 bg-white text-zinc-800 hover:bg-zinc-50",
+                              )}
+                            >
+                              {k}
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+
+                      <div className="grid gap-3 sm:grid-cols-2">
+                        <label className="block">
+                          <div className="text-xs font-semibold text-zinc-600">$ per credit (subscription)</div>
+                          <input
+                            value={usdPerCreditSubscription}
+                            onChange={(e) => setUsdPerCreditSubscription(clampNum(Number(e.target.value), 0, 10))}
+                            inputMode="decimal"
+                            className="mt-1 h-10 w-full rounded-2xl border border-zinc-200 bg-white px-4 text-sm font-semibold text-zinc-900 outline-none focus:border-zinc-400"
+                          />
+                        </label>
+                        <label className="block">
+                          <div className="text-xs font-semibold text-zinc-600">$ per credit (credits-only)</div>
+                          <input
+                            value={usdPerCreditCreditsOnly}
+                            onChange={(e) => setUsdPerCreditCreditsOnly(clampNum(Number(e.target.value), 0, 10))}
+                            inputMode="decimal"
+                            className="mt-1 h-10 w-full rounded-2xl border border-zinc-200 bg-white px-4 text-sm font-semibold text-zinc-900 outline-none focus:border-zinc-400"
+                          />
+                        </label>
+                        <label className="block">
+                          <div className="text-xs font-semibold text-zinc-600">Credits / membership customer / mo</div>
+                          <input
+                            value={creditsPerMonthlyCustomer}
+                            onChange={(e) => setCreditsPerMonthlyCustomer(Math.max(0, toInt(e.target.value, creditsPerMonthlyCustomer)))}
+                            inputMode="numeric"
+                            className="mt-1 h-10 w-full rounded-2xl border border-zinc-200 bg-white px-4 text-sm font-semibold text-zinc-900 outline-none focus:border-zinc-400"
+                          />
+                        </label>
+                        <label className="block">
+                          <div className="text-xs font-semibold text-zinc-600">Credits / credits-only customer / mo</div>
+                          <input
+                            value={creditsPerCreditCustomer}
+                            onChange={(e) => setCreditsPerCreditCustomer(Math.max(0, toInt(e.target.value, creditsPerCreditCustomer)))}
+                            inputMode="numeric"
+                            className="mt-1 h-10 w-full rounded-2xl border border-zinc-200 bg-white px-4 text-sm font-semibold text-zinc-900 outline-none focus:border-zinc-400"
+                          />
+                        </label>
+                      </div>
+
+                      <div>
+                        <div className="flex items-center justify-between gap-3">
+                          <div>
+                            <div className="text-xs font-semibold uppercase tracking-wide text-zinc-500">Adoption rates</div>
+                            <div className="text-xs text-zinc-600">Percent of membership customers with each service.</div>
+                          </div>
+                          <button
+                            type="button"
+                            onClick={() => setModuleAdoptionPct(SERVICE_MIX_PRESETS.Standard.adoptionPct)}
+                            className="h-9 rounded-2xl border border-zinc-200 bg-white px-3 text-sm font-semibold text-zinc-800 hover:bg-zinc-50"
+                          >
+                            Reset rates
+                          </button>
+                        </div>
+
+                        <div className="mt-3 max-h-72 space-y-2 overflow-auto rounded-2xl border border-zinc-200 bg-white p-3">
+                          {moduleKeys
+                            .filter((k) => k !== "crm")
+                            .map((k) => (
+                              <div key={k} className="flex items-center justify-between gap-3">
+                                <div className="text-sm font-semibold text-zinc-900">{PORTAL_MODULE_CATALOG[k].title}</div>
+                                <div className="flex items-center gap-2">
+                                  <input
+                                    value={moduleAdoptionPct[k] ?? 0}
+                                    onChange={(e) => {
+                                      const next = clampNum(toInt(e.target.value, moduleAdoptionPct[k] ?? 0), 0, 100);
+                                      setModuleAdoptionPct((prev) => ({ ...prev, [k]: next }));
+                                    }}
+                                    inputMode="numeric"
+                                    className="h-9 w-20 rounded-2xl border border-zinc-200 bg-white px-3 text-sm font-semibold text-zinc-900 outline-none focus:border-zinc-400"
+                                  />
+                                  <div className="text-xs font-semibold text-zinc-600">%</div>
+                                </div>
+                              </div>
+                            ))}
+                        </div>
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="mt-4 grid gap-3 sm:grid-cols-2">
+                      <label className="block">
+                        <div className="text-xs font-semibold text-zinc-600">Membership (AOV)</div>
+                        <input
+                          value={whale ? ARPU_WHALE : monthlyArpu}
+                          onChange={(e) => setMonthlyArpu(toInt(e.target.value, ARPU_DEFAULT_MONTHLY))}
+                          inputMode="numeric"
+                          disabled={whale}
+                          className="mt-1 h-10 w-full rounded-2xl border border-zinc-200 bg-white px-4 text-sm font-semibold text-zinc-900 outline-none focus:border-zinc-400 disabled:opacity-60"
+                        />
+                      </label>
+                      <label className="block">
+                        <div className="text-xs font-semibold text-zinc-600">Credits-only (AOV)</div>
+                        <input
+                          value={whale ? ARPU_WHALE : creditArpu}
+                          onChange={(e) => setCreditArpu(toInt(e.target.value, ARPU_DEFAULT_CREDIT))}
+                          inputMode="numeric"
+                          disabled={whale}
+                          className="mt-1 h-10 w-full rounded-2xl border border-zinc-200 bg-white px-4 text-sm font-semibold text-zinc-900 outline-none focus:border-zinc-400 disabled:opacity-60"
+                        />
+                      </label>
+                    </div>
+                  )}
+                </div>
+
+                <div className="rounded-3xl border border-zinc-200 bg-white p-5 shadow-sm">
+                  <div className="text-sm font-semibold text-zinc-900">Customer value created</div>
+                  <div className="mt-1 text-xs text-zinc-600">Estimated monthly value created per enabled customer (USD).</div>
+                  <div className="mt-3 max-h-80 space-y-2 overflow-auto rounded-2xl border border-zinc-200 bg-white p-3">
+                    {moduleKeys
+                      .filter((k) => k !== "crm")
+                      .map((k) => (
+                        <div key={k} className="flex items-center justify-between gap-3">
+                          <div className="text-sm font-semibold text-zinc-900">{PORTAL_MODULE_CATALOG[k].title}</div>
+                          <div className="flex items-center gap-2">
+                            <div className="text-xs font-semibold text-zinc-600">$</div>
+                            <input
+                              value={valueUsdPerEnabledCustomer[k] ?? 0}
+                              onChange={(e) => {
+                                const next = Math.max(0, Number(e.target.value));
+                                setValueUsdPerEnabledCustomer((prev) => ({ ...prev, [k]: next }));
+                              }}
+                              inputMode="decimal"
+                              className="h-9 w-28 rounded-2xl border border-zinc-200 bg-white px-3 text-sm font-semibold text-zinc-900 outline-none focus:border-zinc-400"
+                            />
+                            <div className="text-xs font-semibold text-zinc-600">/ mo</div>
+                          </div>
+                        </div>
+                      ))}
                   </div>
                 </div>
 
