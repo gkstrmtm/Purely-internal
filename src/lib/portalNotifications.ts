@@ -152,7 +152,6 @@ export async function tryNotifyPortalAccountUsers(opts: {
     html: opts.html ?? null,
     fromName,
     replyTo: opts.replyTo ?? null,
-    messageStream: opts.kind,
   });
 
   if (!res.ok) return { ok: false, reason: res.reason };
