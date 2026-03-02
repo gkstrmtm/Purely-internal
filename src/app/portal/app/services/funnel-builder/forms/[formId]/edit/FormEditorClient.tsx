@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 
 import { AppConfirmModal, AppModal } from "@/components/AppModal";
+import { PortalListboxDropdown } from "@/components/PortalListboxDropdown";
 
 type Form = {
   id: string;
@@ -605,19 +606,20 @@ export function FormEditorClient({ basePath, formId }: { basePath: string; formI
 
                     <label className="block">
                       <div className="text-xs font-semibold uppercase tracking-wide text-zinc-500">Type</div>
-                      <select
+                      <PortalListboxDropdown
                         value={selected.type}
-                        onChange={(e) => {
-                          const t = e.target.value as FieldType;
-                          setFields((prev) => (prev || []).map((f, i) => (i === selectedIdx ? { ...f, type: t } : f)));
+                        onChange={(t) => {
+                          setFields((prev) => (prev || []).map((f, i) => (i === selectedIdx ? { ...f, type: t as FieldType } : f)));
                         }}
-                        className="mt-1 w-full rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm text-zinc-900"
-                      >
-                        <option value="text">Short answer</option>
-                        <option value="textarea">Paragraph</option>
-                        <option value="email">Email</option>
-                        <option value="tel">Phone</option>
-                      </select>
+                        options={[
+                          { value: "text", label: "Short answer" },
+                          { value: "textarea", label: "Paragraph" },
+                          { value: "email", label: "Email" },
+                          { value: "tel", label: "Phone" },
+                        ]}
+                        className="mt-1 w-full"
+                        buttonClassName="flex w-full items-center justify-between gap-2 rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm text-zinc-900 hover:bg-zinc-50 focus-visible:ring-2 focus-visible:ring-zinc-300"
+                      />
                     </label>
 
                     <label className="flex items-center gap-2">

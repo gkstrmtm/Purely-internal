@@ -12,10 +12,12 @@ import {
   type CreditFunnelBlock,
 } from "@/lib/creditFunnelBlocks";
 import { AppConfirmModal, AppModal } from "@/components/AppModal";
+import { PortalListboxDropdown } from "@/components/PortalListboxDropdown";
 import {
   PortalMediaPickerModal,
   type PortalMediaPickItem,
 } from "@/components/PortalMediaPickerModal";
+import { PortalSelectDropdown } from "@/components/PortalSelectDropdown";
 import { SignOutButton } from "@/components/SignOutButton";
 import { useToast } from "@/components/ToastProvider";
 import { PORTAL_VARIANT_HEADER, type PortalVariant } from "@/lib/portalVariant";
@@ -768,22 +770,21 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
                   </div>
 
                   <div className="flex flex-wrap items-center gap-2">
-                    <select
+                    <PortalListboxDropdown
                       value={selectedPageId || ""}
-                      onChange={(e) => {
-                        const nextId = e.target.value || null;
+                      onChange={(v) => {
+                        const nextId = v || null;
                         setSelectedPageId(nextId);
                         setSelectedBlockId(null);
                       }}
-                      className="min-w-[220px] rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm"
+                      options={[
+                        { value: "", label: "Select a page…", disabled: true },
+                        ...(pages || []).map((p) => ({ value: p.id, label: p.title })),
+                      ]}
+                      className="min-w-[220px]"
+                      buttonClassName="flex w-full items-center justify-between gap-2 rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm hover:bg-zinc-50 focus-visible:ring-2 focus-visible:ring-zinc-300"
                       disabled={busy || !pages || pages.length === 0}
-                    >
-                      {(pages || []).map((p) => (
-                        <option key={p.id} value={p.id}>
-                          {p.title}
-                        </option>
-                      ))}
-                    </select>
+                    />
 
                     <button
                       type="button"
@@ -974,20 +975,22 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
                                   className="w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm"
                                   placeholder="Heading text"
                                 />
-                                <select
-                                  value={String(selectedBlock.props.level ?? 2)}
-                                  onChange={(e) =>
+                                <PortalSelectDropdown
+                                  value={selectedBlock.props.level ?? 2}
+                                  onChange={(level) =>
                                     upsertBlock({
                                       ...selectedBlock,
-                                      props: { ...selectedBlock.props, level: Number(e.target.value) as any },
+                                      props: { ...selectedBlock.props, level },
                                     })
                                   }
-                                  className="w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm"
-                                >
-                                  <option value="1">H1</option>
-                                  <option value="2">H2</option>
-                                  <option value="3">H3</option>
-                                </select>
+                                  options={[
+                                    { value: 1, label: "H1" },
+                                    { value: 2, label: "H2" },
+                                    { value: 3, label: "H3" },
+                                  ]}
+                                  className="w-full"
+                                  buttonClassName="flex w-full items-center justify-between gap-2 rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm hover:bg-zinc-50 focus-visible:ring-2 focus-visible:ring-zinc-300"
+                                />
                               </div>
                             ) : null}
 
@@ -1014,14 +1017,21 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
                                   className="w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm"
                                   placeholder={`${basePath}/forms/your-form-slug`}
                                 />
-                                <select
+                                <PortalListboxDropdown
                                   value={selectedBlock.props.variant ?? "primary"}
-                                  onChange={(e) => upsertBlock({ ...selectedBlock, props: { ...selectedBlock.props, variant: e.target.value as any } })}
-                                  className="w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm"
-                                >
-                                  <option value="primary">Primary</option>
-                                  <option value="secondary">Secondary</option>
-                                </select>
+                                  onChange={(variant) =>
+                                    upsertBlock({
+                                      ...selectedBlock,
+                                      props: { ...selectedBlock.props, variant },
+                                    })
+                                  }
+                                  options={[
+                                    { value: "primary", label: "Primary" },
+                                    { value: "secondary", label: "Secondary" },
+                                  ]}
+                                  className="w-full"
+                                  buttonClassName="flex w-full items-center justify-between gap-2 rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm hover:bg-zinc-50 focus-visible:ring-2 focus-visible:ring-zinc-300"
+                                />
                               </div>
                             ) : null}
 
@@ -2718,22 +2728,21 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
           </div>
 
           <div className="flex flex-wrap items-center gap-2">
-            <select
+            <PortalListboxDropdown
               value={selectedPageId || ""}
-              onChange={(e) => {
-                const nextId = e.target.value || null;
+              onChange={(v) => {
+                const nextId = v || null;
                 setSelectedPageId(nextId);
                 setSelectedBlockId(null);
               }}
-              className="min-w-[220px] rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm"
+              options={[
+                { value: "", label: "Select a page…", disabled: true },
+                ...(pages || []).map((p) => ({ value: p.id, label: p.title })),
+              ]}
+              className="min-w-[220px]"
+              buttonClassName="flex w-full items-center justify-between gap-2 rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm hover:bg-zinc-50 focus-visible:ring-2 focus-visible:ring-zinc-300"
               disabled={busy || !pages || pages.length === 0}
-            >
-              {(pages || []).map((p) => (
-                <option key={p.id} value={p.id}>
-                  {p.title}
-                </option>
-              ))}
-            </select>
+            />
 
             <button
               type="button"
@@ -3107,20 +3116,22 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
                               })
                             }
                           />
-                          <select
-                            value={String(selectedBlock.props.level ?? 2)}
-                            onChange={(e) =>
+                          <PortalSelectDropdown
+                            value={selectedBlock.props.level ?? 2}
+                            onChange={(level) =>
                               upsertBlock({
                                 ...selectedBlock,
-                                props: { ...selectedBlock.props, level: Number(e.target.value) as any },
+                                props: { ...selectedBlock.props, level },
                               })
                             }
-                            className="w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm"
-                          >
-                            <option value="1">H1</option>
-                            <option value="2">H2</option>
-                            <option value="3">H3</option>
-                          </select>
+                            options={[
+                              { value: 1, label: "H1" },
+                              { value: 2, label: "H2" },
+                              { value: 3, label: "H3" },
+                            ]}
+                            className="w-full"
+                            buttonClassName="flex w-full items-center justify-between gap-2 rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm hover:bg-zinc-50 focus-visible:ring-2 focus-visible:ring-zinc-300"
+                          />
                         </div>
                       ) : null}
 
@@ -3161,19 +3172,21 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
                           className="w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm"
                           placeholder={`${basePath}/forms/your-form-slug`}
                         />
-                        <select
+                        <PortalListboxDropdown
                           value={selectedBlock.props.variant ?? "primary"}
-                          onChange={(e) =>
+                          onChange={(variant) =>
                             upsertBlock({
                               ...selectedBlock,
-                              props: { ...selectedBlock.props, variant: e.target.value as any },
+                              props: { ...selectedBlock.props, variant },
                             })
                           }
-                          className="w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm"
-                        >
-                          <option value="primary">Primary</option>
-                          <option value="secondary">Secondary</option>
-                        </select>
+                          options={[
+                            { value: "primary", label: "Primary" },
+                            { value: "secondary", label: "Secondary" },
+                          ]}
+                          className="w-full"
+                          buttonClassName="flex w-full items-center justify-between gap-2 rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm hover:bg-zinc-50 focus-visible:ring-2 focus-visible:ring-zinc-300"
+                        />
                       </div>
                     ) : null}
 
@@ -3181,23 +3194,21 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
                       <div className="space-y-2">
                         <label className="block">
                           <div className="mb-1 text-[11px] font-semibold uppercase tracking-wide text-zinc-500">Form</div>
-                          <select
+                          <PortalListboxDropdown
                             value={selectedBlock.props.formSlug || ""}
-                            onChange={(e) =>
+                            onChange={(formSlug) =>
                               upsertBlock({
                                 ...selectedBlock,
-                                props: { ...selectedBlock.props, formSlug: e.target.value || "" },
+                                props: { ...selectedBlock.props, formSlug: formSlug || "" },
                               })
                             }
-                            className="w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm"
-                          >
-                            <option value="">Select a form…</option>
-                            {(forms || []).map((f) => (
-                              <option key={f.id} value={f.slug}>
-                                {f.name} ({f.slug})
-                              </option>
-                            ))}
-                          </select>
+                            options={[
+                              { value: "", label: "Select a form…", disabled: true },
+                              ...(forms || []).map((f) => ({ value: f.slug, label: `${f.name} (${f.slug})` })),
+                            ]}
+                            className="w-full"
+                            buttonClassName="flex w-full items-center justify-between gap-2 rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm hover:bg-zinc-50 focus-visible:ring-2 focus-visible:ring-zinc-300"
+                          />
                           <div className="mt-1 text-[11px] text-zinc-500">Links to the hosted credit form.</div>
                         </label>
 
@@ -3345,23 +3356,21 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
                       <div className="space-y-2">
                         <label className="block">
                           <div className="mb-1 text-[11px] font-semibold uppercase tracking-wide text-zinc-500">Form</div>
-                          <select
+                          <PortalListboxDropdown
                             value={selectedBlock.props.formSlug || ""}
-                            onChange={(e) =>
+                            onChange={(formSlug) =>
                               upsertBlock({
                                 ...selectedBlock,
-                                props: { ...selectedBlock.props, formSlug: e.target.value || "" },
+                                props: { ...selectedBlock.props, formSlug: formSlug || "" },
                               })
                             }
-                            className="w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm"
-                          >
-                            <option value="">Select a form…</option>
-                            {(forms || []).map((f) => (
-                              <option key={f.id} value={f.slug}>
-                                {f.name} ({f.slug})
-                              </option>
-                            ))}
-                          </select>
+                            options={[
+                              { value: "", label: "Select a form…", disabled: true },
+                              ...(forms || []).map((f) => ({ value: f.slug, label: `${f.name} (${f.slug})` })),
+                            ]}
+                            className="w-full"
+                            buttonClassName="flex w-full items-center justify-between gap-2 rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm hover:bg-zinc-50 focus-visible:ring-2 focus-visible:ring-zinc-300"
+                          />
                         </label>
 
                         <div className="flex flex-wrap gap-2">
@@ -3433,23 +3442,24 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
                       <div className="space-y-2">
                         <label className="block">
                           <div className="mb-1 text-[11px] font-semibold uppercase tracking-wide text-zinc-500">Calendar</div>
-                          <select
+                          <PortalListboxDropdown
                             value={selectedBlock.props.calendarId || ""}
-                            onChange={(e) =>
+                            onChange={(calendarId) =>
                               upsertBlock({
                                 ...selectedBlock,
-                                props: { ...selectedBlock.props, calendarId: e.target.value || "" },
+                                props: { ...selectedBlock.props, calendarId: calendarId || "" },
                               } as any)
                             }
-                            className="w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm"
-                          >
-                            <option value="">Select a calendar…</option>
-                            {(bookingCalendars || []).map((c) => (
-                              <option key={c.id} value={c.id}>
-                                {(c.title || "Untitled calendar").trim()} ({c.id})
-                              </option>
-                            ))}
-                          </select>
+                            options={[
+                              { value: "", label: "Select a calendar…", disabled: true },
+                              ...(bookingCalendars || []).map((c) => ({
+                                value: c.id,
+                                label: `${(c.title || "Untitled calendar").trim()} (${c.id})`,
+                              })),
+                            ]}
+                            className="w-full"
+                            buttonClassName="flex w-full items-center justify-between gap-2 rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm hover:bg-zinc-50 focus-visible:ring-2 focus-visible:ring-zinc-300"
+                          />
                           <div className="mt-1 text-xs text-zinc-500">Embeds your booking calendar as an iframe.</div>
                         </label>
 
@@ -3737,22 +3747,24 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
 
                     {selectedBlock.type === "section" ? (
                       <div className="space-y-2">
-                        <select
+                        <PortalListboxDropdown
                           value={selectedBlock.props.layout === "two" ? "two" : "one"}
-                          onChange={(e) =>
+                          onChange={(layout) =>
                             upsertBlock({
                               ...selectedBlock,
                               props: {
                                 ...selectedBlock.props,
-                                layout: e.target.value === "two" ? "two" : "one",
+                                layout: layout === "two" ? "two" : "one",
                               },
                             })
                           }
-                          className="w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm"
-                        >
-                          <option value="one">One column</option>
-                          <option value="two">Two columns</option>
-                        </select>
+                          options={[
+                            { value: "one", label: "One column" },
+                            { value: "two", label: "Two columns" },
+                          ]}
+                          className="w-full"
+                          buttonClassName="flex w-full items-center justify-between gap-2 rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm hover:bg-zinc-50 focus-visible:ring-2 focus-visible:ring-zinc-300"
+                        />
 
                         {selectedBlock.props.layout === "two" ? (
                           <>

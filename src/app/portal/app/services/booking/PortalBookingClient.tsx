@@ -4,9 +4,12 @@ import Link from "next/link";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { PortalFollowUpClient } from "@/app/portal/app/services/follow-up/PortalFollowUpClient";
+import { PortalListboxDropdown } from "@/components/PortalListboxDropdown";
 import { PortalMediaPickerModal, type PortalMediaPickItem } from "@/components/PortalMediaPickerModal";
+import { PortalSelectDropdown } from "@/components/PortalSelectDropdown";
 import { PortalSettingsSection } from "@/components/PortalSettingsSection";
 import { ContactTagsEditor, type ContactTag } from "@/components/ContactTagsEditor";
+import { LocalDateTimePicker } from "@/components/LocalDateTimePicker";
 import { PortalVariablePickerModal } from "@/components/PortalVariablePickerModal";
 import { useToast } from "@/components/ToastProvider";
 import { PORTAL_BOOKING_VARIABLES, PORTAL_MESSAGE_VARIABLES } from "@/lib/portalTemplateVars";
@@ -1379,26 +1382,24 @@ export function PortalBookingClient() {
             <div className="mt-4">
               <label className="block text-xs font-semibold text-zinc-600">Calendar</label>
               <div className="mt-2 flex flex-col gap-2 sm:flex-row sm:items-center">
-                <select
-                  className="w-full max-w-md rounded-2xl border border-zinc-200 bg-white px-4 py-3 text-sm"
+                <PortalListboxDropdown
                   value={reminderCalendarId ?? ""}
-                  onChange={(e) => {
-                    const next = e.target.value || null;
+                  onChange={(v) => {
+                    const next = v || null;
                     setReminderCalendarId(next);
                     void loadReminders(next);
                   }}
                   disabled={reminderSaving}
-                >
-                  <option value="">Default (all booking links)</option>
-                  {calendars
-                    .slice()
-                    .sort((a, b) => a.title.localeCompare(b.title))
-                    .map((c) => (
-                      <option key={c.id} value={c.id}>
-                        {c.title}{c.enabled ? "" : " (off)"}
-                      </option>
-                    ))}
-                </select>
+                  options={[
+                    { value: "", label: "Default (all booking links)" },
+                    ...calendars
+                      .slice()
+                      .sort((a, b) => a.title.localeCompare(b.title))
+                      .map((c) => ({ value: c.id, label: `${c.title}${c.enabled ? "" : " (off)"}` })),
+                  ]}
+                  className="w-full max-w-md"
+                  buttonClassName="flex w-full items-center justify-between gap-2 rounded-2xl border border-zinc-200 bg-white px-4 py-3 text-sm hover:bg-zinc-50 focus-visible:ring-2 focus-visible:ring-zinc-300"
+                />
                 <div className="text-xs text-zinc-500">Each calendar can have its own reminder sequence.</div>
               </div>
             </div>
@@ -1464,27 +1465,26 @@ export function PortalBookingClient() {
                               }
                               disabled={reminderSaving}
                             />
-                            <select
-                              className="h-10 w-32 rounded-xl border border-zinc-200 bg-white px-3 text-sm"
+                            <PortalListboxDropdown
                               value={s.leadTime.unit}
                               disabled={reminderSaving}
-                              onChange={(e) =>
+                              onChange={(unit) =>
                                 updateReminderStep(s.id, {
                                   leadTime: {
-                                    unit: e.target.value as any,
-                                    value: Math.max(
-                                      minValueForUnit(e.target.value as any),
-                                      Math.min(maxValueForUnit(e.target.value as any), s.leadTime.value),
-                                    ),
+                                    unit,
+                                    value: Math.max(minValueForUnit(unit), Math.min(maxValueForUnit(unit), s.leadTime.value)),
                                   },
                                 })
                               }
-                            >
-                              <option value="minutes">minutes</option>
-                              <option value="hours">hours</option>
-                              <option value="days">days</option>
-                              <option value="weeks">weeks</option>
-                            </select>
+                              options={[
+                                { value: "minutes", label: "minutes" },
+                                { value: "hours", label: "hours" },
+                                { value: "days", label: "days" },
+                                { value: "weeks", label: "weeks" },
+                              ]}
+                              className="w-32"
+                              buttonClassName="flex h-10 w-full items-center justify-between gap-2 rounded-xl border border-zinc-200 bg-white px-3 text-sm hover:bg-zinc-50 focus-visible:ring-2 focus-visible:ring-zinc-300"
+                            />
                             <span className="text-sm text-zinc-600">before</span>
                           </div>
                         </label>
@@ -1665,17 +1665,13 @@ export function PortalBookingClient() {
 
             <label className="rounded-2xl border border-zinc-200 bg-zinc-50 px-4 py-3 text-sm">
               <div className="font-medium text-zinc-800">Meeting length</div>
-              <select
-                className="mt-2 w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm"
+              <PortalSelectDropdown
                 value={site?.durationMinutes ?? 30}
-                onChange={(e) => save({ durationMinutes: Number(e.target.value) })}
-              >
-                {[15, 30, 45, 60].map((m) => (
-                  <option key={m} value={m}>
-                    {m} minutes
-                  </option>
-                ))}
-              </select>
+                onChange={(v) => save({ durationMinutes: v })}
+                options={[15, 30, 45, 60].map((m) => ({ value: m, label: `${m} minutes` }))}
+                className="mt-2 w-full"
+                buttonClassName="flex w-full items-center justify-between gap-2 rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm hover:bg-zinc-50 focus-visible:ring-2 focus-visible:ring-zinc-300"
+              />
             </label>
 
             <label className="rounded-2xl border border-zinc-200 bg-zinc-50 px-4 py-3 text-sm sm:col-span-2">
@@ -1740,18 +1736,14 @@ export function PortalBookingClient() {
                 onChange={(e) => setNewCalTitle(e.target.value)}
                 disabled={calSaving}
               />
-              <select
-                className="w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm"
+              <PortalSelectDropdown
                 value={newCalDuration}
-                onChange={(e) => setNewCalDuration(Number(e.target.value))}
+                onChange={(v) => setNewCalDuration(v)}
                 disabled={calSaving}
-              >
-                {[15, 30, 45, 60].map((m) => (
-                  <option key={m} value={m}>
-                    {m} min
-                  </option>
-                ))}
-              </select>
+                options={[15, 30, 45, 60].map((m) => ({ value: m, label: `${m} min` }))}
+                className="w-full"
+                buttonClassName="flex w-full items-center justify-between gap-2 rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm hover:bg-zinc-50 focus-visible:ring-2 focus-visible:ring-zinc-300"
+              />
             </div>
             <div className="mt-3 flex justify-end">
               <button
@@ -2232,13 +2224,11 @@ export function PortalBookingClient() {
                         placeholder="Question label"
                       />
 
-                      <select
-                        className="w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm"
+                      <PortalListboxDropdown
                         value={q.kind}
                         disabled={formSaving}
-                        onChange={(e) => {
+                        onChange={(kind) => {
                           const next = [...form.questions];
-                          const kind = ((e.target.value as any) || "short") as BookingFormConfig["questions"][number]["kind"];
                           const hasOptions = kind === "single_choice" || kind === "multiple_choice";
                           next[idx] = {
                             ...q,
@@ -2249,13 +2239,15 @@ export function PortalBookingClient() {
                           };
                           setForm({ ...form, questions: next });
                         }}
-                        onBlur={() => void saveForm(form)}
-                      >
-                        <option value="short">Short answer</option>
-                        <option value="long">Long answer</option>
-                        <option value="single_choice">Multiple choice (pick one)</option>
-                        <option value="multiple_choice">Checkboxes (pick many)</option>
-                      </select>
+                        options={[
+                          { value: "short", label: "Short answer" },
+                          { value: "long", label: "Long answer" },
+                          { value: "single_choice", label: "Multiple choice (pick one)" },
+                          { value: "multiple_choice", label: "Checkboxes (pick many)" },
+                        ]}
+                        className="w-full"
+                        buttonClassName="flex w-full items-center justify-between gap-2 rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm hover:bg-zinc-50 focus-visible:ring-2 focus-visible:ring-zinc-300"
+                      />
 
                       <label className="flex items-center justify-between gap-2 text-sm text-zinc-700">
                         <span>Required</span>
@@ -2507,12 +2499,12 @@ export function PortalBookingClient() {
 
             <div className="mt-4">
               <div className="text-xs font-semibold text-zinc-600">New date/time</div>
-              <input
-                type="datetime-local"
-                className="mt-1 w-full rounded-2xl border border-zinc-200 bg-white px-4 py-3 text-sm"
+              <LocalDateTimePicker
                 value={reschedWhen}
+                onChange={setReschedWhen}
                 disabled={reschedBusy}
-                onChange={(e) => setReschedWhen(e.target.value)}
+                buttonClassName="mt-1 w-full rounded-2xl border border-zinc-200 bg-white px-4 py-3 text-left text-sm hover:bg-zinc-50"
+                placeholder="Select date/time"
               />
               <div className="mt-1 text-xs text-zinc-500">Uses your local time zone.</div>
             </div>

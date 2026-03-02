@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
+import { LocalDateTimePicker } from "@/components/LocalDateTimePicker";
 import { RichTextMarkdownEditor } from "@/components/RichTextMarkdownEditor";
 import { PortalMediaPickerModal } from "@/components/PortalMediaPickerModal";
 import { useToast } from "@/components/ToastProvider";
@@ -878,11 +879,11 @@ export function PortalBlogPostClient({ postId }: { postId: string }) {
 
           <div className="mt-4">
             <label className="text-xs font-semibold text-zinc-600">Published date (editable)</label>
-            <input
-              type="datetime-local"
+            <LocalDateTimePicker
               value={publishedAtText}
-              onChange={(e) => setPublishedAtText(e.target.value)}
-              className="mt-1 w-full rounded-2xl border border-zinc-200 bg-white px-4 py-3 text-sm outline-none focus:border-zinc-300"
+              onChange={setPublishedAtText}
+              buttonClassName="mt-1 w-full rounded-2xl border border-zinc-200 bg-white px-4 py-3 text-left text-sm hover:bg-zinc-50"
+              placeholder="Select publish date/time"
             />
             <div className="mt-1 flex items-center justify-between gap-3 text-xs text-zinc-500">
               <div>Leave blank for drafts or to clear the date.</div>

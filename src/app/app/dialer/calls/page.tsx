@@ -2,6 +2,8 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 
+import { LocalDateTimePicker } from "@/components/LocalDateTimePicker";
+import { PortalSelectDropdown } from "@/components/PortalSelectDropdown";
 import { useToast } from "@/components/ToastProvider";
 
 type Lead = {
@@ -667,18 +669,20 @@ export default function DialerCallsPage() {
                 onChange={(e) => setLeadSearch(e.target.value)}
                 placeholder="Search leads…"
               />
-              <select
-                className="mt-1 w-full rounded-xl border border-zinc-200 px-3 py-2 text-sm outline-none focus:border-zinc-400"
-                value={leadId}
-                onChange={(e) => setLeadId(e.target.value)}
-              >
-                <option value="">Select…</option>
-                {filteredLeadsForSelect.map((l) => (
-                  <option key={l.id} value={l.id}>
-                    {l.businessName} ({[l.niche, l.location].filter(Boolean).join(" • ")})
-                  </option>
-                ))}
-              </select>
+              <div className="mt-1">
+                <PortalSelectDropdown<string>
+                  value={leadId}
+                  onChange={setLeadId}
+                  options={[
+                    { value: "", label: "Select…" },
+                    ...filteredLeadsForSelect.map((l) => ({
+                      value: l.id,
+                      label: `${l.businessName} (${[l.niche, l.location].filter(Boolean).join(" • ")})`,
+                    })),
+                  ]}
+                  buttonClassName="flex w-full items-center justify-between gap-2 rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm outline-none hover:bg-zinc-50 focus:border-zinc-400"
+                />
+              </div>
             </div>
 
             <div className="sm:col-span-2 rounded-2xl border border-zinc-200 p-4">
@@ -744,19 +748,18 @@ export default function DialerCallsPage() {
                 <div className="flex flex-col gap-3 sm:flex-row sm:items-end">
                   <div className="flex-1">
                     <label className="text-sm font-medium">Templates</label>
-                    <select
-                      className="mt-1 w-full rounded-xl border border-zinc-200 px-3 py-2 text-sm outline-none focus:border-zinc-400"
-                      value={selectedTemplateId}
-                      onChange={(e) => setSelectedTemplateId(e.target.value)}
-                      disabled={!leadId}
-                    >
-                      <option value="">Select…</option>
-                      {templates.map((t) => (
-                        <option key={t.id} value={t.id}>
-                          {t.title}
-                        </option>
-                      ))}
-                    </select>
+                    <div className="mt-1">
+                      <PortalSelectDropdown<string>
+                        value={selectedTemplateId}
+                        onChange={setSelectedTemplateId}
+                        disabled={!leadId}
+                        options={[
+                          { value: "", label: "Select…" },
+                          ...templates.map((t) => ({ value: t.id, label: t.title })),
+                        ]}
+                        buttonClassName="flex w-full items-center justify-between gap-2 rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm outline-none hover:bg-zinc-50 focus:border-zinc-400"
+                      />
+                    </div>
                   </div>
                   <button
                     className="rounded-xl border border-zinc-200 bg-white px-4 py-2 text-sm hover:bg-zinc-50 disabled:opacity-60"
@@ -882,25 +885,28 @@ export default function DialerCallsPage() {
               <div className="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-3">
                 <div className="sm:col-span-2">
                   <label className="text-sm font-medium">Start</label>
-                  <input
-                    className="mt-1 w-full rounded-xl border border-zinc-200 px-3 py-2 text-sm outline-none focus:border-zinc-400"
-                    type="datetime-local"
+                  <LocalDateTimePicker
                     value={meetingStart}
-                    onChange={(e) => setMeetingStart(e.target.value)}
+                    onChange={setMeetingStart}
+                    buttonClassName="mt-1 w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-left text-sm hover:bg-zinc-50"
+                    placeholder="Select date/time"
                   />
                 </div>
                 <div>
                   <label className="text-sm font-medium">Duration</label>
-                  <select
-                    className="mt-1 w-full rounded-xl border border-zinc-200 px-3 py-2 text-sm outline-none focus:border-zinc-400"
-                    value={meetingDuration}
-                    onChange={(e) => setMeetingDuration(Number(e.target.value))}
-                  >
-                    <option value={15}>15 min</option>
-                    <option value={30}>30 min</option>
-                    <option value={45}>45 min</option>
-                    <option value={60}>60 min</option>
-                  </select>
+                  <div className="mt-1">
+                    <PortalSelectDropdown<number>
+                      value={meetingDuration}
+                      onChange={setMeetingDuration}
+                      options={[
+                        { value: 15, label: "15 min" },
+                        { value: 30, label: "30 min" },
+                        { value: 45, label: "45 min" },
+                        { value: 60, label: "60 min" },
+                      ]}
+                      buttonClassName="flex w-full items-center justify-between gap-2 rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm outline-none hover:bg-zinc-50 focus:border-zinc-400"
+                    />
+                  </div>
                 </div>
               </div>
 
@@ -946,32 +952,26 @@ export default function DialerCallsPage() {
 
             <div>
               <label className="text-sm font-medium">Disposition</label>
-              <select
-                className="mt-1 w-full rounded-xl border border-zinc-200 px-3 py-2 text-sm outline-none focus:border-zinc-400"
-                value={disposition}
-                onChange={(e) => setDisposition(e.target.value as (typeof DISPOSITIONS)[number])}
-              >
-                {DISPOSITIONS.map((d) => (
-                  <option key={d} value={d}>
-                    {d}
-                  </option>
-                ))}
-              </select>
+              <div className="mt-1">
+                <PortalSelectDropdown<(typeof DISPOSITIONS)[number]>
+                  value={disposition}
+                  onChange={setDisposition}
+                  options={DISPOSITIONS.map((d) => ({ value: d, label: d }))}
+                  buttonClassName="flex w-full items-center justify-between gap-2 rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm outline-none hover:bg-zinc-50 focus:border-zinc-400"
+                />
+              </div>
             </div>
 
             <div>
               <label className="text-sm font-medium">Method of appointment</label>
-              <select
-                className="mt-1 w-full rounded-xl border border-zinc-200 px-3 py-2 text-sm outline-none focus:border-zinc-400"
-                value={method}
-                onChange={(e) => setMethod(e.target.value as (typeof METHODS)[number])}
-              >
-                {METHODS.map((m) => (
-                  <option key={m} value={m}>
-                    {m}
-                  </option>
-                ))}
-              </select>
+              <div className="mt-1">
+                <PortalSelectDropdown<(typeof METHODS)[number]>
+                  value={method}
+                  onChange={setMethod}
+                  options={METHODS.map((m) => ({ value: m, label: m }))}
+                  buttonClassName="flex w-full items-center justify-between gap-2 rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm outline-none hover:bg-zinc-50 focus:border-zinc-400"
+                />
+              </div>
             </div>
 
             <div>
@@ -1027,11 +1027,11 @@ export default function DialerCallsPage() {
 
             <div>
               <label className="text-sm font-medium">Follow up at (optional)</label>
-              <input
-                className="mt-1 w-full rounded-xl border border-zinc-200 px-3 py-2 text-sm outline-none focus:border-zinc-400"
-                type="datetime-local"
+              <LocalDateTimePicker
                 value={followUpAt}
-                onChange={(e) => setFollowUpAt(e.target.value)}
+                onChange={setFollowUpAt}
+                buttonClassName="mt-1 w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-left text-sm hover:bg-zinc-50"
+                placeholder="Select date/time"
               />
             </div>
 

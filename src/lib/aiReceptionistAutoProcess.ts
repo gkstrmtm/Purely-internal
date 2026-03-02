@@ -1,5 +1,5 @@
 import { generateText, transcribeAudio, transcribeAudioVerbose } from "@/lib/ai";
-import { findPortalContactByPhone } from "@/lib/portalContacts";
+import { findOrCreatePortalContact, findPortalContactByPhone } from "@/lib/portalContacts";
 import { getAiReceptionistServiceData, upsertAiReceptionistCallEvent } from "@/lib/aiReceptionist";
 import { prisma } from "@/lib/db";
 import { fetchElevenLabsConversationTranscript } from "@/lib/elevenLabsConvai";
@@ -360,6 +360,31 @@ export async function autoProcessAiReceptionistCall(opts: {
     } catch (e) {
       console.error("AI receptionist: notes generation failed", { ownerId, callSid, error: e instanceof Error ? e.message : String(e) });
     }
+  }
+
+  // Best-effort: create/refresh a Portal Contact for this caller so they appear in People > Contacts.
+  try {
+    const eventEmail = typeof event?.contactEmail === "string" && event.contactEmail.trim() ? String(event.contactEmail).trim() : null;
+    const eventPhoneRaw = typeof event?.contactPhone === "string" && event.contactPhone.trim() ? String(event.contactPhone).trim() : "";
+    const eventPhoneParsed = eventPhoneRaw ? normalizePhoneStrict(eventPhoneRaw) : null;
+
+    const phoneForContact =
+      eventPhoneParsed && eventPhoneParsed.ok && eventPhoneParsed.e164
+        ? eventPhoneParsed.e164
+        : fromParsed.ok && fromParsed.e164
+          ? fromParsed.e164
+          : null;
+
+    if (phoneForContact) {
+      await findOrCreatePortalContact({
+        ownerId,
+        name: String(contactName || phoneForContact).slice(0, 80) || "Caller",
+        email: eventEmail,
+        phone: phoneForContact,
+      });
+    }
+  } catch {
+    // ignore
   }
 
   // Persist transcript/notes updates (idempotent).

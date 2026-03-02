@@ -3,11 +3,19 @@
 import Link from "next/link";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
+import { PortalListboxDropdown, type PortalListboxOption } from "@/components/PortalListboxDropdown";
 import { PortalSettingsSection } from "@/components/PortalSettingsSection";
 import { PortalMediaPickerModal, type PortalMediaPickItem } from "@/components/PortalMediaPickerModal";
 import { PortalVariablePickerModal } from "@/components/PortalVariablePickerModal";
 import { useToast } from "@/components/ToastProvider";
 import type { TemplateVariable } from "@/lib/portalTemplateVars";
+
+const LEAD_TIME_UNIT_OPTIONS: Array<PortalListboxOption<AppointmentReminderSettings["steps"][number]["leadTime"]["unit"]>> = [
+  { value: "minutes", label: "minutes" },
+  { value: "hours", label: "hours" },
+  { value: "days", label: "days" },
+  { value: "weeks", label: "weeks" },
+];
 
 type Me = {
   user: { email: string; name: string; role: string };
@@ -140,6 +148,16 @@ export function PortalAppointmentRemindersClient() {
     const m = new Map<string, BookingCalendar>();
     for (const c of calendars) m.set(c.id, c);
     return m;
+  }, [calendars]);
+
+  const calendarOptions = useMemo(() => {
+    return [
+      { value: "", label: "Default (all booking links)" },
+      ...calendars
+        .slice()
+        .sort((a, b) => a.title.localeCompare(b.title))
+        .map((c) => ({ value: c.id, label: `${c.title}${c.enabled ? "" : " (off)"}` })),
+    ] satisfies Array<PortalListboxOption<string>>;
   }, [calendars]);
 
   const filteredEvents = useMemo(() => {
@@ -470,22 +488,14 @@ export function PortalAppointmentRemindersClient() {
           <div className="mt-4">
             <label className="block text-xs font-semibold text-zinc-600">Calendar</label>
             <div className="mt-2 flex items-center gap-2">
-              <select
-                className="w-full max-w-md rounded-2xl border border-zinc-200 bg-white px-4 py-3 text-sm"
+              <PortalListboxDropdown
                 value={selectedCalendarId ?? ""}
-                onChange={(e) => setSelectedCalendarId(e.target.value || null)}
+                options={calendarOptions}
+                onChange={(v) => setSelectedCalendarId(v || null)}
                 disabled={saving}
-              >
-                <option value="">Default (all booking links)</option>
-                {calendars
-                  .slice()
-                  .sort((a, b) => a.title.localeCompare(b.title))
-                  .map((c) => (
-                    <option key={c.id} value={c.id}>
-                      {c.title}{c.enabled ? "" : " (off)"}
-                    </option>
-                  ))}
-              </select>
+                className="w-full max-w-md"
+                buttonClassName="flex w-full items-center justify-between gap-2 rounded-2xl border border-zinc-200 bg-white px-4 py-3 text-sm hover:bg-zinc-50 focus-visible:ring-2 focus-visible:ring-zinc-300"
+              />
               {selectedCalendarId ? (
                 <div className="text-xs text-zinc-500">
                   Configuring: {calendarsById.get(selectedCalendarId)?.title ?? selectedCalendarId}
@@ -608,27 +618,21 @@ export function PortalAppointmentRemindersClient() {
                             }
                             disabled={saving}
                           />
-                          <select
-                            className="h-10 w-32 rounded-xl border border-zinc-200 bg-white px-3 text-sm"
+                          <PortalListboxDropdown
                             value={s.leadTime.unit}
+                            options={LEAD_TIME_UNIT_OPTIONS}
                             disabled={saving}
-                            onChange={(e) =>
+                            onChange={(unit) =>
                               updateStep(s.id, {
                                 leadTime: {
-                                  unit: e.target.value as any,
-                                  value: Math.max(
-                                    minValueForUnit(e.target.value as any),
-                                    Math.min(maxValueForUnit(e.target.value as any), s.leadTime.value),
-                                  ),
+                                  unit,
+                                  value: Math.max(minValueForUnit(unit), Math.min(maxValueForUnit(unit), s.leadTime.value)),
                                 },
                               })
                             }
-                          >
-                            <option value="minutes">minutes</option>
-                            <option value="hours">hours</option>
-                            <option value="days">days</option>
-                            <option value="weeks">weeks</option>
-                          </select>
+                            className="w-32"
+                            buttonClassName="flex h-10 w-full items-center justify-between gap-2 rounded-xl border border-zinc-200 bg-white px-3 text-sm hover:bg-zinc-50 focus-visible:ring-2 focus-visible:ring-zinc-300"
+                          />
                           <span className="text-sm text-zinc-600">before</span>
                         </div>
                         <div className="mt-2 text-xs leading-5 text-zinc-500">Max 2 weeks.</div>

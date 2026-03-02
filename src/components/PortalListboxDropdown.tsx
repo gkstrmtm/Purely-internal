@@ -14,13 +14,14 @@ export function PortalListboxDropdown<T extends string>(props: {
   value: T;
   options: Array<PortalListboxOption<T>>;
   onChange: (v: T) => void;
+  buttonId?: string;
   className?: string;
   buttonClassName?: string;
   portal?: boolean;
   disabled?: boolean;
   placeholder?: string;
 }) {
-  const { value, options, onChange, className, buttonClassName, portal = true, disabled = false, placeholder } = props;
+  const { value, options, onChange, buttonId, className, buttonClassName, portal = true, disabled = false, placeholder } = props;
   const [open, setOpen] = useState(false);
   const rootRef = useRef<HTMLDivElement | null>(null);
   const buttonRef = useRef<HTMLButtonElement | null>(null);
@@ -157,6 +158,7 @@ export function PortalListboxDropdown<T extends string>(props: {
       <button
         ref={buttonRef}
         type="button"
+        id={buttonId}
         disabled={disabled}
         className={
           (buttonClassName ||

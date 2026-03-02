@@ -3,6 +3,8 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { PortalPeopleTabs } from "@/app/portal/app/people/PortalPeopleTabs";
+import { PortalListboxDropdown } from "@/components/PortalListboxDropdown";
+import { PortalSelectDropdown } from "@/components/PortalSelectDropdown";
 import { useToast } from "@/components/ToastProvider";
 import { parseCsv } from "@/lib/csv";
 import { DEFAULT_TAG_COLORS } from "@/lib/tagColors.shared";
@@ -193,6 +195,13 @@ export function PortalPeopleContactsClient() {
   const [importBusy, setImportBusy] = useState(false);
   const [importError, setImportError] = useState<string | null>(null);
   const [importFile, setImportFile] = useState<File | null>(null);
+  const [addMode, setAddMode] = useState<"csv" | "manual">("csv");
+  const [manualBusy, setManualBusy] = useState(false);
+  const [manualError, setManualError] = useState<string | null>(null);
+  const [manualName, setManualName] = useState("");
+  const [manualEmail, setManualEmail] = useState("");
+  const [manualPhone, setManualPhone] = useState("");
+  const [manualTags, setManualTags] = useState("");
   const [importHeaders, setImportHeaders] = useState<string[]>([]);
   const [importRows, setImportRows] = useState<string[][]>([]);
   const [importDupesOpen, setImportDupesOpen] = useState(false);
@@ -329,11 +338,18 @@ export function PortalPeopleContactsClient() {
 
   const openImportModal = useCallback(() => {
     setImportOpen(true);
+    setAddMode("csv");
     setImportError(null);
     setImportFile(null);
     setImportHeaders([]);
     setImportRows([]);
     setImportMapping({ name: "", firstName: "", lastName: "", email: "", phone: "", tags: "" });
+
+    setManualError(null);
+    setManualName("");
+    setManualEmail("");
+    setManualPhone("");
+    setManualTags("");
   }, []);
 
   const loadOwnerTags = useCallback(async () => {
@@ -745,7 +761,7 @@ export function PortalPeopleContactsClient() {
               onClick={openImportModal}
               className="rounded-xl border border-zinc-200 bg-white px-3 py-2 text-xs font-semibold text-zinc-800 hover:bg-zinc-50"
             >
-              Import contacts
+              Add contacts
             </button>
           </div>
         </div>
@@ -765,7 +781,7 @@ export function PortalPeopleContactsClient() {
                   onClick={openImportModal}
                   className="rounded-xl border border-zinc-200 bg-white px-3 py-2 text-xs font-semibold text-zinc-800 hover:bg-zinc-50"
                 >
-                  Import contacts
+                  Add contacts
                 </button>
                 <div className="text-xs text-zinc-500">Page {contactsCursorStack.length}</div>
                 <div className="text-xs text-zinc-500">•</div>
@@ -857,7 +873,7 @@ export function PortalPeopleContactsClient() {
                             onClick={openImportModal}
                             className="rounded-xl border border-zinc-200 bg-white px-3 py-2 text-xs font-semibold text-zinc-800 hover:bg-zinc-50"
                           >
-                            Import contacts
+                            Add contacts
                           </button>
                         </div>
                       </td>
@@ -956,8 +972,13 @@ export function PortalPeopleContactsClient() {
           <div className="w-full max-w-3xl rounded-3xl border border-zinc-200 bg-white p-5 shadow-xl">
             <div className="flex items-start justify-between gap-3">
               <div>
-                <div className="text-base font-semibold text-zinc-900">Import contacts (CSV)</div>
-                <div className="mt-1 text-sm text-zinc-600">Upload a CSV and we’ll map common fields automatically.</div>
+                <div className="text-base font-semibold text-zinc-900">Add contacts</div>
+                <div className="mt-1 text-sm text-zinc-600">
+                  {addMode === "csv"
+                    ? "Upload a CSV and we’ll map common fields automatically."
+                    : "Add one contact manually."
+                  }
+                </div>
               </div>
               <button
                 type="button"
@@ -968,48 +989,179 @@ export function PortalPeopleContactsClient() {
               </button>
             </div>
 
-            <div className="mt-4 rounded-3xl border border-zinc-200 bg-zinc-50 p-4">
-              <div className="text-xs font-semibold text-zinc-600">CSV file</div>
-              <input
-                type="file"
-                accept=".csv,text/csv"
-                className="mt-2 w-full text-sm"
-                onChange={(e) => {
-                  const f = e.target.files?.[0] || null;
-                  setImportError(null);
-                  setImportFile(f);
-                  if (!f) {
-                    setImportHeaders([]);
-                    setImportRows([]);
-                    return;
-                  }
-
-                  void (async () => {
-                    try {
-                      const text = await f.text();
-                      const parsed = parseCsv(text, { maxRows: 2000 });
-                      const headers = parsed.headers.filter((h) => Boolean(String(h || "").trim()));
-                      if (!headers.length) throw new Error("CSV must include a header row");
-                      setImportHeaders(headers);
-                      setImportRows(parsed.rows);
-                      setImportMapping(guessMapping(headers));
-                    } catch (err: any) {
-                      setImportHeaders([]);
-                      setImportRows([]);
-                      setImportError(String(err?.message || "Failed to read CSV"));
-                    }
-                  })();
-                }}
-              />
-
-              {importError ? (
-                <div className="mt-3 rounded-2xl border border-red-200 bg-red-50 p-3 text-sm font-semibold text-red-800">
-                  {importError}
-                </div>
-              ) : null}
+            <div className="mt-4 flex items-center gap-2">
+              <button
+                type="button"
+                onClick={() => setAddMode("csv")}
+                className={classNames(
+                  "rounded-2xl border px-4 py-2 text-sm font-semibold",
+                  addMode === "csv" ? "border-zinc-900 bg-zinc-900 text-white" : "border-zinc-200 bg-white text-zinc-800 hover:bg-zinc-50",
+                )}
+              >
+                CSV
+              </button>
+              <button
+                type="button"
+                onClick={() => setAddMode("manual")}
+                className={classNames(
+                  "rounded-2xl border px-4 py-2 text-sm font-semibold",
+                  addMode === "manual" ? "border-zinc-900 bg-zinc-900 text-white" : "border-zinc-200 bg-white text-zinc-800 hover:bg-zinc-50",
+                )}
+              >
+                Manual
+              </button>
             </div>
 
-            {importHeaders.length ? (
+            {addMode === "manual" ? (
+              <div className="mt-4 rounded-3xl border border-zinc-200 bg-white p-4">
+                <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
+                  <label className="block">
+                    <div className="text-xs font-semibold text-zinc-700">Name</div>
+                    <input
+                      value={manualName}
+                      onChange={(e) => setManualName(e.target.value)}
+                      placeholder="Full name"
+                      className="mt-1 w-full rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-sm"
+                    />
+                  </label>
+                  <label className="block">
+                    <div className="text-xs font-semibold text-zinc-700">Phone (optional)</div>
+                    <input
+                      value={manualPhone}
+                      onChange={(e) => setManualPhone(e.target.value)}
+                      placeholder="+1 (555) 555-5555"
+                      className="mt-1 w-full rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-sm"
+                    />
+                  </label>
+                  <label className="block">
+                    <div className="text-xs font-semibold text-zinc-700">Email (optional)</div>
+                    <input
+                      value={manualEmail}
+                      onChange={(e) => setManualEmail(e.target.value)}
+                      placeholder="name@company.com"
+                      className="mt-1 w-full rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-sm"
+                    />
+                  </label>
+                  <label className="block">
+                    <div className="text-xs font-semibold text-zinc-700">Tags (optional)</div>
+                    <input
+                      value={manualTags}
+                      onChange={(e) => setManualTags(e.target.value)}
+                      placeholder="New, Follow-up"
+                      className="mt-1 w-full rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-sm"
+                    />
+                  </label>
+                </div>
+
+                {manualError ? (
+                  <div className="mt-3 rounded-2xl border border-red-200 bg-red-50 p-3 text-sm font-semibold text-red-800">
+                    {manualError}
+                  </div>
+                ) : null}
+
+                <div className="mt-4 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+                  <div className="text-xs text-zinc-500">Tip: name is required. Phone and email are optional.</div>
+                  <button
+                    type="button"
+                    disabled={manualBusy}
+                    onClick={() =>
+                      void (async () => {
+                        setManualBusy(true);
+                        setManualError(null);
+                        try {
+                          const res = await fetch("/api/portal/people/contacts", {
+                            method: "POST",
+                            headers: { "content-type": "application/json" },
+                            body: JSON.stringify({
+                              name: manualName,
+                              email: manualEmail,
+                              phone: manualPhone,
+                              tags: manualTags,
+                            }),
+                          });
+                          const json = (await res.json().catch(() => ({}))) as any;
+                          if (!res.ok || !json?.ok) throw new Error(String(json?.error || "Failed to add contact"));
+                          toast.success("Contact added");
+                          setImportOpen(false);
+
+                          setContactsCursor(null);
+                          setLeadsCursor(null);
+                          setContactsCursorStack([null]);
+                          setLeadsCursorStack([null]);
+                          void load({ contactsCursor: null, leadsCursor: null });
+                        } catch (err: any) {
+                          setManualError(String(err?.message || "Failed to add contact"));
+                        } finally {
+                          setManualBusy(false);
+                        }
+                      })()
+                    }
+                    className={classNames(
+                      "rounded-2xl px-5 py-2.5 text-sm font-semibold",
+                      manualBusy ? "bg-zinc-200 text-zinc-600" : "bg-[color:var(--color-brand-blue)] text-white hover:opacity-95",
+                    )}
+                  >
+                    {manualBusy ? "Adding…" : "Add contact"}
+                  </button>
+                </div>
+              </div>
+            ) : (
+              <div className="mt-4 rounded-3xl border border-zinc-200 bg-zinc-50 p-4">
+                <div className="text-xs font-semibold text-zinc-600">CSV file</div>
+                <input
+                  id="contacts-csv-file"
+                  type="file"
+                  accept=".csv,text/csv"
+                  className="hidden"
+                  onChange={(e) => {
+                    const f = e.target.files?.[0] || null;
+                    setImportError(null);
+                    setImportFile(f);
+                    if (!f) {
+                      setImportHeaders([]);
+                      setImportRows([]);
+                      return;
+                    }
+
+                    void (async () => {
+                      try {
+                        const text = await f.text();
+                        const parsed = parseCsv(text, { maxRows: 2000 });
+                        const headers = parsed.headers.filter((h) => Boolean(String(h || "").trim()));
+                        if (!headers.length) throw new Error("CSV must include a header row");
+                        setImportHeaders(headers);
+                        setImportRows(parsed.rows);
+                        setImportMapping(guessMapping(headers));
+                      } catch (err: any) {
+                        setImportHeaders([]);
+                        setImportRows([]);
+                        setImportError(String(err?.message || "Failed to read CSV"));
+                      }
+                    })();
+                  }}
+                />
+
+                <div className="mt-2 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+                  <div className="flex items-center gap-3">
+                    <label
+                      htmlFor="contacts-csv-file"
+                      className="inline-flex cursor-pointer items-center rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm font-semibold text-zinc-800 hover:bg-zinc-50"
+                    >
+                      Choose file
+                    </label>
+                    <div className="text-sm text-zinc-700">{importFile ? importFile.name : "No file selected"}</div>
+                  </div>
+                </div>
+
+                {importError ? (
+                  <div className="mt-3 rounded-2xl border border-red-200 bg-red-50 p-3 text-sm font-semibold text-red-800">
+                    {importError}
+                  </div>
+                ) : null}
+              </div>
+            )}
+
+            {addMode === "csv" && importHeaders.length ? (
               <div className="mt-4 grid grid-cols-1 gap-4 md:grid-cols-2">
                 <div className="rounded-3xl border border-zinc-200 bg-white p-4">
                   <div className="text-sm font-semibold text-zinc-900">Field mapping</div>
@@ -1027,18 +1179,17 @@ export function PortalPeopleContactsClient() {
                   ).map((f) => (
                     <label key={f.key} className="mt-3 block">
                       <div className="text-xs font-semibold text-zinc-700">{f.label}</div>
-                      <select
-                        value={(importMapping as any)[f.key]}
-                        onChange={(e) => setImportMapping((m) => ({ ...m, [f.key]: e.target.value }))}
-                        className="mt-1 w-full rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-sm"
-                      >
-                        <option value="">None</option>
-                        {importHeaders.map((h) => (
-                          <option key={h} value={h}>
-                            {h}
-                          </option>
-                        ))}
-                      </select>
+                      <div className="mt-1">
+                        <PortalListboxDropdown
+                          value={String((importMapping as any)[f.key] || "")}
+                          onChange={(v) => setImportMapping((m) => ({ ...m, [f.key]: v }))}
+                          options={[
+                            { value: "", label: "None" },
+                            ...importHeaders.map((h) => ({ value: h, label: h })),
+                          ]}
+                          placeholder="None"
+                        />
+                      </div>
                     </label>
                   ))}
                 </div>
@@ -1109,7 +1260,8 @@ export function PortalPeopleContactsClient() {
               </div>
             ) : null}
 
-            <div className="mt-5 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+            {addMode === "csv" ? (
+              <div className="mt-5 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
               <div className="text-xs text-zinc-500">
                 Tip: include columns like Name, Email, Phone, Tags.
               </div>
@@ -1183,7 +1335,8 @@ export function PortalPeopleContactsClient() {
               >
                 {importBusy ? "Importing…" : "Import"}
               </button>
-            </div>
+              </div>
+            ) : null}
           </div>
         </div>
       ) : null}
@@ -1461,25 +1614,23 @@ export function PortalPeopleContactsClient() {
                 <div className="mt-4 grid grid-cols-1 gap-3">
                   <div>
                     <label className="text-xs font-semibold text-zinc-600">Add existing tag</label>
-                    <select
-                      className="mt-1 w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm outline-none focus:border-[color:var(--color-brand-blue)]"
-                      value={""}
-                      onChange={(e) => {
-                        const tagId = e.target.value;
-                        if (!tagId) return;
-                        void addTagToSelected(tagId);
-                      }}
-                      disabled={!selectedContactId}
-                    >
-                      <option value="">Select a tag…</option>
-                      {ownerTags
-                        .filter((t) => !detailTags.some((x) => x.id === t.id))
-                        .map((t) => (
-                          <option key={t.id} value={t.id}>
-                            {t.name}
-                          </option>
-                        ))}
-                    </select>
+                    <div className="mt-1">
+                      <PortalSelectDropdown<string>
+                        value={""}
+                        onChange={(tagId) => {
+                          if (!tagId) return;
+                          void addTagToSelected(tagId);
+                        }}
+                        disabled={!selectedContactId}
+                        options={[
+                          { value: "", label: "Select a tag…", disabled: true },
+                          ...ownerTags
+                            .filter((t) => !detailTags.some((x) => x.id === t.id))
+                            .map((t) => ({ value: t.id, label: t.name })),
+                        ]}
+                        buttonClassName="flex w-full items-center justify-between gap-2 rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm outline-none hover:bg-zinc-50 focus:border-[color:var(--color-brand-blue)]"
+                      />
+                    </div>
                   </div>
 
                   <div className="rounded-2xl border border-zinc-200 bg-zinc-50 p-3">
@@ -1532,23 +1683,24 @@ export function PortalPeopleContactsClient() {
                 {data?.unlinkedLeads?.length ? (
                   <div className="mt-2">
                     <label className="text-xs font-semibold text-zinc-600">Link a lead</label>
-                    <select
-                      className="mt-1 w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm"
-                      value={""}
-                      onChange={(e) => {
-                        const leadId = e.target.value;
-                        if (!leadId) return;
-                        void linkLeadToSelected(leadId);
-                      }}
-                      disabled={!selectedContactId || savingLead}
-                    >
-                      <option value="">Select an unlinked lead…</option>
-                      {data.unlinkedLeads.slice(0, 250).map((l) => (
-                        <option key={l.id} value={l.id}>
-                          {l.businessName}{l.email ? ` • ${l.email}` : ""}{l.phone ? ` • ${l.phone}` : ""}
-                        </option>
-                      ))}
-                    </select>
+                    <div className="mt-1">
+                      <PortalSelectDropdown<string>
+                        value={""}
+                        onChange={(leadId) => {
+                          if (!leadId) return;
+                          void linkLeadToSelected(leadId);
+                        }}
+                        disabled={!selectedContactId || savingLead}
+                        options={[
+                          { value: "", label: "Select an unlinked lead…", disabled: true },
+                          ...data.unlinkedLeads.slice(0, 250).map((l) => ({
+                            value: l.id,
+                            label: `${l.businessName}${l.email ? ` • ${l.email}` : ""}${l.phone ? ` • ${l.phone}` : ""}`,
+                          })),
+                        ]}
+                        buttonClassName="flex w-full items-center justify-between gap-2 rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm hover:bg-zinc-50"
+                      />
+                    </div>
                   </div>
                 ) : null}
                 <div className="mt-2 text-sm text-zinc-700">
@@ -1662,18 +1814,20 @@ export function PortalPeopleContactsClient() {
 
               <div>
                 <div className="text-xs font-semibold text-zinc-700">Link to contact (optional)</div>
-                <select
-                  className="mt-1 w-full rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-sm"
-                  value={leadLinkContactId}
-                  onChange={(e) => setLeadLinkContactId(e.target.value)}
-                >
-                  <option value="">Don’t link</option>
-                  {(data?.contacts || []).slice(0, 400).map((c) => (
-                    <option key={c.id} value={c.id}>
-                      {c.name}{c.email ? ` • ${c.email}` : ""}{c.phone ? ` • ${c.phone}` : ""}
-                    </option>
-                  ))}
-                </select>
+                <div className="mt-1">
+                  <PortalSelectDropdown<string>
+                    value={leadLinkContactId}
+                    onChange={setLeadLinkContactId}
+                    options={[
+                      { value: "", label: "Don’t link" },
+                      ...(data?.contacts || []).slice(0, 400).map((c) => ({
+                        value: c.id,
+                        label: `${c.name}${c.email ? ` • ${c.email}` : ""}${c.phone ? ` • ${c.phone}` : ""}`,
+                      })),
+                    ]}
+                    buttonClassName="flex w-full items-center justify-between gap-2 rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-sm hover:bg-zinc-50"
+                  />
+                </div>
               </div>
             </div>
 

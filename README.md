@@ -87,6 +87,30 @@ Stripe setup checklist:
 
 Note: this repo currently reads subscription state live from Stripe; it does not require webhooks to unlock entitlements.
 
+## Stripe Sales Reporting (per-portal)
+
+This repo includes an **optional** portal feature that lets a client connect their own Stripe secret key (stored **encrypted at rest**) and view a basic sales dashboard under:
+
+- `/portal/app/services/reporting/stripe`
+
+Setup:
+
+1) Set a strong encryption secret (required to store any per-portal secret safely):
+
+- `PORTAL_ENCRYPTION_MASTER_KEY` (recommended: `openssl rand -base64 32`)
+
+2) Apply the DB patch (idempotent):
+
+```bash
+node scripts/apply-stripe-db-patch.mjs
+```
+
+If your `.env` points at a remote Supabase DB, the script requires:
+
+```bash
+ALLOW_PROD_DB_MUTATIONS=1 node scripts/apply-stripe-db-patch.mjs
+```
+
 ## Credit portal (/credit)
 
 This repo supports a second, isolated client portal variant under `/credit` (separate client session cookie + variant enforcement).

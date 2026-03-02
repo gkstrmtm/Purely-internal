@@ -3,6 +3,23 @@
 import Image from "next/image";
 import { useEffect, useMemo, useState } from "react";
 
+import { PortalListboxDropdown, type PortalListboxOption } from "@/components/PortalListboxDropdown";
+
+type RejectionReason =
+  | "MISLEADING_OR_FALSE"
+  | "INAPPROPRIATE_CONTENT"
+  | "PROHIBITED_PRODUCTS"
+  | "SPAM_OR_LOW_QUALITY"
+  | "BROKEN_OR_MISMATCHED_LINK";
+
+const REJECTION_REASON_OPTIONS: Array<PortalListboxOption<RejectionReason>> = [
+  { value: "MISLEADING_OR_FALSE", label: "Misleading or false" },
+  { value: "INAPPROPRIATE_CONTENT", label: "Inappropriate content" },
+  { value: "PROHIBITED_PRODUCTS", label: "Prohibited products/services" },
+  { value: "SPAM_OR_LOW_QUALITY", label: "Spam / low quality" },
+  { value: "BROKEN_OR_MISMATCHED_LINK", label: "Broken or mismatched link" },
+];
+
 type Row = {
   id: string;
   name: string;
@@ -32,7 +49,7 @@ export default function AdsCampaignApprovalsClient() {
   const [reasonById, setReasonById] = useState<
     Record<
       string,
-      "MISLEADING_OR_FALSE" | "INAPPROPRIATE_CONTENT" | "PROHIBITED_PRODUCTS" | "SPAM_OR_LOW_QUALITY" | "BROKEN_OR_MISMATCHED_LINK"
+      RejectionReason
     >
   >({});
 
@@ -189,22 +206,13 @@ export default function AdsCampaignApprovalsClient() {
 
                         <div className="mt-3">
                           <div className="text-xs font-semibold uppercase tracking-wide text-zinc-500">Rejection reason</div>
-                          <select
+                          <PortalListboxDropdown
                             value={reasonById[c.id] ?? "MISLEADING_OR_FALSE"}
-                            onChange={(e) =>
-                              setReasonById((cur) => ({
-                                ...cur,
-                                [c.id]: e.target.value as any,
-                              }))
-                            }
-                            className="mt-2 w-full rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-sm outline-none focus:border-zinc-400"
-                          >
-                            <option value="MISLEADING_OR_FALSE">Misleading or false</option>
-                            <option value="INAPPROPRIATE_CONTENT">Inappropriate content</option>
-                            <option value="PROHIBITED_PRODUCTS">Prohibited products/services</option>
-                            <option value="SPAM_OR_LOW_QUALITY">Spam / low quality</option>
-                            <option value="BROKEN_OR_MISMATCHED_LINK">Broken or mismatched link</option>
-                          </select>
+                            onChange={(v) => setReasonById((cur) => ({ ...cur, [c.id]: v }))}
+                            options={REJECTION_REASON_OPTIONS}
+                            className="mt-2 w-full"
+                            buttonClassName="flex w-full items-center justify-between gap-2 rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-sm outline-none hover:bg-zinc-50 focus-visible:ring-2 focus-visible:ring-zinc-300"
+                          />
                           <div className="mt-2 text-xs text-zinc-500">Required when you request changes.</div>
                         </div>
 

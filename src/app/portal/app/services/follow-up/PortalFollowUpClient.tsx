@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useEffect, useMemo, useRef, useState } from "react";
 
 import { PORTAL_SERVICES } from "@/app/portal/services/catalog";
+import { PortalListboxDropdown } from "@/components/PortalListboxDropdown";
 import { PortalSettingsSection } from "@/components/PortalSettingsSection";
 import { PortalMediaPickerModal, type PortalMediaPickItem } from "@/components/PortalMediaPickerModal";
 import { PortalVariablePickerModal } from "@/components/PortalVariablePickerModal";
@@ -944,22 +945,24 @@ export function PortalFollowUpClient({ embedded }: { embedded?: boolean } = {}) 
                   <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
                     <div>
                       <label className="text-xs font-semibold text-zinc-600">Audience</label>
-                      <select
-                        value={(selectedTemplate.audience ?? "CONTACT") as string}
-                        onChange={(e) =>
+                      <PortalListboxDropdown
+                        value={selectedTemplate.audience ?? "CONTACT"}
+                        onChange={(audience) =>
                           updateTemplate(selectedTemplate.id, {
-                            audience: (e.target.value === "INTERNAL" ? "INTERNAL" : "CONTACT") as any,
+                            audience,
                             internalRecipients:
-                              e.target.value === "INTERNAL"
+                              audience === "INTERNAL"
                                 ? (selectedTemplate.internalRecipients ?? { mode: "BOOKING_NOTIFICATION_EMAILS" })
                                 : undefined,
                           })
                         }
-                        className="mt-1 w-full rounded-2xl border border-zinc-200 bg-white px-4 py-3 text-sm outline-none focus:border-zinc-300"
-                      >
-                        <option value="CONTACT">Client (booking contact)</option>
-                        <option value="INTERNAL">Internal (your team)</option>
-                      </select>
+                        options={[
+                          { value: "CONTACT", label: "Client (booking contact)" },
+                          { value: "INTERNAL", label: "Internal (your team)" },
+                        ]}
+                        className="mt-1 w-full"
+                        buttonClassName="flex w-full items-center justify-between gap-2 rounded-2xl border border-zinc-200 bg-white px-4 py-3 text-sm hover:bg-zinc-50 focus-visible:ring-2 focus-visible:ring-zinc-300"
+                      />
                       <div className="mt-1 text-xs text-zinc-500">
                         Internal steps can send to booking notification emails, or to custom recipients.
                       </div>
@@ -968,21 +971,27 @@ export function PortalFollowUpClient({ embedded }: { embedded?: boolean } = {}) 
                     {((selectedTemplate.audience ?? "CONTACT") === "INTERNAL") ? (
                       <div>
                         <label className="text-xs font-semibold text-zinc-600">Internal recipients</label>
-                        <select
-                          value={(selectedTemplate.internalRecipients?.mode ?? "BOOKING_NOTIFICATION_EMAILS") as string}
-                          onChange={(e) =>
+                        <PortalListboxDropdown
+                          value={selectedTemplate.internalRecipients?.mode ?? "BOOKING_NOTIFICATION_EMAILS"}
+                          onChange={(mode) =>
                             updateTemplate(selectedTemplate.id, {
                               internalRecipients:
-                                e.target.value === "CUSTOM"
-                                  ? { mode: "CUSTOM", emails: selectedTemplate.internalRecipients?.emails ?? [], phones: selectedTemplate.internalRecipients?.phones ?? [] }
+                                mode === "CUSTOM"
+                                  ? {
+                                      mode: "CUSTOM",
+                                      emails: selectedTemplate.internalRecipients?.emails ?? [],
+                                      phones: selectedTemplate.internalRecipients?.phones ?? [],
+                                    }
                                   : { mode: "BOOKING_NOTIFICATION_EMAILS" },
                             })
                           }
-                          className="mt-1 w-full rounded-2xl border border-zinc-200 bg-white px-4 py-3 text-sm outline-none focus:border-zinc-300"
-                        >
-                          <option value="BOOKING_NOTIFICATION_EMAILS">Use booking notification emails</option>
-                          <option value="CUSTOM">Use custom recipients</option>
-                        </select>
+                          options={[
+                            { value: "BOOKING_NOTIFICATION_EMAILS", label: "Use booking notification emails" },
+                            { value: "CUSTOM", label: "Use custom recipients" },
+                          ]}
+                          className="mt-1 w-full"
+                          buttonClassName="flex w-full items-center justify-between gap-2 rounded-2xl border border-zinc-200 bg-white px-4 py-3 text-sm hover:bg-zinc-50 focus-visible:ring-2 focus-visible:ring-zinc-300"
+                        />
                         {selectedTemplate.internalRecipients?.mode === "CUSTOM" ? (
                           <div className="mt-3 space-y-3">
                             <div>
@@ -1461,53 +1470,46 @@ export function PortalFollowUpClient({ embedded }: { embedded?: boolean } = {}) 
                                             }}
                                             className="col-span-7 rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm outline-none focus:border-zinc-300"
                                           />
-                                          <select
+                                          <PortalListboxDropdown
                                             value={best.unit}
-                                            onChange={(e) => {
-                                              const unit = (e.target.value as DelayUnit) || "minutes";
-                                              updateStep(s.id, { delayMinutes: valueUnitToMinutes(best.value, unit) });
-                                            }}
-                                            className="col-span-5 rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm outline-none focus:border-zinc-300"
-                                          >
-                                            {DELAY_UNITS.map((u) => (
-                                              <option key={u.id} value={u.id}>
-                                                {u.label}
-                                              </option>
-                                            ))}
-                                          </select>
+                                            onChange={(unit) => updateStep(s.id, { delayMinutes: valueUnitToMinutes(best.value, unit) })}
+                                            options={DELAY_UNITS.map((u) => ({ value: u.id, label: u.label }))}
+                                            className="col-span-5"
+                                            buttonClassName="flex w-full items-center justify-between gap-2 rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm hover:bg-zinc-50 focus-visible:ring-2 focus-visible:ring-zinc-300"
+                                          />
                                         </div>
                                         <div className="mt-1 text-xs text-zinc-500">Up to 10 years.</div>
                                       </div>
 
                                       <div>
                                         <label className="text-xs font-semibold text-zinc-600">Audience</label>
-                                        <select
-                                          value={(s.audience ?? "CONTACT") as string}
-                                          onChange={(e) => {
-                                            const nextAudience = e.target.value === "INTERNAL" ? "INTERNAL" : "CONTACT";
+                                        <PortalListboxDropdown
+                                          value={s.audience ?? "CONTACT"}
+                                          onChange={(nextAudience) =>
                                             updateStep(s.id, {
                                               audience: nextAudience,
                                               internalRecipients:
                                                 nextAudience === "INTERNAL"
                                                   ? (s.internalRecipients ?? { mode: "BOOKING_NOTIFICATION_EMAILS" })
                                                   : undefined,
-                                            });
-                                          }}
-                                          className="mt-1 w-full rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm outline-none focus:border-zinc-300"
-                                        >
-                                          <option value="CONTACT">Client (booking contact)</option>
-                                          <option value="INTERNAL">Internal (your team)</option>
-                                        </select>
+                                            })
+                                          }
+                                          options={[
+                                            { value: "CONTACT", label: "Client (booking contact)" },
+                                            { value: "INTERNAL", label: "Internal (your team)" },
+                                          ]}
+                                          className="mt-1 w-full"
+                                          buttonClassName="flex w-full items-center justify-between gap-2 rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm hover:bg-zinc-50 focus-visible:ring-2 focus-visible:ring-zinc-300"
+                                        />
                                       </div>
                                     </div>
 
                                     {(s.audience ?? "CONTACT") === "INTERNAL" ? (
                                       <div>
                                         <label className="text-xs font-semibold text-zinc-600">Internal recipients</label>
-                                        <select
-                                          value={(s.internalRecipients?.mode ?? "BOOKING_NOTIFICATION_EMAILS") as string}
-                                          onChange={(e) => {
-                                            const mode = e.target.value === "CUSTOM" ? "CUSTOM" : "BOOKING_NOTIFICATION_EMAILS";
+                                        <PortalListboxDropdown
+                                          value={s.internalRecipients?.mode ?? "BOOKING_NOTIFICATION_EMAILS"}
+                                          onChange={(mode) => {
                                             updateStep(s.id, {
                                               internalRecipients:
                                                 mode === "CUSTOM"
@@ -1519,11 +1521,13 @@ export function PortalFollowUpClient({ embedded }: { embedded?: boolean } = {}) 
                                                   : { mode: "BOOKING_NOTIFICATION_EMAILS" },
                                             });
                                           }}
-                                          className="mt-1 w-full rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm outline-none focus:border-zinc-300"
-                                        >
-                                          <option value="BOOKING_NOTIFICATION_EMAILS">Use booking notification emails</option>
-                                          <option value="CUSTOM">Use custom recipients</option>
-                                        </select>
+                                          options={[
+                                            { value: "BOOKING_NOTIFICATION_EMAILS", label: "Use booking notification emails" },
+                                            { value: "CUSTOM", label: "Use custom recipients" },
+                                          ]}
+                                          className="mt-1 w-full"
+                                          buttonClassName="flex w-full items-center justify-between gap-2 rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm hover:bg-zinc-50 focus-visible:ring-2 focus-visible:ring-zinc-300"
+                                        />
 
                                         {s.internalRecipients?.mode === "CUSTOM" ? (
                                           <div className="mt-3 space-y-4">
@@ -1739,23 +1743,20 @@ export function PortalFollowUpClient({ embedded }: { embedded?: boolean } = {}) 
                             Add custom step
                           </button>
 
-                          <select
-                            value=""
-                            onChange={(e) => {
-                              const presetId = e.target.value;
+                          <PortalListboxDropdown
+                            value={""}
+                            onChange={(presetId) => {
                               if (!presetId) return;
                               const step = stepFromPreset(presetId);
                               if (step) addStep(step);
                             }}
-                            className="w-full rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm outline-none focus:border-zinc-300"
-                          >
-                            <option value="">Add from preset…</option>
-                            {settings.templates.map((t) => (
-                              <option key={t.id} value={t.id}>
-                                {t.name}
-                              </option>
-                            ))}
-                          </select>
+                            options={[
+                              { value: "", label: "Add from preset…", disabled: true },
+                              ...settings.templates.map((t) => ({ value: t.id, label: t.name })),
+                            ]}
+                            className="w-full"
+                            buttonClassName="flex w-full items-center justify-between gap-2 rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm hover:bg-zinc-50 focus-visible:ring-2 focus-visible:ring-zinc-300"
+                          />
                         </div>
                       </div>
                     </div>

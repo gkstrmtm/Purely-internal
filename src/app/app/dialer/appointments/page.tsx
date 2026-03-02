@@ -2,6 +2,8 @@
 
 import { useEffect, useMemo, useState } from "react";
 
+import { LocalDatePicker, LocalDateTimePicker } from "@/components/LocalDateTimePicker";
+import { PortalSelectDropdown } from "@/components/PortalSelectDropdown";
 import { useToast } from "@/components/ToastProvider";
 
 type CloserOption = { id: string; name: string | null; email: string };
@@ -246,55 +248,55 @@ export default function DialerAppointmentsPage() {
 
               <div>
                 <label className="text-xs font-medium text-zinc-700">Status</label>
-                <select
-                  className="mt-1 w-full rounded-xl border border-zinc-200 px-3 py-2 text-sm outline-none focus:border-zinc-400"
-                  value={statusFilter}
-                  onChange={(e) =>
-                    setStatusFilter(e.target.value as "ANY" | "SCHEDULED" | "COMPLETED")
-                  }
-                >
-                  <option value="ANY">Any</option>
-                  <option value="SCHEDULED">Scheduled</option>
-                  <option value="COMPLETED">Completed</option>
-                </select>
+                <div className="mt-1">
+                  <PortalSelectDropdown<"ANY" | "SCHEDULED" | "COMPLETED">
+                    value={statusFilter}
+                    onChange={setStatusFilter}
+                    options={[
+                      { value: "ANY", label: "Any" },
+                      { value: "SCHEDULED", label: "Scheduled" },
+                      { value: "COMPLETED", label: "Completed" },
+                    ]}
+                    buttonClassName="flex w-full items-center justify-between gap-2 rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm outline-none hover:bg-zinc-50 focus:border-zinc-400"
+                  />
+                </div>
               </div>
 
               <div>
                 <label className="text-xs font-medium text-zinc-700">Outcome</label>
-                <select
-                  className="mt-1 w-full rounded-xl border border-zinc-200 px-3 py-2 text-sm outline-none focus:border-zinc-400"
-                  value={outcomeFilter}
-                  onChange={(e) =>
-                    setOutcomeFilter(
-                      e.target.value as "ANY" | "NONE" | "CLOSED" | "FOLLOW_UP" | "LOST",
-                    )
-                  }
-                >
-                  <option value="ANY">Any</option>
-                  <option value="NONE">No outcome yet</option>
-                  <option value="CLOSED">Closed</option>
-                  <option value="FOLLOW_UP">Follow up</option>
-                  <option value="LOST">Lost</option>
-                </select>
+                <div className="mt-1">
+                  <PortalSelectDropdown<"ANY" | "NONE" | "CLOSED" | "FOLLOW_UP" | "LOST">
+                    value={outcomeFilter}
+                    onChange={setOutcomeFilter}
+                    options={[
+                      { value: "ANY", label: "Any" },
+                      { value: "NONE", label: "No outcome yet" },
+                      { value: "CLOSED", label: "Closed" },
+                      { value: "FOLLOW_UP", label: "Follow up" },
+                      { value: "LOST", label: "Lost" },
+                    ]}
+                    buttonClassName="flex w-full items-center justify-between gap-2 rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm outline-none hover:bg-zinc-50 focus:border-zinc-400"
+                  />
+                </div>
               </div>
 
               <div>
                 <label className="text-xs font-medium text-zinc-700">From</label>
-                <input
-                  className="mt-1 w-full rounded-xl border border-zinc-200 px-3 py-2 text-sm outline-none focus:border-zinc-400"
-                  type="date"
+                <LocalDatePicker
                   value={fromDate}
-                  onChange={(e) => setFromDate(e.target.value)}
+                  onChange={setFromDate}
+                  buttonClassName="mt-1 w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-left text-sm hover:bg-zinc-50"
+                  placeholder="Select date"
                 />
               </div>
 
               <div>
                 <label className="text-xs font-medium text-zinc-700">To</label>
-                <input
-                  className="mt-1 w-full rounded-xl border border-zinc-200 px-3 py-2 text-sm outline-none focus:border-zinc-400"
-                  type="date"
+                <LocalDatePicker
                   value={toDate}
-                  onChange={(e) => setToDate(e.target.value)}
+                  onChange={setToDate}
+                  buttonClassName="mt-1 w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-left text-sm hover:bg-zinc-50"
+                  placeholder="Select date"
                 />
               </div>
             </div>
@@ -414,11 +416,11 @@ export default function DialerAppointmentsPage() {
                     <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
                       <div className="sm:col-span-2">
                         <label className="text-xs font-medium text-zinc-700">New start time</label>
-                        <input
-                          className="mt-1 w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm outline-none focus:border-zinc-400"
-                          type="datetime-local"
+                        <LocalDateTimePicker
                           value={editStartLocal}
-                          onChange={(e) => setEditStartLocal(e.target.value)}
+                          onChange={setEditStartLocal}
+                          buttonClassName="mt-1 w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-left text-sm hover:bg-zinc-50"
+                          placeholder="Select date/time"
                         />
                       </div>
                       <div>
@@ -436,18 +438,17 @@ export default function DialerAppointmentsPage() {
 
                     <div className="mt-3">
                       <label className="text-xs font-medium text-zinc-700">Optional: pick a closer</label>
-                      <select
-                        className="mt-1 w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm outline-none focus:border-zinc-400"
-                        value={editCloserId}
-                        onChange={(e) => setEditCloserId(e.target.value)}
-                      >
-                        <option value="">Keep current closer</option>
-                        {(editClosers ?? []).map((c) => (
-                          <option key={c.id} value={c.id}>
-                            {(c.name ?? "(no name)") + " - " + c.email}
-                          </option>
-                        ))}
-                      </select>
+                      <div className="mt-1">
+                        <PortalSelectDropdown<string>
+                          value={editCloserId}
+                          onChange={setEditCloserId}
+                          options={[
+                            { value: "", label: "Keep current closer" },
+                            ...(editClosers ?? []).map((c) => ({ value: c.id, label: (c.name ?? "(no name)") + " - " + c.email })),
+                          ]}
+                          buttonClassName="flex w-full items-center justify-between gap-2 rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm outline-none hover:bg-zinc-50 focus:border-zinc-400"
+                        />
+                      </div>
                       <div className="mt-1 text-xs text-zinc-500">
                         Click “Check closers” to load only closers who are free for the selected time.
                       </div>

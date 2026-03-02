@@ -103,6 +103,15 @@ model User {
   active       Boolean @default(true)
   timeZone     String  @default("America/New_York")
 
+  // Stripe credentials (encrypted at rest).
+  // Stored on the portal account owner; members inherit reporting access.
+  stripeSecretKeyCiphertext String?
+  stripeSecretKeyIv         String?
+  stripeSecretKeyAuthTag    String?
+  stripeSecretKeyPrefix     String?
+  stripeAccountId           String?
+  stripeConnectedAt         DateTime?
+
   clientPortalVariant ClientPortalVariant @default(PORTAL)
 
   createdAt DateTime @default(now())

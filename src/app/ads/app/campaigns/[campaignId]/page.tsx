@@ -144,8 +144,7 @@ export default async function AdsCampaignDetailsPage(props: { params: Promise<{ 
           <div className="text-xs font-semibold uppercase tracking-wide text-zinc-500">Campaign</div>
           <div className="mt-1 text-2xl font-bold text-zinc-900">{campaign.name}</div>
           <div className="mt-1 text-sm text-zinc-600">
-            {campaign.placement} · {isPending ? "Pending review" : isRejected ? "Needs changes" : "Approved"} · {campaign.enabled ? "Enabled" : "Paused"} · Updated{" "}
-            {campaign.updatedAt.toLocaleString()}
+            {isPending ? "Pending review" : isRejected ? "Needs changes" : "Approved"} · {campaign.enabled ? "Enabled" : "Paused"} · Updated {campaign.updatedAt.toLocaleString()}
           </div>
         </div>
         <div className="flex flex-wrap items-center gap-2">
@@ -220,7 +219,7 @@ export default async function AdsCampaignDetailsPage(props: { params: Promise<{ 
             </div>
           </div>
           <div className="mt-3 text-xs text-zinc-500">
-            Billing is charged when a portal user clicks your ad. Cost-per-click is optimized automatically.
+            You’re charged when someone clicks your ad. Your daily budget is the max we’ll spend per day.
           </div>
         </div>
 

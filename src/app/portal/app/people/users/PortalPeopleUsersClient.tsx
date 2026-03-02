@@ -12,6 +12,7 @@ import {
 
 import { PortalPeopleTabs } from "@/app/portal/app/people/PortalPeopleTabs";
 import { normalizePortalPermissions } from "@/lib/portalPermissions";
+import { PortalListboxDropdown } from "@/components/PortalListboxDropdown";
 import { useToast } from "@/components/ToastProvider";
 
 type MemberRow = {
@@ -374,14 +375,17 @@ export function PortalPeopleUsersClient() {
                   </div>
                   <div>
                     <div className="text-xs font-semibold text-zinc-700">Role</div>
-                    <select
-                      value={inviteRole}
-                      onChange={(e) => setInviteRole((e.target.value as any) || "MEMBER")}
-                      className="mt-1 w-full rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-sm"
-                    >
-                      <option value="MEMBER">Member</option>
-                      <option value="ADMIN">Admin</option>
-                    </select>
+                    <div className="mt-1">
+                      <PortalListboxDropdown<string>
+                        value={inviteRole}
+                        onChange={(v) => setInviteRole((v as any) || "MEMBER")}
+                        options={[
+                          { value: "MEMBER", label: "Member" },
+                          { value: "ADMIN", label: "Admin" },
+                        ]}
+                        buttonClassName="flex w-full items-center justify-between gap-2 rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-sm hover:bg-zinc-50"
+                      />
+                    </div>
                   </div>
                 </div>
 
@@ -444,15 +448,16 @@ export function PortalPeopleUsersClient() {
                               className="flex items-center justify-between gap-3 rounded-xl px-2 py-2 text-sm hover:bg-zinc-50"
                             >
                               <span className="text-zinc-800">{PORTAL_SERVICE_LABELS[k]}</span>
-                              <select
+                              <PortalListboxDropdown<PermissionLevel>
                                 value={levelFor(k)}
-                                onChange={(e) => setPermissionLevel(k, (e.target.value as PermissionLevel) || "none")}
-                                className="rounded-xl border border-zinc-200 bg-white px-2 py-1 text-xs font-semibold text-zinc-800"
-                              >
-                                <option value="none">No access</option>
-                                <option value="view">View only</option>
-                                <option value="full">Full</option>
-                              </select>
+                                onChange={(v) => setPermissionLevel(k, v || "none")}
+                                options={[
+                                  { value: "none", label: "No access" },
+                                  { value: "view", label: "View only" },
+                                  { value: "full", label: "Full" },
+                                ]}
+                                buttonClassName="flex items-center justify-between gap-2 rounded-xl border border-zinc-200 bg-white px-2 py-1 text-xs font-semibold text-zinc-800 hover:bg-zinc-50"
+                              />
                             </div>
                           ))}
                         </div>
@@ -566,10 +571,10 @@ export function PortalPeopleUsersClient() {
 
                 <div className="mt-3 flex items-center gap-2">
                   <div className="text-xs font-semibold text-zinc-700">Role</div>
-                  <select
-                    value={memberRole || "MEMBER"}
-                    onChange={(e) => {
-                      const nextRole = (e.target.value as any) === "ADMIN" ? "ADMIN" : "MEMBER";
+                  <PortalListboxDropdown<"MEMBER" | "ADMIN">
+                    value={(memberRole || "MEMBER") === "ADMIN" ? "ADMIN" : "MEMBER"}
+                    onChange={(v) => {
+                      const nextRole = v === "ADMIN" ? "ADMIN" : "MEMBER";
                       const current = memberRole || "MEMBER";
 
                       if (current === "ADMIN" && nextRole === "MEMBER") {
@@ -585,11 +590,12 @@ export function PortalPeopleUsersClient() {
                       if (nextRole === "ADMIN") setMemberPermissions(defaultPortalPermissionsForRole("ADMIN"));
                     }}
                     disabled={savingMember || removingMember}
-                    className="rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm"
-                  >
-                    <option value="MEMBER">Member</option>
-                    <option value="ADMIN">Admin</option>
-                  </select>
+                    options={[
+                      { value: "MEMBER", label: "Member" },
+                      { value: "ADMIN", label: "Admin" },
+                    ]}
+                    buttonClassName="flex items-center justify-between gap-2 rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm hover:bg-zinc-50"
+                  />
                 </div>
               </div>
               <button

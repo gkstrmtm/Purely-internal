@@ -1,7 +1,8 @@
 import { NextResponse } from "next/server";
 
 import { prisma } from "@/lib/db";
-import { ensurePortalContactTagsReady } from "@/lib/portalContactTags";
+import { findOrCreatePortalContact, normalizePhoneKey } from "@/lib/portalContacts";
+import { addContactTagAssignment, createOwnerContactTag, ensurePortalContactTagsReady } from "@/lib/portalContactTags";
 import { requireClientSessionForService } from "@/lib/portalAccess";
 
 export const runtime = "nodejs";
@@ -222,4 +223,83 @@ export async function GET(req: Request) {
       assignedToUserId: l.assignedToUserId,
     })),
   });
+}
+
+function splitTags(raw: unknown): string[] {
+  const s = String(raw ?? "").trim();
+  if (!s) return [];
+  const parts = s
+    .split(/[\n\r,;|]+/g)
+    .map((p) => p.trim())
+    .filter(Boolean);
+
+  const out: string[] = [];
+  const seen = new Set<string>();
+  for (const p of parts) {
+    const key = p.toLowerCase();
+    if (!key || seen.has(key)) continue;
+    seen.add(key);
+    out.push(p.slice(0, 60));
+    if (out.length >= 10) break;
+  }
+  return out;
+}
+
+export async function POST(req: Request) {
+  const auth = await requireClientSessionForService("people");
+  if (!auth.ok) {
+    return NextResponse.json(
+      { ok: false, error: auth.status === 401 ? "Unauthorized" : "Forbidden" },
+      { status: auth.status },
+    );
+  }
+
+  const ownerId = auth.session.user.id;
+
+  let body: any = null;
+  try {
+    body = await req.json();
+  } catch {
+    body = null;
+  }
+
+  const name = String(body?.name ?? "").trim().slice(0, 80);
+  const email = String(body?.email ?? "").trim().slice(0, 120);
+  const phone = String(body?.phone ?? "").trim().slice(0, 40);
+  const tags = splitTags(body?.tags);
+
+  if (!name) {
+    return NextResponse.json({ ok: false, error: "Name is required" }, { status: 400 });
+  }
+
+  if (phone) {
+    const norm = normalizePhoneKey(phone);
+    if (norm.error) {
+      return NextResponse.json({ ok: false, error: norm.error }, { status: 400 });
+    }
+  }
+
+  // Best-effort: schema installers might not be ready yet on brand new portals.
+  await ensurePortalContactTagsReady().catch(() => null);
+
+  const contactId = await findOrCreatePortalContact({
+    ownerId,
+    name,
+    email: email || null,
+    phone: phone || null,
+  });
+
+  if (!contactId) {
+    return NextResponse.json({ ok: false, error: "Could not create contact" }, { status: 400 });
+  }
+
+  if (tags.length) {
+    for (const tagName of tags) {
+      const tag = await createOwnerContactTag({ ownerId, name: tagName }).catch(() => null);
+      if (!tag) continue;
+      await addContactTagAssignment({ ownerId, contactId, tagId: tag.id }).catch(() => null);
+    }
+  }
+
+  return NextResponse.json({ ok: true, contactId });
 }

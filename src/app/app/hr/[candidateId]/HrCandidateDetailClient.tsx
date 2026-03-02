@@ -3,6 +3,10 @@
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 
+import { LocalDateTimePicker } from "@/components/LocalDateTimePicker";
+import { PortalListboxDropdown } from "@/components/PortalListboxDropdown";
+import { PortalSelectDropdown } from "@/components/PortalSelectDropdown";
+
 type Candidate = {
   id: string;
   fullName: string;
@@ -381,15 +385,18 @@ export default function HrCandidateDetailClient({ candidateId }: { candidateId: 
         <div className="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-2">
           <label className="text-sm">
             <div className="text-xs font-medium text-zinc-600">Decision</div>
-            <select
-              className="mt-1 w-full rounded-xl border border-zinc-200 bg-white px-3 py-2"
-              value={screenDecision}
-              onChange={(e) => setScreenDecision(e.target.value as any)}
-            >
-              <option value="PASS">Pass</option>
-              <option value="MAYBE">Maybe</option>
-              <option value="FAIL">Fail</option>
-            </select>
+            <div className="mt-1">
+              <PortalListboxDropdown<string>
+                value={screenDecision}
+                onChange={(v) => setScreenDecision(v as any)}
+                options={[
+                  { value: "PASS", label: "Pass" },
+                  { value: "MAYBE", label: "Maybe" },
+                  { value: "FAIL", label: "Fail" },
+                ]}
+                buttonClassName="flex w-full items-center justify-between gap-2 rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm hover:bg-zinc-50"
+              />
+            </div>
           </label>
           <label className="text-sm">
             <div className="text-xs font-medium text-zinc-600">Timezone</div>
@@ -488,45 +495,36 @@ export default function HrCandidateDetailClient({ candidateId }: { candidateId: 
 
           <label className="text-sm">
             <div className="text-xs font-medium text-zinc-600">Communication</div>
-            <select
-              className="mt-1 w-full rounded-xl border border-zinc-200 bg-white px-3 py-2"
-              value={screenCommunication}
-              onChange={(e) => setScreenCommunication(Number(e.target.value))}
-            >
-              {[5, 4, 3, 2, 1].map((n) => (
-                <option key={n} value={n}>
-                  {n}
-                </option>
-              ))}
-            </select>
+            <div className="mt-1">
+              <PortalSelectDropdown<number>
+                value={screenCommunication}
+                onChange={setScreenCommunication}
+                options={[5, 4, 3, 2, 1].map((n) => ({ value: n, label: String(n) }))}
+                buttonClassName="flex w-full items-center justify-between gap-2 rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm hover:bg-zinc-50"
+              />
+            </div>
           </label>
           <label className="text-sm">
             <div className="text-xs font-medium text-zinc-600">Objection handling</div>
-            <select
-              className="mt-1 w-full rounded-xl border border-zinc-200 bg-white px-3 py-2"
-              value={screenObjections}
-              onChange={(e) => setScreenObjections(Number(e.target.value))}
-            >
-              {[5, 4, 3, 2, 1].map((n) => (
-                <option key={n} value={n}>
-                  {n}
-                </option>
-              ))}
-            </select>
+            <div className="mt-1">
+              <PortalSelectDropdown<number>
+                value={screenObjections}
+                onChange={setScreenObjections}
+                options={[5, 4, 3, 2, 1].map((n) => ({ value: n, label: String(n) }))}
+                buttonClassName="flex w-full items-center justify-between gap-2 rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm hover:bg-zinc-50"
+              />
+            </div>
           </label>
           <label className="text-sm">
             <div className="text-xs font-medium text-zinc-600">Coachability</div>
-            <select
-              className="mt-1 w-full rounded-xl border border-zinc-200 bg-white px-3 py-2"
-              value={screenCoachability}
-              onChange={(e) => setScreenCoachability(Number(e.target.value))}
-            >
-              {[5, 4, 3, 2, 1].map((n) => (
-                <option key={n} value={n}>
-                  {n}
-                </option>
-              ))}
-            </select>
+            <div className="mt-1">
+              <PortalSelectDropdown<number>
+                value={screenCoachability}
+                onChange={setScreenCoachability}
+                options={[5, 4, 3, 2, 1].map((n) => ({ value: n, label: String(n) }))}
+                buttonClassName="flex w-full items-center justify-between gap-2 rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm hover:bg-zinc-50"
+              />
+            </div>
           </label>
           <label className="text-sm sm:col-span-2">
             <div className="text-xs font-medium text-zinc-600">Notes</div>
@@ -558,21 +556,20 @@ export default function HrCandidateDetailClient({ candidateId }: { candidateId: 
         <div className="mt-3 flex flex-col gap-3 sm:flex-row sm:items-end">
           <label className="text-sm sm:min-w-[340px]">
             <div className="text-xs font-medium text-zinc-600">Pick a slot</div>
-            <select
-              className="mt-1 w-full rounded-xl border border-zinc-200 bg-white px-3 py-2"
-              value={selectedInterviewIso}
-              onChange={(e) => setSelectedInterviewIso(e.target.value)}
-              disabled={!availableInterviewSlots.length}
-            >
-              {!availableInterviewSlots.length ? (
-                <option value="">No availability slots found</option>
-              ) : null}
-              {availableInterviewSlots.map((iso) => (
-                <option key={iso} value={iso}>
-                  {fmtSlotLabel(iso)}
-                </option>
-              ))}
-            </select>
+            <div className="mt-1">
+              <PortalSelectDropdown<string>
+                value={selectedInterviewIso}
+                onChange={setSelectedInterviewIso}
+                options={
+                  availableInterviewSlots.length
+                    ? availableInterviewSlots.map((iso) => ({ value: iso, label: fmtSlotLabel(iso) }))
+                    : [{ value: "", label: "No availability slots found", disabled: true }]
+                }
+                disabled={!availableInterviewSlots.length}
+                placeholder={availableInterviewSlots.length ? "Select a slot" : "No availability slots found"}
+                buttonClassName="flex w-full items-center justify-between gap-2 rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm hover:bg-zinc-50"
+              />
+            </div>
             {!availableInterviewSlots.length ? (
               <div className="mt-1 text-xs text-zinc-600">
                 Add blocks on <a className="font-semibold text-brand-ink hover:underline" href="/app/hr/availability">Interviewer availability</a>.
@@ -582,7 +579,7 @@ export default function HrCandidateDetailClient({ candidateId }: { candidateId: 
 
           <div className="hidden">
             <input
-              type="datetime-local"
+              type="text"
               className="mt-1 w-full rounded-xl border border-zinc-200 bg-white px-3 py-2"
               value={interviewAt}
               onChange={(e) => setInterviewAt(e.target.value)}
@@ -662,15 +659,18 @@ export default function HrCandidateDetailClient({ candidateId }: { candidateId: 
         <div className="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-2">
           <label className="text-sm">
             <div className="text-xs font-medium text-zinc-600">Decision</div>
-            <select
-              className="mt-1 w-full rounded-xl border border-zinc-200 bg-white px-3 py-2"
-              value={evalDecision}
-              onChange={(e) => setEvalDecision(e.target.value as any)}
-            >
-              <option value="HOLD">Hold</option>
-              <option value="HIRE">Hire</option>
-              <option value="NO_HIRE">No hire</option>
-            </select>
+            <div className="mt-1">
+              <PortalListboxDropdown<string>
+                value={evalDecision}
+                onChange={(v) => setEvalDecision(v as any)}
+                options={[
+                  { value: "HOLD", label: "Hold" },
+                  { value: "HIRE", label: "Hire" },
+                  { value: "NO_HIRE", label: "No hire" },
+                ]}
+                buttonClassName="flex w-full items-center justify-between gap-2 rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm hover:bg-zinc-50"
+              />
+            </div>
           </label>
           <label className="text-sm">
             <div className="text-xs font-medium text-zinc-600">Rating (1-5)</div>
@@ -711,14 +711,17 @@ export default function HrCandidateDetailClient({ candidateId }: { candidateId: 
         <div className="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-2">
           <label className="text-sm">
             <div className="text-xs font-medium text-zinc-600">Channel</div>
-            <select
-              className="mt-1 w-full rounded-xl border border-zinc-200 bg-white px-3 py-2"
-              value={followChannel}
-              onChange={(e) => setFollowChannel(e.target.value as any)}
-            >
-              <option value="EMAIL">Email</option>
-              <option value="SMS">SMS</option>
-            </select>
+            <div className="mt-1">
+              <PortalListboxDropdown<string>
+                value={followChannel}
+                onChange={(v) => setFollowChannel(v as any)}
+                options={[
+                  { value: "EMAIL", label: "Email" },
+                  { value: "SMS", label: "SMS" },
+                ]}
+                buttonClassName="flex w-full items-center justify-between gap-2 rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm hover:bg-zinc-50"
+              />
+            </div>
           </label>
           <label className="text-sm">
             <div className="text-xs font-medium text-zinc-600">To</div>
@@ -731,11 +734,11 @@ export default function HrCandidateDetailClient({ candidateId }: { candidateId: 
           </label>
           <label className="text-sm">
             <div className="text-xs font-medium text-zinc-600">Send at</div>
-            <input
-              type="datetime-local"
-              className="mt-1 w-full rounded-xl border border-zinc-200 bg-white px-3 py-2"
+            <LocalDateTimePicker
               value={followSendAt}
-              onChange={(e) => setFollowSendAt(e.target.value)}
+              onChange={setFollowSendAt}
+              buttonClassName="mt-1 w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-left text-sm hover:bg-zinc-50"
+              placeholder="Select date/time"
             />
           </label>
           {followChannel === "EMAIL" ? (

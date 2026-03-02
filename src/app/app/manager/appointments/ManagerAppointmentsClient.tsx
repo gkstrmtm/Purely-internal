@@ -2,6 +2,8 @@
 
 import { useEffect, useMemo, useState } from "react";
 
+import { LocalDateTimePicker } from "@/components/LocalDateTimePicker";
+import { PortalSelectDropdown } from "@/components/PortalSelectDropdown";
 import { useToast } from "@/components/ToastProvider";
 
 type CloserOption = {
@@ -60,7 +62,7 @@ export default function ManagerAppointmentsClient({
   const [editMsg, setEditMsg] = useState<string | null>(null);
 
   const [meetingEditingId, setMeetingEditingId] = useState<string | null>(null);
-  const [meetingPlatform, setMeetingPlatform] = useState<string>("PURELY_CONNECT");
+  const [meetingPlatform, setMeetingPlatform] = useState<"PURELY_CONNECT" | "ZOOM" | "GOOGLE_MEET" | "OTHER">("PURELY_CONNECT");
   const [meetingJoinUrl, setMeetingJoinUrl] = useState<string>("");
   const [meetingBusy, setMeetingBusy] = useState<boolean>(false);
 
@@ -234,7 +236,9 @@ export default function ManagerAppointmentsClient({
   function beginMeetingEdit(appt: ManagerAppointment) {
     setError(null);
     setMeetingEditingId(appt.id);
-    setMeetingPlatform(String(appt.meetingPlatform || "PURELY_CONNECT"));
+    const raw = appt.meetingPlatform;
+    const nextPlatform = raw === "ZOOM" || raw === "GOOGLE_MEET" || raw === "OTHER" || raw === "PURELY_CONNECT" ? raw : "PURELY_CONNECT";
+    setMeetingPlatform(nextPlatform);
     setMeetingJoinUrl(String(appt.meetingJoinUrl || ""));
   }
 
@@ -244,11 +248,7 @@ export default function ManagerAppointmentsClient({
     try {
       const payload = {
         appointmentId: appt.id,
-        meetingPlatform: (meetingPlatform || "PURELY_CONNECT") as
-          | "PURELY_CONNECT"
-          | "ZOOM"
-          | "GOOGLE_MEET"
-          | "OTHER",
+        meetingPlatform,
         meetingJoinUrl: meetingJoinUrl || null,
       };
       const res = await fetch("/api/appointments/meeting", {
@@ -296,17 +296,18 @@ export default function ManagerAppointmentsClient({
         </div>
         <div>
           <label className="text-xs font-medium text-zinc-700">Status</label>
-          <select
-            className="mt-1 w-full rounded-xl border border-zinc-200 px-3 py-2 text-sm outline-none focus:border-zinc-400"
-            value={statusFilter}
-            onChange={(e) =>
-              setStatusFilter(e.target.value as "ANY" | "SCHEDULED" | "COMPLETED")
-            }
-          >
-            <option value="ANY">Any</option>
-            <option value="SCHEDULED">Scheduled</option>
-            <option value="COMPLETED">Completed</option>
-          </select>
+          <div className="mt-1">
+            <PortalSelectDropdown<"ANY" | "SCHEDULED" | "COMPLETED">
+              value={statusFilter}
+              onChange={setStatusFilter}
+              options={[
+                { value: "ANY", label: "Any" },
+                { value: "SCHEDULED", label: "Scheduled" },
+                { value: "COMPLETED", label: "Completed" },
+              ]}
+              buttonClassName="flex w-full items-center justify-between gap-2 rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm outline-none hover:bg-zinc-50 focus:border-zinc-400"
+            />
+          </div>
         </div>
       </div>
 
@@ -382,11 +383,11 @@ export default function ManagerAppointmentsClient({
                   <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
                     <div className="sm:col-span-2">
                       <label className="text-xs font-medium text-zinc-700">New start time</label>
-                      <input
-                        className="mt-1 w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm outline-none focus:border-zinc-400"
-                        type="datetime-local"
+                      <LocalDateTimePicker
                         value={editStartLocal}
-                        onChange={(e) => setEditStartLocal(e.target.value)}
+                        onChange={setEditStartLocal}
+                        buttonClassName="mt-1 w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-left text-sm hover:bg-zinc-50"
+                        placeholder="Select date/time"
                       />
                     </div>
                     <div>
@@ -462,18 +463,20 @@ export default function ManagerAppointmentsClient({
                   <div className="mt-3 flex flex-col gap-2 sm:flex-row sm:items-end">
                     <div className="flex-1">
                       <label className="text-xs font-medium text-zinc-700">Optional: pick a closer</label>
-                      <select
-                        className="mt-1 w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm outline-none focus:border-zinc-400"
-                        value={editCloserId}
-                        onChange={(e) => setEditCloserId(e.target.value)}
-                      >
-                        <option value="">Keep current closer</option>
-                        {(editClosers ?? []).map((c) => (
-                          <option key={c.id} value={c.id}>
-                            {(c.name ?? "(no name)") + " - " + c.email + (c.isAvailable === false ? " (unavailable)" : "")}
-                          </option>
-                        ))}
-                      </select>
+                      <div className="mt-1">
+                        <PortalSelectDropdown<string>
+                          value={editCloserId}
+                          onChange={setEditCloserId}
+                          options={[
+                            { value: "", label: "Keep current closer" },
+                            ...(editClosers ?? []).map((c) => ({
+                              value: c.id,
+                              label: (c.name ?? "(no name)") + " - " + c.email + (c.isAvailable === false ? " (unavailable)" : ""),
+                            })),
+                          ]}
+                          buttonClassName="flex w-full items-center justify-between gap-2 rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm outline-none hover:bg-zinc-50 focus:border-zinc-400"
+                        />
+                      </div>
                       <div className="mt-1 text-xs text-zinc-500">
                         Click “Check closers” to load only closers who are free for the selected time.
                       </div>
@@ -573,16 +576,19 @@ export default function ManagerAppointmentsClient({
                   <div className="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-3">
                     <div>
                       <label className="text-xs font-medium text-zinc-700">Platform</label>
-                      <select
-                        className="mt-1 w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm outline-none focus:border-zinc-400"
-                        value={meetingPlatform}
-                        onChange={(e) => setMeetingPlatform(e.target.value)}
-                      >
-                        <option value="PURELY_CONNECT">Purely Connect</option>
-                        <option value="ZOOM">Zoom</option>
-                        <option value="GOOGLE_MEET">Google Meet</option>
-                        <option value="OTHER">Other</option>
-                      </select>
+                      <div className="mt-1">
+                        <PortalSelectDropdown<"PURELY_CONNECT" | "ZOOM" | "GOOGLE_MEET" | "OTHER">
+                          value={meetingPlatform}
+                          onChange={setMeetingPlatform}
+                          options={[
+                            { value: "PURELY_CONNECT", label: "Purely Connect" },
+                            { value: "ZOOM", label: "Zoom" },
+                            { value: "GOOGLE_MEET", label: "Google Meet" },
+                            { value: "OTHER", label: "Other" },
+                          ]}
+                          buttonClassName="flex w-full items-center justify-between gap-2 rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm outline-none hover:bg-zinc-50 focus:border-zinc-400"
+                        />
+                      </div>
                     </div>
                     <div className="sm:col-span-2">
                       <label className="text-xs font-medium text-zinc-700">Join URL</label>

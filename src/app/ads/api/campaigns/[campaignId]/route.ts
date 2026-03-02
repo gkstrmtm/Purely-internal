@@ -63,7 +63,6 @@ const patchSchema = z
     enabled: z.boolean().optional(),
     requestReview: z.boolean().optional(),
     name: z.string().min(3).max(80).optional(),
-    placement: placementSchema.optional(),
     startAtIso: z.string().datetime().nullable().optional(),
     endAtIso: z.string().datetime().nullable().optional(),
     targeting: z
@@ -131,7 +130,6 @@ export async function PATCH(req: Request, ctx: { params: Promise<{ campaignId: s
 
   const wantsEdit =
     parsed.data.name !== undefined ||
-    parsed.data.placement !== undefined ||
     parsed.data.startAtIso !== undefined ||
     parsed.data.endAtIso !== undefined ||
     parsed.data.targeting !== undefined ||
@@ -163,7 +161,9 @@ export async function PATCH(req: Request, ctx: { params: Promise<{ campaignId: s
     const existingCreative = (row.creativeJson ?? {}) as any;
 
     const nextName = parsed.data.name ?? row.name;
-    const nextPlacement = (parsed.data.placement ?? row.placement) as z.infer<typeof placementSchema>;
+    const existingPlacement = placementSchema.safeParse(row.placement).success
+      ? (row.placement as z.infer<typeof placementSchema>)
+      : "POPUP_CARD";
 
     const nextStartAt =
       parsed.data.startAtIso === undefined ? row.startAt : parsed.data.startAtIso ? new Date(parsed.data.startAtIso) : null;
@@ -171,7 +171,7 @@ export async function PATCH(req: Request, ctx: { params: Promise<{ campaignId: s
 
     const existingDailyBudgetCents = Number(existingTarget?.billing?.dailyBudgetCents || 0);
     const dailyBudgetCents = parsed.data.budget?.dailyBudgetCents ?? existingDailyBudgetCents;
-    const costPerClickCents = getDefaultCostPerClickCents(nextPlacement, dailyBudgetCents);
+    const costPerClickCents = getDefaultCostPerClickCents(existingPlacement, dailyBudgetCents);
 
     const industries =
       parsed.data.targeting?.industries === undefined
@@ -265,7 +265,6 @@ export async function PATCH(req: Request, ctx: { params: Promise<{ campaignId: s
       where: { id: campaignId, createdById: user.id },
       data: {
         name: nextName,
-        placement: nextPlacement,
         startAt: nextStartAt,
         endAt: nextEndAt,
         priority,

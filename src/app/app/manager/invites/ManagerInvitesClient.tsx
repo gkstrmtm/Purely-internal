@@ -2,6 +2,8 @@
 
 import { useEffect, useMemo, useState } from "react";
 
+import { PortalSelectDropdown } from "@/components/PortalSelectDropdown";
+
 type InviteRow = {
   id: string;
   code: string;
@@ -120,17 +122,20 @@ export default function ManagerInvitesClient() {
           <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
             <div>
               <label className="text-sm font-semibold text-zinc-700">Expires in</label>
-              <select
-                className="mt-2 w-full rounded-2xl border border-zinc-200 bg-white px-4 py-3 text-sm outline-none focus:border-zinc-400"
-                value={expiresInDays}
-                onChange={(e) => setExpiresInDays(Number(e.target.value))}
-              >
-                <option value={7}>7 days</option>
-                <option value={14}>14 days</option>
-                <option value={30}>30 days</option>
-                <option value={90}>90 days</option>
-                <option value={365}>365 days</option>
-              </select>
+              <div className="mt-2">
+                <PortalSelectDropdown<number>
+                  value={expiresInDays}
+                  onChange={setExpiresInDays}
+                  options={[
+                    { value: 7, label: "7 days" },
+                    { value: 14, label: "14 days" },
+                    { value: 30, label: "30 days" },
+                    { value: 90, label: "90 days" },
+                    { value: 365, label: "365 days" },
+                  ]}
+                  buttonClassName="flex w-full items-center justify-between gap-2 rounded-2xl border border-zinc-200 bg-white px-4 py-3 text-sm outline-none hover:bg-zinc-50 focus:border-zinc-400"
+                />
+              </div>
             </div>
 
             <button

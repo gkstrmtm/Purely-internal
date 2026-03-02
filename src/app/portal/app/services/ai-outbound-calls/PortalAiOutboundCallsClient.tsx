@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { PortalListboxDropdown } from "@/components/PortalListboxDropdown";
+import { PortalSelectDropdown } from "@/components/PortalSelectDropdown";
 import { InlineElevenLabsAgentTester } from "@/components/InlineElevenLabsAgentTester";
 import { useToast } from "@/components/ToastProvider";
 import { DEFAULT_TAG_COLORS } from "@/lib/tagColors.shared";
@@ -227,17 +228,13 @@ function MiniAudioPlayer(props: { src: string; durationHintSec?: number | null }
 
         <div className="flex items-center gap-2">
           <div className="text-xs font-semibold text-zinc-600">Speed</div>
-          <select
-            className="rounded-xl border border-zinc-200 bg-white px-2 py-2 text-sm font-semibold text-zinc-900"
-            value={String(rate)}
-            onChange={(e) => setRate(Number(e.target.value))}
-          >
-            {[0.75, 1, 1.25, 1.5, 2].map((v) => (
-              <option key={v} value={String(v)}>
-                {v}x
-              </option>
-            ))}
-          </select>
+          <PortalSelectDropdown
+            value={rate}
+            onChange={(v) => setRate(v)}
+            options={[0.75, 1, 1.25, 1.5, 2].map((v) => ({ value: v, label: `${v}x` }))}
+            className="min-w-[84px]"
+            buttonClassName="flex w-full items-center justify-between gap-2 rounded-xl border border-zinc-200 bg-white px-2 py-2 text-sm font-semibold text-zinc-900 hover:bg-zinc-50 focus-visible:ring-2 focus-visible:ring-zinc-300"
+          />
         </div>
       </div>
     </div>
@@ -269,6 +266,8 @@ export function PortalAiOutboundCallsClient() {
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const selected = useMemo(() => campaigns.find((c) => c.id === selectedId) ?? null, [campaigns, selectedId]);
 
+  const [toolsPreset, setToolsPreset] = useState<"none" | "recommended" | "all">("recommended");
+
   const [tab, setTab] = useState<"settings" | "testing" | "activity">("activity");
 
   useEffect(() => {
@@ -276,6 +275,7 @@ export function PortalAiOutboundCallsClient() {
     setManualCallId(null);
     setManualCall(null);
     setTab("activity");
+    setToolsPreset("recommended");
   }, [selectedId]);
 
   const loadManualCalls = useCallback(async (campaignId?: string) => {
@@ -1195,14 +1195,10 @@ export function PortalAiOutboundCallsClient() {
                           Pick the tools you want the agent to have access to. Hover a tool to see what it does.
                         </div>
                         <div className="flex items-center gap-2">
-                          <select
-                            className="h-9 rounded-xl border border-zinc-200 bg-white px-2 text-xs"
-                            defaultValue="recommended"
-                            onChange={(e) => {
-                              const preset = String(e.target.value || "recommended") as
-                                | "none"
-                                | "recommended"
-                                | "all";
+                          <PortalListboxDropdown
+                            value={toolsPreset}
+                            onChange={(preset) => {
+                              setToolsPreset(preset);
                               const next = toolKeysForPreset(preset);
                               setCampaigns((prev) =>
                                 prev.map((c) =>
@@ -1220,12 +1216,14 @@ export function PortalAiOutboundCallsClient() {
                               updateCampaign({ voiceAgentConfig: { toolKeys: next } });
                             }}
                             disabled={busy}
-                            title="Quick presets"
-                          >
-                            <option value="recommended">Recommended</option>
-                            <option value="none">None</option>
-                            <option value="all">All</option>
-                          </select>
+                            options={[
+                              { value: "recommended", label: "Recommended" },
+                              { value: "none", label: "None" },
+                              { value: "all", label: "All" },
+                            ]}
+                            className="min-w-[160px]"
+                            buttonClassName="flex h-9 w-full items-center justify-between gap-2 rounded-xl border border-zinc-200 bg-white px-2 text-xs hover:bg-zinc-50 focus-visible:ring-2 focus-visible:ring-zinc-300"
+                          />
                         </div>
                       </div>
 

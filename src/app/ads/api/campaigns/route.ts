@@ -7,6 +7,8 @@ import { requireAdsUser } from "@/lib/adsAuth";
 
 const placementSchema = z.enum(["SIDEBAR_BANNER", "TOP_BANNER", "POPUP_CARD"]);
 
+const DEFAULT_PLACEMENT: z.infer<typeof placementSchema> = "POPUP_CARD";
+
 function getDefaultCostPerClickCents(placement: z.infer<typeof placementSchema>, dailyBudgetCents: number) {
   const envRaw = Number(process.env.PORTAL_AD_DEFAULT_CPC_CENTS ?? "");
   const env = Number.isFinite(envRaw) ? Math.max(1, Math.floor(envRaw)) : null;
@@ -22,7 +24,7 @@ function getDefaultCostPerClickCents(placement: z.infer<typeof placementSchema>,
 
 const createSchema = z.object({
   name: z.string().min(3).max(80),
-  placement: placementSchema,
+  placement: placementSchema.optional().default(DEFAULT_PLACEMENT),
   enabled: z.boolean().optional(),
 
   startAtIso: z.string().datetime().nullable().optional(),
@@ -131,7 +133,10 @@ export async function POST(req: Request) {
   const industries = uniqStrings(parsed.data.targeting?.industries).slice(0, 50);
   const businessModels = uniqStrings(parsed.data.targeting?.businessModels).slice(0, 50);
 
-  const costPerClickCents = getDefaultCostPerClickCents(parsed.data.placement, parsed.data.budget.dailyBudgetCents);
+  // Placement is internal; advertisers do not choose it.
+  const placement = DEFAULT_PLACEMENT;
+
+  const costPerClickCents = getDefaultCostPerClickCents(placement, parsed.data.budget.dailyBudgetCents);
 
   const targetJson = omitUndefinedDeep({
     industries: industries.length ? industries : undefined,
@@ -176,7 +181,7 @@ export async function POST(req: Request) {
       reviewedAt: null,
       reviewedById: null,
       reviewNotes: null,
-      placement: parsed.data.placement,
+      placement,
       startAt,
       endAt,
       targetJson,

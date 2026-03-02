@@ -227,7 +227,7 @@ export default function AdsAppHomePage() {
       <div className="rounded-3xl border border-zinc-200 bg-white">
         <div className="border-b border-zinc-200 px-6 py-4">
           <div className="text-sm font-semibold text-zinc-900">Your campaigns</div>
-          <div className="mt-1 text-sm text-zinc-600">Budgets and billing are enforced automatically.</div>
+          <div className="mt-1 text-sm text-zinc-600">You’re charged when someone clicks. Set a daily budget to control spend.</div>
         </div>
 
         <div className="divide-y divide-zinc-100">
@@ -249,7 +249,7 @@ export default function AdsAppHomePage() {
                       {c.name}
                     </Link>
                     <div className="mt-1 text-xs text-zinc-500">
-                      {c.placement} · {statusLabel} · {c.enabled ? "Enabled" : "Paused"}
+                      {statusLabel} · {c.enabled ? "Enabled" : "Paused"}
                       {dailyBudgetCents ? ` · ${usd(dailyBudgetCents)}/day` : ""}
                     </div>
                     {isRejected && c.reviewNotes ? (

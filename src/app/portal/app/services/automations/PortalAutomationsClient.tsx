@@ -1,6 +1,7 @@
 "use client";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
+import { LocalTimePicker } from "@/components/LocalDateTimePicker";
 import { PortalListboxDropdown } from "@/components/PortalListboxDropdown";
 import { PortalVariablePickerModal } from "@/components/PortalVariablePickerModal";
 import { useToast } from "@/components/ToastProvider";
@@ -3043,12 +3044,10 @@ export function PortalAutomationsClient() {
 
                                         <div>
                                           <div className="text-xs font-semibold text-zinc-600">Time (UTC)</div>
-                                          <input
-                                            type="time"
-                                            className="mt-1 w-full rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-sm"
+                                          <LocalTimePicker
                                             value={specificTime}
-                                            onChange={(e) => {
-                                              const nextTime = String(e.target.value || "09:00").slice(0, 5);
+                                            onChange={(v) => {
+                                              const nextTime = String(v || "09:00").slice(0, 5);
                                               updateSelectedAutomation((a) => {
                                                 const nodes = a.nodes.map((n) => {
                                                   if (n.id !== selectedNode.id) return n;
@@ -3063,6 +3062,8 @@ export function PortalAutomationsClient() {
                                                 return { ...a, nodes, updatedAtIso: new Date().toISOString() };
                                               });
                                             }}
+                                            buttonClassName="mt-1 w-full rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-left text-sm hover:bg-zinc-50"
+                                            placeholder="Select time"
                                           />
                                           <div className="mt-1 text-[11px] text-zinc-600">Specific schedules are evaluated in UTC.</div>
                                         </div>

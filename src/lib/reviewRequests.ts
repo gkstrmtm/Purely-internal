@@ -156,9 +156,16 @@ export type ReviewRequestsSettings = {
 
 export type ReviewRequestEvent = {
   id: string;
-  bookingId: string;
+  kind?: "booking" | "contact";
+
+  // Booking-based sends (most common)
+  bookingId?: string;
+  bookingEndAtIso?: string;
   calendarId?: string | null;
-  bookingEndAtIso: string;
+
+  // Contact-based sends
+  contactId?: string;
+
   scheduledForIso: string;
 
   destinationId: string;
@@ -429,8 +436,11 @@ function parseServiceData(raw: unknown): ReviewsServiceData {
         .flatMap((e) => {
           if (!e || typeof e !== "object" || Array.isArray(e)) return [] as ReviewRequestEvent[];
           const r = e as Record<string, unknown>;
+
+          const kind = r.kind === "contact" || r.kind === "booking" ? r.kind : null;
           const bookingId = typeof r.bookingId === "string" ? r.bookingId : "";
           const bookingEndAtIso = typeof r.bookingEndAtIso === "string" ? r.bookingEndAtIso : "";
+          const contactId = typeof r.contactId === "string" ? r.contactId : "";
           const scheduledForIso = typeof r.scheduledForIso === "string" ? r.scheduledForIso : "";
           const destinationId = typeof r.destinationId === "string" ? r.destinationId : "";
           const destinationLabel = typeof r.destinationLabel === "string" ? r.destinationLabel : "";
@@ -438,12 +448,27 @@ function parseServiceData(raw: unknown): ReviewsServiceData {
           const contactName = typeof r.contactName === "string" ? r.contactName : "";
           const createdAtIso = typeof r.createdAtIso === "string" ? r.createdAtIso : nowIso();
           const status = r.status === "SENT" || r.status === "SKIPPED" || r.status === "FAILED" ? r.status : "SKIPPED";
-          if (!bookingId || !bookingEndAtIso || !scheduledForIso || !destinationUrl) return [] as ReviewRequestEvent[];
+
+          const inferredKind: "booking" | "contact" = kind || (bookingId && bookingEndAtIso ? "booking" : "contact");
+
+          // Minimum fields for an event to be useful.
+          if (!scheduledForIso || !destinationUrl) return [] as ReviewRequestEvent[];
+          if (inferredKind === "booking" && (!bookingId || !bookingEndAtIso)) return [] as ReviewRequestEvent[];
+          if (inferredKind === "contact" && !contactId && !contactName) return [] as ReviewRequestEvent[];
 
           const evt: ReviewRequestEvent = {
-            id: typeof r.id === "string" ? r.id : `evt_${bookingId}`,
-            bookingId,
-            bookingEndAtIso,
+            id:
+              typeof r.id === "string"
+                ? r.id
+                : inferredKind === "booking"
+                  ? `evt_${bookingId}`
+                  : contactId
+                    ? `evt_contact_${contactId}`
+                    : `evt_contact_${createdAtIso}`,
+            kind: inferredKind,
+            ...(inferredKind === "booking" ? { bookingId, bookingEndAtIso } : {}),
+            ...(typeof r.calendarId === "string" ? { calendarId: r.calendarId } : r.calendarId === null ? { calendarId: null } : {}),
+            ...(inferredKind === "contact" && contactId ? { contactId } : {}),
             scheduledForIso,
 
             destinationId: destinationId || "dest",
@@ -461,6 +486,7 @@ function parseServiceData(raw: unknown): ReviewsServiceData {
             ...(typeof r.error === "string" ? { error: r.error } : {}),
             createdAtIso,
           };
+
           return [evt];
         })
         .slice(0, MAX_EVENTS)
@@ -616,6 +642,7 @@ export async function sendReviewRequestForBooking(opts: { ownerId: string; booki
     const status: ReviewRequestEvent["status"] = result.ok ? "SENT" : "FAILED";
     const evt: ReviewRequestEvent = {
       id: `evt_${booking.id}_manual_${resolved.destinationId}`,
+      kind: "booking",
       bookingId: booking.id,
       calendarId: bookingCalendarId ?? null,
       bookingEndAtIso,
@@ -625,6 +652,103 @@ export async function sendReviewRequestForBooking(opts: { ownerId: string; booki
       destinationUrl: resolved.destinationUrl,
       contactName: booking.contactName,
       contactPhoneRaw: booking.contactPhone ?? null,
+      smsTo: parsed.e164,
+      smsBody,
+      status,
+      ...(result.ok && result.messageSid ? { smsMessageSid: result.messageSid } : {}),
+      ...(result.ok ? {} : { error: result.error }),
+      createdAtIso: nowIso(),
+    };
+
+    const nextPayload: ReviewsServiceData = {
+      version: 1,
+      settings,
+      sentKeys: [key, ...sentKeys].slice(0, MAX_SENT_KEYS),
+      events: [evt, ...data.events].slice(0, MAX_EVENTS),
+    };
+
+    await prisma.portalServiceSetup.upsert({
+      where: { ownerId_serviceSlug: { ownerId, serviceSlug: SERVICE_SLUG } },
+      create: { ownerId, serviceSlug: SERVICE_SLUG, status: "COMPLETE", dataJson: nextPayload as any },
+      update: { status: "COMPLETE", dataJson: nextPayload as any },
+      select: { id: true },
+    });
+
+    if (!result.ok) return { ok: false, error: result.error };
+    return { ok: true };
+  } catch (err) {
+    return { ok: false, error: err instanceof Error ? err.message : String(err) };
+  }
+}
+
+export async function sendReviewRequestForContact(opts: {
+  ownerId: string;
+  contactId: string;
+}): Promise<{ ok: true } | { ok: false; error: string }> {
+  const ownerId = String(opts.ownerId || "");
+  const contactId = String(opts.contactId || "").trim();
+  if (!ownerId || !contactId) return { ok: false, error: "Missing ownerId/contactId" };
+
+  try {
+    const [data, site, profile, twilio, contact] = await Promise.all([
+      getReviewRequestsServiceData(ownerId),
+      prisma.portalBookingSite.findUnique({ where: { ownerId }, select: { id: true, title: true } }),
+      prisma.businessProfile.findUnique({ where: { ownerId }, select: { businessName: true } }),
+      getOwnerTwilioSmsConfig(ownerId),
+      (prisma as any).portalContact
+        ? (prisma as any).portalContact.findFirst({ where: { id: contactId, ownerId }, select: { id: true, name: true, phone: true } })
+        : Promise.resolve(null),
+    ]);
+
+    if (!contact) return { ok: false, error: "Contact not found" };
+
+    const settings = data.settings;
+    if (!settings.enabled) return { ok: false, error: "Review requests are turned off" };
+    if (!settings.automation.manualSend) return { ok: false, error: "Manual sending is turned off" };
+    if (!twilio) return { ok: false, error: "Twilio not configured" };
+
+    const resolved = await resolvePrimarySendLink(ownerId, settings);
+    if (!resolved) return { ok: false, error: "No review link configured" };
+
+    const phoneRaw = contact.phone ? String(contact.phone) : "";
+    const parsed = phoneRaw ? normalizePhoneStrict(phoneRaw) : { ok: false as const, error: "Missing phone" };
+    if (!parsed.ok || !parsed.e164) return { ok: false, error: "Missing/invalid phone" };
+
+    const business = profile?.businessName?.trim() || site?.title || "Purely Automation";
+    const contactName = String(contact.name || "").trim() || parsed.e164;
+
+    const vars = {
+      ...buildPortalTemplateVars({
+        contact: { name: contactName },
+        business: { name: business },
+      }),
+      link: resolved.destinationUrl,
+    };
+
+    const body = renderReviewRequestBody(settings.messageTemplate, vars);
+    const smsBody = appendExternalDestinations(body, settings.destinations);
+
+    const now = Date.now();
+    const scheduledForIso = new Date(now).toISOString();
+    const key = `contact_${contactId}:manual:${scheduledForIso.slice(0, 16)}`; // minute-bucketed to prevent double-click duplicates
+    const sentKeys = data.sentKeys.slice();
+    if (sentKeys.includes(key)) return { ok: false, error: "Already sent (just now)" };
+
+    const result = await sendOwnerTwilioSms({ ownerId, to: parsed.e164, body: smsBody });
+    const status: ReviewRequestEvent["status"] = result.ok ? "SENT" : "FAILED";
+
+    const evt: ReviewRequestEvent = {
+      id: `evt_contact_${contactId}_manual_${resolved.destinationId}_${now.toString(36)}`,
+      kind: "contact",
+      contactId,
+      scheduledForIso,
+
+      destinationId: resolved.destinationId,
+      destinationLabel: resolved.destinationLabel,
+      destinationUrl: resolved.destinationUrl,
+
+      contactName,
+      contactPhoneRaw: phoneRaw || null,
       smsTo: parsed.e164,
       smsBody,
       status,

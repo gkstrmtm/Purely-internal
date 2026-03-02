@@ -5,6 +5,8 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { PortalMissedCallTextBackClient } from "@/app/portal/app/services/missed-call-textback/PortalMissedCallTextBackClient";
 import { InlineElevenLabsAgentTester } from "@/components/InlineElevenLabsAgentTester";
+import { PortalListboxDropdown } from "@/components/PortalListboxDropdown";
+import { PortalSelectDropdown } from "@/components/PortalSelectDropdown";
 import { PortalSettingsSection } from "@/components/PortalSettingsSection";
 import { ContactTagsEditor, type ContactTag } from "@/components/ContactTagsEditor";
 import { useToast } from "@/components/ToastProvider";
@@ -256,17 +258,13 @@ function MiniAudioPlayer(props: { src: string; durationHintSec?: number | null }
 
         <div className="flex items-center gap-2">
           <div className="text-xs font-semibold text-zinc-600">Speed</div>
-          <select
-            className="rounded-xl border border-zinc-200 bg-white px-2 py-2 text-sm font-semibold text-zinc-900"
-            value={String(rate)}
-            onChange={(e) => setRate(Number(e.target.value))}
-          >
-            {[0.75, 1, 1.25, 1.5, 2].map((v) => (
-              <option key={v} value={String(v)}>
-                {v}x
-              </option>
-            ))}
-          </select>
+          <PortalSelectDropdown
+            value={rate}
+            onChange={(v) => setRate(v)}
+            options={[0.75, 1, 1.25, 1.5, 2].map((v) => ({ value: v, label: `${v}x` }))}
+            className="min-w-[84px]"
+            buttonClassName="flex w-full items-center justify-between gap-2 rounded-xl border border-zinc-200 bg-white px-2 py-2 text-sm font-semibold text-zinc-900 hover:bg-zinc-50 focus-visible:ring-2 focus-visible:ring-zinc-300"
+          />
         </div>
       </div>
     </div>
@@ -786,14 +784,17 @@ export function PortalAiReceptionistClient() {
 
               <label className="rounded-2xl border border-zinc-200 bg-zinc-50 px-4 py-3 text-sm">
                 <div className="text-xs font-semibold text-zinc-600">Mode</div>
-                <select
-                  className="mt-2 w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm"
+                <PortalListboxDropdown
                   value={settings?.mode ?? "AI"}
-                  onChange={(e) => settings && setSettings({ ...settings, mode: e.target.value === "FORWARD" ? "FORWARD" : "AI" })}
-                >
-                  <option value="AI">AI receptionist</option>
-                  <option value="FORWARD">Forward calls</option>
-                </select>
+                  disabled={saving || !settings}
+                  onChange={(v) => settings && setSettings({ ...settings, mode: v })}
+                  options={[
+                    { value: "AI", label: "AI receptionist" },
+                    { value: "FORWARD", label: "Forward calls" },
+                  ]}
+                  className="mt-2 w-full"
+                  buttonClassName="flex w-full items-center justify-between gap-2 rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm hover:bg-zinc-50 focus-visible:ring-2 focus-visible:ring-zinc-300"
+                />
               </label>
 
               <label className="rounded-2xl border border-zinc-200 bg-zinc-50 px-4 py-3 text-sm sm:col-span-2">

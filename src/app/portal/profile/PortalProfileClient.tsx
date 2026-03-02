@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 
 import { useToast } from "@/components/ToastProvider";
@@ -35,6 +36,18 @@ type TwilioApiPayload = {
   note?: string;
   error?: string;
 };
+
+type StripeIntegrationStatus = {
+  configured: boolean;
+  prefix: string | null;
+  accountId: string | null;
+  connectedAtIso: string | null;
+  encryptionConfigured: boolean;
+};
+
+type StripeIntegrationPayload =
+  | { ok: true; stripe: StripeIntegrationStatus }
+  | { ok: false; error?: string };
 
 type WebhooksRes = {
   ok?: boolean;
@@ -119,6 +132,12 @@ export function PortalProfileClient() {
   const [twilioError, setTwilioError] = useState<string | null>(null);
   const [twilioNote, setTwilioNote] = useState<string | null>(null);
 
+  const [stripeStatus, setStripeStatus] = useState<StripeIntegrationStatus | null>(null);
+  const [stripeSecretKey, setStripeSecretKey] = useState<string>("");
+  const [stripeSaving, setStripeSaving] = useState(false);
+  const [stripeError, setStripeError] = useState<string | null>(null);
+  const [stripeNote, setStripeNote] = useState<string | null>(null);
+
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
   const [phone, setPhone] = useState("");
@@ -136,6 +155,7 @@ export function PortalProfileClient() {
   const canViewWebhooks = portalMe?.ok === true ? Boolean((portalMe.permissions as any)?.webhooks?.view) : false;
   const canViewTwilio = portalMe?.ok === true ? Boolean((portalMe.permissions as any)?.twilio?.view) : false;
   const canEditTwilio = portalMe?.ok === true ? Boolean((portalMe.permissions as any)?.twilio?.edit) : false;
+  const canEditProfile = portalMe?.ok === true ? Boolean((portalMe.permissions as any)?.profile?.edit) : false;
   const canViewBusinessInfo = portalMe?.ok === true ? Boolean((portalMe.permissions as any)?.businessProfile?.view) : false;
   const canEditBusinessInfo = portalMe?.ok === true ? Boolean((portalMe.permissions as any)?.businessProfile?.edit) : false;
 
@@ -146,6 +166,10 @@ export function PortalProfileClient() {
   useEffect(() => {
     if (twilioError) toast.error(twilioError);
   }, [twilioError, toast]);
+
+  useEffect(() => {
+    if (stripeError) toast.error(stripeError);
+  }, [stripeError, toast]);
 
   useEffect(() => {
     if (mailboxError) toast.error(mailboxError);
@@ -269,6 +293,14 @@ export function PortalProfileClient() {
     })();
 
     (async () => {
+      const res = await fetch("/api/portal/integrations/stripe", { cache: "no-store" }).catch(() => null as any);
+      if (!mounted) return;
+      if (!res?.ok) return;
+      const json = ((await res.json().catch(() => null)) as StripeIntegrationPayload | null) ?? null;
+      if (json?.ok) setStripeStatus(json.stripe);
+    })();
+
+    (async () => {
       setMailboxLoading(true);
       setMailboxError(null);
       const res = await fetch("/api/portal/mailbox", { cache: "no-store" }).catch(() => null as any);
@@ -297,6 +329,69 @@ export function PortalProfileClient() {
       mounted = false;
     };
   }, [portalMe, canViewWebhooks, canViewTwilio]);
+
+  async function saveStripeKey() {
+    if (!canEditProfile) {
+      setStripeError("You have view-only access.");
+      return;
+    }
+
+    const key = stripeSecretKey.trim();
+    if (!key) {
+      setStripeError("Paste your Stripe secret key first.");
+      return;
+    }
+
+    setStripeSaving(true);
+    setStripeError(null);
+    setStripeNote(null);
+
+    const res = await fetch("/api/portal/integrations/stripe", {
+      method: "PUT",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ secretKey: key }),
+    }).catch(() => null as any);
+
+    const json = (res ? ((await res.json().catch(() => null)) as any) : null) as { ok?: boolean; error?: string } | null;
+    setStripeSaving(false);
+
+    if (!res?.ok || !json?.ok) {
+      setStripeError(json?.error ?? "Unable to connect Stripe");
+      return;
+    }
+
+    setStripeSecretKey("");
+    setStripeNote("Stripe connected.");
+
+    const statusRes = await fetch("/api/portal/integrations/stripe", { cache: "no-store" }).catch(() => null as any);
+    if (statusRes?.ok) {
+      const next = ((await statusRes.json().catch(() => null)) as StripeIntegrationPayload | null) ?? null;
+      if (next?.ok) setStripeStatus(next.stripe);
+    }
+  }
+
+  async function disconnectStripe() {
+    if (!canEditProfile) {
+      setStripeError("You have view-only access.");
+      return;
+    }
+    setStripeSaving(true);
+    setStripeError(null);
+    setStripeNote(null);
+
+    const res = await fetch("/api/portal/integrations/stripe", { method: "DELETE" }).catch(() => null as any);
+    const json = (res ? ((await res.json().catch(() => null)) as any) : null) as { ok?: boolean; error?: string } | null;
+    setStripeSaving(false);
+
+    if (!res?.ok || !json?.ok) {
+      setStripeError(json?.error ?? "Unable to disconnect Stripe");
+      return;
+    }
+
+    setStripeStatus((s) => (s ? { ...s, configured: false, accountId: null, prefix: null, connectedAtIso: null } : s));
+    setStripeSecretKey("");
+    setStripeNote("Stripe disconnected.");
+  }
 
   const canSaveMailbox = useMemo(() => {
     if (!mailbox || !mailbox.canChange) return false;
@@ -844,6 +939,81 @@ export function PortalProfileClient() {
               </div>
             </PortalSettingsSection>
           ) : null}
+
+          <PortalSettingsSection
+            title="Stripe (Sales Reporting)"
+            description="Connect Stripe to view a sales dashboard in Reporting. The key is encrypted at rest."
+            accent="blue"
+          >
+            <div className="space-y-3">
+              {stripeNote ? (
+                <div className="rounded-2xl border border-emerald-200 bg-emerald-50 p-4 text-sm text-emerald-800">{stripeNote}</div>
+              ) : null}
+
+              {!stripeStatus?.encryptionConfigured ? (
+                <div className="rounded-2xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900">
+                  Server is missing <span className="font-mono">PORTAL_ENCRYPTION_MASTER_KEY</span>, so Stripe keys cannot be stored.
+                </div>
+              ) : null}
+
+              <div className="rounded-2xl border border-zinc-200 bg-zinc-50 p-4 text-xs text-zinc-600">
+                <div>
+                  Connected: <span className="font-semibold text-zinc-900">{stripeStatus?.configured ? "Yes" : "No"}</span>
+                </div>
+                <div className="mt-1">
+                  Key type: <span className="font-mono">{stripeStatus?.prefix ?? "N/A"}</span>
+                </div>
+                <div className="mt-1">
+                  Account: <span className="font-mono">{stripeStatus?.accountId ?? "N/A"}</span>
+                </div>
+              </div>
+
+              {!canEditProfile ? (
+                <div className="rounded-2xl border border-zinc-200 bg-zinc-50 p-4 text-sm text-zinc-600">You have view-only access.</div>
+              ) : null}
+
+              <div>
+                <label className="text-xs font-semibold text-zinc-700">Stripe secret key</label>
+                <input
+                  value={stripeSecretKey}
+                  onChange={(e) => setStripeSecretKey(e.target.value)}
+                  type="password"
+                  placeholder={stripeStatus?.configured ? "•••••• (paste to replace)" : "sk_live_… or rk_live_…"}
+                  className="mt-2 w-full rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-sm"
+                  disabled={!canEditProfile || !stripeStatus?.encryptionConfigured}
+                  autoComplete="off"
+                />
+                <div className="mt-2 text-xs text-zinc-500">Uses your account-wide secret key to read sales activity (charges).</div>
+              </div>
+
+              <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+                <div className="flex gap-2">
+                  <button
+                    type="button"
+                    onClick={() => void saveStripeKey()}
+                    disabled={!canEditProfile || stripeSaving || !stripeStatus?.encryptionConfigured}
+                    className="inline-flex items-center justify-center rounded-2xl bg-brand-ink px-4 py-2 text-sm font-semibold text-white hover:opacity-95 disabled:opacity-60"
+                  >
+                    {stripeSaving ? "Saving…" : stripeStatus?.configured ? "Replace key" : "Connect Stripe"}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => void disconnectStripe()}
+                    disabled={!canEditProfile || stripeSaving || !stripeStatus?.configured}
+                    className="inline-flex items-center justify-center rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm font-semibold text-brand-ink hover:bg-zinc-50 disabled:opacity-60"
+                  >
+                    Disconnect
+                  </button>
+                </div>
+                <Link
+                  href="/portal/app/services/reporting/stripe"
+                  className="text-sm font-semibold text-[color:var(--color-brand-blue)] hover:underline"
+                >
+                  Open Stripe Sales dashboard →
+                </Link>
+              </div>
+            </div>
+          </PortalSettingsSection>
 
           {portalMe?.ok === true ? (
             <PortalSettingsSection

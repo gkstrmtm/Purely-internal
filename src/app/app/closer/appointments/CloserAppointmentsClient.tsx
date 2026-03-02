@@ -2,6 +2,8 @@
 
 import { useEffect, useMemo, useState } from "react";
 
+import { LocalDatePicker, LocalDateTimePicker } from "@/components/LocalDateTimePicker";
+import { PortalSelectDropdown } from "@/components/PortalSelectDropdown";
 import { useToast } from "@/components/ToastProvider";
 
 function toDatetimeLocalValue(iso: string) {
@@ -116,7 +118,7 @@ export default function CloserAppointmentsClient({
   const [loomUrl, setLoomUrl] = useState("");
   const [videoBusy, setVideoBusy] = useState<boolean>(false);
 
-  const [meetingPlatform, setMeetingPlatform] = useState<string>("PURELY_CONNECT");
+  const [meetingPlatform, setMeetingPlatform] = useState<"PURELY_CONNECT" | "ZOOM" | "GOOGLE_MEET" | "OTHER">("PURELY_CONNECT");
   const [meetingJoinUrl, setMeetingJoinUrl] = useState<string>("");
   const [meetingBusy, setMeetingBusy] = useState<boolean>(false);
 
@@ -151,7 +153,9 @@ export default function CloserAppointmentsClient({
 
   useEffect(() => {
     if (!selected) return;
-    setMeetingPlatform(String(selected.meetingPlatform || "PURELY_CONNECT"));
+    const raw = selected.meetingPlatform;
+    const nextPlatform = raw === "ZOOM" || raw === "GOOGLE_MEET" || raw === "OTHER" || raw === "PURELY_CONNECT" ? raw : "PURELY_CONNECT";
+    setMeetingPlatform(nextPlatform);
     setMeetingJoinUrl(String(selected.meetingJoinUrl || ""));
   }, [selected]);
 
@@ -163,11 +167,7 @@ export default function CloserAppointmentsClient({
     try {
       const payload = {
         appointmentId: selected.id,
-        meetingPlatform: (meetingPlatform || "PURELY_CONNECT") as
-          | "PURELY_CONNECT"
-          | "ZOOM"
-          | "GOOGLE_MEET"
-          | "OTHER",
+        meetingPlatform,
         meetingJoinUrl: meetingJoinUrl || null,
       };
 
@@ -677,55 +677,55 @@ export default function CloserAppointmentsClient({
 
               <div>
                 <label className="text-xs font-medium text-zinc-700">Status</label>
-                <select
-                  className="mt-1 w-full rounded-xl border border-zinc-200 px-3 py-2 text-sm outline-none focus:border-zinc-400"
-                  value={statusFilter}
-                  onChange={(e) =>
-                    setStatusFilter(e.target.value as "ANY" | "SCHEDULED" | "COMPLETED")
-                  }
-                >
-                  <option value="ANY">Any</option>
-                  <option value="SCHEDULED">Scheduled</option>
-                  <option value="COMPLETED">Completed</option>
-                </select>
+                <div className="mt-1">
+                  <PortalSelectDropdown<"ANY" | "SCHEDULED" | "COMPLETED">
+                    value={statusFilter}
+                    onChange={setStatusFilter}
+                    options={[
+                      { value: "ANY", label: "Any" },
+                      { value: "SCHEDULED", label: "Scheduled" },
+                      { value: "COMPLETED", label: "Completed" },
+                    ]}
+                    buttonClassName="flex w-full items-center justify-between gap-2 rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm outline-none hover:bg-zinc-50 focus:border-zinc-400"
+                  />
+                </div>
               </div>
 
               <div>
                 <label className="text-xs font-medium text-zinc-700">Outcome</label>
-                <select
-                  className="mt-1 w-full rounded-xl border border-zinc-200 px-3 py-2 text-sm outline-none focus:border-zinc-400"
-                  value={outcomeFilter}
-                  onChange={(e) =>
-                    setOutcomeFilter(
-                      e.target.value as "ANY" | "NONE" | "CLOSED" | "FOLLOW_UP" | "LOST",
-                    )
-                  }
-                >
-                  <option value="ANY">Any</option>
-                  <option value="NONE">No outcome yet</option>
-                  <option value="CLOSED">Closed</option>
-                  <option value="FOLLOW_UP">Follow up</option>
-                  <option value="LOST">Lost</option>
-                </select>
+                <div className="mt-1">
+                  <PortalSelectDropdown<"ANY" | "NONE" | "CLOSED" | "FOLLOW_UP" | "LOST">
+                    value={outcomeFilter}
+                    onChange={setOutcomeFilter}
+                    options={[
+                      { value: "ANY", label: "Any" },
+                      { value: "NONE", label: "No outcome yet" },
+                      { value: "CLOSED", label: "Closed" },
+                      { value: "FOLLOW_UP", label: "Follow up" },
+                      { value: "LOST", label: "Lost" },
+                    ]}
+                    buttonClassName="flex w-full items-center justify-between gap-2 rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm outline-none hover:bg-zinc-50 focus:border-zinc-400"
+                  />
+                </div>
               </div>
 
               <div className="grid grid-cols-2 gap-3">
                 <div>
                   <label className="text-xs font-medium text-zinc-700">From</label>
-                  <input
-                    className="mt-1 w-full rounded-xl border border-zinc-200 px-3 py-2 text-sm outline-none focus:border-zinc-400"
-                    type="date"
+                  <LocalDatePicker
                     value={fromDate}
-                    onChange={(e) => setFromDate(e.target.value)}
+                    onChange={setFromDate}
+                    buttonClassName="mt-1 w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-left text-sm hover:bg-zinc-50"
+                    placeholder="Select date"
                   />
                 </div>
                 <div>
                   <label className="text-xs font-medium text-zinc-700">To</label>
-                  <input
-                    className="mt-1 w-full rounded-xl border border-zinc-200 px-3 py-2 text-sm outline-none focus:border-zinc-400"
-                    type="date"
+                  <LocalDatePicker
                     value={toDate}
-                    onChange={(e) => setToDate(e.target.value)}
+                    onChange={setToDate}
+                    buttonClassName="mt-1 w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-left text-sm hover:bg-zinc-50"
+                    placeholder="Select date"
                   />
                 </div>
               </div>
@@ -868,11 +868,11 @@ export default function CloserAppointmentsClient({
                     <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
                       <div className="sm:col-span-2">
                         <label className="text-xs font-medium text-zinc-700">New start time</label>
-                        <input
-                          className="mt-1 w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm outline-none focus:border-zinc-400"
-                          type="datetime-local"
+                        <LocalDateTimePicker
                           value={rescheduleStartLocal}
-                          onChange={(e) => setRescheduleStartLocal(e.target.value)}
+                          onChange={setRescheduleStartLocal}
+                          buttonClassName="mt-1 w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-left text-sm hover:bg-zinc-50"
+                          placeholder="Select date/time"
                         />
                       </div>
                       <div>
@@ -967,16 +967,19 @@ export default function CloserAppointmentsClient({
                 <div className="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-3">
                   <div>
                     <label className="text-xs font-medium text-zinc-700">Platform</label>
-                    <select
-                      className="mt-1 w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm outline-none focus:border-zinc-400"
-                      value={meetingPlatform}
-                      onChange={(e) => setMeetingPlatform(e.target.value)}
-                    >
-                      <option value="PURELY_CONNECT">Purely Connect</option>
-                      <option value="ZOOM">Zoom</option>
-                      <option value="GOOGLE_MEET">Google Meet</option>
-                      <option value="OTHER">Other</option>
-                    </select>
+                    <div className="mt-1">
+                      <PortalSelectDropdown<"PURELY_CONNECT" | "ZOOM" | "GOOGLE_MEET" | "OTHER">
+                        value={meetingPlatform}
+                        onChange={setMeetingPlatform}
+                        options={[
+                          { value: "PURELY_CONNECT", label: "Purely Connect" },
+                          { value: "ZOOM", label: "Zoom" },
+                          { value: "GOOGLE_MEET", label: "Google Meet" },
+                          { value: "OTHER", label: "Other" },
+                        ]}
+                        buttonClassName="flex w-full items-center justify-between gap-2 rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm outline-none hover:bg-zinc-50 focus:border-zinc-400"
+                      />
+                    </div>
                   </div>
                   <div className="sm:col-span-2">
                     <label className="text-xs font-medium text-zinc-700">Join URL</label>
@@ -1113,15 +1116,18 @@ export default function CloserAppointmentsClient({
               <div className="mt-4 grid grid-cols-1 gap-3 sm:grid-cols-2">
                 <div>
                   <label className="text-sm font-medium">Outcome</label>
-                  <select
-                    className="mt-1 w-full rounded-xl border border-zinc-200 px-3 py-2 text-sm outline-none focus:border-zinc-400"
-                    value={outcome}
-                    onChange={(e) => setOutcome(e.target.value as "CLOSED" | "FOLLOW_UP" | "LOST")}
-                  >
-                    <option value="CLOSED">Closed</option>
-                    <option value="FOLLOW_UP">Follow up</option>
-                    <option value="LOST">Lost</option>
-                  </select>
+                  <div className="mt-1">
+                    <PortalSelectDropdown<"CLOSED" | "FOLLOW_UP" | "LOST">
+                      value={outcome}
+                      onChange={setOutcome}
+                      options={[
+                        { value: "CLOSED", label: "Closed" },
+                        { value: "FOLLOW_UP", label: "Follow up" },
+                        { value: "LOST", label: "Lost" },
+                      ]}
+                      buttonClassName="flex w-full items-center justify-between gap-2 rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm outline-none hover:bg-zinc-50 focus:border-zinc-400"
+                    />
+                  </div>
                 </div>
 
                 <div>

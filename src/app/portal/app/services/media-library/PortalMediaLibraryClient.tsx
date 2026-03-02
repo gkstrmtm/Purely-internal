@@ -3,6 +3,7 @@
 import { createPortal } from "react-dom";
 import { type MouseEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
 
+import { PortalListboxDropdown } from "@/components/PortalListboxDropdown";
 import { useToast } from "@/components/ToastProvider";
 
 type Folder = {
@@ -1005,19 +1006,20 @@ export function PortalMediaLibraryClient() {
 
                 <div className="mt-4">
                   <label className="text-xs font-semibold text-zinc-600">Destination</label>
-                  <select
+                  <PortalListboxDropdown
                     value={moveDestId ?? ""}
-                    onChange={(e) => setMoveDestId(e.target.value ? e.target.value : null)}
-                    className="mt-2 h-10 w-full rounded-2xl border border-zinc-200 bg-white px-3 text-sm text-zinc-900"
+                    onChange={(v) => setMoveDestId(v ? v : null)}
                     disabled={foldersLoading || moveWorking}
-                  >
-                    <option value="">Top level</option>
-                    {buildFolderOptions().map((opt) => (
-                      <option key={opt.id} value={opt.id}>
-                        {"\u00A0".repeat(opt.depth * 2) + opt.name}
-                      </option>
-                    ))}
-                  </select>
+                    options={[
+                      { value: "", label: "Top level" },
+                      ...buildFolderOptions().map((opt) => ({
+                        value: opt.id,
+                        label: "\u00A0".repeat(opt.depth * 2) + opt.name,
+                      })),
+                    ]}
+                    className="mt-2 w-full"
+                    buttonClassName="flex h-10 w-full items-center justify-between gap-2 rounded-2xl border border-zinc-200 bg-white px-3 text-sm text-zinc-900 hover:bg-zinc-50 focus-visible:ring-2 focus-visible:ring-zinc-300"
+                  />
                 </div>
 
                 <div className="mt-4 rounded-2xl border border-zinc-200 bg-zinc-50 p-3">

@@ -3,6 +3,7 @@
 import Image from "next/image";
 import { useEffect, useId, useMemo, useState } from "react";
 
+import { PortalListboxDropdown } from "@/components/PortalListboxDropdown";
 import { PORTAL_MODULE_CATALOG, type PortalModuleKey } from "@/lib/portalModulesCatalog";
 
 type Mode = "monthly" | "credit" | "combined";
@@ -25,7 +26,7 @@ const ARPU_DEFAULT_CREDIT = 800;
 const ARPU_WHALE = 2500;
 
 const DEFAULT_USD_PER_CREDIT_SUBSCRIPTION = 0.1;
-const DEFAULT_USD_PER_CREDIT_CREDITS_ONLY = 0.15;
+const DEFAULT_USD_PER_CREDIT_CREDITS_ONLY = 0.2;
 
 type AovSource = "modules" | "manual";
 
@@ -367,6 +368,179 @@ function customersNeeded(opts: {
   return { customers, monthlyCustomers, creditCustomers };
 }
 
+type UserSimMix = "credits-heavy" | "balanced" | "membership-heavy";
+type UserSimPlan = "membership" | "credits";
+
+type SimUser = {
+  idx: number; // 1-based
+  plan: UserSimPlan;
+  modules: PortalModuleKey[];
+  creditsByModule: Partial<Record<PortalModuleKey, number>>;
+  creditsPerMonth: number;
+  subscriptionUsd: number;
+  creditsUsd: number;
+  totalUsd: number;
+};
+
+function rngMulberry32(seed: number) {
+  let t = seed >>> 0;
+  return () => {
+    t += 0x6d2b79f5;
+    let x = t;
+    x = Math.imul(x ^ (x >>> 15), x | 1);
+    x ^= x + Math.imul(x ^ (x >>> 7), x | 61);
+    return ((x ^ (x >>> 14)) >>> 0) / 4294967296;
+  };
+}
+
+function hashSeed(parts: Array<string | number>) {
+  const s = parts.map((p) => String(p)).join("|");
+  let h = 2166136261;
+  for (let i = 0; i < s.length; i += 1) {
+    h ^= s.charCodeAt(i);
+    h = Math.imul(h, 16777619);
+  }
+  return h >>> 0;
+}
+
+function pickWeighted<T>(rng: () => number, items: Array<{ item: T; w: number }>): T {
+  const total = sum(items.map((x) => Math.max(0, x.w)));
+  if (total <= 0) return items[0]!.item;
+  let r = rng() * total;
+  for (const x of items) {
+    const w = Math.max(0, x.w);
+    if (w <= 0) continue;
+    if (r <= w) return x.item;
+    r -= w;
+  }
+  return items[items.length - 1]!.item;
+}
+
+function clampInt(n: number, min: number, max: number) {
+  const x = Math.floor(Number(n));
+  if (!Number.isFinite(x)) return min;
+  return Math.max(min, Math.min(max, x));
+}
+
+function simulateUsers(opts: {
+  count: number;
+  seed: number;
+  mix: UserSimMix;
+  moduleAdoptionPct: ModulePctMap;
+  usdPerCreditSubscription: number;
+  usdPerCreditCreditsOnly: number;
+}): SimUser[] {
+  const count = clampInt(opts.count, 1, 500);
+  const seed = Number.isFinite(opts.seed) ? Math.floor(opts.seed) : 1;
+
+  const creditOnlyShare =
+    opts.mix === "credits-heavy" ? 0.72 : opts.mix === "membership-heavy" ? 0.35 : 0.55;
+
+  const moduleKeys = (Object.keys(PORTAL_MODULE_CATALOG) as PortalModuleKey[]).filter((k) => k !== "crm");
+  const coreKeys: PortalModuleKey[] = ["booking", "reviews", "aiReceptionist"];
+  const usageDrivers: PortalModuleKey[] = ["aiReceptionist", "leadScraping", "leadOutbound", "blog", "newsletter", "nurture", "automations", "booking", "reviews"];
+
+  const out: SimUser[] = [];
+  for (let i = 1; i <= count; i += 1) {
+    const rng = rngMulberry32(hashSeed([seed, i]));
+    const plan: UserSimPlan = rng() < creditOnlyShare ? "credits" : "membership";
+
+    // Build a realistic per-user module set.
+    // - Always biased toward easy starters (booking/reviews) and high-leverage services (AI receptionist/outbound).
+    const modulesSet = new Set<PortalModuleKey>();
+    const minModules = plan === "membership" ? (rng() < 0.55 ? 2 : 1) : 0;
+    const maxModules = plan === "membership" ? 5 : 3;
+
+    if (plan === "membership") {
+      // Core defaults (starter-friendly)
+      if (rng() < 0.75) modulesSet.add("booking");
+      if (rng() < 0.70) modulesSet.add("reviews");
+
+      // Probabilistic adoption (uses the dashboard preset as the baseline)
+      for (const k of moduleKeys) {
+        const pct = clampNum(opts.moduleAdoptionPct[k] ?? 0, 0, 100) / 100;
+        const tilt =
+          k === "leadOutbound" || k === "aiReceptionist" || k === "leadScraping"
+            ? 1.15
+            : k === "booking" || k === "reviews"
+              ? 1.05
+              : 1;
+        const p = clampNum(pct * tilt, 0, 0.98);
+        if (rng() < p) modulesSet.add(k);
+      }
+
+      // Ensure at least one core module.
+      if (![...modulesSet].some((m) => coreKeys.includes(m))) {
+        modulesSet.add(pickWeighted(rng, coreKeys.map((k) => ({ item: k, w: PORTAL_MODULE_CATALOG[k].monthlyUsd + 20 }))));
+      }
+
+      // Clamp module count for readability.
+      while (modulesSet.size > maxModules) {
+        const xs = Array.from(modulesSet);
+        const drop = pickWeighted(rng, xs.map((k) => ({ item: k, w: 1 / Math.max(1, PORTAL_MODULE_CATALOG[k].monthlyUsd) })));
+        modulesSet.delete(drop);
+      }
+      while (modulesSet.size < minModules) {
+        const add = pickWeighted(rng, moduleKeys.map((k) => ({ item: k, w: (opts.moduleAdoptionPct[k] ?? 0) + 10 })));
+        modulesSet.add(add);
+      }
+    } else {
+      // Credits-only users: model them as usage-first.
+      const picks = rng() < 0.65 ? 2 : 1;
+      for (let n = 0; n < picks; n += 1) {
+        const k = pickWeighted(
+          rng,
+          usageDrivers.map((m) => ({
+            item: m,
+            w:
+              m === "leadOutbound"
+                ? 5
+                : m === "aiReceptionist"
+                  ? 4.5
+                  : m === "leadScraping"
+                    ? 3.5
+                    : m === "booking" || m === "reviews"
+                      ? 2.4
+                      : 2,
+          })),
+        );
+        modulesSet.add(k);
+      }
+    }
+
+    const modules = Array.from(modulesSet);
+    const subscriptionUsd = plan === "membership" ? sum(modules.map((k) => PORTAL_MODULE_CATALOG[k]?.monthlyUsd ?? 0)) : 0;
+
+    // Credits: sum per-service defaults with slight per-user randomness.
+    const creditRate = plan === "membership" ? opts.usdPerCreditSubscription : opts.usdPerCreditCreditsOnly;
+    const creditScale = clampNum(0.65 + rng() * 0.95, 0.35, 2.0);
+    const creditsByModule: Partial<Record<PortalModuleKey, number>> = {};
+    for (const k of modules) {
+      const base = ROI_DEFAULTS_BY_SERVICE[k]?.creditsPerMonth ?? 0;
+      if (!Number.isFinite(base) || base <= 0) continue;
+      const variability = clampNum(0.75 + rng() * 0.6, 0.4, 1.8);
+      const credits = Math.max(0, Math.round(base * variability * creditScale));
+      if (credits > 0) creditsByModule[k] = credits;
+    }
+    const creditsPerMonth = sum(Object.values(creditsByModule));
+    const creditsUsd = Math.max(0, creditsPerMonth) * Math.max(0, creditRate);
+    const totalUsd = subscriptionUsd + creditsUsd;
+
+    out.push({
+      idx: i,
+      plan,
+      modules,
+      creditsByModule,
+      creditsPerMonth,
+      subscriptionUsd,
+      creditsUsd,
+      totalUsd,
+    });
+  }
+
+  return out;
+}
+
 function SegButton(props: {
   active?: boolean;
   onClick: () => void;
@@ -653,6 +827,12 @@ export default function ProfitVisualizationDashboardPage() {
 
   const [monthlySharePct, setMonthlySharePct] = useState<number>(60);
 
+  const [userSimCount, setUserSimCount] = useState<number>(25);
+  const [userSimMix, setUserSimMix] = useState<UserSimMix>("credits-heavy");
+  const [userSimSeed, setUserSimSeed] = useState<number>(() => Math.floor(Date.now() / 1000));
+  const [userSimGoalUsd, setUserSimGoalUsd] = useState<number>(25_000);
+  const [userSimSelectedIdx, setUserSimSelectedIdx] = useState<number>(1);
+
   const appliedMrr = useMemo(() => {
     const c = customMrr.trim();
     if (!c) return selectedMrr;
@@ -676,6 +856,70 @@ export default function ProfitVisualizationDashboardPage() {
   const computedCreditsOnlyArpu = useMemo(() => {
     return Math.max(0, creditsPerCreditCustomer || 0) * Math.max(0, usdPerCreditCreditsOnly || 0);
   }, [creditsPerCreditCustomer, usdPerCreditCreditsOnly]);
+
+  const userSimUsers = useMemo(() => {
+    return simulateUsers({
+      count: userSimCount,
+      seed: userSimSeed,
+      mix: userSimMix,
+      moduleAdoptionPct,
+      usdPerCreditSubscription,
+      usdPerCreditCreditsOnly,
+    });
+  }, [moduleAdoptionPct, usdPerCreditCreditsOnly, usdPerCreditSubscription, userSimCount, userSimMix, userSimSeed]);
+
+  useEffect(() => {
+    setUserSimSelectedIdx((cur) => clampInt(cur, 1, userSimUsers.length || 1));
+  }, [userSimUsers.length]);
+
+  const userSimSummary = useMemo(() => {
+    const users = userSimUsers;
+    const total = sum(users.map((u) => u.totalUsd));
+    const subs = sum(users.map((u) => u.subscriptionUsd));
+    const credits = sum(users.map((u) => u.creditsUsd));
+    const avg = users.length ? total / users.length : 0;
+
+    const goal = Math.max(0, Number(userSimGoalUsd) || 0);
+    const needed = avg > 0 ? Math.max(1, Math.ceil(goal / avg)) : 0;
+
+    const perModule = (Object.keys(PORTAL_MODULE_CATALOG) as PortalModuleKey[])
+      .filter((k) => k !== "crm")
+      .map((k) => {
+        const using = users.filter((u) => u.modules.includes(k));
+        const usersUsing = using.length;
+        const subsUsd = sum(using.map((u) => (u.plan === "membership" ? (PORTAL_MODULE_CATALOG[k]?.monthlyUsd ?? 0) : 0)));
+        const creditsPerMonth = sum(using.map((u) => u.creditsByModule[k] ?? 0));
+        const creditsUsd = sum(
+          using.map((u) => {
+            const c = u.creditsByModule[k] ?? 0;
+            const rate = u.plan === "membership" ? usdPerCreditSubscription : usdPerCreditCreditsOnly;
+            return Math.max(0, c) * Math.max(0, rate);
+          }),
+        );
+        return {
+          key: k,
+          title: PORTAL_MODULE_CATALOG[k].title,
+          usersUsing,
+          subsUsd,
+          creditsPerMonth,
+          creditsUsd,
+          totalUsd: subsUsd + creditsUsd,
+        };
+      })
+      .sort((a, b) => b.totalUsd - a.totalUsd);
+
+    const planCounts = {
+      membership: users.filter((u) => u.plan === "membership").length,
+      credits: users.filter((u) => u.plan === "credits").length,
+    };
+
+    return { total, subs, credits, avg, goal, needed, perModule, planCounts };
+  }, [usdPerCreditCreditsOnly, usdPerCreditSubscription, userSimGoalUsd, userSimUsers]);
+
+  const selectedUserSim = useMemo(() => {
+    const idx = clampInt(userSimSelectedIdx, 1, userSimUsers.length || 1);
+    return userSimUsers[idx - 1] ?? null;
+  }, [userSimSelectedIdx, userSimUsers]);
 
   const effectiveMonthlyArpu = whale
     ? ARPU_WHALE
@@ -1113,6 +1357,293 @@ export default function ProfitVisualizationDashboardPage() {
 
         {/* Main */}
         <div className="mt-6 space-y-6">
+          <div className="rounded-3xl border border-zinc-200 bg-white p-6 shadow-sm">
+            <div className="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
+              <div>
+                <div className="text-sm font-semibold text-zinc-900">Users → goal simulator</div>
+                <div className="mt-1 text-xs text-zinc-600">
+                  Slide the user count to visualize hitting $25k / $30k months. Results are stable until you shuffle.
+                </div>
+              </div>
+
+              <div className="flex flex-wrap items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => setUserSimGoalUsd(25_000)}
+                  className={
+                    "h-10 rounded-2xl border px-4 text-sm font-semibold shadow-sm " +
+                    (userSimGoalUsd === 25_000 ? "border-zinc-900 bg-zinc-900 text-white" : "border-zinc-200 bg-white text-zinc-800 hover:bg-zinc-50")
+                  }
+                >
+                  $25k goal
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setUserSimGoalUsd(30_000)}
+                  className={
+                    "h-10 rounded-2xl border px-4 text-sm font-semibold shadow-sm " +
+                    (userSimGoalUsd === 30_000 ? "border-zinc-900 bg-zinc-900 text-white" : "border-zinc-200 bg-white text-zinc-800 hover:bg-zinc-50")
+                  }
+                >
+                  $30k goal
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setUserSimSeed(Math.floor(Date.now() / 1000))}
+                  className="h-10 rounded-2xl bg-[color:var(--color-brand-blue)] px-4 text-sm font-semibold text-white shadow-sm hover:opacity-95"
+                >
+                  Shuffle users
+                </button>
+              </div>
+            </div>
+
+            <div className="mt-5 grid gap-4 lg:grid-cols-3">
+              <div className="rounded-2xl bg-zinc-50 p-4">
+                <div className="flex items-center justify-between gap-3">
+                  <div>
+                    <div className="text-xs font-semibold uppercase tracking-wide text-zinc-500">Users</div>
+                    <div className="mt-1 text-2xl font-bold text-zinc-900">{userSimCount.toLocaleString()}</div>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <input
+                      type="number"
+                      value={userSimCount}
+                      min={1}
+                      max={500}
+                      onChange={(e) => setUserSimCount(clampInt(Number(e.target.value), 1, 500))}
+                      className="h-10 w-28 rounded-2xl border border-zinc-200 bg-white px-3 text-sm font-semibold text-zinc-900 shadow-sm"
+                    />
+                  </div>
+                </div>
+
+                <div className="mt-3">
+                  <input
+                    type="range"
+                    min={1}
+                    max={500}
+                    step={1}
+                    value={userSimCount}
+                    onChange={(e) => setUserSimCount(clampInt(Number(e.target.value), 1, 500))}
+                    className="w-full"
+                  />
+                  <div className="mt-1 flex items-center justify-between text-[11px] font-semibold text-zinc-500">
+                    <div>1</div>
+                    <div>500</div>
+                  </div>
+                </div>
+
+                <div className="mt-4 grid gap-3">
+                  <div>
+                    <div className="text-xs font-semibold uppercase tracking-wide text-zinc-500">Mix preset</div>
+                    <div className="mt-1">
+                      <PortalListboxDropdown<UserSimMix>
+                        value={userSimMix}
+                        onChange={setUserSimMix}
+                        options={[
+                          { value: "credits-heavy", label: "Credits-heavy (default)" },
+                          { value: "balanced", label: "Balanced" },
+                          { value: "membership-heavy", label: "Membership-heavy" },
+                        ]}
+                        buttonClassName="flex w-full items-center justify-between gap-2 rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-sm font-semibold text-zinc-900 shadow-sm hover:bg-zinc-50"
+                      />
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-2 gap-2">
+                    <div className="rounded-2xl border border-zinc-200 bg-white px-3 py-2">
+                      <div className="text-[11px] font-semibold uppercase tracking-wide text-zinc-500">Credit price</div>
+                      <div className="mt-0.5 text-sm font-semibold text-zinc-900">
+                        ${usdPerCreditCreditsOnly.toFixed(2)} / credit
+                      </div>
+                      <div className="mt-0.5 text-[11px] font-semibold text-zinc-500">Credits-only</div>
+                    </div>
+                    <div className="rounded-2xl border border-zinc-200 bg-white px-3 py-2">
+                      <div className="text-[11px] font-semibold uppercase tracking-wide text-zinc-500">Credit price</div>
+                      <div className="mt-0.5 text-sm font-semibold text-zinc-900">
+                        ${usdPerCreditSubscription.toFixed(2)} / credit
+                      </div>
+                      <div className="mt-0.5 text-[11px] font-semibold text-zinc-500">Membership</div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              <div className="rounded-2xl bg-zinc-50 p-4">
+                <div className="text-xs font-semibold uppercase tracking-wide text-zinc-500">Simulated month (this many users)</div>
+                <div className="mt-2 grid grid-cols-2 gap-3">
+                  <div className="rounded-2xl border border-zinc-200 bg-white px-3 py-2">
+                    <div className="text-[11px] font-semibold uppercase tracking-wide text-zinc-500">Total</div>
+                    <div className="mt-0.5 text-lg font-bold text-zinc-900">{formatMoneyCompact(userSimSummary.total)}</div>
+                    <div className="mt-0.5 text-[11px] font-semibold text-zinc-500">avg {formatMoneyCompact(userSimSummary.avg)} / user</div>
+                  </div>
+                  <div className="rounded-2xl border border-zinc-200 bg-white px-3 py-2">
+                    <div className="text-[11px] font-semibold uppercase tracking-wide text-zinc-500">Goal</div>
+                    <div className="mt-0.5 text-lg font-bold text-zinc-900">{formatMoneyCompact(userSimSummary.goal)}</div>
+                    <div className="mt-0.5 text-[11px] font-semibold text-zinc-500">needs ~{userSimSummary.needed ? userSimSummary.needed.toLocaleString() : "—"} users</div>
+                  </div>
+                </div>
+
+                <div className="mt-3 grid grid-cols-2 gap-3">
+                  <div className="rounded-2xl border border-zinc-200 bg-white px-3 py-2">
+                    <div className="text-[11px] font-semibold uppercase tracking-wide text-zinc-500">Revenue mix</div>
+                    <div className="mt-0.5 text-sm font-semibold text-zinc-900">
+                      {formatMoneyCompact(userSimSummary.subs)} subs
+                      <span className="mx-2 text-zinc-300">•</span>
+                      {formatMoneyCompact(userSimSummary.credits)} credits
+                    </div>
+                    <div className="mt-0.5 text-[11px] font-semibold text-zinc-500">
+                      {userSimSummary.planCounts.membership.toLocaleString()} membership
+                      <span className="mx-2 text-zinc-300">•</span>
+                      {userSimSummary.planCounts.credits.toLocaleString()} credits-only
+                    </div>
+                  </div>
+                  <div className="rounded-2xl border border-zinc-200 bg-white px-3 py-2">
+                    <div className="text-[11px] font-semibold uppercase tracking-wide text-zinc-500">Goal input</div>
+                    <input
+                      type="number"
+                      value={userSimGoalUsd}
+                      min={0}
+                      step={100}
+                      onChange={(e) => setUserSimGoalUsd(Math.max(0, Math.floor(Number(e.target.value) || 0)))}
+                      className="mt-1 h-10 w-full rounded-2xl border border-zinc-200 bg-white px-3 text-sm font-semibold text-zinc-900 shadow-sm"
+                    />
+                  </div>
+                </div>
+              </div>
+
+              <div className="rounded-2xl bg-zinc-50 p-4">
+                <div className="flex items-center justify-between gap-3">
+                  <div>
+                    <div className="text-xs font-semibold uppercase tracking-wide text-zinc-500">Selected user</div>
+                    <div className="mt-1 text-2xl font-bold text-zinc-900">#{userSimSelectedIdx}</div>
+                  </div>
+                  <input
+                    type="number"
+                    min={1}
+                    max={Math.max(1, userSimUsers.length)}
+                    value={userSimSelectedIdx}
+                    onChange={(e) => setUserSimSelectedIdx(clampInt(Number(e.target.value), 1, userSimUsers.length || 1))}
+                    className="h-10 w-28 rounded-2xl border border-zinc-200 bg-white px-3 text-sm font-semibold text-zinc-900 shadow-sm"
+                  />
+                </div>
+
+                <div className="mt-3">
+                  <input
+                    type="range"
+                    min={1}
+                    max={Math.max(1, userSimUsers.length)}
+                    step={1}
+                    value={userSimSelectedIdx}
+                    onChange={(e) => setUserSimSelectedIdx(clampInt(Number(e.target.value), 1, userSimUsers.length || 1))}
+                    className="w-full"
+                  />
+                </div>
+
+                <div className="mt-3 rounded-2xl border border-zinc-200 bg-white px-3 py-2">
+                  <div className="flex items-center justify-between gap-2">
+                    <div className="text-[11px] font-semibold uppercase tracking-wide text-zinc-500">Plan</div>
+                    <div className="text-xs font-semibold text-zinc-800">{selectedUserSim?.plan === "membership" ? "Membership" : "Credits-only"}</div>
+                  </div>
+                  <div className="mt-2 grid grid-cols-3 gap-2 text-xs">
+                    <div className="rounded-xl bg-zinc-50 px-2 py-1.5">
+                      <div className="font-semibold text-zinc-900">Subs</div>
+                      <div className="text-zinc-600">{formatMoneyCompact(selectedUserSim?.subscriptionUsd ?? 0)}</div>
+                    </div>
+                    <div className="rounded-xl bg-zinc-50 px-2 py-1.5">
+                      <div className="font-semibold text-zinc-900">Credits</div>
+                      <div className="text-zinc-600">{formatMoneyCompact(selectedUserSim?.creditsUsd ?? 0)}</div>
+                    </div>
+                    <div className="rounded-xl bg-zinc-50 px-2 py-1.5">
+                      <div className="font-semibold text-zinc-900">Total</div>
+                      <div className="text-zinc-600">{formatMoneyCompact(selectedUserSim?.totalUsd ?? 0)}</div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <div className="mt-4 grid gap-4 lg:grid-cols-2">
+              <div className="rounded-2xl border border-zinc-200 bg-white p-4">
+                <div className="flex items-end justify-between gap-4">
+                  <div>
+                    <div className="text-sm font-semibold text-zinc-900">Revenue by module</div>
+                    <div className="mt-1 text-xs text-zinc-600">Subscription + credits usage (simulated).</div>
+                  </div>
+                </div>
+
+                <div className="mt-3 overflow-auto">
+                  <table className="min-w-[560px] w-full text-left text-xs">
+                    <thead className="text-[11px] font-semibold uppercase tracking-wide text-zinc-500">
+                      <tr>
+                        <th className="py-2">Module</th>
+                        <th className="py-2">Users</th>
+                        <th className="py-2">Subs</th>
+                        <th className="py-2">Credits</th>
+                        <th className="py-2">Total</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {userSimSummary.perModule.slice(0, 10).map((r) => (
+                        <tr key={r.key} className="border-t border-zinc-100">
+                          <td className="py-2 font-semibold text-zinc-900">{r.title}</td>
+                          <td className="py-2 text-zinc-700">{r.usersUsing.toLocaleString()}</td>
+                          <td className="py-2 text-zinc-700">{formatMoneyCompact(r.subsUsd)}</td>
+                          <td className="py-2 text-zinc-700">{formatMoneyCompact(r.creditsUsd)}</td>
+                          <td className="py-2 font-semibold text-zinc-900">{formatMoneyCompact(r.totalUsd)}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+
+              <div className="rounded-2xl border border-zinc-200 bg-white p-4">
+                <div>
+                  <div className="text-sm font-semibold text-zinc-900">Selected user breakdown</div>
+                  <div className="mt-1 text-xs text-zinc-600">Enabled modules + estimated monthly credits by service.</div>
+                </div>
+
+                <div className="mt-3 rounded-2xl bg-zinc-50 p-3">
+                  <div className="text-[11px] font-semibold uppercase tracking-wide text-zinc-500">Modules</div>
+                  <div className="mt-1 text-sm font-semibold text-zinc-900">
+                    {selectedUserSim?.modules?.length ? selectedUserSim.modules.map((k) => PORTAL_MODULE_CATALOG[k]?.title ?? k).join(", ") : "(none)"}
+                  </div>
+                </div>
+
+                <div className="mt-3 overflow-auto">
+                  <table className="min-w-[420px] w-full text-left text-xs">
+                    <thead className="text-[11px] font-semibold uppercase tracking-wide text-zinc-500">
+                      <tr>
+                        <th className="py-2">Service</th>
+                        <th className="py-2">Credits/mo</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {(Object.keys(PORTAL_MODULE_CATALOG) as PortalModuleKey[])
+                        .filter((k) => k !== "crm")
+                        .filter((k) => (selectedUserSim?.creditsByModule?.[k] ?? 0) > 0)
+                        .sort((a, b) => (selectedUserSim?.creditsByModule?.[b] ?? 0) - (selectedUserSim?.creditsByModule?.[a] ?? 0))
+                        .slice(0, 10)
+                        .map((k) => (
+                          <tr key={k} className="border-t border-zinc-100">
+                            <td className="py-2 font-semibold text-zinc-900">{PORTAL_MODULE_CATALOG[k]?.title ?? k}</td>
+                            <td className="py-2 text-zinc-700">{Math.round(selectedUserSim?.creditsByModule?.[k] ?? 0).toLocaleString()}</td>
+                          </tr>
+                        ))}
+                      {!selectedUserSim || (selectedUserSim.creditsPerMonth ?? 0) <= 0 ? (
+                        <tr className="border-t border-zinc-100">
+                          <td className="py-2 text-zinc-600" colSpan={2}>
+                            No credits usage estimated for this user.
+                          </td>
+                        </tr>
+                      ) : null}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            </div>
+          </div>
+
           <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-5">
             <SurfaceCard title="Start monthly revenue" value={formatMoneyCompact(month1Revenue)} sub="Tier" accent="ink" />
             <SurfaceCard title={`End monthly revenue`} value={formatMoneyCompact(endRevenue)} sub={`${growthPct > 0 ? "+" : ""}${growthPct}% per month`} accent="blue" />

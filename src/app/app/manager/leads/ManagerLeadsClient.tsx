@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 
+import { PortalSelectDropdown } from "@/components/PortalSelectDropdown";
 import { useToast } from "@/components/ToastProvider";
 
 export type LeadRow = {
@@ -371,18 +372,17 @@ export default function ManagerLeadsClient({
           </div>
           <div>
             <label className="text-xs font-medium text-zinc-700">Reassign to dialer</label>
-            <select
-              className="mt-1 w-full rounded-xl border border-zinc-200 px-3 py-2 text-sm outline-none focus:border-zinc-400"
-              value={reassignUserId}
-              onChange={(e) => setReassignUserId(e.target.value)}
-            >
-              <option value="">Select a dialer…</option>
-              {dialers.map((u) => (
-                <option key={u.id} value={u.id}>
-                  {(u.name ?? "(no name)") + " - " + u.email}
-                </option>
-              ))}
-            </select>
+            <div className="mt-1">
+              <PortalSelectDropdown<string>
+                value={reassignUserId}
+                onChange={setReassignUserId}
+                options={[
+                  { value: "", label: "Select a dialer…" },
+                  ...dialers.map((u) => ({ value: u.id, label: (u.name ?? "(no name)") + " - " + u.email })),
+                ]}
+                buttonClassName="flex w-full items-center justify-between gap-2 rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm outline-none hover:bg-zinc-50 focus:border-zinc-400"
+              />
+            </div>
           </div>
         </div>
 
@@ -520,22 +520,20 @@ export default function ManagerLeadsClient({
                             {closerOptions ? (
                               closerOptions.length ? (
                                 <div className="flex flex-col gap-2">
-                                  <select
-                                    className="w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-xs outline-none focus:border-zinc-400"
+                                  <PortalSelectDropdown<string>
                                     value={selectedCloserId}
-                                    onChange={(e) =>
+                                    onChange={(v) =>
                                       setCloserSelectionByLeadId((prev) => ({
                                         ...prev,
-                                        [l.id]: e.target.value,
+                                        [l.id]: v,
                                       }))
                                     }
-                                  >
-                                    {closerOptions.map((c) => (
-                                      <option key={c.id} value={c.id}>
-                                        {(c.name ?? "(no name)") + " - " + c.email + (c.isAvailable === false ? " (unavailable)" : "")}
-                                      </option>
-                                    ))}
-                                  </select>
+                                    options={closerOptions.map((c) => ({
+                                      value: c.id,
+                                      label: (c.name ?? "(no name)") + " - " + c.email + (c.isAvailable === false ? " (unavailable)" : ""),
+                                    }))}
+                                    buttonClassName="flex w-full items-center justify-between gap-2 rounded-xl border border-zinc-200 bg-white px-3 py-2 text-xs outline-none hover:bg-zinc-50 focus:border-zinc-400"
+                                  />
 
                                   <label className="flex items-center gap-2 text-xs text-zinc-700">
                                     <input

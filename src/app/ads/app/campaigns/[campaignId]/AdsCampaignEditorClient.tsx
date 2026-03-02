@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 
+import { LocalDateTimePicker } from "@/components/LocalDateTimePicker";
 import { PortalListboxDropdown } from "@/components/PortalListboxDropdown";
 
 type Placement = "SIDEBAR_BANNER" | "TOP_BANNER" | "POPUP_CARD";
@@ -55,7 +56,6 @@ export function AdsCampaignEditorClient(props: {
   const initialCreative = props.campaign?.creativeJson ?? {};
 
   const [name, setName] = useState(props.campaign.name);
-  const [placement, setPlacement] = useState<Placement>(props.campaign.placement);
   const [startAt, setStartAt] = useState(toLocalInputValue(props.campaign.startAtIso));
   const [endAt, setEndAt] = useState(toLocalInputValue(props.campaign.endAtIso));
   const [dailyBudgetUsd, setDailyBudgetUsd] = useState(centsToUsdString(initialBudgetCents));
@@ -81,7 +81,6 @@ export function AdsCampaignEditorClient(props: {
   const snapshot = useMemo(
     () => ({
       name,
-      placement,
       startAt,
       endAt,
       dailyBudgetUsd,
@@ -98,7 +97,6 @@ export function AdsCampaignEditorClient(props: {
     }),
     [
       name,
-      placement,
       startAt,
       endAt,
       dailyBudgetUsd,
@@ -168,7 +166,6 @@ export function AdsCampaignEditorClient(props: {
         headers: { "content-type": "application/json" },
         body: JSON.stringify({
           name: String(name || "").trim(),
-          placement,
           startAtIso: localInputValueToIso(startAt),
           endAtIso: localInputValueToIso(endAt),
           budget: { dailyBudgetCents },
@@ -233,39 +230,23 @@ export function AdsCampaignEditorClient(props: {
           <div className="grid gap-3 sm:grid-cols-2">
             <label className="block">
               <div className="text-xs font-semibold uppercase tracking-wide text-zinc-500">Start</div>
-              <input
+              <LocalDateTimePicker
                 value={startAt}
-                onChange={(e) => setStartAt(e.target.value)}
-                type="datetime-local"
-                className="mt-2 w-full rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-sm outline-none focus:border-zinc-400"
+                onChange={setStartAt}
+                buttonClassName="mt-2 w-full rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-left text-sm hover:bg-zinc-50"
+                placeholder="Select start"
               />
             </label>
             <label className="block">
               <div className="text-xs font-semibold uppercase tracking-wide text-zinc-500">End</div>
-              <input
+              <LocalDateTimePicker
                 value={endAt}
-                onChange={(e) => setEndAt(e.target.value)}
-                type="datetime-local"
-                className="mt-2 w-full rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-sm outline-none focus:border-zinc-400"
+                onChange={setEndAt}
+                buttonClassName="mt-2 w-full rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-left text-sm hover:bg-zinc-50"
+                placeholder="Select end"
               />
             </label>
           </div>
-
-          <label className="block">
-            <div className="text-xs font-semibold uppercase tracking-wide text-zinc-500">Placement</div>
-            <div className="mt-2">
-              <PortalListboxDropdown
-                value={placement}
-                onChange={(v) => setPlacement(v as Placement)}
-                buttonClassName="flex w-full items-center justify-between gap-2 rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-sm hover:bg-zinc-50 focus:border-[color:var(--color-brand-blue)]"
-                options={[
-                  { value: "POPUP_CARD", label: "Popup card" },
-                  { value: "SIDEBAR_BANNER", label: "Sidebar banner" },
-                  { value: "TOP_BANNER", label: "Top banner" },
-                ]}
-              />
-            </div>
-          </label>
 
           <label className="block">
             <div className="text-xs font-semibold uppercase tracking-wide text-zinc-500">Daily budget (USD)</div>

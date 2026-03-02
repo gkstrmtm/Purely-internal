@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 
+import { LocalDateTimePicker } from "@/components/LocalDateTimePicker";
 import { PortalListboxDropdown } from "@/components/PortalListboxDropdown";
 import { PortalMultiSelectDropdown } from "@/components/PortalMultiSelectDropdown";
 import { useToast } from "@/components/ToastProvider";
@@ -1566,20 +1567,20 @@ export default function PortalAdCampaignsClient() {
                   <div className="mt-2 grid gap-3">
                     <div>
                       <label className="text-xs font-semibold text-zinc-600">Start</label>
-                      <input
-                        type="datetime-local"
-                        className="mt-1 w-full rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-sm"
+                      <LocalDateTimePicker
                         value={editor.startAtLocal}
-                        onChange={(e) => setEditor({ ...editor, startAtLocal: e.target.value })}
+                        onChange={(v) => setEditor({ ...editor, startAtLocal: v })}
+                        buttonClassName="mt-1 w-full rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-left text-sm hover:bg-zinc-50"
+                        placeholder="Select start"
                       />
                     </div>
                     <div>
                       <label className="text-xs font-semibold text-zinc-600">End</label>
-                      <input
-                        type="datetime-local"
-                        className="mt-1 w-full rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-sm"
+                      <LocalDateTimePicker
                         value={editor.endAtLocal}
-                        onChange={(e) => setEditor({ ...editor, endAtLocal: e.target.value })}
+                        onChange={(v) => setEditor({ ...editor, endAtLocal: v })}
+                        buttonClassName="mt-1 w-full rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-left text-sm hover:bg-zinc-50"
+                        placeholder="Select end"
                       />
                     </div>
                     <div className="rounded-2xl border border-zinc-200 bg-zinc-50 p-3 text-xs text-zinc-600">

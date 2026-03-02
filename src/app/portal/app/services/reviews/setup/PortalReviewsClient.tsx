@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { PortalListboxDropdown } from "@/components/PortalListboxDropdown";
 import { PortalMediaPickerModal } from "@/components/PortalMediaPickerModal";
 import { Lightbox, type LightboxImage } from "@/components/Lightbox";
 import { PortalSettingsSection } from "@/components/PortalSettingsSection";
@@ -70,7 +71,9 @@ type JsonResult<T> = { ok: true; data: T } | { ok: false; error: string; status?
 
 type ReviewRequestEvent = {
   id: string;
-  bookingId: string;
+  kind?: "booking" | "contact";
+  bookingId?: string;
+  contactId?: string;
   scheduledForIso: string;
   destinationLabel: string;
   destinationUrl: string;
@@ -235,6 +238,7 @@ export default function PortalReviewsClient() {
   }
 
   const [bookingsLoading, setBookingsLoading] = useState(false);
+  const [bookingsLoadedOnce, setBookingsLoadedOnce] = useState(false);
   const [upcomingBookings, setUpcomingBookings] = useState<
     Array<{
       id: string;
@@ -262,6 +266,11 @@ export default function PortalReviewsClient() {
     }>
   >([]);
   const [bookingQuery, setBookingQuery] = useState("");
+
+  const [contactsLoading, setContactsLoading] = useState(false);
+  const [contacts, setContacts] = useState<Array<{ id: string; name: string; email: string | null; phone: string | null }>>([]);
+  const [contactsLoadedOnce, setContactsLoadedOnce] = useState(false);
+  const [sendingContactId, setSendingContactId] = useState<string | null>(null);
 
   const [newDestLabel, setNewDestLabel] = useState("Google Reviews");
   const [newDestUrl, setNewDestUrl] = useState("");
@@ -379,6 +388,60 @@ export default function PortalReviewsClient() {
     }
   }, [readJsonSafe]);
 
+  const loadBookings = useCallback(async () => {
+    setBookingsLoading(true);
+    setError(null);
+    try {
+      const parsed = await fetch("/api/portal/reviews/bookings", { cache: "no-store" }).then((r) => readJsonSafe<any>(r));
+      if (!parsed.ok) throw new Error(parsed.error || "Failed to load bookings");
+      const res = parsed.data;
+      if (!res?.ok) throw new Error(res?.error || "Failed to load bookings");
+
+      const upcoming = Array.isArray(res.upcoming) ? res.upcoming : [];
+      const recent = Array.isArray(res.recent) ? res.recent : [];
+      setUpcomingBookings(upcoming);
+      setRecentBookings(recent);
+      setBookingsLoadedOnce(true);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setBookingsLoading(false);
+    }
+  }, [readJsonSafe]);
+
+  const loadContacts = useCallback(
+    async (q?: string) => {
+    setContactsLoading(true);
+    setError(null);
+    try {
+      const url = new URL("/api/portal/reviews/contacts", window.location.origin);
+      if (typeof q === "string") url.searchParams.set("q", q);
+      url.searchParams.set("take", "20");
+      const parsed = await fetch(url.toString(), { cache: "no-store" }).then((r) => readJsonSafe<any>(r));
+      if (!parsed.ok) throw new Error(parsed.error || "Failed to load contacts");
+      const res = parsed.data;
+      if (!res?.ok) throw new Error(res?.error || "Failed to load contacts");
+      const next = Array.isArray(res.contacts) ? res.contacts : [];
+      setContacts(
+        next
+          .filter((c: any) => c && typeof c.id === "string")
+          .map((c: any) => ({
+            id: String(c.id),
+            name: String(c.name || "").trim(),
+            email: c.email ? String(c.email) : null,
+            phone: c.phone ? String(c.phone) : null,
+          })),
+      );
+      setContactsLoadedOnce(true);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setContactsLoading(false);
+    }
+    },
+    [readJsonSafe],
+  );
+
   async function saveReviewReply(reviewId: string, nextReplyOverride?: string) {
     setReplySavingId(reviewId);
     setError(null);
@@ -461,29 +524,54 @@ export default function PortalReviewsClient() {
     }
   }
 
-  async function loadBookings() {
-    setBookingsLoading(true);
+  async function manualSendContact(contactId: string) {
+    const id = String(contactId || "").trim();
+    if (!id) return;
+    setSendingContactId(id);
+    setSendResult(null);
     setError(null);
     try {
-      const parsed = await fetch("/api/portal/booking/bookings", { cache: "no-store" }).then((r) => readJsonSafe<any>(r));
-      if (!parsed.ok) throw new Error(parsed.error || "Failed to load bookings");
-      const res = parsed.data;
-      if (!res?.ok) throw new Error(res?.error || "Failed to load bookings");
-
-      const upcoming = Array.isArray(res.upcoming) ? res.upcoming : [];
-      const recent = Array.isArray(res.recent) ? res.recent : [];
-      setUpcomingBookings(upcoming);
-      setRecentBookings(recent);
+      const res = await fetch("/api/portal/reviews/send-contact", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ contactId: id }),
+      }).then((r) => readJsonSafe<any>(r));
+      if (!res.ok) throw new Error(res.error || "Failed to send");
+      if (!res.data?.ok) throw new Error(res.data?.error || "Failed to send");
+      setSendResult("Sent");
+      await load();
     } catch (err) {
+      setSendResult(null);
       setError(err instanceof Error ? err.message : String(err));
     } finally {
-      setBookingsLoading(false);
+      setSendingContactId(null);
     }
   }
 
   useEffect(() => {
     void load();
   }, [load]);
+
+  useEffect(() => {
+    if (tab !== "reviews") return;
+    if (!bookingsLoadedOnce && !bookingsLoading) void loadBookings();
+    if (!contactsLoadedOnce && !contactsLoading) {
+      try {
+        void loadContacts("");
+      } catch {
+        // ignore
+      }
+    }
+  }, [tab, bookingsLoadedOnce, bookingsLoading, contactsLoadedOnce, contactsLoading, loadBookings, loadContacts]);
+
+  useEffect(() => {
+    if (tab !== "reviews") return;
+    const q = bookingQuery.trim();
+    const handle = window.setTimeout(() => {
+      void loadContacts(q);
+    }, 200);
+    return () => window.clearTimeout(handle);
+  }, [bookingQuery, tab, loadContacts]);
 
   useEffect(() => {
     try {
@@ -937,21 +1025,22 @@ export default function PortalReviewsClient() {
                     min={0}
                     max={maxValue}
                   />
-                  <select
-                    className="h-10 w-32 rounded-lg border border-zinc-200 bg-white px-3 text-sm"
+                  <PortalListboxDropdown
                     value={settings.sendAfter.unit}
-                    onChange={(e) => {
-                      const unit = e.target.value as ReviewDelayUnit;
+                    onChange={(unit) => {
                       const nextMax = unit === "weeks" ? 2 : unit === "days" ? 14 : unit === "hours" ? 24 * 14 : 60 * 24 * 14;
                       const nextValue = clampInt(settings.sendAfter.value, 0, nextMax);
                       setSendAfter({ unit, value: nextValue });
                     }}
-                  >
-                    <option value="minutes">minutes</option>
-                    <option value="hours">hours</option>
-                    <option value="days">days</option>
-                    <option value="weeks">weeks</option>
-                  </select>
+                    options={[
+                      { value: "minutes", label: "minutes" },
+                      { value: "hours", label: "hours" },
+                      { value: "days", label: "days" },
+                      { value: "weeks", label: "weeks" },
+                    ]}
+                    className="w-32"
+                    buttonClassName="flex h-10 w-full items-center justify-between gap-2 rounded-lg border border-zinc-200 bg-white px-3 text-sm hover:bg-zinc-50 focus-visible:ring-2 focus-visible:ring-zinc-300"
+                  />
                   <div className="text-xs text-neutral-500">Max 2 weeks.</div>
                 </div>
               </PortalSettingsSection>
@@ -1406,11 +1495,9 @@ export default function PortalReviewsClient() {
                                   Required
                                 </label>
 
-                                <select
-                                  className="h-9 min-w-[170px] rounded-xl border border-zinc-200 bg-white px-3 text-sm"
+                                <PortalListboxDropdown
                                   value={q.kind}
-                                  onChange={(e) => {
-                                    const kind = e.target.value as ReviewQuestionKind;
+                                  onChange={(kind) => {
                                     const nextQs = (settings.publicPage.form.questions || []).map((x) => {
                                       if (x.id !== q.id) return x;
                                       const next: ReviewQuestion = { ...x, kind };
@@ -1425,12 +1512,15 @@ export default function PortalReviewsClient() {
                                       publicPage: { ...settings.publicPage, form: { ...settings.publicPage.form, questions: nextQs } },
                                     });
                                   }}
-                                >
-                                  <option value="short">Short answer</option>
-                                  <option value="long">Long answer</option>
-                                  <option value="single_choice">Single choice</option>
-                                  <option value="multiple_choice">Multiple choice</option>
-                                </select>
+                                  options={[
+                                    { value: "short", label: "Short answer" },
+                                    { value: "long", label: "Long answer" },
+                                    { value: "single_choice", label: "Single choice" },
+                                    { value: "multiple_choice", label: "Multiple choice" },
+                                  ]}
+                                  className="min-w-[170px]"
+                                  buttonClassName="flex h-9 w-full items-center justify-between gap-2 rounded-xl border border-zinc-200 bg-white px-3 text-sm hover:bg-zinc-50 focus-visible:ring-2 focus-visible:ring-zinc-300"
+                                />
 
                                 <button
                                   type="button"
@@ -1517,19 +1607,12 @@ export default function PortalReviewsClient() {
           <div className="mt-3 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
             <input
               className="h-10 flex-1 rounded-lg border border-zinc-200 bg-white px-3 text-sm"
-              placeholder="Search bookings by name, email, phone, or ID"
+              placeholder="Search bookings or contacts by name, email, phone, or ID"
               value={bookingQuery}
               onChange={(e) => setBookingQuery(e.target.value)}
-              disabled={!settings.automation.manualSend}
+              disabled={!settings.automation.manualSend && !bookingsLoadedOnce}
             />
-            <button
-              className="h-10 rounded-lg border border-zinc-200 bg-white px-4 text-sm hover:bg-zinc-50"
-              disabled={bookingsLoading || !settings.automation.manualSend}
-              onClick={loadBookings}
-              type="button"
-            >
-              {bookingsLoading ? "Loading…" : "Load bookings"}
-            </button>
+            {bookingsLoading ? <div className="text-xs font-semibold text-zinc-500">Loading bookings…</div> : null}
           </div>
           {sendResult ? <div className="mt-2 text-sm text-emerald-700">{sendResult}</div> : null}
 
@@ -1538,7 +1621,7 @@ export default function PortalReviewsClient() {
             <div className="mt-2 overflow-hidden rounded-lg border border-zinc-200 bg-white">
               <div className="grid grid-cols-1 gap-0">
                 {(filteredRecent.length === 0 && filteredUpcoming.length === 0) ? (
-                  <div className="p-4 text-sm text-neutral-600">No bookings loaded yet.</div>
+                  <div className="p-4 text-sm text-neutral-600">No bookings found.</div>
                 ) : null}
 
                 {filteredRecent.slice(0, 25).map((b) => {
@@ -1600,6 +1683,44 @@ export default function PortalReviewsClient() {
           </div>
 
           <div className="mt-6">
+            <div className="text-sm font-medium">Contacts</div>
+            <div className="mt-2 overflow-hidden rounded-lg border border-zinc-200 bg-white">
+              {contactsLoading ? <div className="p-4 text-sm text-zinc-600">Loading…</div> : null}
+              {!contactsLoading && contacts.length === 0 ? (
+                <div className="p-4 text-sm text-zinc-600">No contacts found.</div>
+              ) : null}
+
+              <div className="grid grid-cols-1 gap-0">
+                {contacts.slice(0, 20).map((c) => {
+                  const canSend = settings.automation.manualSend && Boolean(c.phone) && !sendingContactId;
+                  return (
+                    <div key={c.id} className="flex flex-col gap-2 border-b border-zinc-200 p-4 sm:flex-row sm:items-center sm:justify-between">
+                      <div className="min-w-0">
+                        <div className="truncate text-sm font-medium">{c.name || "(no name)"}</div>
+                        <div className="mt-0.5 flex flex-wrap gap-x-3 gap-y-1 text-xs text-neutral-600">
+                          <span className="truncate">{c.phone || "(no phone)"}</span>
+                          <span className="truncate">{c.email || "(no email)"}</span>
+                          {!settings.automation.manualSend ? <span className="text-amber-700">Manual sends are off</span> : null}
+                        </div>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <button
+                          className="h-9 rounded-lg bg-neutral-900 px-3 text-xs font-medium text-white disabled:opacity-60"
+                          disabled={!canSend || sendingContactId === c.id}
+                          onClick={() => manualSendContact(c.id)}
+                          type="button"
+                        >
+                          {sendingContactId === c.id ? "Sending…" : "Send"}
+                        </button>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          </div>
+
+          <div className="mt-6">
             <div className="text-lg font-semibold">Recent activity</div>
             <div className="mt-3 space-y-2">
               {events.length === 0 ? <div className="text-sm text-neutral-600">No activity yet.</div> : null}
@@ -1612,7 +1733,15 @@ export default function PortalReviewsClient() {
                     <div className="text-xs text-neutral-500">{new Date(e.createdAtIso).toLocaleString()}</div>
                   </div>
                   <div className="mt-1 text-xs text-neutral-600">
-                    Booking: <span className="font-mono">{e.bookingId}</span>
+                    {e.kind === "contact" ? (
+                      <>
+                        Contact: <span className="font-mono">{e.contactId || "(unknown)"}</span>
+                      </>
+                    ) : (
+                      <>
+                        Booking: <span className="font-mono">{e.bookingId || "(unknown)"}</span>
+                      </>
+                    )}
                   </div>
                   <div className="mt-1 text-xs text-neutral-600">To: {e.smsTo || "N/A"}</div>
                   <div className="mt-1 text-xs text-neutral-600">

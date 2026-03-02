@@ -5,6 +5,7 @@ import { signIn } from "next-auth/react";
 import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 
+import { PortalListboxDropdown } from "@/components/PortalListboxDropdown";
 import { useToast } from "@/components/ToastProvider";
 
 type RoleChoice = "DIALER" | "CLOSER";
@@ -125,14 +126,17 @@ export default function SignupPage() {
 
             <div>
               <label className="text-base font-medium">Role</label>
-              <select
-                className="mt-2 w-full rounded-2xl border border-zinc-200 bg-white px-4 py-3 text-base outline-none focus:border-zinc-400"
-                value={role}
-                onChange={(e) => setRole(e.target.value as RoleChoice)}
-              >
-                <option value="DIALER">Dialer / Setter</option>
-                <option value="CLOSER">Closer</option>
-              </select>
+              <div className="mt-2">
+                <PortalListboxDropdown<RoleChoice>
+                  value={role}
+                  onChange={setRole}
+                  options={[
+                    { value: "DIALER", label: "Dialer / Setter" },
+                    { value: "CLOSER", label: "Closer" },
+                  ]}
+                  buttonClassName="flex w-full items-center justify-between gap-2 rounded-2xl border border-zinc-200 bg-white px-4 py-3 text-base outline-none focus:border-zinc-400 hover:bg-zinc-50"
+                />
+              </div>
             </div>
 
             <div>

@@ -5,10 +5,13 @@ import Image from "next/image";
 import { useRouter } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
 
+import { LocalDateTimePicker } from "@/components/LocalDateTimePicker";
 import { PortalListboxDropdown } from "@/components/PortalListboxDropdown";
 import { BUSINESS_MODEL_SUGGESTIONS, INDUSTRY_SUGGESTIONS } from "@/lib/portalOnboardingWizardCatalog";
 
 type Audience = { id: string; name: string; targetingJson: any };
+
+type Placement = "SIDEBAR_BANNER" | "TOP_BANNER" | "POPUP_CARD";
 
 function usdToCents(v: string) {
   const n = Number(v);
@@ -36,11 +39,13 @@ function dedupe(list: string[]) {
 export default function NewAdsCampaignPage() {
   const router = useRouter();
 
+  // Advertisers do not choose placement; it's assigned internally.
+  const placement: Placement = "POPUP_CARD";
+
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   const [name, setName] = useState("My campaign");
-  const [placement, setPlacement] = useState<"SIDEBAR_BANNER" | "TOP_BANNER" | "POPUP_CARD">("POPUP_CARD");
 
   const [startAt, setStartAt] = useState<string>("");
   const [endAt, setEndAt] = useState<string>("");
@@ -256,7 +261,6 @@ export default function NewAdsCampaignPage() {
         headers: { "content-type": "application/json" },
         body: JSON.stringify({
           name,
-          placement,
           startAtIso: startAt ? new Date(startAt).toISOString() : null,
           endAtIso: endAt ? new Date(endAt).toISOString() : null,
           budget: { dailyBudgetCents },
@@ -310,20 +314,20 @@ export default function NewAdsCampaignPage() {
                 <div className="grid gap-3 sm:grid-cols-2">
                   <label className="block">
                     <div className="text-xs font-semibold uppercase tracking-wide text-zinc-500">Start</div>
-                    <input
+                    <LocalDateTimePicker
                       value={startAt}
-                      onChange={(e) => setStartAt(e.target.value)}
-                      type="datetime-local"
-                      className="mt-2 w-full rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-sm outline-none focus:border-zinc-400"
+                      onChange={setStartAt}
+                      buttonClassName="mt-2 w-full rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-left text-sm hover:bg-zinc-50"
+                      placeholder="Select start"
                     />
                   </label>
                   <label className="block">
                     <div className="text-xs font-semibold uppercase tracking-wide text-zinc-500">End</div>
-                    <input
+                    <LocalDateTimePicker
                       value={endAt}
-                      onChange={(e) => setEndAt(e.target.value)}
-                      type="datetime-local"
-                      className="mt-2 w-full rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-sm outline-none focus:border-zinc-400"
+                      onChange={setEndAt}
+                      buttonClassName="mt-2 w-full rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-left text-sm hover:bg-zinc-50"
+                      placeholder="Select end"
                     />
                   </label>
                 </div>
@@ -331,30 +335,9 @@ export default function NewAdsCampaignPage() {
             </div>
 
             <div className="p-6">
-              <div className="text-sm font-semibold text-zinc-900">Placement</div>
-              <div className="mt-4 grid gap-2">
-                {(
-                  [
-                    { id: "POPUP_CARD", label: "Popup card" },
-                    { id: "SIDEBAR_BANNER", label: "Sidebar banner" },
-                    { id: "TOP_BANNER", label: "Top banner" },
-                  ] as const
-                ).map((p) => (
-                  <label
-                    key={p.id}
-                    className="flex cursor-pointer items-center justify-between rounded-2xl border border-zinc-200 bg-white px-4 py-3"
-                  >
-                    <div className="text-sm font-semibold text-zinc-900">{p.label}</div>
-                    <input type="radio" name="placement" checked={placement === p.id} onChange={() => setPlacement(p.id)} />
-                  </label>
-                ))}
-              </div>
-            </div>
-
-            <div className="p-6">
               <div className="text-sm font-semibold text-zinc-900">Budget</div>
               <div className="mt-2 text-sm text-zinc-600">
-                You’re charged on click. CPC is optimized internally, you only set a daily budget.
+                You’re only charged when someone clicks. Set a daily budget and we’ll pace spend throughout the day.
               </div>
               <div className="mt-4 grid gap-3 sm:grid-cols-2">
                 <label className="block">
@@ -548,8 +531,8 @@ export default function NewAdsCampaignPage() {
                   "inline-flex h-10 w-10 items-center justify-center rounded-2xl border bg-white text-zinc-700 hover:bg-zinc-50 disabled:opacity-60 " +
                   (showAllPreviews ? "border-[color:var(--color-brand-blue)]/30" : "border-zinc-200")
                 }
-                aria-label={showAllPreviews ? "Hide multi-placement preview" : "Show multi-placement preview"}
-                title={showAllPreviews ? "Hide multi-placement preview" : "Show multi-placement preview"}
+                aria-label={showAllPreviews ? "Hide multi-format preview" : "Show multi-format preview"}
+                title={showAllPreviews ? "Hide multi-format preview" : "Show multi-format preview"}
               >
                 <svg width="18" height="18" viewBox="0 0 24 24" fill="none" aria-hidden="true">
                   <path
@@ -626,7 +609,7 @@ export default function NewAdsCampaignPage() {
             <div className="mt-4 rounded-2xl border border-[color:var(--color-brand-blue)]/20 bg-[color:var(--color-brand-blue)]/5 p-4 text-sm text-zinc-700">
               <div className="font-semibold text-zinc-900">How “Generate” works</div>
               <div className="mt-2 space-y-1">
-                <div>• It uses your placement + targeting to suggest copy.</div>
+                <div>• It uses your campaign details + targeting to suggest copy.</div>
                 <div>• If you already typed a headline/body/CTA, it will improve what you wrote (not ignore it).</div>
                 <div>• You can click Generate multiple times to see options, then tweak by hand.</div>
                 <div>• Media is never edited — it only affects how your ad renders.</div>
@@ -720,7 +703,7 @@ export default function NewAdsCampaignPage() {
                   Clear
                 </button>
               </div>
-              <div className="mt-2 text-xs text-zinc-500">Use fit + focus to control how the media crops in each placement.</div>
+              <div className="mt-2 text-xs text-zinc-500">Use fit + focus to control how the media crops in each preview.</div>
 
               <div className="mt-4 grid gap-3 sm:grid-cols-3">
                 <label className="block">
@@ -829,7 +812,7 @@ export default function NewAdsCampaignPage() {
         <div className="rounded-3xl border border-zinc-200 bg-white p-6">
           <div className="text-sm font-semibold text-zinc-900">Rendering</div>
           <div className="mt-2 text-sm text-zinc-600">
-            Approximate examples (final styling can vary). {showAllPreviews ? "Showing multiple placements." : "Showing the selected placement."}
+            Approximate examples (final styling can vary). {showAllPreviews ? "Showing multiple formats." : "Showing one format."}
           </div>
 
           {(
@@ -841,7 +824,7 @@ export default function NewAdsCampaignPage() {
                   { id: "BILLING_SPONSORED", label: "Billing sponsored (preview)" },
                   { id: "FULLSCREEN_REWARD", label: "Fullscreen reward (preview)" },
                 ] as const)
-              : ([{ id: placement, label: placement }] as const)
+              : ([{ id: "POPUP_CARD", label: "Popup card" }] as const)
           ).map((p) => {
             const previewPlacement = p.id as any;
             const imageHeight =

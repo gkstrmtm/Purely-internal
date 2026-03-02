@@ -2270,26 +2270,28 @@ export function PortalLeadScrapingClient() {
                   >
                     <label className="block">
                       <div className="text-sm font-medium text-zinc-800">Source</div>
-                      <select
-                        className="mt-2 w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm"
+                      <PortalListboxDropdown
                         value={settings.b2c.source ?? "OSM_ADDRESS"}
-                        onChange={(e) =>
+                        onChange={(source) =>
                           setSettings((prev) =>
                             prev
                               ? {
                                   ...prev,
                                   b2c: {
                                     ...prev.b2c,
-                                    source: e.target.value === "OSM_POI_PHONE" ? "OSM_POI_PHONE" : "OSM_ADDRESS",
+                                    source,
                                   },
                                 }
                               : prev,
                           )
                         }
-                      >
-                        <option value="OSM_ADDRESS">OSM addresses (no phone)</option>
-                        <option value="OSM_POI_PHONE">OSM places w/ phone (name + address + phone)</option>
-                      </select>
+                        options={[
+                          { value: "OSM_ADDRESS", label: "OSM addresses (no phone)" },
+                          { value: "OSM_POI_PHONE", label: "OSM places w/ phone (name + address + phone)" },
+                        ]}
+                        className="mt-2 w-full"
+                        buttonClassName="flex w-full items-center justify-between gap-2 rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm hover:bg-zinc-50 focus-visible:ring-2 focus-visible:ring-zinc-300"
+                      />
                       <div className="mt-1 text-xs text-zinc-500">
                         Phone coverage varies by area. “Places w/ phone” tends to return small lists.
                       </div>
@@ -2756,25 +2758,22 @@ export function PortalLeadScrapingClient() {
                 <div className="mt-2 grid grid-cols-1 gap-2 sm:grid-cols-6 sm:items-end">
                   <label className="block sm:col-span-3">
                     <div className="text-xs font-medium text-zinc-700">Pick a tag</div>
-                    <select
+                    <PortalListboxDropdown
                       value={selectedTagPickValue}
-                      onChange={(e) => {
-                        const v = e.target.value;
+                      onChange={(v) => {
                         if (v === "__custom") return;
                         const found = tagOptions.find((o) => o.label === v);
                         if (!found) return;
                         setLeadTagDraft(found.label);
                         setLeadTagColorDraft(found.color);
                       }}
-                      className="mt-1 w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm"
-                    >
-                      <option value="__custom">Custom / type below</option>
-                      {tagOptions.map((o) => (
-                        <option key={`${o.label}-${o.color}`} value={o.label}>
-                          {o.label}
-                        </option>
-                      ))}
-                    </select>
+                      options={[
+                        { value: "__custom", label: "Custom / type below" },
+                        ...tagOptions.map((o) => ({ value: o.label, label: o.label })),
+                      ]}
+                      className="mt-1 w-full"
+                      buttonClassName="flex w-full items-center justify-between gap-2 rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm hover:bg-zinc-50 focus-visible:ring-2 focus-visible:ring-zinc-300"
+                    />
                   </label>
 
                   <label className="block sm:col-span-3">

@@ -2,6 +2,8 @@
 
 import { useEffect, useMemo, useState } from "react";
 
+import { LocalDateTimePicker } from "@/components/LocalDateTimePicker";
+import { PortalSelectDropdown } from "@/components/PortalSelectDropdown";
 import { useToast } from "@/components/ToastProvider";
 
 type Lead = {
@@ -759,18 +761,17 @@ export default function DialerLeadsPage() {
               <div className="flex flex-col gap-3 sm:flex-row sm:items-end">
                 <div className="flex-1">
                   <label className="text-sm font-medium">Templates</label>
-                  <select
-                    className="mt-1 w-full rounded-xl border border-zinc-200 px-3 py-2 text-sm outline-none focus:border-zinc-400"
-                    value={selectedTemplateId}
-                    onChange={(e) => setSelectedTemplateId(e.target.value)}
-                  >
-                    <option value="">Select…</option>
-                    {templates.map((t) => (
-                      <option key={t.id} value={t.id}>
-                        {t.title}
-                      </option>
-                    ))}
-                  </select>
+                  <div className="mt-1">
+                    <PortalSelectDropdown<string>
+                      value={selectedTemplateId}
+                      onChange={setSelectedTemplateId}
+                      options={[
+                        { value: "", label: "Select…" },
+                        ...templates.map((t) => ({ value: t.id, label: t.title })),
+                      ]}
+                      buttonClassName="flex w-full items-center justify-between gap-2 rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm outline-none hover:bg-zinc-50 focus:border-zinc-400"
+                    />
+                  </div>
                 </div>
                 <button
                   className="rounded-xl border border-zinc-200 bg-white px-4 py-2 text-sm hover:bg-zinc-50 disabled:opacity-60"
@@ -830,12 +831,12 @@ export default function DialerLeadsPage() {
               <div className="mt-4 grid grid-cols-1 gap-3 sm:grid-cols-2">
                 <div>
                   <label className="text-sm font-medium">Start</label>
-                  <input
-                    className="mt-1 w-full rounded-xl border border-zinc-200 px-3 py-2 text-sm outline-none focus:border-zinc-400"
-                    type="datetime-local"
+                  <LocalDateTimePicker
                     value={meetingStart}
-                    onChange={(e) => setMeetingStart(e.target.value)}
+                    onChange={setMeetingStart}
                     disabled={!activeLead}
+                    buttonClassName="mt-1 w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-left text-sm hover:bg-zinc-50"
+                    placeholder="Select date/time"
                   />
                 </div>
                 <div>

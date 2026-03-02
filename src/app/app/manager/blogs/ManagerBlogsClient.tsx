@@ -2,6 +2,8 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 
+import { PortalListboxDropdown } from "@/components/PortalListboxDropdown";
+import { PortalSelectDropdown } from "@/components/PortalSelectDropdown";
 import { useToast } from "@/components/ToastProvider";
 
 type Settings = {
@@ -638,30 +640,26 @@ export default function ManagerBlogsClient() {
 
           <div className="mt-3 flex flex-wrap items-center gap-3 text-sm text-zinc-700">
             <div className="text-xs text-zinc-600">Frequency</div>
-            <select
-              className="rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm"
-              value={String(frequencyDays)}
-              onChange={(e) => setFrequencyDays(Number.parseInt(e.target.value || "7", 10) || 7)}
-            >
-              <option value="1">Every day</option>
-              <option value="3">Every 3 days</option>
-              <option value="7">Weekly</option>
-            </select>
+            <PortalSelectDropdown<number>
+              value={frequencyDays}
+              onChange={setFrequencyDays}
+              options={[
+                { value: 1, label: "Every day" },
+                { value: 3, label: "Every 3 days" },
+                { value: 7, label: "Weekly" },
+              ]}
+              buttonClassName="flex items-center justify-between gap-2 rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm hover:bg-zinc-50"
+            />
           </div>
 
           <div className="mt-3 flex flex-wrap items-center gap-3 text-sm text-zinc-700">
             <div className="text-xs text-zinc-600">Publish time (UTC)</div>
-            <select
-              className="rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm"
-              value={String(publishHourUtc)}
-              onChange={(e) => setPublishHourUtc(Number.parseInt(e.target.value || "14", 10) || 14)}
-            >
-              {Array.from({ length: 24 }).map((_, h) => (
-                <option key={h} value={String(h)}>
-                  {String(h).padStart(2, "0")}:00 UTC
-                </option>
-              ))}
-            </select>
+            <PortalSelectDropdown<number>
+              value={publishHourUtc}
+              onChange={setPublishHourUtc}
+              options={Array.from({ length: 24 }).map((_, h) => ({ value: h, label: `${String(h).padStart(2, "0")}:00 UTC` }))}
+              buttonClassName="flex items-center justify-between gap-2 rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm hover:bg-zinc-50"
+            />
           </div>
 
           <div className="mt-4 flex flex-wrap gap-2">
@@ -890,14 +888,15 @@ export default function ManagerBlogsClient() {
 
         <div className="mt-4 flex flex-wrap items-center gap-3 text-sm text-zinc-700">
           <label className="text-xs text-zinc-600">Anchor</label>
-          <select
-            className="rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm"
+          <PortalListboxDropdown<"NOW" | "OLDEST_POST">
             value={backfillAnchor}
-            onChange={(e) => setBackfillAnchor((e.target.value as "NOW" | "OLDEST_POST") ?? "OLDEST_POST")}
-          >
-            <option value="OLDEST_POST">Oldest existing post (keep going further back)</option>
-            <option value="NOW">Today (fills recent history)</option>
-          </select>
+            onChange={setBackfillAnchor}
+            options={[
+              { value: "OLDEST_POST", label: "Oldest existing post (keep going further back)" },
+              { value: "NOW", label: "Today (fills recent history)" },
+            ]}
+            buttonClassName="flex items-center justify-between gap-2 rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm hover:bg-zinc-50"
+          />
         </div>
 
         <div className="mt-4 grid gap-3 sm:grid-cols-5">

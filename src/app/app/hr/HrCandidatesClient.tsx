@@ -3,6 +3,8 @@
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 
+import { PortalListboxDropdown } from "@/components/PortalListboxDropdown";
+
 type CandidateRow = {
   id: string;
   fullName: string;
@@ -169,14 +171,17 @@ export default function HrCandidatesClient() {
         <div className="mt-4 grid grid-cols-1 gap-3 sm:grid-cols-2">
           <label className="text-sm">
             <div className="text-xs font-medium text-zinc-600">Candidate for</div>
-            <select
-              className="mt-1 w-full rounded-xl border border-zinc-200 bg-white px-3 py-2"
-              value={targetRole}
-              onChange={(e) => setTargetRole(e.target.value as any)}
-            >
-              <option value="DIALER">Dialer</option>
-              <option value="CLOSER">Closer</option>
-            </select>
+            <div className="mt-1">
+              <PortalListboxDropdown<string>
+                value={targetRole}
+                onChange={(v) => setTargetRole(v as any)}
+                options={[
+                  { value: "DIALER", label: "Dialer" },
+                  { value: "CLOSER", label: "Closer" },
+                ]}
+                buttonClassName="flex w-full items-center justify-between gap-2 rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm hover:bg-zinc-50"
+              />
+            </div>
           </label>
           <label className="text-sm">
             <div className="text-xs font-medium text-zinc-600">Full name</div>
