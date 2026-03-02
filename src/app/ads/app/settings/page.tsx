@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
 
 type AdsStats = {
   account: {
@@ -19,6 +20,9 @@ function usd(cents: number) {
 }
 
 export default function AdsSettingsPage() {
+  const router = useRouter();
+  const searchParams = useSearchParams();
+
   const [stats, setStats] = useState<AdsStats | null>(null);
   const [error, setError] = useState<string | null>(null);
 
@@ -30,6 +34,10 @@ export default function AdsSettingsPage() {
   const [amountUsd, setAmountUsd] = useState("50");
   const [saving, setSaving] = useState(false);
   const [topupBusy, setTopupBusy] = useState(false);
+  const [topupConfirming, setTopupConfirming] = useState(false);
+  const [topupMessage, setTopupMessage] = useState<string | null>(null);
+
+  const [baseline, setBaseline] = useState<null | { enabled: boolean; thresholdUsd: string; amountUsd: string }>(null);
 
   async function load() {
     setError(null);
@@ -43,9 +51,15 @@ export default function AdsSettingsPage() {
     const next = statsRes as AdsStats;
     setStats(next);
     const a = next.account;
-    setEnabled(Boolean(a.autoTopUpEnabled));
-    setThresholdUsd(String(Math.round(Number(a.autoTopUpThresholdCents || 0) / 100)));
-    setAmountUsd(String(Math.round(Number(a.autoTopUpAmountCents || 0) / 100)));
+
+    const nextEnabled = Boolean(a.autoTopUpEnabled);
+    const nextThresholdUsd = String(Math.round(Number(a.autoTopUpThresholdCents || 0) / 100));
+    const nextAmountUsd = String(Math.round(Number(a.autoTopUpAmountCents || 0) / 100));
+
+    setEnabled(nextEnabled);
+    setThresholdUsd(nextThresholdUsd);
+    setAmountUsd(nextAmountUsd);
+    setBaseline({ enabled: nextEnabled, thresholdUsd: nextThresholdUsd, amountUsd: nextAmountUsd });
   }
 
   useEffect(() => {
@@ -105,6 +119,13 @@ export default function AdsSettingsPage() {
       });
       const json = await res.json().catch(() => null);
       if (!res.ok || !json?.ok) throw new Error(String(json?.error || "Top up failed"));
+
+      if (json?.mode === "stripe" && typeof json?.url === "string" && json.url) {
+        window.location.href = String(json.url);
+        return;
+      }
+
+      setTopupMessage("Funds added (test mode).");
       await load();
     } catch (err: any) {
       setError(String(err?.message || "Top up failed"));
@@ -113,8 +134,56 @@ export default function AdsSettingsPage() {
     }
   }
 
+  useEffect(() => {
+    const topup = (searchParams?.get("topup") || "").trim();
+    const sessionId = (searchParams?.get("session_id") || "").trim();
+    if (!topup) return;
+
+    if (topup === "cancel") {
+      setTopupMessage("Top-up cancelled.");
+      router.replace("/ads/app/settings");
+      return;
+    }
+
+    if (topup === "success" && sessionId) {
+      let mounted = true;
+      (async () => {
+        setTopupConfirming(true);
+        setError(null);
+        try {
+          const res = await fetch("/ads/api/topup/confirm-checkout", {
+            method: "POST",
+            headers: { "content-type": "application/json" },
+            body: JSON.stringify({ sessionId }),
+          });
+          const json = await res.json().catch(() => null);
+          if (!res.ok || !json?.ok) throw new Error(String(json?.error || "Unable to confirm top-up"));
+          if (!mounted) return;
+          setTopupMessage("Funds added successfully.");
+          await load();
+          router.replace("/ads/app/settings");
+        } catch (err: any) {
+          if (!mounted) return;
+          setError(String(err?.message || "Unable to confirm top-up"));
+        } finally {
+          if (!mounted) return;
+          setTopupConfirming(false);
+        }
+      })();
+      return () => {
+        mounted = false;
+      };
+    }
+  }, [router, searchParams]);
+
   const exampleReloadCents = Math.round(Number(amountUsd || "0") * 100);
   const exampleThresholdCents = Math.round(Number(thresholdUsd || "0") * 100);
+
+  const isDirty =
+    baseline == null
+      ? true
+      : enabled !== baseline.enabled || thresholdUsd !== baseline.thresholdUsd || amountUsd !== baseline.amountUsd;
+  const showSaved = baseline != null && !isDirty && !saving;
 
   return (
     <div className="space-y-6">
@@ -132,6 +201,8 @@ export default function AdsSettingsPage() {
       </div>
 
       {error ? <div className="text-sm font-semibold text-red-600">{error}</div> : null}
+      {topupMessage ? <div className="text-sm font-semibold text-emerald-700">{topupMessage}</div> : null}
+      {topupConfirming ? <div className="text-sm text-zinc-600">Confirming Stripe payment…</div> : null}
 
       <div className="grid gap-4 lg:grid-cols-3">
         <div className="overflow-hidden rounded-3xl border border-zinc-200 bg-white lg:col-span-2">
@@ -261,10 +332,10 @@ export default function AdsSettingsPage() {
                 <button
                   type="button"
                   onClick={() => void save({ enabled, thresholdUsd, amountUsd })}
-                  disabled={saving}
+                  disabled={saving || !isDirty}
                   className="inline-flex w-full items-center justify-center rounded-2xl bg-[color:var(--color-brand-blue)] px-5 py-3 text-sm font-semibold text-white hover:opacity-95 disabled:opacity-60 sm:w-auto"
                 >
-                  {saving ? "Saving…" : "Save settings"}
+                  {saving ? "Saving…" : showSaved ? "Saved" : "Save settings"}
                 </button>
               </div>
             </div>

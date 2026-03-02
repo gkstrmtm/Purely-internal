@@ -44,6 +44,7 @@ export default function AdsAppHomePage() {
   const [error, setError] = useState<string | null>(null);
 
   const [toggleBusyId, setToggleBusyId] = useState<string | null>(null);
+  const [pauseConfirm, setPauseConfirm] = useState<null | { id: string; name: string }>(null);
 
   const balanceCents = Number(me?.account?.balanceCents || 0);
 
@@ -123,6 +124,37 @@ export default function AdsAppHomePage() {
 
   return (
     <div className="space-y-6">
+      {pauseConfirm ? (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
+          <div className="w-full max-w-md rounded-3xl border border-zinc-200 bg-white p-6 shadow-xl">
+            <div className="text-lg font-bold text-zinc-900">Pause campaign?</div>
+            <div className="mt-2 text-sm text-zinc-600">
+              Are you sure you want to pause “{pauseConfirm.name}”? This will stop your ad from running.
+            </div>
+            <div className="mt-5 flex flex-col gap-2 sm:flex-row sm:justify-end">
+              <button
+                type="button"
+                onClick={() => setPauseConfirm(null)}
+                className="rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm font-semibold text-zinc-700 hover:bg-zinc-50"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  const id = pauseConfirm.id;
+                  setPauseConfirm(null);
+                  void setCampaignEnabled(id, false);
+                }}
+                className="rounded-2xl bg-rose-600 px-4 py-2 text-sm font-semibold text-white hover:bg-rose-700"
+              >
+                Pause campaign
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
+
       <div className="grid gap-4 lg:grid-cols-4">
         <div className="rounded-3xl border border-zinc-200 bg-white p-6">
           <div className="text-xs font-semibold uppercase tracking-wide text-zinc-500">Balance</div>
@@ -227,9 +259,9 @@ export default function AdsAppHomePage() {
                   <div className="flex items-center gap-2">
                     <Link
                       href={`/ads/app/campaigns/${c.id}`}
-                      className="rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-xs font-semibold text-zinc-700 hover:bg-zinc-50"
+                      className="rounded-2xl border border-amber-200 bg-amber-50 px-3 py-2 text-xs font-semibold text-amber-900 hover:bg-amber-100"
                     >
-                      View
+                      View / edit
                     </Link>
 
                     {isRejected ? (
@@ -245,12 +277,18 @@ export default function AdsAppHomePage() {
 
                     <button
                       type="button"
-                      onClick={() => void setCampaignEnabled(c.id, !c.enabled)}
+                      onClick={() => {
+                        if (c.enabled) {
+                          setPauseConfirm({ id: c.id, name: c.name });
+                          return;
+                        }
+                        void setCampaignEnabled(c.id, true);
+                      }}
                       disabled={toggleBusyId === c.id || (!isApproved && !c.enabled)}
                       className={
                         "rounded-2xl px-3 py-2 text-xs font-semibold disabled:opacity-60 " +
                         (c.enabled
-                          ? "border border-zinc-200 bg-white text-zinc-700 hover:bg-zinc-50"
+                          ? "border border-rose-200 bg-rose-50 text-rose-700 hover:bg-rose-100"
                           : "bg-[color:var(--color-brand-blue)] text-white hover:opacity-95")
                       }
                       title={!isApproved && !c.enabled ? "This campaign will go live after manager approval." : undefined}

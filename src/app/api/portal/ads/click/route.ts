@@ -3,6 +3,7 @@ import { NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
 import { requireClientSession } from "@/lib/apiAuth";
 import type { PortalVariant } from "@/lib/portalVariant";
+import { getOrCreateStripeCustomerId, isStripeConfigured, stripeGet, stripePost } from "@/lib/stripeFetch";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -77,6 +78,10 @@ function readDiscountOffer(rewardJson: unknown): { promoCode: string; appliesToS
 
 function startOfUtcDay(d: Date) {
   return new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate(), 0, 0, 0, 0));
+}
+
+function normalizeEmail(raw: unknown): string {
+  return typeof raw === "string" ? raw.trim().toLowerCase() : "";
 }
 
 function readCpcBillingFromTarget(targetJson: unknown): { dailyBudgetCents: number; costPerClickCents: number } | null {
@@ -191,6 +196,9 @@ export async function GET(req: Request) {
         const dayStart = startOfUtcDay(now);
 
         await prisma.$transaction(async (tx) => {
+          // Prevent duplicate auto-topups for the same advertiser under concurrency.
+          await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`ads_auto_topup:${advertiserUserId}`})::bigint)`;
+
           const account = await tx.adsAdvertiserAccount.upsert({
             where: { userId: advertiserUserId },
             update: {},
@@ -201,6 +209,7 @@ export async function GET(req: Request) {
               autoTopUpEnabled: true,
               autoTopUpThresholdCents: true,
               autoTopUpAmountCents: true,
+              currency: true,
             },
           });
 
@@ -210,23 +219,61 @@ export async function GET(req: Request) {
             account.autoTopUpAmountCents > 0 &&
             balanceCents < Math.max(0, account.autoTopUpThresholdCents)
           ) {
-            await tx.adsAdvertiserAccount.update({
-              where: { id: account.id },
-              data: { balanceCents: { increment: account.autoTopUpAmountCents } },
-              select: { id: true },
-            });
+            // Never add funds without charging Stripe.
+            if (isStripeConfigured() && String(account.currency || "USD").toUpperCase() === "USD") {
+              const advertiser = await tx.user.findUnique({ where: { id: advertiserUserId }, select: { email: true } }).catch(() => null);
+              const email = normalizeEmail(advertiser?.email);
+              if (email) {
+                try {
+                  const customerId = await getOrCreateStripeCustomerId(email);
+                  const customer = await stripeGet<any>(`/v1/customers/${encodeURIComponent(customerId)}`);
 
-            await tx.adsAdvertiserLedgerEntry.create({
-              data: {
-                accountId: account.id,
-                kind: "TOPUP",
-                amountCents: account.autoTopUpAmountCents,
-                metaJson: { source: "auto_topup", reason: "balance_below_threshold" },
-              },
-              select: { id: true },
-            });
+                  const paymentMethod =
+                    typeof customer?.invoice_settings?.default_payment_method === "string"
+                      ? customer.invoice_settings.default_payment_method
+                      : typeof customer?.default_source === "string"
+                        ? customer.default_source
+                        : "";
 
-            balanceCents += account.autoTopUpAmountCents;
+                  if (paymentMethod) {
+                    const pi = await stripePost<any>("/v1/payment_intents", {
+                      amount: account.autoTopUpAmountCents,
+                      currency: "usd",
+                      customer: customerId,
+                      payment_method: paymentMethod,
+                      off_session: true,
+                      confirm: true,
+                      description: `Purely Automation ads auto top-up ($${(account.autoTopUpAmountCents / 100).toFixed(2)})`,
+                      "metadata[kind]": "ads_auto_topup",
+                      "metadata[advertiserUserId]": advertiserUserId,
+                      "metadata[reason]": "balance_below_threshold",
+                    });
+
+                    const paymentIntentId = typeof pi?.id === "string" ? pi.id : null;
+
+                    await tx.adsAdvertiserAccount.update({
+                      where: { id: account.id },
+                      data: { balanceCents: { increment: account.autoTopUpAmountCents } },
+                      select: { id: true },
+                    });
+
+                    await tx.adsAdvertiserLedgerEntry.create({
+                      data: {
+                        accountId: account.id,
+                        kind: "TOPUP",
+                        amountCents: account.autoTopUpAmountCents,
+                        metaJson: { source: "stripe_auto_topup", reason: "balance_below_threshold", paymentIntentId },
+                      },
+                      select: { id: true },
+                    });
+
+                    balanceCents += account.autoTopUpAmountCents;
+                  }
+                } catch {
+                  // ignore
+                }
+              }
+            }
           }
 
           if (balanceCents < billing.costPerClickCents) return;

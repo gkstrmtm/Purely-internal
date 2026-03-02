@@ -17,14 +17,13 @@ export default async function AdsAppLayout({ children }: { children: React.React
                 <Image
                   src="/brand/purity-5.png"
                   alt="Purely Automation"
-                  width={40}
-                  height={40}
-                  className="h-9 w-9 object-contain"
+                  width={48}
+                  height={48}
+                  className="h-11 w-11 object-contain"
                   priority
                 />
                 <div className="min-w-0">
                   <div className="truncate text-sm font-semibold text-zinc-900">Ads Manager</div>
-                  <div className="truncate text-xs font-medium text-zinc-500">Purely Automation</div>
                 </div>
               </Link>
 

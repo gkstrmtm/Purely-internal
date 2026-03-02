@@ -10,7 +10,22 @@ export const revalidate = 0;
 const patchSchema = z
   .object({
     decision: z.enum(["approve", "reject"]),
+    reason: z
+      .enum([
+        "MISLEADING_OR_FALSE",
+        "INAPPROPRIATE_CONTENT",
+        "PROHIBITED_PRODUCTS",
+        "SPAM_OR_LOW_QUALITY",
+        "BROKEN_OR_MISMATCHED_LINK",
+      ])
+      .optional()
+      .nullable(),
     notes: z.string().trim().max(2000).optional().nullable(),
+  })
+  .superRefine((val, ctx) => {
+    if (val.decision === "reject" && !val.reason) {
+      ctx.addIssue({ code: z.ZodIssueCode.custom, message: "Reason is required when rejecting.", path: ["reason"] });
+    }
   })
   .strict();
 
@@ -29,7 +44,31 @@ export async function PATCH(req: Request, ctx: { params: Promise<{ campaignId: s
   if (!parsed.success) return NextResponse.json({ ok: false, error: "Invalid request" }, { status: 400 });
 
   const reviewedById = String(auth.session.user.id);
-  const reviewNotes = parsed.data.notes == null ? null : parsed.data.notes.trim() || null;
+  const notesTrimmed = parsed.data.notes == null ? null : parsed.data.notes.trim() || null;
+
+  const reason = parsed.data.reason ?? null;
+  const reasonLabel =
+    reason === "MISLEADING_OR_FALSE"
+      ? "Misleading or false"
+      : reason === "INAPPROPRIATE_CONTENT"
+        ? "Inappropriate content"
+        : reason === "PROHIBITED_PRODUCTS"
+          ? "Prohibited products/services"
+          : reason === "SPAM_OR_LOW_QUALITY"
+            ? "Spam / low quality"
+            : reason === "BROKEN_OR_MISMATCHED_LINK"
+              ? "Broken or mismatched link"
+              : null;
+
+  const reviewNotes =
+    parsed.data.decision === "reject"
+      ? [
+          reason ? `[REASON:${reason}] ${reasonLabel ?? reason}` : null,
+          notesTrimmed ? `Notes: ${notesTrimmed}` : null,
+        ]
+          .filter(Boolean)
+          .join("\n") || null
+      : notesTrimmed;
 
   const nextStatus = parsed.data.decision === "approve" ? "APPROVED" : "REJECTED";
 

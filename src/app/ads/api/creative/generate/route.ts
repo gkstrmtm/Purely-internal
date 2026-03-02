@@ -13,6 +13,14 @@ const bodySchema = z
     placement: z.enum(["SIDEBAR_BANNER", "TOP_BANNER", "POPUP_CARD"]),
     campaignName: z.string().trim().max(80).optional(),
     linkUrl: z.string().trim().max(500).optional(),
+    existing: z
+      .object({
+        headline: z.string().trim().max(160).optional(),
+        body: z.string().trim().max(800).optional(),
+        ctaText: z.string().trim().max(80).optional(),
+        linkUrl: z.string().trim().max(500).optional(),
+      })
+      .optional(),
     targeting: z
       .object({
         industries: z.array(z.string().trim().min(1).max(80)).max(50).optional(),
@@ -74,6 +82,12 @@ export async function POST(req: Request) {
 
   const input = parsed.data;
 
+  const existingHeadline = String(input.existing?.headline || "").trim();
+  const existingBody = String(input.existing?.body || "").trim();
+  const existingCta = String(input.existing?.ctaText || "").trim();
+  const existingLink = String(input.existing?.linkUrl || "").trim();
+  const hasExisting = Boolean(existingHeadline || existingBody || existingCta || existingLink);
+
   const system =
     "You write high-converting, premium ad copy for a small business Ads Manager. " +
     "Be concise. Avoid hype. Do not include emojis. Do not include quotes around fields. " +
@@ -84,6 +98,12 @@ export async function POST(req: Request) {
     `Placement: ${input.placement}`,
     input.campaignName ? `Campaign: ${input.campaignName}` : "",
     input.linkUrl ? `Link: ${input.linkUrl}` : "",
+    hasExisting ? "" : "",
+    hasExisting ? "Existing copy (refine this, don't ignore it):" : "",
+    hasExisting ? (existingHeadline ? `- Headline: ${existingHeadline}` : "- Headline: (none)") : "",
+    hasExisting ? (existingBody ? `- Body: ${existingBody}` : "- Body: (none)") : "",
+    hasExisting ? (existingCta ? `- CTA: ${existingCta}` : "- CTA: (none)") : "",
+    hasExisting ? (existingLink ? `- Link: ${existingLink}` : "- Link: (none)") : "",
     "",
     "Targeting:",
     input.targeting?.industries?.length ? `- Industries: ${input.targeting.industries.join(", ")}` : "- Industries: (none)",
@@ -95,6 +115,8 @@ export async function POST(req: Request) {
     "- headline <= 70 chars recommended (hard cap 160)",
     "- body <= 220 chars recommended (hard cap 800)",
     "- ctaText <= 18 chars recommended (hard cap 80)",
+    "",
+    "If existing copy is provided, keep the same offer and intent, but improve clarity and conversion.",
   ]
     .filter(Boolean)
     .join("\n");

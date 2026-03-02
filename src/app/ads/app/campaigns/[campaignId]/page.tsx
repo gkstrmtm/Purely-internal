@@ -4,6 +4,7 @@ import Image from "next/image";
 import { prisma } from "@/lib/db";
 import { requireAdsUser } from "@/lib/adsAuth";
 import { CampaignToggleButton } from "./CampaignToggleButton";
+import { AdsCampaignEditorClient } from "./AdsCampaignEditorClient";
 
 function usd(cents: number) {
   return (cents / 100).toLocaleString(undefined, { style: "currency", currency: "USD" });
@@ -124,6 +125,18 @@ export default async function AdsCampaignDetailsPage(props: { params: Promise<{ 
   const ctr7d = impressions7d > 0 ? (clicks7d / impressions7d) * 100 : 0;
   const avgCpc7dCents = chargedClicks7d > 0 ? Math.round(spend7dCents / chargedClicks7d) : 0;
 
+  const campaignForEditor = {
+    id: campaign.id,
+    name: campaign.name,
+    placement: campaign.placement as any,
+    enabled: campaign.enabled,
+    reviewStatus: campaign.reviewStatus,
+    startAtIso: campaign.startAt ? campaign.startAt.toISOString() : null,
+    endAtIso: campaign.endAt ? campaign.endAt.toISOString() : null,
+    targetJson: campaign.targetJson,
+    creativeJson: campaign.creativeJson,
+  };
+
   return (
     <div className="space-y-6">
       <div className="flex flex-col justify-between gap-3 sm:flex-row sm:items-center">
@@ -168,6 +181,8 @@ export default async function AdsCampaignDetailsPage(props: { params: Promise<{ 
           </div>
         </div>
       ) : null}
+
+      <AdsCampaignEditorClient campaign={campaignForEditor} />
 
       <div className="grid gap-4 lg:grid-cols-4">
         <div className="rounded-3xl border border-zinc-200 bg-white p-6">

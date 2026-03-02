@@ -29,6 +29,12 @@ export default function AdsCampaignApprovalsClient() {
   const [error, setError] = useState<string | null>(null);
   const [busyId, setBusyId] = useState<string | null>(null);
   const [notesById, setNotesById] = useState<Record<string, string>>({});
+  const [reasonById, setReasonById] = useState<
+    Record<
+      string,
+      "MISLEADING_OR_FALSE" | "INAPPROPRIATE_CONTENT" | "PROHIBITED_PRODUCTS" | "SPAM_OR_LOW_QUALITY" | "BROKEN_OR_MISMATCHED_LINK"
+    >
+  >({});
 
   async function load() {
     setError(null);
@@ -57,6 +63,8 @@ export default function AdsCampaignApprovalsClient() {
         headers: { "content-type": "application/json" },
         body: JSON.stringify({
           decision,
+          reason:
+            decision === "reject" ? (reasonById[id] ?? "MISLEADING_OR_FALSE") : null,
           notes: (notesById[id] ?? "").trim() || null,
         }),
       }).catch(() => null as any);
@@ -178,6 +186,27 @@ export default function AdsCampaignApprovalsClient() {
                       <div className="rounded-3xl border border-zinc-200 bg-white p-4">
                         <div className="text-sm font-semibold text-zinc-900">Review</div>
                         <div className="mt-1 text-sm text-zinc-600">Add optional notes (shown to the advertiser if rejected).</div>
+
+                        <div className="mt-3">
+                          <div className="text-xs font-semibold uppercase tracking-wide text-zinc-500">Rejection reason</div>
+                          <select
+                            value={reasonById[c.id] ?? "MISLEADING_OR_FALSE"}
+                            onChange={(e) =>
+                              setReasonById((cur) => ({
+                                ...cur,
+                                [c.id]: e.target.value as any,
+                              }))
+                            }
+                            className="mt-2 w-full rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-sm outline-none focus:border-zinc-400"
+                          >
+                            <option value="MISLEADING_OR_FALSE">Misleading or false</option>
+                            <option value="INAPPROPRIATE_CONTENT">Inappropriate content</option>
+                            <option value="PROHIBITED_PRODUCTS">Prohibited products/services</option>
+                            <option value="SPAM_OR_LOW_QUALITY">Spam / low quality</option>
+                            <option value="BROKEN_OR_MISMATCHED_LINK">Broken or mismatched link</option>
+                          </select>
+                          <div className="mt-2 text-xs text-zinc-500">Required when you request changes.</div>
+                        </div>
 
                         <textarea
                           value={notesById[c.id] ?? ""}

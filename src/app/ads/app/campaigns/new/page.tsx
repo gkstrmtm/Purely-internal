@@ -59,6 +59,9 @@ export default function NewAdsCampaignPage() {
   const [linkUrl, setLinkUrl] = useState("https://purelyautomation.com");
   const [creativeBusy, setCreativeBusy] = useState(false);
 
+  const [showHowItWorks, setShowHowItWorks] = useState(false);
+  const [showAllPreviews, setShowAllPreviews] = useState(true);
+
   const [mediaUrl, setMediaUrl] = useState<string>("");
   const [mediaKind, setMediaKind] = useState<"image" | "video" | "">("");
   const [mediaFit, setMediaFit] = useState<"cover" | "contain">("cover");
@@ -214,6 +217,12 @@ export default function NewAdsCampaignPage() {
           placement,
           campaignName: name,
           linkUrl,
+          existing: {
+            headline,
+            body,
+            ctaText,
+            linkUrl,
+          },
           targeting: {
             industries: dedupe(industries),
             businessModels: dedupe(businessModels),
@@ -533,6 +542,53 @@ export default function NewAdsCampaignPage() {
             <div className="flex items-center gap-2">
               <button
                 type="button"
+                onClick={() => setShowAllPreviews((v) => !v)}
+                disabled={busy}
+                className={
+                  "inline-flex h-10 w-10 items-center justify-center rounded-2xl border bg-white text-zinc-700 hover:bg-zinc-50 disabled:opacity-60 " +
+                  (showAllPreviews ? "border-[color:var(--color-brand-blue)]/30" : "border-zinc-200")
+                }
+                aria-label={showAllPreviews ? "Hide multi-placement preview" : "Show multi-placement preview"}
+                title={showAllPreviews ? "Hide multi-placement preview" : "Show multi-placement preview"}
+              >
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+                  <path
+                    d="M1.5 12s4-7 10.5-7 10.5 7 10.5 7-4 7-10.5 7S1.5 12 1.5 12Z"
+                    stroke="currentColor"
+                    strokeWidth="1.8"
+                  />
+                  <path
+                    d="M12 15a3 3 0 1 0 0-6 3 3 0 0 0 0 6Z"
+                    stroke="currentColor"
+                    strokeWidth="1.8"
+                  />
+                </svg>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => setShowHowItWorks((v) => !v)}
+                disabled={busy}
+                className={
+                  "inline-flex h-10 w-10 items-center justify-center rounded-2xl border bg-white text-zinc-700 hover:bg-zinc-50 disabled:opacity-60 " +
+                  (showHowItWorks ? "border-[color:var(--color-brand-blue)]/30" : "border-zinc-200")
+                }
+                aria-label={showHowItWorks ? "Hide how it works" : "Show how it works"}
+                title={showHowItWorks ? "Hide how it works" : "Show how it works"}
+              >
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+                  <path
+                    d="M12 21a9 9 0 1 0 0-18 9 9 0 0 0 0 18Z"
+                    stroke="currentColor"
+                    strokeWidth="1.8"
+                  />
+                  <path d="M12 10.5v6" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
+                  <path d="M12 7.5h.01" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" />
+                </svg>
+              </button>
+
+              <button
+                type="button"
                 onClick={() => void generateCreative()}
                 disabled={creativeBusy || busy}
                   className="inline-flex items-center gap-2 rounded-2xl bg-[color:var(--color-brand-blue)] px-4 py-2 text-sm font-semibold text-white shadow-sm hover:opacity-95 disabled:opacity-60"
@@ -565,6 +621,18 @@ export default function NewAdsCampaignPage() {
               </button>
             </div>
           </div>
+
+          {showHowItWorks ? (
+            <div className="mt-4 rounded-2xl border border-[color:var(--color-brand-blue)]/20 bg-[color:var(--color-brand-blue)]/5 p-4 text-sm text-zinc-700">
+              <div className="font-semibold text-zinc-900">How “Generate” works</div>
+              <div className="mt-2 space-y-1">
+                <div>• It uses your placement + targeting to suggest copy.</div>
+                <div>• If you already typed a headline/body/CTA, it will improve what you wrote (not ignore it).</div>
+                <div>• You can click Generate multiple times to see options, then tweak by hand.</div>
+                <div>• Media is never edited — it only affects how your ad renders.</div>
+              </div>
+            </div>
+          ) : null}
 
           <div className="mt-4 grid gap-4">
             <label className="block">
@@ -760,49 +828,80 @@ export default function NewAdsCampaignPage() {
 
         <div className="rounded-3xl border border-zinc-200 bg-white p-6">
           <div className="text-sm font-semibold text-zinc-900">Rendering</div>
-          <div className="mt-2 text-sm text-zinc-600">Approximate example (final styling can vary by placement).</div>
-
-          <div className="mt-4 rounded-3xl border border-zinc-200 bg-zinc-50 p-4">
-            <div className="text-xs font-semibold uppercase tracking-wide text-zinc-500">{placement}</div>
-            <div className="mt-2 text-sm font-semibold text-zinc-900">{headline || "Headline"}</div>
-            {body ? <div className="mt-1 text-sm text-zinc-600">{body}</div> : null}
-
-            {mediaUrl ? (
-              <div
-                className="mt-3 overflow-hidden rounded-2xl border border-zinc-200 bg-white"
-                style={{ height: placement === "SIDEBAR_BANNER" ? sidebarImageHeight : 160 }}
-              >
-                {mediaKind === "video" ? (
-                  <video
-                    src={mediaUrl}
-                    muted
-                    playsInline
-                    controls
-                    className="h-full w-full"
-                    style={{ objectFit: mediaFit, objectPosition: mediaPosition }}
-                  />
-                ) : (
-                  <div className="relative h-full w-full">
-                    <Image
-                      src={mediaUrl}
-                      alt=""
-                      fill
-                      sizes="(max-width: 1024px) 100vw, 800px"
-                      className="h-full w-full"
-                      style={{ objectFit: mediaFit, objectPosition: mediaPosition }}
-                      unoptimized
-                    />
-                  </div>
-                )}
-              </div>
-            ) : null}
-
-            <div className="mt-4">
-              <div className="inline-flex items-center justify-center rounded-full bg-[color:var(--color-brand-blue)] px-4 py-2 text-xs font-semibold text-white">
-                {ctaText || "CTA"}
-              </div>
-            </div>
+          <div className="mt-2 text-sm text-zinc-600">
+            Approximate examples (final styling can vary). {showAllPreviews ? "Showing multiple placements." : "Showing the selected placement."}
           </div>
+
+          {(
+            showAllPreviews
+              ? ([
+                  { id: "POPUP_CARD", label: "Popup card" },
+                  { id: "SIDEBAR_BANNER", label: "Sidebar banner" },
+                  { id: "TOP_BANNER", label: "Top banner" },
+                  { id: "BILLING_SPONSORED", label: "Billing sponsored (preview)" },
+                  { id: "FULLSCREEN_REWARD", label: "Fullscreen reward (preview)" },
+                ] as const)
+              : ([{ id: placement, label: placement }] as const)
+          ).map((p) => {
+            const previewPlacement = p.id as any;
+            const imageHeight =
+              previewPlacement === "SIDEBAR_BANNER"
+                ? sidebarImageHeight
+                : previewPlacement === "TOP_BANNER"
+                  ? Math.max(80, Math.min(220, topBannerImageSize + 64))
+                  : previewPlacement === "FULLSCREEN_REWARD"
+                    ? 220
+                    : 160;
+
+            return (
+              <div key={p.id} className="mt-4 rounded-3xl border border-zinc-200 bg-zinc-50 p-4">
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <div className="text-xs font-semibold uppercase tracking-wide text-zinc-500">{p.label}</div>
+                  {p.id === "BILLING_SPONSORED" || p.id === "FULLSCREEN_REWARD" ? (
+                    <div className="rounded-full border border-zinc-200 bg-white px-3 py-1 text-xs font-semibold text-zinc-700">
+                      Preview only
+                    </div>
+                  ) : null}
+                </div>
+
+                <div className="mt-2 text-sm font-semibold text-zinc-900">{headline || "Headline"}</div>
+                {body ? <div className="mt-1 text-sm text-zinc-600">{body}</div> : null}
+
+                {mediaUrl ? (
+                  <div className="mt-3 overflow-hidden rounded-2xl border border-zinc-200 bg-white" style={{ height: imageHeight }}>
+                    {mediaKind === "video" ? (
+                      <video
+                        src={mediaUrl}
+                        muted
+                        playsInline
+                        controls
+                        className="h-full w-full"
+                        style={{ objectFit: mediaFit, objectPosition: mediaPosition }}
+                      />
+                    ) : (
+                      <div className="relative h-full w-full">
+                        <Image
+                          src={mediaUrl}
+                          alt=""
+                          fill
+                          sizes="(max-width: 1024px) 100vw, 800px"
+                          className="h-full w-full"
+                          style={{ objectFit: mediaFit, objectPosition: mediaPosition }}
+                          unoptimized
+                        />
+                      </div>
+                    )}
+                  </div>
+                ) : null}
+
+                <div className="mt-4">
+                  <div className="inline-flex items-center justify-center rounded-full bg-[color:var(--color-brand-blue)] px-4 py-2 text-xs font-semibold text-white">
+                    {ctaText || "CTA"}
+                  </div>
+                </div>
+              </div>
+            );
+          })}
         </div>
       </div>
     </div>

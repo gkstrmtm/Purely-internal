@@ -272,6 +272,7 @@ export default function PortalAdCampaignsClient() {
   const [usersError, setUsersError] = useState<string | null>(null);
   const [usersDays, setUsersDays] = useState(30);
   const [usersCampaignId, setUsersCampaignId] = useState<string>("");
+  const [usersIncludeAll, setUsersIncludeAll] = useState<boolean>(false);
   const [usersQuery, setUsersQuery] = useState("");
   const [usersRows, setUsersRows] = useState<CampaignUserAnalyticsRow[]>([]);
 
@@ -368,6 +369,7 @@ export default function PortalAdCampaignsClient() {
       const qs = new URLSearchParams();
       qs.set("days", String(usersDays));
       if (usersCampaignId.trim()) qs.set("campaignId", usersCampaignId.trim());
+      if (usersIncludeAll) qs.set("includeAll", "1");
 
       const res = await fetch(`/api/staff/portal/ad-campaigns/users?${qs.toString()}`, { cache: "no-store" }).catch(() => null as any);
       const json = (await res?.json().catch(() => null)) as any;
@@ -398,7 +400,7 @@ export default function PortalAdCampaignsClient() {
     return () => {
       mounted = false;
     };
-  }, [tab, usersCampaignId, usersDays]);
+  }, [tab, usersCampaignId, usersDays, usersIncludeAll]);
 
   const [assignOpen, setAssignOpen] = useState(false);
   const [assignCampaignId, setAssignCampaignId] = useState<string | null>(null);
@@ -1254,6 +1256,20 @@ export default function PortalAdCampaignsClient() {
             </div>
 
             <div className="flex flex-wrap items-center gap-2">
+              <button
+                type="button"
+                onClick={() => setUsersIncludeAll((v) => !v)}
+                className={
+                  "inline-flex items-center gap-2 rounded-2xl border px-3 py-2 text-sm font-semibold " +
+                  (usersIncludeAll
+                    ? "border-[color:var(--color-brand-blue)]/30 bg-[color:var(--color-brand-blue)]/10 text-zinc-900"
+                    : "border-zinc-200 bg-white text-zinc-700 hover:bg-zinc-50")
+                }
+                title={usersIncludeAll ? "Showing all users" : "Showing only users with events"}
+              >
+                {usersIncludeAll ? "All users" : "Active only"}
+              </button>
+
               <PortalListboxDropdown
                 value={usersCampaignId}
                 onChange={(v) => setUsersCampaignId(v)}

@@ -41,7 +41,6 @@ export default function AdsSignupPage() {
         </Link>
 
         <h1 className="mt-6 text-2xl font-bold">Create your Ads Manager account</h1>
-        <p className="mt-2 text-sm text-zinc-600">This won’t sign you out of the portal.</p>
 
         <form onSubmit={onSubmit} className="mt-6 rounded-3xl border border-zinc-200 bg-white p-6">
           <label className="block">
