@@ -3,12 +3,11 @@
 import Link from "next/link";
 import Image from "next/image";
 import { useRouter } from "next/navigation";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
+import { PortalListboxDropdown } from "@/components/PortalListboxDropdown";
 import { BUSINESS_MODEL_SUGGESTIONS, INDUSTRY_SUGGESTIONS } from "@/lib/portalOnboardingWizardCatalog";
-import { PORTAL_SERVICES } from "@/app/portal/services/catalog";
 
-type Bucket = { id: string; name: string; description: string | null };
 type Audience = { id: string; name: string; targetingJson: any };
 
 function usdToCents(v: string) {
@@ -50,10 +49,6 @@ export default function NewAdsCampaignPage() {
 
   const [industries, setIndustries] = useState<string[]>([]);
   const [businessModels, setBusinessModels] = useState<string[]>([]);
-  const [serviceMatch, setServiceMatch] = useState<"ANY" | "ALL">("ANY");
-  const [serviceSlugs, setServiceSlugs] = useState<string[]>([]);
-  const [serviceSearch, setServiceSearch] = useState("");
-  const [bucketIds, setBucketIds] = useState<string[]>([]);
 
   const [customIndustry, setCustomIndustry] = useState("");
   const [customBusinessModel, setCustomBusinessModel] = useState("");
@@ -71,7 +66,6 @@ export default function NewAdsCampaignPage() {
   const [sidebarImageHeight, setSidebarImageHeight] = useState<number>(140);
   const [topBannerImageSize, setTopBannerImageSize] = useState<number>(96);
 
-  const [buckets, setBuckets] = useState<Bucket[]>([]);
   const [uploadBusy, setUploadBusy] = useState(false);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const [selectedFileName, setSelectedFileName] = useState<string>("");
@@ -85,18 +79,6 @@ export default function NewAdsCampaignPage() {
   const [accountBusy, setAccountBusy] = useState(false);
 
   const balanceCents = Number(me?.account?.balanceCents || 0);
-
-  const selectableServices = useMemo(
-    () => PORTAL_SERVICES.filter((s) => !s.hidden).map((s) => ({ slug: s.slug, title: s.title })),
-    [],
-  );
-
-  useEffect(() => {
-    fetch("/ads/api/targeting-buckets")
-      .then((r) => r.json())
-      .then((j) => setBuckets(Array.isArray(j?.buckets) ? j.buckets : []))
-      .catch(() => setBuckets([]));
-  }, []);
 
   async function loadAudiences() {
     try {
@@ -141,16 +123,6 @@ export default function NewAdsCampaignPage() {
     const t = (a.targetingJson ?? {}) as any;
     setIndustries(dedupe(Array.isArray(t.industries) ? t.industries : []));
     setBusinessModels(dedupe(Array.isArray(t.businessModels) ? t.businessModels : []));
-    const any = dedupe(Array.isArray(t.serviceSlugsAny) ? t.serviceSlugsAny : []);
-    const all = dedupe(Array.isArray(t.serviceSlugsAll) ? t.serviceSlugsAll : []);
-    if (all.length) {
-      setServiceMatch("ALL");
-      setServiceSlugs(all);
-    } else {
-      setServiceMatch("ANY");
-      setServiceSlugs(any);
-    }
-    setBucketIds(dedupe(Array.isArray(t.bucketIds) ? t.bucketIds : []));
   }, [audienceId, audiences]);
 
   async function saveAudience() {
@@ -171,9 +143,6 @@ export default function NewAdsCampaignPage() {
           targeting: {
             industries: dedupe(industries),
             businessModels: dedupe(businessModels),
-            serviceSlugsAny: serviceMatch === "ANY" ? dedupe(serviceSlugs) : [],
-            serviceSlugsAll: serviceMatch === "ALL" ? dedupe(serviceSlugs) : [],
-            bucketIds: dedupe(bucketIds),
           },
         }),
       });
@@ -248,9 +217,6 @@ export default function NewAdsCampaignPage() {
           targeting: {
             industries: dedupe(industries),
             businessModels: dedupe(businessModels),
-            serviceMatch,
-            serviceSlugs: dedupe(serviceSlugs),
-            bucketIds: dedupe(bucketIds),
           },
         }),
       });
@@ -288,9 +254,6 @@ export default function NewAdsCampaignPage() {
           targeting: {
             industries: dedupe(industries),
             businessModels: dedupe(businessModels),
-            serviceSlugsAny: serviceMatch === "ANY" ? dedupe(serviceSlugs) : [],
-            serviceSlugsAll: serviceMatch === "ALL" ? dedupe(serviceSlugs) : [],
-            bucketIds: dedupe(bucketIds),
           },
           creative: {
             headline,
@@ -412,19 +375,17 @@ export default function NewAdsCampaignPage() {
                   </div>
 
                   <div className="mt-3 grid gap-2">
-                    <select
+                    <PortalListboxDropdown
                       value={audienceId}
-                      onChange={(e) => setAudienceId(e.target.value)}
+                      onChange={(v) => setAudienceId(v)}
                       disabled={audienceBusy || busy}
-                      className="w-full rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-sm outline-none focus:border-zinc-400 disabled:opacity-60"
-                    >
-                      <option value="">— No profile —</option>
-                      {audiences.map((a) => (
-                        <option key={a.id} value={a.id}>
-                          {a.name}
-                        </option>
-                      ))}
-                    </select>
+                      placeholder="No profile"
+                      buttonClassName="flex w-full items-center justify-between gap-2 rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-sm outline-none hover:bg-zinc-50 focus:border-[color:var(--color-brand-blue)] disabled:opacity-60"
+                      options={[
+                        { value: "", label: "No profile" },
+                        ...audiences.map((a) => ({ value: a.id, label: a.name })),
+                      ]}
+                    />
 
                     <div className="grid gap-2 sm:grid-cols-3">
                       <input
@@ -466,7 +427,7 @@ export default function NewAdsCampaignPage() {
                         onClick={() => setIndustries((cur) => toggle(cur, x))}
                         className={
                           industries.includes(x)
-                            ? "rounded-full bg-brand-ink px-3 py-1.5 text-xs font-semibold text-white"
+                            ? "rounded-full border border-[color:var(--color-brand-blue)]/25 bg-[color:var(--color-brand-blue)]/10 px-3 py-1.5 text-xs font-semibold text-[color:var(--color-brand-blue)]"
                             : "rounded-full border border-zinc-200 bg-white px-3 py-1.5 text-xs font-semibold text-zinc-700 hover:bg-zinc-50"
                         }
                       >
@@ -507,7 +468,7 @@ export default function NewAdsCampaignPage() {
                         onClick={() => setBusinessModels((cur) => toggle(cur, x))}
                         className={
                           businessModels.includes(x)
-                            ? "rounded-full bg-brand-ink px-3 py-1.5 text-xs font-semibold text-white"
+                            ? "rounded-full border border-[color:var(--color-brand-blue)]/25 bg-[color:var(--color-brand-blue)]/10 px-3 py-1.5 text-xs font-semibold text-[color:var(--color-brand-blue)]"
                             : "rounded-full border border-zinc-200 bg-white px-3 py-1.5 text-xs font-semibold text-zinc-700 hover:bg-zinc-50"
                         }
                       >
@@ -537,110 +498,6 @@ export default function NewAdsCampaignPage() {
                     </button>
                   </div>
                 </div>
-
-            <div className="rounded-2xl bg-zinc-50 p-4">
-              <div className="flex flex-col justify-between gap-3 sm:flex-row sm:items-center">
-                <div>
-                  <div className="text-sm font-semibold text-zinc-900">Services</div>
-                  <div className="mt-1 text-xs text-zinc-500">
-                    Choose which services the viewer must have unlocked to see this ad.
-                  </div>
-                </div>
-                <div className="flex items-center gap-2">
-                  <button
-                    type="button"
-                    onClick={() => setServiceMatch("ANY")}
-                    className={
-                      "rounded-2xl px-3 py-2 text-xs font-semibold " +
-                      (serviceMatch === "ANY"
-                        ? "bg-brand-ink text-white"
-                        : "border border-zinc-200 bg-white text-zinc-700 hover:bg-zinc-50")
-                    }
-                  >
-                    Match any
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setServiceMatch("ALL")}
-                    className={
-                      "rounded-2xl px-3 py-2 text-xs font-semibold " +
-                      (serviceMatch === "ALL"
-                        ? "bg-brand-ink text-white"
-                        : "border border-zinc-200 bg-white text-zinc-700 hover:bg-zinc-50")
-                    }
-                  >
-                    Match all
-                  </button>
-                </div>
-              </div>
-
-              <div className="mt-4">
-                <input
-                  value={serviceSearch}
-                  onChange={(e) => setServiceSearch(e.target.value)}
-                  placeholder="Search services…"
-                  className="w-full rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-sm outline-none focus:border-zinc-400"
-                />
-              </div>
-
-              <div className="mt-3 max-h-64 overflow-auto rounded-2xl border border-zinc-200">
-                {selectableServices
-                  .filter((s) => {
-                    const q = serviceSearch.trim().toLowerCase();
-                    if (!q) return true;
-                    return s.title.toLowerCase().includes(q) || s.slug.toLowerCase().includes(q);
-                  })
-                  .map((s) => (
-                    <label
-                      key={s.slug}
-                      className="flex cursor-pointer items-center justify-between gap-3 border-b border-zinc-100 bg-white px-4 py-3 last:border-b-0"
-                    >
-                      <div className="min-w-0">
-                        <div className="truncate text-sm font-medium text-zinc-900">{s.title}</div>
-                        <div className="truncate text-xs text-zinc-500">{s.slug}</div>
-                      </div>
-                      <input
-                        type="checkbox"
-                        checked={serviceSlugs.includes(s.slug)}
-                        onChange={() => setServiceSlugs((cur) => toggle(cur, s.slug))}
-                      />
-                    </label>
-                  ))}
-              </div>
-
-              <div className="mt-2 text-xs text-zinc-500">
-                {serviceMatch === "ANY"
-                  ? "Match any: the viewer must have at least one selected service unlocked."
-                  : "Match all: the viewer must have every selected service unlocked."}
-              </div>
-            </div>
-
-            <div>
-              <div className="text-xs font-semibold uppercase tracking-wide text-zinc-500">Targeting buckets</div>
-              <div className="mt-1 text-xs text-zinc-500">Buckets target portal users by context (example: “new lead”, “payment due”).</div>
-              <div className="mt-3 grid gap-2 sm:grid-cols-2">
-                {buckets.map((b) => (
-                  <label key={b.id} className="flex items-center justify-between rounded-2xl border border-zinc-200 bg-white px-4 py-2">
-                    <div>
-                      <div className="text-sm font-semibold text-zinc-900">{b.name}</div>
-                      {b.description ? <div className="mt-0.5 text-xs text-zinc-500">{b.description}</div> : null}
-                    </div>
-                    <input
-                      type="checkbox"
-                      checked={bucketIds.includes(b.id)}
-                      onChange={() => setBucketIds((cur) => toggle(cur, b.id))}
-                    />
-                  </label>
-                ))}
-
-                {buckets.length === 0 ? (
-                  <div className="rounded-2xl border border-zinc-200 bg-white px-4 py-3 text-sm text-zinc-600 sm:col-span-2">
-                    No buckets configured yet.
-                  </div>
-                ) : null}
-              </div>
-            </div>
-
               </div>
             </div>
           </div>
@@ -678,9 +535,21 @@ export default function NewAdsCampaignPage() {
                 type="button"
                 onClick={() => void generateCreative()}
                 disabled={creativeBusy || busy}
-                className="rounded-2xl bg-brand-ink px-4 py-2 text-sm font-semibold text-white hover:opacity-95 disabled:opacity-60"
+                  className="inline-flex items-center gap-2 rounded-2xl bg-[color:var(--color-brand-blue)] px-4 py-2 text-sm font-semibold text-white shadow-sm hover:opacity-95 disabled:opacity-60"
               >
-                {creativeBusy ? "Generating…" : "Generate"}
+                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+                    <path
+                      d="M12 2l1.2 5.1L18 9l-4.8 1.9L12 16l-1.2-5.1L6 9l4.8-1.9L12 2Z"
+                      fill="currentColor"
+                      opacity="0.95"
+                    />
+                    <path
+                      d="M19 13l.7 2.7L22 17l-2.3.9L19 20l-.7-2.1L16 17l2.3-1.3L19 13Z"
+                      fill="currentColor"
+                      opacity="0.75"
+                    />
+                  </svg>
+                  <span>{creativeBusy ? "Generating…" : "Generate"}</span>
               </button>
               <button
                 type="button"
@@ -788,42 +657,51 @@ export default function NewAdsCampaignPage() {
               <div className="mt-4 grid gap-3 sm:grid-cols-3">
                 <label className="block">
                   <div className="text-xs font-semibold uppercase tracking-wide text-zinc-500">Fit</div>
-                  <select
-                    value={mediaFit}
-                    onChange={(e) => setMediaFit(e.target.value as any)}
-                    className="mt-2 w-full rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-sm outline-none focus:border-zinc-400"
-                  >
-                    <option value="cover">Cover (crop)</option>
-                    <option value="contain">Contain</option>
-                  </select>
+                  <div className="mt-2">
+                    <PortalListboxDropdown
+                      value={mediaFit}
+                      onChange={(v) => setMediaFit(v as any)}
+                      options={[
+                        { value: "cover", label: "Cover (crop)" },
+                        { value: "contain", label: "Contain" },
+                      ]}
+                      buttonClassName="flex w-full items-center justify-between gap-2 rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-sm hover:bg-zinc-50 focus:border-[color:var(--color-brand-blue)]"
+                    />
+                  </div>
                 </label>
 
                 <label className="block">
                   <div className="text-xs font-semibold uppercase tracking-wide text-zinc-500">Focus</div>
-                  <select
-                    value={mediaPosition}
-                    onChange={(e) => setMediaPosition(e.target.value)}
-                    className="mt-2 w-full rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-sm outline-none focus:border-zinc-400"
-                  >
-                    <option value="50% 50%">Center</option>
-                    <option value="50% 0%">Top</option>
-                    <option value="50% 100%">Bottom</option>
-                    <option value="0% 50%">Left</option>
-                    <option value="100% 50%">Right</option>
-                  </select>
+                  <div className="mt-2">
+                    <PortalListboxDropdown
+                      value={mediaPosition}
+                      onChange={(v) => setMediaPosition(v)}
+                      options={[
+                        { value: "50% 50%", label: "Center" },
+                        { value: "50% 0%", label: "Top" },
+                        { value: "50% 100%", label: "Bottom" },
+                        { value: "0% 50%", label: "Left" },
+                        { value: "100% 50%", label: "Right" },
+                      ]}
+                      buttonClassName="flex w-full items-center justify-between gap-2 rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-sm hover:bg-zinc-50 focus:border-[color:var(--color-brand-blue)]"
+                    />
+                  </div>
                 </label>
 
                 <label className="block">
                   <div className="text-xs font-semibold uppercase tracking-wide text-zinc-500">Kind</div>
-                  <select
-                    value={mediaKind || ""}
-                    onChange={(e) => setMediaKind((e.target.value as any) || "")}
-                    className="mt-2 w-full rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-sm outline-none focus:border-zinc-400"
-                  >
-                    <option value="">Auto</option>
-                    <option value="image">Image</option>
-                    <option value="video">Video</option>
-                  </select>
+                  <div className="mt-2">
+                    <PortalListboxDropdown
+                      value={mediaKind || ""}
+                      onChange={(v) => setMediaKind((v as any) || "")}
+                      options={[
+                        { value: "", label: "Auto" },
+                        { value: "image", label: "Image" },
+                        { value: "video", label: "Video" },
+                      ]}
+                      buttonClassName="flex w-full items-center justify-between gap-2 rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-sm hover:bg-zinc-50 focus:border-[color:var(--color-brand-blue)]"
+                    />
+                  </div>
                 </label>
               </div>
 
@@ -863,7 +741,7 @@ export default function NewAdsCampaignPage() {
             <button
               onClick={onSubmit}
               disabled={busy}
-              className="inline-flex w-full items-center justify-center rounded-2xl bg-brand-ink px-5 py-3 text-sm font-semibold text-white hover:opacity-95 disabled:opacity-60"
+              className="inline-flex w-full items-center justify-center rounded-2xl bg-[color:var(--color-brand-blue)] px-5 py-3 text-sm font-semibold text-white hover:opacity-95 disabled:opacity-60"
             >
               {busy ? "Creating…" : "Create campaign"}
             </button>
@@ -920,7 +798,7 @@ export default function NewAdsCampaignPage() {
             ) : null}
 
             <div className="mt-4">
-              <div className="inline-flex items-center justify-center rounded-full bg-brand-ink px-4 py-2 text-xs font-semibold text-white">
+              <div className="inline-flex items-center justify-center rounded-full bg-[color:var(--color-brand-blue)] px-4 py-2 text-xs font-semibold text-white">
                 {ctaText || "CTA"}
               </div>
             </div>

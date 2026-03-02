@@ -10,9 +10,6 @@ const createSchema = z.object({
   targeting: z.object({
     industries: z.array(z.string().min(1).max(80)).max(50).optional(),
     businessModels: z.array(z.string().min(1).max(80)).max(50).optional(),
-    serviceSlugsAny: z.array(z.string().min(1).max(80)).max(50).optional(),
-    serviceSlugsAll: z.array(z.string().min(1).max(80)).max(50).optional(),
-    bucketIds: z.array(z.string().min(1).max(80)).max(50).optional(),
   }),
 });
 
@@ -69,16 +66,10 @@ export async function POST(req: Request) {
 
   const industries = uniqStrings(parsed.data.targeting.industries).slice(0, 50);
   const businessModels = uniqStrings(parsed.data.targeting.businessModels).slice(0, 50);
-  const serviceSlugsAny = uniqStrings(parsed.data.targeting.serviceSlugsAny).slice(0, 50);
-  const serviceSlugsAll = uniqStrings(parsed.data.targeting.serviceSlugsAll).slice(0, 50);
-  const bucketIds = uniqStrings(parsed.data.targeting.bucketIds).slice(0, 50);
 
   const targetingJson = omitUndefinedDeep({
     industries: industries.length ? industries : undefined,
     businessModels: businessModels.length ? businessModels : undefined,
-    serviceSlugsAny: serviceSlugsAny.length ? serviceSlugsAny : undefined,
-    serviceSlugsAll: serviceSlugsAll.length ? serviceSlugsAll : undefined,
-    bucketIds: bucketIds.length ? bucketIds : undefined,
   }) as Prisma.InputJsonValue;
 
   try {

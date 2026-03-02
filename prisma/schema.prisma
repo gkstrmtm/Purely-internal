@@ -35,6 +35,12 @@ enum PortalAdEventKind {
   CLAIM
 }
 
+enum PortalAdCampaignReviewStatus {
+  PENDING
+  APPROVED
+  REJECTED
+}
+
 enum AdsLedgerKind {
   TOPUP
   SPEND
@@ -190,6 +196,7 @@ model User {
 
   portalAdCampaignsCreated PortalAdCampaign[] @relation("PortalAdCampaignCreatedBy")
   portalAdCampaignsUpdated PortalAdCampaign[] @relation("PortalAdCampaignUpdatedBy")
+  portalAdCampaignsReviewed PortalAdCampaign[] @relation("PortalAdCampaignReviewedBy")
   portalAdCampaignAssignments PortalAdCampaignAssignment[]
   portalAdCampaignEvents PortalAdCampaignEvent[]
 
@@ -1512,6 +1519,11 @@ model PortalAdCampaign {
   enabled  Boolean @default(true)
   priority Int     @default(0)
 
+  reviewStatus PortalAdCampaignReviewStatus @default(APPROVED)
+  reviewedAt   DateTime?
+  reviewedById String?
+  reviewNotes  String?
+
   placement PortalAdPlacement
 
   startAt DateTime?
@@ -1532,12 +1544,14 @@ model PortalAdCampaign {
 
   createdBy User? @relation("PortalAdCampaignCreatedBy", fields: [createdById], references: [id])
   updatedBy User? @relation("PortalAdCampaignUpdatedBy", fields: [updatedById], references: [id])
+  reviewedBy User? @relation("PortalAdCampaignReviewedBy", fields: [reviewedById], references: [id])
 
   assignments PortalAdCampaignAssignment[]
   events      PortalAdCampaignEvent[]
 
   @@index([enabled, placement])
   @@index([placement, priority])
+  @@index([reviewStatus])
   @@index([startAt])
   @@index([endAt])
 }

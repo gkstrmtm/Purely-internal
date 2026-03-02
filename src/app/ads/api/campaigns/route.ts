@@ -32,11 +32,6 @@ const createSchema = z.object({
     .object({
       industries: z.array(z.string().min(1).max(80)).max(50).optional(),
       businessModels: z.array(z.string().min(1).max(80)).max(50).optional(),
-      serviceMatch: z.enum(["ANY", "ALL"]).optional(),
-      serviceSlugs: z.array(z.string().min(1).max(80)).max(50).optional(),
-      serviceSlugsAny: z.array(z.string().min(1).max(80)).max(50).optional(),
-      serviceSlugsAll: z.array(z.string().min(1).max(80)).max(50).optional(),
-      bucketIds: z.array(z.string().min(1).max(80)).max(50).optional(),
     })
     .optional(),
 
@@ -107,6 +102,9 @@ export async function GET() {
       id: true,
       name: true,
       enabled: true,
+      reviewStatus: true,
+      reviewedAt: true,
+      reviewNotes: true,
       placement: true,
       startAt: true,
       endAt: true,
@@ -132,23 +130,12 @@ export async function POST(req: Request) {
 
   const industries = uniqStrings(parsed.data.targeting?.industries).slice(0, 50);
   const businessModels = uniqStrings(parsed.data.targeting?.businessModels).slice(0, 50);
-  const serviceMatch = parsed.data.targeting?.serviceMatch;
-  const serviceSlugs = uniqStrings(parsed.data.targeting?.serviceSlugs).slice(0, 50);
-  const legacyAny = uniqStrings(parsed.data.targeting?.serviceSlugsAny).slice(0, 50);
-  const legacyAll = uniqStrings(parsed.data.targeting?.serviceSlugsAll).slice(0, 50);
-
-  const serviceSlugsAny = serviceSlugs.length ? (serviceMatch === "ALL" ? [] : serviceSlugs) : legacyAny;
-  const serviceSlugsAll = serviceSlugs.length ? (serviceMatch === "ALL" ? serviceSlugs : []) : legacyAll;
-  const bucketIds = uniqStrings(parsed.data.targeting?.bucketIds).slice(0, 50);
 
   const costPerClickCents = getDefaultCostPerClickCents(parsed.data.placement, parsed.data.budget.dailyBudgetCents);
 
   const targetJson = omitUndefinedDeep({
     industries: industries.length ? industries : undefined,
     businessModels: businessModels.length ? businessModels : undefined,
-    serviceSlugsAny: serviceSlugsAny.length ? serviceSlugsAny : undefined,
-    serviceSlugsAll: serviceSlugsAll.length ? serviceSlugsAll : undefined,
-    bucketIds: bucketIds.length ? bucketIds : undefined,
     // Customer surface does not expose internal knobs.
     paths: undefined,
     includeOwnerIds: undefined,
@@ -185,6 +172,10 @@ export async function POST(req: Request) {
       name: parsed.data.name,
       enabled,
       priority,
+      reviewStatus: "PENDING",
+      reviewedAt: null,
+      reviewedById: null,
+      reviewNotes: null,
       placement: parsed.data.placement,
       startAt,
       endAt,

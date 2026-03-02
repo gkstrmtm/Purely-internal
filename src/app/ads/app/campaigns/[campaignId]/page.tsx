@@ -23,6 +23,9 @@ export default async function AdsCampaignDetailsPage(props: { params: Promise<{ 
       id: true,
       name: true,
       enabled: true,
+      reviewStatus: true,
+      reviewedAt: true,
+      reviewNotes: true,
       placement: true,
       startAt: true,
       endAt: true,
@@ -40,13 +43,17 @@ export default async function AdsCampaignDetailsPage(props: { params: Promise<{ 
         <div className="mt-2 text-sm text-zinc-600">This campaign may have been deleted or you don’t have access.</div>
         <Link
           href="/ads/app"
-          className="mt-6 inline-flex items-center justify-center rounded-2xl bg-brand-ink px-5 py-3 text-sm font-semibold text-white hover:opacity-95"
+          className="mt-6 inline-flex items-center justify-center rounded-2xl bg-[color:var(--color-brand-blue)] px-5 py-3 text-sm font-semibold text-white hover:opacity-95"
         >
           Back to dashboard
         </Link>
       </div>
     );
   }
+
+  const reviewStatus = campaign.reviewStatus;
+  const isPending = reviewStatus === "PENDING";
+  const isRejected = reviewStatus === "REJECTED";
 
   const now = new Date();
   const todayStart = startOfUtcDay(now);
@@ -124,7 +131,8 @@ export default async function AdsCampaignDetailsPage(props: { params: Promise<{ 
           <div className="text-xs font-semibold uppercase tracking-wide text-zinc-500">Campaign</div>
           <div className="mt-1 text-2xl font-bold text-zinc-900">{campaign.name}</div>
           <div className="mt-1 text-sm text-zinc-600">
-            {campaign.placement} · {campaign.enabled ? "Enabled" : "Paused"} · Updated {campaign.updatedAt.toLocaleString()}
+            {campaign.placement} · {isPending ? "Pending review" : isRejected ? "Needs changes" : "Approved"} · {campaign.enabled ? "Enabled" : "Paused"} · Updated{" "}
+            {campaign.updatedAt.toLocaleString()}
           </div>
         </div>
         <div className="flex items-center gap-2">
@@ -134,9 +142,32 @@ export default async function AdsCampaignDetailsPage(props: { params: Promise<{ 
           >
             Back
           </Link>
-          <CampaignToggleButton campaignId={campaign.id} enabled={campaign.enabled} />
+          <CampaignToggleButton
+            campaignId={campaign.id}
+            enabled={campaign.enabled}
+            reviewStatus={campaign.reviewStatus}
+            reviewNotes={campaign.reviewNotes}
+          />
         </div>
       </div>
+
+      {isPending ? (
+        <div className="rounded-3xl border border-[color:var(--color-brand-blue)]/20 bg-[color:var(--color-brand-blue)]/5 p-5">
+          <div className="text-sm font-semibold text-zinc-900">Pending approval</div>
+          <div className="mt-1 text-sm text-zinc-700">
+            Your campaign won’t go live until a manager reviews and approves it.
+          </div>
+        </div>
+      ) : null}
+
+      {isRejected ? (
+        <div className="rounded-3xl border border-rose-200 bg-rose-50 p-5">
+          <div className="text-sm font-semibold text-rose-900">Changes requested</div>
+          <div className="mt-1 text-sm text-rose-800">
+            {campaign.reviewNotes ? `Manager notes: ${campaign.reviewNotes}` : "A manager asked for updates before approving this campaign."}
+          </div>
+        </div>
+      ) : null}
 
       <div className="grid gap-4 lg:grid-cols-4">
         <div className="rounded-3xl border border-zinc-200 bg-white p-6">
@@ -224,7 +255,7 @@ export default async function AdsCampaignDetailsPage(props: { params: Promise<{ 
                   <div className="text-xs text-zinc-500">No link URL</div>
                 )}
                 {ctaText ? (
-                  <div className="inline-flex items-center justify-center rounded-2xl bg-brand-ink px-4 py-2 text-xs font-semibold text-white">
+                  <div className="inline-flex items-center justify-center rounded-2xl bg-[color:var(--color-brand-blue)] px-4 py-2 text-xs font-semibold text-white">
                     {ctaText}
                   </div>
                 ) : null}

@@ -7,6 +7,9 @@ type CampaignRow = {
   id: string;
   name: string;
   enabled: boolean;
+  reviewStatus?: "PENDING" | "APPROVED" | "REJECTED" | null;
+  reviewedAt?: string | null;
+  reviewNotes?: string | null;
   placement: string;
   startAt: string | null;
   endAt: string | null;
@@ -44,7 +47,10 @@ export default function AdsAppHomePage() {
 
   const balanceCents = Number(me?.account?.balanceCents || 0);
 
-  const activeCount = useMemo(() => (campaigns || []).filter((c) => c.enabled).length, [campaigns]);
+  const activeCount = useMemo(
+    () => (campaigns || []).filter((c) => c.enabled && c.reviewStatus === "APPROVED").length,
+    [campaigns],
+  );
 
   async function load() {
     setError(null);
@@ -85,6 +91,25 @@ export default function AdsAppHomePage() {
         method: "PATCH",
         headers: { "content-type": "application/json" },
         body: JSON.stringify({ enabled }),
+      });
+      const json = await res.json().catch(() => null);
+      if (!res.ok || !json?.ok) throw new Error(String(json?.error || "Update failed"));
+      await load();
+    } catch (err: any) {
+      setError(String(err?.message || "Update failed"));
+    } finally {
+      setToggleBusyId(null);
+    }
+  }
+
+  async function requestCampaignReview(campaignId: string) {
+    setToggleBusyId(campaignId);
+    setError(null);
+    try {
+      const res = await fetch(`/ads/api/campaigns/${encodeURIComponent(campaignId)}`, {
+        method: "PATCH",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ requestReview: true }),
       });
       const json = await res.json().catch(() => null);
       if (!res.ok || !json?.ok) throw new Error(String(json?.error || "Update failed"));
@@ -143,7 +168,7 @@ export default function AdsAppHomePage() {
           <div className="mt-3 flex flex-col gap-2">
             <Link
               href="/ads/app/campaigns/new"
-              className="inline-flex items-center justify-center rounded-2xl bg-brand-ink px-4 py-2 text-sm font-semibold text-white hover:opacity-95"
+              className="inline-flex items-center justify-center rounded-2xl bg-[color:var(--color-brand-blue)] px-4 py-2 text-sm font-semibold text-white hover:opacity-95"
             >
               Create a campaign
             </Link>
@@ -159,7 +184,7 @@ export default function AdsAppHomePage() {
         </div>
         <Link
           href="/ads/app/campaigns/new"
-          className="inline-flex items-center justify-center rounded-2xl bg-brand-ink px-5 py-3 text-sm font-semibold text-white hover:opacity-95"
+          className="inline-flex items-center justify-center rounded-2xl bg-[color:var(--color-brand-blue)] px-5 py-3 text-sm font-semibold text-white hover:opacity-95"
         >
           New campaign
         </Link>
@@ -178,6 +203,12 @@ export default function AdsAppHomePage() {
             const billing = c?.targetJson?.billing;
             const dailyBudgetCents = Number(billing?.dailyBudgetCents || 0);
 
+            const reviewStatus = c.reviewStatus ?? null;
+            const isApproved = reviewStatus === "APPROVED";
+            const isPending = reviewStatus === "PENDING";
+            const isRejected = reviewStatus === "REJECTED";
+            const statusLabel = isPending ? "Pending review" : isRejected ? "Needs changes" : "Approved";
+
             return (
               <div key={c.id} className="px-6 py-4">
                 <div className="flex flex-col justify-between gap-3 sm:flex-row sm:items-center">
@@ -186,9 +217,12 @@ export default function AdsAppHomePage() {
                       {c.name}
                     </Link>
                     <div className="mt-1 text-xs text-zinc-500">
-                      {c.placement} · {c.enabled ? "Enabled" : "Paused"}
+                      {c.placement} · {statusLabel} · {c.enabled ? "Enabled" : "Paused"}
                       {dailyBudgetCents ? ` · ${usd(dailyBudgetCents)}/day` : ""}
                     </div>
+                    {isRejected && c.reviewNotes ? (
+                      <div className="mt-1 text-xs font-semibold text-rose-700">Manager notes: {String(c.reviewNotes)}</div>
+                    ) : null}
                   </div>
                   <div className="flex items-center gap-2">
                     <Link
@@ -197,16 +231,29 @@ export default function AdsAppHomePage() {
                     >
                       View
                     </Link>
+
+                    {isRejected ? (
+                      <button
+                        type="button"
+                        onClick={() => void requestCampaignReview(c.id)}
+                        disabled={toggleBusyId === c.id}
+                        className="rounded-2xl bg-[color:var(--color-brand-blue)] px-3 py-2 text-xs font-semibold text-white hover:opacity-95 disabled:opacity-60"
+                      >
+                        {toggleBusyId === c.id ? "Saving…" : "Request review"}
+                      </button>
+                    ) : null}
+
                     <button
                       type="button"
                       onClick={() => void setCampaignEnabled(c.id, !c.enabled)}
-                      disabled={toggleBusyId === c.id}
+                      disabled={toggleBusyId === c.id || (!isApproved && !c.enabled)}
                       className={
                         "rounded-2xl px-3 py-2 text-xs font-semibold disabled:opacity-60 " +
                         (c.enabled
                           ? "border border-zinc-200 bg-white text-zinc-700 hover:bg-zinc-50"
-                          : "bg-brand-ink text-white hover:opacity-95")
+                          : "bg-[color:var(--color-brand-blue)] text-white hover:opacity-95")
                       }
+                      title={!isApproved && !c.enabled ? "This campaign will go live after manager approval." : undefined}
                     >
                       {toggleBusyId === c.id ? "Saving…" : c.enabled ? "Pause" : "Enable"}
                     </button>

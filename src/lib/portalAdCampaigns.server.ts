@@ -390,6 +390,7 @@ export async function getNextPortalAdCampaignForOwner(opts: {
     .findMany({
       where: {
         enabled: true,
+        reviewStatus: "APPROVED",
         placement: opts.placement as any,
         ...(Array.isArray(opts.excludeCampaignIds) && opts.excludeCampaignIds.length
           ? { id: { notIn: opts.excludeCampaignIds.filter(Boolean).slice(0, 200) } }
@@ -402,7 +403,26 @@ export async function getNextPortalAdCampaignForOwner(opts: {
         _count: { select: { assignments: true } },
       },
     })
-    .catch(() => null);
+    .catch(async () => {
+      // Back-compat: if the approvals columns haven't been migrated yet, do not break serving.
+      return prisma.portalAdCampaign
+        .findMany({
+          where: {
+            enabled: true,
+            placement: opts.placement as any,
+            ...(Array.isArray(opts.excludeCampaignIds) && opts.excludeCampaignIds.length
+              ? { id: { notIn: opts.excludeCampaignIds.filter(Boolean).slice(0, 200) } }
+              : {}),
+          },
+          orderBy: [{ priority: "desc" }, { updatedAt: "desc" }, { createdAt: "desc" }],
+          take: 50,
+          include: {
+            assignments: { where: { ownerId: opts.ownerId }, select: { id: true } },
+            _count: { select: { assignments: true } },
+          },
+        })
+        .catch(() => null);
+    });
 
   if (!campaigns) return null;
 
@@ -549,6 +569,7 @@ export async function getPortalAdCampaignForOwnerById(opts: {
     .catch(() => null);
 
   if (!c?.enabled) return null;
+  if ((c as any)?.reviewStatus && (c as any).reviewStatus !== "APPROVED") return null;
   if (!withinWindow(now, c.startAt, c.endAt)) return null;
 
   const target = readTargetJson(c.targetJson);

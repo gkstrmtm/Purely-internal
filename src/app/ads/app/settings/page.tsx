@@ -188,7 +188,7 @@ export default function AdsSettingsPage() {
                   <button
                     onClick={doTopup}
                     disabled={topupBusy}
-                    className="inline-flex w-full items-center justify-center rounded-2xl bg-brand-ink px-5 py-3 text-sm font-semibold text-white hover:opacity-95 disabled:opacity-60 sm:w-auto"
+                    className="inline-flex w-full items-center justify-center rounded-2xl bg-[color:var(--color-brand-blue)] px-5 py-3 text-sm font-semibold text-white hover:opacity-95 disabled:opacity-60 sm:w-auto"
                   >
                     {topupBusy ? "Adding…" : "Add funds"}
                   </button>
@@ -217,7 +217,7 @@ export default function AdsSettingsPage() {
                   className={
                     "rounded-2xl px-4 py-2 text-sm font-semibold disabled:opacity-60 " +
                     (enabled
-                      ? "bg-brand-ink text-white"
+                      ? "bg-[color:var(--color-brand-blue)] text-white"
                       : "border border-zinc-200 bg-white text-zinc-700 hover:bg-zinc-50")
                   }
                 >
@@ -262,7 +262,7 @@ export default function AdsSettingsPage() {
                   type="button"
                   onClick={() => void save({ enabled, thresholdUsd, amountUsd })}
                   disabled={saving}
-                  className="inline-flex w-full items-center justify-center rounded-2xl bg-brand-ink px-5 py-3 text-sm font-semibold text-white hover:opacity-95 disabled:opacity-60 sm:w-auto"
+                  className="inline-flex w-full items-center justify-center rounded-2xl bg-[color:var(--color-brand-blue)] px-5 py-3 text-sm font-semibold text-white hover:opacity-95 disabled:opacity-60 sm:w-auto"
                 >
                   {saving ? "Saving…" : "Save settings"}
                 </button>
@@ -285,10 +285,7 @@ export default function AdsSettingsPage() {
               "Loading…"
             )}
           </div>
-          <div className="mt-4 text-xs text-zinc-500">
-            If saving auto-reload returns a “missing database columns” error, deploy/apply the latest Prisma migrations to your
-            database (then retry).
-          </div>
+          <div className="mt-4 text-xs text-zinc-500">Need help with billing? Email support@purelyautomation.com.</div>
         </div>
       </div>
     </div>

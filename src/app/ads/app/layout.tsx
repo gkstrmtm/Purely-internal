@@ -1,4 +1,5 @@
 import Link from "next/link";
+import Image from "next/image";
 
 import { requireAdsUser } from "@/lib/adsAuth";
 import { AdsSignOutButton } from "@/app/ads/app/signout/AdsSignOutButton";
@@ -12,8 +13,19 @@ export default async function AdsAppLayout({ children }: { children: React.React
         <div className="mx-auto max-w-6xl px-6 py-4">
           <div className="flex flex-col justify-between gap-3 sm:flex-row sm:items-center">
             <div className="flex items-center justify-between gap-4">
-              <Link href="/ads" className="text-sm font-semibold text-zinc-900">
-                Ads Manager
+              <Link href="/ads" className="flex items-center gap-2">
+                <Image
+                  src="/brand/purity-5.png"
+                  alt="Purely Automation"
+                  width={40}
+                  height={40}
+                  className="h-9 w-9 object-contain"
+                  priority
+                />
+                <div className="min-w-0">
+                  <div className="truncate text-sm font-semibold text-zinc-900">Ads Manager</div>
+                  <div className="truncate text-xs font-medium text-zinc-500">Purely Automation</div>
+                </div>
               </Link>
 
               <div className="sm:hidden">
@@ -38,7 +50,7 @@ export default async function AdsAppLayout({ children }: { children: React.React
                 </Link>
                 <Link
                   href="/ads/app/campaigns/new"
-                  className="rounded-2xl bg-brand-ink px-4 py-2 text-sm font-semibold text-white hover:opacity-95"
+                  className="rounded-2xl bg-[color:var(--color-brand-blue)] px-4 py-2 text-sm font-semibold text-white hover:opacity-95"
                 >
                   New campaign
                 </Link>

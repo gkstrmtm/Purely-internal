@@ -216,6 +216,7 @@ export function AppTopNav({ role }: { role?: string }) {
     { href: "/app/manager/invites", label: "Employee invites" },
     { href: "/app/manager/blogs", label: "Blogs" },
     { href: "/app/manager/campaigns", label: "Campaigns" },
+    { href: "/app/manager/ads-approvals", label: "Ad approvals" },
     { href: "/app/manager/leads", label: "Leads" },
     { href: "/app/manager/calls", label: "Calls" },
     { href: "/app/manager/appointments", label: "Appointments" },

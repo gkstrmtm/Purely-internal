@@ -32,7 +32,7 @@ export async function GET() {
   const [campaignsTotal, campaignsEnabled, spendToday, spend7d, topups30d, chargedClicksToday, chargedClicks7d] =
     await Promise.all([
       prisma.portalAdCampaign.count({ where: { createdById: user.id } }).catch(() => 0),
-      prisma.portalAdCampaign.count({ where: { createdById: user.id, enabled: true } }).catch(() => 0),
+      prisma.portalAdCampaign.count({ where: { createdById: user.id, enabled: true, reviewStatus: "APPROVED" } }).catch(() => 0),
       accountId
         ? prisma.adsAdvertiserLedgerEntry
             .aggregate({ where: { accountId, kind: "SPEND", createdAt: { gte: todayStart } }, _sum: { amountCents: true } })

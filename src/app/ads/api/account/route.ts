@@ -52,8 +52,7 @@ export async function PATCH(req: Request) {
     return NextResponse.json(
       {
         ok: false,
-        error:
-          "Auto top-up settings are unavailable because the database schema is missing required columns. Apply the latest Prisma migrations to your database (e.g. prisma migrate deploy), then retry.",
+        error: "Auto top-up settings are temporarily unavailable. Please try again later.",
       },
       { status: 503 },
     );

@@ -17,9 +17,6 @@ const bodySchema = z
       .object({
         industries: z.array(z.string().trim().min(1).max(80)).max(50).optional(),
         businessModels: z.array(z.string().trim().min(1).max(80)).max(50).optional(),
-        serviceMatch: z.enum(["ANY", "ALL"]).optional(),
-        serviceSlugs: z.array(z.string().trim().min(1).max(80)).max(50).optional(),
-        bucketIds: z.array(z.string().trim().min(1).max(80)).max(50).optional(),
       })
       .optional(),
   })
@@ -93,10 +90,6 @@ export async function POST(req: Request) {
     input.targeting?.businessModels?.length
       ? `- Business models: ${input.targeting.businessModels.join(", ")}`
       : "- Business models: (none)",
-    input.targeting?.serviceSlugs?.length
-      ? `- Services (${input.targeting.serviceMatch || "ANY"}): ${input.targeting.serviceSlugs.join(", ")}`
-      : "- Services: (none)",
-    input.targeting?.bucketIds?.length ? `- Buckets: ${input.targeting.bucketIds.join(", ")}` : "- Buckets: (none)",
     "",
     "Constraints:",
     "- headline <= 70 chars recommended (hard cap 160)",
