@@ -46,7 +46,7 @@ type StripeIntegrationStatus = {
 };
 
 type StripeIntegrationPayload =
-  | { ok: true; stripe: StripeIntegrationStatus }
+  | { ok: true; stripe: StripeIntegrationStatus; vercelEnv?: string | null; expectedEnvVar?: string; warning?: string }
   | { ok: false; error?: string };
 
 type WebhooksRes = {
@@ -133,6 +133,9 @@ export function PortalProfileClient() {
   const [twilioNote, setTwilioNote] = useState<string | null>(null);
 
   const [stripeStatus, setStripeStatus] = useState<StripeIntegrationStatus | null>(null);
+  const [stripeStatusLoaded, setStripeStatusLoaded] = useState(false);
+  const [stripeVercelEnv, setStripeVercelEnv] = useState<string | null>(null);
+  const [stripeExpectedEnvVar, setStripeExpectedEnvVar] = useState<string | null>(null);
   const [stripeSecretKey, setStripeSecretKey] = useState<string>("");
   const [stripeSaving, setStripeSaving] = useState(false);
   const [stripeError, setStripeError] = useState<string | null>(null);
@@ -295,9 +298,14 @@ export function PortalProfileClient() {
     (async () => {
       const res = await fetch("/api/portal/integrations/stripe", { cache: "no-store" }).catch(() => null as any);
       if (!mounted) return;
+      setStripeStatusLoaded(true);
       if (!res?.ok) return;
       const json = ((await res.json().catch(() => null)) as StripeIntegrationPayload | null) ?? null;
-      if (json?.ok) setStripeStatus(json.stripe);
+      if (json?.ok) {
+        setStripeStatus(json.stripe);
+        setStripeVercelEnv(typeof (json as any).vercelEnv === "string" ? ((json as any).vercelEnv as string) : null);
+        setStripeExpectedEnvVar(typeof (json as any).expectedEnvVar === "string" ? ((json as any).expectedEnvVar as string) : null);
+      }
     })();
 
     (async () => {
@@ -942,7 +950,7 @@ export function PortalProfileClient() {
 
           <PortalSettingsSection
             title="Stripe (Sales Reporting)"
-            description="Connect Stripe to view a sales dashboard in Reporting. The key is encrypted at rest."
+            description="Want to view your Stripe sales dashboard? Connect Stripe here."
             accent="blue"
           >
             <div className="space-y-3">
@@ -950,9 +958,22 @@ export function PortalProfileClient() {
                 <div className="rounded-2xl border border-emerald-200 bg-emerald-50 p-4 text-sm text-emerald-800">{stripeNote}</div>
               ) : null}
 
-              {!stripeStatus?.encryptionConfigured ? (
+              {stripeStatusLoaded && stripeStatus && !stripeStatus.encryptionConfigured ? (
                 <div className="rounded-2xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900">
-                  Server is missing <span className="font-mono">PORTAL_ENCRYPTION_MASTER_KEY</span>, so Stripe keys cannot be stored.
+                  <div className="font-semibold">Stripe connection isn’t enabled yet</div>
+                  <div className="mt-2">
+                    This deployment can’t store keys because the server is missing{" "}
+                    <span className="font-mono">{stripeExpectedEnvVar ?? "PORTAL_ENCRYPTION_MASTER_KEY"}</span>.
+                  </div>
+                  <div className="mt-2 text-xs text-amber-900/80">
+                    {stripeVercelEnv ? (
+                      <span>
+                        Vercel environment: <span className="font-mono">{stripeVercelEnv}</span>. Make sure the env var is set for that environment and redeploy.
+                      </span>
+                    ) : (
+                      <span>Make sure it’s set in Vercel and you redeployed.</span>
+                    )}
+                  </div>
                 </div>
               ) : null}
 
@@ -983,7 +1004,13 @@ export function PortalProfileClient() {
                   disabled={!canEditProfile || !stripeStatus?.encryptionConfigured}
                   autoComplete="off"
                 />
-                <div className="mt-2 text-xs text-zinc-500">Uses your account-wide secret key to read sales activity (charges).</div>
+                <div className="mt-2 text-xs text-zinc-500">
+                  Find this in Stripe: <span className="font-semibold">Dashboard → Developers → API keys</span> → “Secret key”.
+                  It usually starts with <span className="font-mono">sk_live_</span> (or <span className="font-mono">rk_live_</span> for restricted keys).
+                </div>
+                <div className="mt-2 text-xs text-zinc-500">
+                  We store it encrypted and never show the full key back to you.
+                </div>
               </div>
 
               <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">

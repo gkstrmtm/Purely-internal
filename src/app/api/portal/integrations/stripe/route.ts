@@ -27,9 +27,27 @@ export async function GET() {
   }
 
   const ownerId = auth.session.user.id;
-  const status = await getStripeIntegrationStatus(ownerId);
+  const vercelEnv = (process.env.VERCEL_ENV ?? "").trim() || null;
 
-  return NextResponse.json({ ok: true, stripe: status });
+  try {
+    const status = await getStripeIntegrationStatus(ownerId);
+    return NextResponse.json({ ok: true, stripe: status, vercelEnv, expectedEnvVar: "PORTAL_ENCRYPTION_MASTER_KEY" });
+  } catch {
+    const encryptionConfigured = isPortalEncryptionConfigured();
+    return NextResponse.json({
+      ok: true,
+      stripe: {
+        configured: false,
+        prefix: null,
+        accountId: null,
+        connectedAtIso: null,
+        encryptionConfigured,
+      },
+      vercelEnv,
+      expectedEnvVar: "PORTAL_ENCRYPTION_MASTER_KEY",
+      warning: "Unable to load saved Stripe status; connect may still work.",
+    });
+  }
 }
 
 export async function PUT(req: Request) {
