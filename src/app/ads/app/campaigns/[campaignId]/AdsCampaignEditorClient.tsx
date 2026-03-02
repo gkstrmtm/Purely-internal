@@ -211,7 +211,7 @@ export function AdsCampaignEditorClient(props: {
           type="button"
           onClick={() => void save()}
           disabled={saving || !isDirty}
-          className="inline-flex items-center justify-center rounded-2xl bg-[color:var(--color-brand-blue)] px-5 py-3 text-sm font-semibold text-white hover:opacity-95 disabled:opacity-60"
+          className="inline-flex w-full items-center justify-center rounded-2xl bg-[color:var(--color-brand-blue)] px-5 py-3 text-sm font-semibold text-white hover:opacity-95 disabled:opacity-60 sm:w-auto"
         >
           {saving ? "Saving…" : showSaved ? "Saved" : "Save changes"}
         </button>

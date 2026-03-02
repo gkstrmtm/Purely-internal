@@ -148,7 +148,7 @@ export default async function AdsCampaignDetailsPage(props: { params: Promise<{ 
             {campaign.updatedAt.toLocaleString()}
           </div>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2">
           <Link
             href="/ads/app"
             className="rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm font-semibold text-zinc-700 hover:bg-zinc-50"
@@ -168,7 +168,7 @@ export default async function AdsCampaignDetailsPage(props: { params: Promise<{ 
         <div className="rounded-3xl border border-[color:var(--color-brand-blue)]/20 bg-[color:var(--color-brand-blue)]/5 p-5">
           <div className="text-sm font-semibold text-zinc-900">Pending approval</div>
           <div className="mt-1 text-sm text-zinc-700">
-            Your campaign won’t go live until a manager reviews and approves it.
+            Your campaign won’t go live until it’s reviewed and approved.
           </div>
         </div>
       ) : null}
