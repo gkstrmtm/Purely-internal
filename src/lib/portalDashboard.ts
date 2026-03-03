@@ -5,6 +5,7 @@ const SERVICE_SLUG = "dashboard";
 export type DashboardWidgetId =
   | "hoursSaved"
   | "billing"
+  | "stripeSales"
   | "services"
   | "mediaLibrary"
   | "creditsRemaining"
@@ -66,6 +67,7 @@ function normalizeInt(n: unknown, fallback: number) {
 const ALL_WIDGET_IDS: DashboardWidgetId[] = [
   "hoursSaved",
   "billing",
+  "stripeSales",
   "services",
   "mediaLibrary",
   "creditsRemaining",
@@ -112,6 +114,7 @@ function defaultDashboard(): PortalDashboardData {
     widgets: [
       { id: "hoursSaved" },
       { id: "billing" },
+      { id: "stripeSales" },
       { id: "creditsRemaining" },
       { id: "creditsRunway" },
       { id: "successRate" },
@@ -120,9 +123,10 @@ function defaultDashboard(): PortalDashboardData {
       { id: "services" },
     ],
     layout: [
-      { i: "hoursSaved", x: 0, y: 0, w: 4, h: 7, minW: 3, minH: 5 },
-      { i: "billing", x: 4, y: 0, w: 4, h: 7, minW: 3, minH: 5 },
-      { i: "creditsRemaining", x: 8, y: 0, w: 4, h: 7, minW: 3, minH: 5 },
+      { i: "hoursSaved", x: 0, y: 0, w: 3, h: 7, minW: 3, minH: 5 },
+      { i: "billing", x: 3, y: 0, w: 3, h: 7, minW: 3, minH: 5 },
+      { i: "stripeSales", x: 6, y: 0, w: 3, h: 7, minW: 3, minH: 5 },
+      { i: "creditsRemaining", x: 9, y: 0, w: 3, h: 7, minW: 3, minH: 5 },
 
       { i: "creditsRunway", x: 0, y: 7, w: 4, h: 9, minW: 3, minH: 6 },
       { i: "successRate", x: 4, y: 7, w: 4, h: 9, minW: 3, minH: 6 },

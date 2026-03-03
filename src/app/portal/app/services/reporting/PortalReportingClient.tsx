@@ -79,6 +79,30 @@ type TwilioMasked = {
   updatedAtIso: string | null;
 };
 
+type StripeIntegrationStatus = {
+  configured: boolean;
+  prefix: string | null;
+  accountId: string | null;
+  connectedAtIso: string | null;
+  encryptionConfigured: boolean;
+};
+
+type StripeIntegrationPayload =
+  | { ok: true; stripe: StripeIntegrationStatus }
+  | { ok: false; error?: string };
+
+type StripeSalesPayload =
+  | {
+      ok: true;
+      range: "7d" | "30d";
+      startIso: string;
+      endIso: string;
+      currency: string;
+      totals: { chargeCount: number; grossCents: number; refundedCents: number; netCents: number };
+      note?: string;
+    }
+  | { ok: false; error?: string };
+
 type MediaStatsPayload =
   | { ok: true; itemsCount: number; foldersCount: number }
   | { ok: false; error?: string };
@@ -137,6 +161,8 @@ function isPlainNonEmptyString(value: unknown): value is string {
 
 function serviceForWidget(widgetId: string): ServiceInfo {
   switch (widgetId) {
+    case "stripeSales":
+      return { key: "reporting", name: "Stripe Sales", href: "/portal/app/services/reporting/stripe" };
     case "mediaLibrary":
       return SERVICE_INFOS.find((s) => s.key === "mediaLibrary")!;
     case "creditsRemaining":
@@ -224,6 +250,16 @@ function daysBetweenIso(startIso: string, endIso: string) {
 
 function classNames(...xs: Array<string | false | null | undefined>) {
   return xs.filter(Boolean).join(" ");
+}
+
+function formatMoneyFromCents(cents: number, currency: string) {
+  const amount = (typeof cents === "number" && Number.isFinite(cents) ? cents : 0) / 100;
+  try {
+    const c = (currency || "usd").toUpperCase();
+    return new Intl.NumberFormat(undefined, { style: "currency", currency: c }).format(amount);
+  } catch {
+    return `$${amount.toFixed(2)}`;
+  }
 }
 
 type StatTone = "blue" | "pink" | "ink" | "emerald" | "slate" | "violet" | "amber";
@@ -496,6 +532,8 @@ export function PortalReportingClient() {
   const [data, setData] = useState<ReportingPayload | null>(null);
   const [mediaStats, setMediaStats] = useState<MediaStatsPayload | null>(null);
   const [twilio, setTwilio] = useState<TwilioMasked | null>(null);
+  const [stripeStatus, setStripeStatus] = useState<StripeIntegrationStatus | null>(null);
+  const [stripeSales, setStripeSales] = useState<StripeSalesPayload | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [note, setNote] = useState<string | null>(null);
@@ -543,10 +581,11 @@ export function PortalReportingClient() {
     setLoading(true);
     setError(null);
 
-    const [repRes, twilioRes, statsRes] = await Promise.all([
+    const [repRes, twilioRes, statsRes, stripeRes] = await Promise.all([
       fetch(`/api/portal/reporting?range=${encodeURIComponent(nextRange)}`, { cache: "no-store" }),
       fetch("/api/portal/integrations/twilio", { cache: "no-store" }).catch(() => null as any),
       fetch("/api/portal/media/stats", { cache: "no-store" }).catch(() => null as any),
+      fetch("/api/portal/integrations/stripe", { cache: "no-store" }).catch(() => null as any),
     ]);
 
     if (!repRes.ok) {
@@ -577,6 +616,29 @@ export function PortalReportingClient() {
       setTwilio(body?.twilio ?? null);
     } else {
       setTwilio(null);
+    }
+
+    if (stripeRes?.ok) {
+      const body = (await stripeRes.json().catch(() => null)) as StripeIntegrationPayload | null;
+      if (body?.ok) {
+        setStripeStatus(body.stripe);
+        if (body.stripe?.configured) {
+          const salesRes = await fetch("/api/portal/reporting/stripe?range=30d", { cache: "no-store" }).catch(() => null as any);
+          if (salesRes?.ok) {
+            setStripeSales(((await salesRes.json().catch(() => null)) as StripeSalesPayload | null) ?? null);
+          } else {
+            setStripeSales(null);
+          }
+        } else {
+          setStripeSales(null);
+        }
+      } else {
+        setStripeStatus(null);
+        setStripeSales(null);
+      }
+    } else {
+      setStripeStatus(null);
+      setStripeSales(null);
     }
 
     setLoading(false);
@@ -789,6 +851,47 @@ export function PortalReportingClient() {
       ) : !data ? null : (
         <>
           <div className="mt-4 grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
+            {visible("stripeSales", "reporting", ["Stripe", "Stripe sales", "Sales", "Revenue", "Payments"]) ? (
+              <div className="relative">
+                <div className="absolute right-4 top-4">
+                  {(() => {
+                    const added = dashboardWidgetIds.has("stripeSales");
+                    return (
+                      <MenuButton
+                        id="stripeSales"
+                        openId={openMenuId}
+                        setOpenId={setOpenMenuId}
+                        onAdd={() => void addWidget("stripeSales")}
+                        addDisabled={added}
+                        addLabel={added ? "Already on dashboard" : "Add to dashboard"}
+                        goToHref={serviceForWidget("stripeSales").href}
+                        goToLabel={serviceForWidget("stripeSales").name}
+                      />
+                    );
+                  })()}
+                </div>
+
+                <StatCard
+                  label="Stripe sales"
+                  value={
+                    stripeStatus?.configured && stripeSales?.ok === true
+                      ? formatMoneyFromCents(stripeSales.totals?.netCents ?? 0, stripeSales.currency ?? "usd")
+                      : stripeStatus?.configured
+                        ? "—"
+                        : "Connect"
+                  }
+                  sub={
+                    stripeStatus?.configured
+                      ? stripeSales?.ok === true
+                        ? `Net • last 30 days • ${Number(stripeSales.totals?.chargeCount ?? 0).toLocaleString()} charges`
+                        : "Loading 30-day totals…"
+                      : "Connect Stripe in Profile"
+                  }
+                  tone="emerald"
+                />
+              </div>
+            ) : null}
+
             {visible("mediaLibrary", "mediaLibrary", ["Media library", "Media", "Library", "Files", "Uploads"]) ? (
               <div className="relative">
                 <div className="absolute right-4 top-4">

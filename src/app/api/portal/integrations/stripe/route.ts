@@ -13,6 +13,19 @@ export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
 
+function errorMessage(e: unknown): string {
+  if (e && typeof e === "object" && "message" in e) return String((e as any).message);
+  return "Unknown error";
+}
+
+function looksLikeMissingStripeColumns(e: unknown): boolean {
+  const msg = errorMessage(e).toLowerCase();
+  return (
+    msg.includes("does not exist") &&
+    (msg.includes("stripesecretkey") || msg.includes("stripeaccountid") || msg.includes("stripeconnectedat"))
+  );
+}
+
 const putSchema = z.object({
   secretKey: z.string().trim().min(10).max(300),
 });
@@ -34,6 +47,7 @@ export async function GET() {
     return NextResponse.json({ ok: true, stripe: status, vercelEnv, expectedEnvVar: "PORTAL_ENCRYPTION_MASTER_KEY" });
   } catch {
     const encryptionConfigured = isPortalEncryptionConfigured();
+
     return NextResponse.json({
       ok: true,
       stripe: {
@@ -45,7 +59,6 @@ export async function GET() {
       },
       vercelEnv,
       expectedEnvVar: "PORTAL_ENCRYPTION_MASTER_KEY",
-      warning: "Unable to load saved Stripe status; connect may still work.",
     });
   }
 }
@@ -81,7 +94,17 @@ export async function PUT(req: Request) {
     const res = await setStripeSecretKeyForOwner(ownerId, parsed.data.secretKey);
     return NextResponse.json({ ok: true, stripe: { configured: true, ...res } });
   } catch (e) {
-    const msg = e && typeof e === "object" && "message" in e ? String((e as any).message) : "Unable to connect Stripe";
+    if (looksLikeMissingStripeColumns(e)) {
+      return NextResponse.json(
+        {
+          ok: false,
+          error: "Stripe connection is temporarily unavailable. Please contact support.",
+        },
+        { status: 500 },
+      );
+    }
+
+    const msg = errorMessage(e) || "Unable to connect Stripe";
     return NextResponse.json({ ok: false, error: msg }, { status: 400 });
   }
 }
@@ -96,6 +119,19 @@ export async function DELETE() {
   }
 
   const ownerId = auth.session.user.id;
-  await clearStripeIntegration(ownerId);
-  return NextResponse.json({ ok: true });
+  try {
+    await clearStripeIntegration(ownerId);
+    return NextResponse.json({ ok: true });
+  } catch (e) {
+    if (looksLikeMissingStripeColumns(e)) {
+      return NextResponse.json(
+        {
+          ok: false,
+          error: "Stripe disconnection is temporarily unavailable. Please contact support.",
+        },
+        { status: 500 },
+      );
+    }
+    return NextResponse.json({ ok: false, error: errorMessage(e) || "Unable to disconnect Stripe" }, { status: 400 });
+  }
 }

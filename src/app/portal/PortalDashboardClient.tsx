@@ -27,6 +27,7 @@ type MeResponse = {
 type DashboardWidgetId =
   | "hoursSaved"
   | "billing"
+  | "stripeSales"
   | "services"
   | "mediaLibrary"
   | "creditsRemaining"
@@ -128,6 +129,43 @@ type MediaStatsPayload =
   | { ok: true; itemsCount: number; foldersCount: number }
   | { ok: false; error?: string };
 
+type StripeIntegrationStatus = {
+  configured: boolean;
+  prefix: string | null;
+  accountId: string | null;
+  connectedAtIso: string | null;
+  encryptionConfigured: boolean;
+};
+
+type StripeIntegrationPayload =
+  | {
+      ok: true;
+      stripe: StripeIntegrationStatus;
+    }
+  | { ok: false; error?: string };
+
+type StripeSalesPayload =
+  | {
+      ok: true;
+      range: "7d" | "30d";
+      startIso: string;
+      endIso: string;
+      currency: string;
+      totals: { chargeCount: number; grossCents: number; refundedCents: number; netCents: number };
+      note?: string;
+    }
+  | { ok: false; error?: string };
+
+function formatMoneyFromCents(cents: number, currency: string) {
+  const amount = (typeof cents === "number" && Number.isFinite(cents) ? cents : 0) / 100;
+  try {
+    const c = (currency || "usd").toUpperCase();
+    return new Intl.NumberFormat(undefined, { style: "currency", currency: c }).format(amount);
+  } catch {
+    return `$${amount.toFixed(2)}`;
+  }
+}
+
 function classNames(...xs: Array<string | false | null | undefined>) {
   return xs.filter(Boolean).join(" ");
 }
@@ -137,6 +175,7 @@ function accentForWidget(id: string) {
     case "creditsRemaining":
     case "aiCalls":
     case "bookingsCreated":
+    case "stripeSales":
       return {
         bar: "bg-[linear-gradient(90deg,rgba(29,78,216,0.9),rgba(29,78,216,0.25))]",
         ring: "ring-1 ring-[color:rgba(29,78,216,0.18)]",
@@ -278,6 +317,9 @@ export function PortalDashboardClient() {
   const [reporting, setReporting] = useState<ReportingPayload | null>(null);
   const [mediaStats, setMediaStats] = useState<MediaStatsPayload | null>(null);
   const [dashboard, setDashboard] = useState<DashboardPayload["data"] | null>(null);
+  const [stripeStatus, setStripeStatus] = useState<StripeIntegrationStatus | null>(null);
+  const [stripeSales, setStripeSales] = useState<StripeSalesPayload | null>(null);
+  const [stripeSalesError, setStripeSalesError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -405,6 +447,69 @@ export function PortalDashboardClient() {
     [data],
   );
 
+  const hasStripeSalesWidget = useMemo(
+    () => Boolean(dashboard?.widgets?.some((w) => w.id === "stripeSales")),
+    [dashboard],
+  );
+
+  useEffect(() => {
+    if (!hasStripeSalesWidget) return;
+
+    let mounted = true;
+    (async () => {
+      setStripeSalesError(null);
+
+      const statusRes = await fetch("/api/portal/integrations/stripe", { cache: "no-store" }).catch(() => null as any);
+      if (!mounted) return;
+
+      if (!statusRes?.ok) {
+        setStripeSalesError("Unable to load Stripe status");
+        return;
+      }
+
+      const statusBody = (await statusRes.json().catch(() => null)) as StripeIntegrationPayload | null;
+      if (!mounted) return;
+
+      if (!statusBody?.ok) {
+        setStripeStatus(null);
+        setStripeSales(null);
+        setStripeSalesError(statusBody?.error ?? "Unable to load Stripe status");
+        return;
+      }
+
+      setStripeStatus(statusBody.stripe);
+      if (!statusBody.stripe?.configured) {
+        setStripeSales(null);
+        return;
+      }
+
+      const salesRes = await fetch("/api/portal/reporting/stripe?range=30d", { cache: "no-store" }).catch(() => null as any);
+      if (!mounted) return;
+
+      if (!salesRes?.ok) {
+        const errBody = (await salesRes?.json().catch(() => ({}))) as { error?: string };
+        setStripeSales(null);
+        setStripeSalesError(errBody?.error ?? "Unable to load Stripe sales");
+        return;
+      }
+
+      const salesBody = (await salesRes.json().catch(() => null)) as StripeSalesPayload | null;
+      if (!mounted) return;
+
+      if (!salesBody?.ok) {
+        setStripeSales(null);
+        setStripeSalesError(salesBody?.error ?? "Unable to load Stripe sales");
+        return;
+      }
+
+      setStripeSales(salesBody);
+    })();
+
+    return () => {
+      mounted = false;
+    };
+  }, [hasStripeSalesWidget]);
+
   async function manageBilling() {
     if (!data?.billing?.configured) {
       window.location.href = "/portal/app/billing";
@@ -473,6 +578,8 @@ export function PortalDashboardClient() {
         return "Hours saved";
       case "billing":
         return "Billing";
+      case "stripeSales":
+        return "Sales (Stripe)";
       case "services":
         return "Your services";
       case "mediaLibrary":
@@ -712,6 +819,80 @@ export function PortalDashboardClient() {
             </div>
           </AccentCard>
         );
+
+      case "stripeSales": {
+        const connected = Boolean(stripeStatus?.configured);
+        const net = stripeSales && stripeSales.ok ? stripeSales.totals.netCents : 0;
+        const gross = stripeSales && stripeSales.ok ? stripeSales.totals.grossCents : 0;
+        const refunded = stripeSales && stripeSales.ok ? stripeSales.totals.refundedCents : 0;
+        const currency = stripeSales && stripeSales.ok ? stripeSales.currency : "usd";
+        const count = stripeSales && stripeSales.ok ? stripeSales.totals.chargeCount : 0;
+
+        return (
+          <AccentCard title={widgetTitle(id)} widgetId={id} showHandle={editMode}>
+            {!connected ? (
+              <div className="flex flex-col gap-3">
+                <div className="text-sm text-zinc-700">Connect Stripe to see sales right on your dashboard.</div>
+                <div className="flex flex-col gap-2 sm:flex-row">
+                  <Link
+                    href="/portal/app/profile"
+                    className="inline-flex items-center justify-center rounded-2xl bg-brand-ink px-4 py-2 text-xs font-semibold text-white hover:opacity-95"
+                  >
+                    Connect Stripe
+                  </Link>
+                  <Link
+                    href="/portal/app/services/reporting/stripe"
+                    className="inline-flex items-center justify-center rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-xs font-semibold text-brand-ink hover:bg-zinc-50"
+                  >
+                    Open sales dashboard
+                  </Link>
+                </div>
+              </div>
+            ) : stripeSales && stripeSales.ok ? (
+              <div>
+                <div className="text-2xl font-bold text-brand-ink">{formatMoneyFromCents(net, currency)}</div>
+                <div className="mt-1 text-xs text-zinc-500">Net sales • last 30 days</div>
+
+                <div className="mt-4 space-y-2">
+                  <StatLine label="Charges" value={compactNum(count)} />
+                  <StatLine label="Gross" value={formatMoneyFromCents(gross, currency)} />
+                  <StatLine label="Refunded" value={formatMoneyFromCents(refunded, currency)} />
+                </div>
+
+                <div className="mt-4 flex flex-col gap-2 sm:flex-row">
+                  <Link
+                    href="/portal/app/services/reporting/stripe"
+                    className="inline-flex items-center justify-center rounded-2xl bg-brand-ink px-4 py-2 text-xs font-semibold text-white hover:opacity-95"
+                  >
+                    View details
+                  </Link>
+                  <Link
+                    href="/portal/app/profile"
+                    className="inline-flex items-center justify-center rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-xs font-semibold text-brand-ink hover:bg-zinc-50"
+                  >
+                    Manage connection
+                  </Link>
+                </div>
+
+                {stripeSales.note ? <div className="mt-3 text-xs text-zinc-500">{stripeSales.note}</div> : null}
+              </div>
+            ) : (
+              <div className="flex flex-col gap-3">
+                <div className="text-sm text-zinc-700">Loading Stripe sales…</div>
+                {stripeSalesError ? <div className="text-xs text-zinc-500">{stripeSalesError}</div> : null}
+                <div className="flex flex-col gap-2 sm:flex-row">
+                  <Link
+                    href="/portal/app/services/reporting/stripe"
+                    className="inline-flex items-center justify-center rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-xs font-semibold text-brand-ink hover:bg-zinc-50"
+                  >
+                    Open sales dashboard
+                  </Link>
+                </div>
+              </div>
+            )}
+          </AccentCard>
+        );
+      }
 
       case "services":
         return (
