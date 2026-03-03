@@ -1215,6 +1215,11 @@ export function PortalProfileClient() {
                           <option value="sandbox">Sandbox</option>
                         </select>
                       </div>
+
+                      <div className="text-xs text-zinc-500">
+                        Find these in Authorize.Net: <span className="font-semibold">Account → Settings → Security Settings → API Credentials &amp; Keys</span>.
+                      </div>
+                      <div className="text-xs text-zinc-500">Use Sandbox keys for Sandbox; use Production keys for Production.</div>
                     </>
                   ) : null}
 
@@ -1263,6 +1268,11 @@ export function PortalProfileClient() {
                           <option value="sandbox">Sandbox</option>
                         </select>
                       </div>
+
+                      <div className="text-xs text-zinc-500">
+                        Find these in Braintree: <span className="font-semibold">Control Panel → Settings → API</span> (API Keys).
+                      </div>
+                      <div className="text-xs text-zinc-500">Use Sandbox keys for Sandbox; use Production keys for Production.</div>
                     </>
                   ) : null}
 
@@ -1289,6 +1299,10 @@ export function PortalProfileClient() {
                           autoComplete="off"
                         />
                       </div>
+
+                      <div className="text-xs text-zinc-500">
+                        Find these in Razorpay: <span className="font-semibold">Dashboard → Settings → API Keys</span>.
+                      </div>
                     </>
                   ) : null}
 
@@ -1303,6 +1317,10 @@ export function PortalProfileClient() {
                         disabled={!canEditProfile || stripeSaving || !(salesStatus?.ok === true && salesStatus.encryptionConfigured)}
                         autoComplete="off"
                       />
+
+                      <div className="mt-2 text-xs text-zinc-500">
+                        Find it in Paystack: <span className="font-semibold">Settings → API Keys &amp; Webhooks</span>.
+                      </div>
                     </div>
                   ) : null}
 
@@ -1317,6 +1335,10 @@ export function PortalProfileClient() {
                         disabled={!canEditProfile || stripeSaving || !(salesStatus?.ok === true && salesStatus.encryptionConfigured)}
                         autoComplete="off"
                       />
+
+                      <div className="mt-2 text-xs text-zinc-500">
+                        Find it in Flutterwave: <span className="font-semibold">Dashboard → Settings → API</span>.
+                      </div>
                     </div>
                   ) : null}
 
@@ -1331,6 +1353,10 @@ export function PortalProfileClient() {
                         disabled={!canEditProfile || stripeSaving || !(salesStatus?.ok === true && salesStatus.encryptionConfigured)}
                         autoComplete="off"
                       />
+
+                      <div className="mt-2 text-xs text-zinc-500">
+                        Find it in Mollie: <span className="font-semibold">Dashboard → Developers → API keys</span>.
+                      </div>
                     </div>
                   ) : null}
 
@@ -1345,6 +1371,10 @@ export function PortalProfileClient() {
                         disabled={!canEditProfile || stripeSaving || !(salesStatus?.ok === true && salesStatus.encryptionConfigured)}
                         autoComplete="off"
                       />
+
+                      <div className="mt-2 text-xs text-zinc-500">
+                        Find it in Mercado Pago: <span className="font-semibold">Developers → Your integrations → Credentials</span> (use the Access Token).
+                      </div>
                     </div>
                   ) : null}
                 </div>
