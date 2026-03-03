@@ -15,6 +15,17 @@ import "react-resizable/css/styles.css";
 
 const ResponsiveGridLayoutAny = ResponsiveGridLayout as unknown as ComponentType<any>;
 
+const DASHBOARD_BREAKPOINTS = { lg: 1200, md: 996, sm: 768, xs: 480, xxs: 0 } as const;
+type DashboardBreakpointKey = keyof typeof DASHBOARD_BREAKPOINTS;
+
+function activeDashboardBreakpoint(width: number): DashboardBreakpointKey {
+  if (width >= DASHBOARD_BREAKPOINTS.lg) return "lg";
+  if (width >= DASHBOARD_BREAKPOINTS.md) return "md";
+  if (width >= DASHBOARD_BREAKPOINTS.sm) return "sm";
+  if (width >= DASHBOARD_BREAKPOINTS.xs) return "xs";
+  return "xxs";
+}
+
 type ModuleKey = "blog" | "booking" | "crm" | "leadOutbound";
 
 type MeResponse = {
@@ -658,11 +669,16 @@ export function PortalDashboardClient() {
     if (!dashboard) return;
     setSavingLayout(true);
 
-    const lgLayout: Layout = Array.isArray(nextLayouts?.lg) ? (nextLayouts.lg as Layout) : [];
+    const bp = activeDashboardBreakpoint(width);
+    const chosen: Layout = Array.isArray((nextLayouts as any)?.[bp])
+      ? (((nextLayouts as any)[bp]) as Layout)
+      : Array.isArray((nextLayouts as any)?.lg)
+        ? (((nextLayouts as any).lg) as Layout)
+        : [];
     const next = {
       version: 1 as const,
       widgets: dashboard.widgets,
-      layout: lgLayout.map((l: LayoutItem) => ({
+      layout: chosen.map((l: LayoutItem) => ({
         i: l.i as DashboardWidgetId,
         x: l.x,
         y: l.y,
@@ -681,6 +697,16 @@ export function PortalDashboardClient() {
     const body = (await res.json().catch(() => ({}))) as DashboardPayload;
     if (res.ok && body?.ok && body.data) {
       setDashboard(body.data);
+      const base: LayoutItem[] = (body.data.layout ?? []).map((l) => ({
+        i: l.i,
+        x: l.x,
+        y: l.y,
+        w: l.w,
+        h: l.h,
+        ...(typeof l.minW === "number" ? { minW: l.minW } : {}),
+        ...(typeof l.minH === "number" ? { minH: l.minH } : {}),
+      }));
+      setLayouts(makeResponsiveLayouts(base));
       setSavingLayout(false);
       return true;
     }
@@ -878,12 +904,6 @@ export function PortalDashboardClient() {
                     className="inline-flex items-center justify-center rounded-2xl bg-brand-ink px-4 py-2 text-xs font-semibold text-white hover:opacity-95"
                   >
                     View details
-                  </Link>
-                  <Link
-                    href="/portal/app/profile"
-                    className="inline-flex items-center justify-center rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-xs font-semibold text-brand-ink hover:bg-zinc-50"
-                  >
-                    Manage connection
                   </Link>
                 </div>
 
@@ -1393,7 +1413,7 @@ export function PortalDashboardClient() {
             width={width}
             className="layout"
             layouts={layouts as any}
-            breakpoints={{ lg: 1200, md: 996, sm: 768, xs: 480, xxs: 0 }}
+            breakpoints={DASHBOARD_BREAKPOINTS as any}
             cols={{ lg: 12, md: 12, sm: 6, xs: 4, xxs: 2 }}
             rowHeight={12}
             margin={[16, 16]}
