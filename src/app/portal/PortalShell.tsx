@@ -769,7 +769,6 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
 
   const visibleSidebarServices = PORTAL_SERVICES.filter((s) => !s.hidden)
     .filter((s) => canViewServiceSlug(s.slug))
-    .filter((s) => (variant === "portal" ? s.slug !== "funnel-builder" : true))
     .filter((s) => !s.variants || s.variants.includes(variant));
   const sidebarServiceGroups = groupPortalServices(visibleSidebarServices);
 

@@ -32,7 +32,7 @@ export const PORTAL_SERVICES: PortalService[] = [
     ],
     included: true,
     accent: "blue",
-    variants: ["credit"],
+    variants: ["portal", "credit"],
   },
   {
     slug: "dispute-letters",

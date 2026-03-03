@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 
 import { prisma } from "@/lib/db";
-import { requireCreditClientSession } from "@/lib/creditPortalAccess";
+import { requireFunnelBuilderSession } from "@/lib/funnelBuilderAccess";
 import { generateText, generateTextWithImages } from "@/lib/ai";
 
 export const dynamic = "force-dynamic";
@@ -59,7 +59,7 @@ function toAbsoluteUrl(req: Request, url: string): string {
 }
 
 export async function POST(req: Request, ctx: { params: Promise<{ funnelId: string; pageId: string }> }) {
-  const auth = await requireCreditClientSession();
+  const auth = await requireFunnelBuilderSession();
   if (!auth.ok) {
     return NextResponse.json(
       { ok: false, error: auth.status === 401 ? "Unauthorized" : "Forbidden" },

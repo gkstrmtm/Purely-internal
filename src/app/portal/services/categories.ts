@@ -36,7 +36,6 @@ export function portalServiceCategoryForSlug(slug: string): PortalServiceCategor
   switch (slug) {
     case "dispute-letters":
     case "credit-reports":
-    case "funnel-builder":
       return "credit";
 
     case "inbox":
@@ -57,6 +56,7 @@ export function portalServiceCategoryForSlug(slug: string): PortalServiceCategor
       return "automation";
 
     case "lead-scraping":
+    case "funnel-builder":
       return "leads";
 
     case "media-library":

@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 
 import { prisma } from "@/lib/db";
-import { requireCreditClientSession } from "@/lib/creditPortalAccess";
+import { requireFunnelBuilderSession } from "@/lib/funnelBuilderAccess";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
@@ -78,7 +78,7 @@ function normalizeSchema(schema: unknown): any {
 }
 
 export async function GET(_req: Request, ctx: { params: Promise<{ formId: string }> }) {
-  const auth = await requireCreditClientSession();
+  const auth = await requireFunnelBuilderSession();
   if (!auth.ok) {
     return NextResponse.json(
       { ok: false, error: auth.status === 401 ? "Unauthorized" : "Forbidden" },
@@ -108,7 +108,7 @@ export async function GET(_req: Request, ctx: { params: Promise<{ formId: string
 }
 
 export async function PATCH(req: Request, ctx: { params: Promise<{ formId: string }> }) {
-  const auth = await requireCreditClientSession();
+  const auth = await requireFunnelBuilderSession();
   if (!auth.ok) {
     return NextResponse.json(
       { ok: false, error: auth.status === 401 ? "Unauthorized" : "Forbidden" },

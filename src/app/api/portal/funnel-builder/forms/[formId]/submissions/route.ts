@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 
 import { prisma } from "@/lib/db";
-import { requireCreditClientSession } from "@/lib/creditPortalAccess";
+import { requireFunnelBuilderSession } from "@/lib/funnelBuilderAccess";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
@@ -23,7 +23,7 @@ function parseCursor(raw: string | null): { createdAt: Date; id: string } | null
 }
 
 export async function GET(req: Request, ctx: { params: Promise<{ formId: string }> }) {
-  const auth = await requireCreditClientSession();
+  const auth = await requireFunnelBuilderSession();
   if (!auth.ok) {
     return NextResponse.json(
       { ok: false, error: auth.status === 401 ? "Unauthorized" : "Forbidden" },
