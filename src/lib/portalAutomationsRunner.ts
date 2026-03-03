@@ -627,7 +627,7 @@ async function runAutomationOnce(opts: {
     ownerId: opts.ownerId,
     kind: "automation_run",
     sourceId: `run:${opts.automation.id}:${dayKey}:${opts.triggerKind}:${runDedupKey}`,
-    secondsSaved: 2 * 60,
+    secondsSaved: 10 * 60,
     occurredAt: runAt,
   }).catch(() => null);
 

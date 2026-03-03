@@ -175,7 +175,7 @@ async function computeHoursSaved(ownerId: string): Promise<{ hoursSavedThisWeek:
     bookingsWeek * 6 +
     blogWeek * 45 +
     newsletterWeek * 30 +
-    Math.max(0, Number(tasksWeek) || 0) * 5;
+    Math.max(0, Number(tasksWeek) || 0) * 10;
 
   const minutesAll =
     adjustedSecondsAll / 60 +
@@ -183,7 +183,7 @@ async function computeHoursSaved(ownerId: string): Promise<{ hoursSavedThisWeek:
     bookingsAll * 6 +
     blogAll * 45 +
     newsletterAll * 30 +
-    Math.max(0, Number(tasksAll) || 0) * 5;
+    Math.max(0, Number(tasksAll) || 0) * 10;
 
   return {
     hoursSavedThisWeek: hoursFromMinutes(minutesWeek),
