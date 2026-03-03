@@ -1,5 +1,8 @@
 import { prisma } from "@/lib/db";
 import { getPortalUser } from "@/lib/portalAuth";
+import { headers } from "next/headers";
+
+import { normalizePortalVariant, PORTAL_VARIANT_HEADER } from "@/lib/portalVariant";
 
 export async function requireFunnelBuilderSession() {
   const user = await getPortalUser({ variant: "auto" });
@@ -22,6 +25,17 @@ export async function requireFunnelBuilderSession() {
   }
 
   const variant = user.portalVariant === "credit" ? "credit" : "portal";
+
+  const h = await headers();
+  const headerVariant = normalizePortalVariant(h.get(PORTAL_VARIANT_HEADER));
+  if (headerVariant && headerVariant !== variant) {
+    if (process.env.NODE_ENV !== "production") {
+      throw new Error(
+        `Funnel Builder auth variant mismatch: header=${headerVariant} resolved=${variant}. Use variant-aware auth (auto) and set x-portal-variant correctly.`,
+      );
+    }
+    return { ok: false as const, status: 400 as const, session: null };
+  }
 
   // Credit portal has additional restrictions (must be a credit-variant client portal user).
   if (variant === "credit") {

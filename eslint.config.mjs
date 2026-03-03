@@ -35,6 +35,27 @@ const eslintConfig = defineConfig([
       "@typescript-eslint/no-require-imports": "off",
     },
   },
+
+  // Guardrail: portal funnel-builder APIs must be variant-aware.
+  // Importing the credit-only session helper here can cause cross-account leakage
+  // when a browser has both portal + credit cookies.
+  {
+    files: ["src/app/api/portal/funnel-builder/**/*.ts"],
+    rules: {
+      "no-restricted-imports": [
+        "error",
+        {
+          paths: [
+            {
+              name: "@/lib/creditPortalAccess",
+              message:
+                "Do not use credit-only sessions in /api/portal/funnel-builder. Use requireFunnelBuilderSession() (variant-aware) instead.",
+            },
+          ],
+        },
+      ],
+    },
+  },
 ]);
 
 export default eslintConfig;
