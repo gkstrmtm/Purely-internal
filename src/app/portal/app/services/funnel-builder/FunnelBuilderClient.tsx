@@ -48,6 +48,37 @@ function normalizeSlug(raw: string) {
   return cleaned;
 }
 
+function deriveDnsHostLabel(domain: string): string {
+  const s = String(domain || "").trim().toLowerCase();
+  if (!s) return "@";
+  if (s.startsWith("www.")) return "www";
+
+  const parts = s.split(".").filter(Boolean);
+  if (parts.length <= 2) return "@";
+  return parts.slice(0, -2).join(".") || "@";
+}
+
+function isLikelyApexDomain(domain: string): boolean {
+  const s = String(domain || "").trim().toLowerCase();
+  if (!s) return true;
+  if (s.startsWith("www.")) return false;
+  const parts = s.split(".").filter(Boolean);
+  return parts.length <= 2;
+}
+
+function coercePlatformTargetHost(): string | null {
+  const raw = (process.env.NEXT_PUBLIC_APP_URL || "").trim();
+  if (raw) {
+    try {
+      return new URL(raw).hostname || null;
+    } catch {
+      // ignore
+    }
+  }
+  if (typeof window !== "undefined") return window.location.hostname || null;
+  return null;
+}
+
 export function FunnelBuilderClient() {
   const pathname = usePathname();
   const basePath = pathname === "/credit" || pathname.startsWith("/credit/") ? "/credit" : "/portal";
@@ -69,6 +100,7 @@ export function FunnelBuilderClient() {
 
   const funnelPreviewBase = useMemo(() => `${basePath}/f`, [basePath]);
   const formPreviewBase = useMemo(() => `${basePath}/forms`, [basePath]);
+  const platformTargetHost = useMemo(() => coercePlatformTargetHost(), []);
 
   const loadFunnels = useCallback(async () => {
     const res = await fetch("/api/portal/funnel-builder/funnels", { cache: "no-store" });
@@ -373,6 +405,91 @@ export function FunnelBuilderClient() {
                         <div className="text-sm font-semibold text-zinc-900">{d.domain}</div>
                         <div className="mt-1 text-xs text-zinc-600">
                           Status: {d.status}{d.verifiedAt ? ` · Verified ${new Date(d.verifiedAt).toLocaleDateString()}` : ""}
+                        </div>
+
+                        <div className="mt-3 rounded-2xl border border-zinc-200 bg-white p-3">
+                          <div className="text-xs font-semibold uppercase tracking-wide text-zinc-500">DNS records to add</div>
+                          {platformTargetHost ? (
+                            <div className="mt-2 overflow-auto">
+                              <table className="w-full min-w-[520px] border-separate border-spacing-0">
+                                <thead>
+                                  <tr>
+                                    <th className="border-b border-zinc-200 pb-2 text-left text-xs font-semibold text-zinc-600">Type</th>
+                                    <th className="border-b border-zinc-200 pb-2 text-left text-xs font-semibold text-zinc-600">Host / Name</th>
+                                    <th className="border-b border-zinc-200 pb-2 text-left text-xs font-semibold text-zinc-600">Value</th>
+                                    <th className="border-b border-zinc-200 pb-2 text-right text-xs font-semibold text-zinc-600">Copy</th>
+                                  </tr>
+                                </thead>
+                                <tbody>
+                                  {!isLikelyApexDomain(d.domain) ? (
+                                    <tr>
+                                      <td className="border-b border-zinc-100 py-2 text-xs font-semibold text-zinc-900">CNAME</td>
+                                      <td className="border-b border-zinc-100 py-2 text-xs font-mono text-zinc-800">
+                                        {deriveDnsHostLabel(d.domain)}
+                                      </td>
+                                      <td className="border-b border-zinc-100 py-2 text-xs font-mono text-zinc-800">{platformTargetHost}</td>
+                                      <td className="border-b border-zinc-100 py-2 text-right">
+                                        <button
+                                          type="button"
+                                          onClick={async () => {
+                                            const text = `Type: CNAME\nHost: ${deriveDnsHostLabel(d.domain)}\nValue: ${platformTargetHost}`;
+                                            await navigator.clipboard.writeText(text);
+                                          }}
+                                          className="rounded-full border border-zinc-200 bg-white px-3 py-1 text-xs font-semibold text-zinc-700 hover:bg-zinc-50"
+                                        >
+                                          Copy
+                                        </button>
+                                      </td>
+                                    </tr>
+                                  ) : (
+                                    <>
+                                      <tr>
+                                        <td className="border-b border-zinc-100 py-2 text-xs font-semibold text-zinc-900">ALIAS / ANAME</td>
+                                        <td className="border-b border-zinc-100 py-2 text-xs font-mono text-zinc-800">@</td>
+                                        <td className="border-b border-zinc-100 py-2 text-xs font-mono text-zinc-800">{platformTargetHost}</td>
+                                        <td className="border-b border-zinc-100 py-2 text-right">
+                                          <button
+                                            type="button"
+                                            onClick={async () => {
+                                              const text = `Type: ALIAS/ANAME\nHost: @\nValue: ${platformTargetHost}`;
+                                              await navigator.clipboard.writeText(text);
+                                            }}
+                                            className="rounded-full border border-zinc-200 bg-white px-3 py-1 text-xs font-semibold text-zinc-700 hover:bg-zinc-50"
+                                          >
+                                            Copy
+                                          </button>
+                                        </td>
+                                      </tr>
+                                      <tr>
+                                        <td className="border-b border-zinc-100 py-2 text-xs font-semibold text-zinc-900">CNAME</td>
+                                        <td className="border-b border-zinc-100 py-2 text-xs font-mono text-zinc-800">www</td>
+                                        <td className="border-b border-zinc-100 py-2 text-xs font-mono text-zinc-800">{platformTargetHost}</td>
+                                        <td className="border-b border-zinc-100 py-2 text-right">
+                                          <button
+                                            type="button"
+                                            onClick={async () => {
+                                              const text = `Type: CNAME\nHost: www\nValue: ${platformTargetHost}`;
+                                              await navigator.clipboard.writeText(text);
+                                            }}
+                                            className="rounded-full border border-zinc-200 bg-white px-3 py-1 text-xs font-semibold text-zinc-700 hover:bg-zinc-50"
+                                          >
+                                            Copy
+                                          </button>
+                                        </td>
+                                      </tr>
+                                    </>
+                                  )}
+                                </tbody>
+                              </table>
+
+                              <div className="mt-2 text-xs text-zinc-600">
+                                Use the exact <span className="font-semibold">Type</span>, <span className="font-semibold">Host/Name</span>, and <span className="font-semibold">Value</span> fields in your DNS provider.
+                                If your provider does not support <span className="font-semibold">ALIAS/ANAME</span> at <span className="font-mono">@</span>, use the <span className="font-mono">www</span> record and set your root domain to forward to <span className="font-mono">www</span>.
+                              </div>
+                            </div>
+                          ) : (
+                            <div className="mt-2 text-xs text-zinc-600">Loading DNS target…</div>
+                          )}
                         </div>
                       </div>
                       <div className="text-xs text-zinc-600">
