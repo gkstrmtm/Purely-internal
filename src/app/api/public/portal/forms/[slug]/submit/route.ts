@@ -3,6 +3,7 @@ import { NextResponse } from "next/server";
 
 import { prisma } from "@/lib/db";
 import { tryNotifyPortalAccountUsers } from "@/lib/portalNotifications";
+import { runOwnerAutomationsForEvent } from "@/lib/portalAutomationsRunner";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
@@ -59,6 +60,18 @@ export async function POST(req: Request, ctx: { params: Promise<{ slug: string }
   const body = (await req.json().catch(() => null)) as any;
   const payload = safeJson(body?.data ?? body ?? {}, 50_000);
 
+  const firstString = (v: any): string | null => {
+    if (typeof v === "string") {
+      const s = v.trim();
+      return s ? s.slice(0, 500) : null;
+    }
+    if (Array.isArray(v) && typeof v[0] === "string") {
+      const s = String(v[0]).trim();
+      return s ? s.slice(0, 500) : null;
+    }
+    return null;
+  };
+
   const userAgent = req.headers.get("user-agent") || null;
   const ip = getClientIp(req);
 
@@ -71,6 +84,25 @@ export async function POST(req: Request, ctx: { params: Promise<{ slug: string }
     },
     select: { id: true, createdAt: true },
   });
+
+  // Best-effort automation trigger.
+  const payloadObj = payload && typeof payload === "object" && !Array.isArray(payload) ? (payload as Record<string, unknown>) : {};
+  const contactEmail = firstString((payloadObj as any).email);
+  const contactPhone = firstString((payloadObj as any).phone);
+  const contactName = firstString((payloadObj as any).fullName) || firstString((payloadObj as any).name);
+
+  runOwnerAutomationsForEvent({
+    ownerId: form.ownerId,
+    triggerKind: "form_submitted",
+    contact: { name: contactName, email: contactEmail, phone: contactPhone },
+    event: {
+      formId: form.id,
+      formSlug: form.slug,
+      formName: form.name,
+      submissionId: submission.id,
+      formData: payloadObj,
+    },
+  }).catch(() => null);
 
   // Notifications are best-effort; never block submission success.
   const settings = await prisma.creditFunnelBuilderSettings

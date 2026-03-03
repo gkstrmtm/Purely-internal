@@ -22,6 +22,12 @@ const PORTAL_EVENT_VARIABLES: TemplateVariable[] = [
   { key: "event.tagId", label: "Event tag ID", group: "Custom", appliesTo: "Event" },
   { key: "event.webhookKey", label: "Event webhook key", group: "Custom", appliesTo: "Event" },
   { key: "event.triggerNodeId", label: "Event trigger node ID", group: "Custom", appliesTo: "Event" },
+
+  { key: "event.formId", label: "Form ID", group: "Custom", appliesTo: "Event" },
+  { key: "event.formSlug", label: "Form slug", group: "Custom", appliesTo: "Event" },
+  { key: "event.formName", label: "Form name", group: "Custom", appliesTo: "Event" },
+  { key: "event.submissionId", label: "Form submission ID", group: "Custom", appliesTo: "Event" },
+
   { key: "lead.assigneeUserId", label: "Lead assignee user ID", group: "Custom", appliesTo: "Lead" },
   { key: "lead.contactId", label: "Lead contact ID", group: "Custom", appliesTo: "Lead" },
 
@@ -93,6 +99,7 @@ type TriggerKind =
   | "inbound_mms"
   | "inbound_call"
   | "inbound_email"
+  | "form_submitted"
   | "new_lead"
   | "lead_scraped"
   | "tag_added"
@@ -142,6 +149,7 @@ type BuilderNodeConfig =
       triggerKind: TriggerKind;
       tagId?: string;
       webhookKey?: string;
+  formId?: string;
 
       // scheduled_time scheduler
       scheduleMode?: "every" | "specific";
@@ -479,6 +487,7 @@ function labelForConfig(t: BuilderNodeType, cfg: BuilderNodeConfig | undefined) 
       inbound_mms: "Inbound MMS",
       inbound_call: "Inbound Call",
       inbound_email: "Inbound Email",
+      form_submitted: "Form submitted",
       new_lead: "New Lead",
       lead_scraped: "Lead scraped",
       tag_added: "Tag added",
@@ -653,6 +662,41 @@ export function PortalAutomationsClient() {
 
   const [automations, setAutomations] = useState<Automation[]>([]);
   const [selectedAutomationId, setSelectedAutomationId] = useState<string | null>(null);
+
+  const [ownerFormFields, setOwnerFormFields] = useState<
+    Array<{ key: string; label: string; formId: string; formSlug: string; formName: string }>
+  >([]);
+
+  const [ownerForms, setOwnerForms] = useState<Array<{ id: string; slug: string; name: string; status: string }>>([]);
+
+  const formTemplateVariables = useMemo((): TemplateVariable[] => {
+    return ownerFormFields
+      .map((f) => {
+        const key = String(f.key || "").trim();
+        if (!key) return null;
+        const label = String(f.label || f.key).trim() || key;
+        const formName = String(f.formName || f.formSlug || "").trim();
+        return {
+          key: `form.${key}`,
+          label: formName ? `${label} (${formName})` : label,
+          group: "Custom",
+          appliesTo: "Event",
+        } as TemplateVariable;
+      })
+      .filter(Boolean) as TemplateVariable[];
+  }, [ownerFormFields]);
+
+  const formConditionFieldOptions = useMemo((): Array<{ value: string; label: string; hint?: string }> => {
+    return formTemplateVariables.map((v) => ({
+      value: v.key,
+      label: v.label || v.key,
+      hint: v.key,
+    }));
+  }, [formTemplateVariables]);
+
+  const allConditionFieldKeys = useMemo(() => {
+    return Array.from(new Set([...CONDITION_FIELD_KEYS, ...formTemplateVariables.map((v) => v.key)]));
+  }, [formTemplateVariables]);
 
   const canvasRef = useRef<HTMLDivElement | null>(null);
 
@@ -1057,6 +1101,48 @@ export function PortalAutomationsClient() {
     }
 
     setSelectedAutomationId(selected);
+
+    fetch("/api/portal/funnel-builder/form-field-keys", { cache: "no-store" })
+      .then(async (r) => {
+        if (!r?.ok) return null;
+        return (await r.json().catch(() => null)) as any;
+      })
+      .then((json) => {
+        const list = Array.isArray(json?.fields) ? (json.fields as any[]) : [];
+        const next = list
+          .filter((x) => x && typeof x === "object")
+          .map((x) => ({
+            key: String((x as any).key || "").trim(),
+            label: String((x as any).label || "").trim(),
+            formId: String((x as any).formId || "").trim(),
+            formSlug: String((x as any).formSlug || "").trim(),
+            formName: String((x as any).formName || "").trim(),
+          }))
+          .filter((x) => x.key && x.formId);
+        setOwnerFormFields(next);
+      })
+      .catch(() => null);
+
+    fetch("/api/portal/funnel-builder/forms", { cache: "no-store" })
+      .then(async (r) => {
+        if (!r?.ok) return null;
+        return (await r.json().catch(() => null)) as any;
+      })
+      .then((json) => {
+        const list = Array.isArray(json?.forms) ? (json.forms as any[]) : [];
+        const next = list
+          .filter((x) => x && typeof x === "object")
+          .map((x) => ({
+            id: String((x as any).id || "").trim(),
+            slug: String((x as any).slug || "").trim(),
+            name: String((x as any).name || "").trim(),
+            status: String((x as any).status || "").trim(),
+          }))
+          .filter((x) => x.id);
+        setOwnerForms(next);
+      })
+      .catch(() => null);
+
     setLoading(false);
   }
 
@@ -1694,6 +1780,7 @@ export function PortalAutomationsClient() {
           ...PORTAL_LEAD_VARIABLES,
           ...PORTAL_MESSAGE_VARIABLES,
           ...PORTAL_LINK_VARIABLES,
+          ...formTemplateVariables,
         ]}
         onPick={applyPickedVariable}
         onClose={() => {
@@ -2716,6 +2803,7 @@ export function PortalAutomationsClient() {
                                 { value: "inbound_mms", label: "Inbound MMS" },
                                 { value: "inbound_call", label: "Inbound Call" },
                                 { value: "inbound_email", label: "Inbound Email" },
+                                { value: "form_submitted", label: "Form submitted" },
                                 { value: "new_lead", label: "New Lead" },
                                 { value: "lead_scraped", label: "Lead scraped" },
                                 { value: "tag_added", label: "Tag added" },
@@ -2779,6 +2867,43 @@ export function PortalAutomationsClient() {
                                             if (n.id !== selectedNode.id) return n;
                                             const prev = n.config?.kind === "trigger" ? n.config : (defaultConfigForType("trigger") as any);
                                             const nextCfg: BuilderNodeConfig = { ...(prev as any), kind: "trigger", tagId: next || undefined };
+                                            const nextLabel =
+                                              autolabelSelectedNode && shouldAutolabel(n.label)
+                                                ? labelForConfig("trigger", nextCfg)
+                                                : n.label;
+                                            return { ...n, config: nextCfg, label: nextLabel };
+                                          });
+                                          return { ...a, nodes, updatedAtIso: new Date().toISOString() };
+                                        });
+                                      }}
+                                    />
+                                  </div>
+                                );
+                              }
+
+                              if (cfg.triggerKind === "form_submitted") {
+                                const formId = String((cfg as any).formId || "");
+                                const options = [
+                                  { value: "", label: "Any form…" },
+                                  ...ownerForms.map((f) => ({
+                                    value: f.id,
+                                    label: f.name ? `${f.name} (${f.slug})` : f.slug || f.id,
+                                  })),
+                                ];
+
+                                return (
+                                  <div className="mt-2">
+                                    <div className="text-xs font-semibold text-zinc-600">Only when form is</div>
+                                    <PortalListboxDropdown
+                                      className="mt-1"
+                                      value={formId}
+                                      options={options}
+                                      onChange={(next) => {
+                                        updateSelectedAutomation((a) => {
+                                          const nodes = a.nodes.map((n) => {
+                                            if (n.id !== selectedNode.id) return n;
+                                            const prev = n.config?.kind === "trigger" ? n.config : (defaultConfigForType("trigger") as any);
+                                            const nextCfg: BuilderNodeConfig = { ...(prev as any), kind: "trigger", formId: next || undefined };
                                             const nextLabel =
                                               autolabelSelectedNode && shouldAutolabel(n.label)
                                                 ? labelForConfig("trigger", nextCfg)
@@ -4375,7 +4500,7 @@ export function PortalAutomationsClient() {
                             const hidesRight = op === "is_empty" || op === "is_not_empty";
                             const leftKey = left.trim();
 
-                            const isKnownField = CONDITION_FIELD_KEYS.includes(leftKey);
+                            const isKnownField = allConditionFieldKeys.includes(leftKey);
                             const fieldDropdownValue = isKnownField ? leftKey : "__custom__";
                             const numericOps: ConditionOp[] = ["gt", "gte", "lt", "lte"];
                             const dateOps: ConditionOp[] = ["before", "after"];
@@ -4413,6 +4538,7 @@ export function PortalAutomationsClient() {
                                       options={[
                                         { value: "__custom__", label: "Custom field…", hint: "Type any key" },
                                         ...CONDITION_FIELD_OPTIONS,
+                                        ...formConditionFieldOptions,
                                       ]}
                                       onChange={(next) => {
                                         const v = String(next || "");
@@ -4464,7 +4590,7 @@ export function PortalAutomationsClient() {
                                     }}
                                   />
                                   <datalist id="condition_field_keys">
-                                    {CONDITION_FIELD_KEYS.map((k) => (
+                                    {allConditionFieldKeys.map((k) => (
                                       <option key={k} value={k} />
                                     ))}
                                   </datalist>

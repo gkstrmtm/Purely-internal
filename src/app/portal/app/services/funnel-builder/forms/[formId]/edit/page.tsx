@@ -19,10 +19,5 @@ export default async function CreditFormEditorPage({ params }: { params: Promise
   const id = String(formId || "").trim();
   if (!id) notFound();
 
-  return (
-    <>
-      <style>{`.pa-portal-topbar{display:none !important;}`}</style>
-      <FormEditorClient basePath={basePath} formId={id} />
-    </>
-  );
+  return <FormEditorClient basePath={basePath} formId={id} />;
 }

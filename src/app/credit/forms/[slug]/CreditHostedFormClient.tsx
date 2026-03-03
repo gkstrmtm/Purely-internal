@@ -2,11 +2,25 @@
 
 import { useMemo, useState } from "react";
 
+import { googleFontImportCss } from "@/lib/fontPresets";
+
 export type Field = {
   name: string;
   label: string;
-  type: "text" | "email" | "tel" | "textarea";
+  type:
+    | "short_answer"
+    | "long_answer"
+    | "paragraph"
+    | "email"
+    | "phone"
+    | "name"
+    | "checklist"
+    // legacy/back-compat
+    | "text"
+    | "tel"
+    | "textarea";
   required?: boolean;
+  options?: string[];
 };
 
 export type CreditFormStyle = {
@@ -18,10 +32,22 @@ export type CreditFormStyle = {
   buttonBg?: string;
   buttonText?: string;
   radiusPx?: number;
+  fontFamily?: string;
+  fontGoogleFamily?: string;
 };
 
 function classNames(...xs: Array<string | false | null | undefined>) {
   return xs.filter(Boolean).join(" ");
+}
+
+function isTextareaField(t: Field["type"]) {
+  return t === "textarea" || t === "paragraph" || t === "long_answer";
+}
+
+function normalizeInputType(t: Field["type"]): "text" | "email" | "tel" {
+  if (t === "email") return "email";
+  if (t === "tel" || t === "phone") return "tel";
+  return "text";
 }
 
 export function CreditHostedFormClient({
@@ -55,18 +81,23 @@ export function CreditHostedFormClient({
   const inputBorder = style?.inputBorder || "#e4e4e7";
   const buttonBg = style?.buttonBg || "var(--color-brand-blue)";
   const buttonText = style?.buttonText || "#ffffff";
+  const fontFamily = style?.fontFamily || undefined;
+  const googleCss = googleFontImportCss(style?.fontGoogleFamily);
 
   return (
-    <div
-      className={classNames(
-        embedded ? "border-0 p-4 sm:p-6" : "border border-zinc-200 p-8",
-      )}
-      style={{
-        backgroundColor: cardBg,
-        borderRadius: embedded ? 0 : Math.min(40, radiusPx + 8),
-        color: textColor,
-      }}
-    >
+    <>
+      {googleCss ? <style>{googleCss}</style> : null}
+      <div
+        className={classNames(
+          embedded ? "border-0 p-4 sm:p-6" : "border border-zinc-200 p-8",
+        )}
+        style={{
+          backgroundColor: cardBg,
+          borderRadius: embedded ? 0 : Math.min(40, radiusPx + 8),
+          color: textColor,
+          fontFamily,
+        }}
+      >
       {embedded ? null : (
         <>
           <h1 className="mt-2 text-2xl font-bold sm:text-3xl" style={{ color: textColor }}>
@@ -88,7 +119,25 @@ export function CreditHostedFormClient({
           const el = e.currentTarget;
           const formData = new FormData(el);
           const data: Record<string, any> = {};
-          for (const [k, v] of formData.entries()) data[k] = v;
+
+          for (const f of fields) {
+            if (f.type !== "checklist" || !f.required) continue;
+            const selected = formData.getAll(f.name);
+            if (!selected || selected.length === 0) {
+              setError(`Please select at least one option for “${f.label}”.`);
+              setBusy(false);
+              return;
+            }
+          }
+
+          for (const [k, v] of formData.entries()) {
+            if (Object.prototype.hasOwnProperty.call(data, k)) {
+              const existing = data[k];
+              data[k] = Array.isArray(existing) ? [...existing, v] : [existing, v];
+            } else {
+              data[k] = v;
+            }
+          }
 
           fetch(actionUrl, {
             method: "POST",
@@ -118,7 +167,27 @@ export function CreditHostedFormClient({
               {f.label}
               {f.required ? <span className="ml-1 text-red-600">*</span> : null}
             </div>
-            {f.type === "textarea" ? (
+
+            {f.type === "checklist" ? (
+              <div className="space-y-2">
+                {(f.options || []).map((opt) => (
+                  <label key={opt} className="flex items-center gap-2 text-sm" style={{ color: textColor }}>
+                    <input
+                      type="checkbox"
+                      name={f.name}
+                      value={opt}
+                      disabled={busy}
+                      className="h-4 w-4 rounded border-zinc-300"
+                      style={{ accentColor: buttonBg }}
+                    />
+                    <span>{opt}</span>
+                  </label>
+                ))}
+                {(f.options || []).length === 0 ? (
+                  <div className="text-sm text-zinc-500">No options configured.</div>
+                ) : null}
+              </div>
+            ) : isTextareaField(f.type) ? (
               <textarea
                 name={f.name}
                 required={!!f.required}
@@ -134,7 +203,7 @@ export function CreditHostedFormClient({
             ) : (
               <input
                 name={f.name}
-                type={f.type}
+                type={normalizeInputType(f.type)}
                 required={!!f.required}
                 disabled={busy}
                 className="w-full border px-4 py-2 text-sm placeholder:text-zinc-400"
@@ -172,6 +241,7 @@ export function CreditHostedFormClient({
           {busy ? "Submitting…" : "Submit"}
         </button>
       </form>
-    </div>
+      </div>
+    </>
   );
 }

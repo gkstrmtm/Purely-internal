@@ -3,6 +3,7 @@ import { notFound } from "next/navigation";
 import { prisma } from "@/lib/db";
 
 import { CreditHostedFormClient, type CreditFormStyle, type Field } from "@/app/credit/forms/[slug]/CreditHostedFormClient";
+import { coerceFontFamily, coerceGoogleFamily } from "@/lib/fontPresets";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
@@ -21,6 +22,20 @@ function parseFields(schemaJson: unknown): Field[] {
   const fields = (schemaJson as any).fields;
   if (!Array.isArray(fields)) return getDefaultFields();
 
+  const allowed = new Set<Field["type"]>([
+    "short_answer",
+    "long_answer",
+    "paragraph",
+    "name",
+    "email",
+    "phone",
+    "checklist",
+    // legacy
+    "text",
+    "tel",
+    "textarea",
+  ]);
+
   const out: Field[] = [];
   for (const f of fields) {
     if (!f || typeof f !== "object") continue;
@@ -28,10 +43,18 @@ function parseFields(schemaJson: unknown): Field[] {
     const label = typeof (f as any).label === "string" ? (f as any).label.trim() : "";
     const type = (f as any).type;
     const required = (f as any).required === true;
+    const optionsRaw = (f as any).options;
 
     if (!name || !label) continue;
-    if (type !== "text" && type !== "email" && type !== "tel" && type !== "textarea") continue;
-    out.push({ name, label, type, required });
+    if (!allowed.has(type)) continue;
+    const options = Array.isArray(optionsRaw)
+      ? optionsRaw
+          .filter((x: any) => typeof x === "string")
+          .map((s: string) => s.trim())
+          .filter(Boolean)
+          .slice(0, 50)
+      : undefined;
+    out.push({ name, label, type, required, options });
   }
 
   return out.length ? out.slice(0, 25) : getDefaultFields();
@@ -58,6 +81,8 @@ function parseStyle(schemaJson: unknown): CreditFormStyle {
   const inputBg = parseHexColor((raw as any).inputBg);
   const inputBorder = parseHexColor((raw as any).inputBorder);
   const textColor = parseHexColor((raw as any).textColor);
+  const fontFamily = coerceFontFamily((raw as any).fontFamily);
+  const fontGoogleFamily = coerceGoogleFamily((raw as any).fontGoogleFamily);
 
   if (pageBg) out.pageBg = pageBg;
   if (cardBg) out.cardBg = cardBg;
@@ -66,6 +91,8 @@ function parseStyle(schemaJson: unknown): CreditFormStyle {
   if (inputBg) out.inputBg = inputBg;
   if (inputBorder) out.inputBorder = inputBorder;
   if (textColor) out.textColor = textColor;
+  if (fontFamily) out.fontFamily = fontFamily;
+  if (fontGoogleFamily) out.fontGoogleFamily = fontGoogleFamily;
 
   const radiusPx = (raw as any).radiusPx;
   if (typeof radiusPx === "number" && Number.isFinite(radiusPx)) {

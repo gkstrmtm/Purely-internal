@@ -1,12 +1,15 @@
 import React from "react";
 
 import { inlineMarkdownToHtmlSafe, parseBlogContent } from "@/lib/blog";
+import { coerceFontFamily, coerceGoogleFamily, googleFontImportCss } from "@/lib/fontPresets";
 
 export type BlockStyle = {
   textColor?: string;
   backgroundColor?: string;
   backgroundImageUrl?: string;
   fontSizePx?: number;
+  fontFamily?: string;
+  fontGoogleFamily?: string;
   align?: "left" | "center" | "right";
   marginTopPx?: number;
   marginBottomPx?: number;
@@ -270,6 +273,8 @@ function coerceStyle(raw: unknown): BlockStyle | undefined {
     backgroundColor: coerceCssColor(r.backgroundColor),
     backgroundImageUrl: coerceCssUrl(r.backgroundImageUrl),
     fontSizePx: clampNum(r.fontSizePx, 8, 120),
+    fontFamily: coerceFontFamily(r.fontFamily),
+    fontGoogleFamily: coerceGoogleFamily(r.fontGoogleFamily),
     align: coerceAlign(r.align),
     marginTopPx: clampNum(r.marginTopPx, 0, 240),
     marginBottomPx: clampNum(r.marginBottomPx, 0, 240),
@@ -494,6 +499,7 @@ function wrapperStyle(style?: BlockStyle): React.CSSProperties {
   const s = style;
   const out: React.CSSProperties = {};
   if (!s) return out;
+  if (s.fontFamily) out.fontFamily = s.fontFamily;
   if (s.textColor) out.color = s.textColor;
   if (s.backgroundColor) out.backgroundColor = s.backgroundColor;
   if (s.backgroundImageUrl) {
@@ -603,6 +609,7 @@ export function renderCreditFunnelBlocks({
   const first = blocks[0];
   const pageStyleBlock = first && first.type === "page" ? first : null;
   const renderBlocks = pageStyleBlock ? blocks.slice(1) : blocks;
+  const googleCss = googleFontImportCss(pageStyleBlock?.props?.style?.fontGoogleFamily);
 
   const isEditor = Boolean(editor?.enabled);
 
@@ -1240,11 +1247,16 @@ export function renderCreditFunnelBlocks({
     });
 
   return React.createElement(
-    "div",
-    {
-      className: "space-y-4",
-      style: { ...wrapperStyle(pageStyleBlock?.props.style), width: "100%", minHeight: "100vh" },
-    },
-    renderBlocksInner(renderBlocks),
+    React.Fragment,
+    null,
+    googleCss ? React.createElement("style", null, googleCss) : null,
+    React.createElement(
+      "div",
+      {
+        className: "space-y-4",
+        style: { ...wrapperStyle(pageStyleBlock?.props.style), width: "100%", minHeight: "100vh" },
+      },
+      renderBlocksInner(renderBlocks),
+    ),
   );
 }

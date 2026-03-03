@@ -23,6 +23,7 @@ const triggerConfigSchema = z
       "inbound_mms",
       "inbound_call",
       "inbound_email",
+      "form_submitted",
       "new_lead",
       "lead_scraped",
       "tag_added",

@@ -26,6 +26,7 @@ type TriggerKind =
   | "inbound_mms"
   | "inbound_call"
   | "inbound_email"
+  | "form_submitted"
   | "new_lead"
   | "lead_scraped"
   | "tag_added"
@@ -39,6 +40,25 @@ type TriggerKind =
   | "review_received"
   | "follow_up_sent"
   | "outbound_sent";
+
+function coerceSmallString(v: unknown, maxLen = 2000): string {
+  if (v == null) return "";
+  if (Array.isArray(v)) {
+    return v
+      .map((x) => coerceSmallString(x, maxLen))
+      .filter(Boolean)
+      .join(", ")
+      .slice(0, maxLen);
+  }
+  if (typeof v === "string") return v.slice(0, maxLen);
+  if (typeof v === "number" || typeof v === "boolean") return String(v);
+  try {
+    const s = JSON.stringify(v);
+    return (s || "").slice(0, maxLen);
+  } catch {
+    return String(v).slice(0, maxLen);
+  }
+}
 
 type ActionKind =
   | "send_sms"
@@ -556,7 +576,20 @@ async function runAutomationOnce(opts: {
   triggerKind: TriggerKind;
   message?: { from?: string; to?: string; body?: string };
   contact?: { id?: string | null; name?: string | null; email?: string | null; phone?: string | null };
-  event?: { tagId?: string; webhookKey?: string; triggerNodeId?: string; bookingId?: string; calendarId?: string; leadId?: string };
+  event?: {
+    tagId?: string;
+    webhookKey?: string;
+    triggerNodeId?: string;
+    bookingId?: string;
+    calendarId?: string;
+    leadId?: string;
+
+    formId?: string;
+    formSlug?: string;
+    formName?: string;
+    submissionId?: string;
+    formData?: Record<string, unknown>;
+  };
 }) {
   const message = {
     from: coerceString(opts.message?.from),
@@ -595,6 +628,11 @@ async function runAutomationOnce(opts: {
       if (expected && actual && expected !== actual) return false;
       if (expected && !actual) return false;
     }
+    if (opts.triggerKind === "form_submitted") {
+      const expectedFormId = String((cfg as any).formId || "").trim();
+      const actualFormId = String(opts.event?.formId || "").trim();
+      if (expectedFormId && (!actualFormId || expectedFormId !== actualFormId)) return false;
+    }
     if (opts.triggerKind === "inbound_webhook") {
       const expected = String((cfg as any).webhookKey || "").trim();
       const actual = String(opts.event?.webhookKey || "").trim();
@@ -613,6 +651,8 @@ async function runAutomationOnce(opts: {
     if (opts.event?.leadId) return `lead:${String(opts.event.leadId)}`;
     if (opts.event?.tagId) return `tag:${String(opts.event.tagId)}`;
     if (opts.event?.webhookKey) return `webhook:${String(opts.event.webhookKey)}`;
+    if (opts.event?.submissionId) return `submission:${String(opts.event.submissionId)}`;
+    if (opts.event?.formId) return `form:${String(opts.event.formId)}`;
 
     const raw = `${message.from}|${message.to}|${message.body}`.trim();
     if (raw && raw !== "||") {
@@ -804,6 +844,20 @@ async function runAutomationOnce(opts: {
     base["event.bookingId"] = String(opts.event?.bookingId || "");
     base["event.calendarId"] = String(opts.event?.calendarId || "");
     base["event.leadId"] = String(opts.event?.leadId || "");
+
+    // Form vars (best-effort).
+    base["event.formId"] = String(opts.event?.formId || "");
+    base["event.formSlug"] = String(opts.event?.formSlug || "");
+    base["event.formName"] = String(opts.event?.formName || "");
+    base["event.submissionId"] = String(opts.event?.submissionId || "");
+    const formData = opts.event?.formData;
+    if (formData && typeof formData === "object" && !Array.isArray(formData)) {
+      for (const [k, v] of Object.entries(formData)) {
+        const key = String(k || "").trim();
+        if (!key) continue;
+        base[`form.${key}`] = coerceSmallString(v);
+      }
+    }
     base["lead.id"] = String(opts.event?.leadId || "");
     base["lead.assigneeUserId"] = String(ctx.assigneeUserId || "");
     base["lead.contactId"] = String(ctx.contact.id || "");
@@ -1455,7 +1509,20 @@ export async function runOwnerAutomationsForEvent(opts: {
   triggerKind: TriggerKind;
   message?: { from?: string; to?: string; body?: string };
   contact?: { id?: string | null; name?: string | null; email?: string | null; phone?: string | null };
-  event?: { tagId?: string; webhookKey?: string; triggerNodeId?: string; bookingId?: string; calendarId?: string; leadId?: string };
+  event?: {
+    tagId?: string;
+    webhookKey?: string;
+    triggerNodeId?: string;
+    bookingId?: string;
+    calendarId?: string;
+    leadId?: string;
+
+    formId?: string;
+    formSlug?: string;
+    formName?: string;
+    submissionId?: string;
+    formData?: Record<string, unknown>;
+  };
 }) {
   const automations = await loadOwnerAutomations(opts.ownerId);
   const active = automations.filter((a) => !a.paused);
@@ -1480,7 +1547,20 @@ export async function runOwnerAutomationByIdForEvent(opts: {
   triggerKind: TriggerKind;
   message?: { from?: string; to?: string; body?: string };
   contact?: { id?: string | null; name?: string | null; email?: string | null; phone?: string | null };
-  event?: { tagId?: string; webhookKey?: string; triggerNodeId?: string; bookingId?: string; calendarId?: string; leadId?: string };
+  event?: {
+    tagId?: string;
+    webhookKey?: string;
+    triggerNodeId?: string;
+    bookingId?: string;
+    calendarId?: string;
+    leadId?: string;
+
+    formId?: string;
+    formSlug?: string;
+    formName?: string;
+    submissionId?: string;
+    formData?: Record<string, unknown>;
+  };
 }) {
   const automations = await loadOwnerAutomations(opts.ownerId);
   const automation = automations.find((a) => a.id === opts.automationId);

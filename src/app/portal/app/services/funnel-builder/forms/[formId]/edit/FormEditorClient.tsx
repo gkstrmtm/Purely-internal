@@ -5,6 +5,7 @@ import { useEffect, useMemo, useState } from "react";
 
 import { AppConfirmModal, AppModal } from "@/components/AppModal";
 import { PortalListboxDropdown } from "@/components/PortalListboxDropdown";
+import { FONT_PRESETS, applyFontPresetToStyle, fontPresetKeyFromStyle, googleFontImportCss } from "@/lib/fontPresets";
 
 type Form = {
   id: string;
@@ -16,13 +17,25 @@ type Form = {
   updatedAt: string;
 };
 
-type FieldType = "text" | "email" | "tel" | "textarea";
+type FieldType =
+  | "short_answer"
+  | "long_answer"
+  | "paragraph"
+  | "email"
+  | "phone"
+  | "name"
+  | "checklist"
+  // legacy
+  | "text"
+  | "tel"
+  | "textarea";
 
 type Field = {
   name: string;
   label: string;
   type: FieldType;
   required?: boolean;
+  options?: string[];
 };
 
 type FormStyle = {
@@ -34,6 +47,8 @@ type FormStyle = {
   buttonBg?: string;
   buttonText?: string;
   radiusPx?: number;
+  fontFamily?: string;
+  fontGoogleFamily?: string;
 };
 
 function classNames(...xs: Array<string | false | null | undefined>) {
@@ -61,10 +76,80 @@ function normalizeFields(rawSchema: any): Field[] {
     const type = f.type as FieldType;
     const required = f.required === true;
     if (!name || !label) continue;
-    if (type !== "text" && type !== "email" && type !== "tel" && type !== "textarea") continue;
-    out.push({ name, label, type, required });
+
+    const isKnown =
+      type === "short_answer" ||
+      type === "long_answer" ||
+      type === "paragraph" ||
+      type === "email" ||
+      type === "phone" ||
+      type === "name" ||
+      type === "checklist" ||
+      type === "text" ||
+      type === "tel" ||
+      type === "textarea";
+    if (!isKnown) continue;
+
+    const optionsRaw = (f as any).options;
+    const options = Array.isArray(optionsRaw)
+      ? optionsRaw
+          .map((o) => (typeof o === "string" ? o.trim() : ""))
+          .filter(Boolean)
+          .slice(0, 50)
+      : undefined;
+
+    out.push({ name, label, type, required, options });
   }
   return out;
+}
+
+function makeUniqueFieldKey(desired: string, existing: string[]) {
+  const base = slugifyName(desired) || "field";
+  const used = new Set(existing.map((s) => s.trim().toLowerCase()).filter(Boolean));
+  if (!used.has(base)) return base;
+
+  const m = base.match(/^(.*?)-(\d+)$/);
+  const stem = m ? m[1] : base;
+  const start = m ? Number(m[2]) : 2;
+  for (let i = Math.max(2, start); i < 500; i++) {
+    const candidate = `${stem}-${i}`;
+    if (!used.has(candidate)) return candidate;
+  }
+  return `${stem}-${Date.now()}`;
+}
+
+function fieldTypeLabel(t: FieldType) {
+  switch (t) {
+    case "short_answer":
+    case "text":
+      return "Short answer";
+    case "long_answer":
+      return "Long answer";
+    case "paragraph":
+    case "textarea":
+      return "Paragraph";
+    case "email":
+      return "Email";
+    case "phone":
+    case "tel":
+      return "Phone number";
+    case "name":
+      return "Name";
+    case "checklist":
+      return "Checklist";
+    default:
+      return String(t);
+  }
+}
+
+function isTextareaField(t: FieldType) {
+  return t === "textarea" || t === "paragraph" || t === "long_answer";
+}
+
+function normalizeInputType(t: FieldType): "text" | "email" | "tel" {
+  if (t === "email") return "email";
+  if (t === "tel" || t === "phone") return "tel";
+  return "text";
 }
 
 function normalizeHexColor(raw: unknown) {
@@ -89,6 +174,8 @@ function normalizeStyle(rawSchema: any): FormStyle {
   const inputBg = normalizeHexColor(raw.inputBg);
   const inputBorder = normalizeHexColor(raw.inputBorder);
   const textColor = normalizeHexColor(raw.textColor);
+  const fontFamily = typeof raw.fontFamily === "string" ? raw.fontFamily.replace(/[\r\n\t]/g, " ").trim().slice(0, 200) : "";
+  const fontGoogleFamily = typeof raw.fontGoogleFamily === "string" ? raw.fontGoogleFamily.trim().slice(0, 80) : "";
 
   if (pageBg) next.pageBg = pageBg;
   if (cardBg) next.cardBg = cardBg;
@@ -97,6 +184,9 @@ function normalizeStyle(rawSchema: any): FormStyle {
   if (inputBg) next.inputBg = inputBg;
   if (inputBorder) next.inputBorder = inputBorder;
   if (textColor) next.textColor = textColor;
+
+  if (fontFamily) next.fontFamily = fontFamily;
+  if (fontGoogleFamily) next.fontGoogleFamily = fontGoogleFamily;
 
   if (typeof raw.radiusPx === "number" && Number.isFinite(raw.radiusPx)) {
     next.radiusPx = Math.max(0, Math.min(40, Math.round(raw.radiusPx)));
@@ -111,11 +201,13 @@ const TRANSPARENCY_CHECKERBOARD =
 type FormEditorDialog =
   | { type: "rename-form"; value: string }
   | { type: "slug-form"; value: string }
-  | { type: "add-question"; label: string; name: string; keyTouched: boolean }
+  | { type: "add-question"; label: string; name: string; fieldType: FieldType; required: boolean; optionsText: string; keyTouched: boolean }
   | { type: "delete-question"; idx: number; label: string }
   | null;
 
 export function FormEditorClient({ basePath, formId }: { basePath: string; formId: string }) {
+  const backHref = useMemo(() => `${basePath}/app/services/funnel-builder`, [basePath]);
+
   const [form, setForm] = useState<Form | null>(null);
   const [fields, setFields] = useState<Field[] | null>(null);
   const [selectedIdx, setSelectedIdx] = useState<number>(0);
@@ -134,6 +226,8 @@ export function FormEditorClient({ basePath, formId }: { basePath: string; formI
   };
 
   const selected = useMemo(() => (fields || [])[selectedIdx] || null, [fields, selectedIdx]);
+  const fontPresetKey = useMemo(() => fontPresetKeyFromStyle(style), [style]);
+  const googleCss = useMemo(() => googleFontImportCss(style?.fontGoogleFamily), [style?.fontGoogleFamily]);
 
   const load = async () => {
     setError(null);
@@ -167,6 +261,20 @@ export function FormEditorClient({ basePath, formId }: { basePath: string; formI
 
   const save = async (opts?: { name?: string; slug?: string; status?: Form["status"] }) => {
     if (!form || !fields) return;
+    const dupe = (() => {
+      const seen = new Set<string>();
+      for (const f of fields) {
+        const k = String(f.name || "").trim().toLowerCase();
+        if (!k) continue;
+        if (seen.has(k)) return f.name;
+        seen.add(k);
+      }
+      return null;
+    })();
+    if (dupe) {
+      setError(`Each question must have a unique field key. Duplicate: ${dupe}`);
+      return;
+    }
     setBusy(true);
     setError(null);
     try {
@@ -192,10 +300,12 @@ export function FormEditorClient({ basePath, formId }: { basePath: string; formI
   const addQuestion = () => {
     const label = "New question";
     setDialogError(null);
-    setDialog({ type: "add-question", label, name: slugifyName(label) || "field", keyTouched: false });
+    const desiredKey = slugifyName(label) || "field";
+    const nextKey = makeUniqueFieldKey(desiredKey, (fields || []).map((f) => f.name));
+    setDialog({ type: "add-question", label, name: nextKey, fieldType: "short_answer", required: false, optionsText: "", keyTouched: false });
   };
 
-  const performAddQuestion = ({ label, name }: { label: string; name: string }) => {
+  const performAddQuestion = ({ label, name, fieldType, required, optionsText }: { label: string; name: string; fieldType: FieldType; required: boolean; optionsText: string }) => {
     const trimmedLabel = label.trim();
     if (!trimmedLabel) {
       setDialogError("Label is required.");
@@ -207,9 +317,24 @@ export function FormEditorClient({ basePath, formId }: { basePath: string; formI
       return;
     }
 
+    const nextName = makeUniqueFieldKey(cleanedName, (fields || []).map((f) => f.name));
+
+    const nextOptions =
+      fieldType === "checklist"
+        ? optionsText
+            .split("\n")
+            .map((s) => s.trim())
+            .filter(Boolean)
+            .slice(0, 50)
+        : undefined;
+    if (fieldType === "checklist" && (!nextOptions || nextOptions.length === 0)) {
+      setDialogError("Checklist options are required (one per line). ");
+      return;
+    }
+
     setFields((prev) => {
       const next = [...(prev || [])];
-      next.push({ name: cleanedName, label: trimmedLabel, type: "text", required: false });
+      next.push({ name: nextName, label: trimmedLabel, type: fieldType, required, options: nextOptions });
       return next;
     });
     setSelectedIdx((fields?.length || 0));
@@ -244,7 +369,8 @@ export function FormEditorClient({ basePath, formId }: { basePath: string; formI
   };
 
   return (
-    <div className="mx-auto w-full max-w-7xl">
+    <div className="mx-auto w-full max-w-7xl" style={{ fontFamily: style?.fontFamily || undefined }}>
+      {googleCss ? <style>{googleCss}</style> : null}
       <AppModal
         open={dialog?.type === "rename-form"}
         title="Rename form"
@@ -294,7 +420,7 @@ export function FormEditorClient({ basePath, formId }: { basePath: string; formI
               setDialogError(null);
               setDialog((prev) => (prev?.type === "rename-form" ? { type: "rename-form", value: v } : prev));
             }}
-            className="mt-1 w-full rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm"
+            className="mt-1 w-full rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm text-zinc-900 placeholder:text-zinc-400"
           />
         </label>
         {dialogError ? <div className="mt-3 text-sm font-semibold text-red-700">{dialogError}</div> : null}
@@ -349,7 +475,7 @@ export function FormEditorClient({ basePath, formId }: { basePath: string; formI
               setDialogError(null);
               setDialog((prev) => (prev?.type === "slug-form" ? { type: "slug-form", value: v } : prev));
             }}
-            className="mt-1 w-full rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm"
+            className="mt-1 w-full rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm text-zinc-900 placeholder:text-zinc-400"
           />
           <div className="mt-1 text-xs text-zinc-500">Allowed: letters, numbers, and dashes.</div>
         </label>
@@ -381,7 +507,13 @@ export function FormEditorClient({ basePath, formId }: { basePath: string; formI
               disabled={busy}
               onClick={() => {
                 if (dialog?.type !== "add-question") return;
-                performAddQuestion({ label: dialog.label, name: dialog.name });
+                performAddQuestion({
+                  label: dialog.label,
+                  name: dialog.name,
+                  fieldType: dialog.fieldType,
+                  required: dialog.required,
+                  optionsText: dialog.optionsText,
+                });
               }}
             >
               Add
@@ -400,7 +532,9 @@ export function FormEditorClient({ basePath, formId }: { basePath: string; formI
                 setDialogError(null);
                 setDialog((prev) => {
                   if (!prev || prev.type !== "add-question") return prev;
-                  const nextName = prev.keyTouched ? prev.name : slugifyName(v) || "";
+                  if (prev.keyTouched) return { ...prev, label: v };
+                  const desired = slugifyName(v) || "field";
+                  const nextName = makeUniqueFieldKey(desired, (fields || []).map((f) => f.name));
                   return { ...prev, label: v, name: nextName };
                 });
               }}
@@ -414,13 +548,65 @@ export function FormEditorClient({ basePath, formId }: { basePath: string; formI
             <input
               value={dialog?.type === "add-question" ? dialog.name : ""}
               onChange={(e) => {
-                const v = e.target.value;
+                const v = slugifyName(e.target.value);
                 setDialogError(null);
                 setDialog((prev) => (prev?.type === "add-question" ? { ...prev, name: v, keyTouched: true } : prev));
               }}
               placeholder="email"
               className="mt-1 w-full rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm text-zinc-900 placeholder:text-zinc-400"
             />
+          </label>
+
+          <label className="block">
+            <div className="text-xs font-semibold uppercase tracking-wide text-zinc-500">Type</div>
+            <PortalListboxDropdown
+              value={dialog?.type === "add-question" ? dialog.fieldType : "short_answer"}
+              onChange={(t) => {
+                setDialogError(null);
+                setDialog((prev) => (prev?.type === "add-question" ? { ...prev, fieldType: t as FieldType } : prev));
+              }}
+              options={[
+                { value: "short_answer", label: "Short answer" },
+                { value: "long_answer", label: "Long answer" },
+                { value: "paragraph", label: "Paragraph" },
+                { value: "name", label: "Name" },
+                { value: "email", label: "Email" },
+                { value: "phone", label: "Phone number" },
+                { value: "checklist", label: "Checklist" },
+              ]}
+              className="mt-1 w-full"
+              buttonClassName="flex w-full items-center justify-between gap-2 rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm text-zinc-900 hover:bg-zinc-50 focus-visible:ring-2 focus-visible:ring-zinc-300"
+            />
+          </label>
+
+          {dialog?.type === "add-question" && dialog.fieldType === "checklist" ? (
+            <label className="block">
+              <div className="text-xs font-semibold uppercase tracking-wide text-zinc-500">Checklist options</div>
+              <textarea
+                value={dialog.optionsText}
+                onChange={(e) => {
+                  const v = e.target.value;
+                  setDialogError(null);
+                  setDialog((prev) => (prev?.type === "add-question" ? { ...prev, optionsText: v } : prev));
+                }}
+                placeholder={"Option 1\nOption 2\nOption 3"}
+                className="mt-1 min-h-24 w-full rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm text-zinc-900 placeholder:text-zinc-400"
+              />
+              <div className="mt-1 text-xs text-zinc-500">One option per line.</div>
+            </label>
+          ) : null}
+
+          <label className="flex items-center gap-2">
+            <input
+              type="checkbox"
+              checked={dialog?.type === "add-question" ? dialog.required : false}
+              onChange={(e) => {
+                const required = e.target.checked;
+                setDialog((prev) => (prev?.type === "add-question" ? { ...prev, required } : prev));
+              }}
+              className="h-4 w-4 rounded border-zinc-300"
+            />
+            <span className="text-sm font-semibold text-zinc-900">Required</span>
           </label>
 
           {dialogError ? <div className="text-sm font-semibold text-red-700">{dialogError}</div> : null}
@@ -445,7 +631,10 @@ export function FormEditorClient({ basePath, formId }: { basePath: string; formI
 
       <div className="flex flex-col items-start justify-between gap-3 sm:flex-row sm:items-end">
         <div>
-          <div className="text-xs font-semibold uppercase tracking-wide text-zinc-500">Form editor</div>
+          <Link href={backHref} className="text-sm font-semibold text-[color:var(--color-brand-blue)] hover:underline">
+            ← Back
+          </Link>
+          <div className="mt-2 text-xs font-semibold uppercase tracking-wide text-zinc-500">Form editor</div>
           <h1 className="mt-2 text-2xl font-bold text-brand-ink sm:text-3xl">{form?.name || "…"}</h1>
           <div className="mt-2 flex flex-wrap items-center gap-3 text-sm text-zinc-600">
             <Link
@@ -536,7 +725,7 @@ export function FormEditorClient({ basePath, formId }: { basePath: string; formI
                 <button type="button" onClick={() => setSelectedIdx(idx)} className="w-full text-left">
                   <div className="text-sm font-semibold text-zinc-900">{q.label}</div>
                   <div className="mt-0.5 text-xs text-zinc-600">
-                    key: {q.name} · {q.type}{q.required ? " · required" : ""}
+                    key: {q.name} · {fieldTypeLabel(q.type)}{q.required ? " · required" : ""}
                   </div>
                 </button>
 
@@ -597,6 +786,14 @@ export function FormEditorClient({ basePath, formId }: { basePath: string; formI
                           const v = slugifyName(e.target.value);
                           setFields((prev) => (prev || []).map((f, i) => (i === selectedIdx ? { ...f, name: v } : f)));
                         }}
+                        onBlur={() => {
+                          const desired = slugifyName(selected.name);
+                          const existing = (fields || []).filter((_, i) => i !== selectedIdx).map((f) => f.name);
+                          const unique = makeUniqueFieldKey(desired, existing);
+                          if (unique !== desired) {
+                            setFields((prev) => (prev || []).map((f, i) => (i === selectedIdx ? { ...f, name: unique } : f)));
+                          }
+                        }}
                         className="mt-1 w-full rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm text-zinc-900 placeholder:text-zinc-400"
                       />
                     </label>
@@ -606,18 +803,48 @@ export function FormEditorClient({ basePath, formId }: { basePath: string; formI
                       <PortalListboxDropdown
                         value={selected.type}
                         onChange={(t) => {
-                          setFields((prev) => (prev || []).map((f, i) => (i === selectedIdx ? { ...f, type: t as FieldType } : f)));
+                          setFields((prev) =>
+                            (prev || []).map((f, i) => {
+                              if (i !== selectedIdx) return f;
+                              const nextType = t as FieldType;
+                              const nextOptions = nextType === "checklist" ? f.options || ["Option 1", "Option 2"] : undefined;
+                              return { ...f, type: nextType, options: nextOptions };
+                            }),
+                          );
                         }}
                         options={[
-                          { value: "text", label: "Short answer" },
-                          { value: "textarea", label: "Paragraph" },
+                          { value: "short_answer", label: "Short answer" },
+                          { value: "long_answer", label: "Long answer" },
+                          { value: "paragraph", label: "Paragraph" },
+                          { value: "name", label: "Name" },
                           { value: "email", label: "Email" },
-                          { value: "tel", label: "Phone" },
+                          { value: "phone", label: "Phone number" },
+                          { value: "checklist", label: "Checklist" },
                         ]}
                         className="mt-1 w-full"
                         buttonClassName="flex w-full items-center justify-between gap-2 rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm text-zinc-900 hover:bg-zinc-50 focus-visible:ring-2 focus-visible:ring-zinc-300"
                       />
                     </label>
+
+                    {selected.type === "checklist" ? (
+                      <label className="block">
+                        <div className="text-xs font-semibold uppercase tracking-wide text-zinc-500">Checklist options</div>
+                        <textarea
+                          value={(selected.options || []).join("\n")}
+                          onChange={(e) => {
+                            const nextOptions = e.target.value
+                              .split("\n")
+                              .map((s) => s.trim())
+                              .filter(Boolean)
+                              .slice(0, 50);
+                            setFields((prev) => (prev || []).map((f, i) => (i === selectedIdx ? { ...f, options: nextOptions } : f)));
+                          }}
+                          placeholder={"Option 1\nOption 2"}
+                          className="mt-1 min-h-24 w-full rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm text-zinc-900 placeholder:text-zinc-400"
+                        />
+                        <div className="mt-1 text-xs text-zinc-500">One option per line.</div>
+                      </label>
+                    ) : null}
 
                     <label className="flex items-center gap-2">
                       <input
@@ -658,66 +885,123 @@ export function FormEditorClient({ basePath, formId }: { basePath: string; formI
                               backgroundImage: TRANSPARENCY_CHECKERBOARD,
                               backgroundSize: "18px 18px",
                               backgroundPosition: "0 0, 0 9px, 9px -9px, -9px 0px",
+                                fontFamily: style.fontFamily || undefined,
                             }
-                          : { backgroundColor: style.cardBg || "#ffffff" }
+                            : { backgroundColor: style.cardBg || "#ffffff", fontFamily: style.fontFamily || undefined }
                       }
                     >
                       <div className="text-xs font-semibold uppercase tracking-wide text-zinc-500">{form?.name || "Form"}</div>
                       <div className="mt-2 text-lg font-bold" style={{ color: style.textColor || "#18181b" }}>
                         {selected.label}
                       </div>
-                    <div className="mt-3">
-                      {selected.type === "textarea" ? (
-                        <textarea
-                          disabled
-                          className="min-h-24 w-full border border-zinc-200 px-4 py-2 text-sm"
-                          style={{
-                            borderRadius: style.radiusPx ?? 16,
-                            backgroundColor: style.inputBg || "#ffffff",
-                            borderColor: style.inputBorder || "#e4e4e7",
-                            color: style.textColor || "#18181b",
-                          }}
-                          placeholder="Answer"
-                        />
-                      ) : (
-                        <input
-                          disabled
-                          type={selected.type === "text" ? "text" : selected.type}
-                          className="w-full border border-zinc-200 px-4 py-2 text-sm"
-                          style={{
-                            borderRadius: style.radiusPx ?? 16,
-                            backgroundColor: style.inputBg || "#ffffff",
-                            borderColor: style.inputBorder || "#e4e4e7",
-                            color: style.textColor || "#18181b",
-                          }}
-                          placeholder="Answer"
-                        />
-                      )}
-                    </div>
-                    <div className="mt-4 inline-flex items-center rounded-full border border-zinc-200 bg-white px-3 py-1 text-xs font-semibold text-zinc-700">
-                      {selected.required ? "Required" : "Optional"}
-                    </div>
+                      <div className="mt-3">
+                        {selected.type === "checklist" ? (
+                          <div className="space-y-2">
+                            {(selected.options || ["Option 1", "Option 2"]).map((opt) => (
+                              <label key={opt} className="flex items-center gap-2 text-sm" style={{ color: style.textColor || "#18181b" }}>
+                                <input
+                                  disabled
+                                  type="checkbox"
+                                  className="h-4 w-4 rounded border-zinc-300"
+                                  style={{ accentColor: style.buttonBg || "#2563eb" }}
+                                />
+                                <span>{opt}</span>
+                              </label>
+                            ))}
+                          </div>
+                        ) : isTextareaField(selected.type) ? (
+                          <textarea
+                            disabled
+                            className="min-h-24 w-full border border-zinc-200 px-4 py-2 text-sm"
+                            style={{
+                              borderRadius: style.radiusPx ?? 16,
+                              backgroundColor: style.inputBg || "#ffffff",
+                              borderColor: style.inputBorder || "#e4e4e7",
+                              color: style.textColor || "#18181b",
+                            }}
+                            placeholder="Answer"
+                          />
+                        ) : (
+                          <input
+                            disabled
+                            type={normalizeInputType(selected.type)}
+                            className="w-full border border-zinc-200 px-4 py-2 text-sm"
+                            style={{
+                              borderRadius: style.radiusPx ?? 16,
+                              backgroundColor: style.inputBg || "#ffffff",
+                              borderColor: style.inputBorder || "#e4e4e7",
+                              color: style.textColor || "#18181b",
+                            }}
+                            placeholder="Answer"
+                          />
+                        )}
+                      </div>
 
-                    <button
-                      type="button"
-                      className="mt-4 inline-flex w-full items-center justify-center px-4 py-2 text-sm font-bold"
-                      style={{
-                        borderRadius: style.radiusPx ?? 16,
-                        backgroundColor: style.buttonBg || "#2563eb",
-                        color: style.buttonText || "#ffffff",
-                      }}
-                    >
-                      Submit
-                    </button>
+                      <div className="mt-4 inline-flex items-center rounded-full border border-zinc-200 bg-white px-3 py-1 text-xs font-semibold text-zinc-700">
+                        {selected.required ? "Required" : "Optional"}
+                      </div>
+
+                      <button
+                        type="button"
+                        className="mt-4 inline-flex w-full items-center justify-center px-4 py-2 text-sm font-bold"
+                        style={{
+                          borderRadius: style.radiusPx ?? 16,
+                          backgroundColor: style.buttonBg || "#2563eb",
+                          color: style.buttonText || "#ffffff",
+                        }}
+                      >
+                        Submit
+                      </button>
                     </div>
                   </div>
 
                   <div className="mt-6">
                     <div className="text-sm font-semibold text-brand-ink">Form style</div>
                     <div className="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-2">
+                      <label className="block sm:col-span-2">
+                        <div className="text-xs font-semibold uppercase tracking-wide text-zinc-500">Font</div>
+                        <PortalListboxDropdown
+                          value={fontPresetKey}
+                          onChange={(k) => {
+                            const next = applyFontPresetToStyle(String(k || "default"));
+                            setStyle((prev) => ({
+                              ...prev,
+                              fontFamily: next.fontFamily,
+                              fontGoogleFamily: next.fontGoogleFamily,
+                            }));
+                          }}
+                          options={[
+                            { value: "default", label: "Default (app font)" },
+                            ...FONT_PRESETS.filter((p) => p.key !== "default").map((p) => ({ value: p.key, label: p.label })),
+                            { value: "custom", label: "Custom…" },
+                          ]}
+                          className="mt-1 w-full"
+                          buttonClassName="flex w-full items-center justify-between gap-2 rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm text-zinc-900 hover:bg-zinc-50 focus-visible:ring-2 focus-visible:ring-zinc-300"
+                        />
+                        <div className="mt-1 text-xs text-zinc-500">Pick a preset to auto-load Google Fonts. Custom uses whatever the browser has.</div>
+                      </label>
+
+                      {fontPresetKey === "custom" ? (
+                        <label className="block sm:col-span-2">
+                          <div className="text-xs font-semibold uppercase tracking-wide text-zinc-500">Custom font-family</div>
+                          <input
+                            value={style.fontFamily || ""}
+                            onChange={(e) =>
+                              setStyle((prev) => ({
+                                ...prev,
+                                fontFamily: e.target.value.replace(/[\r\n\t]/g, " ").slice(0, 200),
+                                fontGoogleFamily: undefined,
+                              }))
+                            }
+                            className="mt-1 w-full rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-sm text-zinc-900 placeholder:text-zinc-400"
+                            placeholder='e.g. ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial'
+                          />
+                        </label>
+                      ) : null}
+
                       <label className="block">
                         <div className="text-xs font-semibold uppercase tracking-wide text-zinc-500">Page background</div>
-                        <div className="mt-1 flex items-center gap-2">
+                        <div className="mt-1 flex flex-wrap items-center gap-2">
                           <input
                             type="color"
                             value={style.pageBg && style.pageBg !== "transparent" ? style.pageBg : "#f4f4f5"}
@@ -731,7 +1015,7 @@ export function FormEditorClient({ basePath, formId }: { basePath: string; formI
                           <input
                             value={style.pageBg || "#f4f4f5"}
                             onChange={(e) => setStyle((prev) => ({ ...prev, pageBg: e.target.value }))}
-                            className="h-10 w-full rounded-2xl border border-zinc-200 bg-white px-3 text-sm text-zinc-900 placeholder:text-zinc-400"
+                            className="h-10 min-w-[180px] flex-1 rounded-2xl border border-zinc-200 bg-white px-3 text-sm text-zinc-900 placeholder:text-zinc-400"
                             placeholder="#f4f4f5 or transparent"
                           />
                           <button
@@ -755,7 +1039,7 @@ export function FormEditorClient({ basePath, formId }: { basePath: string; formI
                                 return next;
                               })
                             }
-                            className="h-10 rounded-2xl border border-zinc-200 bg-white px-3 text-sm font-semibold text-zinc-700 hover:bg-zinc-50"
+                            className="h-10 shrink-0 rounded-2xl border border-zinc-200 bg-white px-3 text-sm font-semibold text-zinc-700 hover:bg-zinc-50"
                           >
                             Clear
                           </button>
@@ -764,7 +1048,7 @@ export function FormEditorClient({ basePath, formId }: { basePath: string; formI
 
                       <label className="block">
                         <div className="text-xs font-semibold uppercase tracking-wide text-zinc-500">Card background</div>
-                        <div className="mt-1 flex items-center gap-2">
+                        <div className="mt-1 flex flex-wrap items-center gap-2">
                           <input
                             type="color"
                             value={style.cardBg && style.cardBg !== "transparent" ? style.cardBg : "#ffffff"}
@@ -778,7 +1062,7 @@ export function FormEditorClient({ basePath, formId }: { basePath: string; formI
                           <input
                             value={style.cardBg || "#ffffff"}
                             onChange={(e) => setStyle((prev) => ({ ...prev, cardBg: e.target.value }))}
-                            className="h-10 w-full rounded-2xl border border-zinc-200 bg-white px-3 text-sm text-zinc-900 placeholder:text-zinc-400"
+                            className="h-10 min-w-[180px] flex-1 rounded-2xl border border-zinc-200 bg-white px-3 text-sm text-zinc-900 placeholder:text-zinc-400"
                             placeholder="#ffffff or transparent"
                           />
                           <button
@@ -802,7 +1086,7 @@ export function FormEditorClient({ basePath, formId }: { basePath: string; formI
                                 return next;
                               })
                             }
-                            className="h-10 rounded-2xl border border-zinc-200 bg-white px-3 text-sm font-semibold text-zinc-700 hover:bg-zinc-50"
+                            className="h-10 shrink-0 rounded-2xl border border-zinc-200 bg-white px-3 text-sm font-semibold text-zinc-700 hover:bg-zinc-50"
                           >
                             Clear
                           </button>
@@ -874,10 +1158,6 @@ export function FormEditorClient({ basePath, formId }: { basePath: string; formI
                     <div className="mt-2 text-xs text-zinc-500">Tip: set Page/Card backgrounds to “transparent” for embed-friendly styling.</div>
                   </div>
 
-                  <div className="mt-4 text-xs text-zinc-500">
-                    Hosted submissions go to:{" "}
-                    <span className="font-mono">/api/public{basePath}/forms/{form?.slug || "…"}/submit</span>
-                  </div>
                 </div>
               </div>
           )}

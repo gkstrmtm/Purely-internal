@@ -20,6 +20,7 @@ import {
 import { PortalSelectDropdown } from "@/components/PortalSelectDropdown";
 import { useToast } from "@/components/ToastProvider";
 import { PORTAL_VARIANT_HEADER, type PortalVariant } from "@/lib/portalVariant";
+import { FONT_PRESETS, applyFontPresetToStyle, fontPresetKeyFromStyle } from "@/lib/fontPresets";
 
 type Funnel = {
   id: string;
@@ -2882,6 +2883,55 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
                 <div className="mt-4 rounded-2xl border border-zinc-200 bg-white p-4">
                   <div className="text-sm font-semibold text-zinc-900">Page</div>
                   <div className="mt-3 space-y-3">
+                    {(() => {
+                      const pageStyle = (pageSettingsBlock as any)?.props?.style as BlockStyle | undefined;
+                      const presetKey = fontPresetKeyFromStyle({
+                        fontFamily: (pageStyle as any)?.fontFamily,
+                        fontGoogleFamily: (pageStyle as any)?.fontGoogleFamily,
+                      });
+
+                      return (
+                        <div>
+                          <div className="mb-1 text-xs font-semibold uppercase tracking-wide text-zinc-500">Font</div>
+                          <PortalListboxDropdown
+                            value={presetKey}
+                            onChange={(k) => {
+                              const next = applyFontPresetToStyle(String(k || "default"));
+                              updatePageStyle({
+                                fontFamily: next.fontFamily,
+                                fontGoogleFamily: next.fontGoogleFamily,
+                              } as any);
+                            }}
+                            options={[
+                              { value: "default", label: "Default (app font)" },
+                              ...FONT_PRESETS.filter((p) => p.key !== "default").map((p) => ({ value: p.key, label: p.label })),
+                              { value: "custom", label: "Custom…" },
+                            ]}
+                            className="mt-1 w-full"
+                            buttonClassName="flex w-full items-center justify-between gap-2 rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm text-zinc-900 hover:bg-zinc-50 focus-visible:ring-2 focus-visible:ring-zinc-300"
+                          />
+                          <div className="mt-1 text-xs text-zinc-500">Presets auto-load Google Fonts on hosted pages.</div>
+
+                          {presetKey === "custom" ? (
+                            <label className="mt-2 block">
+                              <div className="mb-1 text-xs font-semibold uppercase tracking-wide text-zinc-500">Custom font-family</div>
+                              <input
+                                value={(pageStyle as any)?.fontFamily || ""}
+                                onChange={(e) =>
+                                  updatePageStyle({
+                                    fontFamily: e.target.value.replace(/[\r\n\t]/g, " ").slice(0, 200) || undefined,
+                                    fontGoogleFamily: undefined,
+                                  } as any)
+                                }
+                                className="w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm"
+                                placeholder='e.g. ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial'
+                              />
+                            </label>
+                          ) : null}
+                        </div>
+                      );
+                    })()}
+
                     <ColorPickerField
                       label="Page background"
                       value={(pageSettingsBlock as any)?.props?.style?.backgroundColor}
