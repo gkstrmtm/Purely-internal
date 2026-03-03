@@ -2601,7 +2601,7 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
                 setDialog((prev) => (prev?.type === "create-page" ? { ...prev, slug: v } : prev));
               }}
               placeholder="landing"
-              className="mt-1 w-full rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm"
+              className="mt-1 w-full rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm text-zinc-900 placeholder:text-zinc-400"
             />
             <div className="mt-1 text-xs text-zinc-500">Allowed: letters, numbers, and dashes.</div>
           </label>
@@ -2616,7 +2616,7 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
                 setDialog((prev) => (prev?.type === "create-page" ? { ...prev, title: v } : prev));
               }}
               placeholder="Landing page"
-              className="mt-1 w-full rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm"
+              className="mt-1 w-full rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm text-zinc-900 placeholder:text-zinc-400"
             />
           </label>
 
@@ -2669,7 +2669,7 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
                 setDialog((prev) => (prev?.type === "create-form" ? { ...prev, slug: v } : prev));
               }}
               placeholder="new-client-intake"
-              className="mt-1 w-full rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm"
+              className="mt-1 w-full rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm text-zinc-900 placeholder:text-zinc-400"
             />
             <div className="mt-1 text-xs text-zinc-500">Allowed: letters, numbers, and dashes.</div>
           </label>
@@ -2684,7 +2684,7 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
                 setDialog((prev) => (prev?.type === "create-form" ? { ...prev, name: v } : prev));
               }}
               placeholder="New client intake"
-              className="mt-1 w-full rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm"
+              className="mt-1 w-full rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm text-zinc-900 placeholder:text-zinc-400"
             />
           </label>
 

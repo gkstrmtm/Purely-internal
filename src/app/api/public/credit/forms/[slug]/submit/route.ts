@@ -2,7 +2,7 @@ import crypto from "crypto";
 import { NextResponse } from "next/server";
 
 import { prisma } from "@/lib/db";
-import { sendEmail } from "@/lib/leadOutbound";
+import { tryNotifyPortalAccountUsers } from "@/lib/portalNotifications";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
@@ -81,20 +81,20 @@ export async function POST(req: Request, ctx: { params: Promise<{ slug: string }
     settings?.dataJson && typeof settings.dataJson === "object" && !Array.isArray(settings.dataJson)
       ? (settings.dataJson as any)
       : null;
-  const notifyEmails: string[] = Array.isArray(settingsObj?.notifyEmails) ? settingsObj.notifyEmails : [];
   const webhookUrl: string | null = typeof settingsObj?.webhookUrl === "string" ? settingsObj.webhookUrl : null;
   const webhookSecret: string | null = typeof settingsObj?.webhookSecret === "string" ? settingsObj.webhookSecret : null;
 
-  if (Array.isArray(notifyEmails) && notifyEmails.length) {
-    for (const to of notifyEmails.slice(0, 10)) {
-      if (typeof to !== "string" || !to) continue;
-      sendEmail({
-        to,
-        subject: `New credit form submission: ${form.name || form.slug}`,
-        text: `Form: ${form.name || form.slug}\nSubmission ID: ${submission.id}\nCreated: ${submission.createdAt.toISOString()}\n\nData:\n${JSON.stringify(payload, null, 2)}`,
-      }).catch(() => null);
-    }
-  }
+  tryNotifyPortalAccountUsers({
+    ownerId: form.ownerId,
+    kind: "form_submitted",
+    subject: `New form submission: ${form.name || form.slug}`,
+    text:
+      `Form: ${form.name || form.slug}\n` +
+      `Submission ID: ${submission.id}\n` +
+      `Created: ${submission.createdAt.toISOString()}\n\n` +
+      `Data:\n${JSON.stringify(payload, null, 2)}`,
+    smsMirror: true,
+  }).catch(() => null);
 
   if (webhookUrl && typeof webhookUrl === "string" && webhookSecret && typeof webhookSecret === "string") {
     bestEffortPostWebhook(

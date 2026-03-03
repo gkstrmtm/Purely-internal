@@ -31,12 +31,6 @@ type CreditDomain = {
   updatedAt: string;
 };
 
-type CreditFunnelBuilderSettings = {
-  notifyEmails: string[];
-  webhookUrl: string | null;
-  webhookSecret: string;
-};
-
 type TabKey = "funnels" | "forms" | "settings";
 
 function classNames(...xs: Array<string | false | null | undefined>) {
@@ -63,7 +57,6 @@ export function FunnelBuilderClient() {
   const [funnels, setFunnels] = useState<CreditFunnel[] | null>(null);
   const [forms, setForms] = useState<CreditForm[] | null>(null);
   const [domains, setDomains] = useState<CreditDomain[] | null>(null);
-  const [settings, setSettings] = useState<CreditFunnelBuilderSettings | null>(null);
 
   const [creatingKind, setCreatingKind] = useState<"funnel" | "form" | null>(null);
   const [createName, setCreateName] = useState("");
@@ -73,10 +66,6 @@ export function FunnelBuilderClient() {
 
   const [domainInput, setDomainInput] = useState("");
   const [domainBusy, setDomainBusy] = useState(false);
-
-  const [notifyEmailsInput, setNotifyEmailsInput] = useState("");
-  const [webhookUrlInput, setWebhookUrlInput] = useState("");
-  const [settingsBusy, setSettingsBusy] = useState(false);
 
   const funnelPreviewBase = useMemo(() => `${basePath}/f`, [basePath]);
   const formPreviewBase = useMemo(() => `${basePath}/forms`, [basePath]);
@@ -102,16 +91,6 @@ export function FunnelBuilderClient() {
     setDomains(Array.isArray(json.domains) ? json.domains : []);
   }, []);
 
-  const loadSettings = useCallback(async () => {
-    const res = await fetch("/api/portal/funnel-builder/settings", { cache: "no-store" });
-    const json = (await res.json().catch(() => null)) as any;
-    if (!res.ok || !json || json.ok !== true) throw new Error(json?.error || "Failed to load settings");
-    setSettings(json.settings as CreditFunnelBuilderSettings);
-    const emails = Array.isArray(json.settings?.notifyEmails) ? json.settings.notifyEmails : [];
-    setNotifyEmailsInput(emails.join(", "));
-    setWebhookUrlInput(typeof json.settings?.webhookUrl === "string" ? json.settings.webhookUrl : "");
-  }, []);
-
   useEffect(() => {
     let mounted = true;
     (async () => {
@@ -121,8 +100,6 @@ export function FunnelBuilderClient() {
         await loadForms();
         if (!mounted) return;
         await loadDomains();
-        if (!mounted) return;
-        await loadSettings();
       } catch (e) {
         if (!mounted) return;
         setError((e as any)?.message ? String((e as any).message) : "Failed to load funnel builder data");
@@ -131,7 +108,7 @@ export function FunnelBuilderClient() {
     return () => {
       mounted = false;
     };
-  }, [loadDomains, loadForms, loadFunnels, loadSettings]);
+  }, [loadDomains, loadForms, loadFunnels]);
 
   useEffect(() => {
     if (!creatingKind) return;
@@ -195,33 +172,6 @@ export function FunnelBuilderClient() {
       setError((e as any)?.message ? String((e as any).message) : "Failed to save domain");
     } finally {
       setDomainBusy(false);
-    }
-  };
-
-  const saveSettings = async (opts?: { regenerateSecret?: boolean }) => {
-    setSettingsBusy(true);
-    setError(null);
-    try {
-      const notifyEmails = notifyEmailsInput
-        .split(",")
-        .map((s) => s.trim())
-        .filter(Boolean);
-      const webhookUrl = webhookUrlInput.trim() || null;
-      const res = await fetch("/api/portal/funnel-builder/settings", {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({ notifyEmails, webhookUrl, regenerateSecret: opts?.regenerateSecret === true }),
-      });
-      const json = (await res.json().catch(() => null)) as any;
-      if (!res.ok || !json || json.ok !== true) throw new Error(json?.error || "Failed to save settings");
-      setSettings(json.settings as CreditFunnelBuilderSettings);
-      const emails = Array.isArray(json.settings?.notifyEmails) ? json.settings.notifyEmails : [];
-      setNotifyEmailsInput(emails.join(", "));
-      setWebhookUrlInput(typeof json.settings?.webhookUrl === "string" ? json.settings.webhookUrl : "");
-    } catch (e) {
-      setError((e as any)?.message ? String((e as any).message) : "Failed to save settings");
-    } finally {
-      setSettingsBusy(false);
     }
   };
 
@@ -433,76 +383,6 @@ export function FunnelBuilderClient() {
                 </div>
               )}
             </div>
-          </div>
-
-          <div className="mt-4 rounded-3xl border border-zinc-200 bg-white p-6">
-            <div className="text-base font-semibold text-brand-ink">Notifications</div>
-            <p className="mt-1 text-sm text-zinc-600">
-              Get notified when a hosted form is submitted. Webhooks are signed with your secret.
-            </p>
-
-            <div className="mt-4 grid grid-cols-1 gap-3 sm:grid-cols-2">
-              <div>
-                <div className="text-xs font-semibold uppercase tracking-wide text-zinc-500">Notify emails</div>
-                <input
-                  value={notifyEmailsInput}
-                  onChange={(e) => setNotifyEmailsInput(e.target.value)}
-                  placeholder="ops@yourdomain.com, you@yourdomain.com"
-                  className="mt-1 w-full rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm"
-                />
-                <div className="mt-1 text-xs text-zinc-500">Comma-separated. Max 10.</div>
-              </div>
-
-              <div>
-                <div className="text-xs font-semibold uppercase tracking-wide text-zinc-500">Webhook URL</div>
-                <input
-                  value={webhookUrlInput}
-                  onChange={(e) => setWebhookUrlInput(e.target.value)}
-                  placeholder="https://example.com/webhooks/forms"
-                  className="mt-1 w-full rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm"
-                />
-                <div className="mt-1 text-xs text-zinc-500">Optional. Uses header `x-pa-signature` (HMAC-SHA256).</div>
-              </div>
-            </div>
-
-            <div className="mt-4 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-              <div className="text-xs text-zinc-600">
-                Secret: <span className="font-mono">{settings?.webhookSecret ? `${settings.webhookSecret.slice(0, 6)}…` : "…"}</span>
-              </div>
-              <div className="flex flex-col gap-2 sm:flex-row">
-                <button
-                  type="button"
-                  disabled={settingsBusy}
-                  onClick={() => saveSettings({ regenerateSecret: true })}
-                  className={classNames(
-                    "rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm font-semibold text-brand-ink hover:bg-zinc-50",
-                    settingsBusy ? "opacity-60" : "",
-                  )}
-                >
-                  Regenerate secret
-                </button>
-                <button
-                  type="button"
-                  disabled={settingsBusy}
-                  onClick={() => saveSettings()}
-                  className={classNames(
-                    "rounded-2xl px-4 py-2 text-sm font-semibold text-white",
-                    settingsBusy ? "bg-zinc-400" : "bg-brand-ink hover:opacity-95",
-                  )}
-                >
-                  {settingsBusy ? "Saving…" : "Save settings"}
-                </button>
-              </div>
-            </div>
-          </div>
-
-          <div className="mt-4 rounded-3xl border border-zinc-200 bg-white p-6">
-            <div className="text-base font-semibold text-brand-ink">Hosting notes</div>
-            <ul className="mt-3 space-y-2 text-sm text-zinc-700">
-              <li>Funnels preview at: <span className="font-semibold">{funnelPreviewBase}/&lt;slug&gt;</span></li>
-              <li>Forms preview at: <span className="font-semibold">{formPreviewBase}/&lt;slug&gt;</span></li>
-              <li>Domain verification/provisioning UI can be added next (TXT record checks + status polling).</li>
-            </ul>
           </div>
         </section>
       ) : null}

@@ -39,6 +39,7 @@ export type PortalNotificationKind =
   | "inbound_sms"
   | "blog_published"
   | "booking_created"
+  | "form_submitted"
   | "task_created"
   | "newsletter_ready"
   | "newsletter_sent"
