@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 
 import { prisma } from "@/lib/db";
+import { upsertHoursSavedEvent } from "@/lib/hoursSaved";
 import { ensurePortalAiOutboundCallsSchema } from "@/lib/portalAiOutboundCallsSchema";
 import { getOwnerTwilioSmsConfig } from "@/lib/portalTwilio";
 import { webhookUrlFromRequest } from "@/lib/webhookBase";
@@ -83,6 +84,15 @@ export async function POST(req: Request, ctx: { params: Promise<{ token: string 
       },
       select: { id: true },
     });
+
+    if (Number.isFinite(durationSec) && durationSec > 0) {
+      await upsertHoursSavedEvent({
+        ownerId: manual.ownerId,
+        kind: "ai_outbound_call",
+        sourceId: manual.id,
+        secondsSaved: Math.max(0, Math.floor(durationSec)) * 2,
+      }).catch(() => null);
+    }
 
     await requestTranscription({ ownerId: manual.ownerId, recordingSid, token: t, req });
   }

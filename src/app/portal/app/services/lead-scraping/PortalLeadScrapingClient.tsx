@@ -2247,7 +2247,7 @@ export function PortalLeadScrapingClient() {
                   <div className="flex items-start justify-between gap-4">
                     <div>
                       <div className="text-base font-semibold text-brand-ink">B2C pulls</div>
-                      <div className="mt-1 text-sm text-zinc-600">Pull consumer address lists from OpenStreetMap.</div>
+                      <div className="mt-1 text-sm text-zinc-600">Pull consumer lead lists for a location.</div>
                     </div>
                   </div>
 
@@ -2256,11 +2256,6 @@ export function PortalLeadScrapingClient() {
                       B2C lead pulling is currently locked. (We’re not selling this yet.)
                     </div>
                   ) : null}
-
-                  <div className="mt-4 rounded-2xl border border-zinc-200 bg-zinc-50 px-4 py-3 text-sm text-zinc-700">
-                    This is a free global source. It will usually return addresses only (no phone/email).
-                    Use a city, ZIP/postcode, or similarly specific area.
-                  </div>
 
                   <fieldset
                     disabled={!b2cUnlocked}
@@ -2286,14 +2281,14 @@ export function PortalLeadScrapingClient() {
                           )
                         }
                         options={[
-                          { value: "OSM_ADDRESS", label: "OSM addresses (no phone)" },
-                          { value: "OSM_POI_PHONE", label: "OSM places w/ phone (name + address + phone)" },
+                          { value: "OSM_ADDRESS", label: "Addresses" },
+                          { value: "OSM_POI_PHONE", label: "Phone, name, and address" },
                         ]}
                         className="mt-2 w-full"
                         buttonClassName="flex w-full items-center justify-between gap-2 rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm hover:bg-zinc-50 focus-visible:ring-2 focus-visible:ring-zinc-300"
                       />
                       <div className="mt-1 text-xs text-zinc-500">
-                        Phone coverage varies by area. “Places w/ phone” tends to return small lists.
+                        Phone coverage varies by area. “Phone, name, and address” tends to return small lists.
                       </div>
                     </label>
 

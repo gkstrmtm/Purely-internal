@@ -36,15 +36,33 @@ async function computeHoursSaved(ownerId: string): Promise<{ hoursSavedThisWeek:
     }
   }
 
-  // NOTE: AI receptionist + missed-call-textback events are stored in a capped JSON log (200 events).
+  // NOTE: Some services historically stored a capped JSON log (200 events).
   // For dashboard rollups we rely on the durable `PortalHoursSavedEvent` table.
-  const [savedSecondsWeek, savedSecondsAll, aiEventsRaw, missedEventsRaw] = await Promise.all([
-    safe(() => sumHoursSavedSeconds({ ownerId, since: weekStart }), 0),
-    safe(() => sumHoursSavedSeconds({ ownerId }), 0),
+  const [durableSecondsWeekTotal, durableSecondsAllTotal, durableAiMissedSecondsWeek, durableAiMissedSecondsAll, aiEventsRaw, missedEventsRaw] =
+    await Promise.all([
+      safe(() => sumHoursSavedSeconds({ ownerId, since: weekStart }), 0),
+      safe(() => sumHoursSavedSeconds({ ownerId }), 0),
+      safe(
+        () =>
+          sumHoursSavedSeconds({
+            ownerId,
+            since: weekStart,
+            kinds: ["ai_receptionist_call", "missed_call_textback"],
+          }),
+        0,
+      ),
+      safe(
+        () =>
+          sumHoursSavedSeconds({
+            ownerId,
+            kinds: ["ai_receptionist_call", "missed_call_textback"],
+          }),
+        0,
+      ),
     // Keep these around for back-compat until all users have durable events.
-    safe(() => listAiReceptionistEvents(ownerId, 200), [] as AiReceptionistCallEvent[]),
-    safe(() => listMissedCallTextBackEvents(ownerId, 200), [] as MissedCallTextBackEvent[]),
-  ]);
+      safe(() => listAiReceptionistEvents(ownerId, 200), [] as AiReceptionistCallEvent[]),
+      safe(() => listMissedCallTextBackEvents(ownerId, 200), [] as MissedCallTextBackEvent[]),
+    ]);
 
   const fallbackAiSecondsAll = aiEventsRaw
     .filter((e) => String(e.status || "").toUpperCase() === "COMPLETED")
@@ -75,16 +93,14 @@ async function computeHoursSaved(ownerId: string): Promise<{ hoursSavedThisWeek:
 
   const missedAllFallbackCount = missedEventsRaw.length;
 
-  const durableSecondsWeek = savedSecondsWeek;
-  const durableSecondsAll = savedSecondsAll;
-
   const fallbackSecondsWeek = fallbackAiSecondsWeek + missedWeekFallbackCount * 120;
   const fallbackSecondsAll = fallbackAiSecondsAll + missedAllFallbackCount * 120;
 
-  // Use the larger of (durable table) vs (capped in-json estimate) so totals don't
-  // appear to decrease or reset right after deploying the durable table.
-  const aiAndMissedSecondsWeek = Math.max(durableSecondsWeek, fallbackSecondsWeek);
-  const aiAndMissedSecondsAll = Math.max(durableSecondsAll, fallbackSecondsAll);
+  // Use the larger of (durable AI+missed) vs (capped in-json estimate) so totals don't
+  // appear to decrease or reset right after deploying durable rows.
+  // IMPORTANT: keep other durable kinds intact (don't take max() against the total).
+  const adjustedSecondsWeek = durableSecondsWeekTotal + Math.max(0, fallbackSecondsWeek - durableAiMissedSecondsWeek);
+  const adjustedSecondsAll = durableSecondsAllTotal + Math.max(0, fallbackSecondsAll - durableAiMissedSecondsAll);
 
   const [leadScrapeWeekAgg, leadScrapeAllAgg] = await Promise.all([
     safe(
@@ -108,24 +124,7 @@ async function computeHoursSaved(ownerId: string): Promise<{ hoursSavedThisWeek:
   const leadsCreatedWeek = Math.max(0, Number(leadScrapeWeekAgg?._sum?.createdCount ?? 0) || 0);
   const leadsCreatedAll = Math.max(0, Number(leadScrapeAllAgg?._sum?.createdCount ?? 0) || 0);
 
-  const [aiOutboundWeek, aiOutboundAll] = await Promise.all([
-    safe(
-      () =>
-        prisma.portalAiOutboundCallEnrollment.count({
-          where: { ownerId, status: "COMPLETED", completedAt: { gte: weekStart } },
-        }),
-      0,
-    ),
-    safe(
-      () =>
-        prisma.portalAiOutboundCallEnrollment.count({
-          where: { ownerId, status: "COMPLETED" },
-        }),
-      0,
-    ),
-  ]);
-
-  const [blogWeek, blogAll, newsletterWeek, newsletterAll] = await Promise.all([
+  const [blogWeek, blogAll, newsletterWeek, newsletterAll, tasksWeek, tasksAll] = await Promise.all([
     safe(
       () => prisma.portalBlogGenerationEvent.count({ where: { ownerId, createdAt: { gte: weekStart } } }),
       0,
@@ -140,6 +139,14 @@ async function computeHoursSaved(ownerId: string): Promise<{ hoursSavedThisWeek:
     ),
     safe(
       () => prisma.portalNewsletterSendEvent.count({ where: { ownerId, sentCount: { gt: 0 } } }),
+      0,
+    ),
+    safe(
+      () => prisma.portalTask.count({ where: { ownerId, createdAt: { gte: weekStart } } }),
+      0,
+    ),
+    safe(
+      () => prisma.portalTask.count({ where: { ownerId } }),
       0,
     ),
   ]);
@@ -163,20 +170,20 @@ async function computeHoursSaved(ownerId: string): Promise<{ hoursSavedThisWeek:
   // AI receptionist is duration-based elsewhere: saved seconds = call seconds * 2.
   // Missed-call-textback is fixed at 2 minutes per successful auto-reply.
   const minutesWeek =
-    aiAndMissedSecondsWeek / 60 +
+    adjustedSecondsWeek / 60 +
     leadsCreatedWeek * 2 +
-    aiOutboundWeek * 3 +
     bookingsWeek * 6 +
     blogWeek * 45 +
-    newsletterWeek * 20;
+    newsletterWeek * 30 +
+    Math.max(0, Number(tasksWeek) || 0) * 5;
 
   const minutesAll =
-    aiAndMissedSecondsAll / 60 +
+    adjustedSecondsAll / 60 +
     leadsCreatedAll * 2 +
-    aiOutboundAll * 3 +
     bookingsAll * 6 +
     blogAll * 45 +
-    newsletterAll * 20;
+    newsletterAll * 30 +
+    Math.max(0, Number(tasksAll) || 0) * 5;
 
   return {
     hoursSavedThisWeek: hoursFromMinutes(minutesWeek),

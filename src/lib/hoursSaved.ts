@@ -3,7 +3,12 @@ import { prisma } from "@/lib/db";
 export type HoursSavedKind =
   | "ai_receptionist_call"
   | "missed_call_textback"
-  | "portal_active_time";
+  | "portal_active_time"
+  | "ai_outbound_call"
+  | "review_request_sent"
+  | "nurture_message_sent"
+  | "automation_built"
+  | "automation_run";
 
 export async function upsertHoursSavedEvent(opts: {
   ownerId: string;
@@ -49,16 +54,23 @@ export async function upsertHoursSavedEvent(opts: {
 export async function sumHoursSavedSeconds(opts: {
   ownerId: string;
   since?: Date | null;
+  kinds?: HoursSavedKind[] | null;
 }): Promise<number> {
   const ownerId = String(opts.ownerId || "").trim();
   if (!ownerId) return 0;
 
   const since = opts.since instanceof Date && Number.isFinite(opts.since.getTime()) ? opts.since : null;
+  const kinds = Array.isArray(opts.kinds)
+    ? (opts.kinds
+        .map((k) => String(k || "").trim() as HoursSavedKind)
+        .filter((k) => Boolean(k)))
+    : null;
 
   const agg = await prisma.portalHoursSavedEvent.aggregate({
     where: {
       ownerId,
       ...(since ? { occurredAt: { gte: since } } : {}),
+      ...(kinds && kinds.length ? { kind: { in: kinds } } : {}),
     },
     _sum: { secondsSaved: true },
   });

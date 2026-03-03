@@ -8,6 +8,7 @@ import { sendEmail } from "@/lib/leadOutbound";
 import { buildPortalTemplateVars } from "@/lib/portalTemplateVars";
 import { renderTextTemplate } from "@/lib/textTemplate";
 import { isVercelCronRequest, readCronAuthValue } from "@/lib/cronAuth";
+import { upsertHoursSavedEvent } from "@/lib/hoursSaved";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
@@ -225,6 +226,14 @@ export async function GET(req: Request) {
           updatedAt: now,
         },
       });
+
+      await upsertHoursSavedEvent({
+        ownerId: e.ownerId,
+        kind: "nurture_message_sent",
+        sourceId: `${e.id}:${e.stepIndex}`,
+        secondsSaved: 3 * 60,
+        occurredAt: now,
+      }).catch(() => null);
 
       processed += 1;
     } catch (err: any) {

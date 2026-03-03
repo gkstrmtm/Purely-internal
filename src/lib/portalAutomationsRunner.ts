@@ -14,6 +14,7 @@ import { getBookingCalendarsConfig } from "@/lib/bookingCalendars";
 import { enqueueOutboundCallForContact } from "@/lib/portalAiOutboundCalls";
 import { ensurePortalNurtureSchema } from "@/lib/portalNurtureSchema";
 import { ensurePortalContactServiceTriggersReady, listPortalContactServiceTriggers, recordPortalContactServiceTrigger } from "@/lib/portalContactServiceTriggers";
+import { upsertHoursSavedEvent } from "@/lib/hoursSaved";
 
 type EdgePort = "out" | "true" | "false";
 
@@ -604,6 +605,31 @@ async function runAutomationOnce(opts: {
   });
 
   if (!triggerNodes.length) return;
+
+  const runAt = new Date();
+  const dayKey = runAt.toISOString().slice(0, 10);
+  const runDedupKey = (() => {
+    if (opts.event?.bookingId) return `booking:${String(opts.event.bookingId)}`;
+    if (opts.event?.leadId) return `lead:${String(opts.event.leadId)}`;
+    if (opts.event?.tagId) return `tag:${String(opts.event.tagId)}`;
+    if (opts.event?.webhookKey) return `webhook:${String(opts.event.webhookKey)}`;
+
+    const raw = `${message.from}|${message.to}|${message.body}`.trim();
+    if (raw && raw !== "||") {
+      const h = crypto.createHash("sha256").update(raw).digest("hex").slice(0, 16);
+      return `msg:${h}`;
+    }
+
+    return "generic";
+  })();
+
+  await upsertHoursSavedEvent({
+    ownerId: opts.ownerId,
+    kind: "automation_run",
+    sourceId: `run:${opts.automation.id}:${dayKey}:${opts.triggerKind}:${runDedupKey}`,
+    secondsSaved: 2 * 60,
+    occurredAt: runAt,
+  }).catch(() => null);
 
   const looksLikeEmail = (s: string) => Boolean(s && s.includes("@"));
   const looksLikePhone = (s: string) => Boolean(s && /^[+0-9\s\-().]{7,}$/.test(s));

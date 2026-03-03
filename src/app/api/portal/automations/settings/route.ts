@@ -3,6 +3,7 @@ import { z } from "zod";
 
 import { prisma } from "@/lib/db";
 import { requireClientSessionForService } from "@/lib/portalAccess";
+import { upsertHoursSavedEvent } from "@/lib/hoursSaved";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
@@ -239,6 +240,8 @@ export async function PUT(req: Request) {
     };
   });
 
+  const newlyCreated = next.filter((a) => !existingById.has(a.id));
+
   const existingTokenRaw = typeof existingDataJson?.webhookToken === "string" ? String(existingDataJson.webhookToken).trim() : "";
   const webhookToken = existingTokenRaw.length >= 12 ? existingTokenRaw : newToken();
 
@@ -256,6 +259,17 @@ export async function PUT(req: Request) {
     },
     select: { id: true },
   });
+
+  await Promise.all(
+    newlyCreated.map((a) =>
+      upsertHoursSavedEvent({
+        ownerId,
+        kind: "automation_built",
+        sourceId: a.id,
+        secondsSaved: 15 * 60,
+      }).catch(() => null),
+    ),
+  );
 
   return NextResponse.json({ ok: true, webhookToken, automations: next });
 }

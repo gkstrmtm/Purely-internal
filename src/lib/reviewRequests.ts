@@ -5,6 +5,7 @@ import { hasPublicColumn } from "@/lib/dbSchema";
 import { ensureStoredBlogSiteSlug, getStoredBlogSiteSlug } from "@/lib/blogSiteSlug";
 import { buildPortalTemplateVars } from "@/lib/portalTemplateVars";
 import { renderTextTemplate } from "@/lib/textTemplate";
+import { upsertHoursSavedEvent } from "@/lib/hoursSaved";
 import type { Prisma } from "@prisma/client";
 
 const SERVICE_SLUG = "reviews";
@@ -674,6 +675,15 @@ export async function sendReviewRequestForBooking(opts: { ownerId: string; booki
       select: { id: true },
     });
 
+    if (result.ok) {
+      await upsertHoursSavedEvent({
+        ownerId,
+        kind: "review_request_sent",
+        sourceId: evt.id,
+        secondsSaved: 5 * 60,
+      }).catch(() => null);
+    }
+
     if (!result.ok) return { ok: false, error: result.error };
     return { ok: true };
   } catch (err) {
@@ -770,6 +780,15 @@ export async function sendReviewRequestForContact(opts: {
       update: { status: "COMPLETE", dataJson: nextPayload as any },
       select: { id: true },
     });
+
+    if (result.ok) {
+      await upsertHoursSavedEvent({
+        ownerId,
+        kind: "review_request_sent",
+        sourceId: evt.id,
+        secondsSaved: 5 * 60,
+      }).catch(() => null);
+    }
 
     if (!result.ok) return { ok: false, error: result.error };
     return { ok: true };
@@ -992,6 +1011,13 @@ export async function processDueReviewRequests(opts?: { ownersLimit?: number; pe
           sentKeys.unshift(key);
           sentSet.add(key);
           mutated = true;
+
+          await upsertHoursSavedEvent({
+            ownerId,
+            kind: "review_request_sent",
+            sourceId: evt.id,
+            secondsSaved: 5 * 60,
+          }).catch(() => null);
         } catch (err) {
           failed += 1;
           const evt: ReviewRequestEvent = {
