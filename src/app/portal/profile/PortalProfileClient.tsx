@@ -4,7 +4,6 @@ import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 
 import { useToast } from "@/components/ToastProvider";
-import { PortalListboxDropdown } from "@/components/PortalListboxDropdown";
 
 import { BusinessProfileForm } from "./BusinessProfileForm";
 import { formatPhoneForDisplay, normalizePhoneStrict } from "@/lib/phone";
@@ -141,7 +140,6 @@ export function PortalProfileClient() {
   const [stripeSaving, setStripeSaving] = useState(false);
   const [stripeError, setStripeError] = useState<string | null>(null);
   const [stripeNote, setStripeNote] = useState<string | null>(null);
-  const [salesReportingProvider, setSalesReportingProvider] = useState<"stripe" | "square">("stripe");
 
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
@@ -851,15 +849,21 @@ export function PortalProfileClient() {
             >
               <div className="space-y-3">
                 <CopyRow label="Inbox (Twilio SMS)" value={webhooks?.legacy?.inboxTwilioSmsUrl ?? null} />
-                <CopyRow label="AI Receptionist (Twilio Voice)" value={webhooks?.legacy?.aiReceptionistVoiceUrl ?? null} />
-                <CopyRow label="Missed Call Text Back (Twilio Voice)" value={webhooks?.legacy?.missedCallVoiceUrl ?? null} />
+                <CopyRow label="Calls (Primary handler: AI Receptionist)" value={webhooks?.legacy?.aiReceptionistVoiceUrl ?? null} />
+                <CopyRow label="Calls (If primary handler fails: Missed Call Text Back)" value={webhooks?.legacy?.missedCallVoiceUrl ?? null} />
 
                 <div className="rounded-2xl border border-zinc-200 bg-white p-4 text-sm text-zinc-700">
                   <div className="font-semibold text-zinc-900">Where do I paste these in Twilio?</div>
                   <div className="mt-2 space-y-1">
                     <div>1) Twilio Console → Phone Numbers → Manage → Active numbers → click your number</div>
                     <div>2) For SMS: Messaging → “A MESSAGE COMES IN” → paste <span className="font-semibold">Inbox (Twilio SMS)</span></div>
-                    <div>3) For calls: Voice &amp; Fax → “A CALL COMES IN” → paste the matching Voice URL above</div>
+                    <div>
+                      3) For calls: Voice &amp; Fax → “A CALL COMES IN” → paste <span className="font-semibold">Calls (Primary handler: AI Receptionist)</span>
+                    </div>
+                    <div>
+                      4) Still in Voice &amp; Fax → “IF PRIMARY HANDLER FAILS” → paste{" "}
+                      <span className="font-semibold">Calls (If primary handler fails: Missed Call Text Back)</span>
+                    </div>
                   </div>
                   <div className="mt-2 text-xs text-zinc-500">If you use a Messaging Service, paste the SMS URL there instead.</div>
                 </div>
@@ -971,7 +975,7 @@ export function PortalProfileClient() {
 
           <PortalSettingsSection
             title="Sales Reporting (Stripe, Square, etc.)"
-            description="Connect a payment processor to unlock a sales dashboard. Stripe works now; Square is coming next."
+            description="Connect a payment processor to unlock a sales dashboard. Stripe is supported right now."
             accent="blue"
           >
             <div className="space-y-3">
@@ -979,30 +983,11 @@ export function PortalProfileClient() {
                 <div className="rounded-2xl border border-emerald-200 bg-emerald-50 p-4 text-sm text-emerald-800">{stripeNote}</div>
               ) : null}
 
-              <div>
-                <label className="text-xs font-semibold text-zinc-700">Provider</label>
-                <div className="mt-2">
-                  <PortalListboxDropdown
-                    value={salesReportingProvider}
-                    onChange={(v: "stripe" | "square") => setSalesReportingProvider(v)}
-                    options={[
-                      { value: "stripe", label: "Stripe (available)" },
-                      { value: "square", label: "Square (coming soon)" },
-                    ]}
-                    className="min-w-[260px]"
-                    buttonClassName="flex w-full items-center justify-between gap-2 rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-sm font-semibold text-brand-ink hover:bg-zinc-50 focus-visible:ring-2 focus-visible:ring-zinc-300"
-                  />
-                </div>
+              <div className="rounded-2xl border border-zinc-200 bg-zinc-50 p-4 text-sm text-zinc-700">
+                Want sales reporting for a different processor (Square, PayPal, Authorize.Net, Adyen, etc.)? Tell us which one and we’ll add it.
               </div>
 
-              {salesReportingProvider !== "stripe" ? (
-                <div className="rounded-2xl border border-zinc-200 bg-zinc-50 p-4 text-sm text-zinc-700">
-                  Square support is coming soon. For now, select Stripe above to connect.
-                </div>
-              ) : null}
-
-              {salesReportingProvider === "stripe" ? (
-                <>
+              <>
                   {stripeStatusLoaded && stripeStatus && !stripeStatus.encryptionConfigured ? (
                     <div className="rounded-2xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900">
                       <div className="font-semibold">Stripe connection isn’t enabled yet</div>
@@ -1079,8 +1064,7 @@ export function PortalProfileClient() {
                       Open sales dashboard →
                     </Link>
                   </div>
-                </>
-              ) : null}
+              </>
             </div>
           </PortalSettingsSection>
 
