@@ -79,21 +79,22 @@ type TwilioMasked = {
   updatedAtIso: string | null;
 };
 
-type StripeIntegrationStatus = {
-  configured: boolean;
-  prefix: string | null;
-  accountId: string | null;
-  connectedAtIso: string | null;
-  encryptionConfigured: boolean;
-};
-
-type StripeIntegrationPayload =
-  | { ok: true; stripe: StripeIntegrationStatus }
-  | { ok: false; error?: string };
-
-type StripeSalesPayload =
+type SalesIntegrationStatusPayload =
   | {
       ok: true;
+      encryptionConfigured: boolean;
+      activeProvider: string | null;
+      providers: Record<string, { configured: boolean; displayHint?: string | null; connectedAtIso?: string | null }>;
+      stripe: { configured: boolean; prefix: string | null; accountId: string | null; connectedAtIso: string | null };
+      note?: string;
+    }
+  | { ok: false; error?: string };
+
+type SalesReportPayload =
+  | {
+      ok: true;
+      provider: string;
+      providerLabel: string;
       range: "7d" | "30d";
       startIso: string;
       endIso: string;
@@ -162,7 +163,7 @@ function isPlainNonEmptyString(value: unknown): value is string {
 function serviceForWidget(widgetId: string): ServiceInfo {
   switch (widgetId) {
     case "stripeSales":
-      return { key: "reporting", name: "Stripe Sales", href: "/portal/app/services/reporting/stripe" };
+      return { key: "reporting", name: "Sales", href: "/portal/app/services/reporting/sales" };
     case "mediaLibrary":
       return SERVICE_INFOS.find((s) => s.key === "mediaLibrary")!;
     case "creditsRemaining":
@@ -532,8 +533,8 @@ export function PortalReportingClient() {
   const [data, setData] = useState<ReportingPayload | null>(null);
   const [mediaStats, setMediaStats] = useState<MediaStatsPayload | null>(null);
   const [twilio, setTwilio] = useState<TwilioMasked | null>(null);
-  const [stripeStatus, setStripeStatus] = useState<StripeIntegrationStatus | null>(null);
-  const [stripeSales, setStripeSales] = useState<StripeSalesPayload | null>(null);
+  const [salesStatus, setSalesStatus] = useState<SalesIntegrationStatusPayload | null>(null);
+  const [salesReport, setSalesReport] = useState<SalesReportPayload | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [note, setNote] = useState<string | null>(null);
@@ -581,11 +582,11 @@ export function PortalReportingClient() {
     setLoading(true);
     setError(null);
 
-    const [repRes, twilioRes, statsRes, stripeRes] = await Promise.all([
+    const [repRes, twilioRes, statsRes, salesStatusRes] = await Promise.all([
       fetch(`/api/portal/reporting?range=${encodeURIComponent(nextRange)}`, { cache: "no-store" }),
       fetch("/api/portal/integrations/twilio", { cache: "no-store" }).catch(() => null as any),
       fetch("/api/portal/media/stats", { cache: "no-store" }).catch(() => null as any),
-      fetch("/api/portal/integrations/stripe", { cache: "no-store" }).catch(() => null as any),
+      fetch("/api/portal/integrations/sales-reporting", { cache: "no-store" }).catch(() => null as any),
     ]);
 
     if (!repRes.ok) {
@@ -618,27 +619,28 @@ export function PortalReportingClient() {
       setTwilio(null);
     }
 
-    if (stripeRes?.ok) {
-      const body = (await stripeRes.json().catch(() => null)) as StripeIntegrationPayload | null;
+    if (salesStatusRes?.ok) {
+      const body = (await salesStatusRes.json().catch(() => null)) as SalesIntegrationStatusPayload | null;
       if (body?.ok) {
-        setStripeStatus(body.stripe);
-        if (body.stripe?.configured) {
-          const salesRes = await fetch("/api/portal/reporting/stripe?range=30d", { cache: "no-store" }).catch(() => null as any);
+        setSalesStatus(body);
+        const anyConnected = Boolean(body?.providers && Object.values(body.providers).some((p) => Boolean(p?.configured)));
+        if (anyConnected) {
+          const salesRes = await fetch("/api/portal/reporting/sales?range=30d", { cache: "no-store" }).catch(() => null as any);
           if (salesRes?.ok) {
-            setStripeSales(((await salesRes.json().catch(() => null)) as StripeSalesPayload | null) ?? null);
+            setSalesReport(((await salesRes.json().catch(() => null)) as SalesReportPayload | null) ?? null);
           } else {
-            setStripeSales(null);
+            setSalesReport(null);
           }
         } else {
-          setStripeSales(null);
+          setSalesReport(null);
         }
       } else {
-        setStripeStatus(null);
-        setStripeSales(null);
+        setSalesStatus(null);
+        setSalesReport(null);
       }
     } else {
-      setStripeStatus(null);
-      setStripeSales(null);
+      setSalesStatus(null);
+      setSalesReport(null);
     }
 
     setLoading(false);
@@ -771,10 +773,10 @@ export function PortalReportingClient() {
         </div>
         <div className="flex flex-wrap items-center gap-2">
           <Link
-            href="/portal/app/services/reporting/stripe"
+            href="/portal/app/services/reporting/sales"
             className="inline-flex items-center justify-center rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm font-semibold text-brand-ink hover:bg-zinc-50"
           >
-            Stripe Sales
+            Sales
           </Link>
           <Link
             href="/portal/app/services"
@@ -851,7 +853,7 @@ export function PortalReportingClient() {
       ) : !data ? null : (
         <>
           <div className="mt-4 grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
-            {visible("stripeSales", "reporting", ["Stripe", "Stripe sales", "Sales", "Revenue", "Payments"]) ? (
+            {visible("stripeSales", "reporting", ["Sales", "Revenue", "Payments", "Stripe", "Paystack", "Razorpay", "Mollie", "Braintree", "Authorize.Net", "Mercado Pago", "Flutterwave"]) ? (
               <div className="relative">
                 <div className="absolute right-4 top-4">
                   {(() => {
@@ -872,20 +874,24 @@ export function PortalReportingClient() {
                 </div>
 
                 <StatCard
-                  label="Stripe sales"
+                  label="Sales"
                   value={
-                    stripeStatus?.configured && stripeSales?.ok === true
-                      ? formatMoneyFromCents(stripeSales.totals?.netCents ?? 0, stripeSales.currency ?? "usd")
-                      : stripeStatus?.configured
+                    salesReport?.ok === true
+                      ? formatMoneyFromCents(salesReport.totals?.netCents ?? 0, salesReport.currency ?? "usd")
+                      : salesStatus?.ok === true &&
+                          salesStatus.providers &&
+                          Object.values(salesStatus.providers).some((p) => Boolean(p?.configured))
                         ? "—"
                         : "Connect"
                   }
                   sub={
-                    stripeStatus?.configured
-                      ? stripeSales?.ok === true
-                        ? `Net • last 30 days • ${Number(stripeSales.totals?.chargeCount ?? 0).toLocaleString()} charges`
-                        : "Loading 30-day totals…"
-                      : "Connect Stripe in Profile"
+                    salesReport?.ok === true
+                      ? `${salesReport.providerLabel ?? "Sales"} • Net • last 30 days • ${Number(salesReport.totals?.chargeCount ?? 0).toLocaleString()} transactions`
+                      : salesStatus?.ok === true &&
+                          salesStatus.providers &&
+                          Object.values(salesStatus.providers).some((p) => Boolean(p?.configured))
+                        ? "Loading 30-day totals…"
+                        : "Connect a processor in Profile"
                   }
                   tone="emerald"
                 />

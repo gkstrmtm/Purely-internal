@@ -4,10 +4,16 @@ import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 
 import { useToast } from "@/components/ToastProvider";
+import { PortalListboxDropdown } from "@/components/PortalListboxDropdown";
 
 import { BusinessProfileForm } from "./BusinessProfileForm";
 import { formatPhoneForDisplay, normalizePhoneStrict } from "@/lib/phone";
 import { PortalSettingsSection } from "@/components/PortalSettingsSection";
+import {
+  SALES_REPORTING_PROVIDER_OPTIONS,
+  providerLabel,
+  type SalesReportingProviderKey,
+} from "@/lib/salesReportingProviders";
 
 type Me = {
   ok?: boolean;
@@ -37,16 +43,23 @@ type TwilioApiPayload = {
   error?: string;
 };
 
-type StripeIntegrationStatus = {
-  configured: boolean;
-  prefix: string | null;
-  accountId: string | null;
-  connectedAtIso: string | null;
-  encryptionConfigured: boolean;
-};
-
-type StripeIntegrationPayload =
-  | { ok: true; stripe: StripeIntegrationStatus; vercelEnv?: string | null; expectedEnvVar?: string }
+type SalesIntegrationPayload =
+  | {
+      ok: true;
+      encryptionConfigured: boolean;
+      activeProvider: SalesReportingProviderKey | null;
+      providers: Record<
+        SalesReportingProviderKey,
+        { configured: boolean; displayHint?: string | null; connectedAtIso?: string | null }
+      >;
+      stripe: {
+        configured: boolean;
+        prefix: string | null;
+        accountId: string | null;
+        connectedAtIso: string | null;
+      };
+      note?: string;
+    }
   | { ok: false; error?: string };
 
 type WebhooksRes = {
@@ -132,14 +145,30 @@ export function PortalProfileClient() {
   const [twilioError, setTwilioError] = useState<string | null>(null);
   const [twilioNote, setTwilioNote] = useState<string | null>(null);
 
-  const [stripeStatus, setStripeStatus] = useState<StripeIntegrationStatus | null>(null);
-  const [stripeStatusLoaded, setStripeStatusLoaded] = useState(false);
-  const [stripeVercelEnv, setStripeVercelEnv] = useState<string | null>(null);
-  const [stripeExpectedEnvVar, setStripeExpectedEnvVar] = useState<string | null>(null);
+  const [salesStatus, setSalesStatus] = useState<SalesIntegrationPayload | null>(null);
+  const [salesStatusLoaded, setSalesStatusLoaded] = useState(false);
+  const [salesProvider, setSalesProvider] = useState<SalesReportingProviderKey>("stripe");
   const [stripeSecretKey, setStripeSecretKey] = useState<string>("");
   const [stripeSaving, setStripeSaving] = useState(false);
   const [stripeError, setStripeError] = useState<string | null>(null);
   const [stripeNote, setStripeNote] = useState<string | null>(null);
+
+  const [authNetLoginId, setAuthNetLoginId] = useState("");
+  const [authNetTxKey, setAuthNetTxKey] = useState("");
+  const [authNetEnv, setAuthNetEnv] = useState<"production" | "sandbox">("production");
+
+  const [braintreeMerchantId, setBraintreeMerchantId] = useState("");
+  const [braintreePublicKey, setBraintreePublicKey] = useState("");
+  const [braintreePrivateKey, setBraintreePrivateKey] = useState("");
+  const [braintreeEnv, setBraintreeEnv] = useState<"production" | "sandbox">("production");
+
+  const [razorpayKeyId, setRazorpayKeyId] = useState("");
+  const [razorpayKeySecret, setRazorpayKeySecret] = useState("");
+
+  const [paystackSecretKey, setPaystackSecretKey] = useState("");
+  const [flutterwaveSecretKey, setFlutterwaveSecretKey] = useState("");
+  const [mollieApiKey, setMollieApiKey] = useState("");
+  const [mercadoPagoAccessToken, setMercadoPagoAccessToken] = useState("");
 
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
@@ -296,15 +325,14 @@ export function PortalProfileClient() {
     })();
 
     (async () => {
-      const res = await fetch("/api/portal/integrations/stripe", { cache: "no-store" }).catch(() => null as any);
+      const res = await fetch("/api/portal/integrations/sales-reporting", { cache: "no-store" }).catch(() => null as any);
       if (!mounted) return;
-      setStripeStatusLoaded(true);
+      setSalesStatusLoaded(true);
       if (!res?.ok) return;
-      const json = ((await res.json().catch(() => null)) as StripeIntegrationPayload | null) ?? null;
+      const json = ((await res.json().catch(() => null)) as SalesIntegrationPayload | null) ?? null;
       if (json?.ok) {
-        setStripeStatus(json.stripe);
-        setStripeVercelEnv(typeof (json as any).vercelEnv === "string" ? ((json as any).vercelEnv as string) : null);
-        setStripeExpectedEnvVar(typeof (json as any).expectedEnvVar === "string" ? ((json as any).expectedEnvVar as string) : null);
+        setSalesStatus(json);
+        if (json.activeProvider) setSalesProvider(json.activeProvider);
       }
     })();
 
@@ -338,15 +366,17 @@ export function PortalProfileClient() {
     };
   }, [portalMe, canViewWebhooks, canViewTwilio]);
 
-  async function saveStripeKey() {
+  async function refreshSalesStatus() {
+    const res = await fetch("/api/portal/integrations/sales-reporting", { cache: "no-store" }).catch(() => null as any);
+    setSalesStatusLoaded(true);
+    if (!res?.ok) return;
+    const json = ((await res.json().catch(() => null)) as SalesIntegrationPayload | null) ?? null;
+    if (json?.ok) setSalesStatus(json);
+  }
+
+  async function setActiveProvider(next: SalesReportingProviderKey | null) {
     if (!canEditProfile) {
       setStripeError("You have view-only access.");
-      return;
-    }
-
-    const key = stripeSecretKey.trim();
-    if (!key) {
-      setStripeError("Paste your Stripe secret key first.");
       return;
     }
 
@@ -354,52 +384,119 @@ export function PortalProfileClient() {
     setStripeError(null);
     setStripeNote(null);
 
-    const res = await fetch("/api/portal/integrations/stripe", {
+    const res = await fetch("/api/portal/integrations/sales-reporting", {
       method: "PUT",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ secretKey: key }),
+      body: JSON.stringify({ action: "setActive", provider: next }),
     }).catch(() => null as any);
 
     const json = (res ? ((await res.json().catch(() => null)) as any) : null) as { ok?: boolean; error?: string } | null;
     setStripeSaving(false);
 
     if (!res?.ok || !json?.ok) {
-      setStripeError(json?.error ?? "Unable to connect Stripe");
+      setStripeError(json?.error ?? "Unable to update");
       return;
     }
 
-    setStripeSecretKey("");
-    setStripeNote("Stripe connected.");
-
-    const statusRes = await fetch("/api/portal/integrations/stripe", { cache: "no-store" }).catch(() => null as any);
-    if (statusRes?.ok) {
-      const next = ((await statusRes.json().catch(() => null)) as StripeIntegrationPayload | null) ?? null;
-      if (next?.ok) setStripeStatus(next.stripe);
-    }
+    await refreshSalesStatus();
   }
 
-  async function disconnectStripe() {
+  async function connectSelectedProvider() {
     if (!canEditProfile) {
       setStripeError("You have view-only access.");
       return;
     }
+
     setStripeSaving(true);
     setStripeError(null);
     setStripeNote(null);
 
-    const res = await fetch("/api/portal/integrations/stripe", { method: "DELETE" }).catch(() => null as any);
-    const json = (res ? ((await res.json().catch(() => null)) as any) : null) as { ok?: boolean; error?: string } | null;
+    let data: any = null;
+    if (salesProvider === "stripe") {
+      const key = stripeSecretKey.trim();
+      if (!key) {
+        setStripeSaving(false);
+        setStripeError("Paste your Stripe secret key first.");
+        return;
+      }
+      data = { provider: "stripe", secretKey: key };
+    } else if (salesProvider === "authorizenet") {
+      data = { provider: "authorizenet", apiLoginId: authNetLoginId.trim(), transactionKey: authNetTxKey.trim(), environment: authNetEnv };
+    } else if (salesProvider === "braintree") {
+      data = { provider: "braintree", merchantId: braintreeMerchantId.trim(), publicKey: braintreePublicKey.trim(), privateKey: braintreePrivateKey.trim(), environment: braintreeEnv };
+    } else if (salesProvider === "razorpay") {
+      data = { provider: "razorpay", keyId: razorpayKeyId.trim(), keySecret: razorpayKeySecret.trim() };
+    } else if (salesProvider === "paystack") {
+      data = { provider: "paystack", secretKey: paystackSecretKey.trim() };
+    } else if (salesProvider === "flutterwave") {
+      data = { provider: "flutterwave", secretKey: flutterwaveSecretKey.trim() };
+    } else if (salesProvider === "mollie") {
+      data = { provider: "mollie", apiKey: mollieApiKey.trim() };
+    } else if (salesProvider === "mercadopago") {
+      data = { provider: "mercadopago", accessToken: mercadoPagoAccessToken.trim() };
+    }
+
+    const res = await fetch("/api/portal/integrations/sales-reporting", {
+      method: "PUT",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ action: "connect", data }),
+    }).catch(() => null as any);
+
+    const json = (res ? ((await res.json().catch(() => null)) as any) : null) as { ok?: boolean; error?: string; note?: string } | null;
     setStripeSaving(false);
 
     if (!res?.ok || !json?.ok) {
-      setStripeError(json?.error ?? "Unable to disconnect Stripe");
+      setStripeError(json?.error ?? "Unable to connect");
       return;
     }
 
-    setStripeStatus((s) => (s ? { ...s, configured: false, accountId: null, prefix: null, connectedAtIso: null } : s));
+    setStripeNote(json?.note ?? "Connected.");
     setStripeSecretKey("");
-    setStripeNote("Stripe disconnected.");
+    setAuthNetLoginId("");
+    setAuthNetTxKey("");
+    setBraintreeMerchantId("");
+    setBraintreePublicKey("");
+    setBraintreePrivateKey("");
+    setRazorpayKeyId("");
+    setRazorpayKeySecret("");
+    setPaystackSecretKey("");
+    setFlutterwaveSecretKey("");
+    setMollieApiKey("");
+    setMercadoPagoAccessToken("");
+
+    await refreshSalesStatus();
   }
+
+  async function disconnectSelectedProvider() {
+    if (!canEditProfile) {
+      setStripeError("You have view-only access.");
+      return;
+    }
+
+    setStripeSaving(true);
+    setStripeError(null);
+    setStripeNote(null);
+
+    const res = await fetch("/api/portal/integrations/sales-reporting", {
+      method: "DELETE",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ provider: salesProvider }),
+    }).catch(() => null as any);
+
+    const json = (res ? ((await res.json().catch(() => null)) as any) : null) as { ok?: boolean; error?: string; note?: string } | null;
+    setStripeSaving(false);
+
+    if (!res?.ok || !json?.ok) {
+      setStripeError(json?.error ?? "Unable to disconnect");
+      return;
+    }
+
+    setStripeNote(json?.note ?? "Disconnected.");
+    setStripeSecretKey("");
+    await refreshSalesStatus();
+  }
+
+  // Stripe connect/disconnect is handled via connectSelectedProvider/disconnectSelectedProvider.
 
   const canSaveMailbox = useMemo(() => {
     if (!mailbox || !mailbox.canChange) return false;
@@ -974,8 +1071,8 @@ export function PortalProfileClient() {
           ) : null}
 
           <PortalSettingsSection
-            title="Sales Reporting (Stripe, Square, etc.)"
-            description="Connect a payment processor to unlock a sales dashboard. Stripe is supported right now."
+            title="Sales Reporting"
+            description="Connect your payment processor to unlock a sales dashboard."
             accent="blue"
           >
             <div className="space-y-3">
@@ -983,88 +1080,303 @@ export function PortalProfileClient() {
                 <div className="rounded-2xl border border-emerald-200 bg-emerald-50 p-4 text-sm text-emerald-800">{stripeNote}</div>
               ) : null}
 
+              {stripeError ? (
+                <div className="rounded-2xl border border-red-200 bg-red-50 p-4 text-sm text-red-800">{stripeError}</div>
+              ) : null}
+
+              {salesStatusLoaded && salesStatus?.ok === true && !salesStatus.encryptionConfigured ? (
+                <div className="rounded-2xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900">
+                  Sales reporting setup is temporarily unavailable. Please contact support.
+                </div>
+              ) : null}
+
               <div className="rounded-2xl border border-zinc-200 bg-zinc-50 p-4 text-sm text-zinc-700">
-                Want sales reporting for a different processor (Square, PayPal, Authorize.Net, Adyen, etc.)? Tell us which one and we’ll add it.
+                <div className="font-semibold text-zinc-900">Connect a payment processor</div>
+                <div className="mt-1">Whichever one you connect becomes the active provider for your Sales dashboard and widget.</div>
               </div>
 
-              <>
-                  {stripeStatusLoaded && stripeStatus && !stripeStatus.encryptionConfigured ? (
-                    <div className="rounded-2xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900">
-                      <div className="font-semibold">Stripe connection isn’t enabled yet</div>
+              {salesStatusLoaded && salesStatus?.ok === true ? (
+                (() => {
+                  const connectedOptions = SALES_REPORTING_PROVIDER_OPTIONS.filter((o) => salesStatus.providers[o.value]?.configured);
+                  if (connectedOptions.length === 0) return null;
+                  const active = salesStatus.activeProvider ?? connectedOptions[0].value;
+                  return (
+                    <div className="rounded-2xl border border-zinc-200 bg-white p-4">
+                      <div className="text-xs font-semibold text-zinc-600">Active provider</div>
                       <div className="mt-2">
-                        This deployment can’t store keys because the server is missing{" "}
-                        <span className="font-mono">{stripeExpectedEnvVar ?? "PORTAL_ENCRYPTION_MASTER_KEY"}</span>.
+                        <PortalListboxDropdown
+                          value={active}
+                          options={connectedOptions}
+                          onChange={(v) => void setActiveProvider(v)}
+                          disabled={!canEditProfile || stripeSaving}
+                          portal={false}
+                        />
                       </div>
-                      <div className="mt-2 text-xs text-amber-900/80">
-                        {stripeVercelEnv ? (
-                          <span>
-                            Vercel environment: <span className="font-mono">{stripeVercelEnv}</span>. Make sure the env var is set for that environment and redeploy.
-                          </span>
-                        ) : (
-                          <span>Make sure it’s set in Vercel and you redeployed.</span>
-                        )}
-                      </div>
+                      <div className="mt-2 text-xs text-zinc-500">Your Sales dashboard uses the active provider.</div>
                     </div>
-                  ) : null}
+                  );
+                })()
+              ) : null}
 
-                  <div className="rounded-2xl border border-zinc-200 bg-zinc-50 p-4 text-xs text-zinc-600">
-                    <div>
-                      Connected: <span className="font-semibold text-zinc-900">{stripeStatus?.configured ? "Yes" : "No"}</span>
-                    </div>
-                    <div className="mt-1">
-                      Key type: <span className="font-mono">{stripeStatus?.prefix ?? "N/A"}</span>
-                    </div>
-                    <div className="mt-1">
-                      Account: <span className="font-mono">{stripeStatus?.accountId ?? "N/A"}</span>
-                    </div>
-                  </div>
+              {!canEditProfile ? (
+                <div className="rounded-2xl border border-zinc-200 bg-zinc-50 p-4 text-sm text-zinc-600">You have view-only access.</div>
+              ) : null}
 
-                  {!canEditProfile ? (
-                    <div className="rounded-2xl border border-zinc-200 bg-zinc-50 p-4 text-sm text-zinc-600">You have view-only access.</div>
-                  ) : null}
+              <div className="rounded-2xl border border-zinc-200 bg-white p-4">
+                <div className="text-xs font-semibold text-zinc-600">Provider</div>
+                <div className="mt-2">
+                  <PortalListboxDropdown
+                    value={salesProvider}
+                    options={SALES_REPORTING_PROVIDER_OPTIONS}
+                    onChange={(v) => setSalesProvider(v)}
+                    disabled={stripeSaving}
+                    portal={false}
+                  />
+                </div>
 
+                <div className="mt-4 rounded-2xl border border-zinc-200 bg-zinc-50 p-4 text-xs text-zinc-700">
                   <div>
-                    <label className="text-xs font-semibold text-zinc-700">Stripe secret key</label>
-                    <input
-                      value={stripeSecretKey}
-                      onChange={(e) => setStripeSecretKey(e.target.value)}
-                      type="password"
-                      placeholder={stripeStatus?.configured ? "•••••• (paste to replace)" : "sk_live_… or rk_live_…"}
-                      className="mt-2 w-full rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-sm"
-                      disabled={!canEditProfile || !stripeStatus?.encryptionConfigured}
-                      autoComplete="off"
-                    />
-                    <div className="mt-2 text-xs text-zinc-500">
-                      Find it in Stripe: <span className="font-semibold">Dashboard → Developers → API keys</span> → copy your “Secret key”.
-                      It usually starts with <span className="font-mono">sk_live_</span> (or <span className="font-mono">rk_live_</span> for restricted keys).
-                    </div>
-                    <div className="mt-2 text-xs text-zinc-500">We store it encrypted and never show the full key back to you.</div>
+                    Connected:{" "}
+                    <span className="font-semibold text-zinc-900">
+                      {salesStatus?.ok === true && salesStatus.providers[salesProvider]?.configured ? "Yes" : "No"}
+                    </span>
                   </div>
+                  {salesProvider === "stripe" ? (
+                    <>
+                      <div className="mt-1">
+                        Key type: <span className="font-mono">{salesStatus?.ok === true ? salesStatus.stripe.prefix ?? "N/A" : "N/A"}</span>
+                      </div>
+                      <div className="mt-1">
+                        Account: <span className="font-mono">{salesStatus?.ok === true ? salesStatus.stripe.accountId ?? "N/A" : "N/A"}</span>
+                      </div>
+                    </>
+                  ) : (
+                    <div className="mt-1">
+                      Details:{" "}
+                      <span className="font-mono">
+                        {salesStatus?.ok === true ? salesStatus.providers[salesProvider]?.displayHint ?? "N/A" : "N/A"}
+                      </span>
+                    </div>
+                  )}
+                </div>
 
-                  <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-                    <div className="flex gap-2">
-                      <button
-                        type="button"
-                        onClick={() => void saveStripeKey()}
-                        disabled={!canEditProfile || stripeSaving || !stripeStatus?.encryptionConfigured}
-                        className="inline-flex items-center justify-center rounded-2xl bg-brand-ink px-4 py-2 text-sm font-semibold text-white hover:opacity-95 disabled:opacity-60"
-                      >
-                        {stripeSaving ? "Saving…" : stripeStatus?.configured ? "Replace key" : "Connect Stripe"}
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => void disconnectStripe()}
-                        disabled={!canEditProfile || stripeSaving || !stripeStatus?.configured}
-                        className="inline-flex items-center justify-center rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm font-semibold text-brand-ink hover:bg-zinc-50 disabled:opacity-60"
-                      >
-                        Disconnect
-                      </button>
+                <div className="mt-4 space-y-3">
+                  {salesProvider === "stripe" ? (
+                    <div>
+                      <label className="text-xs font-semibold text-zinc-700">Stripe secret key</label>
+                      <input
+                        value={stripeSecretKey}
+                        onChange={(e) => setStripeSecretKey(e.target.value)}
+                        type="password"
+                        placeholder={salesStatus?.ok === true && salesStatus.providers.stripe?.configured ? "•••••• (paste to replace)" : "sk_live_… or rk_live_…"}
+                        className="mt-2 w-full rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-sm"
+                        disabled={!canEditProfile || stripeSaving || !(salesStatus?.ok === true && salesStatus.encryptionConfigured)}
+                        autoComplete="off"
+                      />
+                      <div className="mt-2 text-xs text-zinc-500">
+                        Find it in Stripe: <span className="font-semibold">Dashboard → Developers → API keys</span> → copy your “Secret key”.
+                      </div>
+                      <div className="mt-2 text-xs text-zinc-500">We store it encrypted and never show the full key back to you.</div>
                     </div>
-                    <Link href="/portal/app/services/reporting/stripe" className="text-sm font-semibold text-[color:var(--color-brand-blue)] hover:underline">
-                      Open sales dashboard →
-                    </Link>
+                  ) : null}
+
+                  {salesProvider === "authorizenet" ? (
+                    <>
+                      <div>
+                        <label className="text-xs font-semibold text-zinc-700">API Login ID</label>
+                        <input
+                          value={authNetLoginId}
+                          onChange={(e) => setAuthNetLoginId(e.target.value)}
+                          className="mt-2 w-full rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-sm"
+                          disabled={!canEditProfile || stripeSaving || !(salesStatus?.ok === true && salesStatus.encryptionConfigured)}
+                          autoComplete="off"
+                        />
+                      </div>
+                      <div>
+                        <label className="text-xs font-semibold text-zinc-700">Transaction Key</label>
+                        <input
+                          value={authNetTxKey}
+                          onChange={(e) => setAuthNetTxKey(e.target.value)}
+                          type="password"
+                          className="mt-2 w-full rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-sm"
+                          disabled={!canEditProfile || stripeSaving || !(salesStatus?.ok === true && salesStatus.encryptionConfigured)}
+                          autoComplete="off"
+                        />
+                      </div>
+                      <div>
+                        <label className="text-xs font-semibold text-zinc-700">Environment</label>
+                        <select
+                          value={authNetEnv}
+                          onChange={(e) => setAuthNetEnv(e.target.value as any)}
+                          className="mt-2 w-full rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-sm"
+                          disabled={!canEditProfile || stripeSaving}
+                        >
+                          <option value="production">Production</option>
+                          <option value="sandbox">Sandbox</option>
+                        </select>
+                      </div>
+                    </>
+                  ) : null}
+
+                  {salesProvider === "braintree" ? (
+                    <>
+                      <div>
+                        <label className="text-xs font-semibold text-zinc-700">Merchant ID</label>
+                        <input
+                          value={braintreeMerchantId}
+                          onChange={(e) => setBraintreeMerchantId(e.target.value)}
+                          className="mt-2 w-full rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-sm"
+                          disabled={!canEditProfile || stripeSaving || !(salesStatus?.ok === true && salesStatus.encryptionConfigured)}
+                          autoComplete="off"
+                        />
+                      </div>
+                      <div>
+                        <label className="text-xs font-semibold text-zinc-700">Public Key</label>
+                        <input
+                          value={braintreePublicKey}
+                          onChange={(e) => setBraintreePublicKey(e.target.value)}
+                          className="mt-2 w-full rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-sm"
+                          disabled={!canEditProfile || stripeSaving || !(salesStatus?.ok === true && salesStatus.encryptionConfigured)}
+                          autoComplete="off"
+                        />
+                      </div>
+                      <div>
+                        <label className="text-xs font-semibold text-zinc-700">Private Key</label>
+                        <input
+                          value={braintreePrivateKey}
+                          onChange={(e) => setBraintreePrivateKey(e.target.value)}
+                          type="password"
+                          className="mt-2 w-full rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-sm"
+                          disabled={!canEditProfile || stripeSaving || !(salesStatus?.ok === true && salesStatus.encryptionConfigured)}
+                          autoComplete="off"
+                        />
+                      </div>
+                      <div>
+                        <label className="text-xs font-semibold text-zinc-700">Environment</label>
+                        <select
+                          value={braintreeEnv}
+                          onChange={(e) => setBraintreeEnv(e.target.value as any)}
+                          className="mt-2 w-full rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-sm"
+                          disabled={!canEditProfile || stripeSaving}
+                        >
+                          <option value="production">Production</option>
+                          <option value="sandbox">Sandbox</option>
+                        </select>
+                      </div>
+                    </>
+                  ) : null}
+
+                  {salesProvider === "razorpay" ? (
+                    <>
+                      <div>
+                        <label className="text-xs font-semibold text-zinc-700">Key ID</label>
+                        <input
+                          value={razorpayKeyId}
+                          onChange={(e) => setRazorpayKeyId(e.target.value)}
+                          className="mt-2 w-full rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-sm"
+                          disabled={!canEditProfile || stripeSaving || !(salesStatus?.ok === true && salesStatus.encryptionConfigured)}
+                          autoComplete="off"
+                        />
+                      </div>
+                      <div>
+                        <label className="text-xs font-semibold text-zinc-700">Key Secret</label>
+                        <input
+                          value={razorpayKeySecret}
+                          onChange={(e) => setRazorpayKeySecret(e.target.value)}
+                          type="password"
+                          className="mt-2 w-full rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-sm"
+                          disabled={!canEditProfile || stripeSaving || !(salesStatus?.ok === true && salesStatus.encryptionConfigured)}
+                          autoComplete="off"
+                        />
+                      </div>
+                    </>
+                  ) : null}
+
+                  {salesProvider === "paystack" ? (
+                    <div>
+                      <label className="text-xs font-semibold text-zinc-700">Secret key</label>
+                      <input
+                        value={paystackSecretKey}
+                        onChange={(e) => setPaystackSecretKey(e.target.value)}
+                        type="password"
+                        className="mt-2 w-full rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-sm"
+                        disabled={!canEditProfile || stripeSaving || !(salesStatus?.ok === true && salesStatus.encryptionConfigured)}
+                        autoComplete="off"
+                      />
+                    </div>
+                  ) : null}
+
+                  {salesProvider === "flutterwave" ? (
+                    <div>
+                      <label className="text-xs font-semibold text-zinc-700">Secret key</label>
+                      <input
+                        value={flutterwaveSecretKey}
+                        onChange={(e) => setFlutterwaveSecretKey(e.target.value)}
+                        type="password"
+                        className="mt-2 w-full rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-sm"
+                        disabled={!canEditProfile || stripeSaving || !(salesStatus?.ok === true && salesStatus.encryptionConfigured)}
+                        autoComplete="off"
+                      />
+                    </div>
+                  ) : null}
+
+                  {salesProvider === "mollie" ? (
+                    <div>
+                      <label className="text-xs font-semibold text-zinc-700">API key</label>
+                      <input
+                        value={mollieApiKey}
+                        onChange={(e) => setMollieApiKey(e.target.value)}
+                        type="password"
+                        className="mt-2 w-full rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-sm"
+                        disabled={!canEditProfile || stripeSaving || !(salesStatus?.ok === true && salesStatus.encryptionConfigured)}
+                        autoComplete="off"
+                      />
+                    </div>
+                  ) : null}
+
+                  {salesProvider === "mercadopago" ? (
+                    <div>
+                      <label className="text-xs font-semibold text-zinc-700">Access token</label>
+                      <input
+                        value={mercadoPagoAccessToken}
+                        onChange={(e) => setMercadoPagoAccessToken(e.target.value)}
+                        type="password"
+                        className="mt-2 w-full rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-sm"
+                        disabled={!canEditProfile || stripeSaving || !(salesStatus?.ok === true && salesStatus.encryptionConfigured)}
+                        autoComplete="off"
+                      />
+                    </div>
+                  ) : null}
+                </div>
+
+                <div className="mt-4 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+                  <div className="flex gap-2">
+                    <button
+                      type="button"
+                      onClick={() => void connectSelectedProvider()}
+                      disabled={!canEditProfile || stripeSaving || !(salesStatus?.ok === true && salesStatus.encryptionConfigured)}
+                      className="inline-flex items-center justify-center rounded-2xl bg-brand-ink px-4 py-2 text-sm font-semibold text-white hover:opacity-95 disabled:opacity-60"
+                    >
+                      {stripeSaving
+                        ? "Saving…"
+                        : salesStatus?.ok === true && salesStatus.providers[salesProvider]?.configured
+                          ? `Replace ${providerLabel(salesProvider)}`
+                          : `Connect ${providerLabel(salesProvider)}`}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => void disconnectSelectedProvider()}
+                      disabled={!canEditProfile || stripeSaving || !(salesStatus?.ok === true && salesStatus.providers[salesProvider]?.configured)}
+                      className="inline-flex items-center justify-center rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm font-semibold text-brand-ink hover:bg-zinc-50 disabled:opacity-60"
+                    >
+                      Disconnect
+                    </button>
                   </div>
-              </>
+                  <Link href="/portal/app/services/reporting/sales" className="text-sm font-semibold text-[color:var(--color-brand-blue)] hover:underline">
+                    Open sales dashboard →
+                  </Link>
+                </div>
+              </div>
             </div>
           </PortalSettingsSection>
 

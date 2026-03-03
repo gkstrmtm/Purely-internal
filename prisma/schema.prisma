@@ -41,6 +41,17 @@ enum PortalAdCampaignReviewStatus {
   REJECTED
 }
 
+enum SalesReportingProvider {
+  STRIPE
+  AUTHORIZENET
+  BRAINTREE
+  RAZORPAY
+  PAYSTACK
+  FLUTTERWAVE
+  MOLLIE
+  MERCADOPAGO
+}
+
 enum AdsLedgerKind {
   TOPUP
   SPEND
@@ -211,6 +222,46 @@ model User {
 
   adsAdvertiserAccount AdsAdvertiserAccount?
   adsAudienceProfiles AdsAudienceProfile[]
+
+  salesReportingSettings    SalesReportingSettings?
+  salesReportingCredentials SalesReportingCredential[]
+}
+
+model SalesReportingSettings {
+  id String @id @default(cuid())
+
+  userId String @unique
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  activeProvider SalesReportingProvider?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([userId, updatedAt])
+}
+
+model SalesReportingCredential {
+  id String @id @default(cuid())
+
+  userId String
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  provider SalesReportingProvider
+
+  // Encrypted JSON blob of credentials (provider-specific).
+  ciphertextB64 String
+  ivB64         String
+  authTagB64    String
+
+  // Optional masked hint shown back to user (never store raw secrets here).
+  displayHint String?
+
+  connectedAt DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@unique([userId, provider])
+  @@index([userId, provider])
 }
 
 model AdsAudienceProfile {

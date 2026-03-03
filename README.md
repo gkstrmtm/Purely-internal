@@ -87,11 +87,13 @@ Stripe setup checklist:
 
 Note: this repo currently reads subscription state live from Stripe; it does not require webhooks to unlock entitlements.
 
-## Stripe Sales Reporting (per-portal)
+## Sales Reporting (multi-provider, per-portal)
 
-This repo includes an **optional** portal feature that lets a client connect their own Stripe secret key (stored **encrypted at rest**) and view a basic sales dashboard under:
+This repo includes an **optional** portal feature that lets a client connect a payment processor (stored **encrypted at rest**) and view a sales dashboard under:
 
-- `/portal/app/services/reporting/stripe`
+- `/portal/app/services/reporting/sales`
+
+Supported providers (paste credentials): Stripe, Authorize.Net, Braintree, Razorpay, Paystack, Flutterwave, Mollie, Mercado Pago.
 
 Setup:
 
@@ -99,17 +101,48 @@ Setup:
 
 - `PORTAL_ENCRYPTION_MASTER_KEY` (recommended: `openssl rand -base64 32`)
 
-2) Apply the DB patch (idempotent):
+2) Apply the DB patches (idempotent):
 
 ```bash
+node scripts/apply-sales-reporting-db-patch.mjs
 node scripts/apply-stripe-db-patch.mjs
 ```
 
-If your `.env` points at a remote Supabase DB, the script requires:
+If your `.env` points at a remote Supabase DB, the scripts require:
 
 ```bash
+ALLOW_PROD_DB_MUTATIONS=1 node scripts/apply-sales-reporting-db-patch.mjs
 ALLOW_PROD_DB_MUTATIONS=1 node scripts/apply-stripe-db-patch.mjs
 ```
+
+3) Connect a provider in Profile:
+
+- `/portal/app/profile` → Sales Reporting
+
+Notes:
+
+- Whichever provider you connect becomes the active provider used by the dashboard and dashboard widget.
+- The `.pem` file used for local TLS workarounds is ignored by git via `.gitignore`.
+
+## Troubleshooting: npm TLS certificate errors (macOS)
+
+If `npm install` fails with `UNABLE_TO_GET_ISSUER_CERT_LOCALLY`, Node/npm can’t verify the registry’s TLS chain using its current trust store.
+
+Safe fix (use macOS System Roots as an extra CA bundle):
+
+```bash
+mkdir -p .certs
+security find-certificate -a -p /System/Library/Keychains/SystemRootCertificates.keychain > .certs/macos-system-roots.pem
+NODE_EXTRA_CA_CERTS="$PWD/.certs/macos-system-roots.pem" npm install
+```
+
+Optional (persist for npm in this repo):
+
+```bash
+npm config set cafile "$PWD/.certs/macos-system-roots.pem"
+```
+
+Avoid `npm config set strict-ssl false` (it disables TLS verification and is a supply-chain risk).
 
 ## Credit portal (/credit)
 
