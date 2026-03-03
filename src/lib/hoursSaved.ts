@@ -2,7 +2,8 @@ import { prisma } from "@/lib/db";
 
 export type HoursSavedKind =
   | "ai_receptionist_call"
-  | "missed_call_textback";
+  | "missed_call_textback"
+  | "portal_active_time";
 
 export async function upsertHoursSavedEvent(opts: {
   ownerId: string;

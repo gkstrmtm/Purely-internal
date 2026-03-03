@@ -23,6 +23,7 @@ import { groupPortalServices } from "@/app/portal/services/categories";
 import { PortalFloatingTools } from "@/app/portal/PortalFloatingTools";
 import { PORTAL_SERVICE_KEYS, type PortalServiceKey } from "@/lib/portalPermissions.shared";
 import type { Entitlements } from "@/lib/entitlements.shared";
+import { usePortalActiveTimeTracker } from "@/lib/portalActiveTime.client";
 
 const DEFAULT_FULL_DEMO_EMAIL = "demo-full@purelyautomation.dev";
 
@@ -47,6 +48,8 @@ function classNames(...xs: Array<string | false | null | undefined>) {
 }
 
 export function PortalShell({ children }: { children: React.ReactNode }) {
+  usePortalActiveTimeTracker();
+
   const pathname = usePathname();
   const searchParams = useSearchParams();
   const toast = useToast();
