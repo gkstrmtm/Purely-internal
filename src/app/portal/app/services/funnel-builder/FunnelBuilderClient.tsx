@@ -376,7 +376,7 @@ export function FunnelBuilderClient() {
                         </div>
                       </div>
                       <div className="text-xs text-zinc-600">
-                        Add this domain in your Vercel project and follow the DNS instructions it provides.
+                        Add the required DNS record(s) for this domain in your DNS provider (Type, Host/Name, Value). DNS changes can take time to propagate.
                       </div>
                     </div>
                   ))}
