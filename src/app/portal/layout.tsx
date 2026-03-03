@@ -50,7 +50,7 @@ export default async function PortalLayout({
 
   return (
     <div className="min-h-[100dvh] bg-brand-mist text-brand-ink">
-      <header className="sticky top-0 z-10 border-b border-zinc-200 bg-white/80 backdrop-blur">
+      <header className="pa-portal-topbar sticky top-0 z-10 border-b border-zinc-200 bg-white/80 backdrop-blur">
         <div className="mx-auto flex max-w-6xl items-center justify-between gap-4 px-4 py-4 sm:gap-6 sm:px-6">
           <Link href={homeHref} className="flex shrink-0 items-center gap-3">
             <Image

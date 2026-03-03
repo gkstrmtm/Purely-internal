@@ -448,15 +448,12 @@ export function FormEditorClient({ basePath, formId }: { basePath: string; formI
           <div className="text-xs font-semibold uppercase tracking-wide text-zinc-500">Form editor</div>
           <h1 className="mt-2 text-2xl font-bold text-brand-ink sm:text-3xl">{form?.name || "…"}</h1>
           <div className="mt-2 flex flex-wrap items-center gap-3 text-sm text-zinc-600">
-            <div>
-              Hosted: <span className="font-semibold">{basePath}/forms/{form?.slug || "…"}</span>
-            </div>
             <Link
               href={`${basePath}/forms/${encodeURIComponent(form?.slug || "")}`}
               target="_blank"
               className="font-semibold text-[color:var(--color-brand-blue)] hover:underline"
             >
-              Preview
+              View live
             </Link>
             {savedAt ? <div className="text-xs text-zinc-500">Saved</div> : null}
           </div>

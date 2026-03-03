@@ -18,7 +18,6 @@ import {
   type PortalMediaPickItem,
 } from "@/components/PortalMediaPickerModal";
 import { PortalSelectDropdown } from "@/components/PortalSelectDropdown";
-import { SignOutButton } from "@/components/SignOutButton";
 import { useToast } from "@/components/ToastProvider";
 import { PORTAL_VARIANT_HEADER, type PortalVariant } from "@/lib/portalVariant";
 
@@ -750,7 +749,6 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
                     <div className="min-w-0">
                       <div className="text-[11px] font-semibold uppercase tracking-wide text-zinc-500">Funnel</div>
                       <div className="truncate text-sm font-semibold text-brand-ink">{funnel?.name || "…"}</div>
-                      <div className="truncate text-xs text-zinc-500">{funnel?.slug ? `Hosted: ${basePath}/f/${funnel.slug}` : ""}</div>
                     </div>
 
                     <button
@@ -766,6 +764,33 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
                       )}
                     >
                       Rename funnel
+                    </button>
+
+                    <button
+                      type="button"
+                      disabled={busy || !selectedPage}
+                      onClick={() => void setEditorMode("BLOCKS")}
+                      className={classNames(
+                        "rounded-xl border px-3 py-2 text-sm font-semibold",
+                        selectedPage?.editorMode === "BLOCKS"
+                          ? "border-[color:var(--color-brand-blue)] bg-blue-50 text-blue-800"
+                          : "border-zinc-200 bg-white text-zinc-900 hover:bg-zinc-50",
+                      )}
+                    >
+                      Blocks
+                    </button>
+                    <button
+                      type="button"
+                      disabled={busy || !selectedPage}
+                      onClick={() => void setEditorMode("CUSTOM_HTML")}
+                      className={classNames(
+                        "rounded-xl border px-3 py-2 text-sm font-semibold",
+                        selectedPage?.editorMode === "CUSTOM_HTML"
+                          ? "border-[color:var(--color-brand-blue)] bg-blue-50 text-blue-800"
+                          : "border-zinc-200 bg-white text-zinc-900 hover:bg-zinc-50",
+                      )}
+                    >
+                      Custom code
                     </button>
                   </div>
 
@@ -833,33 +858,6 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
                     <button
                       type="button"
                       disabled={busy || !selectedPage}
-                      onClick={() => void setEditorMode("BLOCKS")}
-                      className={classNames(
-                        "rounded-xl border px-3 py-2 text-sm font-semibold",
-                        selectedPage?.editorMode === "BLOCKS"
-                          ? "border-[color:var(--color-brand-blue)] bg-blue-50 text-blue-800"
-                          : "border-zinc-200 bg-white text-zinc-900 hover:bg-zinc-50",
-                      )}
-                    >
-                      Blocks
-                    </button>
-                    <button
-                      type="button"
-                      disabled={busy || !selectedPage}
-                      onClick={() => void setEditorMode("CUSTOM_HTML")}
-                      className={classNames(
-                        "rounded-xl border px-3 py-2 text-sm font-semibold",
-                        selectedPage?.editorMode === "CUSTOM_HTML"
-                          ? "border-[color:var(--color-brand-blue)] bg-blue-50 text-blue-800"
-                          : "border-zinc-200 bg-white text-zinc-900 hover:bg-zinc-50",
-                      )}
-                    >
-                      Custom code
-                    </button>
-
-                    <button
-                      type="button"
-                      disabled={busy || !selectedPage}
                       onClick={() => void saveCurrentPage()}
                       className={classNames(
                         "rounded-xl px-4 py-2 text-sm font-semibold text-white",
@@ -881,7 +879,6 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
                       Delete
                     </button>
 
-                    <SignOutButton />
                   </div>
                 </div>
               </header>
@@ -1227,7 +1224,7 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
                             rel="noreferrer"
                             className="rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm font-semibold text-zinc-900 hover:bg-zinc-50"
                           >
-                            Open hosted
+                            View live
                           </a>
                         ) : null}
                       </div>
@@ -1389,7 +1386,7 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
                           rel="noreferrer"
                           className="rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm font-semibold text-zinc-900 hover:bg-zinc-50"
                         >
-                          Open hosted
+                          View live
                         </a>
                       ) : null}
                     </div>
@@ -2719,12 +2716,34 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
             <div className="min-w-0">
               <div className="text-[11px] font-semibold uppercase tracking-wide text-zinc-500">Funnel</div>
               <div className="truncate text-sm font-semibold text-brand-ink">{funnel?.name || "…"}</div>
-              <div className="truncate text-xs text-zinc-500">
-                {funnel?.slug ? `Hosted: ${basePath}/f/${funnel.slug}` : ""}
-              </div>
             </div>
 
-            <div className="text-xs text-zinc-500">Manage funnel name/slug from the Funnels list.</div>
+            <button
+              type="button"
+              disabled={busy || !selectedPage}
+              onClick={() => void setEditorMode("BLOCKS")}
+              className={classNames(
+                "rounded-xl border px-3 py-2 text-sm font-semibold",
+                selectedPage?.editorMode === "BLOCKS"
+                  ? "border-[color:var(--color-brand-blue)] bg-blue-50 text-blue-800"
+                  : "border-zinc-200 bg-white text-zinc-900 hover:bg-zinc-50",
+              )}
+            >
+              Blocks
+            </button>
+            <button
+              type="button"
+              disabled={busy || !selectedPage}
+              onClick={() => void setEditorMode("CUSTOM_HTML")}
+              className={classNames(
+                "rounded-xl border px-3 py-2 text-sm font-semibold",
+                selectedPage?.editorMode === "CUSTOM_HTML"
+                  ? "border-[color:var(--color-brand-blue)] bg-blue-50 text-blue-800"
+                  : "border-zinc-200 bg-white text-zinc-900 hover:bg-zinc-50",
+              )}
+            >
+              Custom code
+            </button>
           </div>
 
           <div className="flex flex-wrap items-center gap-2">
@@ -2759,33 +2778,6 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
             <button
               type="button"
               disabled={busy || !selectedPage}
-              onClick={() => void setEditorMode("BLOCKS")}
-              className={classNames(
-                "rounded-xl border px-3 py-2 text-sm font-semibold",
-                selectedPage?.editorMode === "BLOCKS"
-                  ? "border-[color:var(--color-brand-blue)] bg-blue-50 text-blue-800"
-                  : "border-zinc-200 bg-white text-zinc-900 hover:bg-zinc-50",
-              )}
-            >
-              Blocks
-            </button>
-            <button
-              type="button"
-              disabled={busy || !selectedPage}
-              onClick={() => void setEditorMode("CUSTOM_HTML")}
-              className={classNames(
-                "rounded-xl border px-3 py-2 text-sm font-semibold",
-                selectedPage?.editorMode === "CUSTOM_HTML"
-                  ? "border-[color:var(--color-brand-blue)] bg-blue-50 text-blue-800"
-                  : "border-zinc-200 bg-white text-zinc-900 hover:bg-zinc-50",
-              )}
-            >
-              Custom code
-            </button>
-
-            <button
-              type="button"
-              disabled={busy || !selectedPage}
               onClick={() => void saveCurrentPage()}
               className={classNames(
                 "rounded-xl px-4 py-2 text-sm font-semibold text-white",
@@ -2807,7 +2799,6 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
               Delete
             </button>
 
-            <SignOutButton />
           </div>
         </div>
       </header>
@@ -4546,7 +4537,7 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
                     rel="noreferrer"
                     className="rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm font-semibold text-zinc-900 hover:bg-zinc-50"
                   >
-                    Open hosted
+                    View live
                   </a>
                 ) : null}
               </div>

@@ -23,5 +23,10 @@ export default async function CreditFunnelEditorPage({
   const id = String(funnelId || "").trim();
   if (!id) notFound();
 
-  return <FunnelEditorClient basePath={basePath} funnelId={id} />;
+  return (
+    <>
+      <style>{`.pa-portal-topbar{display:none !important;}`}</style>
+      <FunnelEditorClient basePath={basePath} funnelId={id} />
+    </>
+  );
 }
