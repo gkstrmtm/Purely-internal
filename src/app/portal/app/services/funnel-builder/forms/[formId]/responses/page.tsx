@@ -12,7 +12,7 @@ export const revalidate = 0;
 export default async function CreditFormResponsesPage({ params }: { params: Promise<{ formId: string }> }) {
   const h = await headers();
   const variant = normalizePortalVariant(h.get(PORTAL_VARIANT_HEADER)) ?? "portal";
-  if (variant !== "credit") notFound();
+  const basePath = variant === "credit" ? "/credit" : "/portal";
 
   await requirePortalUser();
 
@@ -20,5 +20,5 @@ export default async function CreditFormResponsesPage({ params }: { params: Prom
   const id = String(formId || "").trim();
   if (!id) notFound();
 
-  return <FormResponsesClient basePath="/credit" formId={id} />;
+  return <FormResponsesClient basePath={basePath} formId={id} />;
 }

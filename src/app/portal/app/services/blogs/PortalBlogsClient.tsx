@@ -452,7 +452,7 @@ export function PortalBlogsClient() {
             href="/portal/app/onboarding"
             className="inline-flex items-center justify-center rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm font-semibold text-brand-ink hover:bg-zinc-50"
           >
-            Onboarding
+            Setup checklist
           </Link>
           <a
             href={blogPagePath ?? undefined}
@@ -807,7 +807,7 @@ export function PortalBlogsClient() {
                     void saveSite();
                   }}
                   className="mt-1 w-full rounded-2xl border border-zinc-200 bg-white px-4 py-3 text-sm outline-none focus:border-zinc-300"
-                  placeholder="home2smart"
+                  placeholder="Purely Automation"
                 />
                 <div className="mt-1 text-xs text-zinc-500">
                   Your public blog will be at {publicBlogUrlPreview ?? "…"}. Leave blank to use your business name.

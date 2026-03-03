@@ -11,7 +11,7 @@ export const revalidate = 0;
 export default async function CreditFormEditorPage({ params }: { params: Promise<{ formId: string }> }) {
   const h = await headers();
   const variant = normalizePortalVariant(h.get(PORTAL_VARIANT_HEADER)) ?? "portal";
-  if (variant !== "credit") notFound();
+  const basePath = variant === "credit" ? "/credit" : "/portal";
 
   await requirePortalUser();
 
@@ -19,5 +19,5 @@ export default async function CreditFormEditorPage({ params }: { params: Promise
   const id = String(formId || "").trim();
   if (!id) notFound();
 
-  return <FormEditorClient basePath="/credit" formId={id} />;
+  return <FormEditorClient basePath={basePath} formId={id} />;
 }

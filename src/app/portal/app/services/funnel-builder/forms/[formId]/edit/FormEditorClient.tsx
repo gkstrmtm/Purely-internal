@@ -878,7 +878,8 @@ export function FormEditorClient({ basePath, formId }: { basePath: string; formI
                   </div>
 
                   <div className="mt-4 text-xs text-zinc-500">
-                    Hosted submissions go to: <span className="font-mono">/api/public/credit/forms/{form?.slug || "…"}/submit</span>
+                    Hosted submissions go to:{" "}
+                    <span className="font-mono">/api/public{basePath}/forms/{form?.slug || "…"}/submit</span>
                   </div>
                 </div>
               </div>

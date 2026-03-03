@@ -15,7 +15,7 @@ export default async function CreditFunnelEditorPage({
 }) {
   const h = await headers();
   const variant = normalizePortalVariant(h.get(PORTAL_VARIANT_HEADER)) ?? "portal";
-  if (variant !== "credit") notFound();
+  const basePath = variant === "credit" ? "/credit" : "/portal";
 
   await requirePortalUser();
 
@@ -23,5 +23,5 @@ export default async function CreditFunnelEditorPage({
   const id = String(funnelId || "").trim();
   if (!id) notFound();
 
-  return <FunnelEditorClient basePath="/credit" funnelId={id} />;
+  return <FunnelEditorClient basePath={basePath} funnelId={id} />;
 }

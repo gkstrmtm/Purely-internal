@@ -30,21 +30,23 @@ export function CreditHostedFormClient({
   fields,
   embedded,
   style,
+  submitBasePath,
 }: {
   slug: string;
   formName: string;
   fields: Field[];
   embedded?: boolean;
   style?: CreditFormStyle;
+  submitBasePath?: "/credit" | "/portal";
 }) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState(false);
 
-  const actionUrl = useMemo(
-    () => `/api/public/credit/forms/${encodeURIComponent(slug)}/submit`,
-    [slug],
-  );
+  const actionUrl = useMemo(() => {
+    const base = submitBasePath === "/portal" ? "/portal" : "/credit";
+    return `/api/public${base}/forms/${encodeURIComponent(slug)}/submit`;
+  }, [slug, submitBasePath]);
 
   const radiusPx = typeof style?.radiusPx === "number" && Number.isFinite(style.radiusPx) ? style.radiusPx : 16;
   const cardBg = style?.cardBg || "#ffffff";

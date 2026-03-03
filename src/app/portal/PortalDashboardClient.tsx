@@ -964,13 +964,13 @@ export function PortalDashboardClient() {
             </div>
 
             <div className="mt-4 flex flex-col gap-3 rounded-2xl border border-zinc-200 bg-white p-4 text-sm text-zinc-700 sm:flex-row sm:items-center sm:justify-between">
-              <div>Next step: complete onboarding so services can personalize outputs.</div>
+              <div>Next step: run the quick setup checklist.</div>
               <div className="flex flex-col gap-2 sm:flex-row">
                 <Link
                   href="/portal/app/onboarding"
                   className="inline-flex items-center justify-center rounded-2xl bg-brand-ink px-4 py-2 text-xs font-semibold text-white hover:opacity-95"
                 >
-                  Open onboarding
+                  Open setup checklist
                 </Link>
                 {me.entitlements.blog ? (
                   <Link

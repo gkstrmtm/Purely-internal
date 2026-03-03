@@ -6,9 +6,9 @@ export default async function PortalOnboardingPage() {
 
   return (
     <div className="mx-auto w-full max-w-6xl">
-      <h1 className="text-2xl font-bold text-brand-ink sm:text-3xl">Onboarding</h1>
+      <h1 className="text-2xl font-bold text-brand-ink sm:text-3xl">Quick setup</h1>
       <p className="mt-2 text-sm text-zinc-600">
-        A quick setup to make your services work smoothly.
+        A step-by-step checklist to get the portal working for you.
       </p>
 
       <div className="mt-6">

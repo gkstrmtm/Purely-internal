@@ -3,8 +3,6 @@
 import Link from "next/link";
 import { useEffect, useState } from "react";
 
-import { BusinessProfileForm } from "@/app/portal/profile/BusinessProfileForm";
-
 type Status = {
   businessProfileComplete: boolean;
   blogsSetupComplete: boolean;
@@ -40,73 +38,114 @@ export function PortalOnboardingClient() {
   }
 
   const businessDone = status?.businessProfileComplete ?? false;
+  const blogsDone = status?.blogsSetupComplete ?? false;
+
+  const stepRow = (opts: {
+    label: string;
+    status: "Done" | "Next" | "Optional";
+    href: string;
+    detail?: string;
+  }) => (
+    <div className="rounded-2xl border border-zinc-200 bg-zinc-50 px-4 py-3">
+      <div className="flex items-center justify-between gap-4">
+        <div className="text-sm font-semibold text-zinc-900">{opts.label}</div>
+        <div
+          className={
+            opts.status === "Done"
+              ? "text-xs font-semibold text-emerald-700"
+              : opts.status === "Next"
+                ? "text-xs font-semibold text-brand-ink"
+                : "text-xs font-semibold text-zinc-500"
+          }
+        >
+          {opts.status}
+        </div>
+      </div>
+      {opts.detail ? <div className="mt-1 text-xs text-zinc-600">{opts.detail}</div> : null}
+      <div className="mt-3">
+        <Link
+          href={opts.href}
+          className="inline-flex items-center justify-center rounded-xl bg-white px-3 py-2 text-xs font-semibold text-brand-ink hover:bg-zinc-100"
+        >
+          Open
+        </Link>
+      </div>
+    </div>
+  );
 
   return (
-    <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
+    <div className="mx-auto w-full max-w-4xl">
       <div className="rounded-3xl border border-zinc-200 bg-white p-6">
         <div className="text-sm font-semibold text-zinc-900">Setup checklist</div>
         <div className="mt-2 text-sm text-zinc-600">
-          Complete these once, and your portal becomes much more useful.
+          Do these in order. Everything is editable later in Profile and service settings.
         </div>
 
-        <div className="mt-5 space-y-3 text-sm">
-          <div className="flex items-center justify-between rounded-2xl border border-zinc-200 bg-zinc-50 px-4 py-3">
-            <span>Business profile</span>
-            <span className={businessDone ? "text-emerald-700 font-semibold" : "text-zinc-500 font-semibold"}>
-              {businessDone ? "Done" : "Needed"}
-            </span>
-          </div>
+        <div className="mt-5 grid grid-cols-1 gap-3">
+          {stepRow({
+            label: "1) Fill out your Profile",
+            status: businessDone ? "Done" : "Next",
+            href: "/portal/app/profile",
+            detail: "Business name, website, goals, and brand voice are used across blogs, automations, and templates.",
+          })}
 
-          <div className="flex items-center justify-between rounded-2xl border border-zinc-200 bg-zinc-50 px-4 py-3">
-            <span>Blogs setup</span>
-            <span className={(status?.blogsSetupComplete ?? false) ? "text-emerald-700 font-semibold" : "text-zinc-500 font-semibold"}>
-              {(status?.blogsSetupComplete ?? false) ? "Started" : "Next"}
-            </span>
-          </div>
+          {stepRow({
+            label: "2) Set up Blogs automation",
+            status: blogsDone ? "Done" : "Next",
+            href: "/portal/app/services/blogs",
+            detail: "Create your blog workspace, set your slug, and turn on the scheduler.",
+          })}
 
-          <div className="rounded-2xl border border-zinc-200 bg-zinc-50 px-4 py-3 text-xs text-zinc-600">
-            Tip: you can always come back here from Profile.
-          </div>
+          {stepRow({
+            label: "3) Connect your Inbox (SMS/Email)",
+            status: "Optional",
+            href: "/portal/app/services/inbox",
+            detail: "Connect Twilio and start sending/receiving messages from one place.",
+          })}
+
+          {stepRow({
+            label: "4) Turn on Reviews + Review Requests",
+            status: "Optional",
+            href: "/portal/app/services/reviews",
+            detail: "Send review requests automatically after bookings or manually from contacts.",
+          })}
+
+          {stepRow({
+            label: "5) Build automations",
+            status: "Optional",
+            href: "/portal/app/services/automations",
+            detail: "Trigger messages, tasks, tags, and follow-ups based on real events.",
+          })}
+
+          {stepRow({
+            label: "6) Funnel Builder (funnels + hosted forms)",
+            status: "Optional",
+            href: "/portal/app/services/funnel-builder",
+            detail: "Create funnels and forms and preview them under /portal/f and /portal/forms.",
+          })}
+
+          {stepRow({
+            label: "7) Nurture campaigns",
+            status: "Optional",
+            href: "/portal/app/services/nurture-campaigns",
+            detail: "Schedule multi-step SMS/email sequences for leads and customers.",
+          })}
         </div>
 
-        <div className="mt-5 flex flex-col gap-3">
-          <Link
-            href="/portal/app/services/blogs"
-            className="inline-flex items-center justify-center rounded-2xl bg-[color:var(--color-brand-blue)] px-5 py-3 text-sm font-semibold text-white hover:opacity-95"
-          >
-            Open Blogs
-          </Link>
+        <div className="mt-6 flex flex-col gap-3 sm:flex-row">
           <Link
             href="/portal/app"
             className="inline-flex items-center justify-center rounded-2xl border border-zinc-200 bg-white px-5 py-3 text-sm font-semibold text-brand-ink hover:bg-zinc-50"
           >
             Back to dashboard
           </Link>
-        </div>
-      </div>
-
-      <div className="lg:col-span-2">
-        <BusinessProfileForm
-          title="Business profile"
-          description="Tell us what you do so your blog drafts and onboarding steps are tailored to you."
-          onSaved={() => {
-            void refresh();
-          }}
-        />
-
-        <div className="mt-4 rounded-3xl border border-zinc-200 bg-white p-6">
-          <div className="text-sm font-semibold text-zinc-900">Next: connect your blog</div>
-          <div className="mt-2 text-sm text-zinc-600">
-            After your profile is saved, set up your blog workspace and (optionally) verify a custom domain.
-          </div>
-          <div className="mt-4">
-            <Link
-              href="/portal/app/services/blogs"
-              className="inline-flex items-center justify-center rounded-2xl bg-brand-ink px-5 py-3 text-sm font-semibold text-white hover:opacity-95"
-            >
-              Set up Blogs
-            </Link>
-          </div>
+          <button
+            type="button"
+            onClick={() => void refresh()}
+            className="inline-flex items-center justify-center rounded-2xl bg-brand-ink px-5 py-3 text-sm font-semibold text-white hover:opacity-95"
+          >
+            Refresh status
+          </button>
         </div>
       </div>
     </div>
