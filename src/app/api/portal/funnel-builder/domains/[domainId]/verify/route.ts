@@ -65,6 +65,119 @@ function intersects(a: string[], b: string[]) {
   return b.some((x) => s.has(x));
 }
 
+function uniq(xs: string[]) {
+  return Array.from(new Set(xs.filter(Boolean)));
+}
+
+function pickVercelConfig() {
+  const token = (process.env.VERCEL_API_TOKEN || process.env.VERCEL_TOKEN || "").trim();
+  const projectIdOrName = (
+    process.env.VERCEL_PROJECT_ID ||
+    process.env.VERCEL_PROJECT_ID_OR_NAME ||
+    process.env.VERCEL_PROJECT_NAME ||
+    ""
+  ).trim();
+  const teamId = (process.env.VERCEL_TEAM_ID || "").trim();
+  return { token: token || null, projectIdOrName: projectIdOrName || null, teamId: teamId || null };
+}
+
+function formatVercelVerificationRecords(verification: any): string {
+  if (!Array.isArray(verification) || verification.length === 0) return "";
+  const lines = verification
+    .map((v) => {
+      const type = typeof v?.type === "string" ? v.type.trim() : "";
+      const host = typeof v?.domain === "string" ? v.domain.trim() : "";
+      const value = typeof v?.value === "string" ? v.value.trim() : "";
+      if (!type || !host || !value) return null;
+      return `${type} ${host} = ${value}`;
+    })
+    .filter(Boolean);
+  if (lines.length === 0) return "";
+  return ` Required verification record(s): ${lines.join(" | ")}.`;
+}
+
+async function ensureVercelProjectDomain(domain: string) {
+  const { token, projectIdOrName, teamId } = pickVercelConfig();
+  if (!token || !projectIdOrName) {
+    return {
+      ok: false as const,
+      configured: false as const,
+      error: "Platform domain provisioning is not configured",
+    };
+  }
+
+  const qp = teamId ? `?teamId=${encodeURIComponent(teamId)}` : "";
+  const headers = {
+    Authorization: `Bearer ${token}`,
+    "Content-Type": "application/json",
+  };
+
+  // Add domain (ignore if already exists on project).
+  const addRes = await fetch(`https://api.vercel.com/v10/projects/${encodeURIComponent(projectIdOrName)}/domains${qp}`, {
+    method: "POST",
+    headers,
+    body: JSON.stringify({ name: domain }),
+  }).catch(() => null);
+
+  let addJson: any = null;
+  if (addRes) {
+    addJson = await addRes.json().catch(() => null);
+  }
+
+  // If already exists, Vercel returns 400.
+  const addOk = !!addRes && (addRes.ok || addRes.status === 400);
+  if (!addOk) {
+    return {
+      ok: false as const,
+      configured: true as const,
+      error: "Failed to add domain to hosting project",
+      debug: { status: addRes?.status, body: addJson },
+    };
+  }
+
+  // Verify domain for the project (this triggers/reads Vercel verification challenges).
+  const verifyRes = await fetch(
+    `https://api.vercel.com/v9/projects/${encodeURIComponent(projectIdOrName)}/domains/${encodeURIComponent(domain)}/verify${qp}`,
+    {
+      method: "POST",
+      headers,
+    },
+  ).catch(() => null);
+
+  const verifyJson = verifyRes ? await verifyRes.json().catch(() => null) : null;
+  if (!verifyRes || !verifyRes.ok) {
+    return {
+      ok: false as const,
+      configured: true as const,
+      error: "Failed to verify domain on hosting project",
+      debug: { status: verifyRes?.status, body: verifyJson },
+    };
+  }
+
+  return {
+    ok: true as const,
+    configured: true as const,
+    verified: !!verifyJson?.verified,
+    verification: Array.isArray(verifyJson?.verification) ? verifyJson.verification : null,
+    raw: verifyJson,
+  };
+}
+
+async function checkHttpsReachable(domain: string) {
+  try {
+    const res = await fetch(`https://${domain}/`, {
+      method: "HEAD",
+      redirect: "manual",
+      signal: AbortSignal.timeout(8000),
+    });
+    // Treat any response as "reachable" (even 404) — the point is TLS + connection.
+    return { ok: true as const, status: res.status };
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : String(e);
+    return { ok: false as const, error: msg };
+  }
+}
+
 export async function POST(req: Request, ctx: { params: Promise<{ domainId: string }> }) {
   const auth = await requireFunnelBuilderSession();
   if (!auth.ok) {
@@ -102,6 +215,7 @@ export async function POST(req: Request, ctx: { params: Promise<{ domainId: stri
   const debug: any = {
     domain,
     expectedTargetHost,
+    vercel: { configured: false },
     checks: {
       cnameChain: [] as string[],
       domainA: [] as string[],
@@ -116,12 +230,54 @@ export async function POST(req: Request, ctx: { params: Promise<{ domainId: stri
     debug.checks.cnameChain = cnameChain;
 
     if (cnameChain.includes(expectedTargetHost)) {
-      const updated = await prisma.creditCustomDomain.update({
-        where: { id: domainRow.id },
-        data: { status: "VERIFIED", verifiedAt: new Date() },
-        select: { id: true, domain: true, status: true, verifiedAt: true, createdAt: true, updatedAt: true },
+      // DNS is good. Proceed to hosting SSL/provisioning checks.
+      const vercel = await ensureVercelProjectDomain(domain);
+      debug.vercel = vercel;
+      const https = await checkHttpsReachable(domain);
+      debug.https = https;
+
+      const ready = vercel.ok && vercel.verified && https.ok;
+      if (ready) {
+        const updated = await prisma.creditCustomDomain.update({
+          where: { id: domainRow.id },
+          data: { status: "VERIFIED", verifiedAt: new Date() },
+          select: { id: true, domain: true, status: true, verifiedAt: true, createdAt: true, updatedAt: true },
+        });
+        return NextResponse.json({ ok: true, verified: true, domain: updated, debug });
+      }
+
+      if (domainRow.status === "VERIFIED") {
+        await prisma.creditCustomDomain.update({ where: { id: domainRow.id }, data: { status: "PENDING", verifiedAt: null } });
+      }
+
+      if (!vercel.configured) {
+        return NextResponse.json({
+          ok: true,
+          verified: false,
+          error:
+            "DNS is pointing correctly, but the platform is missing domain provisioning configuration (SSL can’t be activated automatically). Please contact support.",
+          debug,
+        });
+      }
+
+      if (vercel.ok && vercel.verified === false && vercel.verification?.length) {
+        const recordsHint = formatVercelVerificationRecords(vercel.verification);
+        return NextResponse.json({
+          ok: true,
+          verified: false,
+          error:
+            `DNS is pointing correctly, but the domain still needs a hosting verification record before SSL can be issued.${recordsHint} After adding it, wait a minute and click Verify DNS again.`,
+          debug,
+        });
+      }
+
+      return NextResponse.json({
+        ok: true,
+        verified: false,
+        error:
+          "DNS is pointing correctly, but the domain isn’t reachable over HTTPS yet (SSL/certificate still provisioning). Please wait a few minutes and click Verify DNS again.",
+        debug,
       });
-      return NextResponse.json({ ok: true, verified: true, domain: updated, debug });
     }
 
     // For apex domains (ALIAS/ANAME), the CNAME chain often won’t be visible.
@@ -138,15 +294,90 @@ export async function POST(req: Request, ctx: { params: Promise<{ domainId: stri
     debug.checks.targetA = targetA;
     debug.checks.targetAAAA = targetAAAA;
 
-    const ipMatch = intersects(domainA, targetA) || intersects(domainAAAA, targetAAAA);
+    const domainAuniq = uniq(domainA);
+    const domainAAAAuniq = uniq(domainAAAA);
+    const targetAuniq = uniq(targetA);
+    const targetAAAAuniq = uniq(targetAAAA);
 
-    if (ipMatch) {
-      const updated = await prisma.creditCustomDomain.update({
-        where: { id: domainRow.id },
-        data: { status: "VERIFIED", verifiedAt: new Date() },
-        select: { id: true, domain: true, status: true, verifiedAt: true, createdAt: true, updatedAt: true },
+    const aHasMatch = intersects(domainAuniq, targetAuniq);
+    const aaaaHasMatch = intersects(domainAAAAuniq, targetAAAAuniq);
+    const aOnlyExpected = domainAuniq.length > 0 && domainAuniq.every((ip) => targetAuniq.includes(ip));
+    const aaaaOnlyExpected = domainAAAAuniq.length > 0 && domainAAAAuniq.every((ip) => targetAAAAuniq.includes(ip));
+
+    const extraA = domainAuniq.filter((ip) => !targetAuniq.includes(ip));
+    const extraAAAA = domainAAAAuniq.filter((ip) => !targetAAAAuniq.includes(ip));
+
+    const dnsOk = aOnlyExpected || aaaaOnlyExpected || aHasMatch || aaaaHasMatch;
+
+    if (dnsOk) {
+      // If there are extra IPs, treat as not ready: it can randomly route to the wrong place.
+      if (extraA.length || extraAAAA.length) {
+        if (domainRow.status === "VERIFIED") {
+          await prisma.creditCustomDomain.update({ where: { id: domainRow.id }, data: { status: "PENDING", verifiedAt: null } });
+        }
+
+        return NextResponse.json({
+          ok: true,
+          verified: false,
+          error:
+            extraA.length
+              ? `Your domain has multiple A records. Remove the conflicting A record(s) (${extraA.join(", ")}) so it only points to the platform (${targetAuniq.join(", ") || "(unknown)"}).`
+              : `Your domain has multiple AAAA records. Remove the conflicting AAAA record(s) (${extraAAAA.join(", ")}) so it only points to the platform (${targetAAAAuniq.join(", ") || "(unknown)"}).`,
+          debug: { ...debug, isApex, extraA, extraAAAA },
+        });
+      }
+
+      const vercel = await ensureVercelProjectDomain(domain);
+      debug.vercel = vercel;
+      const https = await checkHttpsReachable(domain);
+      debug.https = https;
+
+      const ready = vercel.ok && vercel.verified && https.ok;
+      if (ready) {
+        const updated = await prisma.creditCustomDomain.update({
+          where: { id: domainRow.id },
+          data: { status: "VERIFIED", verifiedAt: new Date() },
+          select: { id: true, domain: true, status: true, verifiedAt: true, createdAt: true, updatedAt: true },
+        });
+        return NextResponse.json({ ok: true, verified: true, domain: updated, debug: { ...debug, isApex } });
+      }
+
+      if (domainRow.status === "VERIFIED") {
+        await prisma.creditCustomDomain.update({ where: { id: domainRow.id }, data: { status: "PENDING", verifiedAt: null } });
+      }
+
+      if (!vercel.configured) {
+        return NextResponse.json({
+          ok: true,
+          verified: false,
+          error:
+            "DNS is pointing correctly, but the platform is missing domain provisioning configuration (SSL can’t be activated automatically). Please contact support.",
+          debug: { ...debug, isApex },
+        });
+      }
+
+      if (vercel.ok && vercel.verified === false && vercel.verification?.length) {
+        const recordsHint = formatVercelVerificationRecords(vercel.verification);
+        return NextResponse.json({
+          ok: true,
+          verified: false,
+          error:
+            `DNS is pointing correctly, but the domain still needs a hosting verification record before SSL can be issued.${recordsHint} After adding it, wait a minute and click Verify DNS again.`,
+          debug: { ...debug, isApex },
+        });
+      }
+
+      return NextResponse.json({
+        ok: true,
+        verified: false,
+        error:
+          "DNS is pointing correctly, but the domain isn’t reachable over HTTPS yet (SSL/certificate still provisioning). Please wait a few minutes and click Verify DNS again.",
+        debug: { ...debug, isApex },
       });
-      return NextResponse.json({ ok: true, verified: true, domain: updated, debug: { ...debug, isApex } });
+    }
+
+    if (domainRow.status === "VERIFIED") {
+      await prisma.creditCustomDomain.update({ where: { id: domainRow.id }, data: { status: "PENDING", verifiedAt: null } });
     }
 
     return NextResponse.json({

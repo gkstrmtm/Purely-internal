@@ -912,7 +912,10 @@ export function FunnelBuilderClient() {
                                       </tr>
                                       <tr>
                                         <td className="border-b border-zinc-100 py-2 text-xs">
-                                          <span className="font-semibold text-zinc-900">A (alternative)</span>
+                                          <div className="flex items-baseline gap-1">
+                                            <span className="font-semibold text-zinc-900">A</span>
+                                            <span className="text-[10px] font-semibold text-zinc-500">record (alternative)</span>
+                                          </div>
                                         </td>
                                         <td className="border-b border-zinc-100 py-2 text-xs">
                                           <div className="inline-flex items-center gap-2">
@@ -982,7 +985,7 @@ export function FunnelBuilderClient() {
                               </table>
 
                               <div className="mt-2 text-xs text-zinc-600">
-                                Use the exact <span className="font-semibold">Type</span>, <span className="font-semibold">Host/Name</span>, and <span className="font-semibold">Value</span> fields in your DNS provider.
+                                Use the exact <span className="font-semibold">Type</span>, <span className="font-semibold">Host/Name</span>, and <span className="font-semibold">Value</span> fields in your DNS provider. When it asks for the record type, choose an <span className="font-semibold">A record</span> (shown as <span className="font-mono">A</span>) or a <span className="font-semibold">CNAME</span> record as indicated.
                                 If your provider does not support <span className="font-semibold">ALIAS/ANAME</span> at <span className="font-mono">@</span>, use the <span className="font-mono">www</span> record and set your root domain to forward to <span className="font-mono">www</span>.
                                 After saving your DNS changes, click <span className="font-semibold">Verify DNS</span> above to re-check.
                               </div>
