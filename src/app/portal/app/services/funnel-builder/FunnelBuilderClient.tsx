@@ -45,11 +45,32 @@ function classNames(...xs: Array<string | false | null | undefined>) {
   return xs.filter(Boolean).join(" ");
 }
 
-function funnelStatusLabel(f: { status: "DRAFT" | "ACTIVE" | "ARCHIVED"; assignedDomain?: string | null }) {
+function funnelStatusLabel(
+  f: { status: "DRAFT" | "ACTIVE" | "ARCHIVED"; assignedDomain?: string | null },
+  assignedDomainStatus: "PENDING" | "VERIFIED" | null,
+) {
   if (f.status === "ARCHIVED") return "Archived";
-  if (f.assignedDomain) return "Live";
+  if (f.assignedDomain) return assignedDomainStatus === "VERIFIED" ? "Live" : "Pending";
   if (f.status === "ACTIVE") return "Live";
   return "Draft";
+}
+
+function CopyIcon({ className }: { className?: string }) {
+  return (
+    <svg
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      className={className}
+      aria-hidden="true"
+    >
+      <rect x="9" y="9" width="13" height="13" rx="2" />
+      <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" />
+    </svg>
+  );
 }
 
 function normalizeSlug(raw: string) {
@@ -119,6 +140,26 @@ export function FunnelBuilderClient() {
 
   const [funnelDomainBusy, setFunnelDomainBusy] = useState<Record<string, boolean>>({});
   const [funnelDomainError, setFunnelDomainError] = useState<Record<string, string | null>>({});
+
+  const domainsByName = useMemo(() => {
+    const m = new Map<string, CreditDomain>();
+    for (const d of domains || []) {
+      const k = String(d.domain || "").trim().toLowerCase();
+      if (!k) continue;
+      m.set(k, d);
+    }
+    return m;
+  }, [domains]);
+
+  const getAssignedDomainStatus = useCallback(
+    (assignedDomain: string | null | undefined): "PENDING" | "VERIFIED" | null => {
+      const clean = String(assignedDomain || "").trim().toLowerCase();
+      if (!clean) return null;
+      const d = domainsByName.get(clean);
+      return d?.status ?? "PENDING";
+    },
+    [domainsByName],
+  );
 
   const funnelDomainOptions = useMemo(() => {
     const opts: Array<{ value: string; label: string; hint?: string }> = [{ value: "", label: "Default (not assigned)" }];
@@ -214,9 +255,22 @@ export function FunnelBuilderClient() {
           return;
         }
 
+        const expectedTargetHost =
+          typeof json?.debug?.expectedTargetHost === "string" ? String(json.debug.expectedTargetHost).trim() : "";
+        const raw = typeof json?.error === "string" ? json.error : "";
+        const base = raw
+          ? /dns\s+doesn\W?t\s+resolve/i.test(raw)
+            ? "Not verified yet: your domain’s DNS isn’t pointing to Purely yet (or DNS propagation isn’t finished)."
+            : /cname\s+doesn\W?t\s+point/i.test(raw)
+              ? "Not verified yet: your CNAME record isn’t pointing to Purely yet (or DNS propagation isn’t finished)."
+              : `Not verified yet: ${raw}`
+          : "Not verified yet. DNS changes can take a few minutes to propagate.";
+
+        const hint = expectedTargetHost ? ` Expected target: ${expectedTargetHost}.` : "";
+
         setDomainVerifyError((m) => ({
           ...m,
-          [domain.id]: String(json?.error || "Not verified yet. DNS changes can take a few minutes to propagate."),
+          [domain.id]: `${base}${hint} Double-check the records below and try again in a few minutes.`,
         }));
       } catch (e) {
         setDomainVerifyError((m) => ({
@@ -286,8 +340,7 @@ export function FunnelBuilderClient() {
         if (!prev) return prev;
         return prev.map((f) => {
           if (f.id !== funnel.id) return f;
-          const nextStatus = nextDomain && f.status !== "ARCHIVED" ? "ACTIVE" : f.status;
-          return { ...f, assignedDomain: nextDomain, status: nextStatus };
+          return { ...f, assignedDomain: nextDomain };
         });
       });
 
@@ -295,10 +348,7 @@ export function FunnelBuilderClient() {
         const res = await fetch(`/api/portal/funnel-builder/funnels/${encodeURIComponent(funnel.id)}`, {
           method: "PATCH",
           headers: { "content-type": "application/json" },
-          body: JSON.stringify({
-            domain: nextDomain,
-            ...(nextDomain && funnel.status !== "ARCHIVED" ? { status: "ACTIVE" } : {}),
-          }),
+          body: JSON.stringify({ domain: nextDomain }),
         });
         const json = (await res.json().catch(() => null)) as any;
         if (!res.ok || !json || json.ok !== true) throw new Error(json?.error || "Failed to update funnel domain");
@@ -479,10 +529,21 @@ export function FunnelBuilderClient() {
               <div className="mt-1 text-sm text-zinc-600">Choose a URL slug and start building.</div>
             </button>
 
-            {(funnels || []).map((f) => (
-              <div key={f.id} className="rounded-3xl border border-zinc-200 bg-white p-6">
-                <div className="text-base font-semibold text-brand-ink">{f.name}</div>
-                <div className="mt-1 text-sm text-zinc-600">/{f.slug}</div>
+            {(funnels || []).map((f) => {
+              const assignedDomainClean = String(f.assignedDomain || "").trim().toLowerCase();
+              const assignedDomainStatus = getAssignedDomainStatus(assignedDomainClean);
+              const hasVerifiedCustomDomain = assignedDomainClean && assignedDomainStatus === "VERIFIED";
+              const liveHref = hasVerifiedCustomDomain
+                ? getFunnelLiveHref(f.assignedDomain, f.slug, f.id)
+                : assignedDomainClean
+                  ? null
+                  : getFunnelLiveHref(null, f.slug, f.id);
+              const liveUrlLabel = assignedDomainClean ? "Custom domain URL" : "Hosted URL";
+
+              return (
+                <div key={f.id} className="rounded-3xl border border-zinc-200 bg-white p-6">
+                  <div className="text-base font-semibold text-brand-ink">{f.name}</div>
+                  <div className="mt-1 text-sm text-zinc-600">/{f.slug}</div>
 
                 <div className="mt-3">
                   <div className="text-xs font-semibold uppercase tracking-wide text-zinc-500">Domain</div>
@@ -497,14 +558,19 @@ export function FunnelBuilderClient() {
                     />
 
                     <div className="text-xs text-zinc-600">
-                      Live URL:{" "}
-                      <span className="font-mono">
-                        {f.assignedDomain
+                      {liveUrlLabel}:{" "}
+                      <span className={classNames("font-mono", assignedDomainClean && assignedDomainStatus !== "VERIFIED" ? "text-zinc-400" : "text-zinc-700")}>
+                        {assignedDomainClean
                           ? isLocalPreview
-                            ? `${platformTargetHost || ""}/domain-router/${f.assignedDomain}/${f.slug}`
-                            : `https://${f.assignedDomain}/${f.slug}`
+                            ? `${platformTargetHost || ""}/domain-router/${assignedDomainClean}/${f.slug}`
+                            : `https://${assignedDomainClean}/${f.slug}`
                           : `${platformTargetHost || ""}${hostedFunnelPath(f.slug, f.id) || ""}`}
                       </span>
+                      {assignedDomainClean && assignedDomainStatus !== "VERIFIED" ? (
+                        <span className="ml-2 rounded-full border border-amber-200 bg-amber-50 px-2 py-0.5 text-[10px] font-semibold text-amber-900">
+                          pending DNS
+                        </span>
+                      ) : null}
                     </div>
 
                     {funnelDomainError[f.id] ? (
@@ -515,41 +581,47 @@ export function FunnelBuilderClient() {
                   </div>
                 </div>
 
-                <div className="mt-4 flex items-center justify-between gap-3">
-                  <span className="inline-flex items-center rounded-full border border-zinc-200 bg-zinc-50 px-2.5 py-1 text-xs font-semibold text-zinc-700">
-                    {funnelStatusLabel(f)}
-                  </span>
-                  <div className="flex items-center gap-3">
-                    <Link
-                      href={`${basePath}/app/services/funnel-builder/funnels/${encodeURIComponent(f.id)}/edit`}
-                      target="_blank"
-                      className="text-sm font-semibold text-brand-ink hover:underline"
-                    >
-                      Edit
-                    </Link>
-                    <Link
-                      href={hostedFunnelPath(f.slug, f.id) || `${funnelPreviewBase}/${encodeURIComponent(f.slug)}`}
-                      target="_blank"
-                      className="text-sm font-semibold text-[color:var(--color-brand-blue)] hover:underline"
-                    >
-                      Preview
-                    </Link>
+                  <div className="mt-4 flex items-center justify-between gap-3">
+                    <span className="inline-flex items-center rounded-full border border-zinc-200 bg-zinc-50 px-2.5 py-1 text-xs font-semibold text-zinc-700">
+                      {funnelStatusLabel(f, assignedDomainStatus)}
+                    </span>
+                    <div className="flex items-center gap-3">
+                      <Link
+                        href={`${basePath}/app/services/funnel-builder/funnels/${encodeURIComponent(f.id)}/edit`}
+                        target="_blank"
+                        className="text-sm font-semibold text-brand-ink hover:underline"
+                      >
+                        Edit
+                      </Link>
+                      <Link
+                        href={hostedFunnelPath(f.slug, f.id) || `${funnelPreviewBase}/${encodeURIComponent(f.slug)}`}
+                        target="_blank"
+                        className="text-sm font-semibold text-[color:var(--color-brand-blue)] hover:underline"
+                      >
+                        Preview
+                      </Link>
 
-                    <Link
-                      href={
-                        getFunnelLiveHref(f.assignedDomain, f.slug, f.id) ||
-                        hostedFunnelPath(f.slug, f.id) ||
-                        `${funnelPreviewBase}/${encodeURIComponent(f.slug)}`
-                      }
-                      target="_blank"
-                      className="text-sm font-semibold text-[color:var(--color-brand-blue)] hover:underline"
-                    >
-                      Live
-                    </Link>
+                      {liveHref ? (
+                        <Link
+                          href={liveHref}
+                          target="_blank"
+                          className="text-sm font-semibold text-[color:var(--color-brand-blue)] hover:underline"
+                        >
+                          Live
+                        </Link>
+                      ) : (
+                        <span
+                          className="text-sm font-semibold text-zinc-400"
+                          title="This domain is pending DNS verification. Verify DNS to enable the Live link."
+                        >
+                          Live
+                        </span>
+                      )}
+                    </div>
                   </div>
                 </div>
-              </div>
-            ))}
+              );
+            })}
           </div>
 
           {funnels === null ? (
@@ -768,38 +840,33 @@ export function FunnelBuilderClient() {
                                   {!isLikelyApexDomain(d.domain) ? (
                                     <tr>
                                       <td className="border-b border-zinc-100 py-2 text-xs">
-                                        <div className="flex items-center justify-between gap-2">
-                                          <span className="font-semibold text-zinc-900">CNAME</span>
-                                          <button
-                                            type="button"
-                                            onClick={() => copyText("CNAME")}
-                                            className="rounded-full border border-zinc-200 bg-white px-3 py-1 text-xs font-semibold text-zinc-700 hover:bg-zinc-50"
-                                          >
-                                            Copy
-                                          </button>
-                                        </div>
+                                        <span className="font-semibold text-zinc-900">CNAME</span>
                                       </td>
                                       <td className="border-b border-zinc-100 py-2 text-xs">
-                                        <div className="flex items-center justify-between gap-2">
+                                        <div className="inline-flex items-center gap-2">
                                           <span className="font-mono text-zinc-800">{deriveDnsHostLabel(d.domain)}</span>
                                           <button
                                             type="button"
                                             onClick={() => copyText(deriveDnsHostLabel(d.domain))}
-                                            className="rounded-full border border-zinc-200 bg-white px-3 py-1 text-xs font-semibold text-zinc-700 hover:bg-zinc-50"
+                                            className="rounded-md border border-zinc-200 bg-white p-1.5 text-zinc-600 hover:bg-zinc-50 hover:text-zinc-900"
+                                            aria-label="Copy host/name"
+                                            title="Copy"
                                           >
-                                            Copy
+                                            <CopyIcon className="h-4 w-4" />
                                           </button>
                                         </div>
                                       </td>
                                       <td className="border-b border-zinc-100 py-2 text-xs">
-                                        <div className="flex items-center justify-between gap-2">
+                                        <div className="inline-flex items-center gap-2">
                                           <span className="font-mono text-zinc-800">{platformTargetHost}</span>
                                           <button
                                             type="button"
                                             onClick={() => copyText(platformTargetHost)}
-                                            className="rounded-full border border-zinc-200 bg-white px-3 py-1 text-xs font-semibold text-zinc-700 hover:bg-zinc-50"
+                                            className="rounded-md border border-zinc-200 bg-white p-1.5 text-zinc-600 hover:bg-zinc-50 hover:text-zinc-900"
+                                            aria-label="Copy value"
+                                            title="Copy"
                                           >
-                                            Copy
+                                            <CopyIcon className="h-4 w-4" />
                                           </button>
                                         </div>
                                       </td>
@@ -808,76 +875,99 @@ export function FunnelBuilderClient() {
                                     <>
                                       <tr>
                                         <td className="border-b border-zinc-100 py-2 text-xs">
-                                          <div className="flex items-center justify-between gap-2">
-                                            <span className="font-semibold text-zinc-900">ALIAS / ANAME</span>
-                                            <button
-                                              type="button"
-                                              onClick={() => copyText("ALIAS / ANAME")}
-                                              className="rounded-full border border-zinc-200 bg-white px-3 py-1 text-xs font-semibold text-zinc-700 hover:bg-zinc-50"
-                                            >
-                                              Copy
-                                            </button>
-                                          </div>
+                                          <span className="font-semibold text-zinc-900">ALIAS / ANAME</span>
                                         </td>
                                         <td className="border-b border-zinc-100 py-2 text-xs">
-                                          <div className="flex items-center justify-between gap-2">
+                                          <div className="inline-flex items-center gap-2">
                                             <span className="font-mono text-zinc-800">@</span>
                                             <button
                                               type="button"
                                               onClick={() => copyText("@")}
-                                              className="rounded-full border border-zinc-200 bg-white px-3 py-1 text-xs font-semibold text-zinc-700 hover:bg-zinc-50"
+                                              className="rounded-md border border-zinc-200 bg-white p-1.5 text-zinc-600 hover:bg-zinc-50 hover:text-zinc-900"
+                                              aria-label="Copy host/name"
+                                              title="Copy"
                                             >
-                                              Copy
+                                              <CopyIcon className="h-4 w-4" />
                                             </button>
                                           </div>
                                         </td>
                                         <td className="border-b border-zinc-100 py-2 text-xs">
-                                          <div className="flex items-center justify-between gap-2">
+                                          <div className="inline-flex items-center gap-2">
                                             <span className="font-mono text-zinc-800">{platformTargetHost}</span>
                                             <button
                                               type="button"
                                               onClick={() => copyText(platformTargetHost)}
-                                              className="rounded-full border border-zinc-200 bg-white px-3 py-1 text-xs font-semibold text-zinc-700 hover:bg-zinc-50"
+                                              className="rounded-md border border-zinc-200 bg-white p-1.5 text-zinc-600 hover:bg-zinc-50 hover:text-zinc-900"
+                                              aria-label="Copy value"
+                                              title="Copy"
                                             >
-                                              Copy
+                                              <CopyIcon className="h-4 w-4" />
                                             </button>
                                           </div>
                                         </td>
                                       </tr>
                                       <tr>
                                         <td className="border-b border-zinc-100 py-2 text-xs">
-                                          <div className="flex items-center justify-between gap-2">
-                                            <span className="font-semibold text-zinc-900">CNAME</span>
+                                          <span className="font-semibold text-zinc-900">A (alternative)</span>
+                                        </td>
+                                        <td className="border-b border-zinc-100 py-2 text-xs">
+                                          <div className="inline-flex items-center gap-2">
+                                            <span className="font-mono text-zinc-800">@</span>
                                             <button
                                               type="button"
-                                              onClick={() => copyText("CNAME")}
-                                              className="rounded-full border border-zinc-200 bg-white px-3 py-1 text-xs font-semibold text-zinc-700 hover:bg-zinc-50"
+                                              onClick={() => copyText("@")}
+                                              className="rounded-md border border-zinc-200 bg-white p-1.5 text-zinc-600 hover:bg-zinc-50 hover:text-zinc-900"
+                                              aria-label="Copy host/name"
+                                              title="Copy"
                                             >
-                                              Copy
+                                              <CopyIcon className="h-4 w-4" />
                                             </button>
                                           </div>
                                         </td>
                                         <td className="border-b border-zinc-100 py-2 text-xs">
-                                          <div className="flex items-center justify-between gap-2">
+                                          <div className="inline-flex items-center gap-2">
+                                            <span className="font-mono text-zinc-800">76.76.21.21</span>
+                                            <button
+                                              type="button"
+                                              onClick={() => copyText("76.76.21.21")}
+                                              className="rounded-md border border-zinc-200 bg-white p-1.5 text-zinc-600 hover:bg-zinc-50 hover:text-zinc-900"
+                                              aria-label="Copy value"
+                                              title="Copy"
+                                            >
+                                              <CopyIcon className="h-4 w-4" />
+                                            </button>
+                                          </div>
+                                        </td>
+                                      </tr>
+                                      <tr>
+                                        <td className="border-b border-zinc-100 py-2 text-xs">
+                                          <span className="font-semibold text-zinc-900">CNAME</span>
+                                        </td>
+                                        <td className="border-b border-zinc-100 py-2 text-xs">
+                                          <div className="inline-flex items-center gap-2">
                                             <span className="font-mono text-zinc-800">www</span>
                                             <button
                                               type="button"
                                               onClick={() => copyText("www")}
-                                              className="rounded-full border border-zinc-200 bg-white px-3 py-1 text-xs font-semibold text-zinc-700 hover:bg-zinc-50"
+                                              className="rounded-md border border-zinc-200 bg-white p-1.5 text-zinc-600 hover:bg-zinc-50 hover:text-zinc-900"
+                                              aria-label="Copy host/name"
+                                              title="Copy"
                                             >
-                                              Copy
+                                              <CopyIcon className="h-4 w-4" />
                                             </button>
                                           </div>
                                         </td>
                                         <td className="border-b border-zinc-100 py-2 text-xs">
-                                          <div className="flex items-center justify-between gap-2">
+                                          <div className="inline-flex items-center gap-2">
                                             <span className="font-mono text-zinc-800">{platformTargetHost}</span>
                                             <button
                                               type="button"
                                               onClick={() => copyText(platformTargetHost)}
-                                              className="rounded-full border border-zinc-200 bg-white px-3 py-1 text-xs font-semibold text-zinc-700 hover:bg-zinc-50"
+                                              className="rounded-md border border-zinc-200 bg-white p-1.5 text-zinc-600 hover:bg-zinc-50 hover:text-zinc-900"
+                                              aria-label="Copy value"
+                                              title="Copy"
                                             >
-                                              Copy
+                                              <CopyIcon className="h-4 w-4" />
                                             </button>
                                           </div>
                                         </td>
