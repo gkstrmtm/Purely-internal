@@ -26,6 +26,7 @@ type FieldType =
   | "phone"
   | "name"
   | "checklist"
+  | "radio"
   // legacy
   | "text"
   | "tel"
@@ -86,6 +87,7 @@ function normalizeFields(rawSchema: any): Field[] {
       type === "phone" ||
       type === "name" ||
       type === "checklist" ||
+      type === "radio" ||
       type === "text" ||
       type === "tel" ||
       type === "textarea";
@@ -138,6 +140,8 @@ function fieldTypeLabel(t: FieldType) {
       return "Name";
     case "checklist":
       return "Checklist";
+    case "radio":
+      return "Multiple choice";
     default:
       return String(t);
   }
@@ -320,16 +324,16 @@ export function FormEditorClient({ basePath, formId }: { basePath: string; formI
 
     const nextName = makeUniqueFieldKey(cleanedName, (fields || []).map((f) => f.name));
 
-    const nextOptions =
-      fieldType === "checklist"
-        ? optionsText
-            .split("\n")
-            .map((s) => s.trim())
-            .filter(Boolean)
-            .slice(0, 50)
-        : undefined;
-    if (fieldType === "checklist" && (!nextOptions || nextOptions.length === 0)) {
-      setDialogError("Checklist options are required (one per line). ");
+    const isOptionsField = fieldType === "checklist" || fieldType === "radio";
+    const nextOptions = isOptionsField
+      ? optionsText
+          .split("\n")
+          .map((s) => s.trim())
+          .filter(Boolean)
+          .slice(0, 50)
+      : undefined;
+    if (isOptionsField && (!nextOptions || nextOptions.length === 0)) {
+      setDialogError("Options are required (one per line). ");
       return;
     }
 
@@ -574,15 +578,16 @@ export function FormEditorClient({ basePath, formId }: { basePath: string; formI
                 { value: "email", label: "Email" },
                 { value: "phone", label: "Phone number" },
                 { value: "checklist", label: "Checklist" },
+                { value: "radio", label: "Multiple choice" },
               ]}
               className="mt-1 w-full"
               buttonClassName="flex w-full items-center justify-between gap-2 rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm text-zinc-900 hover:bg-zinc-50 focus-visible:ring-2 focus-visible:ring-zinc-300"
             />
           </label>
 
-          {dialog?.type === "add-question" && dialog.fieldType === "checklist" ? (
+          {dialog?.type === "add-question" && (dialog.fieldType === "checklist" || dialog.fieldType === "radio") ? (
             <label className="block">
-              <div className="text-xs font-semibold uppercase tracking-wide text-zinc-500">Checklist options</div>
+              <div className="text-xs font-semibold uppercase tracking-wide text-zinc-500">Options</div>
               <textarea
                 value={dialog.optionsText}
                 onChange={(e) => {
@@ -808,7 +813,7 @@ export function FormEditorClient({ basePath, formId }: { basePath: string; formI
                             (prev || []).map((f, i) => {
                               if (i !== selectedIdx) return f;
                               const nextType = t as FieldType;
-                              const nextOptions = nextType === "checklist" ? f.options || ["Option 1", "Option 2"] : undefined;
+                              const nextOptions = nextType === "checklist" || nextType === "radio" ? f.options || ["Option 1", "Option 2"] : undefined;
                               return { ...f, type: nextType, options: nextOptions };
                             }),
                           );
@@ -821,15 +826,16 @@ export function FormEditorClient({ basePath, formId }: { basePath: string; formI
                           { value: "email", label: "Email" },
                           { value: "phone", label: "Phone number" },
                           { value: "checklist", label: "Checklist" },
+                          { value: "radio", label: "Multiple choice" },
                         ]}
                         className="mt-1 w-full"
                         buttonClassName="flex w-full items-center justify-between gap-2 rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm text-zinc-900 hover:bg-zinc-50 focus-visible:ring-2 focus-visible:ring-zinc-300"
                       />
                     </label>
 
-                    {selected.type === "checklist" ? (
+                    {selected.type === "checklist" || selected.type === "radio" ? (
                       <label className="block">
-                        <div className="text-xs font-semibold uppercase tracking-wide text-zinc-500">Checklist options</div>
+                        <div className="text-xs font-semibold uppercase tracking-wide text-zinc-500">Options</div>
                         <textarea
                           value={(selected.options || []).join("\n")}
                           onChange={(e) => {
@@ -904,6 +910,20 @@ export function FormEditorClient({ basePath, formId }: { basePath: string; formI
                                   disabled
                                   type="checkbox"
                                   className="h-4 w-4 rounded border-zinc-300"
+                                  style={{ accentColor: style.buttonBg || "#2563eb" }}
+                                />
+                                <span>{opt}</span>
+                              </label>
+                            ))}
+                          </div>
+                        ) : selected.type === "radio" ? (
+                          <div className="space-y-2">
+                            {(selected.options || ["Option 1", "Option 2"]).map((opt) => (
+                              <label key={opt} className="flex items-center gap-2 text-sm" style={{ color: style.textColor || "#18181b" }}>
+                                <input
+                                  disabled
+                                  type="radio"
+                                  className="h-4 w-4 border-zinc-300"
                                   style={{ accentColor: style.buttonBg || "#2563eb" }}
                                 />
                                 <span>{opt}</span>

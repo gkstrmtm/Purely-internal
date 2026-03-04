@@ -6,6 +6,13 @@ import { requireFunnelBuilderSession } from "@/lib/funnelBuilderAccess";
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
 
+type FunnelSeo = {
+  title?: string;
+  description?: string;
+  imageUrl?: string;
+  noIndex?: boolean;
+};
+
 function normalizeDomain(raw: unknown) {
   let s = typeof raw === "string" ? raw.trim().toLowerCase() : "";
   if (!s) return null;
@@ -53,6 +60,58 @@ function writeFunnelDomain(settingsJson: unknown, funnelId: string, domain: stri
   return base;
 }
 
+function readFunnelSeo(settingsJson: unknown, funnelId: string): FunnelSeo | null {
+  if (!settingsJson || typeof settingsJson !== "object" || Array.isArray(settingsJson)) return null;
+  const raw = (settingsJson as any).funnelSeo;
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return null;
+  const row = (raw as any)[funnelId];
+  if (!row || typeof row !== "object" || Array.isArray(row)) return null;
+
+  const title = typeof (row as any).title === "string" ? (row as any).title.trim().slice(0, 120) : "";
+  const description = typeof (row as any).description === "string" ? (row as any).description.trim().slice(0, 300) : "";
+  const imageUrl = typeof (row as any).imageUrl === "string" ? (row as any).imageUrl.trim().slice(0, 500) : "";
+  const noIndex = (row as any).noIndex === true;
+
+  const out: FunnelSeo = {};
+  if (title) out.title = title;
+  if (description) out.description = description;
+  if (imageUrl) out.imageUrl = imageUrl;
+  if (noIndex) out.noIndex = true;
+
+  return Object.keys(out).length ? out : null;
+}
+
+function safeSeo(raw: unknown): FunnelSeo | null {
+  if (raw === null) return null;
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return null;
+
+  const title = typeof (raw as any).title === "string" ? (raw as any).title.trim().slice(0, 120) : "";
+  const description = typeof (raw as any).description === "string" ? (raw as any).description.trim().slice(0, 300) : "";
+  const imageUrl = typeof (raw as any).imageUrl === "string" ? (raw as any).imageUrl.trim().slice(0, 500) : "";
+  const noIndex = (raw as any).noIndex === true;
+
+  const out: FunnelSeo = {};
+  if (title) out.title = title;
+  if (description) out.description = description;
+  if (imageUrl) out.imageUrl = imageUrl;
+  if (noIndex) out.noIndex = true;
+  return out;
+}
+
+function writeFunnelSeo(settingsJson: unknown, funnelId: string, seo: FunnelSeo | null) {
+  const base = settingsJson && typeof settingsJson === "object" && !Array.isArray(settingsJson) ? { ...(settingsJson as any) } : {};
+  const funnelSeo =
+    base.funnelSeo && typeof base.funnelSeo === "object" && !Array.isArray(base.funnelSeo)
+      ? { ...(base.funnelSeo as any) }
+      : {};
+
+  if (seo === null) delete funnelSeo[funnelId];
+  else funnelSeo[funnelId] = seo;
+
+  base.funnelSeo = funnelSeo;
+  return base;
+}
+
 function normalizeSlug(raw: unknown) {
   const s = typeof raw === "string" ? raw.trim().toLowerCase() : "";
   const cleaned = s
@@ -91,7 +150,9 @@ export async function GET(_req: Request, ctx: { params: Promise<{ funnelId: stri
     .catch(() => null);
   const funnelDomains = readFunnelDomains(settings?.dataJson ?? null);
 
-  return NextResponse.json({ ok: true, funnel: { ...funnel, assignedDomain: funnelDomains[funnel.id] ?? null } });
+  const seo = readFunnelSeo(settings?.dataJson ?? null, funnel.id);
+
+  return NextResponse.json({ ok: true, funnel: { ...funnel, assignedDomain: funnelDomains[funnel.id] ?? null, seo } });
 }
 
 export async function PATCH(req: Request, ctx: { params: Promise<{ funnelId: string }> }) {
@@ -126,6 +187,13 @@ export async function PATCH(req: Request, ctx: { params: Promise<{ funnelId: str
         : null;
   if (wantsDomainUpdate && requestedDomainRaw !== null && !requestedDomain) {
     return NextResponse.json({ ok: false, error: "Invalid domain" }, { status: 400 });
+  }
+
+  const wantsSeoUpdate = Object.prototype.hasOwnProperty.call(body ?? {}, "seo");
+  const requestedSeoRaw = wantsSeoUpdate ? (body as any).seo : undefined;
+  const requestedSeo = wantsSeoUpdate ? (requestedSeoRaw === null ? null : safeSeo(requestedSeoRaw)) : undefined;
+  if (wantsSeoUpdate && requestedSeoRaw !== null && requestedSeo == null) {
+    return NextResponse.json({ ok: false, error: "Invalid seo" }, { status: 400 });
   }
 
   if (wantsDomainUpdate && requestedDomain) {
@@ -172,26 +240,36 @@ export async function PATCH(req: Request, ctx: { params: Promise<{ funnelId: str
   if (!funnel) return NextResponse.json({ ok: false, error: "That slug is already taken" }, { status: 409 });
 
   let assignedDomain: string | null = null;
-  if (wantsDomainUpdate) {
+  let seo: FunnelSeo | null = null;
+
+  if (wantsDomainUpdate || wantsSeoUpdate) {
     const existingSettings = await prisma.creditFunnelBuilderSettings
       .findUnique({ where: { ownerId: auth.session.user.id }, select: { dataJson: true } })
       .catch(() => null);
 
-    const nextJson = writeFunnelDomain(existingSettings?.dataJson ?? null, funnel.id, requestedDomain);
+    let nextJson: any = existingSettings?.dataJson ?? null;
+    if (wantsDomainUpdate) nextJson = writeFunnelDomain(nextJson, funnel.id, requestedDomain);
+    if (wantsSeoUpdate) nextJson = writeFunnelSeo(nextJson, funnel.id, (requestedSeo as any) ?? null);
+
     await prisma.creditFunnelBuilderSettings.upsert({
       where: { ownerId: auth.session.user.id },
       update: { dataJson: nextJson as any },
       create: { ownerId: auth.session.user.id, dataJson: nextJson as any },
       select: { ownerId: true },
     });
-    assignedDomain = requestedDomain;
+
+    const funnelDomains = readFunnelDomains(nextJson);
+    assignedDomain = funnelDomains[funnel.id] ?? null;
+    seo = readFunnelSeo(nextJson, funnel.id);
   } else {
     const settings = await prisma.creditFunnelBuilderSettings
       .findUnique({ where: { ownerId: auth.session.user.id }, select: { dataJson: true } })
       .catch(() => null);
-    const funnelDomains = readFunnelDomains(settings?.dataJson ?? null);
+    const settingsJson = settings?.dataJson ?? null;
+    const funnelDomains = readFunnelDomains(settingsJson);
     assignedDomain = funnelDomains[funnel.id] ?? null;
+    seo = readFunnelSeo(settingsJson, funnel.id);
   }
 
-  return NextResponse.json({ ok: true, funnel: { ...funnel, assignedDomain } });
+  return NextResponse.json({ ok: true, funnel: { ...funnel, assignedDomain, seo } });
 }

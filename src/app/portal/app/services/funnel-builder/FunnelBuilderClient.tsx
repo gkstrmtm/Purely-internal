@@ -45,6 +45,13 @@ function classNames(...xs: Array<string | false | null | undefined>) {
   return xs.filter(Boolean).join(" ");
 }
 
+function funnelStatusLabel(f: { status: "DRAFT" | "ACTIVE" | "ARCHIVED"; assignedDomain?: string | null }) {
+  if (f.status === "ARCHIVED") return "Archived";
+  if (f.assignedDomain) return "Live";
+  if (f.status === "ACTIVE") return "Live";
+  return "Draft";
+}
+
 function normalizeSlug(raw: string) {
   const cleaned = raw
     .trim()
@@ -107,6 +114,8 @@ export function FunnelBuilderClient() {
   const [domainBusy, setDomainBusy] = useState(false);
   const [domainSettingsBusy, setDomainSettingsBusy] = useState<Record<string, boolean>>({});
   const [domainSettingsError, setDomainSettingsError] = useState<Record<string, string | null>>({});
+  const [domainVerifyBusy, setDomainVerifyBusy] = useState<Record<string, boolean>>({});
+  const [domainVerifyError, setDomainVerifyError] = useState<Record<string, string | null>>({});
 
   const [funnelDomainBusy, setFunnelDomainBusy] = useState<Record<string, boolean>>({});
   const [funnelDomainError, setFunnelDomainError] = useState<Record<string, string | null>>({});
@@ -176,6 +185,51 @@ export function FunnelBuilderClient() {
     setDomains(Array.isArray(json.domains) ? json.domains : []);
   }, []);
 
+  const copyText = useCallback(async (text: string) => {
+    try {
+      await navigator.clipboard.writeText(String(text || ""));
+    } catch {
+      // ignore
+    }
+  }, []);
+
+  const verifyDomain = useCallback(
+    async (domain: CreditDomain) => {
+      setDomainVerifyBusy((m) => ({ ...m, [domain.id]: true }));
+      setDomainVerifyError((m) => ({ ...m, [domain.id]: null }));
+
+      try {
+        const res = await fetch(`/api/portal/funnel-builder/domains/${encodeURIComponent(domain.id)}/verify`, {
+          method: "POST",
+          cache: "no-store",
+        });
+        const json = (await res.json().catch(() => null)) as any;
+        if (!res.ok || !json || json.ok !== true) throw new Error(json?.error || "Verification failed");
+
+        if (json.verified === true && json.domain) {
+          setDomains((prev) => {
+            if (!prev) return prev;
+            return prev.map((d) => (d.id === domain.id ? { ...d, ...json.domain } : d));
+          });
+          return;
+        }
+
+        setDomainVerifyError((m) => ({
+          ...m,
+          [domain.id]: String(json?.error || "Not verified yet. DNS changes can take a few minutes to propagate."),
+        }));
+      } catch (e) {
+        setDomainVerifyError((m) => ({
+          ...m,
+          [domain.id]: (e as any)?.message ? String((e as any).message) : "Verification failed",
+        }));
+      } finally {
+        setDomainVerifyBusy((m) => ({ ...m, [domain.id]: false }));
+      }
+    },
+    [],
+  );
+
   const patchDomainSettings = useCallback(
     async (domain: CreditDomain, next: { rootMode: "DISABLED" | "DIRECTORY" | "REDIRECT"; rootFunnelSlug: string | null }) => {
       setDomainSettingsBusy((m) => ({ ...m, [domain.id]: true }));
@@ -230,22 +284,38 @@ export function FunnelBuilderClient() {
       // Optimistic update
       setFunnels((prev) => {
         if (!prev) return prev;
-        return prev.map((f) => (f.id === funnel.id ? { ...f, assignedDomain: nextDomain } : f));
+        return prev.map((f) => {
+          if (f.id !== funnel.id) return f;
+          const nextStatus = nextDomain && f.status !== "ARCHIVED" ? "ACTIVE" : f.status;
+          return { ...f, assignedDomain: nextDomain, status: nextStatus };
+        });
       });
 
       try {
         const res = await fetch(`/api/portal/funnel-builder/funnels/${encodeURIComponent(funnel.id)}`, {
           method: "PATCH",
           headers: { "content-type": "application/json" },
-          body: JSON.stringify({ domain: nextDomain }),
+          body: JSON.stringify({
+            domain: nextDomain,
+            ...(nextDomain && funnel.status !== "ARCHIVED" ? { status: "ACTIVE" } : {}),
+          }),
         });
         const json = (await res.json().catch(() => null)) as any;
         if (!res.ok || !json || json.ok !== true) throw new Error(json?.error || "Failed to update funnel domain");
         const assigned = (json?.funnel?.assignedDomain ?? null) as string | null;
+        const status = (json?.funnel?.status ?? null) as CreditFunnel["status"] | null;
 
         setFunnels((prev) => {
           if (!prev) return prev;
-          return prev.map((f) => (f.id === funnel.id ? { ...f, assignedDomain: assigned } : f));
+          return prev.map((f) =>
+            f.id === funnel.id
+              ? {
+                  ...f,
+                  assignedDomain: assigned,
+                  status: status && (status === "DRAFT" || status === "ACTIVE" || status === "ARCHIVED") ? status : f.status,
+                }
+              : f,
+          );
         });
       } catch (e) {
         setFunnelDomainError((m) => ({
@@ -447,7 +517,7 @@ export function FunnelBuilderClient() {
 
                 <div className="mt-4 flex items-center justify-between gap-3">
                   <span className="inline-flex items-center rounded-full border border-zinc-200 bg-zinc-50 px-2.5 py-1 text-xs font-semibold text-zinc-700">
-                    {f.status}
+                    {funnelStatusLabel(f)}
                   </span>
                   <div className="flex items-center gap-3">
                     <Link
@@ -588,9 +658,31 @@ export function FunnelBuilderClient() {
                     <div key={d.id} className="flex flex-col justify-between gap-2 rounded-2xl border border-zinc-200 bg-zinc-50 p-4 sm:flex-row sm:items-center">
                       <div>
                         <div className="text-sm font-semibold text-zinc-900">{d.domain}</div>
-                        <div className="mt-1 text-xs text-zinc-600">
-                          Status: {d.status}{d.verifiedAt ? ` · Verified ${new Date(d.verifiedAt).toLocaleDateString()}` : ""}
+                        <div className="mt-1 flex flex-wrap items-center gap-2 text-xs text-zinc-600">
+                          <div>
+                            Status: {d.status}
+                            {d.verifiedAt ? ` · Verified ${new Date(d.verifiedAt).toLocaleDateString()}` : ""}
+                          </div>
+                          <button
+                            type="button"
+                            disabled={!!domainVerifyBusy[d.id]}
+                            onClick={() => verifyDomain(d)}
+                            className={classNames(
+                              "rounded-full border px-3 py-1 text-xs font-semibold",
+                              domainVerifyBusy[d.id]
+                                ? "border-zinc-200 bg-zinc-100 text-zinc-500"
+                                : "border-zinc-200 bg-white text-zinc-700 hover:bg-zinc-50",
+                            )}
+                          >
+                            {domainVerifyBusy[d.id] ? "Verifying…" : d.status === "VERIFIED" ? "Re-check DNS" : "Verify DNS"}
+                          </button>
                         </div>
+
+                        {domainVerifyError[d.id] ? (
+                          <div className="mt-2 rounded-2xl border border-amber-200 bg-amber-50 p-2 text-xs text-amber-900">
+                            {domainVerifyError[d.id]}
+                          </div>
+                        ) : null}
 
                         <div className="mt-3 rounded-2xl border border-zinc-200 bg-white p-3">
                           <div className="text-xs font-semibold uppercase tracking-wide text-zinc-500">Root / behavior</div>
@@ -670,64 +762,124 @@ export function FunnelBuilderClient() {
                                     <th className="border-b border-zinc-200 pb-2 text-left text-xs font-semibold text-zinc-600">Type</th>
                                     <th className="border-b border-zinc-200 pb-2 text-left text-xs font-semibold text-zinc-600">Host / Name</th>
                                     <th className="border-b border-zinc-200 pb-2 text-left text-xs font-semibold text-zinc-600">Value</th>
-                                    <th className="border-b border-zinc-200 pb-2 text-right text-xs font-semibold text-zinc-600">Copy</th>
                                   </tr>
                                 </thead>
                                 <tbody>
                                   {!isLikelyApexDomain(d.domain) ? (
                                     <tr>
-                                      <td className="border-b border-zinc-100 py-2 text-xs font-semibold text-zinc-900">CNAME</td>
-                                      <td className="border-b border-zinc-100 py-2 text-xs font-mono text-zinc-800">
-                                        {deriveDnsHostLabel(d.domain)}
+                                      <td className="border-b border-zinc-100 py-2 text-xs">
+                                        <div className="flex items-center justify-between gap-2">
+                                          <span className="font-semibold text-zinc-900">CNAME</span>
+                                          <button
+                                            type="button"
+                                            onClick={() => copyText("CNAME")}
+                                            className="rounded-full border border-zinc-200 bg-white px-3 py-1 text-xs font-semibold text-zinc-700 hover:bg-zinc-50"
+                                          >
+                                            Copy
+                                          </button>
+                                        </div>
                                       </td>
-                                      <td className="border-b border-zinc-100 py-2 text-xs font-mono text-zinc-800">{platformTargetHost}</td>
-                                      <td className="border-b border-zinc-100 py-2 text-right">
-                                        <button
-                                          type="button"
-                                          onClick={async () => {
-                                            const text = `Type: CNAME\nHost: ${deriveDnsHostLabel(d.domain)}\nValue: ${platformTargetHost}`;
-                                            await navigator.clipboard.writeText(text);
-                                          }}
-                                          className="rounded-full border border-zinc-200 bg-white px-3 py-1 text-xs font-semibold text-zinc-700 hover:bg-zinc-50"
-                                        >
-                                          Copy
-                                        </button>
+                                      <td className="border-b border-zinc-100 py-2 text-xs">
+                                        <div className="flex items-center justify-between gap-2">
+                                          <span className="font-mono text-zinc-800">{deriveDnsHostLabel(d.domain)}</span>
+                                          <button
+                                            type="button"
+                                            onClick={() => copyText(deriveDnsHostLabel(d.domain))}
+                                            className="rounded-full border border-zinc-200 bg-white px-3 py-1 text-xs font-semibold text-zinc-700 hover:bg-zinc-50"
+                                          >
+                                            Copy
+                                          </button>
+                                        </div>
+                                      </td>
+                                      <td className="border-b border-zinc-100 py-2 text-xs">
+                                        <div className="flex items-center justify-between gap-2">
+                                          <span className="font-mono text-zinc-800">{platformTargetHost}</span>
+                                          <button
+                                            type="button"
+                                            onClick={() => copyText(platformTargetHost)}
+                                            className="rounded-full border border-zinc-200 bg-white px-3 py-1 text-xs font-semibold text-zinc-700 hover:bg-zinc-50"
+                                          >
+                                            Copy
+                                          </button>
+                                        </div>
                                       </td>
                                     </tr>
                                   ) : (
                                     <>
                                       <tr>
-                                        <td className="border-b border-zinc-100 py-2 text-xs font-semibold text-zinc-900">ALIAS / ANAME</td>
-                                        <td className="border-b border-zinc-100 py-2 text-xs font-mono text-zinc-800">@</td>
-                                        <td className="border-b border-zinc-100 py-2 text-xs font-mono text-zinc-800">{platformTargetHost}</td>
-                                        <td className="border-b border-zinc-100 py-2 text-right">
-                                          <button
-                                            type="button"
-                                            onClick={async () => {
-                                              const text = `Type: ALIAS/ANAME\nHost: @\nValue: ${platformTargetHost}`;
-                                              await navigator.clipboard.writeText(text);
-                                            }}
-                                            className="rounded-full border border-zinc-200 bg-white px-3 py-1 text-xs font-semibold text-zinc-700 hover:bg-zinc-50"
-                                          >
-                                            Copy
-                                          </button>
+                                        <td className="border-b border-zinc-100 py-2 text-xs">
+                                          <div className="flex items-center justify-between gap-2">
+                                            <span className="font-semibold text-zinc-900">ALIAS / ANAME</span>
+                                            <button
+                                              type="button"
+                                              onClick={() => copyText("ALIAS / ANAME")}
+                                              className="rounded-full border border-zinc-200 bg-white px-3 py-1 text-xs font-semibold text-zinc-700 hover:bg-zinc-50"
+                                            >
+                                              Copy
+                                            </button>
+                                          </div>
+                                        </td>
+                                        <td className="border-b border-zinc-100 py-2 text-xs">
+                                          <div className="flex items-center justify-between gap-2">
+                                            <span className="font-mono text-zinc-800">@</span>
+                                            <button
+                                              type="button"
+                                              onClick={() => copyText("@")}
+                                              className="rounded-full border border-zinc-200 bg-white px-3 py-1 text-xs font-semibold text-zinc-700 hover:bg-zinc-50"
+                                            >
+                                              Copy
+                                            </button>
+                                          </div>
+                                        </td>
+                                        <td className="border-b border-zinc-100 py-2 text-xs">
+                                          <div className="flex items-center justify-between gap-2">
+                                            <span className="font-mono text-zinc-800">{platformTargetHost}</span>
+                                            <button
+                                              type="button"
+                                              onClick={() => copyText(platformTargetHost)}
+                                              className="rounded-full border border-zinc-200 bg-white px-3 py-1 text-xs font-semibold text-zinc-700 hover:bg-zinc-50"
+                                            >
+                                              Copy
+                                            </button>
+                                          </div>
                                         </td>
                                       </tr>
                                       <tr>
-                                        <td className="border-b border-zinc-100 py-2 text-xs font-semibold text-zinc-900">CNAME</td>
-                                        <td className="border-b border-zinc-100 py-2 text-xs font-mono text-zinc-800">www</td>
-                                        <td className="border-b border-zinc-100 py-2 text-xs font-mono text-zinc-800">{platformTargetHost}</td>
-                                        <td className="border-b border-zinc-100 py-2 text-right">
-                                          <button
-                                            type="button"
-                                            onClick={async () => {
-                                              const text = `Type: CNAME\nHost: www\nValue: ${platformTargetHost}`;
-                                              await navigator.clipboard.writeText(text);
-                                            }}
-                                            className="rounded-full border border-zinc-200 bg-white px-3 py-1 text-xs font-semibold text-zinc-700 hover:bg-zinc-50"
-                                          >
-                                            Copy
-                                          </button>
+                                        <td className="border-b border-zinc-100 py-2 text-xs">
+                                          <div className="flex items-center justify-between gap-2">
+                                            <span className="font-semibold text-zinc-900">CNAME</span>
+                                            <button
+                                              type="button"
+                                              onClick={() => copyText("CNAME")}
+                                              className="rounded-full border border-zinc-200 bg-white px-3 py-1 text-xs font-semibold text-zinc-700 hover:bg-zinc-50"
+                                            >
+                                              Copy
+                                            </button>
+                                          </div>
+                                        </td>
+                                        <td className="border-b border-zinc-100 py-2 text-xs">
+                                          <div className="flex items-center justify-between gap-2">
+                                            <span className="font-mono text-zinc-800">www</span>
+                                            <button
+                                              type="button"
+                                              onClick={() => copyText("www")}
+                                              className="rounded-full border border-zinc-200 bg-white px-3 py-1 text-xs font-semibold text-zinc-700 hover:bg-zinc-50"
+                                            >
+                                              Copy
+                                            </button>
+                                          </div>
+                                        </td>
+                                        <td className="border-b border-zinc-100 py-2 text-xs">
+                                          <div className="flex items-center justify-between gap-2">
+                                            <span className="font-mono text-zinc-800">{platformTargetHost}</span>
+                                            <button
+                                              type="button"
+                                              onClick={() => copyText(platformTargetHost)}
+                                              className="rounded-full border border-zinc-200 bg-white px-3 py-1 text-xs font-semibold text-zinc-700 hover:bg-zinc-50"
+                                            >
+                                              Copy
+                                            </button>
+                                          </div>
                                         </td>
                                       </tr>
                                     </>
@@ -738,6 +890,7 @@ export function FunnelBuilderClient() {
                               <div className="mt-2 text-xs text-zinc-600">
                                 Use the exact <span className="font-semibold">Type</span>, <span className="font-semibold">Host/Name</span>, and <span className="font-semibold">Value</span> fields in your DNS provider.
                                 If your provider does not support <span className="font-semibold">ALIAS/ANAME</span> at <span className="font-mono">@</span>, use the <span className="font-mono">www</span> record and set your root domain to forward to <span className="font-mono">www</span>.
+                                After saving your DNS changes, click <span className="font-semibold">Verify DNS</span> above to re-check.
                               </div>
                             </div>
                           ) : (

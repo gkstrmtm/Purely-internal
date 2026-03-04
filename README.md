@@ -194,6 +194,16 @@ Custom domains:
 - Per-domain root `/` behavior and per-funnel domain assignment are stored in `CreditFunnelBuilderSettings.dataJson` to avoid requiring Prisma migrations in drift-prone environments.
 	- Root `/` settings live under `dataJson.customDomains[domain]`.
 	- Per-funnel domain assignment lives under `dataJson.funnelDomains[funnelId]`.
+	- Per-funnel SEO metadata lives under `dataJson.funnelSeo[funnelId]`:
+		- `title`, `description`, `imageUrl`, `noIndex`
+		- For pages using Custom HTML, `<title>` / `<meta name="description">` / OpenGraph tags override stored SEO values.
+
+DNS verification UX:
+
+- The Funnel Builder UI shows DNS records with per-field copy buttons (Type / Host / Value).
+- Domains can be manually re-checked via `POST /api/portal/funnel-builder/domains/[domainId]/verify`.
+  - Non-apex domains verify via CNAME-chain includes the platform target host.
+  - Apex domains verify best-effort via A/AAAA IP match against the platform target host.
 
 If you deploy changes that add Prisma migrations, make sure migrations run in Vercel by setting `DIRECT_URL` (recommended) and/or `RUN_PRISMA_MIGRATIONS=1`.
 

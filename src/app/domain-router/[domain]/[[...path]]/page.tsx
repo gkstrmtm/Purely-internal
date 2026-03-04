@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
+import type { Metadata } from "next";
 
 import { prisma } from "@/lib/db";
 import { inlineMarkdownToHtmlSafe, parseBlogContent } from "@/lib/blog";
@@ -76,6 +77,84 @@ function readFunnelDomains(settingsJson: unknown): Record<string, string> {
   return out;
 }
 
+type FunnelSeo = {
+  title?: string;
+  description?: string;
+  imageUrl?: string;
+  noIndex?: boolean;
+};
+
+function readFunnelSeo(settingsJson: unknown, funnelId: string): FunnelSeo | null {
+  if (!settingsJson || typeof settingsJson !== "object" || Array.isArray(settingsJson)) return null;
+  const raw = (settingsJson as any).funnelSeo;
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return null;
+  const row = (raw as any)[funnelId];
+  if (!row || typeof row !== "object" || Array.isArray(row)) return null;
+  const title = typeof (row as any).title === "string" ? (row as any).title.trim().slice(0, 120) : "";
+  const description = typeof (row as any).description === "string" ? (row as any).description.trim().slice(0, 300) : "";
+  const imageUrl = typeof (row as any).imageUrl === "string" ? (row as any).imageUrl.trim().slice(0, 500) : "";
+  const noIndex = (row as any).noIndex === true;
+  const out: FunnelSeo = {};
+  if (title) out.title = title;
+  if (description) out.description = description;
+  if (imageUrl) out.imageUrl = imageUrl;
+  if (noIndex) out.noIndex = true;
+  return Object.keys(out).length ? out : null;
+}
+
+function extractSeoFromCustomHtml(html: string): FunnelSeo {
+  const h = String(html || "");
+  const out: FunnelSeo = {};
+
+  const titleMatch = h.match(/<title[^>]*>([\s\S]*?)<\/title>/i);
+  if (titleMatch?.[1]) {
+    const t = titleMatch[1].replace(/\s+/g, " ").trim().slice(0, 120);
+    if (t) out.title = t;
+  }
+
+  const meta = (nameOrProp: string) => {
+    const re = new RegExp(
+      `<meta\\s+[^>]*?(?:name|property)=["']${nameOrProp}["'][^>]*?content=["']([^"']+)["'][^>]*?>`,
+      "i",
+    );
+    const m = h.match(re);
+    return m?.[1] ? m[1].trim() : "";
+  };
+
+  const description = meta("description").slice(0, 300);
+  if (description) out.description = description;
+
+  const ogTitle = meta("og:title").slice(0, 120);
+  if (ogTitle) out.title = ogTitle;
+
+  const ogDescription = meta("og:description").slice(0, 300);
+  if (ogDescription) out.description = ogDescription;
+
+  const ogImage = meta("og:image").slice(0, 500);
+  if (ogImage) out.imageUrl = ogImage;
+
+  const robots = meta("robots");
+  if (robots && /noindex/i.test(robots)) out.noIndex = true;
+
+  return out;
+}
+
+function mergeSeo(base: FunnelSeo | null, override: FunnelSeo | null): FunnelSeo | null {
+  const b = base || {};
+  const o = override || {};
+  const out: FunnelSeo = {
+    ...(b.title ? { title: b.title } : {}),
+    ...(b.description ? { description: b.description } : {}),
+    ...(b.imageUrl ? { imageUrl: b.imageUrl } : {}),
+    ...(b.noIndex ? { noIndex: true } : {}),
+  };
+  if (o.title) out.title = o.title;
+  if (o.description) out.description = o.description;
+  if (o.imageUrl) out.imageUrl = o.imageUrl;
+  if (o.noIndex) out.noIndex = true;
+  return Object.keys(out).length ? out : null;
+}
+
 function normalizeSegments(raw: unknown): string[] {
   if (!raw) return [];
   if (!Array.isArray(raw)) return [];
@@ -107,6 +186,7 @@ function parseFields(schemaJson: unknown): Field[] {
     "email",
     "phone",
     "checklist",
+    "radio",
     // legacy
     "text",
     "tel",
@@ -312,6 +392,76 @@ async function renderFunnel(ownerId: string, slug: string, funnelDomains: Record
       )}
     </main>
   );
+}
+
+export async function generateMetadata({
+  params,
+}: {
+  params: Promise<{ domain: string; path?: string[] }>;
+}): Promise<Metadata> {
+  const { domain, path } = await params;
+  const host = decodeURIComponent(String(domain || "")).trim().toLowerCase();
+  if (!host) return {};
+
+  const mapping = await resolveCustomDomain(host);
+  if (!mapping || mapping.status !== "VERIFIED") {
+    return { title: mapping ? "Domain pending verification" : undefined };
+  }
+
+  const segments = normalizeSegments(path);
+  const first = segments[0] || "";
+  const second = segments[1] || "";
+
+  // Only handle funnel metadata for /{slug} and /f/{slug}.
+  if (!first || first === "forms" || first === "form" || first === "api") return { title: host };
+  const funnelSlug = first === "f" && second ? second : first;
+  if (!funnelSlug) return { title: host };
+
+  const settingsRow = await prisma.creditFunnelBuilderSettings
+    .findUnique({ where: { ownerId: mapping.ownerId }, select: { dataJson: true } })
+    .catch(() => null);
+  const settingsJson = settingsRow?.dataJson ?? null;
+  const funnelDomains = readFunnelDomains(settingsJson);
+  const allowedDomains = new Set([mapping.matchedDomain, host]);
+
+  const funnel = await prisma.creditFunnel
+    .findFirst({
+      where: { ownerId: mapping.ownerId, slug: funnelSlug },
+      select: {
+        id: true,
+        pages: {
+          orderBy: [{ sortOrder: "asc" }, { id: "asc" }],
+          take: 1,
+          select: { title: true, editorMode: true, customHtml: true },
+        },
+      },
+    })
+    .catch(() => null);
+
+  if (!funnel) return { title: host };
+  const assignedDomain = funnelDomains[funnel.id] ?? null;
+  if (assignedDomain && !allowedDomains.has(assignedDomain)) return { title: host };
+
+  const page = funnel.pages[0] || null;
+  const seoSettings = readFunnelSeo(settingsJson, funnel.id);
+  const seoFromCustomHtml = page?.editorMode === "CUSTOM_HTML" ? extractSeoFromCustomHtml(page.customHtml || "") : null;
+  const seo = mergeSeo(seoSettings, seoFromCustomHtml);
+
+  const title = seo?.title || page?.title || "";
+  const description = seo?.description || "";
+
+  return {
+    title: title || undefined,
+    description: description || undefined,
+    openGraph: seo?.imageUrl
+      ? {
+          title: title || undefined,
+          description: description || undefined,
+          images: [{ url: seo.imageUrl }],
+        }
+      : undefined,
+    robots: seo?.noIndex ? { index: false, follow: true } : undefined,
+  };
 }
 
 export default async function CustomDomainCatchallPage({

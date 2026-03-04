@@ -15,6 +15,7 @@ export type Field = {
     | "phone"
     | "name"
     | "checklist"
+    | "radio"
     // legacy/back-compat
     | "text"
     | "tel"
@@ -130,6 +131,16 @@ export function CreditHostedFormClient({
             }
           }
 
+          for (const f of fields) {
+            if (f.type !== "radio" || !f.required) continue;
+            const selected = formData.get(f.name);
+            if (typeof selected !== "string" || !selected.trim()) {
+              setError(`Please select an option for “${f.label}”.`);
+              setBusy(false);
+              return;
+            }
+          }
+
           for (const [k, v] of formData.entries()) {
             if (Object.prototype.hasOwnProperty.call(data, k)) {
               const existing = data[k];
@@ -178,6 +189,26 @@ export function CreditHostedFormClient({
                       value={opt}
                       disabled={busy}
                       className="h-4 w-4 rounded border-zinc-300"
+                      style={{ accentColor: buttonBg }}
+                    />
+                    <span>{opt}</span>
+                  </label>
+                ))}
+                {(f.options || []).length === 0 ? (
+                  <div className="text-sm text-zinc-500">No options configured.</div>
+                ) : null}
+              </div>
+            ) : f.type === "radio" ? (
+              <div className="space-y-2">
+                {(f.options || []).map((opt, idx) => (
+                  <label key={opt} className="flex items-center gap-2 text-sm" style={{ color: textColor }}>
+                    <input
+                      type="radio"
+                      name={f.name}
+                      value={opt}
+                      required={!!f.required && idx === 0}
+                      disabled={busy}
+                      className="h-4 w-4 border-zinc-300"
                       style={{ accentColor: buttonBg }}
                     />
                     <span>{opt}</span>

@@ -33,6 +33,14 @@ type Funnel = {
   createdAt: string;
   updatedAt: string;
   assignedDomain?: string | null;
+  seo?: FunnelSeo | null;
+};
+
+type FunnelSeo = {
+  title?: string;
+  description?: string;
+  imageUrl?: string;
+  noIndex?: boolean;
 };
 
 type CreditForm = {
@@ -1542,6 +1550,10 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  const [seoDirty, setSeoDirty] = useState(false);
+  const [seoBusy, setSeoBusy] = useState(false);
+  const [seoError, setSeoError] = useState<string | null>(null);
+
   const [uploadingImageBlockId, setUploadingImageBlockId] = useState<string | null>(null);
   const [uploadingAi, setUploadingAi] = useState(false);
 
@@ -1997,6 +2009,35 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
       setBookingSiteSlug(null);
     }
   };
+
+  useEffect(() => {
+    setSeoDirty(false);
+    setSeoError(null);
+  }, [funnel?.id]);
+
+  const saveFunnelSeo = useCallback(async () => {
+    if (!funnel) return;
+    setSeoBusy(true);
+    setSeoError(null);
+    try {
+      const res = await fetch(`/api/portal/funnel-builder/funnels/${encodeURIComponent(funnelId)}`, {
+        method: "PATCH",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ seo: funnel.seo ?? null }),
+      });
+      const json = (await res.json().catch(() => null)) as any;
+      if (!res.ok || !json || json.ok !== true) throw new Error(json?.error || "Failed to save SEO");
+      setFunnel(json.funnel as Funnel);
+      setSeoDirty(false);
+      toast.success("SEO saved");
+    } catch (e) {
+      const msg = (e as any)?.message ? String((e as any).message) : "Failed to save SEO";
+      setSeoError(msg);
+      toast.error(msg);
+    } finally {
+      setSeoBusy(false);
+    }
+  }, [funnel, funnelId, toast]);
 
   useEffect(() => {
     let cancelled = false;
@@ -3058,6 +3099,108 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
                     />
 
                     <AlignPicker value={(pageSettingsBlock as any)?.props?.style?.align} onChange={(v) => updatePageStyle({ align: v })} />
+
+                    <div className="mt-5 border-t border-zinc-200 pt-4">
+                      <div className="text-sm font-semibold text-zinc-900">SEO</div>
+                      <div className="mt-3 space-y-3">
+                        <label className="block">
+                          <div className="mb-1 text-xs font-semibold uppercase tracking-wide text-zinc-500">Title</div>
+                          <input
+                            value={String(funnel?.seo?.title || "")}
+                            onChange={(e) => {
+                              const v = e.target.value.slice(0, 120);
+                              setSeoDirty(true);
+                              setSeoError(null);
+                              setFunnel((prev) => {
+                                if (!prev) return prev;
+                                const nextSeo: FunnelSeo = { ...(prev.seo || {}), title: v || undefined };
+                                return { ...prev, seo: nextSeo };
+                              });
+                            }}
+                            placeholder="Page title (shown in Google)"
+                            className="w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm"
+                          />
+                          <div className="mt-1 text-xs text-zinc-500">Recommended: ~50–60 characters.</div>
+                        </label>
+
+                        <label className="block">
+                          <div className="mb-1 text-xs font-semibold uppercase tracking-wide text-zinc-500">Description</div>
+                          <textarea
+                            value={String(funnel?.seo?.description || "")}
+                            onChange={(e) => {
+                              const v = e.target.value.slice(0, 300);
+                              setSeoDirty(true);
+                              setSeoError(null);
+                              setFunnel((prev) => {
+                                if (!prev) return prev;
+                                const nextSeo: FunnelSeo = { ...(prev.seo || {}), description: v || undefined };
+                                return { ...prev, seo: nextSeo };
+                              });
+                            }}
+                            placeholder="Short summary for search results"
+                            className="min-h-20 w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm"
+                          />
+                        </label>
+
+                        <label className="block">
+                          <div className="mb-1 text-xs font-semibold uppercase tracking-wide text-zinc-500">Social image URL (optional)</div>
+                          <input
+                            value={String(funnel?.seo?.imageUrl || "")}
+                            onChange={(e) => {
+                              const v = e.target.value.slice(0, 500);
+                              setSeoDirty(true);
+                              setSeoError(null);
+                              setFunnel((prev) => {
+                                if (!prev) return prev;
+                                const nextSeo: FunnelSeo = { ...(prev.seo || {}), imageUrl: v || undefined };
+                                return { ...prev, seo: nextSeo };
+                              });
+                            }}
+                            placeholder="https://…"
+                            className="w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm"
+                          />
+                        </label>
+
+                        <label className="flex items-center gap-2">
+                          <input
+                            type="checkbox"
+                            checked={!!funnel?.seo?.noIndex}
+                            onChange={(e) => {
+                              const checked = e.target.checked;
+                              setSeoDirty(true);
+                              setSeoError(null);
+                              setFunnel((prev) => {
+                                if (!prev) return prev;
+                                const nextSeo: FunnelSeo = { ...(prev.seo || {}), noIndex: checked || undefined };
+                                return { ...prev, seo: nextSeo };
+                              });
+                            }}
+                            className="h-4 w-4 rounded border-zinc-300"
+                          />
+                          <span className="text-sm font-semibold text-zinc-900">Discourage indexing (noindex)</span>
+                        </label>
+
+                        <div className="flex items-center gap-2">
+                          <button
+                            type="button"
+                            disabled={seoBusy || !seoDirty}
+                            onClick={() => void saveFunnelSeo()}
+                            className={classNames(
+                              "rounded-xl px-3 py-2 text-sm font-semibold text-white",
+                              seoBusy || !seoDirty ? "bg-zinc-400" : "bg-brand-ink hover:opacity-95",
+                            )}
+                          >
+                            {seoBusy ? "Saving…" : seoDirty ? "Save SEO" : "Saved"}
+                          </button>
+                          {seoError ? <div className="text-xs font-semibold text-red-700">{seoError}</div> : null}
+                        </div>
+
+                        <div className="text-xs text-zinc-500">
+                          If this page uses <span className="font-semibold">Custom code</span>, any <span className="font-mono">&lt;title&gt;</span> or
+                          <span className="font-mono">&lt;meta&gt;</span> tags you include will override these values.
+                        </div>
+                      </div>
+                    </div>
                   </div>
                 </div>
               ) : null}

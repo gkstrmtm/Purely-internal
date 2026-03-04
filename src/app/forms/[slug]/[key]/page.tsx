@@ -31,6 +31,7 @@ function parseFields(schemaJson: unknown): Field[] {
     "email",
     "phone",
     "checklist",
+    "radio",
     // legacy
     "text",
     "tel",
