@@ -5,6 +5,7 @@ import { usePathname } from "next/navigation";
 import { useCallback, useEffect, useMemo, useState } from "react";
 
 import { PortalListboxDropdown } from "@/components/PortalListboxDropdown";
+import { hostedFunnelPath, hostedFormPath } from "@/lib/publicHostedKeys";
 
 type CreditFunnel = {
   id: string;
@@ -131,15 +132,28 @@ export function FunnelBuilderClient() {
   }, [platformTargetHost]);
 
   const getFunnelLiveHref = useCallback(
-    (domain: string, slug: string) => {
-      const cleanDomain = String(domain || "").trim().toLowerCase();
+    (assignedDomain: string | null | undefined, slug: string, funnelId: string) => {
       const cleanSlug = String(slug || "").trim();
-      if (!cleanDomain || !cleanSlug) return null;
-      if (isLocalPreview) return `/domain-router/${encodeURIComponent(cleanDomain)}/${encodeURIComponent(cleanSlug)}`;
-      return `https://${cleanDomain}/${encodeURIComponent(cleanSlug)}`;
+      const cleanId = String(funnelId || "").trim();
+      if (!cleanSlug || !cleanId) return null;
+
+      const cleanDomain = String(assignedDomain || "").trim().toLowerCase();
+      if (cleanDomain) {
+        if (isLocalPreview) return `/domain-router/${encodeURIComponent(cleanDomain)}/${encodeURIComponent(cleanSlug)}`;
+        return `https://${cleanDomain}/${encodeURIComponent(cleanSlug)}`;
+      }
+
+      return hostedFunnelPath(cleanSlug, cleanId);
     },
     [isLocalPreview],
   );
+
+  const getFormLiveHref = useCallback((slug: string, formId: string) => {
+    const cleanSlug = String(slug || "").trim();
+    const cleanId = String(formId || "").trim();
+    if (!cleanSlug || !cleanId) return null;
+    return hostedFormPath(cleanSlug, cleanId);
+  }, []);
 
   const loadFunnels = useCallback(async () => {
     const res = await fetch("/api/portal/funnel-builder/funnels", { cache: "no-store" });
@@ -412,14 +426,16 @@ export function FunnelBuilderClient() {
                       placeholder="Default (not assigned)"
                     />
 
-                    {f.assignedDomain ? (
-                      <div className="text-xs text-zinc-600">
-                        Live URL:{" "}
-                        <span className="font-mono">
-                          {isLocalPreview ? `${platformTargetHost || ""}/domain-router/${f.assignedDomain}/${f.slug}` : `https://${f.assignedDomain}/${f.slug}`}
-                        </span>
-                      </div>
-                    ) : null}
+                    <div className="text-xs text-zinc-600">
+                      Live URL:{" "}
+                      <span className="font-mono">
+                        {f.assignedDomain
+                          ? isLocalPreview
+                            ? `${platformTargetHost || ""}/domain-router/${f.assignedDomain}/${f.slug}`
+                            : `https://${f.assignedDomain}/${f.slug}`
+                          : `${platformTargetHost || ""}${hostedFunnelPath(f.slug, f.id) || ""}`}
+                      </span>
+                    </div>
 
                     {funnelDomainError[f.id] ? (
                       <div className="rounded-2xl border border-red-200 bg-red-50 p-2 text-xs text-red-700">
@@ -442,22 +458,24 @@ export function FunnelBuilderClient() {
                       Edit
                     </Link>
                     <Link
-                      href={`${funnelPreviewBase}/${encodeURIComponent(f.slug)}`}
+                      href={hostedFunnelPath(f.slug, f.id) || `${funnelPreviewBase}/${encodeURIComponent(f.slug)}`}
                       target="_blank"
                       className="text-sm font-semibold text-[color:var(--color-brand-blue)] hover:underline"
                     >
                       Preview
                     </Link>
 
-                    {f.assignedDomain ? (
-                      <Link
-                        href={getFunnelLiveHref(f.assignedDomain, f.slug) || `${funnelPreviewBase}/${encodeURIComponent(f.slug)}`}
-                        target="_blank"
-                        className="text-sm font-semibold text-[color:var(--color-brand-blue)] hover:underline"
-                      >
-                        Live
-                      </Link>
-                    ) : null}
+                    <Link
+                      href={
+                        getFunnelLiveHref(f.assignedDomain, f.slug, f.id) ||
+                        hostedFunnelPath(f.slug, f.id) ||
+                        `${funnelPreviewBase}/${encodeURIComponent(f.slug)}`
+                      }
+                      target="_blank"
+                      className="text-sm font-semibold text-[color:var(--color-brand-blue)] hover:underline"
+                    >
+                      Live
+                    </Link>
                   </div>
                 </div>
               </div>
@@ -511,7 +529,7 @@ export function FunnelBuilderClient() {
                       Responses
                     </Link>
                     <Link
-                      href={`${formPreviewBase}/${encodeURIComponent(f.slug)}`}
+                      href={getFormLiveHref(f.slug, f.id) || `${formPreviewBase}/${encodeURIComponent(f.slug)}`}
                       target="_blank"
                       className="text-sm font-semibold text-[color:var(--color-brand-blue)] hover:underline"
                     >

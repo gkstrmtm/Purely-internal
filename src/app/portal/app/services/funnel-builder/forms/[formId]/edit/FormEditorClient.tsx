@@ -6,6 +6,7 @@ import { useEffect, useMemo, useState } from "react";
 import { AppConfirmModal, AppModal } from "@/components/AppModal";
 import { PortalListboxDropdown } from "@/components/PortalListboxDropdown";
 import { FONT_PRESETS, applyFontPresetToStyle, fontPresetKeyFromStyle, googleFontImportCss } from "@/lib/fontPresets";
+import { hostedFormPath } from "@/lib/publicHostedKeys";
 
 type Form = {
   id: string;
@@ -638,7 +639,7 @@ export function FormEditorClient({ basePath, formId }: { basePath: string; formI
           <h1 className="mt-2 text-2xl font-bold text-brand-ink sm:text-3xl">{form?.name || "…"}</h1>
           <div className="mt-2 flex flex-wrap items-center gap-3 text-sm text-zinc-600">
             <Link
-              href={`/forms/${encodeURIComponent(form?.slug || "")}`}
+              href={hostedFormPath(form?.slug || "", form?.id || "") || `/forms/${encodeURIComponent(form?.slug || "")}`}
               target="_blank"
               className="font-semibold text-[color:var(--color-brand-blue)] hover:underline"
             >

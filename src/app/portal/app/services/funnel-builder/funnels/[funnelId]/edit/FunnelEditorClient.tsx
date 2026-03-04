@@ -23,6 +23,7 @@ import { PortalSelectDropdown } from "@/components/PortalSelectDropdown";
 import { useToast } from "@/components/ToastProvider";
 import { PORTAL_VARIANT_HEADER, type PortalVariant } from "@/lib/portalVariant";
 import { FONT_PRESETS, applyFontPresetToStyle, fontPresetKeyFromStyle } from "@/lib/fontPresets";
+import { hostedFunnelPath } from "@/lib/publicHostedKeys";
 
 type Funnel = {
   id: string;
@@ -31,6 +32,7 @@ type Funnel = {
   status: "DRAFT" | "ACTIVE" | "ARCHIVED";
   createdAt: string;
   updatedAt: string;
+  assignedDomain?: string | null;
 };
 
 type CreditForm = {
@@ -1250,9 +1252,9 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
                           </button>
                         </div>
 
-                        {funnel?.slug ? (
+                        {funnelLiveHref ? (
                           <a
-                            href={`/f/${encodeURIComponent(funnel.slug)}`}
+                            href={funnelLiveHref}
                             target="_blank"
                             rel="noreferrer"
                             className="inline-flex items-center gap-2 rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm font-semibold text-zinc-900 hover:bg-zinc-50"
@@ -1424,9 +1426,9 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
                         <div className="truncate text-sm font-semibold text-zinc-900">{selectedPage?.title || "Preview"}</div>
                         {selectedPage ? <div className="truncate text-xs text-zinc-500">/{selectedPage.slug}</div> : null}
                       </div>
-                      {funnel?.slug ? (
+                      {funnelLiveHref ? (
                         <a
-                          href={`/f/${encodeURIComponent(funnel.slug)}`}
+                          href={funnelLiveHref}
                           target="_blank"
                           rel="noreferrer"
                           className="inline-flex items-center gap-2 rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm font-semibold text-zinc-900 hover:bg-zinc-50"
@@ -1552,6 +1554,37 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
   const [dialogError, setDialogError] = useState<string | null>(null);
 
   const portalVariant: PortalVariant = basePath === "/credit" ? "credit" : "portal";
+
+  const platformTargetHost = useMemo(() => {
+    if (typeof window !== "undefined") return window.location.hostname || null;
+
+    const raw = (process.env.NEXT_PUBLIC_APP_URL || "").trim();
+    if (!raw) return null;
+    try {
+      return new URL(raw).hostname || null;
+    } catch {
+      return null;
+    }
+  }, []);
+
+  const isLocalPreview = useMemo(() => {
+    const h = (platformTargetHost || "").trim().toLowerCase();
+    return h === "localhost" || h.endsWith(".local") || h === "127.0.0.1";
+  }, [platformTargetHost]);
+
+  const funnelLiveHref = useMemo(() => {
+    const assignedDomain = String(funnel?.assignedDomain || "").trim().toLowerCase();
+    const slug = String(funnel?.slug || "").trim();
+    const funnelId = String(funnel?.id || "").trim();
+    if (!slug) return null;
+
+    if (assignedDomain) {
+      if (isLocalPreview) return `/domain-router/${encodeURIComponent(assignedDomain)}/${encodeURIComponent(slug)}`;
+      return `https://${assignedDomain}/${encodeURIComponent(slug)}`;
+    }
+
+    return hostedFunnelPath(slug, funnelId);
+  }, [funnel?.assignedDomain, funnel?.slug, funnel?.id, isLocalPreview]);
 
   const [brandSwatches, setBrandSwatches] = useState<string[]>([]);
 
@@ -4645,28 +4678,28 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
                   </button>
                 </div>
 
-                  {funnel?.slug ? (
+                  {funnelLiveHref ? (
                     <a
-                      href={`/f/${encodeURIComponent(funnel.slug)}`}
-                    target="_blank"
-                    rel="noreferrer"
-                    className="inline-flex items-center gap-2 rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm font-semibold text-zinc-900 hover:bg-zinc-50"
-                  >
-                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" aria-hidden="true">
-                      <path
-                        d="M1.5 12s4-7 10.5-7 10.5 7 10.5 7-4 7-10.5 7S1.5 12 1.5 12Z"
-                        stroke="currentColor"
-                        strokeWidth="1.8"
-                      />
-                      <path
-                        d="M12 15a3 3 0 1 0 0-6 3 3 0 0 0 0 6Z"
-                        stroke="currentColor"
-                        strokeWidth="1.8"
-                      />
-                    </svg>
-                    View live
-                  </a>
-                ) : null}
+                      href={funnelLiveHref}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="inline-flex items-center gap-2 rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm font-semibold text-zinc-900 hover:bg-zinc-50"
+                    >
+                      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+                        <path
+                          d="M1.5 12s4-7 10.5-7 10.5 7 10.5 7-4 7-10.5 7S1.5 12 1.5 12Z"
+                          stroke="currentColor"
+                          strokeWidth="1.8"
+                        />
+                        <path
+                          d="M12 15a3 3 0 1 0 0-6 3 3 0 0 0 0 6Z"
+                          stroke="currentColor"
+                          strokeWidth="1.8"
+                        />
+                      </svg>
+                      View live
+                    </a>
+                  ) : null}
               </div>
             </div>
 
