@@ -35,6 +35,9 @@
 # local uploads (ephemeral on most hosts)
 /public/uploads/
 
+# local notes / chat transcripts
+/src/lib/notes/
+
 # debug
 npm-debug.log*
 yarn-debug.log*
