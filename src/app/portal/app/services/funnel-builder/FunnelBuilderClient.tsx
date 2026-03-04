@@ -29,6 +29,8 @@ type CreditDomain = {
   verifiedAt: string | null;
   createdAt: string;
   updatedAt: string;
+  rootMode?: "DISABLED" | "DIRECTORY" | "REDIRECT";
+  rootFunnelSlug?: string | null;
 };
 
 type TabKey = "funnels" | "forms" | "settings";
@@ -97,6 +99,8 @@ export function FunnelBuilderClient() {
 
   const [domainInput, setDomainInput] = useState("");
   const [domainBusy, setDomainBusy] = useState(false);
+  const [domainSettingsBusy, setDomainSettingsBusy] = useState<Record<string, boolean>>({});
+  const [domainSettingsError, setDomainSettingsError] = useState<Record<string, string | null>>({});
 
   const funnelPreviewBase = useMemo(() => `${basePath}/f`, [basePath]);
   const formPreviewBase = useMemo(() => `${basePath}/forms`, [basePath]);
@@ -122,6 +126,52 @@ export function FunnelBuilderClient() {
     if (!res.ok || !json || json.ok !== true) throw new Error(json?.error || "Failed to load domains");
     setDomains(Array.isArray(json.domains) ? json.domains : []);
   }, []);
+
+  const patchDomainSettings = useCallback(
+    async (domain: CreditDomain, next: { rootMode: "DISABLED" | "DIRECTORY" | "REDIRECT"; rootFunnelSlug: string | null }) => {
+      setDomainSettingsBusy((m) => ({ ...m, [domain.id]: true }));
+      setDomainSettingsError((m) => ({ ...m, [domain.id]: null }));
+
+      // Optimistic update
+      setDomains((prev) => {
+        if (!prev) return prev;
+        return prev.map((d) => (d.id === domain.id ? { ...d, rootMode: next.rootMode, rootFunnelSlug: next.rootFunnelSlug } : d));
+      });
+
+      try {
+        const res = await fetch("/api/portal/funnel-builder/domains", {
+          method: "PATCH",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ domain: domain.domain, rootMode: next.rootMode, rootFunnelSlug: next.rootFunnelSlug }),
+        });
+        const json = (await res.json().catch(() => null)) as any;
+        if (!res.ok || !json || json.ok !== true) throw new Error(json?.error || "Failed to update domain settings");
+
+        setDomains((prev) => {
+          if (!prev) return prev;
+          return prev.map((d) =>
+            d.id === domain.id
+              ? { ...d, rootMode: json.rootMode, rootFunnelSlug: json.rootFunnelSlug ?? null }
+              : d,
+          );
+        });
+      } catch (e) {
+        setDomainSettingsError((m) => ({
+          ...m,
+          [domain.id]: (e as any)?.message ? String((e as any).message) : "Failed to update domain settings",
+        }));
+        // Re-sync from server in case optimistic state diverged.
+        try {
+          await loadDomains();
+        } catch {
+          // ignore
+        }
+      } finally {
+        setDomainSettingsBusy((m) => ({ ...m, [domain.id]: false }));
+      }
+    },
+    [loadDomains],
+  );
 
   useEffect(() => {
     let mounted = true;
@@ -405,6 +455,64 @@ export function FunnelBuilderClient() {
                         <div className="text-sm font-semibold text-zinc-900">{d.domain}</div>
                         <div className="mt-1 text-xs text-zinc-600">
                           Status: {d.status}{d.verifiedAt ? ` · Verified ${new Date(d.verifiedAt).toLocaleDateString()}` : ""}
+                        </div>
+
+                        <div className="mt-3 rounded-2xl border border-zinc-200 bg-white p-3">
+                          <div className="text-xs font-semibold uppercase tracking-wide text-zinc-500">Root / behavior</div>
+                          <div className="mt-2 flex flex-col gap-2 sm:flex-row sm:items-center">
+                            <select
+                              value={(d.rootMode || "DIRECTORY") as any}
+                              disabled={!!domainSettingsBusy[d.id]}
+                              onChange={(e) => {
+                                const nextMode = String(e.target.value) as any;
+                                if (nextMode === "REDIRECT") {
+                                  const fallbackSlug = (funnels || []).find((f) => f.status === "ACTIVE")?.slug || (funnels || [])[0]?.slug || null;
+                                  patchDomainSettings(d, { rootMode: "REDIRECT", rootFunnelSlug: d.rootFunnelSlug || fallbackSlug });
+                                  return;
+                                }
+                                patchDomainSettings(d, { rootMode: nextMode, rootFunnelSlug: null });
+                              }}
+                              className="w-full rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-sm text-zinc-900 sm:w-[240px]"
+                            >
+                              <option value="DIRECTORY">Show directory page</option>
+                              <option value="REDIRECT" disabled={!!funnels && funnels.length === 0}>
+                                Redirect / to a funnel
+                              </option>
+                              <option value="DISABLED">Disable / (404)</option>
+                            </select>
+
+                            {(d.rootMode || "DIRECTORY") === "REDIRECT" ? (
+                              <select
+                                value={d.rootFunnelSlug || ""}
+                                disabled={!!domainSettingsBusy[d.id] || !funnels || funnels.length === 0}
+                                onChange={(e) => {
+                                  const slug = normalizeSlug(String(e.target.value || ""));
+                                  patchDomainSettings(d, { rootMode: "REDIRECT", rootFunnelSlug: slug || null });
+                                }}
+                                className="w-full rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-sm text-zinc-900"
+                              >
+                                <option value="" disabled>
+                                  Select a funnel…
+                                </option>
+                                {(funnels || []).map((f) => (
+                                  <option key={f.id} value={f.slug}>
+                                    {f.name} (/{f.slug})
+                                  </option>
+                                ))}
+                              </select>
+                            ) : null}
+                          </div>
+
+                          {domainSettingsError[d.id] ? (
+                            <div className="mt-2 rounded-2xl border border-red-200 bg-red-50 p-2 text-xs text-red-700">
+                              {domainSettingsError[d.id]}
+                            </div>
+                          ) : null}
+
+                          <div className="mt-2 text-xs text-zinc-600">
+                            Requests to <span className="font-mono">https://{d.domain}/</span> follow this rule.
+                            Funnel slugs always work at <span className="font-mono">/{"{slug}"}</span> and <span className="font-mono">/f/{"{slug}"}</span>.
+                          </div>
                         </div>
 
                         <div className="mt-3 rounded-2xl border border-zinc-200 bg-white p-3">
