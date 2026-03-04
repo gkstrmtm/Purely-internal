@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import {
   coerceBlocksJson,
@@ -12,6 +12,8 @@ import {
   type CreditFunnelBlock,
 } from "@/lib/creditFunnelBlocks";
 import { AppConfirmModal, AppModal } from "@/components/AppModal";
+import { AiSparkIcon } from "@/components/AiSparkIcon";
+import { LinkUrlModal } from "@/components/LinkUrlModal";
 import { PortalListboxDropdown } from "@/components/PortalListboxDropdown";
 import {
   PortalMediaPickerModal,
@@ -374,6 +376,9 @@ function RichTextField({
 }) {
   const [focused, setFocused] = useState(false);
   const [localHtml, setLocalHtml] = useState<string>(valueHtml || "");
+  const editorRef = useRef<HTMLDivElement | null>(null);
+  const linkRangeRef = useRef<Range | null>(null);
+  const [showLinkModal, setShowLinkModal] = useState(false);
 
   useEffect(() => {
     if (focused) return;
@@ -383,9 +388,10 @@ function RichTextField({
   const exec = (cmd: "bold" | "italic" | "underline" | "createLink" | "unlink") => {
     try {
       if (cmd === "createLink") {
-        const url = window.prompt("Link URL", "https://");
-        if (!url) return;
-        document.execCommand("createLink", false, url);
+        const selection = document.getSelection();
+        const range = selection && selection.rangeCount > 0 ? selection.getRangeAt(0).cloneRange() : null;
+        linkRangeRef.current = range;
+        setShowLinkModal(true);
         return;
       }
       document.execCommand(cmd);
@@ -425,6 +431,7 @@ function RichTextField({
         )}
       >
         <div
+          ref={editorRef}
           contentEditable
           suppressContentEditableWarning
           spellCheck
@@ -456,6 +463,30 @@ function RichTextField({
         />
         {!localHtml ? <div className="pointer-events-none -mt-6 text-sm text-zinc-400">{placeholder}</div> : null}
       </div>
+
+      <LinkUrlModal
+        open={showLinkModal}
+        onClose={() => {
+          setShowLinkModal(false);
+          linkRangeRef.current = null;
+        }}
+        onSubmit={(url) => {
+          setShowLinkModal(false);
+          queueMicrotask(() => {
+            try {
+              editorRef.current?.focus();
+              const selection = document.getSelection();
+              if (selection) {
+                selection.removeAllRanges();
+                if (linkRangeRef.current) selection.addRange(linkRangeRef.current);
+              }
+              document.execCommand("createLink", false, url);
+            } finally {
+              linkRangeRef.current = null;
+            }
+          });
+        }}
+      />
     </div>
   );
 }
@@ -748,7 +779,6 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
                     </Link>
 
                     <div className="min-w-0">
-                      <div className="text-[11px] font-semibold uppercase tracking-wide text-zinc-500">Funnel</div>
                       <div className="truncate text-sm font-semibold text-brand-ink">{funnel?.name || "…"}</div>
                     </div>
 
@@ -785,12 +815,13 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
                       disabled={busy || !selectedPage}
                       onClick={() => void setEditorMode("CUSTOM_HTML")}
                       className={classNames(
-                        "rounded-xl border px-3 py-2 text-sm font-semibold",
+                        "inline-flex items-center gap-2 rounded-xl border px-3 py-2 text-sm font-semibold",
                         selectedPage?.editorMode === "CUSTOM_HTML"
                           ? "border-[color:var(--color-brand-blue)] bg-blue-50 text-blue-800"
                           : "border-zinc-200 bg-white text-zinc-900 hover:bg-zinc-50",
                       )}
                     >
+                      <AiSparkIcon className="h-4 w-4" />
                       Custom code
                     </button>
                   </div>
@@ -1187,10 +1218,11 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
                             type="button"
                             onClick={() => setPreviewMode("preview")}
                             className={classNames(
-                              "rounded-lg px-3 py-1.5 text-sm font-semibold",
+                              "inline-flex items-center gap-2 rounded-lg px-3 py-1.5 text-sm font-semibold",
                               previewMode === "preview" ? "bg-zinc-900 text-white" : "text-zinc-700 hover:bg-zinc-50",
                             )}
                           >
+                            <AiSparkIcon className="h-4 w-4" />
                             Preview
                           </button>
                         </div>
@@ -1223,8 +1255,9 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
                             href={`${basePath}/f/${encodeURIComponent(funnel.slug)}`}
                             target="_blank"
                             rel="noreferrer"
-                            className="rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm font-semibold text-zinc-900 hover:bg-zinc-50"
+                            className="inline-flex items-center gap-2 rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm font-semibold text-zinc-900 hover:bg-zinc-50"
                           >
+                            <AiSparkIcon className="h-4 w-4 text-[color:var(--color-brand-blue)]" />
                             View live
                           </a>
                         ) : null}
@@ -1385,8 +1418,9 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
                           href={`${basePath}/f/${encodeURIComponent(funnel.slug)}`}
                           target="_blank"
                           rel="noreferrer"
-                          className="rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm font-semibold text-zinc-900 hover:bg-zinc-50"
+                          className="inline-flex items-center gap-2 rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm font-semibold text-zinc-900 hover:bg-zinc-50"
                         >
+                          <AiSparkIcon className="h-4 w-4 text-[color:var(--color-brand-blue)]" />
                           View live
                         </a>
                       ) : null}
@@ -2715,7 +2749,6 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
             </Link>
 
             <div className="min-w-0">
-              <div className="text-[11px] font-semibold uppercase tracking-wide text-zinc-500">Funnel</div>
               <div className="truncate text-sm font-semibold text-brand-ink">{funnel?.name || "…"}</div>
             </div>
 
@@ -2737,12 +2770,13 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
               disabled={busy || !selectedPage}
               onClick={() => void setEditorMode("CUSTOM_HTML")}
               className={classNames(
-                "rounded-xl border px-3 py-2 text-sm font-semibold",
+                "inline-flex items-center gap-2 rounded-xl border px-3 py-2 text-sm font-semibold",
                 selectedPage?.editorMode === "CUSTOM_HTML"
                   ? "border-[color:var(--color-brand-blue)] bg-blue-50 text-blue-800"
                   : "border-zinc-200 bg-white text-zinc-900 hover:bg-zinc-50",
               )}
             >
+              <AiSparkIcon className="h-4 w-4" />
               Custom code
             </button>
           </div>
@@ -2856,7 +2890,7 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
                     { key: "layout", label: "Layout" },
                     { key: "forms", label: "Forms" },
                     { key: "media", label: "Media" },
-                    { key: "page", label: "Page" },
+                    { key: "page", label: "Theme" },
                     { key: "selected", label: "Selected" },
                   ] as const
                 ).map((t) => (
@@ -2881,7 +2915,7 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
 
               {sidebarPanel === "page" ? (
                 <div className="mt-4 rounded-2xl border border-zinc-200 bg-white p-4">
-                  <div className="text-sm font-semibold text-zinc-900">Page</div>
+                  <div className="text-sm font-semibold text-zinc-900">Theme</div>
                   <div className="mt-3 space-y-3">
                     {(() => {
                       const pageStyle = (pageSettingsBlock as any)?.props?.style as BlockStyle | undefined;
@@ -4585,8 +4619,9 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
                     href={`${basePath}/f/${encodeURIComponent(funnel.slug)}`}
                     target="_blank"
                     rel="noreferrer"
-                    className="rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm font-semibold text-zinc-900 hover:bg-zinc-50"
+                    className="inline-flex items-center gap-2 rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm font-semibold text-zinc-900 hover:bg-zinc-50"
                   >
+                    <AiSparkIcon className="h-4 w-4 text-[color:var(--color-brand-blue)]" />
                     View live
                   </a>
                 ) : null}

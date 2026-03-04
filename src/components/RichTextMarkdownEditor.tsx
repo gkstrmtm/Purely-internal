@@ -1,10 +1,11 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
+import { LinkUrlModal } from "@/components/LinkUrlModal";
 
 function escapeHtml(text: string) {
   return text
-    .replace(/&/g, "&amp;")
+  .replace(/&/g, "&amp;")
     .replace(/</g, "&lt;")
     .replace(/>/g, "&gt;")
     .replace(/\"/g, "&quot;")
@@ -84,7 +85,6 @@ function markdownToHtmlBasic(markdown: string): string {
 
   for (const rawLine of lines) {
     const line = rawLine;
-
     // Code fences
     const fence = line.match(/^```\s*([^\s]*)\s*$/);
     if (fence) {
@@ -306,6 +306,35 @@ export function RichTextMarkdownEditor({
   const lastMarkdownRef = useRef<string>(String(markdown || ""));
   const [focused, setFocused] = useState(false);
   const [formats, setFormats] = useState<Array<"bold" | "italic" | "underline">>([]);
+  const [linkModalOpen, setLinkModalOpen] = useState(false);
+  const linkRangeRef = useRef<Range | null>(null);
+
+  const saveSelectionRange = () => {
+    try {
+      const sel = window.getSelection();
+      if (!sel || sel.rangeCount === 0) {
+        linkRangeRef.current = null;
+        return;
+      }
+      linkRangeRef.current = sel.getRangeAt(0).cloneRange();
+    } catch {
+      linkRangeRef.current = null;
+    }
+  };
+
+  const restoreSelectionRange = () => {
+    const range = linkRangeRef.current;
+    if (!range) return;
+    try {
+      editorRef.current?.focus();
+      const sel = window.getSelection();
+      if (!sel) return;
+      sel.removeAllRanges();
+      sel.addRange(range);
+    } catch {
+      // ignore
+    }
+  };
 
   const syncFromDom = () => {
     const html = editorRef.current?.innerHTML ?? "";
@@ -545,9 +574,8 @@ export function RichTextMarkdownEditor({
           className="rounded-lg border border-zinc-200 bg-white px-2 py-1 text-xs font-semibold text-zinc-700 hover:bg-zinc-100"
           onClick={() => {
             if (disabled) return;
-            const url = window.prompt("Link URL:", "https://");
-            if (!url) return;
-            run("createLink", url);
+            saveSelectionRange();
+            setLinkModalOpen(true);
           }}
           disabled={disabled}
         >
@@ -598,6 +626,24 @@ export function RichTextMarkdownEditor({
           // eslint-disable-next-line @typescript-eslint/ban-ts-comment
           // @ts-ignore
           "--placeholder": placeholder || "Write…",
+        }}
+      />
+
+      <LinkUrlModal
+        open={linkModalOpen}
+        onClose={() => {
+          setLinkModalOpen(false);
+          linkRangeRef.current = null;
+        }}
+        onSubmit={(url) => {
+          if (disabled) return;
+          setLinkModalOpen(false);
+          queueMicrotask(() => {
+            restoreSelectionRange();
+            run("createLink", url);
+            refreshFormats();
+            linkRangeRef.current = null;
+          });
         }}
       />
 
