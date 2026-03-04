@@ -1252,7 +1252,7 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
 
                         {funnel?.slug ? (
                           <a
-                            href={`/credit/f/${encodeURIComponent(funnel.slug)}`}
+                            href={`/f/${encodeURIComponent(funnel.slug)}`}
                             target="_blank"
                             rel="noreferrer"
                             className="inline-flex items-center gap-2 rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm font-semibold text-zinc-900 hover:bg-zinc-50"
@@ -1426,7 +1426,7 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
                       </div>
                       {funnel?.slug ? (
                         <a
-                          href={`/credit/f/${encodeURIComponent(funnel.slug)}`}
+                          href={`/f/${encodeURIComponent(funnel.slug)}`}
                           target="_blank"
                           rel="noreferrer"
                           className="inline-flex items-center gap-2 rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm font-semibold text-zinc-900 hover:bg-zinc-50"
@@ -4647,7 +4647,7 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
 
                   {funnel?.slug ? (
                     <a
-                      href={`/credit/f/${encodeURIComponent(funnel.slug)}`}
+                      href={`/f/${encodeURIComponent(funnel.slug)}`}
                     target="_blank"
                     rel="noreferrer"
                     className="inline-flex items-center gap-2 rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm font-semibold text-zinc-900 hover:bg-zinc-50"

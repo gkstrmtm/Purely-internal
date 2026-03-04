@@ -18,5 +18,5 @@ export default async function PortalHostedFormPage({
   const embedRaw = resolvedSearchParams?.embed;
   const embed = Array.isArray(embedRaw) ? embedRaw[0] === "1" : embedRaw === "1";
 
-  redirect(`/credit/forms/${encodeURIComponent(s)}${embed ? "?embed=1" : ""}`);
+  redirect(`/forms/${encodeURIComponent(s)}${embed ? "?embed=1" : ""}`);
 }

@@ -10,5 +10,5 @@ export default async function PortalHostedFunnelPage({ params }: { params: Promi
 
   // These legacy /portal hosted routes are wrapped by the Portal header.
   // Redirect to the public hosted funnel route so live funnels are clean/brandable.
-  redirect(`/credit/f/${encodeURIComponent(s)}`);
+  redirect(`/f/${encodeURIComponent(s)}`);
 }
