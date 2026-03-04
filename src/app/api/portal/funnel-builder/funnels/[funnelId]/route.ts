@@ -6,6 +6,53 @@ import { requireFunnelBuilderSession } from "@/lib/funnelBuilderAccess";
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
 
+function normalizeDomain(raw: unknown) {
+  let s = typeof raw === "string" ? raw.trim().toLowerCase() : "";
+  if (!s) return null;
+
+  // Strip protocol and any path/query.
+  s = s.replace(/^https?:\/\//, "");
+  s = s.split("/")[0] || "";
+  s = s.split("?")[0] || "";
+  s = s.split("#")[0] || "";
+
+  if (!s) return null;
+  if (s.length > 253) return null;
+  if (!/^[a-z0-9.-]+\.[a-z]{2,}$/.test(s)) return null;
+  if (s.includes("..")) return null;
+  if (s.startsWith("-") || s.endsWith("-")) return null;
+  return s;
+}
+
+function readFunnelDomains(settingsJson: unknown): Record<string, string> {
+  if (!settingsJson || typeof settingsJson !== "object" || Array.isArray(settingsJson)) return {};
+  const raw = (settingsJson as any).funnelDomains;
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return {};
+
+  const out: Record<string, string> = {};
+  for (const [k, v] of Object.entries(raw as any)) {
+    if (typeof k !== "string" || !k.trim()) continue;
+    const domain = normalizeDomain(v);
+    if (!domain) continue;
+    out[k] = domain;
+  }
+  return out;
+}
+
+function writeFunnelDomain(settingsJson: unknown, funnelId: string, domain: string | null) {
+  const base = settingsJson && typeof settingsJson === "object" && !Array.isArray(settingsJson) ? { ...(settingsJson as any) } : {};
+  const funnelDomains =
+    base.funnelDomains && typeof base.funnelDomains === "object" && !Array.isArray(base.funnelDomains)
+      ? { ...(base.funnelDomains as any) }
+      : {};
+
+  if (domain) funnelDomains[funnelId] = domain;
+  else delete funnelDomains[funnelId];
+
+  base.funnelDomains = funnelDomains;
+  return base;
+}
+
 function normalizeSlug(raw: unknown) {
   const s = typeof raw === "string" ? raw.trim().toLowerCase() : "";
   const cleaned = s
@@ -38,7 +85,13 @@ export async function GET(_req: Request, ctx: { params: Promise<{ funnelId: stri
   });
 
   if (!funnel) return NextResponse.json({ ok: false, error: "Not found" }, { status: 404 });
-  return NextResponse.json({ ok: true, funnel });
+
+  const settings = await prisma.creditFunnelBuilderSettings
+    .findUnique({ where: { ownerId: auth.session.user.id }, select: { dataJson: true } })
+    .catch(() => null);
+  const funnelDomains = readFunnelDomains(settings?.dataJson ?? null);
+
+  return NextResponse.json({ ok: true, funnel: { ...funnel, assignedDomain: funnelDomains[funnel.id] ?? null } });
 }
 
 export async function PATCH(req: Request, ctx: { params: Promise<{ funnelId: string }> }) {
@@ -62,6 +115,26 @@ export async function PATCH(req: Request, ctx: { params: Promise<{ funnelId: str
 
   const body = (await req.json().catch(() => null)) as any;
   const data: any = {};
+
+  const wantsDomainUpdate = Object.prototype.hasOwnProperty.call(body ?? {}, "domain");
+  const requestedDomainRaw = wantsDomainUpdate ? (body as any).domain : undefined;
+  const requestedDomain =
+    requestedDomainRaw === null
+      ? null
+      : typeof requestedDomainRaw === "string"
+        ? normalizeDomain(requestedDomainRaw)
+        : null;
+  if (wantsDomainUpdate && requestedDomainRaw !== null && !requestedDomain) {
+    return NextResponse.json({ ok: false, error: "Invalid domain" }, { status: 400 });
+  }
+
+  if (wantsDomainUpdate && requestedDomain) {
+    const exists = await prisma.creditCustomDomain.findUnique({
+      where: { ownerId_domain: { ownerId: auth.session.user.id, domain: requestedDomain } },
+      select: { id: true },
+    });
+    if (!exists) return NextResponse.json({ ok: false, error: "Domain not found" }, { status: 404 });
+  }
 
   if (typeof body?.name === "string") {
     const name = body.name.trim();
@@ -97,5 +170,28 @@ export async function PATCH(req: Request, ctx: { params: Promise<{ funnelId: str
     });
 
   if (!funnel) return NextResponse.json({ ok: false, error: "That slug is already taken" }, { status: 409 });
-  return NextResponse.json({ ok: true, funnel });
+
+  let assignedDomain: string | null = null;
+  if (wantsDomainUpdate) {
+    const existingSettings = await prisma.creditFunnelBuilderSettings
+      .findUnique({ where: { ownerId: auth.session.user.id }, select: { dataJson: true } })
+      .catch(() => null);
+
+    const nextJson = writeFunnelDomain(existingSettings?.dataJson ?? null, funnel.id, requestedDomain);
+    await prisma.creditFunnelBuilderSettings.upsert({
+      where: { ownerId: auth.session.user.id },
+      update: { dataJson: nextJson as any },
+      create: { ownerId: auth.session.user.id, dataJson: nextJson as any },
+      select: { ownerId: true },
+    });
+    assignedDomain = requestedDomain;
+  } else {
+    const settings = await prisma.creditFunnelBuilderSettings
+      .findUnique({ where: { ownerId: auth.session.user.id }, select: { dataJson: true } })
+      .catch(() => null);
+    const funnelDomains = readFunnelDomains(settings?.dataJson ?? null);
+    assignedDomain = funnelDomains[funnel.id] ?? null;
+  }
+
+  return NextResponse.json({ ok: true, funnel: { ...funnel, assignedDomain } });
 }

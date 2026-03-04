@@ -312,6 +312,15 @@ export async function PUT(req: Request) {
   });
   if (!current) return NextResponse.json({ error: "Not found" }, { status: 404 });
 
+  const existingPhone = await getProfilePhone(userId).catch(() => null);
+  const effectivePhone = phoneProvided ? nextPhone : existingPhone;
+  if (!effectivePhone) {
+    return NextResponse.json(
+      { error: "Phone is required in your profile to enable default SMS notifications." },
+      { status: 400 },
+    );
+  }
+
   const wantsToUpdateNameOrEmail = Boolean(parsed.data.name || parsed.data.email);
   if (wantsToUpdateNameOrEmail) {
     const ok = await verifyPassword(parsed.data.currentPassword ?? "", current.passwordHash);

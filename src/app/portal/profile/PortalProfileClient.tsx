@@ -225,6 +225,7 @@ export function PortalProfileClient() {
 
     const nextPhoneRes = normalizePhoneStrict(nextPhoneRaw);
     if (!nextPhoneRes.ok) return false;
+    if (!nextPhoneRes.e164) return false;
     const nextPhone = nextPhoneRes.e164 ?? "";
 
     const curName = me.user?.name ?? "";
@@ -620,6 +621,11 @@ export function PortalProfileClient() {
       setError(nextPhoneRes.error);
       return;
     }
+    if (!nextPhoneRes.e164) {
+      setSavingContact(false);
+      setError("Phone is required.");
+      return;
+    }
     const nextPhone = nextPhoneRes.e164 ?? "";
 
     const curName = me.user.name ?? "";
@@ -689,6 +695,14 @@ export function PortalProfileClient() {
 
   async function clearVoiceAgentApiKey() {
     if (!me?.user) return;
+    if (!phoneValidation.ok) {
+      setError(phoneValidation.error);
+      return;
+    }
+    if (!phoneValidation.e164) {
+      setError("Phone is required.");
+      return;
+    }
     setSavingContact(true);
     setError(null);
     setNotice(null);

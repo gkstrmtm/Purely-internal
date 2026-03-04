@@ -44,6 +44,38 @@ function readDomainSettings(settingsJson: unknown, domain: string): { rootMode: 
   return { rootMode, rootFunnelSlug };
 }
 
+function normalizeDomain(raw: unknown) {
+  let s = typeof raw === "string" ? raw.trim().toLowerCase() : "";
+  if (!s) return null;
+
+  s = s.replace(/^https?:\/\//, "");
+  s = s.split("/")[0] || "";
+  s = s.split("?")[0] || "";
+  s = s.split("#")[0] || "";
+  if (!s) return null;
+
+  if (s.length > 253) return null;
+  if (!/^[a-z0-9.-]+\.[a-z]{2,}$/.test(s)) return null;
+  if (s.includes("..")) return null;
+  if (s.startsWith("-") || s.endsWith("-")) return null;
+  return s;
+}
+
+function readFunnelDomains(settingsJson: unknown): Record<string, string> {
+  if (!settingsJson || typeof settingsJson !== "object" || Array.isArray(settingsJson)) return {};
+  const raw = (settingsJson as any).funnelDomains;
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return {};
+
+  const out: Record<string, string> = {};
+  for (const [k, v] of Object.entries(raw as any)) {
+    if (typeof k !== "string" || !k.trim()) continue;
+    const domain = normalizeDomain(v);
+    if (!domain) continue;
+    out[k] = domain;
+  }
+  return out;
+}
+
 function normalizeSegments(raw: unknown): string[] {
   if (!raw) return [];
   if (!Array.isArray(raw)) return [];
@@ -217,11 +249,12 @@ function FunnelMarkdown({ blocks }: { blocks: any[] }) {
   );
 }
 
-async function renderFunnel(ownerId: string, slug: string) {
+async function renderFunnel(ownerId: string, slug: string, funnelDomains: Record<string, string>, allowedDomains: Set<string>) {
   const funnel = await prisma.creditFunnel
     .findFirst({
       where: { ownerId, slug },
       select: {
+        id: true,
         ownerId: true,
         pages: {
           orderBy: [{ sortOrder: "asc" }, { id: "asc" }],
@@ -239,6 +272,9 @@ async function renderFunnel(ownerId: string, slug: string) {
     .catch(() => null);
 
   if (!funnel) notFound();
+
+  const assignedDomain = funnelDomains[funnel.id] ?? null;
+  if (assignedDomain && !allowedDomains.has(assignedDomain)) notFound();
 
   const page = funnel.pages[0] || null;
   const markdownBlocks = page ? parseBlogContent(page.contentMarkdown) : [];
@@ -309,6 +345,9 @@ export default async function CustomDomainCatchallPage({
     .findUnique({ where: { ownerId: mapping.ownerId }, select: { dataJson: true } })
     .catch(() => null);
 
+  const funnelDomains = readFunnelDomains(settingsRow?.dataJson ?? null);
+  const allowedDomains = new Set([mapping.matchedDomain, host]);
+
   const settings = (() => {
     const direct = readDomainSettings(settingsRow?.dataJson ?? null, mapping.matchedDomain);
     if (direct.rootMode !== "DIRECTORY" || direct.rootFunnelSlug) return direct;
@@ -333,14 +372,20 @@ export default async function CustomDomainCatchallPage({
       take: 100,
     });
 
+    const visibleFunnels = funnels.filter((f) => {
+      const assigned = funnelDomains[f.id] ?? null;
+      if (!assigned) return true;
+      return allowedDomains.has(assigned);
+    });
+
     return (
       <main className="mx-auto w-full max-w-3xl p-8">
         <h1 className="text-2xl font-bold text-zinc-900">Funnels</h1>
         <p className="mt-2 text-sm text-zinc-600">Choose a page to visit.</p>
 
         <div className="mt-6 space-y-3">
-          {funnels.length ? (
-            funnels.map((f) => (
+          {visibleFunnels.length ? (
+            visibleFunnels.map((f) => (
               <Link
                 key={f.id}
                 href={`/${encodeURIComponent(f.slug)}`}
@@ -362,7 +407,7 @@ export default async function CustomDomainCatchallPage({
   if (segments[0] === "f") {
     const funnelSlug = safeSlug(segments[1]);
     if (!funnelSlug || segments.length > 2) notFound();
-    return renderFunnel(mapping.ownerId, funnelSlug);
+    return renderFunnel(mapping.ownerId, funnelSlug, funnelDomains, allowedDomains);
   }
 
   // /forms/<slug>
@@ -396,7 +441,7 @@ export default async function CustomDomainCatchallPage({
   if (segments.length === 1) {
     const funnelSlug = safeSlug(segments[0]);
     if (!funnelSlug) notFound();
-    return renderFunnel(mapping.ownerId, funnelSlug);
+    return renderFunnel(mapping.ownerId, funnelSlug, funnelDomains, allowedDomains);
   }
 
   notFound();

@@ -188,6 +188,13 @@ The credit portal includes a credit-only Funnel Builder service with:
 - Forms: hosted at `/credit/forms/[slug]`, submissions POST to `/api/public/credit/forms/[slug]/submit`
 - Settings: notification emails + signed webhook URL
 
+Custom domains:
+
+- Requests on a saved custom domain route through the internal domain router page: `/domain-router/[domain]/[[...path]]`.
+- Per-domain root `/` behavior and per-funnel domain assignment are stored in `CreditFunnelBuilderSettings.dataJson` to avoid requiring Prisma migrations in drift-prone environments.
+	- Root `/` settings live under `dataJson.customDomains[domain]`.
+	- Per-funnel domain assignment lives under `dataJson.funnelDomains[funnelId]`.
+
 If you deploy changes that add Prisma migrations, make sure migrations run in Vercel by setting `DIRECT_URL` (recommended) and/or `RUN_PRISMA_MIGRATIONS=1`.
 
 ## Credits (portal)

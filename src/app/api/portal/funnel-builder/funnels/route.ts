@@ -6,6 +6,39 @@ import { requireFunnelBuilderSession } from "@/lib/funnelBuilderAccess";
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
 
+function normalizeDomain(raw: unknown) {
+  let s = typeof raw === "string" ? raw.trim().toLowerCase() : "";
+  if (!s) return null;
+
+  // Strip protocol and any path/query.
+  s = s.replace(/^https?:\/\//, "");
+  s = s.split("/")[0] || "";
+  s = s.split("?")[0] || "";
+  s = s.split("#")[0] || "";
+
+  if (!s) return null;
+  if (s.length > 253) return null;
+  if (!/^[a-z0-9.-]+\.[a-z]{2,}$/.test(s)) return null;
+  if (s.includes("..")) return null;
+  if (s.startsWith("-") || s.endsWith("-")) return null;
+  return s;
+}
+
+function readFunnelDomains(settingsJson: unknown): Record<string, string> {
+  if (!settingsJson || typeof settingsJson !== "object" || Array.isArray(settingsJson)) return {};
+  const raw = (settingsJson as any).funnelDomains;
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return {};
+
+  const out: Record<string, string> = {};
+  for (const [k, v] of Object.entries(raw as any)) {
+    if (typeof k !== "string" || !k.trim()) continue;
+    const domain = normalizeDomain(v);
+    if (!domain) continue;
+    out[k] = domain;
+  }
+  return out;
+}
+
 function normalizeSlug(raw: unknown) {
   const s = typeof raw === "string" ? raw.trim().toLowerCase() : "";
   const cleaned = s
@@ -30,13 +63,20 @@ export async function GET() {
 
   const ownerId = auth.session.user.id;
 
+  const settings = await prisma.creditFunnelBuilderSettings
+    .findUnique({ where: { ownerId }, select: { dataJson: true } })
+    .catch(() => null);
+  const funnelDomains = readFunnelDomains(settings?.dataJson ?? null);
+
   const funnels = await prisma.creditFunnel.findMany({
     where: { ownerId },
     orderBy: { updatedAt: "desc" },
     select: { id: true, slug: true, name: true, status: true, createdAt: true, updatedAt: true },
   });
 
-  return NextResponse.json({ ok: true, funnels });
+  const funnelsWithDomains = funnels.map((f) => ({ ...f, assignedDomain: funnelDomains[f.id] ?? null }));
+
+  return NextResponse.json({ ok: true, funnels: funnelsWithDomains });
 }
 
 export async function POST(req: Request) {

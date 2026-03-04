@@ -11,6 +11,7 @@ type CreditFunnel = {
   status: "DRAFT" | "ACTIVE" | "ARCHIVED";
   createdAt: string;
   updatedAt: string;
+  assignedDomain?: string | null;
 };
 
 type CreditForm = {
@@ -102,9 +103,27 @@ export function FunnelBuilderClient() {
   const [domainSettingsBusy, setDomainSettingsBusy] = useState<Record<string, boolean>>({});
   const [domainSettingsError, setDomainSettingsError] = useState<Record<string, string | null>>({});
 
+  const [funnelDomainBusy, setFunnelDomainBusy] = useState<Record<string, boolean>>({});
+  const [funnelDomainError, setFunnelDomainError] = useState<Record<string, string | null>>({});
+
   const funnelPreviewBase = useMemo(() => `${basePath}/f`, [basePath]);
   const formPreviewBase = useMemo(() => `${basePath}/forms`, [basePath]);
   const platformTargetHost = useMemo(() => coercePlatformTargetHost(), []);
+  const isLocalPreview = useMemo(() => {
+    const h = (platformTargetHost || "").trim().toLowerCase();
+    return h === "localhost" || h.endsWith(".local") || h === "127.0.0.1";
+  }, [platformTargetHost]);
+
+  const getFunnelLiveHref = useCallback(
+    (domain: string, slug: string) => {
+      const cleanDomain = String(domain || "").trim().toLowerCase();
+      const cleanSlug = String(slug || "").trim();
+      if (!cleanDomain || !cleanSlug) return null;
+      if (isLocalPreview) return `/domain-router/${encodeURIComponent(cleanDomain)}/${encodeURIComponent(cleanSlug)}`;
+      return `https://${cleanDomain}/${encodeURIComponent(cleanSlug)}`;
+    },
+    [isLocalPreview],
+  );
 
   const loadFunnels = useCallback(async () => {
     const res = await fetch("/api/portal/funnel-builder/funnels", { cache: "no-store" });
@@ -171,6 +190,48 @@ export function FunnelBuilderClient() {
       }
     },
     [loadDomains],
+  );
+
+  const patchFunnelDomain = useCallback(
+    async (funnel: CreditFunnel, nextDomain: string | null) => {
+      setFunnelDomainBusy((m) => ({ ...m, [funnel.id]: true }));
+      setFunnelDomainError((m) => ({ ...m, [funnel.id]: null }));
+
+      // Optimistic update
+      setFunnels((prev) => {
+        if (!prev) return prev;
+        return prev.map((f) => (f.id === funnel.id ? { ...f, assignedDomain: nextDomain } : f));
+      });
+
+      try {
+        const res = await fetch(`/api/portal/funnel-builder/funnels/${encodeURIComponent(funnel.id)}`, {
+          method: "PATCH",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ domain: nextDomain }),
+        });
+        const json = (await res.json().catch(() => null)) as any;
+        if (!res.ok || !json || json.ok !== true) throw new Error(json?.error || "Failed to update funnel domain");
+        const assigned = (json?.funnel?.assignedDomain ?? null) as string | null;
+
+        setFunnels((prev) => {
+          if (!prev) return prev;
+          return prev.map((f) => (f.id === funnel.id ? { ...f, assignedDomain: assigned } : f));
+        });
+      } catch (e) {
+        setFunnelDomainError((m) => ({
+          ...m,
+          [funnel.id]: (e as any)?.message ? String((e as any).message) : "Failed to update funnel domain",
+        }));
+        try {
+          await loadFunnels();
+        } catch {
+          // ignore
+        }
+      } finally {
+        setFunnelDomainBusy((m) => ({ ...m, [funnel.id]: false }));
+      }
+    },
+    [loadFunnels],
   );
 
   useEffect(() => {
@@ -262,7 +323,7 @@ export function FunnelBuilderClient() {
       <div className="flex flex-col items-start justify-between gap-3 sm:flex-row sm:items-end">
         <div>
           <h1 className="text-2xl font-bold text-brand-ink sm:text-3xl">Funnel Builder</h1>
-          <p className="mt-1 text-sm text-zinc-600">Build funnels, host forms, and connect domains.</p>
+          <p className="mt-1 text-sm text-zinc-600">Convert more traffic into leads and booked calls.</p>
         </div>
       </div>
 
@@ -322,6 +383,44 @@ export function FunnelBuilderClient() {
               <div key={f.id} className="rounded-3xl border border-zinc-200 bg-white p-6">
                 <div className="text-base font-semibold text-brand-ink">{f.name}</div>
                 <div className="mt-1 text-sm text-zinc-600">/{f.slug}</div>
+
+                <div className="mt-3">
+                  <div className="text-xs font-semibold uppercase tracking-wide text-zinc-500">Domain</div>
+                  <div className="mt-1 flex flex-col gap-2">
+                    <select
+                      value={(f.assignedDomain || "") as any}
+                      disabled={!!funnelDomainBusy[f.id] || !domains}
+                      onChange={(e) => {
+                        const v = String(e.target.value || "").trim();
+                        patchFunnelDomain(f, v ? v : null);
+                      }}
+                      className="w-full rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-sm text-zinc-900"
+                    >
+                      <option value="">Default (not assigned)</option>
+                      {(domains || []).map((d) => (
+                        <option key={d.id} value={d.domain}>
+                          {d.domain}{d.status === "PENDING" ? " (pending)" : ""}
+                        </option>
+                      ))}
+                    </select>
+
+                    {f.assignedDomain ? (
+                      <div className="text-xs text-zinc-600">
+                        Live URL:{" "}
+                        <span className="font-mono">
+                          {isLocalPreview ? `${platformTargetHost || ""}/domain-router/${f.assignedDomain}/${f.slug}` : `https://${f.assignedDomain}/${f.slug}`}
+                        </span>
+                      </div>
+                    ) : null}
+
+                    {funnelDomainError[f.id] ? (
+                      <div className="rounded-2xl border border-red-200 bg-red-50 p-2 text-xs text-red-700">
+                        {funnelDomainError[f.id]}
+                      </div>
+                    ) : null}
+                  </div>
+                </div>
+
                 <div className="mt-4 flex items-center justify-between gap-3">
                   <span className="inline-flex items-center rounded-full border border-zinc-200 bg-zinc-50 px-2.5 py-1 text-xs font-semibold text-zinc-700">
                     {f.status}
@@ -341,6 +440,16 @@ export function FunnelBuilderClient() {
                     >
                       Preview
                     </Link>
+
+                    {f.assignedDomain ? (
+                      <Link
+                        href={getFunnelLiveHref(f.assignedDomain, f.slug) || `${funnelPreviewBase}/${encodeURIComponent(f.slug)}`}
+                        target="_blank"
+                        className="text-sm font-semibold text-[color:var(--color-brand-blue)] hover:underline"
+                      >
+                        Live
+                      </Link>
+                    ) : null}
                   </div>
                 </div>
               </div>
@@ -466,7 +575,13 @@ export function FunnelBuilderClient() {
                               onChange={(e) => {
                                 const nextMode = String(e.target.value) as any;
                                 if (nextMode === "REDIRECT") {
-                                  const fallbackSlug = (funnels || []).find((f) => f.status === "ACTIVE")?.slug || (funnels || [])[0]?.slug || null;
+                                  const eligibleFunnels = (funnels || []).filter((f) => {
+                                    const assigned = (f.assignedDomain || "").trim().toLowerCase();
+                                    if (!assigned) return true;
+                                    return assigned === d.domain;
+                                  });
+                                  const fallbackSlug =
+                                    eligibleFunnels.find((f) => f.status === "ACTIVE")?.slug || eligibleFunnels[0]?.slug || null;
                                   patchDomainSettings(d, { rootMode: "REDIRECT", rootFunnelSlug: d.rootFunnelSlug || fallbackSlug });
                                   return;
                                 }
@@ -494,11 +609,17 @@ export function FunnelBuilderClient() {
                                 <option value="" disabled>
                                   Select a funnel…
                                 </option>
-                                {(funnels || []).map((f) => (
-                                  <option key={f.id} value={f.slug}>
-                                    {f.name} (/{f.slug})
-                                  </option>
-                                ))}
+                                {(funnels || [])
+                                  .filter((f) => {
+                                    const assigned = (f.assignedDomain || "").trim().toLowerCase();
+                                    if (!assigned) return true;
+                                    return assigned === d.domain;
+                                  })
+                                  .map((f) => (
+                                    <option key={f.id} value={f.slug}>
+                                      {f.name} (/{f.slug})
+                                    </option>
+                                  ))}
                               </select>
                             ) : null}
                           </div>
@@ -511,7 +632,7 @@ export function FunnelBuilderClient() {
 
                           <div className="mt-2 text-xs text-zinc-600">
                             Requests to <span className="font-mono">https://{d.domain}/</span> follow this rule.
-                            Funnel slugs always work at <span className="font-mono">/{"{slug}"}</span> and <span className="font-mono">/f/{"{slug}"}</span>.
+                            Funnel slugs work at <span className="font-mono">/{"{slug}"}</span> and <span className="font-mono">/f/{"{slug}"}</span> for funnels assigned to this domain.
                           </div>
                         </div>
 

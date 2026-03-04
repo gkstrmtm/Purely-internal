@@ -4,6 +4,7 @@ import { NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
 import { tryNotifyPortalAccountUsers } from "@/lib/portalNotifications";
 import { runOwnerAutomationsForEvent } from "@/lib/portalAutomationsRunner";
+import { findOrCreatePortalContact } from "@/lib/portalContacts";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
@@ -91,10 +92,33 @@ export async function POST(req: Request, ctx: { params: Promise<{ slug: string }
   const contactPhone = firstString((payloadObj as any).phone);
   const contactName = firstString((payloadObj as any).fullName) || firstString((payloadObj as any).name);
 
+  let contactId: string | null = null;
+  try {
+    const candidateName = (contactName || contactEmail || contactPhone || "Unknown").slice(0, 80);
+    contactId = await findOrCreatePortalContact({
+      ownerId: form.ownerId,
+      name: candidateName,
+      email: contactEmail,
+      phone: contactPhone,
+    });
+
+    // If phone normalization failed (or phone was invalid), still try to create a contact from name/email.
+    if (!contactId && (contactEmail || contactName)) {
+      contactId = await findOrCreatePortalContact({
+        ownerId: form.ownerId,
+        name: (contactName || contactEmail || "Unknown").slice(0, 80),
+        email: contactEmail,
+        phone: null,
+      });
+    }
+  } catch {
+    // ignore
+  }
+
   runOwnerAutomationsForEvent({
     ownerId: form.ownerId,
     triggerKind: "form_submitted",
-    contact: { name: contactName, email: contactEmail, phone: contactPhone },
+    contact: { id: contactId, name: contactName, email: contactEmail, phone: contactPhone },
     event: {
       formId: form.id,
       formSlug: form.slug,
