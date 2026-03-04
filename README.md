@@ -342,6 +342,21 @@ Delivery notes:
 - Email sender name uses the client’s Business Name (stored in `BusinessProfile`).
 - SMS sends via the configured SMS provider credentials.
 
+## Automations (portal)
+
+The portal Automations service has a list-first landing page and a dedicated editor route.
+
+- Automations list ("My Automations"): `/portal/app/services/automations`
+	- Filter/search, inline rename, pause/resume, duplicate, delete.
+	- Clicking a row opens the automation in a new window.
+- Automation editor (chromeless): `/portal/app/services/automations/editor?automation=<automationId>`
+	- Opens in a new window/tab (used by the list).
+	- Rendered without the portal chrome (handled in the portal shell) so the canvas can use the full viewport.
+
+API:
+
+- Settings: `GET/PUT /api/portal/automations/settings`
+
 ## Nurture campaigns (portal)
 
 Nurture Campaigns are simple multi-step SMS/email sequences with tag-based audience enrollment.

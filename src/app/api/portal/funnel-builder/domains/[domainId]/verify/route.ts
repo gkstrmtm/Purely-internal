@@ -32,7 +32,7 @@ function isLikelyApexDomain(domain: string): boolean {
   return parts.length <= 2;
 }
 
-function coerceExpectedTargetHost(req: Request): string | null {
+function coerceExpectedTargetHost(): string | null {
   const explicit = (process.env.CUSTOM_DOMAIN_TARGET_HOST || "").trim();
   if (explicit) return normalizeDnsName(explicit) || null;
 
@@ -91,7 +91,7 @@ export async function POST(req: Request, ctx: { params: Promise<{ domainId: stri
   const domain = normalizeDnsName(domainRow.domain);
   if (!domain) return NextResponse.json({ ok: false, error: "Invalid domain" }, { status: 400 });
 
-  const expectedTargetHost = normalizeDnsName(coerceExpectedTargetHost(req) || "");
+  const expectedTargetHost = normalizeDnsName(coerceExpectedTargetHost() || "");
   if (!expectedTargetHost) {
     return NextResponse.json(
       { ok: false, error: "Missing NEXT_PUBLIC_APP_URL; can’t determine DNS target" },

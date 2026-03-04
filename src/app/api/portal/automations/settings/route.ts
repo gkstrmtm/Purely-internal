@@ -125,6 +125,7 @@ const automationSchema = z.object({
   name: z.string().min(1).max(80),
   paused: z.boolean().optional(),
   updatedAtIso: z.string().optional(),
+  createdAtIso: z.string().optional(),
   createdBy: z
     .object({
       userId: z.string().min(1).max(80),
@@ -234,9 +235,16 @@ export async function PUT(req: Request) {
   const next = parsed.data.automations.map((a) => {
     const prev = existingById.get(a.id) as any | undefined;
     const createdBy = a.createdBy || prev?.createdBy || viewer;
+    const createdAtIso =
+      typeof a.createdAtIso === "string" && a.createdAtIso.trim()
+        ? a.createdAtIso
+        : typeof prev?.createdAtIso === "string" && String(prev.createdAtIso).trim()
+          ? String(prev.createdAtIso)
+          : new Date().toISOString();
     return {
       ...a,
       createdBy,
+      createdAtIso,
       updatedAtIso: typeof a.updatedAtIso === "string" && a.updatedAtIso.trim() ? a.updatedAtIso : new Date().toISOString(),
     };
   });

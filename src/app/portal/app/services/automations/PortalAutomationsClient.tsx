@@ -271,6 +271,7 @@ type Automation = {
   name: string;
   paused?: boolean;
   updatedAtIso?: string;
+  createdAtIso?: string;
   createdBy?: { userId: string; email?: string; name?: string };
   nodes: BuilderNode[];
   edges: BuilderEdge[];
@@ -559,7 +560,8 @@ function shouldAutolabel(currentLabel: string) {
   return false;
 }
 
-export function PortalAutomationsClient() {
+export function PortalAutomationsClient(props: { mode?: "list" | "editor" }) {
+  const mode = props.mode ?? "editor";
   const toast = useToast();
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -584,6 +586,19 @@ export function PortalAutomationsClient() {
   const [testOpen, setTestOpen] = useState(false);
   const [testFrom, setTestFrom] = useState("+15555550123");
   const [testBody, setTestBody] = useState("Hello");
+
+  const [listQuery, setListQuery] = useState("");
+  const [listStatus, setListStatus] = useState<"all" | "active" | "paused">("all");
+  const [listTrigger, setListTrigger] = useState<"all" | TriggerKind>("all");
+
+  const [inlineRenameId, setInlineRenameId] = useState<string | null>(null);
+  const [inlineRenameValue, setInlineRenameValue] = useState("");
+  const inlineRenameInputRef = useRef<HTMLInputElement | null>(null);
+
+  useEffect(() => {
+    if (!inlineRenameId) return;
+    window.setTimeout(() => inlineRenameInputRef.current?.focus(), 0);
+  }, [inlineRenameId]);
 
   const [viewer, setViewer] = useState<null | { userId: string; email?: string; name?: string }>(null);
 
@@ -700,7 +715,11 @@ export function PortalAutomationsClient() {
 
   const canvasRef = useRef<HTMLDivElement | null>(null);
 
-  const [view, setView] = useState<{ panX: number; panY: number; zoom: number }>({ panX: 80, panY: 80, zoom: 1 });
+  const [view, setView] = useState<{ panX: number; panY: number; zoom: number }>({
+    panX: mode === "editor" ? 420 : 80,
+    panY: 80,
+    zoom: 1,
+  });
 
   const viewRef = useRef(view);
   useEffect(() => {
@@ -1042,7 +1061,7 @@ export function PortalAutomationsClient() {
     return clamp(z, 0.3, 2.5);
   }
 
-  async function load() {
+  const load = useCallback(async () => {
     setLoading(true);
     setError(null);
     setNote(null);
@@ -1092,7 +1111,7 @@ export function PortalAutomationsClient() {
 
     if (!selected && list[0]?.id) selected = list[0].id;
 
-    if (!selected) {
+    if (!selected && mode === "editor") {
       const starter = buildStarterAutomation();
       setAutomations([starter]);
       lastSavedSigRef.current = "";
@@ -1144,7 +1163,7 @@ export function PortalAutomationsClient() {
       .catch(() => null);
 
     setLoading(false);
-  }
+  }, [mode]);
 
   function disconnectIncoming(nodeId: string) {
     if (!selectedAutomation) return;
@@ -1250,7 +1269,7 @@ export function PortalAutomationsClient() {
 
   useEffect(() => {
     void load();
-  }, []);
+  }, [load]);
 
   useEffect(() => {
     let cancelled = false;
@@ -1617,10 +1636,12 @@ export function PortalAutomationsClient() {
   }
 
   function createAutomation() {
+    const nowIso = new Date().toISOString();
     const next: Automation = {
       id: uid("auto"),
       name: `Automation ${automations.length + 1}`,
-      updatedAtIso: new Date().toISOString(),
+      updatedAtIso: nowIso,
+      createdAtIso: nowIso,
       createdBy: viewer?.userId ? { userId: viewer.userId, email: viewer.email, name: viewer.name } : undefined,
       nodes: [{ id: uid("n"), type: "trigger", label: "Trigger: Inbound SMS", x: 100, y: 120 }],
       edges: [],
@@ -1640,8 +1661,7 @@ export function PortalAutomationsClient() {
     setRenameOpen(true);
   }
 
-  function applyRename(nextNameRaw: string) {
-    if (!selectedAutomation) return;
+  function applyRenameById(automationId: string, nextNameRaw: string) {
     const trimmed = String(nextNameRaw || "")
       .replace(/\s+/g, " ")
       .trim()
@@ -1649,8 +1669,54 @@ export function PortalAutomationsClient() {
     if (!trimmed) return;
 
     const nextList = automations.map((a) =>
-      a.id === selectedAutomation.id ? { ...a, name: trimmed, updatedAtIso: new Date().toISOString() } : a,
+      a.id === automationId ? { ...a, name: trimmed, updatedAtIso: new Date().toISOString() } : a,
     );
+    setAutomations(nextList);
+    void saveAll(nextList);
+  }
+
+  function applyRename(nextNameRaw: string) {
+    if (!selectedAutomation) return;
+    applyRenameById(selectedAutomation.id, nextNameRaw);
+  }
+
+  function openAutomationEditorWindow(automationId: string) {
+    const url = `/portal/app/services/automations/editor?automation=${encodeURIComponent(automationId)}`;
+    window.open(url, "_blank", "noopener,noreferrer");
+  }
+
+  function startInlineRename(automationId: string) {
+    const a = automations.find((x) => x.id === automationId);
+    if (!a) return;
+    setInlineRenameId(automationId);
+    setInlineRenameValue(a.name);
+  }
+
+  function commitInlineRename(automationId: string) {
+    const trimmed = String(inlineRenameValue || "")
+      .replace(/\s+/g, " ")
+      .trim()
+      .slice(0, 80);
+
+    setInlineRenameId(null);
+    setInlineRenameValue("");
+    if (!trimmed) return;
+    applyRenameById(automationId, trimmed);
+  }
+
+  function togglePausedById(automationId: string) {
+    const nextList = automations.map((a) =>
+      a.id === automationId ? { ...a, paused: !Boolean(a.paused), updatedAtIso: new Date().toISOString() } : a,
+    );
+    setAutomations(nextList);
+    void saveAll(nextList);
+  }
+
+  function deleteAutomationFromList(automationId: string) {
+    const a = automations.find((x) => x.id === automationId);
+    const ok = window.confirm(`Delete automation "${a?.name || "(untitled)"}"? This cannot be undone.`);
+    if (!ok) return;
+    const nextList = automations.filter((x) => x.id !== automationId);
     setAutomations(nextList);
     void saveAll(nextList);
   }
@@ -1660,16 +1726,26 @@ export function PortalAutomationsClient() {
     duplicateAutomationById(selectedAutomation.id);
   }
 
-  function duplicateAutomationById(automationId: string) {
+  function duplicateAutomationById(automationId: string): string | null {
     const source = automations.find((x) => x.id === automationId);
-    if (!source) return;
+    if (!source) return null;
+
+    const proposed = `${source.name} (copy)`
+      .replace(/\s+/g, " ")
+      .trim()
+      .slice(0, 80);
+    const nameRaw = window.prompt("Duplicate automation name", proposed);
+    if (nameRaw == null) return null;
+    const name = String(nameRaw || "")
+      .replace(/\s+/g, " ")
+      .trim()
+      .slice(0, 80);
+    if (!name) return null;
+
     const copy: Automation = {
       ...source,
       id: uid("auto"),
-      name: `${source.name} (copy)`
-        .replace(/\s+/g, " ")
-        .trim()
-        .slice(0, 80),
+      name,
       updatedAtIso: new Date().toISOString(),
       nodes: source.nodes.map((n) => ({ ...n, id: uid("n") })),
       edges: [],
@@ -1693,6 +1769,7 @@ export function PortalAutomationsClient() {
     setAutomations(nextList);
     setSelectedAutomation(copy.id);
     void saveAll(nextList);
+    return copy.id;
   }
 
   function deleteAutomation() {
@@ -1760,14 +1837,347 @@ export function PortalAutomationsClient() {
     );
   }
 
-  return (
-    <div className="p-6">
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <div>
-          <h1 className="text-2xl font-bold text-brand-ink sm:text-3xl">Automation Builder</h1>
-          <div className="mt-1 text-sm text-zinc-600">Drag triggers + steps, connect them, and save multiple automations.</div>
+  if (mode === "list") {
+    const normalizedQuery = listQuery.trim().toLowerCase();
+    const uniqueTriggers = Array.from(
+      new Set(
+        automations
+          .map((a) => {
+            const triggerNode = (a.nodes || []).find((n) => n.type === "trigger");
+            const cfg = triggerNode?.config;
+            return cfg && cfg.kind === "trigger" ? cfg.triggerKind : null;
+          })
+          .filter((x): x is TriggerKind => Boolean(x)),
+      ),
+    );
+
+    const filtered = automations
+      .filter((a) => {
+        if (listStatus === "active" && Boolean(a.paused)) return false;
+        if (listStatus === "paused" && !Boolean(a.paused)) return false;
+        const triggerNode = (a.nodes || []).find((n: any) => n?.type === "trigger" && n?.config?.kind === "trigger") as any;
+        const triggerKind = triggerNode?.config?.triggerKind as TriggerKind | undefined;
+        if (listTrigger !== "all" && triggerKind !== listTrigger) return false;
+        if (!normalizedQuery) return true;
+        return (
+          String(a.name || "").toLowerCase().includes(normalizedQuery) ||
+          String(a.id || "").toLowerCase().includes(normalizedQuery)
+        );
+      })
+      .sort((a, b) => (String(b.updatedAtIso || "") || "").localeCompare(String(a.updatedAtIso || "") || ""));
+
+    return (
+      <div className="p-6">
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div>
+            <h1 className="text-2xl font-bold text-brand-ink sm:text-3xl">My Automations</h1>
+            <div className="mt-1 text-sm text-zinc-600">Create, filter, and open automations in a dedicated editor window.</div>
+          </div>
+          <button
+            type="button"
+            className="rounded-2xl bg-blue-600 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-700 disabled:opacity-60"
+            onClick={() => {
+              const nowIso = new Date().toISOString();
+              const next: Automation = {
+                ...buildStarterAutomation(),
+                name: "New automation",
+                updatedAtIso: nowIso,
+                createdAtIso: nowIso,
+                createdBy: viewer?.userId ? { userId: viewer.userId, email: viewer.email, name: viewer.name } : undefined,
+              };
+              const nextList = [next, ...automations].slice(0, 50);
+              setAutomations(nextList);
+              void saveAll(nextList);
+              openAutomationEditorWindow(next.id);
+            }}
+            disabled={saving}
+          >
+            + New automation
+          </button>
+        </div>
+
+        <div className="mt-4 rounded-3xl border border-zinc-200 bg-white p-4">
+          <div className="grid grid-cols-1 gap-3 md:grid-cols-12">
+            <div className="md:col-span-6">
+              <label className="text-xs font-semibold text-zinc-600">Search</label>
+              <input
+                value={listQuery}
+                onChange={(e) => setListQuery(e.target.value)}
+                className="mt-1 w-full rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-sm outline-none focus:border-zinc-300"
+                placeholder="Search by name or id…"
+              />
+            </div>
+            <div className="md:col-span-3">
+              <label className="text-xs font-semibold text-zinc-600">Status</label>
+              <select
+                value={listStatus}
+                onChange={(e) => setListStatus(e.target.value as any)}
+                className="mt-1 w-full rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-sm"
+              >
+                <option value="all">All</option>
+                <option value="active">Active</option>
+                <option value="paused">Paused</option>
+              </select>
+            </div>
+            <div className="md:col-span-3">
+              <label className="text-xs font-semibold text-zinc-600">Trigger</label>
+              <select
+                value={listTrigger}
+                onChange={(e) => setListTrigger(e.target.value as any)}
+                className="mt-1 w-full rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-sm"
+              >
+                <option value="all">All</option>
+                {uniqueTriggers.map((t) => (
+                  <option key={t} value={t}>
+                    {String(t).replace(/_/g, " ")}
+                  </option>
+                ))}
+              </select>
+            </div>
+          </div>
+        </div>
+
+        <div className="mt-6 overflow-hidden rounded-3xl border border-zinc-200 bg-white">
+          <div className="grid grid-cols-12 gap-3 border-b border-zinc-200 bg-zinc-50 px-4 py-3 text-xs font-semibold uppercase tracking-wide text-zinc-600">
+            <div className="col-span-4">Name</div>
+            <div className="col-span-2">Status</div>
+            <div className="col-span-2">Trigger</div>
+            <div className="col-span-2">Updated</div>
+            <div className="col-span-1">Created</div>
+            <div className="col-span-1 text-right">Actions</div>
+          </div>
+
+          <div className="divide-y divide-zinc-100">
+            {filtered.length === 0 ? (
+              <div className="px-4 py-10 text-center text-sm text-zinc-600">No automations match your filters.</div>
+            ) : (
+              filtered.map((a) => {
+                const triggerNode = (a.nodes || []).find((n: any) => n?.type === "trigger" && n?.config?.kind === "trigger") as any;
+                const triggerKind = triggerNode?.config?.triggerKind as TriggerKind | undefined;
+                const triggerLabel = triggerKind ? String(triggerKind).replace(/_/g, " ") : "—";
+                const updatedLabel = a.updatedAtIso ? new Date(a.updatedAtIso).toLocaleString() : "—";
+                const createdLabel = (a as any).createdAtIso ? new Date((a as any).createdAtIso).toLocaleDateString() : "—";
+                return (
+                  <div
+                    key={a.id}
+                    className="grid cursor-pointer grid-cols-12 items-center gap-3 px-4 py-3 hover:bg-zinc-50"
+                    onClick={() => openAutomationEditorWindow(a.id)}
+                  >
+                    <div className="col-span-4 min-w-0">
+                      {inlineRenameId === a.id ? (
+                        <input
+                          ref={inlineRenameInputRef}
+                          value={inlineRenameValue}
+                          onChange={(e) => setInlineRenameValue(e.target.value)}
+                          className="w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm font-semibold text-zinc-900 outline-none focus:border-zinc-300"
+                          onClick={(e) => e.stopPropagation()}
+                          onBlur={() => commitInlineRename(a.id)}
+                          onKeyDown={(e) => {
+                            if (e.key === "Enter") {
+                              e.preventDefault();
+                              commitInlineRename(a.id);
+                            }
+                            if (e.key === "Escape") {
+                              e.preventDefault();
+                              setInlineRenameId(null);
+                              setInlineRenameValue("");
+                            }
+                          }}
+                        />
+                      ) : (
+                        <button
+                          type="button"
+                          className="block w-full truncate text-left text-sm font-semibold text-zinc-900 hover:underline"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            startInlineRename(a.id);
+                          }}
+                          title="Click to rename"
+                        >
+                          {a.name}
+                        </button>
+                      )}
+                      <div className="truncate text-xs text-zinc-500">{a.id}</div>
+                    </div>
+
+                    <div className="col-span-2">
+                      <span
+                        className={
+                          "inline-flex items-center rounded-full border px-2 py-1 text-xs font-semibold " +
+                          (a.paused ? "border-amber-200 bg-amber-50 text-amber-800" : "border-emerald-200 bg-emerald-50 text-emerald-800")
+                        }
+                      >
+                        {a.paused ? "Paused" : "Active"}
+                      </span>
+                    </div>
+
+                    <div className="col-span-2 truncate text-sm text-zinc-700" title={triggerLabel}>
+                      {triggerLabel}
+                    </div>
+
+                    <div className="col-span-2 truncate text-sm text-zinc-700" title={updatedLabel}>
+                      {updatedLabel}
+                    </div>
+
+                    <div className="col-span-1 truncate text-sm text-zinc-700" title={createdLabel}>
+                      {createdLabel}
+                    </div>
+
+                    <div className="col-span-1 flex justify-end gap-2">
+                      <button
+                        type="button"
+                        className={
+                          "rounded-xl border px-3 py-2 text-xs font-semibold hover:bg-zinc-50 " +
+                          (a.paused ? "border-emerald-200 bg-emerald-50 text-emerald-800" : "border-amber-200 bg-amber-50 text-amber-800")
+                        }
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          togglePausedById(a.id);
+                        }}
+                        title={a.paused ? "Resume" : "Pause"}
+                      >
+                        {a.paused ? "Resume" : "Pause"}
+                      </button>
+                      <button
+                        type="button"
+                        className="rounded-xl border border-zinc-200 bg-white px-3 py-2 text-xs font-semibold hover:bg-zinc-50"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          const nextId = duplicateAutomationById(a.id);
+                          if (nextId) openAutomationEditorWindow(nextId);
+                        }}
+                      >
+                        Duplicate
+                      </button>
+                      <button
+                        type="button"
+                        className="rounded-xl border border-red-200 bg-red-50 px-3 py-2 text-xs font-semibold text-red-700 hover:bg-red-100"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          deleteAutomationFromList(a.id);
+                        }}
+                      >
+                        Delete
+                      </button>
+                    </div>
+                  </div>
+                );
+              })
+            )}
+          </div>
         </div>
       </div>
+    );
+  }
+
+  return (
+    <div className={mode === "editor" ? "p-3" : "p-6"}>
+      {mode === "editor" ? (
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div className="flex min-w-0 items-center gap-2">
+            <button
+              type="button"
+              className="rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-sm font-semibold hover:bg-zinc-50"
+              onClick={() => {
+                try {
+                  window.close();
+                } catch {
+                  // ignore
+                }
+                window.location.href = "/portal/app/services/automations";
+              }}
+            >
+              Back
+            </button>
+
+            <div className="min-w-0">
+              {selectedAutomation && inlineRenameId === selectedAutomation.id ? (
+                <input
+                  ref={inlineRenameInputRef}
+                  value={inlineRenameValue}
+                  onChange={(e) => setInlineRenameValue(e.target.value)}
+                  className="w-full max-w-[520px] rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm font-semibold text-zinc-900 outline-none focus:border-zinc-300"
+                  onBlur={() => commitInlineRename(selectedAutomation.id)}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") {
+                      e.preventDefault();
+                      commitInlineRename(selectedAutomation.id);
+                    }
+                    if (e.key === "Escape") {
+                      e.preventDefault();
+                      setInlineRenameId(null);
+                      setInlineRenameValue("");
+                    }
+                  }}
+                />
+              ) : (
+                <button
+                  type="button"
+                  className="block max-w-[520px] truncate text-left text-lg font-bold text-brand-ink hover:underline"
+                  onClick={() => {
+                    if (!selectedAutomation) return;
+                    startInlineRename(selectedAutomation.id);
+                  }}
+                  title="Click to rename"
+                >
+                  {selectedAutomation?.name ?? "Automation"}
+                </button>
+              )}
+              <div className="truncate text-xs text-zinc-500">{selectedAutomation?.id ?? ""}</div>
+            </div>
+          </div>
+
+          <div className="flex flex-wrap items-center justify-end gap-2">
+            <div className="mr-2 hidden flex-col items-end sm:flex">
+              <div className="text-xs font-semibold text-zinc-700">{saving ? "Saving…" : dirty ? "Autosaving…" : "Saved"}</div>
+              <div className="text-xs text-zinc-500">{lastSavedAtIso ? `Last saved ${new Date(lastSavedAtIso).toLocaleTimeString()}` : ""}</div>
+            </div>
+            {selectedAutomation ? (
+              <button
+                type="button"
+                className={
+                  "rounded-2xl px-3 py-2 text-sm font-semibold transition disabled:opacity-60 " +
+                  (selectedAutomation.paused
+                    ? "border border-amber-200 bg-amber-50 text-amber-800 hover:bg-amber-100"
+                    : "border border-emerald-200 bg-emerald-50 text-emerald-800 hover:bg-emerald-100")
+                }
+                onClick={() => {
+                  const nextPaused = !Boolean(selectedAutomation.paused);
+                  updateSelectedAutomation((a) => ({ ...a, paused: nextPaused, updatedAtIso: new Date().toISOString() }));
+                  setDirty(true);
+                }}
+                disabled={saving}
+                title={selectedAutomation.paused ? "Resume this automation" : "Pause this automation"}
+              >
+                {selectedAutomation.paused ? "Paused" : "Active"}
+              </button>
+            ) : null}
+            <button
+              type="button"
+              className="rounded-2xl bg-blue-600 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-700 disabled:opacity-60"
+              onClick={() => void saveAll()}
+              disabled={saving}
+            >
+              {saving ? "Saving…" : "Save"}
+            </button>
+            <button
+              type="button"
+              className="rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-sm font-semibold text-zinc-700 hover:bg-zinc-50 disabled:opacity-60"
+              onClick={() => openTestModal()}
+              disabled={saving || !selectedAutomation}
+            >
+              Test
+            </button>
+          </div>
+        </div>
+      ) : (
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div>
+            <h1 className="text-2xl font-bold text-brand-ink sm:text-3xl">Automation Builder</h1>
+            <div className="mt-1 text-sm text-zinc-600">Drag triggers + steps, connect them, and save multiple automations.</div>
+          </div>
+        </div>
+      )}
 
       {note ? <div className="mt-4 rounded-2xl bg-emerald-50 px-4 py-3 text-sm text-emerald-800">{note}</div> : null}
 
@@ -2327,7 +2737,8 @@ export function PortalAutomationsClient() {
         </div>
       ) : null}
 
-      <div className="mt-5 rounded-3xl border border-zinc-200 bg-white p-4">
+  {mode === "editor" ? null : (
+  <div className="mt-5 rounded-3xl border border-zinc-200 bg-white p-4">
         <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
           <div className="flex w-full min-w-0 flex-wrap items-center gap-2 sm:w-auto sm:flex-nowrap">
             <button
@@ -2482,6 +2893,7 @@ export function PortalAutomationsClient() {
           </div>
         </div>
       </div>
+      )}
 
       <div className="mt-4">
         <div className="rounded-3xl border border-zinc-200 bg-white p-4">
@@ -2714,17 +3126,80 @@ export function PortalAutomationsClient() {
                   <button
                     type="button"
                     className="ml-1 rounded-xl border border-zinc-200 bg-white px-2 py-1 font-semibold hover:bg-zinc-50"
-                    onClick={() => setView({ panX: 80, panY: 80, zoom: 1 })}
+                    onClick={() => setView({ panX: mode === "editor" ? 420 : 80, panY: 80, zoom: 1 })}
                     title="Reset view"
                   >
                     Reset
                   </button>
                 </div>
 
+                {mode === "editor" && !inspectorOpen ? (
+                  <div
+                    data-kind="ui"
+                    className="absolute left-0 top-0 z-30 h-full w-[360px] overflow-auto border-r border-zinc-200 bg-white p-3 shadow-lg"
+                    onPointerDown={(ev) => ev.stopPropagation()}
+                    onWheel={(ev) => ev.stopPropagation()}
+                  >
+                    <div className="flex items-start justify-between gap-3">
+                      <div>
+                        <div className="text-xs font-semibold text-zinc-900">Palette</div>
+                        <div className="mt-0.5 text-xs text-zinc-600">Drag onto the canvas.</div>
+                      </div>
+                    </div>
+
+                    <div className="mt-3 grid gap-2">
+                      {([
+                        { type: "trigger" as const, title: "Trigger" },
+                        { type: "action" as const, title: "Action" },
+                        { type: "condition" as const, title: "Condition" },
+                        { type: "delay" as const, title: "Delay" },
+                        { type: "note" as const, title: "Note" },
+                      ] as const).map((x) => {
+                        const b = badgeForType(x.type);
+                        const disabled =
+                          x.type === "trigger" &&
+                          Boolean(selectedAutomation && (selectedAutomation.nodes || []).some((n) => n.type === "trigger"));
+                        return (
+                          <div
+                            key={x.type}
+                            draggable={!disabled}
+                            onDragStart={(ev) => {
+                              if (disabled) {
+                                ev.preventDefault();
+                                return;
+                              }
+                              ev.dataTransfer.setData("text/plain", x.type);
+                              ev.dataTransfer.effectAllowed = "copy";
+                            }}
+                            className={
+                              "rounded-2xl border border-zinc-200 px-3 py-2 " +
+                              (disabled
+                                ? "cursor-not-allowed bg-zinc-50 opacity-60"
+                                : "cursor-grab bg-zinc-50 hover:bg-zinc-100 active:cursor-grabbing")
+                            }
+                          >
+                            <div className="flex items-center justify-between gap-3">
+                              <div className="text-sm font-semibold text-zinc-900">{x.title}</div>
+                              <div className={`rounded-full border px-2 py-0.5 text-xs font-semibold ${b.cls}`}>{b.label}</div>
+                            </div>
+                            <div className="mt-0.5 text-xs text-zinc-600">
+                              {disabled ? "Trigger already set (only one allowed)." : `Drop to add a ${x.title.toLowerCase()} node.`}
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+                ) : null}
+
                 {inspectorOpen ? (
                   <div
                     data-kind="ui"
-                    className="absolute left-3 top-3 z-30 w-[360px] max-w-[calc(100%-1.5rem)] rounded-2xl border border-zinc-200 bg-white/95 p-3 shadow-lg backdrop-blur"
+                    className={
+                      mode === "editor"
+                        ? "absolute left-0 top-0 z-30 h-full w-[360px] overflow-auto border-r border-zinc-200 bg-white p-3 shadow-lg"
+                        : "absolute left-3 top-3 z-30 w-[360px] max-w-[calc(100%-1.5rem)] rounded-2xl border border-zinc-200 bg-white/95 p-3 shadow-lg backdrop-blur"
+                    }
                     onPointerDown={(ev) => ev.stopPropagation()}
                     onWheel={(ev) => ev.stopPropagation()}
                   >
