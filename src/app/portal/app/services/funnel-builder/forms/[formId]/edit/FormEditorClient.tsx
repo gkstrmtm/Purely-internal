@@ -638,7 +638,7 @@ export function FormEditorClient({ basePath, formId }: { basePath: string; formI
           <h1 className="mt-2 text-2xl font-bold text-brand-ink sm:text-3xl">{form?.name || "…"}</h1>
           <div className="mt-2 flex flex-wrap items-center gap-3 text-sm text-zinc-600">
             <Link
-              href={`${basePath}/forms/${encodeURIComponent(form?.slug || "")}`}
+              href={`/credit/forms/${encodeURIComponent(form?.slug || "")}`}
               target="_blank"
               className="font-semibold text-[color:var(--color-brand-blue)] hover:underline"
             >
