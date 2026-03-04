@@ -33,18 +33,12 @@ function isLikelyApexDomain(domain: string): boolean {
 }
 
 function coerceExpectedTargetHost(req: Request): string | null {
-  const raw = (process.env.NEXT_PUBLIC_APP_URL || "").trim();
-  if (raw) {
-    try {
-      return new URL(raw).hostname || null;
-    } catch {
-      // ignore
-    }
-  }
+  const explicit = (process.env.CUSTOM_DOMAIN_TARGET_HOST || "").trim();
+  if (explicit) return normalizeDnsName(explicit) || null;
 
-  const host = req.headers.get("host") || "";
-  const stripped = host.split(":")[0] || "";
-  return stripped.trim() || null;
+  // Default: Vercel DNS target for project domains.
+  // (Root domains may use ALIAS/ANAME to this target, or A=76.76.21.21.)
+  return "cname.vercel-dns.com";
 }
 
 async function resolveCnameChain(host: string, maxDepth = 6) {
@@ -128,6 +122,57 @@ export async function POST(req: Request, ctx: { params: Promise<{ domainId: stri
       // DNS is good. Proceed to hosting SSL/provisioning checks.
       const vercel = await ensureVercelProjectDomain(domain);
       debug.vercel = vercel;
+
+      if (!vercel.configured) {
+        if (domainRow.status === "VERIFIED") {
+          await prisma.creditCustomDomain.update({ where: { id: domainRow.id }, data: { status: "PENDING", verifiedAt: null } });
+        }
+        const current = await prisma.creditCustomDomain.findUnique({
+          where: { id: domainRow.id },
+          select: { id: true, domain: true, status: true, verifiedAt: true, createdAt: true, updatedAt: true },
+        });
+        return NextResponse.json({
+          ok: true,
+          verified: false,
+          error:
+            "DNS is pointing correctly, but the platform is missing domain provisioning configuration (SSL can’t be activated automatically). Please contact support.",
+          domain: current,
+          debug,
+        });
+      }
+
+      // If Vercel isn't verified yet, SSL cannot be issued.
+      if (vercel.ok && vercel.verified === false) {
+        if (domainRow.status === "VERIFIED") {
+          await prisma.creditCustomDomain.update({ where: { id: domainRow.id }, data: { status: "PENDING", verifiedAt: null } });
+        }
+        const current = await prisma.creditCustomDomain.findUnique({
+          where: { id: domainRow.id },
+          select: { id: true, domain: true, status: true, verifiedAt: true, createdAt: true, updatedAt: true },
+        });
+
+        if (vercel.verification?.length) {
+          const recordsHint = formatVercelVerificationRecords(vercel.verification);
+          return NextResponse.json({
+            ok: true,
+            verified: false,
+            error:
+              `DNS is pointing correctly, but the domain still needs a hosting verification record before SSL can be issued.${recordsHint} After adding it, wait a minute and click Verify DNS again.`,
+            domain: current,
+            debug,
+          });
+        }
+
+        return NextResponse.json({
+          ok: true,
+          verified: false,
+          error:
+            `DNS is pointing correctly, but the hosting provider still hasn’t verified the domain yet. Make sure your DNS record points to ${expectedTargetHost} (or A=76.76.21.21 for root domains), then wait a minute and click Verify DNS again.`,
+          domain: current,
+          debug,
+        });
+      }
+
       const https = await checkHttpsReachable(domain);
       debug.https = https;
 
@@ -150,34 +195,13 @@ export async function POST(req: Request, ctx: { params: Promise<{ domainId: stri
         select: { id: true, domain: true, status: true, verifiedAt: true, createdAt: true, updatedAt: true },
       });
 
-      if (!vercel.configured) {
-        return NextResponse.json({
-          ok: true,
-          verified: false,
-          error:
-            "DNS is pointing correctly, but the platform is missing domain provisioning configuration (SSL can’t be activated automatically). Please contact support.",
-          domain: current,
-          debug,
-        });
-      }
-
-      if (vercel.ok && vercel.verified === false && vercel.verification?.length) {
-        const recordsHint = formatVercelVerificationRecords(vercel.verification);
-        return NextResponse.json({
-          ok: true,
-          verified: false,
-          error:
-            `DNS is pointing correctly, but the domain still needs a hosting verification record before SSL can be issued.${recordsHint} After adding it, wait a minute and click Verify DNS again.`,
-          domain: current,
-          debug,
-        });
-      }
-
       return NextResponse.json({
         ok: true,
         verified: false,
         error:
-          "DNS is pointing correctly, but the domain isn’t reachable over HTTPS yet (SSL/certificate still provisioning). Please wait a few minutes and click Verify DNS again.",
+          https.ok
+            ? "DNS is pointing correctly, but the domain isn’t reachable over HTTPS yet (SSL/certificate still provisioning). Please wait a few minutes and click Verify DNS again."
+            : `DNS is pointing correctly, but HTTPS isn’t ready yet (SSL/certificate still provisioning). Last check error: ${https.error}. Please wait a few minutes and click Verify DNS again.`,
         domain: current,
         debug,
       });
@@ -240,6 +264,56 @@ export async function POST(req: Request, ctx: { params: Promise<{ domainId: stri
 
       const vercel = await ensureVercelProjectDomain(domain);
       debug.vercel = vercel;
+
+      if (!vercel.configured) {
+        if (domainRow.status === "VERIFIED") {
+          await prisma.creditCustomDomain.update({ where: { id: domainRow.id }, data: { status: "PENDING", verifiedAt: null } });
+        }
+        const current = await prisma.creditCustomDomain.findUnique({
+          where: { id: domainRow.id },
+          select: { id: true, domain: true, status: true, verifiedAt: true, createdAt: true, updatedAt: true },
+        });
+        return NextResponse.json({
+          ok: true,
+          verified: false,
+          error:
+            "DNS is pointing correctly, but the platform is missing domain provisioning configuration (SSL can’t be activated automatically). Please contact support.",
+          domain: current,
+          debug: { ...debug, isApex },
+        });
+      }
+
+      if (vercel.ok && vercel.verified === false) {
+        if (domainRow.status === "VERIFIED") {
+          await prisma.creditCustomDomain.update({ where: { id: domainRow.id }, data: { status: "PENDING", verifiedAt: null } });
+        }
+        const current = await prisma.creditCustomDomain.findUnique({
+          where: { id: domainRow.id },
+          select: { id: true, domain: true, status: true, verifiedAt: true, createdAt: true, updatedAt: true },
+        });
+
+        if (vercel.verification?.length) {
+          const recordsHint = formatVercelVerificationRecords(vercel.verification);
+          return NextResponse.json({
+            ok: true,
+            verified: false,
+            error:
+              `DNS is pointing correctly, but the domain still needs a hosting verification record before SSL can be issued.${recordsHint} After adding it, wait a minute and click Verify DNS again.`,
+            domain: current,
+            debug: { ...debug, isApex },
+          });
+        }
+
+        return NextResponse.json({
+          ok: true,
+          verified: false,
+          error:
+            "DNS is pointing correctly, but the hosting provider still hasn’t verified the domain yet. For root domains, use ALIAS/ANAME -> cname.vercel-dns.com or A -> 76.76.21.21, then wait a minute and click Verify DNS again.",
+          domain: current,
+          debug: { ...debug, isApex },
+        });
+      }
+
       const https = await checkHttpsReachable(domain);
       debug.https = https;
 
@@ -262,34 +336,13 @@ export async function POST(req: Request, ctx: { params: Promise<{ domainId: stri
         select: { id: true, domain: true, status: true, verifiedAt: true, createdAt: true, updatedAt: true },
       });
 
-      if (!vercel.configured) {
-        return NextResponse.json({
-          ok: true,
-          verified: false,
-          error:
-            "DNS is pointing correctly, but the platform is missing domain provisioning configuration (SSL can’t be activated automatically). Please contact support.",
-          domain: current,
-          debug: { ...debug, isApex },
-        });
-      }
-
-      if (vercel.ok && vercel.verified === false && vercel.verification?.length) {
-        const recordsHint = formatVercelVerificationRecords(vercel.verification);
-        return NextResponse.json({
-          ok: true,
-          verified: false,
-          error:
-            `DNS is pointing correctly, but the domain still needs a hosting verification record before SSL can be issued.${recordsHint} After adding it, wait a minute and click Verify DNS again.`,
-          domain: current,
-          debug: { ...debug, isApex },
-        });
-      }
-
       return NextResponse.json({
         ok: true,
         verified: false,
         error:
-          "DNS is pointing correctly, but the domain isn’t reachable over HTTPS yet (SSL/certificate still provisioning). Please wait a few minutes and click Verify DNS again.",
+          https.ok
+            ? "DNS is pointing correctly, but the domain isn’t reachable over HTTPS yet (SSL/certificate still provisioning). Please wait a few minutes and click Verify DNS again."
+            : `DNS is pointing correctly, but HTTPS isn’t ready yet (SSL/certificate still provisioning). Last check error: ${https.error}. Please wait a few minutes and click Verify DNS again.`,
         domain: current,
         debug: { ...debug, isApex },
       });

@@ -109,16 +109,11 @@ function isLikelyApexDomain(domain: string): boolean {
 }
 
 function coercePlatformTargetHost(): string | null {
-  const raw = (process.env.NEXT_PUBLIC_APP_URL || "").trim();
-  if (raw) {
-    try {
-      return new URL(raw).hostname || null;
-    } catch {
-      // ignore
-    }
-  }
-  if (typeof window !== "undefined") return window.location.hostname || null;
-  return null;
+  const explicit = (process.env.NEXT_PUBLIC_CUSTOM_DOMAIN_TARGET_HOST || "").trim();
+  if (explicit) return explicit;
+
+  // Default: Vercel target for custom domains.
+  return "cname.vercel-dns.com";
 }
 
 function extractVercelVerificationRecords(raw: unknown): VercelVerificationRecord[] {
@@ -984,7 +979,7 @@ export function FunnelBuilderClient() {
                           <div className="text-xs font-semibold uppercase tracking-wide text-zinc-500">DNS records to add</div>
                           {isLikelyApexDomain(d.domain) ? (
                             <div className="mt-1 text-xs text-zinc-600">
-                              For the root (<span className="font-mono">@</span>), use <span className="font-semibold">either</span> an <span className="font-semibold">ALIAS/ANAME</span> <span className="font-semibold">or</span> an <span className="font-semibold">A record</span> — not both.
+                              For the root (<span className="font-mono">@</span>), use <span className="font-semibold">either</span> an <span className="font-semibold">ALIAS/ANAME</span> <span className="font-semibold">or</span> an <span className="font-semibold">A record</span>.
                             </div>
                           ) : null}
                           {platformTargetHost ? (
