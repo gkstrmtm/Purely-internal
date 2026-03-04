@@ -7,12 +7,15 @@ function safeFrom(raw: unknown) {
   return raw;
 }
 
-export default function PortalLoginRedirectPage({
+export default async function PortalLoginRedirectPage({
   searchParams,
 }: {
-  searchParams?: { from?: string | string[] };
+  searchParams?: Promise<{ from?: string | string[] | undefined }>;
 }) {
-  const from = safeFrom(Array.isArray(searchParams?.from) ? searchParams?.from[0] : searchParams?.from);
+  const resolvedSearchParams = searchParams ? await searchParams : undefined;
+  const from = safeFrom(
+    Array.isArray(resolvedSearchParams?.from) ? resolvedSearchParams?.from[0] : resolvedSearchParams?.from,
+  );
   const qs = from ? `?from=${encodeURIComponent(from)}` : "";
   redirect(`/login${qs}`);
 }

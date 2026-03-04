@@ -5,7 +5,7 @@
   "scripts": {
     "dev": "next dev",
     "prebuild": "node scripts/prisma-prebuild.mjs",
-    "build": "next build",
+    "build": "next build --webpack",
     "start": "next start",
     "lint": "eslint",
     "test:twilio-mms-smoke": "node scripts/twilio-mms-smoke.mjs",
@@ -16,7 +16,7 @@
     "db:seed": "prisma db seed",
     "db:deploy": "node scripts/db-guard.mjs && prisma db push && prisma db seed",
     "db:patch:hr": "node scripts/apply-hr-db-patch.mjs",
-    "vercel-build": "node scripts/prisma-prebuild.mjs && next build",
+    "vercel-build": "node scripts/prisma-prebuild.mjs && next build --webpack",
     "blogs:cleanup-asterisks": "node prisma/cleanup-blog-asterisks.js"
   },
   "prisma": {

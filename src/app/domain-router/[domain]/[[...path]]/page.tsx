@@ -319,9 +319,10 @@ export default async function CustomDomainCatchallPage({
   searchParams,
 }: {
   params: Promise<{ domain: string; path?: string[] }>;
-  searchParams?: { [key: string]: string | string[] | undefined };
+  searchParams?: Promise<{ [key: string]: string | string[] | undefined }>;
 }) {
   const { domain, path } = await params;
+  const resolvedSearchParams = searchParams ? await searchParams : undefined;
   const host = decodeURIComponent(String(domain || "")).trim().toLowerCase();
   if (!host) notFound();
 
@@ -415,7 +416,7 @@ export default async function CustomDomainCatchallPage({
     const formSlug = safeSlug(segments[1]);
     if (!formSlug || segments.length > 2) notFound();
 
-    const embedRaw = searchParams?.embed;
+    const embedRaw = resolvedSearchParams?.embed;
     const embed = Array.isArray(embedRaw) ? embedRaw[0] === "1" : embedRaw === "1";
 
     const form = await prisma.creditForm

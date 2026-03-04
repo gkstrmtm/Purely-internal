@@ -107,13 +107,15 @@ export default async function CreditHostedFormPage({
   searchParams,
 }: {
   params: Promise<{ slug: string }>;
-  searchParams?: { [key: string]: string | string[] | undefined };
+  searchParams?: Promise<{ [key: string]: string | string[] | undefined }>;
 }) {
   const { slug } = await params;
+  const resolvedSearchParams = searchParams ? await searchParams : undefined;
+
   const s = String(slug || "").trim().toLowerCase();
   if (!s) notFound();
 
-  const embedRaw = searchParams?.embed;
+  const embedRaw = resolvedSearchParams?.embed;
   const embed = Array.isArray(embedRaw) ? embedRaw[0] === "1" : embedRaw === "1";
 
   const form = await prisma.creditForm
