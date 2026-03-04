@@ -247,6 +247,13 @@ export function FunnelBuilderClient() {
         const json = (await res.json().catch(() => null)) as any;
         if (!res.ok || !json || json.ok !== true) throw new Error(json?.error || "Verification failed");
 
+        if (json.domain) {
+          setDomains((prev) => {
+            if (!prev) return prev;
+            return prev.map((d) => (d.id === domain.id ? { ...d, ...json.domain } : d));
+          });
+        }
+
         if (json.verified === true && json.domain) {
           setDomains((prev) => {
             if (!prev) return prev;
@@ -258,19 +265,27 @@ export function FunnelBuilderClient() {
         const expectedTargetHost =
           typeof json?.debug?.expectedTargetHost === "string" ? String(json.debug.expectedTargetHost).trim() : "";
         const raw = typeof json?.error === "string" ? json.error : "";
+        const isActionable =
+          /^dns\s+is\s+pointing\s+correctly/i.test(raw) ||
+          /^your\s+domain\s+has\s+/i.test(raw) ||
+          /ssl|https|certificate|provision/i.test(raw) ||
+          /contact\s+support/i.test(raw);
+
         const base = raw
           ? /dns\s+doesn\W?t\s+resolve/i.test(raw)
             ? "Not verified yet: your domain’s DNS isn’t pointing to Purely yet (or DNS propagation isn’t finished)."
             : /cname\s+doesn\W?t\s+point/i.test(raw)
               ? "Not verified yet: your CNAME record isn’t pointing to Purely yet (or DNS propagation isn’t finished)."
-              : `Not verified yet: ${raw}`
+              : isActionable
+                ? raw
+                : `Not verified yet: ${raw}`
           : "Not verified yet. DNS changes can take a few minutes to propagate.";
 
         const hint = expectedTargetHost ? ` Expected target: ${expectedTargetHost}.` : "";
 
         setDomainVerifyError((m) => ({
           ...m,
-          [domain.id]: `${base}${hint} Double-check the records below and try again in a few minutes.`,
+          [domain.id]: `${base}${hint}${isActionable ? "" : " Double-check the records below and try again in a few minutes."}`,
         }));
       } catch (e) {
         setDomainVerifyError((m) => ({
@@ -830,6 +845,11 @@ export function FunnelBuilderClient() {
 
                         <div className="mt-3 rounded-2xl border border-zinc-200 bg-white p-3">
                           <div className="text-xs font-semibold uppercase tracking-wide text-zinc-500">DNS records to add</div>
+                          {isLikelyApexDomain(d.domain) ? (
+                            <div className="mt-1 text-xs text-zinc-600">
+                              For the root (<span className="font-mono">@</span>), use <span className="font-semibold">either</span> an <span className="font-semibold">ALIAS/ANAME</span> <span className="font-semibold">or</span> an <span className="font-semibold">A record</span> — not both.
+                            </div>
+                          ) : null}
                           {platformTargetHost ? (
                             <div className="mt-2 overflow-auto">
                               <table className="w-full min-w-[520px] border-separate border-spacing-0">

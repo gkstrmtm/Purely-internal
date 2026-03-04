@@ -69,6 +69,10 @@ function uniq(xs: string[]) {
   return Array.from(new Set(xs.filter(Boolean)));
 }
 
+function isVercelRuntime() {
+  return String(process.env.VERCEL || "").trim() === "1";
+}
+
 function pickVercelConfig() {
   const token = (process.env.VERCEL_API_TOKEN || process.env.VERCEL_TOKEN || "").trim();
   const projectIdOrName = (
@@ -250,12 +254,18 @@ export async function POST(req: Request, ctx: { params: Promise<{ domainId: stri
         await prisma.creditCustomDomain.update({ where: { id: domainRow.id }, data: { status: "PENDING", verifiedAt: null } });
       }
 
+      const current = await prisma.creditCustomDomain.findUnique({
+        where: { id: domainRow.id },
+        select: { id: true, domain: true, status: true, verifiedAt: true, createdAt: true, updatedAt: true },
+      });
+
       if (!vercel.configured) {
         return NextResponse.json({
           ok: true,
           verified: false,
           error:
             "DNS is pointing correctly, but the platform is missing domain provisioning configuration (SSL can’t be activated automatically). Please contact support.",
+          domain: current,
           debug,
         });
       }
@@ -267,6 +277,7 @@ export async function POST(req: Request, ctx: { params: Promise<{ domainId: stri
           verified: false,
           error:
             `DNS is pointing correctly, but the domain still needs a hosting verification record before SSL can be issued.${recordsHint} After adding it, wait a minute and click Verify DNS again.`,
+          domain: current,
           debug,
         });
       }
@@ -276,6 +287,7 @@ export async function POST(req: Request, ctx: { params: Promise<{ domainId: stri
         verified: false,
         error:
           "DNS is pointing correctly, but the domain isn’t reachable over HTTPS yet (SSL/certificate still provisioning). Please wait a few minutes and click Verify DNS again.",
+        domain: current,
         debug,
       });
     }
@@ -299,15 +311,19 @@ export async function POST(req: Request, ctx: { params: Promise<{ domainId: stri
     const targetAuniq = uniq(targetA);
     const targetAAAAuniq = uniq(targetAAAA);
 
-    const aHasMatch = intersects(domainAuniq, targetAuniq);
-    const aaaaHasMatch = intersects(domainAAAAuniq, targetAAAAuniq);
-    const aOnlyExpected = domainAuniq.length > 0 && domainAuniq.every((ip) => targetAuniq.includes(ip));
-    const aaaaOnlyExpected = domainAAAAuniq.length > 0 && domainAAAAuniq.every((ip) => targetAAAAuniq.includes(ip));
+    // Vercel apex domains often resolve to 76.76.21.21, even if the platform host resolves to a different Vercel edge IP.
+    const allowedApexA = uniq([...(targetAuniq || []), ...(isVercelRuntime() ? ["76.76.21.21"] : [])]);
+    const allowedApexAAAA = uniq([...(targetAAAAuniq || [])]);
 
-    const extraA = domainAuniq.filter((ip) => !targetAuniq.includes(ip));
-    const extraAAAA = domainAAAAuniq.filter((ip) => !targetAAAAuniq.includes(ip));
+    const aHasMatch = allowedApexA.length ? intersects(domainAuniq, allowedApexA) : intersects(domainAuniq, targetAuniq);
+    const aaaaHasMatch = allowedApexAAAA.length
+      ? intersects(domainAAAAuniq, allowedApexAAAA)
+      : intersects(domainAAAAuniq, targetAAAAuniq);
 
-    const dnsOk = aOnlyExpected || aaaaOnlyExpected || aHasMatch || aaaaHasMatch;
+    const extraA = allowedApexA.length ? domainAuniq.filter((ip) => !allowedApexA.includes(ip)) : [];
+    const extraAAAA = allowedApexAAAA.length ? domainAAAAuniq.filter((ip) => !allowedApexAAAA.includes(ip)) : [];
+
+    const dnsOk = aHasMatch || aaaaHasMatch;
 
     if (dnsOk) {
       // If there are extra IPs, treat as not ready: it can randomly route to the wrong place.
@@ -315,14 +331,18 @@ export async function POST(req: Request, ctx: { params: Promise<{ domainId: stri
         if (domainRow.status === "VERIFIED") {
           await prisma.creditCustomDomain.update({ where: { id: domainRow.id }, data: { status: "PENDING", verifiedAt: null } });
         }
-
+        const current = await prisma.creditCustomDomain.findUnique({
+          where: { id: domainRow.id },
+          select: { id: true, domain: true, status: true, verifiedAt: true, createdAt: true, updatedAt: true },
+        });
         return NextResponse.json({
           ok: true,
           verified: false,
           error:
             extraA.length
-              ? `Your domain has multiple A records. Remove the conflicting A record(s) (${extraA.join(", ")}) so it only points to the platform (${targetAuniq.join(", ") || "(unknown)"}).`
-              : `Your domain has multiple AAAA records. Remove the conflicting AAAA record(s) (${extraAAAA.join(", ")}) so it only points to the platform (${targetAAAAuniq.join(", ") || "(unknown)"}).`,
+              ? `Your domain has A records that don’t point to the platform (${extraA.join(", ")}). Remove the conflicting record(s) so it only points to Purely Automation.`
+              : `Your domain has AAAA records that don’t point to the platform (${extraAAAA.join(", ")}). Remove the conflicting record(s) so it only points to Purely Automation.`,
+          domain: current,
           debug: { ...debug, isApex, extraA, extraAAAA },
         });
       }
@@ -346,12 +366,18 @@ export async function POST(req: Request, ctx: { params: Promise<{ domainId: stri
         await prisma.creditCustomDomain.update({ where: { id: domainRow.id }, data: { status: "PENDING", verifiedAt: null } });
       }
 
+      const current = await prisma.creditCustomDomain.findUnique({
+        where: { id: domainRow.id },
+        select: { id: true, domain: true, status: true, verifiedAt: true, createdAt: true, updatedAt: true },
+      });
+
       if (!vercel.configured) {
         return NextResponse.json({
           ok: true,
           verified: false,
           error:
             "DNS is pointing correctly, but the platform is missing domain provisioning configuration (SSL can’t be activated automatically). Please contact support.",
+          domain: current,
           debug: { ...debug, isApex },
         });
       }
@@ -363,6 +389,7 @@ export async function POST(req: Request, ctx: { params: Promise<{ domainId: stri
           verified: false,
           error:
             `DNS is pointing correctly, but the domain still needs a hosting verification record before SSL can be issued.${recordsHint} After adding it, wait a minute and click Verify DNS again.`,
+          domain: current,
           debug: { ...debug, isApex },
         });
       }
@@ -372,6 +399,7 @@ export async function POST(req: Request, ctx: { params: Promise<{ domainId: stri
         verified: false,
         error:
           "DNS is pointing correctly, but the domain isn’t reachable over HTTPS yet (SSL/certificate still provisioning). Please wait a few minutes and click Verify DNS again.",
+        domain: current,
         debug: { ...debug, isApex },
       });
     }
@@ -380,12 +408,18 @@ export async function POST(req: Request, ctx: { params: Promise<{ domainId: stri
       await prisma.creditCustomDomain.update({ where: { id: domainRow.id }, data: { status: "PENDING", verifiedAt: null } });
     }
 
+    const current = await prisma.creditCustomDomain.findUnique({
+      where: { id: domainRow.id },
+      select: { id: true, domain: true, status: true, verifiedAt: true, createdAt: true, updatedAt: true },
+    });
+
     return NextResponse.json({
       ok: true,
       verified: false,
       error: isApex
         ? "DNS doesn’t resolve to the platform yet"
         : "CNAME doesn’t point to the platform yet",
+      domain: current,
       debug: { ...debug, isApex },
     });
   } catch (e) {
