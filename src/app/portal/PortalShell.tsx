@@ -749,13 +749,15 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
     return !(state === "locked" || state === "paused" || state === "canceled" || state === "coming_soon");
   }
 
-  function serviceLockedByStatus(slug: string) {
+  function serviceLockBadge(slug: string) {
     const st = serviceStatuses?.[slug];
     if (!st) return null;
     const state = String(st.state || "").toLowerCase();
-    if (state === "locked") return { locked: true, label: "Locked" };
-    if (state === "paused" && String(st.label || "").toLowerCase() === "activate") return { locked: true, label: "Activate" };
-    return { locked: false, label: "" };
+    if (state === "locked" || state === "paused" || state === "canceled" || state === "coming_soon") {
+      const label = String(st.label || "").trim();
+      return { label: label || (state === "coming_soon" ? "Coming soon" : state === "paused" ? "Paused" : state === "canceled" ? "Canceled" : "Locked") };
+    }
+    return null;
   }
 
   function dismissGettingStartedHint() {
@@ -893,8 +895,8 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
                       <div className="px-3 text-[11px] font-semibold uppercase tracking-wide text-zinc-500">{group.title}</div>
                       <div className="mt-1 space-y-1">
                         {group.services.map((s) => {
-                          const statusLock = serviceLockedByStatus(s.slug);
-                          const unlocked = statusLock ? !statusLock.locked : serviceUnlocked(s);
+                          const lockBadge = serviceLockBadge(s.slug);
+                          const unlocked = serviceUnlocked(s);
                           return (
                             <Link
                               key={s.slug}
@@ -924,7 +926,7 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
                                 <span className="truncate">{s.title}</span>
                                 {!unlocked ? (
                                   <span className="inline-flex items-center gap-1 text-xs font-semibold text-zinc-500">
-                                    <IconLock /> {statusLock?.label || "Locked"}
+                                    <IconLock /> {lockBadge?.label || "Locked"}
                                   </span>
                                 ) : null}
                               </span>
@@ -1115,8 +1117,8 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
                       <div className="px-3 text-[11px] font-semibold uppercase tracking-wide text-zinc-500">{group.title}</div>
                       <div className="mt-1 space-y-1">
                         {group.services.map((s) => {
-                          const statusLock = serviceLockedByStatus(s.slug);
-                          const unlocked = statusLock ? !statusLock.locked : serviceUnlocked(s);
+                          const lockBadge = serviceLockBadge(s.slug);
+                          const unlocked = serviceUnlocked(s);
                           return (
                             <Link
                               key={s.slug}
@@ -1146,7 +1148,7 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
                                 <span className="truncate">{s.title}</span>
                                 {!unlocked ? (
                                   <span className="inline-flex items-center gap-1 text-xs font-semibold text-zinc-500">
-                                    <IconLock /> {statusLock?.label || "Locked"}
+                                    <IconLock /> {lockBadge?.label || "Locked"}
                                   </span>
                                 ) : null}
                               </span>

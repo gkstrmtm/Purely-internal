@@ -1257,7 +1257,18 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
                             rel="noreferrer"
                             className="inline-flex items-center gap-2 rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm font-semibold text-zinc-900 hover:bg-zinc-50"
                           >
-                            <AiSparkIcon className="h-4 w-4 text-[color:var(--color-brand-blue)]" />
+                            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+                              <path
+                                d="M1.5 12s4-7 10.5-7 10.5 7 10.5 7-4 7-10.5 7S1.5 12 1.5 12Z"
+                                stroke="currentColor"
+                                strokeWidth="1.8"
+                              />
+                              <path
+                                d="M12 15a3 3 0 1 0 0-6 3 3 0 0 0 0 6Z"
+                                stroke="currentColor"
+                                strokeWidth="1.8"
+                              />
+                            </svg>
                             View live
                           </a>
                         ) : null}
@@ -1420,7 +1431,18 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
                           rel="noreferrer"
                           className="inline-flex items-center gap-2 rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm font-semibold text-zinc-900 hover:bg-zinc-50"
                         >
-                          <AiSparkIcon className="h-4 w-4 text-[color:var(--color-brand-blue)]" />
+                          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+                            <path
+                              d="M1.5 12s4-7 10.5-7 10.5 7 10.5 7-4 7-10.5 7S1.5 12 1.5 12Z"
+                              stroke="currentColor"
+                              strokeWidth="1.8"
+                            />
+                            <path
+                              d="M12 15a3 3 0 1 0 0-6 3 3 0 0 0 0 6Z"
+                              stroke="currentColor"
+                              strokeWidth="1.8"
+                            />
+                          </svg>
                           View live
                         </a>
                       ) : null}
@@ -1509,6 +1531,7 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
 
   const [funnel, setFunnel] = useState<Funnel | null>(null);
   const [pages, setPages] = useState<Page[] | null>(null);
+  const [dirtyPageIds, setDirtyPageIds] = useState<Record<string, boolean>>({});
   const [forms, setForms] = useState<CreditForm[] | null>(null);
   const [selectedPageId, setSelectedPageId] = useState<string | null>(null);
   const [selectedBlockId, setSelectedBlockId] = useState<string | null>(null);
@@ -1872,6 +1895,7 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
 
   const setSelectedPageLocal = (patch: Partial<Page>) => {
     if (!selectedPage) return;
+    setDirtyPageIds((prev) => ({ ...prev, [selectedPage.id]: true }));
     setPages((prev) =>
       (prev || []).map((p) => (p.id === selectedPage.id ? ({ ...p, ...patch } as Page) : p)),
     );
@@ -1910,6 +1934,7 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
     setFunnel(fJson.funnel as Funnel);
     const nextPages = Array.isArray(pJson.pages) ? (pJson.pages as Page[]) : [];
     setPages(nextPages);
+    setDirtyPageIds({});
     setSelectedPageId((prev) => prev || nextPages[0]?.id || null);
 
     if (formsRes && formsRes.ok && formsJson?.ok === true) {
@@ -2100,6 +2125,8 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
       blocksJson: pageSettingsBlock ? [pageSettingsBlock, ...nextEditable] : nextEditable,
     });
   };
+
+  const selectedPageDirty = Boolean(selectedPageId && dirtyPageIds[selectedPageId]);
 
   const ensurePageSettings = () => {
     if (pageSettingsBlock) return pageSettingsBlock;
@@ -2812,14 +2839,18 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
 
             <button
               type="button"
-              disabled={busy || !selectedPage}
+              disabled={busy || !selectedPage || !selectedPageDirty}
               onClick={() => void saveCurrentPage()}
               className={classNames(
-                "rounded-xl px-4 py-2 text-sm font-semibold text-white",
-                busy ? "bg-zinc-400" : "bg-brand-ink hover:opacity-95",
+                "rounded-xl px-4 py-2 text-sm font-semibold",
+                busy
+                  ? "bg-zinc-400 text-white"
+                  : selectedPageDirty
+                    ? "bg-brand-ink text-white hover:opacity-95"
+                    : "cursor-not-allowed border border-zinc-200 bg-white text-zinc-500",
               )}
             >
-              {busy ? "Saving…" : "Save"}
+              {busy ? "Saving…" : selectedPageDirty ? "Save" : "Saved"}
             </button>
 
             <button
@@ -4621,7 +4652,18 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
                     rel="noreferrer"
                     className="inline-flex items-center gap-2 rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm font-semibold text-zinc-900 hover:bg-zinc-50"
                   >
-                    <AiSparkIcon className="h-4 w-4 text-[color:var(--color-brand-blue)]" />
+                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+                      <path
+                        d="M1.5 12s4-7 10.5-7 10.5 7 10.5 7-4 7-10.5 7S1.5 12 1.5 12Z"
+                        stroke="currentColor"
+                        strokeWidth="1.8"
+                      />
+                      <path
+                        d="M12 15a3 3 0 1 0 0-6 3 3 0 0 0 0 6Z"
+                        stroke="currentColor"
+                        strokeWidth="1.8"
+                      />
+                    </svg>
                     View live
                   </a>
                 ) : null}

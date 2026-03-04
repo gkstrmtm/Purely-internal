@@ -4,6 +4,8 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useCallback, useEffect, useMemo, useState } from "react";
 
+import { PortalListboxDropdown } from "@/components/PortalListboxDropdown";
+
 type CreditFunnel = {
   id: string;
   slug: string;
@@ -33,6 +35,8 @@ type CreditDomain = {
   rootMode?: "DISABLED" | "DIRECTORY" | "REDIRECT";
   rootFunnelSlug?: string | null;
 };
+
+type RootMode = "DISABLED" | "DIRECTORY" | "REDIRECT";
 
 type TabKey = "funnels" | "forms" | "settings";
 
@@ -105,6 +109,18 @@ export function FunnelBuilderClient() {
 
   const [funnelDomainBusy, setFunnelDomainBusy] = useState<Record<string, boolean>>({});
   const [funnelDomainError, setFunnelDomainError] = useState<Record<string, string | null>>({});
+
+  const funnelDomainOptions = useMemo(() => {
+    const opts: Array<{ value: string; label: string; hint?: string }> = [{ value: "", label: "Default (not assigned)" }];
+    for (const d of domains || []) {
+      opts.push({
+        value: d.domain,
+        label: d.domain,
+        hint: d.status === "PENDING" ? "Pending DNS verification" : undefined,
+      });
+    }
+    return opts;
+  }, [domains]);
 
   const funnelPreviewBase = useMemo(() => `${basePath}/f`, [basePath]);
   const formPreviewBase = useMemo(() => `${basePath}/forms`, [basePath]);
@@ -387,22 +403,14 @@ export function FunnelBuilderClient() {
                 <div className="mt-3">
                   <div className="text-xs font-semibold uppercase tracking-wide text-zinc-500">Domain</div>
                   <div className="mt-1 flex flex-col gap-2">
-                    <select
-                      value={(f.assignedDomain || "") as any}
+                    <PortalListboxDropdown
+                      value={String(f.assignedDomain || "")}
                       disabled={!!funnelDomainBusy[f.id] || !domains}
-                      onChange={(e) => {
-                        const v = String(e.target.value || "").trim();
-                        patchFunnelDomain(f, v ? v : null);
-                      }}
-                      className="w-full rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-sm text-zinc-900"
-                    >
-                      <option value="">Default (not assigned)</option>
-                      {(domains || []).map((d) => (
-                        <option key={d.id} value={d.domain}>
-                          {d.domain}{d.status === "PENDING" ? " (pending)" : ""}
-                        </option>
-                      ))}
-                    </select>
+                      options={funnelDomainOptions}
+                      onChange={(v) => patchFunnelDomain(f, v ? v : null)}
+                      buttonClassName="flex w-full items-center justify-between gap-2 rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-sm text-zinc-900 hover:bg-zinc-50"
+                      placeholder="Default (not assigned)"
+                    />
 
                     {f.assignedDomain ? (
                       <div className="text-xs text-zinc-600">
@@ -569,11 +577,19 @@ export function FunnelBuilderClient() {
                         <div className="mt-3 rounded-2xl border border-zinc-200 bg-white p-3">
                           <div className="text-xs font-semibold uppercase tracking-wide text-zinc-500">Root / behavior</div>
                           <div className="mt-2 flex flex-col gap-2 sm:flex-row sm:items-center">
-                            <select
-                              value={(d.rootMode || "DIRECTORY") as any}
+                            <PortalListboxDropdown<RootMode>
+                              value={(d.rootMode || "DIRECTORY") as RootMode}
                               disabled={!!domainSettingsBusy[d.id]}
-                              onChange={(e) => {
-                                const nextMode = String(e.target.value) as any;
+                              options={[
+                                { value: "DIRECTORY", label: "Show directory page" },
+                                {
+                                  value: "REDIRECT",
+                                  label: "Redirect / to a funnel",
+                                  disabled: !!funnels && funnels.length === 0,
+                                },
+                                { value: "DISABLED", label: "Disable / (404)" },
+                              ]}
+                              onChange={(nextMode) => {
                                 if (nextMode === "REDIRECT") {
                                   const eligibleFunnels = (funnels || []).filter((f) => {
                                     const assigned = (f.assignedDomain || "").trim().toLowerCase();
@@ -587,40 +603,30 @@ export function FunnelBuilderClient() {
                                 }
                                 patchDomainSettings(d, { rootMode: nextMode, rootFunnelSlug: null });
                               }}
-                              className="w-full rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-sm text-zinc-900 sm:w-[240px]"
-                            >
-                              <option value="DIRECTORY">Show directory page</option>
-                              <option value="REDIRECT" disabled={!!funnels && funnels.length === 0}>
-                                Redirect / to a funnel
-                              </option>
-                              <option value="DISABLED">Disable / (404)</option>
-                            </select>
+                              buttonClassName="flex w-full items-center justify-between gap-2 rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-sm text-zinc-900 hover:bg-zinc-50 sm:w-[240px]"
+                            />
 
                             {(d.rootMode || "DIRECTORY") === "REDIRECT" ? (
-                              <select
-                                value={d.rootFunnelSlug || ""}
+                              <PortalListboxDropdown
+                                value={String(d.rootFunnelSlug || "")}
                                 disabled={!!domainSettingsBusy[d.id] || !funnels || funnels.length === 0}
-                                onChange={(e) => {
-                                  const slug = normalizeSlug(String(e.target.value || ""));
+                                options={[
+                                  { value: "", label: "Select a funnel…", disabled: true },
+                                  ...(funnels || [])
+                                    .filter((f) => {
+                                      const assigned = (f.assignedDomain || "").trim().toLowerCase();
+                                      if (!assigned) return true;
+                                      return assigned === d.domain;
+                                    })
+                                    .map((f) => ({ value: f.slug, label: `${f.name} (/${f.slug})` })),
+                                ]}
+                                onChange={(v) => {
+                                  const slug = normalizeSlug(String(v || ""));
                                   patchDomainSettings(d, { rootMode: "REDIRECT", rootFunnelSlug: slug || null });
                                 }}
-                                className="w-full rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-sm text-zinc-900"
-                              >
-                                <option value="" disabled>
-                                  Select a funnel…
-                                </option>
-                                {(funnels || [])
-                                  .filter((f) => {
-                                    const assigned = (f.assignedDomain || "").trim().toLowerCase();
-                                    if (!assigned) return true;
-                                    return assigned === d.domain;
-                                  })
-                                  .map((f) => (
-                                    <option key={f.id} value={f.slug}>
-                                      {f.name} (/{f.slug})
-                                    </option>
-                                  ))}
-                              </select>
+                                buttonClassName="flex w-full items-center justify-between gap-2 rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-sm text-zinc-900 hover:bg-zinc-50"
+                                placeholder="Select a funnel…"
+                              />
                             ) : null}
                           </div>
 
