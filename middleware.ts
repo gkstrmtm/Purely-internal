@@ -19,11 +19,25 @@ function parseHostnameFromUrl(raw: string | undefined): string | null {
   }
 }
 
+function addHostnameVariants(out: Set<string>, host: string) {
+  const h = String(host || "").trim().toLowerCase();
+  if (!h) return;
+  out.add(h);
+
+  // Only apply www/apex variants to real domains.
+  const isIp = /^\d{1,3}(?:\.\d{1,3}){3}$/.test(h);
+  if (isIp) return;
+  if (!h.includes(".")) return;
+
+  if (h.startsWith("www.")) out.add(h.slice(4));
+  else out.add(`www.${h}`);
+}
+
 function platformHostnames(): Set<string> {
   const out = new Set<string>();
-  out.add("localhost");
-  out.add("127.0.0.1");
-  out.add("purelyautomation.com");
+  addHostnameVariants(out, "localhost");
+  addHostnameVariants(out, "127.0.0.1");
+  addHostnameVariants(out, "purelyautomation.com");
 
   const candidates = [
     process.env.NEXT_PUBLIC_APP_CANONICAL_URL,
@@ -34,7 +48,7 @@ function platformHostnames(): Set<string> {
 
   for (const raw of candidates) {
     const h = parseHostnameFromUrl(raw);
-    if (h) out.add(h);
+    if (h) addHostnameVariants(out, h);
   }
 
   return out;
