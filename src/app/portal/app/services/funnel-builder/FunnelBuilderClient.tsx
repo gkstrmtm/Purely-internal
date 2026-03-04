@@ -567,8 +567,12 @@ export function FunnelBuilderClient() {
                           : `${platformTargetHost || ""}${hostedFunnelPath(f.slug, f.id) || ""}`}
                       </span>
                       {assignedDomainClean && assignedDomainStatus !== "VERIFIED" ? (
-                        <span className="ml-2 rounded-full border border-amber-200 bg-amber-50 px-2 py-0.5 text-[10px] font-semibold text-amber-900">
-                          pending DNS
+                        <span
+                          className="ml-2 inline-flex items-center gap-1 text-[11px] font-semibold text-amber-700"
+                          title="This domain isn’t verified yet (DNS not pointing here or still propagating)."
+                        >
+                          <span className="h-1.5 w-1.5 rounded-full bg-amber-500" aria-hidden="true" />
+                          Pending DNS
                         </span>
                       ) : null}
                     </div>
