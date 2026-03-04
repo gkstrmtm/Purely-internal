@@ -205,6 +205,21 @@ DNS verification UX:
   - Non-apex domains verify via CNAME-chain includes the platform target host.
   - Apex domains verify best-effort via A/AAAA IP match against the platform target host.
 
+Automatic hosting-side provisioning (Vercel):
+
+To make custom domains actually serve over HTTPS (cert issuance + routing), the backend can automatically add and verify domains on the Vercel project via the Vercel REST API.
+
+Set these env vars in Vercel (Project → Settings → Environment Variables):
+
+- `VERCEL_API_TOKEN` (or `VERCEL_TOKEN`): Vercel personal access token with access to manage project domains
+- `VERCEL_PROJECT_ID_OR_NAME` (or `VERCEL_PROJECT_ID` / `VERCEL_PROJECT_NAME`): the target Vercel project
+- Optional: `VERCEL_TEAM_ID` if the project lives under a team scope
+
+Notes:
+
+- If these aren’t set, DNS checks can still pass, but SSL/domain serving may remain pending and the verify endpoint will report provisioning as not configured.
+- Some domains require a Vercel TXT verification record before SSL can be issued; the verify endpoint will return the required record(s) when applicable.
+
 If you deploy changes that add Prisma migrations, make sure migrations run in Vercel by setting `DIRECT_URL` (recommended) and/or `RUN_PRISMA_MIGRATIONS=1`.
 
 ## Credits (portal)

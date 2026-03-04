@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 
 import { prisma } from "@/lib/db";
 import { requireFunnelBuilderSession } from "@/lib/funnelBuilderAccess";
+import { ensureVercelProjectDomain } from "@/lib/vercelProjectDomains";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
@@ -134,7 +135,16 @@ export async function POST(req: Request) {
     return NextResponse.json({ ok: false, error: "Domain already exists" }, { status: 409 });
   }
 
-  return NextResponse.json({ ok: true, domain: row });
+  // Best-effort: kick off hosting-side provisioning immediately so SSL can be issued
+  // as soon as DNS/verification requirements are met.
+  let provisioning: Awaited<ReturnType<typeof ensureVercelProjectDomain>> | null = null;
+  try {
+    provisioning = await ensureVercelProjectDomain(domain);
+  } catch {
+    provisioning = null;
+  }
+
+  return NextResponse.json({ ok: true, domain: row, provisioning });
 }
 
 export async function PATCH(req: Request) {

@@ -41,6 +41,12 @@ type RootMode = "DISABLED" | "DIRECTORY" | "REDIRECT";
 
 type TabKey = "funnels" | "forms" | "settings";
 
+type VercelVerificationRecord = {
+  type: string;
+  host: string;
+  value: string;
+};
+
 function classNames(...xs: Array<string | false | null | undefined>) {
   return xs.filter(Boolean).join(" ");
 }
@@ -115,6 +121,38 @@ function coercePlatformTargetHost(): string | null {
   return null;
 }
 
+function extractVercelVerificationRecords(raw: unknown): VercelVerificationRecord[] {
+  if (!Array.isArray(raw)) return [];
+  return (raw as any[])
+    .map((v) => {
+      const type = typeof v?.type === "string" ? v.type.trim() : "";
+      const host = typeof v?.domain === "string" ? v.domain.trim() : "";
+      const value = typeof v?.value === "string" ? v.value.trim() : "";
+      if (!type || !host || !value) return null;
+      return { type, host, value };
+    })
+    .filter(Boolean) as VercelVerificationRecord[];
+}
+
+function deriveVerificationHostLabels(recordHost: string, apexDomain: string): { display: string; full: string } {
+  const full = String(recordHost || "").trim().replace(/\.+$/, "");
+  const domain = String(apexDomain || "").trim().replace(/\.+$/, "");
+  if (!full) return { display: "", full: "" };
+  if (!domain) return { display: full, full };
+
+  const fullLower = full.toLowerCase();
+  const domainLower = domain.toLowerCase();
+  if (fullLower === domainLower) return { display: "@", full };
+
+  const suffix = `.${domainLower}`;
+  if (fullLower.endsWith(suffix) && full.length > domain.length + 1) {
+    const prefix = full.slice(0, full.length - (domain.length + 1));
+    return { display: prefix || "@", full };
+  }
+
+  return { display: full, full };
+}
+
 export function FunnelBuilderClient() {
   const pathname = usePathname();
   const basePath = pathname === "/credit" || pathname.startsWith("/credit/") ? "/credit" : "/portal";
@@ -133,6 +171,7 @@ export function FunnelBuilderClient() {
 
   const [domainInput, setDomainInput] = useState("");
   const [domainBusy, setDomainBusy] = useState(false);
+  const [domainVercelVerificationById, setDomainVercelVerificationById] = useState<Record<string, VercelVerificationRecord[]>>({});
   const [domainSettingsBusy, setDomainSettingsBusy] = useState<Record<string, boolean>>({});
   const [domainSettingsError, setDomainSettingsError] = useState<Record<string, string | null>>({});
   const [domainVerifyBusy, setDomainVerifyBusy] = useState<Record<string, boolean>>({});
@@ -247,6 +286,18 @@ export function FunnelBuilderClient() {
         const json = (await res.json().catch(() => null)) as any;
         if (!res.ok || !json || json.ok !== true) throw new Error(json?.error || "Verification failed");
 
+        const vercelRecords = extractVercelVerificationRecords(json?.debug?.vercel?.verification);
+        const vercelVerified = json?.debug?.vercel?.ok === true && json?.debug?.vercel?.verified === true;
+        if (json?.verified === true || vercelVerified) {
+          setDomainVercelVerificationById((m) => {
+            const next = { ...m };
+            delete next[domain.id];
+            return next;
+          });
+        } else if (vercelRecords.length) {
+          setDomainVercelVerificationById((m) => ({ ...m, [domain.id]: vercelRecords }));
+        }
+
         if (json.domain) {
           setDomains((prev) => {
             if (!prev) return prev;
@@ -283,9 +334,12 @@ export function FunnelBuilderClient() {
 
         const hint = expectedTargetHost ? ` Expected target: ${expectedTargetHost}.` : "";
 
+        const hasHostingRecords = vercelRecords.length > 0 || (domainVercelVerificationById[domain.id] || []).length > 0;
+        const hostingHint = hasHostingRecords ? " See hosting verification records below." : "";
+
         setDomainVerifyError((m) => ({
           ...m,
-          [domain.id]: `${base}${hint}${isActionable ? "" : " Double-check the records below and try again in a few minutes."}`,
+          [domain.id]: `${base}${hint}${hostingHint}${isActionable ? "" : " Double-check the records below and try again in a few minutes."}`,
         }));
       } catch (e) {
         setDomainVerifyError((m) => ({
@@ -296,7 +350,7 @@ export function FunnelBuilderClient() {
         setDomainVerifyBusy((m) => ({ ...m, [domain.id]: false }));
       }
     },
-    [],
+    [domainVercelVerificationById],
   );
 
   const patchDomainSettings = useCallback(
@@ -474,6 +528,13 @@ export function FunnelBuilderClient() {
       });
       const json = (await res.json().catch(() => null)) as any;
       if (!res.ok || !json || json.ok !== true) throw new Error(json?.error || "Failed to save domain");
+
+      const domainId = typeof json?.domain?.id === "string" ? json.domain.id : "";
+      const vercelRecords = extractVercelVerificationRecords(json?.provisioning?.verification);
+      if (domainId && vercelRecords.length) {
+        setDomainVercelVerificationById((m) => ({ ...m, [domainId]: vercelRecords }));
+      }
+
       setDomainInput("");
       await loadDomains();
     } catch (e) {
@@ -772,6 +833,82 @@ export function FunnelBuilderClient() {
                         {domainVerifyError[d.id] ? (
                           <div className="mt-2 rounded-2xl border border-amber-200 bg-amber-50 p-2 text-xs text-amber-900">
                             {domainVerifyError[d.id]}
+                          </div>
+                        ) : null}
+
+                        {(domainVercelVerificationById[d.id] || []).length ? (
+                          <div className="mt-3 rounded-2xl border border-zinc-200 bg-white p-3">
+                            <div className="text-xs font-semibold uppercase tracking-wide text-zinc-500">Hosting verification records</div>
+                            <div className="mt-1 text-xs text-zinc-600">
+                              Some domains require a TXT verification record before SSL can be issued. Add these in your DNS provider, then click <span className="font-semibold">Verify DNS</span>.
+                            </div>
+                            <div className="mt-2 overflow-auto">
+                              <table className="w-full min-w-[560px] border-separate border-spacing-0">
+                                <thead>
+                                  <tr>
+                                    <th className="border-b border-zinc-200 pb-2 text-left text-xs font-semibold text-zinc-600">Type</th>
+                                    <th className="border-b border-zinc-200 pb-2 text-left text-xs font-semibold text-zinc-600">Host / Name</th>
+                                    <th className="border-b border-zinc-200 pb-2 text-left text-xs font-semibold text-zinc-600">Value</th>
+                                  </tr>
+                                </thead>
+                                <tbody>
+                                  {domainVercelVerificationById[d.id].map((r, idx) => {
+                                    const host = deriveVerificationHostLabels(r.host, d.domain);
+                                    const displayHost = host.display || r.host;
+                                    const showFull = host.full && host.full !== displayHost;
+                                    return (
+                                      <tr key={`${r.type}:${r.host}:${idx}`}>
+                                        <td className="border-b border-zinc-100 py-2 text-xs">
+                                          <span className="font-semibold text-zinc-900">{r.type}</span>
+                                        </td>
+                                        <td className="border-b border-zinc-100 py-2 text-xs">
+                                          <div className="flex flex-col gap-1">
+                                            <div className="inline-flex items-center gap-2">
+                                              <span className="font-mono text-zinc-800">{displayHost}</span>
+                                              <button
+                                                type="button"
+                                                onClick={() => copyText(displayHost)}
+                                                className="rounded-md border border-zinc-200 bg-white p-1.5 text-zinc-600 hover:bg-zinc-50 hover:text-zinc-900"
+                                                aria-label="Copy host/name"
+                                                title="Copy"
+                                              >
+                                                <CopyIcon className="h-4 w-4" />
+                                              </button>
+                                              {showFull ? (
+                                                <button
+                                                  type="button"
+                                                  onClick={() => copyText(host.full)}
+                                                  className="rounded-md border border-zinc-200 bg-white px-2 py-1 text-[10px] font-semibold text-zinc-600 hover:bg-zinc-50 hover:text-zinc-900"
+                                                  aria-label="Copy full host/name"
+                                                  title="Copy full host"
+                                                >
+                                                  Copy full
+                                                </button>
+                                              ) : null}
+                                            </div>
+                                            {showFull ? <div className="font-mono text-[10px] text-zinc-500">Full: {host.full}</div> : null}
+                                          </div>
+                                        </td>
+                                        <td className="border-b border-zinc-100 py-2 text-xs">
+                                          <div className="inline-flex items-center gap-2">
+                                            <span className="font-mono text-zinc-800">{r.value}</span>
+                                            <button
+                                              type="button"
+                                              onClick={() => copyText(r.value)}
+                                              className="rounded-md border border-zinc-200 bg-white p-1.5 text-zinc-600 hover:bg-zinc-50 hover:text-zinc-900"
+                                              aria-label="Copy value"
+                                              title="Copy"
+                                            >
+                                              <CopyIcon className="h-4 w-4" />
+                                            </button>
+                                          </div>
+                                        </td>
+                                      </tr>
+                                    );
+                                  })}
+                                </tbody>
+                              </table>
+                            </div>
                           </div>
                         ) : null}
 

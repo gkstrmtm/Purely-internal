@@ -3,6 +3,12 @@ import { NextResponse } from "next/server";
 
 import { prisma } from "@/lib/db";
 import { requireFunnelBuilderSession } from "@/lib/funnelBuilderAccess";
+import {
+  checkHttpsReachable,
+  ensureVercelProjectDomain,
+  formatVercelVerificationRecords,
+  getAllowedVercelApexARecords,
+} from "@/lib/vercelProjectDomains";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -52,8 +58,6 @@ async function resolveCnameChain(host: string, maxDepth = 6) {
     if (normalized.length === 0) break;
 
     for (const c of normalized) out.push(c);
-
-    // Follow the first CNAME to continue the chain.
     current = normalized[0] || "";
   }
 
@@ -67,119 +71,6 @@ function intersects(a: string[], b: string[]) {
 
 function uniq(xs: string[]) {
   return Array.from(new Set(xs.filter(Boolean)));
-}
-
-function isVercelRuntime() {
-  return String(process.env.VERCEL || "").trim() === "1";
-}
-
-function pickVercelConfig() {
-  const token = (process.env.VERCEL_API_TOKEN || process.env.VERCEL_TOKEN || "").trim();
-  const projectIdOrName = (
-    process.env.VERCEL_PROJECT_ID ||
-    process.env.VERCEL_PROJECT_ID_OR_NAME ||
-    process.env.VERCEL_PROJECT_NAME ||
-    ""
-  ).trim();
-  const teamId = (process.env.VERCEL_TEAM_ID || "").trim();
-  return { token: token || null, projectIdOrName: projectIdOrName || null, teamId: teamId || null };
-}
-
-function formatVercelVerificationRecords(verification: any): string {
-  if (!Array.isArray(verification) || verification.length === 0) return "";
-  const lines = verification
-    .map((v) => {
-      const type = typeof v?.type === "string" ? v.type.trim() : "";
-      const host = typeof v?.domain === "string" ? v.domain.trim() : "";
-      const value = typeof v?.value === "string" ? v.value.trim() : "";
-      if (!type || !host || !value) return null;
-      return `${type} ${host} = ${value}`;
-    })
-    .filter(Boolean);
-  if (lines.length === 0) return "";
-  return ` Required verification record(s): ${lines.join(" | ")}.`;
-}
-
-async function ensureVercelProjectDomain(domain: string) {
-  const { token, projectIdOrName, teamId } = pickVercelConfig();
-  if (!token || !projectIdOrName) {
-    return {
-      ok: false as const,
-      configured: false as const,
-      error: "Platform domain provisioning is not configured",
-    };
-  }
-
-  const qp = teamId ? `?teamId=${encodeURIComponent(teamId)}` : "";
-  const headers = {
-    Authorization: `Bearer ${token}`,
-    "Content-Type": "application/json",
-  };
-
-  // Add domain (ignore if already exists on project).
-  const addRes = await fetch(`https://api.vercel.com/v10/projects/${encodeURIComponent(projectIdOrName)}/domains${qp}`, {
-    method: "POST",
-    headers,
-    body: JSON.stringify({ name: domain }),
-  }).catch(() => null);
-
-  let addJson: any = null;
-  if (addRes) {
-    addJson = await addRes.json().catch(() => null);
-  }
-
-  // If already exists, Vercel returns 400.
-  const addOk = !!addRes && (addRes.ok || addRes.status === 400);
-  if (!addOk) {
-    return {
-      ok: false as const,
-      configured: true as const,
-      error: "Failed to add domain to hosting project",
-      debug: { status: addRes?.status, body: addJson },
-    };
-  }
-
-  // Verify domain for the project (this triggers/reads Vercel verification challenges).
-  const verifyRes = await fetch(
-    `https://api.vercel.com/v9/projects/${encodeURIComponent(projectIdOrName)}/domains/${encodeURIComponent(domain)}/verify${qp}`,
-    {
-      method: "POST",
-      headers,
-    },
-  ).catch(() => null);
-
-  const verifyJson = verifyRes ? await verifyRes.json().catch(() => null) : null;
-  if (!verifyRes || !verifyRes.ok) {
-    return {
-      ok: false as const,
-      configured: true as const,
-      error: "Failed to verify domain on hosting project",
-      debug: { status: verifyRes?.status, body: verifyJson },
-    };
-  }
-
-  return {
-    ok: true as const,
-    configured: true as const,
-    verified: !!verifyJson?.verified,
-    verification: Array.isArray(verifyJson?.verification) ? verifyJson.verification : null,
-    raw: verifyJson,
-  };
-}
-
-async function checkHttpsReachable(domain: string) {
-  try {
-    const res = await fetch(`https://${domain}/`, {
-      method: "HEAD",
-      redirect: "manual",
-      signal: AbortSignal.timeout(8000),
-    });
-    // Treat any response as "reachable" (even 404) — the point is TLS + connection.
-    return { ok: true as const, status: res.status };
-  } catch (e) {
-    const msg = e instanceof Error ? e.message : String(e);
-    return { ok: false as const, error: msg };
-  }
 }
 
 export async function POST(req: Request, ctx: { params: Promise<{ domainId: string }> }) {
@@ -312,7 +203,7 @@ export async function POST(req: Request, ctx: { params: Promise<{ domainId: stri
     const targetAAAAuniq = uniq(targetAAAA);
 
     // Vercel apex domains often resolve to 76.76.21.21, even if the platform host resolves to a different Vercel edge IP.
-    const allowedApexA = uniq([...(targetAuniq || []), ...(isVercelRuntime() ? ["76.76.21.21"] : [])]);
+    const allowedApexA = uniq(getAllowedVercelApexARecords(targetAuniq || []));
     const allowedApexAAAA = uniq([...(targetAAAAuniq || [])]);
 
     const aHasMatch = allowedApexA.length ? intersects(domainAuniq, allowedApexA) : intersects(domainAuniq, targetAuniq);
@@ -423,12 +314,22 @@ export async function POST(req: Request, ctx: { params: Promise<{ domainId: stri
       debug: { ...debug, isApex },
     });
   } catch (e) {
+    if (domainRow.status === "VERIFIED") {
+      await prisma.creditCustomDomain.update({ where: { id: domainRow.id }, data: { status: "PENDING", verifiedAt: null } });
+    }
+
+    const current = await prisma.creditCustomDomain.findUnique({
+      where: { id: domainRow.id },
+      select: { id: true, domain: true, status: true, verifiedAt: true, createdAt: true, updatedAt: true },
+    });
+
     return NextResponse.json(
       {
         ok: true,
         verified: false,
         error: "DNS lookup failed",
         details: e instanceof Error ? e.message : "Unknown error",
+        domain: current,
         debug: { ...debug, isApex },
       },
       { status: 200 },
