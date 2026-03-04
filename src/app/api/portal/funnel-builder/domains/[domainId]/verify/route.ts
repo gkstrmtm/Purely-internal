@@ -173,6 +173,24 @@ export async function POST(req: Request, ctx: { params: Promise<{ domainId: stri
         });
       }
 
+      if (!vercel.ok) {
+        if (domainRow.status === "VERIFIED") {
+          await prisma.creditCustomDomain.update({ where: { id: domainRow.id }, data: { status: "PENDING", verifiedAt: null } });
+        }
+        const current = await prisma.creditCustomDomain.findUnique({
+          where: { id: domainRow.id },
+          select: { id: true, domain: true, status: true, verifiedAt: true, createdAt: true, updatedAt: true },
+        });
+        return NextResponse.json({
+          ok: true,
+          verified: false,
+          error:
+            `DNS is pointing correctly, but hosting verification/provisioning failed (${vercel.error}). Please contact support.`,
+          domain: current,
+          debug,
+        });
+      }
+
       const https = await checkHttpsReachable(domain);
       debug.https = https;
 
@@ -309,6 +327,24 @@ export async function POST(req: Request, ctx: { params: Promise<{ domainId: stri
           verified: false,
           error:
             "DNS is pointing correctly, but the hosting provider still hasn’t verified the domain yet. For root domains, use ALIAS/ANAME -> cname.vercel-dns.com or A -> 76.76.21.21, then wait a minute and click Verify DNS again.",
+          domain: current,
+          debug: { ...debug, isApex },
+        });
+      }
+
+      if (!vercel.ok) {
+        if (domainRow.status === "VERIFIED") {
+          await prisma.creditCustomDomain.update({ where: { id: domainRow.id }, data: { status: "PENDING", verifiedAt: null } });
+        }
+        const current = await prisma.creditCustomDomain.findUnique({
+          where: { id: domainRow.id },
+          select: { id: true, domain: true, status: true, verifiedAt: true, createdAt: true, updatedAt: true },
+        });
+        return NextResponse.json({
+          ok: true,
+          verified: false,
+          error:
+            `DNS is pointing correctly, but hosting verification/provisioning failed (${vercel.error}). Please contact support.`,
           domain: current,
           debug: { ...debug, isApex },
         });
