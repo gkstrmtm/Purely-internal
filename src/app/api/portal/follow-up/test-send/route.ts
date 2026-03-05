@@ -3,7 +3,7 @@ import { z } from "zod";
 
 import { requireClientSessionForService } from "@/lib/portalAccess";
 import { prisma } from "@/lib/db";
-import { getOwnerTwilioSmsConfig } from "@/lib/portalTwilio";
+import { sendOwnerTwilioSms } from "@/lib/portalTwilio";
 import { sendTransactionalEmail } from "@/lib/emailSender";
 
 export const dynamic = "force-dynamic";
@@ -21,27 +21,8 @@ async function sendEmail({ to, subject, body, fromName }: { to: string; subject:
 }
 
 async function sendSms({ ownerId, to, body }: { ownerId: string; to: string; body: string }) {
-  const twilio = await getOwnerTwilioSmsConfig(ownerId);
-  if (!twilio) throw new Error("Texting is not configured yet.");
-
-  const url = `https://api.twilio.com/2010-04-01/Accounts/${twilio.accountSid}/Messages.json`;
-  const basic = Buffer.from(`${twilio.accountSid}:${twilio.authToken}`).toString("base64");
-
-  const form = new URLSearchParams();
-  form.set("To", to);
-  form.set("From", twilio.fromNumberE164);
-  form.set("Body", body.slice(0, 900));
-
-  const res = await fetch(url, {
-    method: "POST",
-    headers: { authorization: `Basic ${basic}`, "content-type": "application/x-www-form-urlencoded" },
-    body: form.toString(),
-  });
-
-  if (!res.ok) {
-    const text = await res.text().catch(() => "");
-    throw new Error(`SMS send failed (${res.status}): ${text.slice(0, 400)}`);
-  }
+  const res = await sendOwnerTwilioSms({ ownerId, to, body: body.slice(0, 900) });
+  if (!res.ok) throw new Error(res.error || "SMS send failed");
 }
 
 export async function POST(req: Request) {

@@ -778,12 +778,36 @@ export function PortalInboxClient() {
             >
               <div className="space-y-3">
                 <div className="rounded-2xl border border-zinc-200 bg-white p-4">
-                  <div className="text-xs font-semibold text-zinc-600">Twilio SMS webhook (token-based)</div>
+                  <div className="text-xs font-semibold text-zinc-600">Twilio SMS webhook (universal)</div>
+                  <div className="mt-1 text-[11px] text-zinc-500">Paste into Twilio: Messaging → “A message comes in”</div>
+                  <div className="mt-2 break-all font-mono text-xs text-zinc-800">
+                    {settings?.webhooks.twilioInboundSmsUrl || "Loading…"}
+                  </div>
+                  <div className="mt-3 flex items-center justify-between gap-3">
+                    <div className="text-[11px] text-zinc-500">Twilio configured: {settings?.twilio?.configured ? "Yes" : "No"}</div>
+                    <div className="flex items-center gap-2">
+                      <button
+                        type="button"
+                        className="rounded-xl border border-zinc-200 bg-white px-3 py-2 text-xs font-semibold hover:bg-zinc-50 disabled:opacity-60"
+                        disabled={!settings?.webhooks.twilioInboundSmsUrl}
+                        onClick={async () => {
+                          const v = settings?.webhooks.twilioInboundSmsUrl;
+                          if (v) await navigator.clipboard.writeText(v);
+                        }}
+                      >
+                        Copy
+                      </button>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="rounded-2xl border border-zinc-200 bg-white p-4">
+                  <div className="text-xs font-semibold text-zinc-600">Twilio SMS webhook (legacy token URL)</div>
                   <div className="mt-2 break-all font-mono text-xs text-zinc-800">
                     {settings?.webhooks.twilioInboundSmsUrlLegacy || "Loading…"}
                   </div>
                   <div className="mt-3 flex items-center justify-between gap-3">
-                    <div className="text-[11px] text-zinc-500">Twilio configured: {settings?.twilio?.configured ? "Yes" : "No"}</div>
+                    <div className="text-[11px] text-zinc-500">Use only if support tells you to</div>
                     <div className="flex items-center gap-2">
                       <button
                         type="button"

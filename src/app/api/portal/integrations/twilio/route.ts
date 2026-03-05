@@ -4,11 +4,12 @@ import { z } from "zod";
 import { requireClientSessionForService } from "@/lib/portalAccess";
 import { getOwnerTwilioSmsConfig, getOwnerTwilioSmsConfigMasked, setOwnerTwilioProvisioning, setOwnerTwilioSmsConfig } from "@/lib/portalTwilio";
 import { getPublicWebhookBaseUrl, provisionTwilioSmsWebhooksForFromNumber } from "@/lib/twilioProvisioning";
+import { webhookUrlFromRequest } from "@/lib/webhookBase";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
 
-export async function GET() {
+export async function GET(req: Request) {
   const auth = await requireClientSessionForService("twilio", "view");
   if (!auth.ok) {
     return NextResponse.json(
@@ -20,7 +21,14 @@ export async function GET() {
   const ownerId = auth.session.user.id;
   const twilio = await getOwnerTwilioSmsConfigMasked(ownerId);
 
-  return NextResponse.json({ ok: true, twilio });
+  return NextResponse.json({
+    ok: true,
+    twilio,
+    webhooks: {
+      smsInboundUrl: webhookUrlFromRequest(req, "/api/public/twilio/sms"),
+      smsStatusCallbackUrl: webhookUrlFromRequest(req, "/api/public/twilio/sms/status"),
+    },
+  });
 }
 
 const putSchema = z.object({

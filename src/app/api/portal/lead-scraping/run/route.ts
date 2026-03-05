@@ -7,7 +7,7 @@ import { prisma } from "@/lib/db";
 import { addCredits, consumeCredits } from "@/lib/credits";
 import { hasPlacesKey, placeDetails, placesTextSearch } from "@/lib/googlePlaces";
 import { resolveEntitlementsForOwnerId } from "@/lib/entitlements";
-import { getOwnerTwilioSmsConfig } from "@/lib/portalTwilio";
+import { sendOwnerTwilioSms } from "@/lib/portalTwilio";
 import { createPortalLeadCompat } from "@/lib/portalLeadCompat";
 import { isB2cLeadPullUnlocked } from "@/lib/leadScrapingAccess";
 import { draftLeadOutboundEmail, draftLeadOutboundSms } from "@/lib/leadOutboundAi";
@@ -401,27 +401,8 @@ async function sendEmail({
 }
 
 async function sendSms({ ownerId, to, body }: { ownerId: string; to: string; body: string }) {
-  const twilio = await getOwnerTwilioSmsConfig(ownerId);
-  if (!twilio) throw new Error("Texting is not configured yet.");
-
-  const url = `https://api.twilio.com/2010-04-01/Accounts/${twilio.accountSid}/Messages.json`;
-  const basic = Buffer.from(`${twilio.accountSid}:${twilio.authToken}`).toString("base64");
-
-  const form = new URLSearchParams();
-  form.set("To", to);
-  form.set("From", twilio.fromNumberE164);
-  form.set("Body", body.slice(0, 900));
-
-  const res = await fetch(url, {
-    method: "POST",
-    headers: { authorization: `Basic ${basic}`, "content-type": "application/x-www-form-urlencoded" },
-    body: form.toString(),
-  });
-
-  if (!res.ok) {
-    const t = await res.text().catch(() => "");
-    throw new Error(`Twilio failed (${res.status}): ${t.slice(0, 400)}`);
-  }
+  const res = await sendOwnerTwilioSms({ ownerId, to, body: body.slice(0, 900) });
+  if (!res.ok) throw new Error(res.error || "Texting is not configured yet.");
 }
 
 function normalizeSettings(value: unknown): Settings {

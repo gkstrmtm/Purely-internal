@@ -39,6 +39,10 @@ type TwilioMasked = {
 type TwilioApiPayload = {
   ok: boolean;
   twilio: TwilioMasked;
+  webhooks?: {
+    smsInboundUrl: string;
+    smsStatusCallbackUrl: string;
+  };
   note?: string;
   error?: string;
 };
@@ -66,6 +70,10 @@ type WebhooksRes = {
   ok?: boolean;
   error?: string;
   baseUrl?: string;
+  twilio?: {
+    smsInboundUrl?: string | null;
+    smsStatusCallbackUrl?: string | null;
+  };
   legacy?: {
     inboxTwilioSmsUrl?: string | null;
     aiReceptionistVoiceUrl?: string | null;
@@ -138,6 +146,7 @@ export function PortalProfileClient() {
   const [mailboxLocalPart, setMailboxLocalPart] = useState<string>("");
 
   const [twilioMasked, setTwilioMasked] = useState<TwilioMasked | null>(null);
+  const [twilioWebhooks, setTwilioWebhooks] = useState<TwilioApiPayload["webhooks"] | null>(null);
   const [twilioAccountSid, setTwilioAccountSid] = useState<string>("");
   const [twilioAuthToken, setTwilioAuthToken] = useState<string>("");
   const [twilioFromNumber, setTwilioFromNumber] = useState<string>("");
@@ -312,7 +321,10 @@ export function PortalProfileClient() {
 
     (async () => {
       if (!canViewTwilio) {
-        if (mounted) setTwilioMasked(null);
+        if (mounted) {
+          setTwilioMasked(null);
+          setTwilioWebhooks(null);
+        }
         return;
       }
       const res = await fetch("/api/portal/integrations/twilio", { cache: "no-store" }).catch(() => null as any);
@@ -321,6 +333,7 @@ export function PortalProfileClient() {
       const json = ((await res.json().catch(() => null)) as TwilioApiPayload | null) ?? null;
       if (json?.ok && json.twilio) {
         setTwilioMasked(json.twilio);
+        setTwilioWebhooks(json.webhooks ?? null);
         setTwilioFromNumber(json.twilio.fromNumberE164 ?? "");
       }
     })();
@@ -959,7 +972,9 @@ export function PortalProfileClient() {
               accent="blue"
             >
               <div className="space-y-3">
-                <CopyRow label="Inbox (Twilio SMS)" value={webhooks?.legacy?.inboxTwilioSmsUrl ?? null} />
+                <CopyRow label='Twilio SMS ("A message comes in") — universal' value={webhooks?.twilio?.smsInboundUrl ?? null} />
+                <CopyRow label="Twilio SMS status callback (recommended)" value={webhooks?.twilio?.smsStatusCallbackUrl ?? null} />
+                <CopyRow label="Inbox (Twilio SMS) — legacy token URL" value={webhooks?.legacy?.inboxTwilioSmsUrl ?? null} />
                 <CopyRow label="Calls (Primary handler: AI Receptionist)" value={webhooks?.legacy?.aiReceptionistVoiceUrl ?? null} />
                 <CopyRow label="Calls (If primary handler fails: Missed Call Text Back)" value={webhooks?.legacy?.missedCallVoiceUrl ?? null} />
 
@@ -967,7 +982,7 @@ export function PortalProfileClient() {
                   <div className="font-semibold text-zinc-900">Where do I paste these in Twilio?</div>
                   <div className="mt-2 space-y-1">
                     <div>1) Twilio Console → Phone Numbers → Manage → Active numbers → click your number</div>
-                    <div>2) For SMS: Messaging → “A MESSAGE COMES IN” → paste <span className="font-semibold">Inbox (Twilio SMS)</span></div>
+                    <div>2) For SMS: Messaging → “A MESSAGE COMES IN” → paste <span className="font-semibold">Twilio SMS ("A message comes in") — universal</span></div>
                     <div>
                       3) For calls: Voice &amp; Fax → “A CALL COMES IN” → paste <span className="font-semibold">Calls (Primary handler: AI Receptionist)</span>
                     </div>
@@ -976,7 +991,9 @@ export function PortalProfileClient() {
                       <span className="font-semibold">Calls (If primary handler fails: Missed Call Text Back)</span>
                     </div>
                   </div>
-                  <div className="mt-2 text-xs text-zinc-500">If you use a Messaging Service, paste the SMS URL there instead.</div>
+                  <div className="mt-2 text-xs text-zinc-500">
+                    If you use a Messaging Service, paste the universal SMS URL there. Use the legacy token URL only if support tells you to.
+                  </div>
                 </div>
 
                 {webhooks?.baseUrl ? (
@@ -995,6 +1012,13 @@ export function PortalProfileClient() {
               accent="blue"
             >
               <div className="space-y-3">
+                {twilioWebhooks ? (
+                  <div className="space-y-3">
+                    <CopyRow label='Twilio SMS ("A message comes in") — universal' value={twilioWebhooks.smsInboundUrl} />
+                    <CopyRow label="Twilio SMS status callback (recommended)" value={twilioWebhooks.smsStatusCallbackUrl} />
+                  </div>
+                ) : null}
+
                 {twilioNote ? (
                   <div className="rounded-2xl border border-emerald-200 bg-emerald-50 p-4 text-sm text-emerald-800">{twilioNote}</div>
                 ) : null}

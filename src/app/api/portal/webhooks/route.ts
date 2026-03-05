@@ -42,9 +42,16 @@ export async function GET(req: Request) {
     ? webhookUrlFromRequest(req, `/api/public/twilio/missed-call-textback/${encodeURIComponent(missedToken)}/voice`)
     : null;
 
+  const twilioSmsInboundUrl = webhookUrlFromRequest(req, "/api/public/twilio/sms");
+  const twilioSmsStatusCallbackUrl = webhookUrlFromRequest(req, "/api/public/twilio/sms/status");
+
   return NextResponse.json({
     ok: true,
     baseUrl: webhookBaseUrlFromRequest(req),
+    twilio: {
+      smsInboundUrl: twilioSmsInboundUrl,
+      smsStatusCallbackUrl: twilioSmsStatusCallbackUrl,
+    },
     legacy: {
       inboxTwilioSmsUrl: inboxTwilioSmsUrlLegacy,
       aiReceptionistVoiceUrl: aiReceptionistVoiceUrlLegacy,
