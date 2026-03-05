@@ -1,4 +1,4 @@
-import { resolve4, resolve6, resolveCname } from "dns/promises";
+import { Resolver, resolve4, resolve6, resolveCname, resolveNs } from "dns/promises";
 import { NextResponse } from "next/server";
 
 import { prisma } from "@/lib/db";
@@ -55,6 +55,32 @@ async function resolveCnameChain(host: string, maxDepth = 6) {
   }
 
   return Array.from(new Set(out));
+}
+
+async function resolveAuthoritativeA(domain: string) {
+  const nsHosts = await resolveNs(domain).catch(() => [] as string[]);
+  const ns = nsHosts.map((h) => normalizeDnsName(h)).filter(Boolean);
+  if (!ns.length) return { ns: [] as string[], a: [] as string[] };
+
+  const allA: string[] = [];
+
+  for (const nsHost of ns.slice(0, 6)) {
+    // Resolver.setServers expects IPs; resolve nameserver host -> IP first.
+    const nsIps = await resolve4(nsHost).catch(() => [] as string[]);
+    const nsIp = nsIps[0];
+    if (!nsIp) continue;
+
+    const r = new Resolver();
+    try {
+      r.setServers([nsIp]);
+      const a = await r.resolve4(domain).catch(() => [] as string[]);
+      for (const ip of a) allA.push(String(ip || "").trim());
+    } catch {
+      // ignore
+    }
+  }
+
+  return { ns, a: uniq(allA) };
 }
 
 function intersects(a: string[], b: string[]) {
@@ -119,6 +145,8 @@ export async function POST(req: Request, ctx: { params: Promise<{ domainId: stri
       targetA: [] as string[],
       domainAAAA: [] as string[],
       targetAAAA: [] as string[],
+      authoritativeNS: [] as string[],
+      authoritativeA: [] as string[],
     },
   };
 
@@ -182,6 +210,9 @@ export async function POST(req: Request, ctx: { params: Promise<{ domainId: stri
       }
 
       if (!vercel.ok) {
+        const scopeHint = process.env.VERCEL_TEAM_ID
+          ? " If your Vercel project is NOT under a Team, the configured team scope may be wrong — remove the Team ID and retry."
+          : "";
         if (domainRow.status === "VERIFIED") {
           await prisma.creditCustomDomain.update({ where: { id: domainRow.id }, data: { status: "PENDING", verifiedAt: null } });
         }
@@ -193,7 +224,7 @@ export async function POST(req: Request, ctx: { params: Promise<{ domainId: stri
           ok: true,
           verified: false,
           error:
-            `DNS is pointing correctly, but hosting verification/provisioning failed (${vercel.error}). Please contact support.`,
+            `DNS is pointing correctly, but hosting verification/provisioning failed (${vercel.error}).${scopeHint}`,
           domain: current,
           debug,
         });
@@ -235,19 +266,22 @@ export async function POST(req: Request, ctx: { params: Promise<{ domainId: stri
 
     // For apex domains (ALIAS/ANAME), the CNAME chain often won’t be visible.
     // Best-effort: compare resolved IPs to our platform target.
-    const [domainA, domainAAAA, targetA, targetAAAA] = await Promise.all([
-      resolve4(domain).catch(() => []),
-      resolve6(domain).catch(() => []),
-      resolve4(expectedTargetHost).catch(() => []),
-      resolve6(expectedTargetHost).catch(() => []),
+    const [domainA, domainAAAA, targetA, targetAAAA, authoritative] = await Promise.all([
+      resolve4(domain).catch(() => [] as string[]),
+      resolve6(domain).catch(() => [] as string[]),
+      resolve4(expectedTargetHost).catch(() => [] as string[]),
+      resolve6(expectedTargetHost).catch(() => [] as string[]),
+      resolveAuthoritativeA(domain).catch(() => ({ ns: [] as string[], a: [] as string[] })),
     ]);
 
     debug.checks.domainA = domainA;
     debug.checks.domainAAAA = domainAAAA;
     debug.checks.targetA = targetA;
     debug.checks.targetAAAA = targetAAAA;
+    debug.checks.authoritativeNS = authoritative.ns;
+    debug.checks.authoritativeA = authoritative.a;
 
-    const domainAuniq = uniq(domainA);
+    const domainAuniq = uniq(authoritative.a.length ? authoritative.a : domainA);
     const domainAAAAuniq = uniq(domainAAAA);
     const targetAuniq = uniq(targetA);
     const targetAAAAuniq = uniq(targetAAAA);

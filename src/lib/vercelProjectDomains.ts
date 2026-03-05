@@ -47,6 +47,12 @@ export type EnsureVercelProjectDomainResult =
       raw: unknown;
     };
 
+function getTeamQueryCandidates(teamId: string | null): string[] {
+  if (!teamId) return [""];
+  // Some projects are under a personal account; passing teamId can cause 401/403.
+  return [`?teamId=${encodeURIComponent(teamId)}`, ""];
+}
+
 function extractVercelError(json: any): { code: string | null; message: string | null } {
   const code = typeof json?.error?.code === "string" ? json.error.code : null;
   const message =
@@ -81,6 +87,10 @@ async function fetchJson(url: string, init: RequestInit) {
   return { res, json };
 }
 
+function isLikelyScopeMismatchStatus(status: number | null | undefined): boolean {
+  return status === 401 || status === 403;
+}
+
 /**
  * Ensures the given domain exists on the configured Vercel project and attempts to verify it.
  * This is required for Vercel to issue an SSL cert + serve the custom domain reliably.
@@ -95,7 +105,7 @@ export async function ensureVercelProjectDomain(domain: string): Promise<EnsureV
     };
   }
 
-  const qp = teamId ? `?teamId=${encodeURIComponent(teamId)}` : "";
+  const qpCandidates = getTeamQueryCandidates(teamId);
   const headers = {
     Authorization: `Bearer ${token}`,
     "Content-Type": "application/json",
@@ -104,101 +114,139 @@ export async function ensureVercelProjectDomain(domain: string): Promise<EnsureV
   const pid = encodeURIComponent(projectIdOrName);
   const d = encodeURIComponent(domain);
 
-  // If the domain already exists on the project, skip straight to verify.
-  const existing = await fetchJson(`https://api.vercel.com/v9/projects/${pid}/domains/${d}${qp}`,
-    {
-      method: "GET",
-      headers,
-    },
-  );
-  if (existing.res && existing.res.ok) {
-    // proceed
-  } else if (existing.res && existing.res.status !== 404) {
-    const { code, message } = extractVercelError(existing.json);
-    return {
-      ok: false,
-      configured: true,
-      error: `Failed to fetch hosting domain status${message ? ` (${message})` : ""}`,
-      debug: { status: existing.res.status, code, body: existing.json },
-    };
-  }
+  const attempts: any[] = [];
 
-  // Add domain if missing (ignore if already exists on project).
-  if (!existing.res || existing.res.status === 404) {
-    const addV10 = await fetchJson(`https://api.vercel.com/v10/projects/${pid}/domains${qp}`,
+  for (const qp of qpCandidates) {
+    const attempt: any = { qp: qp || "(none)", steps: {} };
+    attempts.push(attempt);
+
+    // If the domain already exists on the project, skip straight to verify.
+    const existing = await fetchJson(`https://api.vercel.com/v9/projects/${pid}/domains/${d}${qp}`,
       {
-        method: "POST",
+        method: "GET",
         headers,
-        body: JSON.stringify({ name: domain }),
       },
     );
+    attempt.steps.existing = { status: existing.res?.status ?? null, body: existing.json };
 
-    const addRes = addV10.res;
-    const addJson: any = addV10.json;
-
-    // Some Vercel accounts/endpoints may not support v10; fallback to v9.
-    const shouldFallback = !!addRes && (addRes.status === 404 || addRes.status === 405);
-    const addV9 = shouldFallback
-      ? await fetchJson(`https://api.vercel.com/v9/projects/${pid}/domains${qp}`,
-          {
-            method: "POST",
-            headers,
-            body: JSON.stringify({ name: domain }),
-          },
-        )
-      : null;
-
-    const finalAddRes = addV9?.res ?? addRes;
-    const finalAddJson = addV9?.json ?? addJson;
-
-    const addOk =
-      !!finalAddRes &&
-      (finalAddRes.ok ||
-        finalAddRes.status === 409 ||
-        (finalAddRes.status === 400 && isLikelyAlreadyExistsError(finalAddJson)));
-
-    if (!addOk) {
-      const { code, message } = extractVercelError(finalAddJson);
-      const suffix = message ? ` (${message})` : "";
-      const domainInUse = isLikelyDomainInUseError(finalAddJson);
+    if (existing.res && existing.res.ok) {
+      // proceed
+    } else if (existing.res && existing.res.status !== 404) {
+      const { code, message } = extractVercelError(existing.json);
+      attempt.steps.existingError = { code, message };
+      // If a teamId is wrong, retry without it.
+      if (isLikelyScopeMismatchStatus(existing.res.status) && qpCandidates.length > 1) {
+        continue;
+      }
       return {
         ok: false,
         configured: true,
-        error: domainInUse
-          ? `Domain is already in use on another hosting project${suffix}`
-          : `Failed to add domain to hosting project${suffix}`,
-        debug: { status: finalAddRes?.status, code, body: finalAddJson },
+        error: `Failed to fetch hosting domain status${message ? ` (${message})` : ""}`,
+        debug: { attempts },
       };
     }
-  }
 
-  const verify = await fetchJson(`https://api.vercel.com/v9/projects/${pid}/domains/${d}/verify${qp}`,
-    {
-      method: "POST",
-      headers,
-    },
-  );
+    // Add domain if missing (ignore if already exists on project).
+    if (!existing.res || existing.res.status === 404) {
+      const addV10 = await fetchJson(`https://api.vercel.com/v10/projects/${pid}/domains${qp}`,
+        {
+          method: "POST",
+          headers,
+          body: JSON.stringify({ name: domain }),
+        },
+      );
 
-  const verifyJson: any = verify.json;
+      const addRes = addV10.res;
+      const addJson: any = addV10.json;
+      attempt.steps.addV10 = { status: addRes?.status ?? null, body: addJson };
 
-  // Vercel sometimes returns a non-2xx status while still including verification hints.
-  const hasVerificationPayload = verifyJson && typeof verifyJson?.verified === "boolean";
-  if (!verify.res || (!verify.res.ok && !hasVerificationPayload)) {
-    const { code, message } = extractVercelError(verifyJson);
+      // Some Vercel accounts/endpoints may not support v10; fallback to v9.
+      const shouldFallback = !!addRes && (addRes.status === 404 || addRes.status === 405);
+      const addV9 = shouldFallback
+        ? await fetchJson(`https://api.vercel.com/v9/projects/${pid}/domains${qp}`,
+            {
+              method: "POST",
+              headers,
+              body: JSON.stringify({ name: domain }),
+            },
+          )
+        : null;
+
+      if (addV9) attempt.steps.addV9 = { status: addV9.res?.status ?? null, body: addV9.json };
+
+      const finalAddRes = addV9?.res ?? addRes;
+      const finalAddJson = addV9?.json ?? addJson;
+
+      const addOk =
+        !!finalAddRes &&
+        (finalAddRes.ok ||
+          finalAddRes.status === 409 ||
+          (finalAddRes.status === 400 && isLikelyAlreadyExistsError(finalAddJson)));
+
+      if (!addOk) {
+        const { code, message } = extractVercelError(finalAddJson);
+        attempt.steps.addError = { status: finalAddRes?.status ?? null, code, message };
+
+        // If we got an auth-ish error and we have another scope candidate, retry.
+        if (isLikelyScopeMismatchStatus(finalAddRes?.status) && qpCandidates.length > 1) {
+          continue;
+        }
+
+        const suffix = message ? ` (${message})` : "";
+        const domainInUse = isLikelyDomainInUseError(finalAddJson);
+        return {
+          ok: false,
+          configured: true,
+          error: domainInUse
+            ? `Domain is already in use on another hosting project${suffix}`
+            : `Failed to add domain to hosting project${suffix}`,
+          debug: { attempts },
+        };
+      }
+    }
+
+    const verify = await fetchJson(`https://api.vercel.com/v9/projects/${pid}/domains/${d}/verify${qp}`,
+      {
+        method: "POST",
+        headers,
+      },
+    );
+
+    const verifyJson: any = verify.json;
+    attempt.steps.verify = { status: verify.res?.status ?? null, body: verifyJson };
+
+    // Vercel sometimes returns a non-2xx status while still including verification hints.
+    const hasVerificationPayload = verifyJson && typeof verifyJson?.verified === "boolean";
+    if (!verify.res || (!verify.res.ok && !hasVerificationPayload)) {
+      const { code, message } = extractVercelError(verifyJson);
+      attempt.steps.verifyError = { code, message };
+
+      if (isLikelyScopeMismatchStatus(verify.res?.status) && qpCandidates.length > 1) {
+        continue;
+      }
+
+      return {
+        ok: false,
+        configured: true,
+        error: `Failed to verify domain on hosting project${message ? ` (${message})` : ""}`,
+        debug: { attempts },
+      };
+    }
+
     return {
-      ok: false,
+      ok: true,
       configured: true,
-      error: `Failed to verify domain on hosting project${message ? ` (${message})` : ""}`,
-      debug: { status: verify.res?.status, code, body: verifyJson },
+      verified: !!verifyJson?.verified,
+      verification: Array.isArray(verifyJson?.verification) ? verifyJson.verification : null,
+      raw: verifyJson,
     };
   }
 
   return {
-    ok: true,
+    ok: false,
     configured: true,
-    verified: !!verifyJson?.verified,
-    verification: Array.isArray(verifyJson?.verification) ? verifyJson.verification : null,
-    raw: verifyJson,
+    error: "Failed to provision/verify domain on hosting project",
+    debug: { attempts },
   };
 }
 

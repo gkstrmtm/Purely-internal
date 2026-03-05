@@ -795,6 +795,13 @@ export function PortalAutomationsClient(props: { mode?: "list" | "editor" }) {
 
   const [inspectorOpen, setInspectorOpen] = useState(() => mode !== "editor");
 
+  useEffect(() => {
+    if (mode !== "editor") return;
+    if (!inspectorOpen) return;
+    if (selectedNodeId) return;
+    setInspectorOpen(false);
+  }, [inspectorOpen, mode, selectedNodeId]);
+
   const [autolabelSelectedNode, setAutolabelSelectedNode] = useState(true);
 
   const [dragging, setDragging] = useState<
@@ -1506,8 +1513,22 @@ export function PortalAutomationsClient(props: { mode?: "list" | "editor" }) {
     };
 
     canvas.addEventListener("wheel", onWheel, { passive: false });
+
+    // iOS/Safari pinch gestures can zoom the whole page even with touch-action.
+    // Prevent default gesture zoom while the user is interacting with the canvas.
+    const onGesture = (ev: Event) => {
+      ev.preventDefault();
+      ev.stopPropagation();
+    };
+    (canvas as any).addEventListener?.("gesturestart", onGesture, { passive: false });
+    (canvas as any).addEventListener?.("gesturechange", onGesture, { passive: false });
+    (canvas as any).addEventListener?.("gestureend", onGesture, { passive: false });
+
     return () => {
       canvas.removeEventListener("wheel", onWheel as any);
+      (canvas as any).removeEventListener?.("gesturestart", onGesture as any);
+      (canvas as any).removeEventListener?.("gesturechange", onGesture as any);
+      (canvas as any).removeEventListener?.("gestureend", onGesture as any);
     };
   }, [mode]);
 
@@ -2063,11 +2084,11 @@ export function PortalAutomationsClient(props: { mode?: "list" | "editor" }) {
 
         <div className="mt-6 overflow-hidden rounded-3xl border border-zinc-200 bg-white">
           <div className="grid grid-cols-12 gap-3 border-b border-zinc-200 bg-zinc-50 px-4 py-3 text-xs font-semibold uppercase tracking-wide text-zinc-600">
-            <div className="col-span-4">Name</div>
+            <div className="col-span-6 md:col-span-4">Name</div>
             <div className="col-span-2">Status</div>
-            <div className="col-span-2">Trigger</div>
-            <div className="col-span-2">Updated</div>
-            <div className="col-span-1">Created</div>
+            <div className="col-span-3 md:col-span-3 lg:col-span-2">Trigger</div>
+            <div className="hidden md:block md:col-span-2">Updated</div>
+            <div className="hidden lg:block lg:col-span-1">Created</div>
             <div className="col-span-1 text-right">Actions</div>
           </div>
 
@@ -2078,7 +2099,11 @@ export function PortalAutomationsClient(props: { mode?: "list" | "editor" }) {
               filtered.map((a) => {
                 const triggerNode = (a.nodes || []).find((n: any) => n?.type === "trigger" && n?.config?.kind === "trigger") as any;
                 const triggerKind = triggerNode?.config?.triggerKind as TriggerKind | undefined;
-                const triggerLabel = triggerKind ? String(triggerKind).replace(/_/g, " ") : "—";
+                const triggerLabel = triggerKind
+                  ? triggerKind === "manual"
+                    ? "Manual"
+                    : String(triggerKind).replace(/_/g, " ")
+                  : "—";
                 const updatedLabel = formatUpdatedShort(a.updatedAtIso);
                 const createdLabel = (a as any).createdAtIso ? new Date((a as any).createdAtIso).toLocaleDateString() : "—";
                 return (
@@ -2087,7 +2112,7 @@ export function PortalAutomationsClient(props: { mode?: "list" | "editor" }) {
                     className="grid cursor-pointer grid-cols-12 items-center gap-3 px-4 py-3 hover:bg-zinc-50"
                     onClick={() => openAutomationEditorWindow(a.id)}
                   >
-                    <div className="col-span-4 min-w-0">
+                    <div className="col-span-6 md:col-span-4 min-w-0">
                       {inlineRenameId === a.id ? (
                         <input
                           ref={inlineRenameInputRef}
@@ -2111,14 +2136,17 @@ export function PortalAutomationsClient(props: { mode?: "list" | "editor" }) {
                       ) : (
                         <button
                           type="button"
-                          className="-ml-2 block w-full truncate rounded-lg px-2 py-1 text-left text-sm font-semibold text-zinc-900 hover:bg-zinc-100 hover:ring-1 hover:ring-zinc-200"
+                          className="group block w-full truncate rounded-xl border border-transparent bg-transparent px-3 py-2 text-left text-sm font-semibold text-zinc-900 hover:border-zinc-200 hover:bg-zinc-50"
                           onClick={(e) => {
                             e.stopPropagation();
                             startInlineRename(a.id);
                           }}
                           title="Click to rename"
                         >
-                          {a.name}
+                          <span className="flex items-center justify-between gap-2">
+                            <span className="truncate">{a.name}</span>
+                            <span className="hidden text-xs font-semibold text-zinc-400 group-hover:inline">Rename</span>
+                          </span>
                         </button>
                       )}
                       <div className="truncate text-xs text-zinc-500">{a.id}</div>
@@ -2135,15 +2163,53 @@ export function PortalAutomationsClient(props: { mode?: "list" | "editor" }) {
                       </span>
                     </div>
 
-                    <div className="col-span-2 truncate text-sm text-zinc-700" title={triggerLabel}>
-                      {triggerLabel}
+                    <div className="col-span-3 md:col-span-3 lg:col-span-2 min-w-0">
+                      {triggerKind === "manual" ? (
+                        <div className="flex items-center gap-2">
+                          <span
+                            className="inline-flex items-center rounded-full border border-sky-200 bg-sky-50 px-2 py-1 text-xs font-semibold text-sky-800"
+                            title="This automation can be triggered manually"
+                          >
+                            Manual
+                          </span>
+                          <button
+                            type="button"
+                            className="rounded-xl border border-zinc-200 bg-white px-2 py-1 text-xs font-semibold text-zinc-800 hover:bg-zinc-50 disabled:opacity-60"
+                            disabled={manualRunBusyFor === a.id}
+                            onClick={async (e) => {
+                              e.stopPropagation();
+                              if (manualRunBusyFor) return;
+                              setManualRunBusyFor(a.id);
+                              const res = await fetch("/api/portal/automations/run", {
+                                method: "POST",
+                                headers: { "content-type": "application/json" },
+                                body: JSON.stringify({ automationId: a.id }),
+                              }).catch(() => null as any);
+                              const data = (await res?.json?.().catch(() => null)) as any;
+                              if (!res?.ok || !data?.ok) {
+                                setError(String(data?.error || "Failed to trigger."));
+                              } else {
+                                toast.success("Triggered");
+                              }
+                              setManualRunBusyFor(null);
+                            }}
+                            title="Run this automation now"
+                          >
+                            {manualRunBusyFor === a.id ? "Triggering…" : "Trigger"}
+                          </button>
+                        </div>
+                      ) : (
+                        <div className="truncate text-sm text-zinc-700" title={triggerLabel}>
+                          {triggerLabel}
+                        </div>
+                      )}
                     </div>
 
-                    <div className="col-span-2 min-w-0 truncate text-sm text-zinc-700" title={updatedLabel}>
+                    <div className="hidden md:block md:col-span-2 min-w-0 truncate text-sm text-zinc-700" title={updatedLabel}>
                       {updatedLabel}
                     </div>
 
-                    <div className="col-span-1 truncate text-sm text-zinc-700" title={createdLabel}>
+                    <div className="hidden lg:block lg:col-span-1 truncate text-sm text-zinc-700" title={createdLabel}>
                       {createdLabel}
                     </div>
 
@@ -2305,14 +2371,17 @@ export function PortalAutomationsClient(props: { mode?: "list" | "editor" }) {
               ) : (
                 <button
                   type="button"
-                  className="block max-w-[520px] truncate text-left text-lg font-bold text-brand-ink hover:underline"
+                  className="group block max-w-[520px] truncate rounded-xl border border-transparent px-2 py-1 text-left text-lg font-bold text-brand-ink hover:border-zinc-200 hover:bg-zinc-50"
                   onClick={() => {
                     if (!selectedAutomation) return;
                     startInlineRename(selectedAutomation.id);
                   }}
                   title="Click to rename"
                 >
-                  {selectedAutomation?.name ?? "Automation"}
+                  <span className="flex items-center justify-between gap-2">
+                    <span className="truncate">{selectedAutomation?.name ?? "Automation"}</span>
+                    <span className="hidden text-xs font-semibold text-zinc-400 group-hover:inline">Rename</span>
+                  </span>
                 </button>
               )}
               <div className="truncate text-xs text-zinc-500">{selectedAutomation?.id ?? ""}</div>
@@ -3133,6 +3202,7 @@ export function PortalAutomationsClient(props: { mode?: "list" | "editor" }) {
                     if (activePointersRef.current.size === 2) pinchRef.current = null;
                   }
                   setSelectedNodeId(null);
+                  if (mode === "editor") setInspectorOpen(false);
 
                   (ev.currentTarget as HTMLElement).setPointerCapture?.(ev.pointerId);
                   setPanning({
@@ -3418,9 +3488,7 @@ export function PortalAutomationsClient(props: { mode?: "list" | "editor" }) {
                     </button>
                   </div>
 
-                  {!selectedNode ? (
-                    <div className="mt-3 text-sm text-zinc-600">Select a node to edit.</div>
-                  ) : (
+                  {!selectedNode ? null : (
                     <div className="mt-3 max-h-[420px] overflow-auto pr-1">
                       <div className="flex items-center justify-between gap-3">
                         <div className="text-xs font-semibold text-zinc-600">Type</div>
