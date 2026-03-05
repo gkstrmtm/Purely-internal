@@ -820,7 +820,7 @@ export function PortalProfileClient() {
                     />
                   </div>
                   <div>
-                    <label className="text-xs font-semibold text-zinc-600">Phone (optional)</label>
+                    <label className="text-xs font-semibold text-zinc-600">Phone</label>
                     <input
                       value={phone}
                       onChange={(e) => setPhone(e.target.value)}

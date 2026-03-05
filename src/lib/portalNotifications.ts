@@ -1,6 +1,8 @@
 import { prisma } from "@/lib/db";
 import { trySendTransactionalEmail } from "@/lib/emailSender";
 import { normalizePhoneStrict } from "@/lib/phone";
+import { hasPortalServiceCapability } from "@/lib/portalPermissions";
+import type { PortalServiceKey } from "@/lib/portalPermissions.shared";
 import { sendTwilioEnvSms } from "@/lib/twilioEnvSms";
 
 function safeOneLine(s: string) {
@@ -56,23 +58,83 @@ type PortalRecipient = { userId: string; email: string };
 
 export type PortalRecipientContact = { userId: string; email: string; phoneE164: string | null };
 
-async function getPortalAccountRecipients(ownerId: string): Promise<PortalRecipient[]> {
+function serviceForNotificationKind(kind: PortalNotificationKind): PortalServiceKey | null {
+  switch (kind) {
+    case "inbound_email":
+    case "inbound_sms":
+      return "inbox";
+
+    case "booking_created":
+      return "booking";
+
+    case "blog_published":
+      return "blogs";
+
+    case "newsletter_ready":
+    case "newsletter_sent":
+      return "newsletter";
+
+    case "ai_receptionist_call_completed":
+      return "aiReceptionist";
+
+    case "missed_call":
+      return "missedCallTextback";
+
+    case "lead_scrape_run_completed":
+      return "leadScraping";
+
+    case "review_received":
+    case "review_question_received":
+      return "reviews";
+
+    case "automations_run":
+      return "automations";
+
+    // Generic/account-wide events.
+    case "credits_purchased":
+    case "form_submitted":
+    case "task_created":
+      return null;
+
+    default:
+      return null;
+  }
+}
+
+async function getPortalAccountRecipients(opts: { ownerId: string; kind?: PortalNotificationKind }): Promise<PortalRecipient[]> {
   const [owner, members] = await Promise.all([
-    prisma.user.findUnique({ where: { id: ownerId }, select: { id: true, email: true, active: true } }),
+    prisma.user.findUnique({ where: { id: opts.ownerId }, select: { id: true, email: true, active: true } }),
     prisma.portalAccountMember.findMany({
-      where: { ownerId },
-      select: { user: { select: { id: true, email: true, active: true } } },
+      where: { ownerId: opts.ownerId },
+      select: { role: true, permissionsJson: true, user: { select: { id: true, email: true, active: true } } },
     }),
   ]);
 
-  const rows = [
-    owner?.active ? { userId: owner.id, email: owner.email } : null,
-    ...members.map((m) => (m.user?.active ? { userId: m.user.id, email: m.user.email } : null)),
-  ].filter(Boolean) as PortalRecipient[];
+  const service = opts.kind ? serviceForNotificationKind(opts.kind) : null;
+
+  const rows: Array<PortalRecipient | null> = [];
+  rows.push(owner?.active ? { userId: owner.id, email: owner.email } : null);
+
+  for (const m of members) {
+    if (!m.user?.active) continue;
+    if (service) {
+      const role = m.role === "ADMIN" ? "ADMIN" : "MEMBER";
+      const ok = hasPortalServiceCapability({
+        role,
+        permissionsJson: m.permissionsJson,
+        service,
+        capability: "view",
+      });
+      if (!ok) continue;
+    }
+    rows.push({ userId: m.user.id, email: m.user.email });
+  }
+
+  const filtered = rows.filter(Boolean) as PortalRecipient[];
 
   const seen = new Set<string>();
   const unique: PortalRecipient[] = [];
-  for (const r of rows) {
+  for (const r of filtered) {
     const email = safeOneLine(r.email);
     if (!email || !email.includes("@")) continue;
     const key = `${r.userId}:${email.toLowerCase()}`;
@@ -105,8 +167,8 @@ async function getRecipientPhones(userIds: string[]): Promise<Map<string, string
   return map;
 }
 
-export async function listPortalAccountRecipientContacts(ownerId: string): Promise<PortalRecipientContact[]> {
-  const recipients = await getPortalAccountRecipients(ownerId).catch(() => []);
+export async function listPortalAccountRecipientContacts(ownerId: string, kind?: PortalNotificationKind): Promise<PortalRecipientContact[]> {
+  const recipients = await getPortalAccountRecipients({ ownerId, kind }).catch(() => []);
   if (!recipients.length) return [];
 
   const phones = await getRecipientPhones(recipients.map((r) => r.userId)).catch(() => new Map<string, string>());
@@ -114,7 +176,7 @@ export async function listPortalAccountRecipientContacts(ownerId: string): Promi
 }
 
 export async function getPortalAccountRecipientEmails(ownerId: string): Promise<string[]> {
-  const recips = await getPortalAccountRecipients(ownerId);
+  const recips = await getPortalAccountRecipients({ ownerId });
   const seen = new Set<string>();
   const unique: string[] = [];
   for (const r of recips) {
@@ -137,7 +199,7 @@ export async function tryNotifyPortalAccountUsers(opts: {
   smsMirror?: boolean;
   smsFromNumberEnvKeys?: string[];
 }): Promise<{ ok: true; recipients: string[] } | { ok: false; reason: string }> {
-  const recipients = await getPortalAccountRecipients(opts.ownerId).catch(() => []);
+  const recipients = await getPortalAccountRecipients({ ownerId: opts.ownerId, kind: opts.kind }).catch(() => []);
   if (!recipients.length) return { ok: false, reason: "No recipients" };
 
   const profile = await prisma.businessProfile

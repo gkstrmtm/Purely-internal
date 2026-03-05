@@ -287,9 +287,12 @@ export async function sendOwnerTwilioSms(opts: {
   to: string;
   body: string;
   mediaUrls?: string[];
+  logToInbox?: boolean;
 }): Promise<{ ok: true; messageSid?: string } | { ok: false; error: string }> {
   const config = await getOwnerTwilioSmsConfig(opts.ownerId);
   if (!config) return { ok: false, error: "Texting not configured" };
+
+  const logToInbox = opts.logToInbox !== false;
 
   const url = `https://api.twilio.com/2010-04-01/Accounts/${config.accountSid}/Messages.json`;
   const basic = Buffer.from(`${config.accountSid}:${config.authToken}`).toString("base64");
@@ -332,6 +335,26 @@ export async function sendOwnerTwilioSms(opts: {
     const json = JSON.parse(text) as any;
     const messageSid = typeof json?.sid === "string" ? json.sid : undefined;
     if (messageSid) {
+      if (logToInbox) {
+        const { threadKey, peerAddress, peerKey } = makeSmsThreadKey(opts.to);
+        await tryUpsertPortalInboxMessage({
+          ownerId: opts.ownerId,
+          channel: "SMS",
+          direction: "OUT",
+          threadKey,
+          peerAddress,
+          peerKey,
+          fromAddress: config.fromNumberE164,
+          toAddress: opts.to,
+          bodyText: opts.body,
+          provider: "TWILIO",
+          providerMessageId: messageSid,
+        });
+      }
+    }
+    return { ok: true, messageSid };
+  } catch {
+    if (logToInbox) {
       const { threadKey, peerAddress, peerKey } = makeSmsThreadKey(opts.to);
       await tryUpsertPortalInboxMessage({
         ownerId: opts.ownerId,
@@ -344,25 +367,9 @@ export async function sendOwnerTwilioSms(opts: {
         toAddress: opts.to,
         bodyText: opts.body,
         provider: "TWILIO",
-        providerMessageId: messageSid,
+        providerMessageId: null,
       });
     }
-    return { ok: true, messageSid };
-  } catch {
-    const { threadKey, peerAddress, peerKey } = makeSmsThreadKey(opts.to);
-    await tryUpsertPortalInboxMessage({
-      ownerId: opts.ownerId,
-      channel: "SMS",
-      direction: "OUT",
-      threadKey,
-      peerAddress,
-      peerKey,
-      fromAddress: config.fromNumberE164,
-      toAddress: opts.to,
-      bodyText: opts.body,
-      provider: "TWILIO",
-      providerMessageId: null,
-    });
     return { ok: true };
   }
 }

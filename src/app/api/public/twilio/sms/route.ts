@@ -6,9 +6,9 @@ import { makeSmsThreadKey, normalizeSmsPeerKey, upsertPortalInboxMessage } from 
 import { prisma } from "@/lib/db";
 import { ensurePortalInboxSchema } from "@/lib/portalInboxSchema";
 import { mirrorUploadToMediaLibrary } from "@/lib/portalMediaUploads";
-import { getOwnerTwilioSmsConfig } from "@/lib/portalTwilio";
+import { getOwnerTwilioSmsConfig, sendOwnerTwilioSms } from "@/lib/portalTwilio";
 import { runOwnerAutomationsForInboundSms } from "@/lib/portalAutomationsRunner";
-import { getAppBaseUrl, tryNotifyPortalAccountUsers } from "@/lib/portalNotifications";
+import { getAppBaseUrl, listPortalAccountRecipientContacts, tryNotifyPortalAccountUsers } from "@/lib/portalNotifications";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
@@ -99,6 +99,35 @@ export async function POST(req: Request) {
   // Best-effort: notify portal users (keep this fast).
   try {
     const baseUrl = getAppBaseUrl();
+
+    // SMS notification to the portal user's phone (using the owner's Twilio config).
+    // Best-effort and intentionally not written into the Inbox.
+    try {
+      const contacts = await listPortalAccountRecipientContacts(ownerId, "inbound_sms");
+      const toPhones = contacts
+        .map((c) => c.phoneE164)
+        .filter(Boolean) as string[];
+
+      const unique = Array.from(new Set(toPhones));
+      const smsBody = [
+        `New inbound SMS from ${from}`,
+        body ? String(body).trim().slice(0, 500) : null,
+        `${baseUrl}/portal/app/inbox`,
+      ]
+        .filter(Boolean)
+        .join("\n\n")
+        .slice(0, 900);
+
+      if (unique.length && smsBody.trim()) {
+        await withTimeout(
+          Promise.all(unique.map((phone) => sendOwnerTwilioSms({ ownerId, to: phone, body: smsBody, logToInbox: false }))),
+          3500,
+        );
+      }
+    } catch {
+      // ignore
+    }
+
     await withTimeout(
       tryNotifyPortalAccountUsers({
         ownerId,

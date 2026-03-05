@@ -671,13 +671,14 @@ function PortalGetStartedInner() {
                   </div>
 
                   <div>
-                    <label className="text-base font-medium">Phone (optional)</label>
+                    <label className="text-base font-medium">Phone</label>
                     <input
                       className="mt-2 w-full rounded-2xl border border-zinc-200 bg-white px-4 py-3 text-base outline-none focus:border-zinc-400"
                       type="tel"
                       value={phone}
                       onChange={(e) => setPhone(e.target.value)}
                       placeholder="(555) 555-5555"
+                      required
                     />
                   </div>
 
