@@ -770,6 +770,15 @@ export function PortalAutomationsClient(props: { mode?: "list" | "editor" }) {
       }
   >(null);
 
+  const gestureRef = useRef<
+    | null
+    | {
+        startZoom: number;
+        worldX: number;
+        worldY: number;
+      }
+  >(null);
+
   const [view, setView] = useState<{ panX: number; panY: number; zoom: number }>({
     panX: mode === "editor" ? 420 : 80,
     panY: 80,
@@ -793,7 +802,8 @@ export function PortalAutomationsClient(props: { mode?: "list" | "editor" }) {
 
   const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null);
 
-  const [inspectorOpen, setInspectorOpen] = useState(() => mode !== "editor");
+  // Default to palette-first UX; open inspector only when a node is selected.
+  const [inspectorOpen, setInspectorOpen] = useState(false);
 
   useEffect(() => {
     if (mode !== "editor") return;
@@ -1514,11 +1524,43 @@ export function PortalAutomationsClient(props: { mode?: "list" | "editor" }) {
 
     canvas.addEventListener("wheel", onWheel, { passive: false });
 
-    // iOS/Safari pinch gestures can zoom the whole page even with touch-action.
-    // Prevent default gesture zoom while the user is interacting with the canvas.
-    const onGesture = (ev: Event) => {
-      ev.preventDefault();
-      ev.stopPropagation();
+    // Safari (macOS + iOS) supports `gesture*` events for pinch.
+    // We prevent page zoom and instead map pinch -> canvas zoom.
+    const onGesture = (ev: any) => {
+      ev.preventDefault?.();
+      ev.stopPropagation?.();
+
+      const rect = canvas.getBoundingClientRect();
+      const v = viewRef.current;
+      const clientX = typeof ev?.clientX === "number" ? ev.clientX : rect.left + rect.width / 2;
+      const clientY = typeof ev?.clientY === "number" ? ev.clientY : rect.top + rect.height / 2;
+
+      if (ev?.type === "gesturestart") {
+        const worldX = (clientX - rect.left - v.panX) / v.zoom;
+        const worldY = (clientY - rect.top - v.panY) / v.zoom;
+        gestureRef.current = { startZoom: v.zoom, worldX, worldY };
+        return;
+      }
+
+      if (ev?.type === "gestureend") {
+        gestureRef.current = null;
+        return;
+      }
+
+      if (ev?.type === "gesturechange") {
+        const init = gestureRef.current;
+        const scale = typeof ev?.scale === "number" ? ev.scale : null;
+        if (!init || !scale) return;
+
+        const nextZoom = clampZoom(init.startZoom * scale);
+        const nextPanX = clientX - rect.left - init.worldX * nextZoom;
+        const nextPanY = clientY - rect.top - init.worldY * nextZoom;
+        setView({
+          zoom: nextZoom,
+          panX: clamp(nextPanX, -6000, 6000),
+          panY: clamp(nextPanY, -6000, 6000),
+        });
+      }
     };
     (canvas as any).addEventListener?.("gesturestart", onGesture, { passive: false });
     (canvas as any).addEventListener?.("gesturechange", onGesture, { passive: false });
@@ -2086,10 +2128,10 @@ export function PortalAutomationsClient(props: { mode?: "list" | "editor" }) {
           <div className="grid grid-cols-12 gap-3 border-b border-zinc-200 bg-zinc-50 px-4 py-3 text-xs font-semibold uppercase tracking-wide text-zinc-600">
             <div className="col-span-6 md:col-span-4">Name</div>
             <div className="col-span-2">Status</div>
-            <div className="col-span-3 md:col-span-3 lg:col-span-2">Trigger</div>
+            <div className="col-span-3 md:col-span-2 lg:col-span-2">Trigger</div>
             <div className="hidden md:block md:col-span-2">Updated</div>
             <div className="hidden lg:block lg:col-span-1">Created</div>
-            <div className="col-span-1 text-right">Actions</div>
+            <div className="col-span-1 md:col-span-2 lg:col-span-1 text-right">Actions</div>
           </div>
 
           <div className="divide-y divide-zinc-100">
@@ -2136,7 +2178,7 @@ export function PortalAutomationsClient(props: { mode?: "list" | "editor" }) {
                       ) : (
                         <button
                           type="button"
-                          className="group block w-full truncate rounded-xl border border-transparent bg-transparent px-3 py-2 text-left text-sm font-semibold text-zinc-900 hover:border-zinc-200 hover:bg-zinc-50"
+                          className="group block w-full rounded-xl border border-zinc-200/0 bg-transparent px-3 py-2 text-left text-sm font-semibold text-zinc-900 hover:border-zinc-300 hover:bg-white focus-visible:border-zinc-300 focus-visible:ring-2 focus-visible:ring-blue-200"
                           onClick={(e) => {
                             e.stopPropagation();
                             startInlineRename(a.id);
@@ -2145,7 +2187,6 @@ export function PortalAutomationsClient(props: { mode?: "list" | "editor" }) {
                         >
                           <span className="flex items-center justify-between gap-2">
                             <span className="truncate">{a.name}</span>
-                            <span className="hidden text-xs font-semibold text-zinc-400 group-hover:inline">Rename</span>
                           </span>
                         </button>
                       )}
@@ -2163,7 +2204,7 @@ export function PortalAutomationsClient(props: { mode?: "list" | "editor" }) {
                       </span>
                     </div>
 
-                    <div className="col-span-3 md:col-span-3 lg:col-span-2 min-w-0">
+                    <div className="col-span-3 md:col-span-2 lg:col-span-2 min-w-0">
                       {triggerKind === "manual" ? (
                         <div className="flex items-center gap-2">
                           <span
@@ -2209,11 +2250,11 @@ export function PortalAutomationsClient(props: { mode?: "list" | "editor" }) {
                       {updatedLabel}
                     </div>
 
-                    <div className="hidden lg:block lg:col-span-1 truncate text-sm text-zinc-700" title={createdLabel}>
+                    <div className="hidden lg:block lg:col-span-1 min-w-0 truncate text-sm text-zinc-700" title={createdLabel}>
                       {createdLabel}
                     </div>
 
-                    <div className="col-span-1 flex justify-end">
+                    <div className="col-span-1 md:col-span-2 lg:col-span-1 flex justify-end">
                       <button
                         type="button"
                         className="inline-flex h-9 w-9 items-center justify-center rounded-xl border border-zinc-200 bg-white text-zinc-700 hover:bg-zinc-50"
@@ -2371,7 +2412,7 @@ export function PortalAutomationsClient(props: { mode?: "list" | "editor" }) {
               ) : (
                 <button
                   type="button"
-                  className="group block max-w-[520px] truncate rounded-xl border border-transparent px-2 py-1 text-left text-lg font-bold text-brand-ink hover:border-zinc-200 hover:bg-zinc-50"
+                  className="block max-w-[520px] truncate rounded-xl border border-zinc-200/0 px-2 py-1 text-left text-lg font-bold text-brand-ink hover:border-zinc-300 hover:bg-white focus-visible:border-zinc-300 focus-visible:ring-2 focus-visible:ring-blue-200"
                   onClick={() => {
                     if (!selectedAutomation) return;
                     startInlineRename(selectedAutomation.id);
@@ -2380,7 +2421,6 @@ export function PortalAutomationsClient(props: { mode?: "list" | "editor" }) {
                 >
                   <span className="flex items-center justify-between gap-2">
                     <span className="truncate">{selectedAutomation?.name ?? "Automation"}</span>
-                    <span className="hidden text-xs font-semibold text-zinc-400 group-hover:inline">Rename</span>
                   </span>
                 </button>
               )}
@@ -2417,9 +2457,9 @@ export function PortalAutomationsClient(props: { mode?: "list" | "editor" }) {
               type="button"
               className="rounded-2xl bg-blue-600 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-700 disabled:opacity-60"
               onClick={() => void saveAll()}
-              disabled={saving}
+              disabled={saving || !dirty}
             >
-              {saving ? "Saving…" : "Save"}
+              {saving ? "Saving…" : dirty ? "Save" : "Saved"}
             </button>
             <button
               type="button"

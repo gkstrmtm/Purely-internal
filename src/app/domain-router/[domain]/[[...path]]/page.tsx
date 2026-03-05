@@ -260,7 +260,10 @@ function parseStyle(schemaJson: unknown): CreditFormStyle {
 }
 
 async function resolveCustomDomain(host: string): Promise<{ ownerId: string; matchedDomain: string; status: "PENDING" | "VERIFIED" } | null> {
-  const clean = String(host || "").trim().toLowerCase();
+  const clean = String(host || "")
+    .trim()
+    .toLowerCase()
+    .replace(/\.$/, "");
   if (!clean) return null;
 
   const primary = await prisma.creditCustomDomain
@@ -272,6 +275,12 @@ async function resolveCustomDomain(host: string): Promise<{ ownerId: string; mat
     const apex = clean.slice(4);
     const fallback = await prisma.creditCustomDomain
       .findFirst({ where: { domain: apex }, select: { ownerId: true, domain: true, status: true } })
+      .catch(() => null);
+    if (fallback) return { ownerId: fallback.ownerId, matchedDomain: fallback.domain, status: fallback.status };
+  } else {
+    const www = `www.${clean}`;
+    const fallback = await prisma.creditCustomDomain
+      .findFirst({ where: { domain: www }, select: { ownerId: true, domain: true, status: true } })
       .catch(() => null);
     if (fallback) return { ownerId: fallback.ownerId, matchedDomain: fallback.domain, status: fallback.status };
   }
