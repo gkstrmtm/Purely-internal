@@ -591,6 +591,49 @@ export function PortalAutomationsClient(props: { mode?: "list" | "editor" }) {
   const [listStatus, setListStatus] = useState<"all" | "active" | "paused">("all");
   const [listTrigger, setListTrigger] = useState<"all" | TriggerKind>("all");
 
+  const [openListMenu, setOpenListMenu] = useState<null | { automationId: string; left: number; top: number }>(null);
+
+  useEffect(() => {
+    if (!openListMenu) return;
+
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setOpenListMenu(null);
+    };
+
+    const onScrollOrResize = () => setOpenListMenu(null);
+
+    window.addEventListener("keydown", onKey);
+    window.addEventListener("scroll", onScrollOrResize, true);
+    window.addEventListener("resize", onScrollOrResize);
+    return () => {
+      window.removeEventListener("keydown", onKey);
+      window.removeEventListener("scroll", onScrollOrResize, true);
+      window.removeEventListener("resize", onScrollOrResize);
+    };
+  }, [openListMenu]);
+
+  function toggleListMenu(automationId: string, el: HTMLElement) {
+    setOpenListMenu((prev) => {
+      if (prev?.automationId === automationId) return null;
+      const rect = el.getBoundingClientRect();
+      const menuWidth = 220;
+      const padding = 8;
+      const left = Math.max(padding, Math.min(window.innerWidth - menuWidth - padding, rect.right - menuWidth));
+      const top = Math.max(padding, rect.bottom + 8);
+      return { automationId, left, top };
+    });
+  }
+
+  function DotsIcon({ className }: { className?: string }) {
+    return (
+      <svg viewBox="0 0 24 24" fill="currentColor" className={className} aria-hidden="true">
+        <circle cx="12" cy="5" r="1.8" />
+        <circle cx="12" cy="12" r="1.8" />
+        <circle cx="12" cy="19" r="1.8" />
+      </svg>
+    );
+  }
+
   const [inlineRenameId, setInlineRenameId] = useState<string | null>(null);
   const [inlineRenameValue, setInlineRenameValue] = useState("");
   const inlineRenameInputRef = useRef<HTMLInputElement | null>(null);
@@ -714,6 +757,18 @@ export function PortalAutomationsClient(props: { mode?: "list" | "editor" }) {
   }, [formTemplateVariables]);
 
   const canvasRef = useRef<HTMLDivElement | null>(null);
+  const activePointersRef = useRef(new Map<number, { clientX: number; clientY: number }>());
+  const pinchRef = useRef<
+    | null
+    | {
+        startDist: number;
+        startZoom: number;
+        startPanX: number;
+        startPanY: number;
+        startMidClientX: number;
+        startMidClientY: number;
+      }
+  >(null);
 
   const [view, setView] = useState<{ panX: number; panY: number; zoom: number }>({
     panX: mode === "editor" ? 420 : 80,
@@ -738,7 +793,7 @@ export function PortalAutomationsClient(props: { mode?: "list" | "editor" }) {
 
   const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null);
 
-  const [inspectorOpen, setInspectorOpen] = useState(true);
+  const [inspectorOpen, setInspectorOpen] = useState(() => mode !== "editor");
 
   const [autolabelSelectedNode, setAutolabelSelectedNode] = useState(true);
 
@@ -1414,9 +1469,10 @@ export function PortalAutomationsClient(props: { mode?: "list" | "editor" }) {
       const v = viewRef.current;
 
       // Default: allow normal page scroll even when hovering the canvas.
-      // Only capture wheel for zoom (pinch/ctrl/meta).
+      // Only capture wheel for zoom (pinch/ctrl/meta), or for canvas pan in editor mode.
       const wantsZoom = ev.ctrlKey || ev.metaKey;
-      if (!wantsZoom) return;
+      const wantsPan = !wantsZoom && mode === "editor";
+      if (!wantsZoom && !wantsPan) return;
 
       ev.preventDefault();
       ev.stopPropagation();
@@ -1439,20 +1495,70 @@ export function PortalAutomationsClient(props: { mode?: "list" | "editor" }) {
         return;
       }
 
-      // No-op (wheel panning disabled to avoid trapping page scroll).
+      // In the dedicated editor window, two-finger scroll pans the canvas.
+      if (wantsPan) {
+        setView((prev) => ({
+          ...prev,
+          panX: clamp(prev.panX - ev.deltaX, -6000, 6000),
+          panY: clamp(prev.panY - ev.deltaY, -6000, 6000),
+        }));
+      }
     };
 
     canvas.addEventListener("wheel", onWheel, { passive: false });
     return () => {
       canvas.removeEventListener("wheel", onWheel as any);
     };
-  }, []);
+  }, [mode]);
 
   useEffect(() => {
     const onMove = (ev: PointerEvent) => {
       const canvas = canvasRef.current;
       if (!canvas) return;
       const rect = canvas.getBoundingClientRect();
+
+      // Touch pinch-to-zoom (two fingers) on the canvas background
+      if (activePointersRef.current.has(ev.pointerId)) {
+        activePointersRef.current.set(ev.pointerId, { clientX: ev.clientX, clientY: ev.clientY });
+
+        if (activePointersRef.current.size === 2) {
+          const pts = Array.from(activePointersRef.current.values());
+          const p1 = pts[0];
+          const p2 = pts[1];
+          const dx = p2.clientX - p1.clientX;
+          const dy = p2.clientY - p1.clientY;
+          const dist = Math.max(1, Math.hypot(dx, dy));
+          const midClientX = (p1.clientX + p2.clientX) / 2;
+          const midClientY = (p1.clientY + p2.clientY) / 2;
+
+          const init = pinchRef.current;
+          if (!init) {
+            const v = viewRef.current;
+            pinchRef.current = {
+              startDist: dist,
+              startZoom: v.zoom,
+              startPanX: v.panX,
+              startPanY: v.panY,
+              startMidClientX: midClientX,
+              startMidClientY: midClientY,
+            };
+            return;
+          }
+
+          if (dragging) setDragging(null);
+          if (connecting) setConnecting(null);
+          if (panning) setPanning(null);
+
+          const scale = dist / init.startDist;
+          const nextZoom = clampZoom(init.startZoom * scale);
+          const anchorX = (init.startMidClientX - rect.left - init.startPanX) / init.startZoom;
+          const anchorY = (init.startMidClientY - rect.top - init.startPanY) / init.startZoom;
+          const nextPanX = clamp((midClientX - rect.left) - anchorX * nextZoom, -6000, 6000);
+          const nextPanY = clamp((midClientY - rect.top) - anchorY * nextZoom, -6000, 6000);
+          setView({ panX: nextPanX, panY: nextPanY, zoom: nextZoom });
+          return;
+        }
+      }
 
       if (panning) {
         const dx = ev.clientX - panning.startClientX;
@@ -1490,7 +1596,11 @@ export function PortalAutomationsClient(props: { mode?: "list" | "editor" }) {
       }
     };
 
-    const onUp = () => {
+    const onUp = (ev: PointerEvent) => {
+      if (activePointersRef.current.has(ev.pointerId)) {
+        activePointersRef.current.delete(ev.pointerId);
+        if (activePointersRef.current.size < 2) pinchRef.current = null;
+      }
       if (dragging) setDragging(null);
       if (connecting) setConnecting(null);
       if (panning) setPanning(null);
@@ -1498,10 +1608,12 @@ export function PortalAutomationsClient(props: { mode?: "list" | "editor" }) {
 
     window.addEventListener("pointermove", onMove);
     window.addEventListener("pointerup", onUp);
+    window.addEventListener("pointercancel", onUp);
 
     return () => {
       window.removeEventListener("pointermove", onMove);
       window.removeEventListener("pointerup", onUp);
+      window.removeEventListener("pointercancel", onUp);
     };
   }, [dragging, connecting, selectedAutomationId, updateSelectedAutomation, view.zoom, view.panX, view.panY, panning]);
 
@@ -1866,6 +1978,27 @@ export function PortalAutomationsClient(props: { mode?: "list" | "editor" }) {
       })
       .sort((a, b) => (String(b.updatedAtIso || "") || "").localeCompare(String(a.updatedAtIso || "") || ""));
 
+    const listStatusOptions: Array<{ value: "all" | "active" | "paused"; label: string }> = [
+      { value: "all", label: "All" },
+      { value: "active", label: "Active" },
+      { value: "paused", label: "Paused" },
+    ];
+
+    const listTriggerOptions: Array<{ value: "all" | TriggerKind; label: string; hint?: string }> = [
+      { value: "all", label: "All" },
+      ...uniqueTriggers
+        .slice()
+        .sort((a, b) => String(a).localeCompare(String(b)))
+        .map((t) => ({ value: t, label: String(t).replace(/_/g, " "), hint: t })),
+    ];
+
+    const formatUpdatedShort = (iso: string | null | undefined) => {
+      if (!iso) return "—";
+      const d = new Date(iso);
+      if (Number.isNaN(d.getTime())) return "—";
+      return d.toLocaleString(undefined, { month: "numeric", day: "numeric", year: "2-digit", hour: "numeric", minute: "2-digit" });
+    };
+
     return (
       <div className="p-6">
         <div className="flex flex-wrap items-center justify-between gap-3">
@@ -1909,30 +2042,21 @@ export function PortalAutomationsClient(props: { mode?: "list" | "editor" }) {
             </div>
             <div className="md:col-span-3">
               <label className="text-xs font-semibold text-zinc-600">Status</label>
-              <select
+              <PortalListboxDropdown
                 value={listStatus}
-                onChange={(e) => setListStatus(e.target.value as any)}
-                className="mt-1 w-full rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-sm"
-              >
-                <option value="all">All</option>
-                <option value="active">Active</option>
-                <option value="paused">Paused</option>
-              </select>
+                onChange={(v) => setListStatus(v as any)}
+                options={listStatusOptions}
+                buttonClassName="mt-1 flex w-full items-center justify-between gap-2 rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-sm text-zinc-900 hover:bg-zinc-50"
+              />
             </div>
             <div className="md:col-span-3">
               <label className="text-xs font-semibold text-zinc-600">Trigger</label>
-              <select
+              <PortalListboxDropdown
                 value={listTrigger}
-                onChange={(e) => setListTrigger(e.target.value as any)}
-                className="mt-1 w-full rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-sm"
-              >
-                <option value="all">All</option>
-                {uniqueTriggers.map((t) => (
-                  <option key={t} value={t}>
-                    {String(t).replace(/_/g, " ")}
-                  </option>
-                ))}
-              </select>
+                onChange={(v) => setListTrigger(v as any)}
+                options={listTriggerOptions}
+                buttonClassName="mt-1 flex w-full items-center justify-between gap-2 rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-sm text-zinc-900 hover:bg-zinc-50"
+              />
             </div>
           </div>
         </div>
@@ -1955,7 +2079,7 @@ export function PortalAutomationsClient(props: { mode?: "list" | "editor" }) {
                 const triggerNode = (a.nodes || []).find((n: any) => n?.type === "trigger" && n?.config?.kind === "trigger") as any;
                 const triggerKind = triggerNode?.config?.triggerKind as TriggerKind | undefined;
                 const triggerLabel = triggerKind ? String(triggerKind).replace(/_/g, " ") : "—";
-                const updatedLabel = a.updatedAtIso ? new Date(a.updatedAtIso).toLocaleString() : "—";
+                const updatedLabel = formatUpdatedShort(a.updatedAtIso);
                 const createdLabel = (a as any).createdAtIso ? new Date((a as any).createdAtIso).toLocaleDateString() : "—";
                 return (
                   <div
@@ -1987,7 +2111,7 @@ export function PortalAutomationsClient(props: { mode?: "list" | "editor" }) {
                       ) : (
                         <button
                           type="button"
-                          className="block w-full truncate text-left text-sm font-semibold text-zinc-900 hover:underline"
+                          className="-ml-2 block w-full truncate rounded-lg px-2 py-1 text-left text-sm font-semibold text-zinc-900 hover:bg-zinc-100 hover:ring-1 hover:ring-zinc-200"
                           onClick={(e) => {
                             e.stopPropagation();
                             startInlineRename(a.id);
@@ -2015,7 +2139,7 @@ export function PortalAutomationsClient(props: { mode?: "list" | "editor" }) {
                       {triggerLabel}
                     </div>
 
-                    <div className="col-span-2 truncate text-sm text-zinc-700" title={updatedLabel}>
+                    <div className="col-span-2 min-w-0 truncate text-sm text-zinc-700" title={updatedLabel}>
                       {updatedLabel}
                     </div>
 
@@ -2023,41 +2147,17 @@ export function PortalAutomationsClient(props: { mode?: "list" | "editor" }) {
                       {createdLabel}
                     </div>
 
-                    <div className="col-span-1 flex justify-end gap-2">
+                    <div className="col-span-1 flex justify-end">
                       <button
                         type="button"
-                        className={
-                          "rounded-xl border px-3 py-2 text-xs font-semibold hover:bg-zinc-50 " +
-                          (a.paused ? "border-emerald-200 bg-emerald-50 text-emerald-800" : "border-amber-200 bg-amber-50 text-amber-800")
-                        }
+                        className="inline-flex h-9 w-9 items-center justify-center rounded-xl border border-zinc-200 bg-white text-zinc-700 hover:bg-zinc-50"
                         onClick={(e) => {
                           e.stopPropagation();
-                          togglePausedById(a.id);
+                          toggleListMenu(a.id, e.currentTarget);
                         }}
-                        title={a.paused ? "Resume" : "Pause"}
+                        title="Actions"
                       >
-                        {a.paused ? "Resume" : "Pause"}
-                      </button>
-                      <button
-                        type="button"
-                        className="rounded-xl border border-zinc-200 bg-white px-3 py-2 text-xs font-semibold hover:bg-zinc-50"
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          const nextId = duplicateAutomationById(a.id);
-                          if (nextId) openAutomationEditorWindow(nextId);
-                        }}
-                      >
-                        Duplicate
-                      </button>
-                      <button
-                        type="button"
-                        className="rounded-xl border border-red-200 bg-red-50 px-3 py-2 text-xs font-semibold text-red-700 hover:bg-red-100"
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          deleteAutomationFromList(a.id);
-                        }}
-                      >
-                        Delete
+                        <DotsIcon className="h-5 w-5" />
                       </button>
                     </div>
                   </div>
@@ -2066,6 +2166,103 @@ export function PortalAutomationsClient(props: { mode?: "list" | "editor" }) {
             )}
           </div>
         </div>
+
+        {openListMenu ? (
+          <>
+            <div className="fixed inset-0 z-40" onMouseDown={() => setOpenListMenu(null)} onTouchStart={() => setOpenListMenu(null)} />
+            <div
+              className="fixed z-50 w-[220px] overflow-hidden rounded-2xl border border-zinc-200 bg-white shadow-xl"
+              style={{ left: openListMenu.left, top: openListMenu.top }}
+              onMouseDown={(e) => e.stopPropagation()}
+              onTouchStart={(e) => e.stopPropagation()}
+            >
+              {(() => {
+                const a = filtered.find((x) => x.id === openListMenu.automationId);
+                if (!a) return null;
+                const triggerNode = (a.nodes || []).find((n: any) => n?.type === "trigger" && n?.config?.kind === "trigger") as any;
+                const triggerKind = triggerNode?.config?.triggerKind as TriggerKind | undefined;
+                const canManualRun = triggerKind === "manual";
+                return (
+                  <div className="py-2">
+                    <button
+                      type="button"
+                      className="block w-full px-3 py-2 text-left text-sm font-semibold text-zinc-900 hover:bg-zinc-50"
+                      onClick={() => {
+                        setOpenListMenu(null);
+                        openAutomationEditorWindow(a.id);
+                      }}
+                    >
+                      Open
+                    </button>
+
+                    <button
+                      type="button"
+                      className="block w-full px-3 py-2 text-left text-sm font-semibold text-zinc-900 hover:bg-zinc-50"
+                      onClick={() => {
+                        setOpenListMenu(null);
+                        togglePausedById(a.id);
+                      }}
+                    >
+                      {a.paused ? "Resume" : "Pause"}
+                    </button>
+
+                    {canManualRun ? (
+                      <button
+                        type="button"
+                        className="block w-full px-3 py-2 text-left text-sm font-semibold text-zinc-900 hover:bg-zinc-50"
+                        disabled={manualRunBusyFor === a.id}
+                        onClick={async () => {
+                          if (manualRunBusyFor) return;
+                          setOpenListMenu(null);
+                          setManualRunBusyFor(a.id);
+                          const res = await fetch("/api/portal/automations/run", {
+                            method: "POST",
+                            headers: { "content-type": "application/json" },
+                            body: JSON.stringify({ automationId: a.id }),
+                          }).catch(() => null as any);
+                          const data = (await res?.json?.().catch(() => null)) as any;
+                          if (!res?.ok || !data?.ok) {
+                            setError(String(data?.error || "Failed to trigger."));
+                          } else {
+                            toast.success("Triggered");
+                          }
+                          setManualRunBusyFor(null);
+                        }}
+                        title="Run this automation now"
+                      >
+                        {manualRunBusyFor === a.id ? "Triggering…" : "Trigger"}
+                      </button>
+                    ) : null}
+
+                    <button
+                      type="button"
+                      className="block w-full px-3 py-2 text-left text-sm font-semibold text-zinc-900 hover:bg-zinc-50"
+                      onClick={() => {
+                        setOpenListMenu(null);
+                        const nextId = duplicateAutomationById(a.id);
+                        if (nextId) openAutomationEditorWindow(nextId);
+                      }}
+                    >
+                      Duplicate
+                    </button>
+
+                    <div className="my-1 h-px bg-zinc-100" />
+                    <button
+                      type="button"
+                      className="block w-full px-3 py-2 text-left text-sm font-semibold text-red-700 hover:bg-red-50"
+                      onClick={() => {
+                        setOpenListMenu(null);
+                        deleteAutomationFromList(a.id);
+                      }}
+                    >
+                      Delete
+                    </button>
+                  </div>
+                );
+              })()}
+            </div>
+          </>
+        ) : null}
       </div>
     );
   }
@@ -2935,6 +3132,11 @@ export function PortalAutomationsClient(props: { mode?: "list" | "editor" }) {
                   if (!target) return;
                   if (target.closest?.("[data-kind='ui']")) return;
                   if (target.dataset?.kind === "node" || target.closest?.("[data-kind='node']")) return;
+
+                  if (ev.pointerType === "touch") {
+                    activePointersRef.current.set(ev.pointerId, { clientX: ev.clientX, clientY: ev.clientY });
+                    if (activePointersRef.current.size === 2) pinchRef.current = null;
+                  }
                   setSelectedNodeId(null);
 
                   (ev.currentTarget as HTMLElement).setPointerCapture?.(ev.pointerId);

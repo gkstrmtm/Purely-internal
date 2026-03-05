@@ -38,6 +38,9 @@
 # local notes / chat transcripts
 /src/lib/notes/
 
+# local chat transcript at repo root
+/chathistory
+
 # debug
 npm-debug.log*
 yarn-debug.log*
