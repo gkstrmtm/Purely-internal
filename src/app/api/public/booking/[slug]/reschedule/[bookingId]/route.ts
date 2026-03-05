@@ -10,7 +10,7 @@ import {
 } from "@/lib/bookingReschedule";
 import { scheduleFollowUpsForBooking } from "@/lib/followUpAutomation";
 import { sendOwnerTwilioSms } from "@/lib/portalTwilio";
-import { sendEmail } from "@/lib/leadOutbound";
+import { sendEmail as sendOutboundEmail } from "@/lib/leadOutbound";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
@@ -45,7 +45,7 @@ async function sendEmail({
   fromName?: string;
   ownerId: string;
 }) {
-  await sendEmail({ to, subject, text: body, fromName, ownerId }).catch(() => null);
+  await sendOutboundEmail({ to, subject, text: body, fromName, ownerId }).catch(() => null);
 }
 
 function overlaps(aStart: Date, aEnd: Date, bStart: Date, bEnd: Date) {
