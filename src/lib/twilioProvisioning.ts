@@ -17,7 +17,16 @@ export type TwilioProvisionSmsWebhooksResult =
     };
 
 function cleanBaseUrl(raw: string): string {
-  return String(raw || "").trim().replace(/\/$/, "");
+  const s = String(raw || "").trim();
+  if (!s) return "";
+  // Webhook bases must be an origin (scheme + host). If a path is provided
+  // (e.g. https://example.com/hooks), strip it to avoid redirect loops.
+  try {
+    const u = new URL(s);
+    return u.origin;
+  } catch {
+    return s.replace(/\/$/, "");
+  }
 }
 
 export function getPublicWebhookBaseUrl(): string {
