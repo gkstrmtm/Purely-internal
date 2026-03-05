@@ -278,7 +278,7 @@ export async function POST(req: Request, ctx: { params: Promise<{ domainId: stri
           verified: false,
           error:
             extraA.length
-              ? `Your domain resolves to multiple A records, including non-platform IP(s) (${extraA.join(", ")}). Remove the conflicting A record(s) so it only points to Purely Automation (Vercel).`
+              ? `Not verified yet: your root domain resolves to multiple A records. Vercel is present (${domainAvercel.join(", ") || "(none)"}), but you also have non-platform IP(s) (${extraA.join(", ")}). This usually means there’s still an A record on host “@” pointing to a parking/old host. Delete the A record(s) for “@” that point to ${extraA.join(", ")}, leaving only ALIAS/ANAME -> ${expectedTargetHost} (or A -> 76.76.21.21).`
               : `Your domain has AAAA records that don’t point to the platform (${extraAAAA.join(", ")}). Remove the conflicting record(s) so it only points to Purely Automation.`,
           domain: current,
           debug: { ...debug, isApex, extraA, extraAAAA, domainAvercel },
