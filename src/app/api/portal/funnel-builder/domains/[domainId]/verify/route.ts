@@ -7,7 +7,6 @@ import {
   checkHttpsReachable,
   ensureVercelProjectDomain,
   formatVercelVerificationRecords,
-  getAllowedVercelApexARecords,
 } from "@/lib/vercelProjectDomains";
 
 export const runtime = "nodejs";
@@ -65,6 +64,15 @@ function intersects(a: string[], b: string[]) {
 
 function uniq(xs: string[]) {
   return Array.from(new Set(xs.filter(Boolean)));
+}
+
+function isVercelApexARecord(ip: string, platformARecords: string[]): boolean {
+  const s = String(ip || "").trim();
+  if (!s) return false;
+  if (s === "76.76.21.21") return true;
+  // Vercel commonly uses 76.76.21.0/24 for apex domains.
+  if (s.startsWith("76.76.21.")) return true;
+  return platformARecords.includes(s);
 }
 
 export async function POST(req: Request, ctx: { params: Promise<{ domainId: string }> }) {
@@ -244,17 +252,14 @@ export async function POST(req: Request, ctx: { params: Promise<{ domainId: stri
     const targetAuniq = uniq(targetA);
     const targetAAAAuniq = uniq(targetAAAA);
 
-    // Vercel apex domains often resolve to 76.76.21.21, even if the platform host resolves to a different Vercel edge IP.
-    const allowedApexA = uniq(getAllowedVercelApexARecords(targetAuniq || []));
-    const allowedApexAAAA = uniq([...(targetAAAAuniq || [])]);
+    // Vercel apex domains often resolve to 76.76.21.21, but may also use other 76.76.21.* IPs.
+    // Treat any 76.76.21.* as acceptable, plus whatever the platform target currently resolves to.
+    const domainAvercel = domainAuniq.filter((ip) => isVercelApexARecord(ip, targetAuniq));
+    const extraA = domainAuniq.filter((ip) => !isVercelApexARecord(ip, targetAuniq));
 
-    const aHasMatch = allowedApexA.length ? intersects(domainAuniq, allowedApexA) : intersects(domainAuniq, targetAuniq);
-    const aaaaHasMatch = allowedApexAAAA.length
-      ? intersects(domainAAAAuniq, allowedApexAAAA)
-      : intersects(domainAAAAuniq, targetAAAAuniq);
-
-    const extraA = allowedApexA.length ? domainAuniq.filter((ip) => !allowedApexA.includes(ip)) : [];
-    const extraAAAA = allowedApexAAAA.length ? domainAAAAuniq.filter((ip) => !allowedApexAAAA.includes(ip)) : [];
+    const aHasMatch = domainAvercel.length > 0;
+    const aaaaHasMatch = targetAAAAuniq.length ? intersects(domainAAAAuniq, targetAAAAuniq) : false;
+    const extraAAAA = targetAAAAuniq.length ? domainAAAAuniq.filter((ip) => !targetAAAAuniq.includes(ip)) : [];
 
     const dnsOk = aHasMatch || aaaaHasMatch;
 
@@ -273,10 +278,10 @@ export async function POST(req: Request, ctx: { params: Promise<{ domainId: stri
           verified: false,
           error:
             extraA.length
-              ? `Your domain has A records that don’t point to the platform (${extraA.join(", ")}). Remove the conflicting record(s) so it only points to Purely Automation.`
+              ? `Your domain resolves to multiple A records, including non-platform IP(s) (${extraA.join(", ")}). Remove the conflicting A record(s) so it only points to Purely Automation (Vercel).`
               : `Your domain has AAAA records that don’t point to the platform (${extraAAAA.join(", ")}). Remove the conflicting record(s) so it only points to Purely Automation.`,
           domain: current,
-          debug: { ...debug, isApex, extraA, extraAAAA },
+          debug: { ...debug, isApex, extraA, extraAAAA, domainAvercel },
         });
       }
 

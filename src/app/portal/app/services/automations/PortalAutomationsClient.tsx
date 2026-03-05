@@ -2276,11 +2276,6 @@ export function PortalAutomationsClient(props: { mode?: "list" | "editor" }) {
               type="button"
               className="rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-sm font-semibold hover:bg-zinc-50"
               onClick={() => {
-                try {
-                  window.close();
-                } catch {
-                  // ignore
-                }
                 window.location.href = "/portal/app/services/automations";
               }}
             >
