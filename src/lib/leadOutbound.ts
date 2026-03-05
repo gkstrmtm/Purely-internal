@@ -1,5 +1,5 @@
 import { getOwnerTwilioSmsConfig } from "@/lib/portalTwilio";
-import { makeEmailThreadKey, normalizeSubjectKey, tryUpsertPortalInboxMessage } from "@/lib/portalInbox";
+import { makeEmailThreadKey, makeSmsThreadKey, normalizeSubjectKey, tryUpsertPortalInboxMessage } from "@/lib/portalInbox";
 import { getOutboundEmailFrom, sendTransactionalEmail } from "@/lib/emailSender";
 
 export type LeadTemplateVars = {
@@ -166,4 +166,29 @@ export async function sendSms({
     const t = await res.text().catch(() => "");
     throw new Error(`Twilio failed (${res.status}): ${t.slice(0, 400)}`);
   }
+
+  // Log in the unified Inbox/Outbox thread history.
+  const text = await res.text().catch(() => "");
+  let providerMessageId: string | null = null;
+  try {
+    const json = JSON.parse(text) as any;
+    providerMessageId = typeof json?.sid === "string" ? json.sid : null;
+  } catch {
+    // ignore
+  }
+
+  const { threadKey, peerAddress, peerKey } = makeSmsThreadKey(to);
+  await tryUpsertPortalInboxMessage({
+    ownerId,
+    channel: "SMS",
+    direction: "OUT",
+    threadKey,
+    peerAddress,
+    peerKey,
+    fromAddress: twilio.fromNumberE164,
+    toAddress: to,
+    bodyText: body,
+    provider: "TWILIO",
+    providerMessageId,
+  });
 }

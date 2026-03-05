@@ -137,6 +137,15 @@ function safeEmailFromPeer(raw: string) {
 
 export function PortalInboxClient() {
   const toast = useToast();
+  const INBOUND_SETUP_STORAGE_KEY = "pa.inbox.inboundSetupOpen";
+  const inboundSetupInitializedRef = useRef(false);
+  const [inboundSetupOpen, setInboundSetupOpen] = useState<boolean>(() => {
+    if (typeof window === "undefined") return true;
+    const raw = window.localStorage.getItem(INBOUND_SETUP_STORAGE_KEY);
+    if (raw === "1") return true;
+    if (raw === "0") return false;
+    return true;
+  });
   const [tab, setTab] = useState<Channel>(() => {
     if (typeof window === "undefined") return "email";
     const p = new URLSearchParams(window.location.search);
@@ -435,6 +444,26 @@ export function PortalInboxClient() {
       mounted = false;
     };
   }, []);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    if (!settings) return;
+    if (inboundSetupInitializedRef.current) return;
+
+    const raw = window.localStorage.getItem(INBOUND_SETUP_STORAGE_KEY);
+    if (raw == null) {
+      // Default behavior: once Twilio is configured, keep this out of the way.
+      setInboundSetupOpen(!settings.twilio.configured);
+    }
+
+    inboundSetupInitializedRef.current = true;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [settings]);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    window.localStorage.setItem(INBOUND_SETUP_STORAGE_KEY, inboundSetupOpen ? "1" : "0");
+  }, [inboundSetupOpen]);
 
   async function loadThreads(nextTab: Channel) {
     setLoadingThreads(true);
@@ -765,51 +794,93 @@ export function PortalInboxClient() {
         </div>
 
         <div className="w-full sm:max-w-[440px]">
-          <PortalSettingsSection
-            title="Inbound setup"
-            description="Webhook URL for inbound SMS. Copy/paste into Twilio."
-            accent="blue"
-            dotClassName={
-              settings?.twilio?.configured
-                ? "bg-[color:var(--color-brand-blue)]"
-                : "bg-zinc-400"
-            }
-          >
-            <div className="space-y-3">
-              <div
-                className="rounded-2xl border border-zinc-200 bg-white p-4"
-              >
-                <div className="text-xs font-semibold text-zinc-600">Twilio SMS webhook (token-based)</div>
-                <div className="mt-2 break-all font-mono text-xs text-zinc-800">
-                  {settings?.webhooks.twilioInboundSmsUrlLegacy || "Loading…"}
+          {settings?.twilio?.configured && !inboundSetupOpen ? (
+            <div className="rounded-3xl border border-zinc-200 bg-white p-4">
+              <div className="flex items-start justify-between gap-3">
+                <div>
+                  <div className="text-sm font-semibold text-zinc-900">Inbound setup</div>
+                  <div className="mt-1 text-xs text-zinc-500">Twilio is connected. Webhook settings are hidden.</div>
                 </div>
-                <div className="mt-3 flex items-center justify-between gap-3">
-                  <div className="text-[11px] text-zinc-500">Twilio configured: {settings?.twilio?.configured ? "Yes" : "No"}</div>
-                  <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  className="shrink-0 rounded-xl border border-zinc-200 bg-white px-3 py-2 text-xs font-semibold text-zinc-700 hover:bg-zinc-50"
+                  onClick={() => setInboundSetupOpen(true)}
+                >
+                  Show
+                </button>
+              </div>
+              <div className="mt-3 flex items-center justify-between gap-3">
+                <a
+                  href="/portal/app/services/integrations"
+                  className="text-xs font-semibold text-[color:var(--color-brand-blue)] hover:underline"
+                >
+                  Manage in Integrations
+                </a>
+              </div>
+            </div>
+          ) : (
+            <PortalSettingsSection
+              title="Inbound setup"
+              description="Webhook URL for inbound SMS. Copy/paste into Twilio."
+              accent="blue"
+              dotClassName={
+                settings?.twilio?.configured
+                  ? "bg-[color:var(--color-brand-blue)]"
+                  : "bg-zinc-400"
+              }
+            >
+              <div className="space-y-3">
+                {settings?.twilio?.configured ? (
+                  <div className="flex items-center justify-between gap-3">
+                    <a
+                      href="/portal/app/services/integrations"
+                      className="text-xs font-semibold text-[color:var(--color-brand-blue)] hover:underline"
+                    >
+                      Manage in Integrations
+                    </a>
                     <button
                       type="button"
-                      className="rounded-xl border border-zinc-200 bg-white px-3 py-2 text-xs font-semibold hover:bg-zinc-50 disabled:opacity-60"
-                      disabled={!settings?.webhooks.twilioInboundSmsUrlLegacy}
-                      onClick={async () => {
-                        const v = settings?.webhooks.twilioInboundSmsUrlLegacy;
-                        if (v) await navigator.clipboard.writeText(v);
-                      }}
+                      className="rounded-xl border border-zinc-200 bg-white px-3 py-2 text-xs font-semibold text-zinc-700 hover:bg-zinc-50"
+                      onClick={() => setInboundSetupOpen(false)}
                     >
-                      Copy
+                      Hide
                     </button>
-                    <button
-                      type="button"
-                      onClick={regenToken}
-                      className="rounded-xl border border-zinc-200 bg-white px-3 py-2 text-xs font-semibold text-brand-ink hover:bg-zinc-50"
-                      title="Regenerates the token in this URL"
-                    >
-                      Regenerate token
-                    </button>
+                  </div>
+                ) : null}
+
+                <div className="rounded-2xl border border-zinc-200 bg-white p-4">
+                  <div className="text-xs font-semibold text-zinc-600">Twilio SMS webhook (token-based)</div>
+                  <div className="mt-2 break-all font-mono text-xs text-zinc-800">
+                    {settings?.webhooks.twilioInboundSmsUrlLegacy || "Loading…"}
+                  </div>
+                  <div className="mt-3 flex items-center justify-between gap-3">
+                    <div className="text-[11px] text-zinc-500">Twilio configured: {settings?.twilio?.configured ? "Yes" : "No"}</div>
+                    <div className="flex items-center gap-2">
+                      <button
+                        type="button"
+                        className="rounded-xl border border-zinc-200 bg-white px-3 py-2 text-xs font-semibold hover:bg-zinc-50 disabled:opacity-60"
+                        disabled={!settings?.webhooks.twilioInboundSmsUrlLegacy}
+                        onClick={async () => {
+                          const v = settings?.webhooks.twilioInboundSmsUrlLegacy;
+                          if (v) await navigator.clipboard.writeText(v);
+                        }}
+                      >
+                        Copy
+                      </button>
+                      <button
+                        type="button"
+                        onClick={regenToken}
+                        className="rounded-xl border border-zinc-200 bg-white px-3 py-2 text-xs font-semibold text-brand-ink hover:bg-zinc-50"
+                        title="Regenerates the token in this URL"
+                      >
+                        Regenerate token
+                      </button>
+                    </div>
                   </div>
                 </div>
               </div>
-            </div>
-          </PortalSettingsSection>
+            </PortalSettingsSection>
+          )}
         </div>
       </div>
 
@@ -938,7 +1009,7 @@ export function PortalInboxClient() {
                 <div className="text-sm font-semibold text-zinc-900">Mailboxes</div>
                 <button
                   type="button"
-                  className="rounded-xl bg-zinc-900 px-3 py-2 text-xs font-semibold text-white hover:bg-zinc-800"
+                  className="inline-flex items-center gap-1 rounded-xl bg-[color:var(--color-brand-blue)] px-3 py-2 text-xs font-semibold text-white hover:opacity-95"
                   onClick={() => {
                     clearConversationForCompose();
                     setComposeTo("");
@@ -947,7 +1018,8 @@ export function PortalInboxClient() {
                     setComposeAttachments([]);
                   }}
                 >
-                  New Email
+                  <span className="text-sm leading-none">+</span>
+                  <span>New Email</span>
                 </button>
               </div>
               <div className="mt-2 flex items-center gap-2">
@@ -982,7 +1054,7 @@ export function PortalInboxClient() {
                 </div>
                 <button
                   type="button"
-                  className="rounded-xl bg-zinc-900 px-3 py-2 text-xs font-semibold text-white hover:bg-zinc-800"
+                  className="inline-flex items-center gap-1 rounded-xl bg-[color:var(--color-brand-blue)] px-3 py-2 text-xs font-semibold text-white hover:opacity-95"
                   onClick={() => {
                     clearConversationForCompose();
                     setComposeTo("");
@@ -990,7 +1062,8 @@ export function PortalInboxClient() {
                     setComposeAttachments([]);
                   }}
                 >
-                  New SMS
+                  <span className="text-sm leading-none">+</span>
+                  <span>New SMS</span>
                 </button>
               </div>
             </div>
@@ -1666,7 +1739,7 @@ export function PortalInboxClient() {
                       onClick={onSend}
                       disabled={sending}
                       className={classNames(
-                        "rounded-2xl bg-brand-ink px-5 py-2 text-sm font-semibold text-white hover:opacity-95",
+                        "rounded-2xl bg-[color:var(--color-brand-blue)] px-5 py-2 text-sm font-semibold text-white hover:opacity-95",
                         sending && "opacity-60",
                       )}
                     >

@@ -10,7 +10,7 @@ import { findOrCreatePortalContact } from "@/lib/portalContacts";
 import { ensurePortalContactTagsReady } from "@/lib/portalContactTags";
 import { runOwnerAutomationsForEvent } from "@/lib/portalAutomationsRunner";
 import { normalizePhoneStrict } from "@/lib/phone";
-import { trySendTransactionalEmail } from "@/lib/emailSender";
+import { sendEmail as sendOutboundEmail } from "@/lib/leadOutbound";
 import { getAppBaseUrl, tryNotifyPortalAccountUsers } from "@/lib/portalNotifications";
 import { createConnectRoom } from "@/lib/connectRoomCreate";
 
@@ -56,14 +56,20 @@ async function sendEmail({
   subject,
   body,
   fromName,
+  ownerId,
 }: {
   to: string[];
   subject: string;
   body: string;
   fromName?: string;
+  ownerId: string;
 }) {
   if (!to.length) return;
-  await trySendTransactionalEmail({ to, subject, text: body, fromName }).catch(() => null);
+  for (const addr of to) {
+    const email = String(addr || "").trim();
+    if (!email) continue;
+    await sendOutboundEmail({ to: email, subject, text: body, fromName, ownerId }).catch(() => null);
+  }
 }
 
 export async function POST(
@@ -412,6 +418,7 @@ export async function POST(
       subject: `New booking: ${site.title} - ${booking.contactName}`,
       body: internalBody,
       fromName,
+      ownerId: site.ownerId,
     });
 
     const customerBody = [
@@ -433,6 +440,7 @@ export async function POST(
       subject: `Booking confirmed: ${site.title}`,
       body: customerBody,
       fromName,
+      ownerId: site.ownerId,
     });
   } catch {
     // ignore

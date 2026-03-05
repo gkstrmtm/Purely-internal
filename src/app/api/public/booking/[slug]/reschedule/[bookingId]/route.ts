@@ -9,8 +9,8 @@ import {
   verifyBookingRescheduleToken,
 } from "@/lib/bookingReschedule";
 import { scheduleFollowUpsForBooking } from "@/lib/followUpAutomation";
-import { getOwnerTwilioSmsConfig } from "@/lib/portalTwilio";
-import { trySendTransactionalEmail } from "@/lib/emailSender";
+import { sendOwnerTwilioSms } from "@/lib/portalTwilio";
+import { sendEmail } from "@/lib/leadOutbound";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
@@ -37,35 +37,15 @@ async function sendEmail({
   subject,
   body,
   fromName,
+  ownerId,
 }: {
   to: string;
   subject: string;
   body: string;
   fromName?: string;
+  ownerId: string;
 }) {
-  await trySendTransactionalEmail({ to, subject, text: body, fromName }).catch(() => null);
-}
-
-async function sendSms(ownerId: string, to: string, body: string) {
-  const twilio = await getOwnerTwilioSmsConfig(ownerId);
-  if (!twilio) return;
-
-  const url = `https://api.twilio.com/2010-04-01/Accounts/${twilio.accountSid}/Messages.json`;
-  const basic = Buffer.from(`${twilio.accountSid}:${twilio.authToken}`).toString("base64");
-
-  const form = new URLSearchParams();
-  form.set("To", to);
-  form.set("From", twilio.fromNumberE164);
-  form.set("Body", body.slice(0, 900));
-
-  await fetch(url, {
-    method: "POST",
-    headers: {
-      authorization: `Basic ${basic}`,
-      "content-type": "application/x-www-form-urlencoded",
-    },
-    body: form.toString(),
-  }).catch(() => null);
+  await sendEmail({ to, subject, text: body, fromName, ownerId }).catch(() => null);
 }
 
 function overlaps(aStart: Date, aEnd: Date, bStart: Date, bEnd: Date) {
@@ -262,10 +242,15 @@ export async function POST(
         .filter(Boolean)
         .join("\n"),
       fromName,
+      ownerId: site.ownerId,
     });
 
     if (updated.contactPhone) {
-      await sendSms(site.ownerId, updated.contactPhone, `Rescheduled: ${site.title} - ${when}`);
+      await sendOwnerTwilioSms({
+        ownerId: site.ownerId,
+        to: updated.contactPhone,
+        body: `Rescheduled: ${site.title} - ${when}`,
+      }).catch(() => null);
     }
   } catch {
     // ignore
