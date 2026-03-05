@@ -4,7 +4,6 @@ import { z } from "zod";
 import { prisma } from "@/lib/db";
 import { requireClientSessionForService } from "@/lib/portalAccess";
 import { ensurePortalAiOutboundCallsSchema } from "@/lib/portalAiOutboundCallsSchema";
-import { getAiReceptionistServiceData } from "@/lib/aiReceptionist";
 import {
   buildElevenLabsAgentPrompt,
   createElevenLabsAgent,
@@ -31,28 +30,8 @@ function envFirst(keys: string[]): string {
   return "";
 }
 
-function envVoiceAgentId(): string {
-  return envFirst(["VOICE_AGENT_ID", "ELEVENLABS_AGENT_ID", "ELEVEN_LABS_AGENT_ID"]).slice(0, 120);
-}
-
 function envVoiceAgentApiKey(): string {
   return envFirst(["VOICE_AGENT_API_KEY", "ELEVENLABS_API_KEY", "ELEVEN_LABS_API_KEY"]).slice(0, 400);
-}
-
-async function getProfileVoiceAgentId(ownerId: string): Promise<string | null> {
-  const row = await prisma.portalServiceSetup.findUnique({
-    where: { ownerId_serviceSlug: { ownerId, serviceSlug: PROFILE_EXTRAS_SERVICE_SLUG } },
-    select: { dataJson: true },
-  });
-
-  const rec =
-    row?.dataJson && typeof row.dataJson === "object" && !Array.isArray(row.dataJson)
-      ? (row.dataJson as Record<string, unknown>)
-      : null;
-
-  const raw = rec?.voiceAgentId;
-  const id = typeof raw === "string" ? raw.trim().slice(0, 120) : "";
-  return id || envVoiceAgentId() || null;
 }
 
 async function getProfileVoiceAgentApiKey(ownerId: string): Promise<string | null> {
@@ -89,15 +68,12 @@ export async function POST(req: Request, ctx: { params: Promise<{ campaignId: st
 
   const campaign = await prisma.portalAiOutboundCallCampaign.findFirst({
     where: { ownerId, id: campaignId.data },
-    select: { id: true, name: true, voiceAgentId: true, voiceAgentConfigJson: true },
+    select: { id: true, name: true, chatAgentId: true, chatAgentConfigJson: true },
   });
 
   if (!campaign) return NextResponse.json({ ok: false, error: "Not found" }, { status: 404 });
 
-  const apiKeyFromProfile = (await getProfileVoiceAgentApiKey(ownerId).catch(() => null)) || "";
-  const receptionist = await getAiReceptionistServiceData(ownerId).catch(() => null);
-  const apiKeyLegacy = receptionist?.settings?.voiceAgentApiKey?.trim() || "";
-  const apiKey = apiKeyFromProfile.trim() || apiKeyLegacy.trim();
+  const apiKey = ((await getProfileVoiceAgentApiKey(ownerId).catch(() => null)) || "").trim();
   if (!apiKey) {
     return NextResponse.json(
       { ok: false, error: "Missing voice agent API key. Set it in Profile first." },
@@ -105,7 +81,7 @@ export async function POST(req: Request, ctx: { params: Promise<{ campaignId: st
     );
   }
 
-  const config = parseVoiceAgentConfig(campaign.voiceAgentConfigJson);
+  const config = parseVoiceAgentConfig(campaign.chatAgentConfigJson);
   const prompt = buildElevenLabsAgentPrompt(config);
   const firstMessage = config.firstMessage.trim();
 
@@ -140,21 +116,13 @@ export async function POST(req: Request, ctx: { params: Promise<{ campaignId: st
     .filter((v, i, a) => a.indexOf(v) === i)
     .slice(0, 50);
 
-  const profileAgentId = await getProfileVoiceAgentId(ownerId);
-  let agentId = (campaign.voiceAgentId || "").trim() || (profileAgentId || "").trim();
+  let agentId = String(campaign.chatAgentId || "").trim();
   let createdAgentId: string | null = null;
-
-  // If a Profile agent exists but the campaign doesn't, persist it so the UI (and campaign) have a stable agent id.
-  if (!campaign.voiceAgentId && profileAgentId) {
-    await prisma.portalAiOutboundCallCampaign
-      .updateMany({ where: { id: campaign.id, ownerId }, data: { voiceAgentId: profileAgentId } })
-      .catch(() => null);
-  }
 
   if (!agentId) {
     const create = await createElevenLabsAgent({
       apiKey,
-      name: `Purely AI outbound — ${campaign.name}`.slice(0, 160),
+      name: `Purely AI outbound — Chat — ${campaign.name}`.slice(0, 160),
       firstMessage: firstMessage || undefined,
       prompt: prompt || undefined,
       toolIds: resolvedToolIds,
@@ -169,11 +137,10 @@ export async function POST(req: Request, ctx: { params: Promise<{ campaignId: st
 
     await prisma.portalAiOutboundCallCampaign.updateMany({
       where: { id: campaign.id, ownerId },
-      data: { voiceAgentId: agentId },
+      data: { chatAgentId: agentId },
     });
   }
 
-  // Pull from remote when Purely-side fields are empty (so we don't overwrite the user's live agent settings).
   if (localConfigIsEmpty && agentId && !createdAgentId) {
     const remote = await getElevenLabsAgent({ apiKey, agentId });
     if (remote.ok) {
@@ -187,7 +154,7 @@ export async function POST(req: Request, ctx: { params: Promise<{ campaignId: st
 
       await prisma.portalAiOutboundCallCampaign.updateMany({
         where: { id: campaign.id, ownerId },
-        data: { voiceAgentConfigJson: nextConfig as any },
+        data: { chatAgentConfigJson: nextConfig as any },
       });
 
       return NextResponse.json({ ok: true, agentId, createdAgentId: createdAgentId || undefined, pulled: true });

@@ -1206,6 +1206,9 @@ model PortalAiOutboundCallCampaign {
   // Tag-based audience (stored as string[])
   audienceTagIdsJson Json?
 
+  // Separate tag-based audience for chat/text (stored as string[])
+  chatAudienceTagIdsJson Json?
+
   // Script read aloud on connect.
   script String @default("Hi, this is an automated call. Please call us back when you have a moment.")
 
@@ -1214,6 +1217,12 @@ model PortalAiOutboundCallCampaign {
 
   // Optional ElevenLabs agent configuration payload (personality/goal/tone/tools/first message).
   voiceAgentConfigJson Json?
+
+  // Optional chat agent id override for this campaign.
+  chatAgentId String?
+
+  // Optional chat agent configuration payload.
+  chatAgentConfigJson Json?
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt

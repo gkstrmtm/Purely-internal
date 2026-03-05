@@ -20,7 +20,87 @@ type ElevenLabsConvaiTool = {
 
 function normalizeToolKey(raw: unknown): string {
   const s = typeof raw === "string" ? raw.trim() : "";
-  return s.toLowerCase();
+  if (!s) return "";
+  // Normalize common separators so API keys like `voicemail-detection` match our `voicemail_detection`.
+  return s
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "_")
+    .replace(/^_+|_+$/g, "");
+}
+
+function extractLabeledSectionsFromPrompt(prompt: string): Record<string, string> {
+  const text = String(prompt || "").replace(/\r\n?/g, "\n");
+  if (!text.trim()) return {};
+
+  const labels = [
+    { key: "goal", variants: ["goal"] },
+    { key: "personality", variants: ["personality"] },
+    { key: "tone", variants: ["tone"] },
+    { key: "environment", variants: ["environment"] },
+    { key: "guardRails", variants: ["guard rails", "guardrails", "guard rails "] },
+  ];
+
+  type Hit = { idx: number; labelLen: number; key: string };
+  const hits: Hit[] = [];
+
+  // Match headers like `Goal:` at start-of-line.
+  for (const l of labels) {
+    for (const v of l.variants) {
+      const needle = `${v}:`;
+      const re = new RegExp(`(^|\\n)${needle.replace(/[.*+?^${}()|[\\]\\]/g, "\\$&")}(?=\\s*\\n)`, "gi");
+      let m: RegExpExecArray | null;
+      while ((m = re.exec(text))) {
+        const start = (m.index || 0) + (m[1] ? m[1].length : 0);
+        hits.push({ idx: start, labelLen: needle.length, key: l.key });
+      }
+    }
+  }
+
+  if (!hits.length) return {};
+  hits.sort((a, b) => a.idx - b.idx);
+
+  const out: Record<string, string> = {};
+
+  for (let i = 0; i < hits.length; i++) {
+    const h = hits[i]!;
+    const next = hits[i + 1];
+    const bodyStart = h.idx + h.labelLen;
+
+    // Skip colon line + optional whitespace/newlines.
+    let s = text.slice(bodyStart);
+    s = s.replace(/^\s*\n/, "");
+    const end = next ? Math.max(0, next.idx - (h.idx + h.labelLen)) : s.length;
+    const body = s.slice(0, end).trim();
+    if (body) out[h.key] = body.slice(0, 6000);
+  }
+
+  return out;
+}
+
+export function parseElevenLabsAgentPromptToVoiceAgentConfig(prompt: string): Partial<VoiceAgentConfig> {
+  const text = String(prompt || "").trim();
+  if (!text) return {};
+
+  const sections = extractLabeledSectionsFromPrompt(text);
+  const goal = typeof sections.goal === "string" ? sections.goal.trim() : "";
+  const personality = typeof sections.personality === "string" ? sections.personality.trim() : "";
+  const tone = typeof sections.tone === "string" ? sections.tone.trim() : "";
+  const environment = typeof sections.environment === "string" ? sections.environment.trim() : "";
+  const guardRails = typeof sections.guardRails === "string" ? sections.guardRails.trim() : "";
+
+  // If we couldn't detect our labeled sections, treat the whole prompt as goal so the UI isn't blank.
+  const hasAny = Boolean(goal || personality || tone || environment || guardRails);
+  if (!hasAny) {
+    return { goal: text.slice(0, 6000) };
+  }
+
+  return {
+    goal: goal.slice(0, 6000),
+    personality: personality.slice(0, 6000),
+    tone: tone.slice(0, 6000),
+    environment: environment.slice(0, 6000),
+    guardRails: guardRails.slice(0, 6000),
+  };
 }
 
 function toolIdFromTool(t: ElevenLabsConvaiTool): string {
@@ -582,7 +662,7 @@ export async function patchElevenLabsAgent(opts: {
   firstMessage?: string;
   prompt?: string;
   toolIds?: string[];
-}): Promise<{ ok: true; agent: any } | { ok: false; error: string; status?: number }> {
+}): Promise<{ ok: true; agent: any; noop?: true } | { ok: false; error: string; status?: number }> {
   const apiKey = String(opts.apiKey || "").trim();
   const agentId = String(opts.agentId || "").trim();
   if (!apiKey) return { ok: false, error: "Missing voice agent API key" };
@@ -619,7 +699,8 @@ export async function patchElevenLabsAgent(opts: {
   }
 
   if (!Object.keys(body).length) {
-    return { ok: false, error: "Nothing to update" };
+    // Treat as successful no-op so callers can still show a clear "Synced" state.
+    return { ok: true, agent: {}, noop: true };
   }
 
   const url = `https://api.elevenlabs.io/v1/convai/agents/${encodeURIComponent(agentId)}`;
@@ -647,6 +728,82 @@ export async function patchElevenLabsAgent(opts: {
   } catch {
     return { ok: true, agent: {} };
   }
+}
+
+export async function getElevenLabsAgent(opts: {
+  apiKey: string;
+  agentId: string;
+}): Promise<
+  | { ok: true; agent: any; firstMessage: string; prompt: string; toolIds: string[] }
+  | { ok: false; error: string; status?: number }
+> {
+  const apiKey = String(opts.apiKey || "").trim();
+  const agentId = String(opts.agentId || "").trim();
+  if (!apiKey) return { ok: false, error: "Missing voice agent API key" };
+  if (!agentId) return { ok: false, error: "Missing voice agent ID" };
+
+  const url = `https://api.elevenlabs.io/v1/convai/agents/${encodeURIComponent(agentId)}`;
+  const res = await fetch(url, {
+    method: "GET",
+    headers: {
+      "xi-api-key": apiKey,
+      accept: "application/json",
+    },
+  });
+
+  const text = await res.text().catch(() => "");
+  if (!res.ok) {
+    return {
+      ok: false,
+      error: `Voice agent request failed (${res.status}): ${text.slice(0, 400)}`,
+      status: res.status,
+    };
+  }
+
+  let json: any = {};
+  try {
+    json = text.trim() ? JSON.parse(text) : {};
+  } catch {
+    json = {};
+  }
+
+  const conv = json?.conversation_config;
+  const agent = conv?.agent;
+
+  const firstMessageRaw =
+    typeof agent?.first_message === "string"
+      ? agent.first_message
+      : typeof agent?.firstMessage === "string"
+        ? agent.firstMessage
+        : "";
+
+  const promptObj = agent?.prompt;
+  const promptRaw =
+    typeof promptObj?.prompt === "string"
+      ? promptObj.prompt
+      : typeof promptObj?.text === "string"
+        ? promptObj.text
+        : "";
+
+  const toolIdsRaw = Array.isArray(promptObj?.tool_ids)
+    ? promptObj.tool_ids
+    : Array.isArray(promptObj?.toolIds)
+      ? promptObj.toolIds
+      : [];
+
+  const toolIds = toolIdsRaw
+    .map((x: any) => (typeof x === "string" ? x.trim() : ""))
+    .filter(Boolean)
+    .filter((v: string, i: number, a: string[]) => a.indexOf(v) === i)
+    .slice(0, 50);
+
+  return {
+    ok: true,
+    agent: json,
+    firstMessage: String(firstMessageRaw || "").trim().slice(0, 360),
+    prompt: String(promptRaw || "").trim().slice(0, 6000),
+    toolIds,
+  };
 }
 
 export async function createElevenLabsAgent(opts: {

@@ -87,6 +87,27 @@ Stripe setup checklist:
 
 Note: this repo currently reads subscription state live from Stripe; it does not require webhooks to unlock entitlements.
 
+## AI Outbound Calls (portal)
+
+Client-facing UI:
+
+- `/portal/app/services/ai-outbound-calls`
+
+Notes:
+
+- Campaigns have separate routing + settings for **Calls** vs **Chat**:
+	- Separate audience tags (`audienceTagIds` vs `chatAudienceTagIds`)
+	- Separate agent IDs/config (`voiceAgentId/voiceAgentConfig` vs `chatAgentId/chatAgentConfig`)
+- “Sync” pushes local agent config to the voice agent platform.
+	- If the local behavior fields are blank, Sync will **pull** the existing remote agent behavior instead of overwriting it.
+	- If there’s nothing to update, Sync succeeds as a no-op (so the UI can still show a clear “Synced” state).
+- Activity visibility (queued/calling/completed/failed/skipped) is available in the Calls tab.
+
+Voice agent platform API key:
+
+- Preferred: set in Portal **Profile**.
+- Fallback env vars (server-side): `VOICE_AGENT_API_KEY` / `ELEVENLABS_API_KEY` / `ELEVEN_LABS_API_KEY`.
+
 ## Sales Reporting (multi-provider, per-portal)
 
 This repo includes an **optional** portal feature that lets a client connect a payment processor (stored **encrypted at rest**) and view a sales dashboard under:

@@ -31,8 +31,11 @@ const patchSchema = z
     name: z.string().trim().min(1).max(80).optional(),
     status: z.enum(["DRAFT", "ACTIVE", "PAUSED", "ARCHIVED"]).optional(),
     audienceTagIds: z.array(z.string().trim().min(1).max(120)).max(50).optional(),
+    chatAudienceTagIds: z.array(z.string().trim().min(1).max(120)).max(50).optional(),
     voiceAgentId: z.string().trim().max(120).optional(),
     voiceAgentConfig: voiceAgentConfigPatchSchema.optional(),
+    chatAgentId: z.string().trim().max(120).optional(),
+    chatAgentConfig: voiceAgentConfigPatchSchema.optional(),
   })
   .strict();
 
@@ -57,7 +60,7 @@ export async function PATCH(req: Request, ctx: { params: Promise<{ campaignId: s
 
   const existing = await prisma.portalAiOutboundCallCampaign.findFirst({
     where: { ownerId, id: campaignId.data },
-    select: { id: true, voiceAgentConfigJson: true },
+    select: { id: true, voiceAgentConfigJson: true, chatAgentConfigJson: true },
   });
   if (!existing) return NextResponse.json({ ok: false, error: "Not found" }, { status: 404 });
 
@@ -65,10 +68,16 @@ export async function PATCH(req: Request, ctx: { params: Promise<{ campaignId: s
   if (parsed.data.name !== undefined) data.name = parsed.data.name.trim();
   if (parsed.data.status !== undefined) data.status = parsed.data.status;
   if (parsed.data.audienceTagIds !== undefined) data.audienceTagIdsJson = normalizeTagIdList(parsed.data.audienceTagIds);
+  if (parsed.data.chatAudienceTagIds !== undefined) data.chatAudienceTagIdsJson = normalizeTagIdList(parsed.data.chatAudienceTagIds);
 
   if (parsed.data.voiceAgentId !== undefined) {
     const id = parsed.data.voiceAgentId.trim().slice(0, 120);
     data.voiceAgentId = id ? id : null;
+  }
+
+  if (parsed.data.chatAgentId !== undefined) {
+    const id = parsed.data.chatAgentId.trim().slice(0, 120);
+    data.chatAgentId = id ? id : null;
   }
 
   if (parsed.data.voiceAgentConfig !== undefined) {
@@ -88,6 +97,25 @@ export async function PATCH(req: Request, ctx: { params: Promise<{ campaignId: s
     };
 
     data.voiceAgentConfigJson = next as any;
+  }
+
+  if (parsed.data.chatAgentConfig !== undefined) {
+    const base = parseVoiceAgentConfig(existing.chatAgentConfigJson);
+    const patch = parsed.data.chatAgentConfig;
+
+    const next = {
+      ...base,
+      ...(patch.firstMessage !== undefined ? { firstMessage: patch.firstMessage.trim().slice(0, 360) } : {}),
+      ...(patch.goal !== undefined ? { goal: patch.goal.trim().slice(0, 6000) } : {}),
+      ...(patch.personality !== undefined ? { personality: patch.personality.trim().slice(0, 6000) } : {}),
+      ...(patch.environment !== undefined ? { environment: patch.environment.trim().slice(0, 6000) } : {}),
+      ...(patch.tone !== undefined ? { tone: patch.tone.trim().slice(0, 6000) } : {}),
+      ...(patch.guardRails !== undefined ? { guardRails: patch.guardRails.trim().slice(0, 6000) } : {}),
+      ...(patch.toolKeys !== undefined ? { toolKeys: normalizeToolKeyList(patch.toolKeys) } : {}),
+      ...(patch.toolIds !== undefined ? { toolIds: normalizeToolIdList(patch.toolIds) } : {}),
+    };
+
+    data.chatAgentConfigJson = next as any;
   }
 
   await prisma.portalAiOutboundCallCampaign.update({

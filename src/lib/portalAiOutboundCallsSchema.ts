@@ -38,9 +38,12 @@ CREATE TABLE IF NOT EXISTS "PortalAiOutboundCallCampaign" (
   "name" TEXT NOT NULL,
   "status" "PortalAiOutboundCallCampaignStatus" NOT NULL DEFAULT 'DRAFT',
   "audienceTagIdsJson" JSONB,
+  "chatAudienceTagIdsJson" JSONB,
   "script" TEXT NOT NULL DEFAULT 'Hi, this is an automated call. Please call us back when you have a moment.',
   "voiceAgentId" TEXT,
   "voiceAgentConfigJson" JSONB,
+  "chatAgentId" TEXT,
+  "chatAgentConfigJson" JSONB,
   "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
   "updatedAt" TIMESTAMP(3) NOT NULL,
   CONSTRAINT "PortalAiOutboundCallCampaign_pkey" PRIMARY KEY ("id")
@@ -55,6 +58,21 @@ ALTER TABLE "PortalAiOutboundCallCampaign"
     `
 ALTER TABLE "PortalAiOutboundCallCampaign"
   ADD COLUMN IF NOT EXISTS "voiceAgentConfigJson" JSONB;
+    `.trim(),
+
+    `
+ALTER TABLE "PortalAiOutboundCallCampaign"
+  ADD COLUMN IF NOT EXISTS "chatAudienceTagIdsJson" JSONB;
+    `.trim(),
+
+    `
+ALTER TABLE "PortalAiOutboundCallCampaign"
+  ADD COLUMN IF NOT EXISTS "chatAgentId" TEXT;
+    `.trim(),
+
+    `
+ALTER TABLE "PortalAiOutboundCallCampaign"
+  ADD COLUMN IF NOT EXISTS "chatAgentConfigJson" JSONB;
     `.trim(),
 
     `
