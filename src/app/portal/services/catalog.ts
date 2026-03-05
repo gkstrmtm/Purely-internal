@@ -147,8 +147,8 @@ export const PORTAL_SERVICES: PortalService[] = [
   },
   {
     slug: "ai-outbound-calls",
-    title: "AI Outbound Calls",
-    description: "Follow up instantly without hiring more setters.",
+    title: "AI outbound",
+    description: "Automate outbound call follow-up without adding headcount.",
     highlights: [
       "Reach leads fast while they’re still hot",
       "Consistent messaging with a tuned script",

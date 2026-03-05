@@ -5,7 +5,7 @@ import { prisma } from "@/lib/db";
 import { requireClientSessionForService } from "@/lib/portalAccess";
 import { ensurePortalAiOutboundCallsSchema } from "@/lib/portalAiOutboundCallsSchema";
 import { getAiReceptionistServiceData } from "@/lib/aiReceptionist";
-import { buildElevenLabsAgentPrompt, patchElevenLabsAgent } from "@/lib/elevenLabsConvai";
+import { buildElevenLabsAgentPrompt, createElevenLabsAgent, patchElevenLabsAgent } from "@/lib/elevenLabsConvai";
 import { resolveElevenLabsConvaiToolIdsByKeys } from "@/lib/elevenLabsConvai";
 import { parseVoiceAgentConfig } from "@/lib/voiceAgentConfig.shared";
 
@@ -83,7 +83,7 @@ export async function POST(req: Request, ctx: { params: Promise<{ campaignId: st
 
   const campaign = await prisma.portalAiOutboundCallCampaign.findFirst({
     where: { ownerId, id: campaignId.data },
-    select: { id: true, voiceAgentId: true, voiceAgentConfigJson: true },
+    select: { id: true, name: true, voiceAgentId: true, voiceAgentConfigJson: true },
   });
 
   if (!campaign) return NextResponse.json({ ok: false, error: "Not found" }, { status: 404 });
@@ -95,15 +95,6 @@ export async function POST(req: Request, ctx: { params: Promise<{ campaignId: st
   if (!apiKey) {
     return NextResponse.json(
       { ok: false, error: "Missing voice agent API key. Set it in Profile first." },
-      { status: 400 },
-    );
-  }
-
-  const profileAgentId = await getProfileVoiceAgentId(ownerId);
-  const agentId = (campaign.voiceAgentId || "").trim() || (profileAgentId || "").trim();
-  if (!agentId) {
-    return NextResponse.json(
-      { ok: false, error: "Missing agent id. Set one on this campaign or in Profile." },
       { status: 400 },
     );
   }
@@ -133,6 +124,39 @@ export async function POST(req: Request, ctx: { params: Promise<{ campaignId: st
     .filter((v, i, a) => a.indexOf(v) === i)
     .slice(0, 50);
 
+  const profileAgentId = await getProfileVoiceAgentId(ownerId);
+  let agentId = (campaign.voiceAgentId || "").trim() || (profileAgentId || "").trim();
+  let createdAgentId: string | null = null;
+
+  // If a Profile agent exists but the campaign doesn't, persist it so the UI (and campaign) have a stable agent id.
+  if (!campaign.voiceAgentId && profileAgentId) {
+    await prisma.portalAiOutboundCallCampaign
+      .updateMany({ where: { id: campaign.id, ownerId }, data: { voiceAgentId: profileAgentId } })
+      .catch(() => null);
+  }
+
+  if (!agentId) {
+    const create = await createElevenLabsAgent({
+      apiKey,
+      name: `Purely AI outbound — ${campaign.name}`.slice(0, 160),
+      firstMessage: firstMessage || undefined,
+      prompt: prompt || undefined,
+      toolIds: resolvedToolIds,
+    });
+
+    if (!create.ok) {
+      return NextResponse.json({ ok: false, error: create.error }, { status: create.status || 502 });
+    }
+
+    createdAgentId = create.agentId;
+    agentId = create.agentId;
+
+    await prisma.portalAiOutboundCallCampaign.updateMany({
+      where: { id: campaign.id, ownerId },
+      data: { voiceAgentId: agentId },
+    });
+  }
+
   const result = await patchElevenLabsAgent({
     apiKey,
     agentId,
@@ -145,5 +169,5 @@ export async function POST(req: Request, ctx: { params: Promise<{ campaignId: st
     return NextResponse.json({ ok: false, error: result.error }, { status: result.status || 502 });
   }
 
-  return NextResponse.json({ ok: true, agentId, agent: result.agent });
+  return NextResponse.json({ ok: true, agentId, createdAgentId: createdAgentId || undefined, agent: result.agent });
 }

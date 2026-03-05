@@ -527,7 +527,7 @@ export function PortalBillingClient() {
             : key === "crm"
               ? "CRM / Follow-up"
               : key === "leadOutbound"
-                ? "AI Outbound Calls"
+                ? "AI outbound"
                 : String(key);
       internalMonthlyBreakdown.push({
         subscriptionId: `internal:${key}`,

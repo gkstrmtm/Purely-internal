@@ -648,3 +648,82 @@ export async function patchElevenLabsAgent(opts: {
     return { ok: true, agent: {} };
   }
 }
+
+export async function createElevenLabsAgent(opts: {
+  apiKey: string;
+  name?: string;
+  firstMessage?: string;
+  prompt?: string;
+  toolIds?: string[];
+}): Promise<{ ok: true; agentId: string; agent?: any } | { ok: false; error: string; status?: number }> {
+  const apiKey = String(opts.apiKey || "").trim();
+  if (!apiKey) return { ok: false, error: "Missing voice agent API key" };
+
+  const body: any = {};
+
+  const name = typeof opts.name === "string" ? opts.name.trim().slice(0, 160) : "";
+  const firstMessage = typeof opts.firstMessage === "string" ? opts.firstMessage.trim().slice(0, 360) : "";
+  const prompt = typeof opts.prompt === "string" ? opts.prompt.trim().slice(0, 6000) : "";
+  const toolIds = Array.isArray(opts.toolIds)
+    ? opts.toolIds
+        .map((x) => (typeof x === "string" ? x.trim() : ""))
+        .filter(Boolean)
+        .slice(0, 50)
+    : [];
+
+  if (name) body.name = name;
+
+  const agentCfg: any = {};
+  if (firstMessage) agentCfg.first_message = firstMessage;
+
+  if (prompt || toolIds.length) {
+    agentCfg.prompt = {
+      ...(prompt ? { prompt } : {}),
+      ...(toolIds.length ? { tool_ids: toolIds } : {}),
+    };
+  }
+
+  // ElevenLabs requires `conversation_config` on create.
+  body.conversation_config = {
+    agent: agentCfg,
+  };
+
+  const url = `https://api.elevenlabs.io/v1/convai/agents/create`;
+  const res = await fetch(url, {
+    method: "POST",
+    headers: {
+      "content-type": "application/json",
+      "xi-api-key": apiKey,
+      accept: "application/json",
+    },
+    body: JSON.stringify(body),
+  });
+
+  const text = await res.text().catch(() => "");
+  if (!res.ok) {
+    return {
+      ok: false,
+      error: `Voice agent request failed (${res.status}): ${text.slice(0, 400)}`,
+      status: res.status,
+    };
+  }
+
+  try {
+    const json = JSON.parse(text) as any;
+    const agentId =
+      typeof json?.agent_id === "string"
+        ? json.agent_id
+        : typeof json?.agentId === "string"
+          ? json.agentId
+          : typeof json?.id === "string"
+            ? json.id
+            : "";
+
+    const cleaned = String(agentId || "").trim().slice(0, 120);
+    if (!cleaned) return { ok: false, error: "Voice agent create returned an unexpected response." };
+
+    return { ok: true, agentId: cleaned, agent: json };
+  } catch {
+    return { ok: false, error: "Voice agent create returned an unexpected response." };
+  }
+}

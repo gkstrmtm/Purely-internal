@@ -133,7 +133,7 @@ const SERVICE_INFOS: ServiceInfo[] = [
   { key: "billing", name: "Billing", href: "/portal/app/billing" },
   { key: "mediaLibrary", name: "Media Library", href: "/portal/app/services/media-library" },
   { key: "aiReceptionist", name: "AI Receptionist", href: "/portal/app/services/ai-receptionist" },
-  { key: "aiOutboundCalls", name: "AI Outbound Calls", href: "/portal/app/services/ai-outbound-calls" },
+  { key: "aiOutboundCalls", name: "AI outbound", href: "/portal/app/services/ai-outbound-calls" },
   { key: "missedCallTextBack", name: "Missed-Call Text Back", href: "/portal/app/services/missed-call-textback" },
   { key: "booking", name: "Booking Automation", href: "/portal/app/services/booking" },
   { key: "blogs", name: "Automated Blogs", href: "/portal/app/services/blogs" },

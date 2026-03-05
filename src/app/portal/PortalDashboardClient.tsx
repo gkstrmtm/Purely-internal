@@ -625,7 +625,7 @@ export function PortalDashboardClient() {
       case "aiCalls":
         return "AI calls";
       case "aiOutboundCalls":
-        return "AI outbound calls";
+        return "AI outbound";
       case "missedCalls":
         return "Missed calls";
       case "bookingsCreated":

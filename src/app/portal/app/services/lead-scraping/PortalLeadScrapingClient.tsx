@@ -1342,7 +1342,7 @@ export function PortalLeadScrapingClient() {
               <div className="flex items-center justify-between gap-3">
                 <div>
                   <div className="text-sm font-semibold text-zinc-900">AI calls</div>
-                  <div className="mt-1 text-xs text-zinc-500">Calls are queued into your active AI Outbound Calls campaign.</div>
+                  <div className="mt-1 text-xs text-zinc-500">Calls are queued into your active AI outbound campaign.</div>
                 </div>
                 <label className="inline-flex items-center gap-2 text-sm text-zinc-700">
                   <input
@@ -1400,7 +1400,7 @@ export function PortalLeadScrapingClient() {
                 </label>
 
                 <div className="text-xs text-zinc-500">
-                  Calls only queue when the lead has a valid phone number. Configure the call prompt/script in your AI Outbound Calls campaign.
+                  Calls only queue when the lead has a valid phone number. Configure the call prompt/script in your AI outbound campaign.
                 </div>
               </div>
             </div>

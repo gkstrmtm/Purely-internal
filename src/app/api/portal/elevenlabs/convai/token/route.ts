@@ -42,7 +42,7 @@ export async function POST(req: Request) {
   const apiKey = await getOwnerVoiceAgentApiKey(ownerId);
   if (!apiKey) {
     return NextResponse.json(
-      { ok: false, error: "Missing ElevenLabs API key. Add it in Portal → Profile." },
+      { ok: false, error: "Missing voice agent API key. Add it in Portal → Profile." },
       { status: 400 },
     );
   }

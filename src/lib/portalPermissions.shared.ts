@@ -45,7 +45,7 @@ export const PORTAL_SERVICE_LABELS: Record<PortalServiceKey, string> = {
   reviews: "Reviews",
   leadScraping: "Lead scraping",
   aiReceptionist: "AI receptionist",
-  aiOutboundCalls: "AI outbound calls",
+  aiOutboundCalls: "AI outbound",
   followUp: "Follow-up",
   missedCallTextback: "Missed call textback",
   reporting: "Reporting",

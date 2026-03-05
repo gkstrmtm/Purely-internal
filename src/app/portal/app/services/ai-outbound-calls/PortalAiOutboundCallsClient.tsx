@@ -268,13 +268,13 @@ export function PortalAiOutboundCallsClient() {
 
   const [toolsPreset, setToolsPreset] = useState<"none" | "recommended" | "all">("recommended");
 
-  const [tab, setTab] = useState<"settings" | "testing" | "activity">("activity");
+  const [tab, setTab] = useState<"calls" | "chat" | "settings">("calls");
 
   useEffect(() => {
     setAgentSyncRequired(false);
     setManualCallId(null);
     setManualCall(null);
-    setTab("activity");
+    setTab("calls");
     setToolsPreset("recommended");
   }, [selectedId]);
 
@@ -639,7 +639,8 @@ export function PortalAiOutboundCallsClient() {
         throw new Error(json?.error || "Failed to sync agent");
       }
 
-      toast.success("Synced agent settings");
+      if (json.createdAgentId) toast.success("Created + synced agent");
+      else toast.success("Synced agent");
       setAgentSyncRequired(false);
     } catch (e) {
       setError(e instanceof Error ? e.message : "Failed to sync agent");
@@ -734,8 +735,8 @@ export function PortalAiOutboundCallsClient() {
     <div className="mx-auto w-full max-w-6xl">
       <div className="flex flex-col items-start justify-between gap-3 sm:flex-row sm:items-end">
         <div>
-          <h1 className="text-2xl font-bold text-brand-ink sm:text-3xl">AI Outbound Calls</h1>
-          <p className="mt-1 text-sm text-zinc-600">Call a contact when they get a tag.</p>
+          <h1 className="text-2xl font-bold text-brand-ink sm:text-3xl">AI outbound</h1>
+          <p className="mt-1 text-sm text-zinc-600">Automate outbound calls, review outcomes, and iterate your script.</p>
         </div>
       </div>
 
@@ -828,59 +829,68 @@ export function PortalAiOutboundCallsClient() {
               <div className="mt-4 flex w-full flex-wrap gap-2">
                 <button
                   type="button"
+                  onClick={() => setTab("calls")}
+                  aria-current={tab === "calls" ? "page" : undefined}
+                  className={
+                    "flex-1 min-w-[160px] rounded-2xl border px-4 py-2.5 text-sm font-semibold transition focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-ink/60 " +
+                    (tab === "calls"
+                      ? "border-[color:var(--color-brand-blue)] bg-[color:var(--color-brand-blue)] text-white shadow-sm"
+                      : "border-zinc-200 bg-white text-zinc-700 hover:bg-zinc-50")
+                  }
+                >
+                  Calls
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setTab("chat")}
+                  aria-current={tab === "chat" ? "page" : undefined}
+                  className={
+                    "flex-1 min-w-[160px] rounded-2xl border px-4 py-2.5 text-sm font-semibold transition focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-ink/60 " +
+                    (tab === "chat"
+                      ? "border-[color:var(--color-brand-blue)] bg-[color:var(--color-brand-blue)] text-white shadow-sm"
+                      : "border-zinc-200 bg-white text-zinc-700 hover:bg-zinc-50")
+                  }
+                >
+                  Chat
+                </button>
+                <button
+                  type="button"
                   onClick={() => setTab("settings")}
                   aria-current={tab === "settings" ? "page" : undefined}
                   className={
                     "flex-1 min-w-[160px] rounded-2xl border px-4 py-2.5 text-sm font-semibold transition focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-ink/60 " +
                     (tab === "settings"
-                      ? "border-zinc-900 bg-zinc-900 text-white shadow-sm"
+                      ? "border-[color:var(--color-brand-blue)] bg-[color:var(--color-brand-blue)] text-white shadow-sm"
                       : "border-zinc-200 bg-white text-zinc-700 hover:bg-zinc-50")
                   }
                 >
                   Settings
                 </button>
-                <button
-                  type="button"
-                  onClick={() => setTab("testing")}
-                  aria-current={tab === "testing" ? "page" : undefined}
-                  className={
-                    "flex-1 min-w-[160px] rounded-2xl border px-4 py-2.5 text-sm font-semibold transition focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-ink/60 " +
-                    (tab === "testing"
-                      ? "border-zinc-900 bg-zinc-900 text-white shadow-sm"
-                      : "border-zinc-200 bg-white text-zinc-700 hover:bg-zinc-50")
-                  }
-                >
-                  Testing
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setTab("activity")}
-                  aria-current={tab === "activity" ? "page" : undefined}
-                  className={
-                    "flex-1 min-w-[160px] rounded-2xl border px-4 py-2.5 text-sm font-semibold transition focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-ink/60 " +
-                    (tab === "activity"
-                      ? "border-zinc-900 bg-zinc-900 text-white shadow-sm"
-                      : "border-zinc-200 bg-white text-zinc-700 hover:bg-zinc-50")
-                  }
-                >
-                  Activity
-                </button>
               </div>
 
-              {tab === "testing" ? (
+              {tab === "chat" ? (
                 <div className="mt-4 rounded-3xl border border-zinc-200 bg-white p-4">
-                  <div className="text-sm font-semibold text-zinc-900">Testing</div>
+                  <div className="text-sm font-semibold text-zinc-900">Chat</div>
                   <div className="mt-1 text-sm text-zinc-600">
-                    Use this widget to test your campaign’s voice agent directly in the browser.
+                    Test your campaign’s voice agent directly in the browser.
                   </div>
 
                   <div className="mt-4">
-                    <InlineElevenLabsAgentTester agentId={selected.voiceAgentId} />
+                    {selected.voiceAgentId && selected.voiceAgentId.trim() ? (
+                      <InlineElevenLabsAgentTester agentId={selected.voiceAgentId} />
+                    ) : (
+                      <div className="rounded-2xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900">
+                        <div className="font-semibold">No campaign agent ID set</div>
+                        <div className="mt-1 text-amber-900/80">
+                          Add your voice API key in Profile, then click <span className="font-semibold">Sync agent</span> in Settings to create and save an agent for this campaign.
+                        </div>
+                      </div>
+                    )}
                   </div>
                 </div>
               ) : null}
 
-              {tab === "activity" ? (
+              {tab === "calls" ? (
                 <div className="mt-4">
                   <div className="rounded-3xl border border-zinc-200 bg-white p-4">
                     <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
@@ -927,7 +937,7 @@ export function PortalAiOutboundCallsClient() {
                             "rounded-2xl px-5 py-2.5 text-sm font-semibold",
                             busy || manualCallBusy
                               ? "bg-zinc-200 text-zinc-600"
-                              : "bg-brand-ink text-white hover:opacity-95",
+                              : "bg-[color:var(--color-brand-blue)] text-white hover:opacity-95",
                           )}
                         >
                           {manualCallBusy ? "Calling…" : "Call"}
@@ -1140,7 +1150,7 @@ export function PortalAiOutboundCallsClient() {
                     onClick={syncVoiceAgent}
                     className={classNames(
                       "rounded-2xl px-4 py-2 text-xs font-semibold",
-                      busy ? "bg-zinc-200 text-zinc-600" : "bg-brand-ink text-white hover:opacity-95",
+                      busy ? "bg-zinc-200 text-zinc-600" : "bg-[color:var(--color-brand-blue)] text-white hover:opacity-95",
                     )}
                     title={
                       voiceToolsApiKeyConfigured
@@ -1148,20 +1158,20 @@ export function PortalAiOutboundCallsClient() {
                         : "Push these settings to your live agent (requires voice API key in Profile)"
                     }
                   >
-                    {busy ? "Syncing…" : "Sync agent settings"}
+                    {busy ? "Syncing…" : "Sync agent (creates if missing)"}
                   </button>
                 </div>
 
                 <div className="mt-3 rounded-2xl border border-zinc-200 bg-zinc-50 p-4 text-sm text-zinc-700">
                   <div className="font-semibold text-zinc-900">Manual calls</div>
                   <div className="mt-1 text-xs text-zinc-600">
-                    Manual test calls (with recording + transcript) live in the <span className="font-semibold">Activity</span> tab.
+                    Manual test calls (with recording + transcript) live in the <span className="font-semibold">Calls</span> tab.
                     <button
                       type="button"
-                      onClick={() => setTab("activity")}
+                      onClick={() => setTab("calls")}
                       className="ml-2 inline-flex items-center rounded-lg border border-zinc-200 bg-white px-2 py-1 text-[11px] font-semibold text-zinc-800 hover:bg-zinc-50"
                     >
-                      Open Activity
+                      Open Calls
                     </button>
                   </div>
                 </div>
@@ -1170,8 +1180,7 @@ export function PortalAiOutboundCallsClient() {
                   <div>
                     <div className="text-xs font-semibold text-zinc-700">Agent ID (campaign override)</div>
                     <div className="mt-1 text-[11px] text-zinc-500">
-                      Leave blank to use your Profile agent ID. If you just signed up and haven’t received an agent ID yet,
-                      it’s typically issued by Purely support. Give it a couple hours, then reach out if needed.
+                      Leave blank to use your Profile agent. If you don’t have one yet, click Sync to auto-create an agent for this campaign.
                     </div>
                     <input
                       value={selected.voiceAgentId ?? ""}

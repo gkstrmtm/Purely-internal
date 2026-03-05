@@ -305,7 +305,7 @@ const TUTORIALS: Record<string, TutorialConfig> = {
     ],
   },
   "ai-outbound-calls": {
-    intro: "AI Outbound Calls automatically place calls based on tags or lists so you do not have to dial one by one.",
+    intro: "AI outbound automatically places calls based on tags or lists so you do not have to dial one by one.",
     sections: [
       {
         title: "How it should feel",
@@ -315,7 +315,7 @@ const TUTORIALS: Record<string, TutorialConfig> = {
         title: "Choose your targets",
         body: "Decide which contacts should receive outbound calls and what the script should cover.",
         steps: [
-          "Open AI Outbound Calls from Services.",
+          "Open AI outbound from Services.",
           "Pick the tags, list, or segment that defines who you want to call.",
           "Write a script that clearly states who you are, why you are calling, and what the next step should be if they are interested.",
         ],

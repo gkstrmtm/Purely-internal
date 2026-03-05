@@ -856,7 +856,7 @@ export function PortalProfileClient() {
                     />
                     <div className="mt-2 flex items-center justify-between gap-2">
                       <div className="text-xs text-zinc-500">
-                        Used by AI Outbound Calls when enabled.
+                        Used by AI outbound when enabled.
                       </div>
                       <button
                         type="button"

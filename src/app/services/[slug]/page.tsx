@@ -276,7 +276,7 @@ function seoForSlug(slug: string, title: string): SeoContent {
       };
     case "ai-outbound-calls":
       return {
-        primaryKeyword: "AI outbound calls",
+        primaryKeyword: "AI outbound",
         secondaryKeywords: [
           "automated outbound calls",
           "lead follow up automation",
@@ -285,7 +285,7 @@ function seoForSlug(slug: string, title: string): SeoContent {
           "SMS and email follow up",
         ],
         intro:
-          "Automated AI outbound calls follow up fast, log outcomes, and trigger next steps so hot leads do not cool off.",
+          "Automated outbound calling that follows up fast, logs outcomes, and helps you keep leads from cooling off.",
         whoItsFor: ["Lead-driven businesses", "Teams that cannot call instantly", "Owners who want consistent follow-up"],
         howItWorks: [
           "Tag or segment contacts to target",
