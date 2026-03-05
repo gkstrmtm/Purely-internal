@@ -2,7 +2,8 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 
 import { requireClientSessionForService } from "@/lib/portalAccess";
-import { getOwnerTwilioSmsConfigMasked, setOwnerTwilioSmsConfig } from "@/lib/portalTwilio";
+import { getOwnerTwilioSmsConfig, getOwnerTwilioSmsConfigMasked, setOwnerTwilioProvisioning, setOwnerTwilioSmsConfig } from "@/lib/portalTwilio";
+import { getPublicWebhookBaseUrl, provisionTwilioSmsWebhooksForFromNumber } from "@/lib/twilioProvisioning";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
@@ -47,8 +48,65 @@ export async function PUT(req: Request) {
   const ownerId = auth.session.user.id;
 
   try {
-    const twilio = await setOwnerTwilioSmsConfig(ownerId, parsed.data);
-    return NextResponse.json({ ok: true, twilio, note: parsed.data.clear ? "Cleared." : "Saved." });
+    if (parsed.data.clear) {
+      const twilio = await setOwnerTwilioSmsConfig(ownerId, parsed.data);
+      await setOwnerTwilioProvisioning(ownerId, null);
+      return NextResponse.json({ ok: true, twilio, note: "Cleared." });
+    }
+
+    const current = await getOwnerTwilioSmsConfig(ownerId);
+    const accountSid = (parsed.data.accountSid ?? current?.accountSid ?? "").trim();
+    const authToken = (parsed.data.authToken ?? current?.authToken ?? "").trim();
+    const fromNumberE164 = (parsed.data.fromNumberE164 ?? current?.fromNumberE164 ?? "").trim();
+
+    if (!accountSid || !authToken || !fromNumberE164) {
+      return NextResponse.json(
+        { ok: false, error: "Twilio requires Account SID, Auth Token, and a valid From number" },
+        { status: 400 },
+      );
+    }
+
+    // Zero-friction connect: provision Twilio webhooks automatically.
+    const provisioning = await provisionTwilioSmsWebhooksForFromNumber({
+      accountSid,
+      authToken,
+      fromNumberE164,
+      baseUrl: getPublicWebhookBaseUrl(),
+    });
+    if (!provisioning.ok) {
+      await setOwnerTwilioProvisioning(ownerId, {
+        smsUrl: null,
+        statusCallbackUrl: null,
+        phoneNumberSid: null,
+        updatedAtIso: provisioning.updatedAtIso,
+        lastError: provisioning.error,
+      }).catch(() => null);
+      return NextResponse.json(
+        { ok: false, error: provisioning.error, provisioning: { ok: false, updatedAtIso: provisioning.updatedAtIso } },
+        { status: 400 },
+      );
+    }
+
+    const twilio = await setOwnerTwilioSmsConfig(ownerId, { accountSid, authToken, fromNumberE164 });
+    await setOwnerTwilioProvisioning(ownerId, {
+      smsUrl: provisioning.smsUrl,
+      statusCallbackUrl: provisioning.statusCallbackUrl,
+      phoneNumberSid: provisioning.phoneNumberSid,
+      updatedAtIso: provisioning.updatedAtIso,
+      lastError: null,
+    });
+
+    return NextResponse.json({
+      ok: true,
+      twilio,
+      provisioning: {
+        ok: true,
+        smsUrl: provisioning.smsUrl,
+        statusCallbackUrl: provisioning.statusCallbackUrl,
+        updatedAtIso: provisioning.updatedAtIso,
+      },
+      note: "Connected. Webhooks configured automatically.",
+    });
   } catch (e) {
     return NextResponse.json({ error: e instanceof Error ? e.message : "Save failed" }, { status: 400 });
   }

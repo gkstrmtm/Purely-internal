@@ -457,7 +457,6 @@ export function PortalInboxClient() {
     }
 
     inboundSetupInitializedRef.current = true;
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [settings]);
 
   useEffect(() => {

@@ -1,6 +1,7 @@
 import { prisma } from "@/lib/db";
 import { normalizePhoneStrict } from "@/lib/phone";
 import { makeSmsThreadKey, tryUpsertPortalInboxMessage } from "@/lib/portalInbox";
+import { getPublicWebhookBaseUrl, twilioSmsStatusCallbackUrl } from "@/lib/twilioProvisioning";
 
 const SERVICE_SLUG = "integrations";
 const DEFAULT_DEMO_FULL_EMAIL_DEV = "demo-full@purelyautomation.dev";
@@ -19,6 +20,23 @@ export type OwnerTwilioSmsConfigMasked = {
   fromNumberE164: string | null;
   hasAuthToken: boolean;
   updatedAtIso: string | null;
+};
+
+export type OwnerTwilioProvisioning = {
+  smsUrl: string | null;
+  statusCallbackUrl: string | null;
+  phoneNumberSid: string | null;
+  updatedAtIso: string;
+  lastError: string | null;
+};
+
+export type OwnerTwilioProvisioningMasked = {
+  configured: boolean;
+  smsUrl: string | null;
+  statusCallbackUrl: string | null;
+  phoneNumberSidMasked: string | null;
+  updatedAtIso: string | null;
+  lastError: string | null;
 };
 
 function maskAccountSid(sid: string): string {
@@ -43,6 +61,26 @@ function parseConfig(raw: unknown): OwnerTwilioSmsConfig | null {
   if (!accountSid || !authToken || !fromNumberE164) return null;
 
   return { accountSid, authToken, fromNumberE164, updatedAtIso };
+}
+
+function parseProvisioning(raw: unknown): OwnerTwilioProvisioning | null {
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return null;
+  const rec = raw as Record<string, unknown>;
+
+  const smsUrl = typeof rec.smsUrl === "string" ? rec.smsUrl.trim() : null;
+  const statusCallbackUrl = typeof rec.statusCallbackUrl === "string" ? rec.statusCallbackUrl.trim() : null;
+  const phoneNumberSid = typeof rec.phoneNumberSid === "string" ? rec.phoneNumberSid.trim() : null;
+  const updatedAtIso = typeof rec.updatedAtIso === "string" ? rec.updatedAtIso : "";
+  const lastError = typeof rec.lastError === "string" ? rec.lastError : null;
+
+  if (!updatedAtIso) return null;
+  return {
+    smsUrl: smsUrl || null,
+    statusCallbackUrl: statusCallbackUrl || null,
+    phoneNumberSid: phoneNumberSid || null,
+    updatedAtIso,
+    lastError,
+  };
 }
 
 function getIntegrationsRecord(raw: unknown): Record<string, unknown> {
@@ -100,6 +138,55 @@ export async function getOwnerTwilioSmsConfig(ownerId: string): Promise<OwnerTwi
   const saved = parseConfig(twilioRaw);
   if (saved) return saved;
   return await envTwilioConfigForOwner(ownerId);
+}
+
+export async function getOwnerTwilioProvisioningMasked(ownerId: string): Promise<OwnerTwilioProvisioningMasked> {
+  const row = await prisma.portalServiceSetup.findUnique({
+    where: { ownerId_serviceSlug: { ownerId, serviceSlug: SERVICE_SLUG } },
+    select: { dataJson: true },
+  });
+
+  const rec = getIntegrationsRecord(row?.dataJson ?? null);
+  const prov = parseProvisioning((rec as any).twilioProvisioning);
+
+  const sid = prov?.phoneNumberSid || "";
+  const sidMasked = sid
+    ? sid.length <= 10
+      ? sid
+      : `${sid.slice(0, 2)}…${sid.slice(-4)}`
+    : null;
+
+  return {
+    configured: Boolean(prov),
+    smsUrl: prov?.smsUrl ?? null,
+    statusCallbackUrl: prov?.statusCallbackUrl ?? null,
+    phoneNumberSidMasked: sidMasked,
+    updatedAtIso: prov?.updatedAtIso ?? null,
+    lastError: prov?.lastError ?? null,
+  };
+}
+
+export async function setOwnerTwilioProvisioning(ownerId: string, input: OwnerTwilioProvisioning | null): Promise<void> {
+  const existing = await prisma.portalServiceSetup.findUnique({
+    where: { ownerId_serviceSlug: { ownerId, serviceSlug: SERVICE_SLUG } },
+    select: { dataJson: true },
+  });
+
+  const rec = getIntegrationsRecord(existing?.dataJson ?? null);
+  const next = { ...rec } as any;
+
+  if (!input) {
+    delete next.twilioProvisioning;
+  } else {
+    next.twilioProvisioning = input;
+  }
+
+  await prisma.portalServiceSetup.upsert({
+    where: { ownerId_serviceSlug: { ownerId, serviceSlug: SERVICE_SLUG } },
+    create: { ownerId, serviceSlug: SERVICE_SLUG, status: "COMPLETE", dataJson: next },
+    update: { status: "COMPLETE", dataJson: next },
+    select: { id: true },
+  });
 }
 
 export async function getOwnerTwilioSmsConfigMasked(ownerId: string): Promise<OwnerTwilioSmsConfigMasked> {
@@ -204,6 +291,15 @@ export async function sendOwnerTwilioSms(opts: {
   const mediaUrls = Array.isArray(opts.mediaUrls) ? opts.mediaUrls.filter(Boolean).slice(0, 10) : [];
   for (const url of mediaUrls) {
     form.append("MediaUrl", url);
+  }
+
+  // Redundancy: per-message status callback helps us ingest outbound messages even if
+  // they don't go through logging paths elsewhere.
+  try {
+    const baseUrl = getPublicWebhookBaseUrl();
+    form.set("StatusCallback", twilioSmsStatusCallbackUrl(baseUrl));
+  } catch {
+    // ignore
   }
 
   const res = await fetch(url, {
