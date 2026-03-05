@@ -1,7 +1,7 @@
 import { prisma } from "@/lib/db";
 import { getBookingCalendarsConfig } from "@/lib/bookingCalendars";
 import { normalizePhoneForStorage } from "@/lib/phone";
-import { getOwnerTwilioSmsConfig } from "@/lib/portalTwilio";
+import { getOwnerTwilioSmsConfig, sendOwnerTwilioSms } from "@/lib/portalTwilio";
 import { runOwnerAutomationsForEvent } from "@/lib/portalAutomationsRunner";
 import { buildPortalTemplateVars } from "@/lib/portalTemplateVars";
 import { renderTextTemplate } from "@/lib/textTemplate";
@@ -1219,30 +1219,14 @@ export async function processDueFollowUps(opts: { limit: number }): Promise<{ pr
             continue;
           }
 
-          const url = `https://api.twilio.com/2010-04-01/Accounts/${twilio.accountSid}/Messages.json`;
-          const basic = Buffer.from(`${twilio.accountSid}:${twilio.authToken}`).toString("base64");
-          const form = new URLSearchParams();
-          form.set("To", msg.to);
-          form.set("From", twilio.fromNumberE164);
-          form.set("Body", msg.body.slice(0, 900));
-
-          const res = await fetch(url, {
-            method: "POST",
-            headers: {
-              authorization: `Basic ${basic}`,
-              "content-type": "application/x-www-form-urlencoded",
-            },
-            body: form.toString(),
-          });
-
+          const res = await sendOwnerTwilioSms({ ownerId: row.ownerId, to: msg.to, body: msg.body.slice(0, 900) });
           if (!res.ok) {
-            const text = await res.text().catch(() => "");
             failed++;
             nextQueue[idx] = {
               ...nextQueue[idx]!,
               status: "FAILED",
               attempts: msg.attempts + 1,
-              lastError: `SMS send failed (${res.status}): ${text.slice(0, 400)}`,
+              lastError: String(res.error || "SMS send failed").slice(0, 400),
             };
             changed = true;
             continue;

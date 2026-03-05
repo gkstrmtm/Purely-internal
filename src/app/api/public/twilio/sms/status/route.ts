@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 
-import { findOwnerIdByTwilioToNumber } from "@/lib/twilioRouting";
+import { findOwnerIdByTwilioAccountSid, findOwnerIdByTwilioToNumber } from "@/lib/twilioRouting";
 import { getOwnerTwilioSmsConfig } from "@/lib/portalTwilio";
 import { makeSmsThreadKey, normalizeSmsPeerKey, upsertPortalInboxMessage } from "@/lib/portalInbox";
 import { ensurePortalInboxSchema } from "@/lib/portalInboxSchema";
@@ -78,13 +78,17 @@ export async function POST(req: Request) {
   const bodyRaw = await req.text().catch(() => "");
   const form = new URLSearchParams(bodyRaw);
 
+  const accountSid = String(form.get("AccountSid") ?? "").trim();
   const from = String(form.get("From") ?? "").trim();
   const to = String(form.get("To") ?? "").trim();
   const messageSid = String(form.get("MessageSid") ?? form.get("SmsSid") ?? "").trim();
 
   // Owner lookup: for outbound status callbacks, From is the connected Twilio number.
   // For inbound, To is the connected Twilio number.
-  const ownerId = (from ? await findOwnerIdByTwilioToNumber(from) : null) ?? (to ? await findOwnerIdByTwilioToNumber(to) : null);
+  const ownerId =
+    (from ? await findOwnerIdByTwilioToNumber(from) : null) ??
+    (to ? await findOwnerIdByTwilioToNumber(to) : null) ??
+    (accountSid ? await findOwnerIdByTwilioAccountSid(accountSid) : null);
   if (!ownerId || !messageSid) return twimlEmpty();
 
   const cfg = await getOwnerTwilioSmsConfig(ownerId);

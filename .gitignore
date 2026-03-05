@@ -41,6 +41,9 @@
 # local chat transcript at repo root
 /chathistory
 
+# additional local chat history file
+/chat history updated.md
+
 # debug
 npm-debug.log*
 yarn-debug.log*

@@ -1,5 +1,5 @@
-import { getOwnerTwilioSmsConfig } from "@/lib/portalTwilio";
-import { makeEmailThreadKey, makeSmsThreadKey, normalizeSubjectKey, tryUpsertPortalInboxMessage } from "@/lib/portalInbox";
+import { sendOwnerTwilioSms } from "@/lib/portalTwilio";
+import { makeEmailThreadKey, normalizeSubjectKey, tryUpsertPortalInboxMessage } from "@/lib/portalInbox";
 import { getOutboundEmailFrom, sendTransactionalEmail } from "@/lib/emailSender";
 
 export type LeadTemplateVars = {
@@ -145,50 +145,6 @@ export async function sendSms({
   to: string;
   body: string;
 }) {
-  const twilio = await getOwnerTwilioSmsConfig(ownerId);
-  if (!twilio) throw new Error("Texting is not configured yet.");
-
-  const url = `https://api.twilio.com/2010-04-01/Accounts/${twilio.accountSid}/Messages.json`;
-  const basic = Buffer.from(`${twilio.accountSid}:${twilio.authToken}`).toString("base64");
-
-  const form = new URLSearchParams();
-  form.set("To", to);
-  form.set("From", twilio.fromNumberE164);
-  form.set("Body", body.slice(0, 900));
-
-  const res = await fetch(url, {
-    method: "POST",
-    headers: { authorization: `Basic ${basic}`, "content-type": "application/x-www-form-urlencoded" },
-    body: form.toString(),
-  });
-
-  if (!res.ok) {
-    const t = await res.text().catch(() => "");
-    throw new Error(`Twilio failed (${res.status}): ${t.slice(0, 400)}`);
-  }
-
-  // Log in the unified Inbox/Outbox thread history.
-  const text = await res.text().catch(() => "");
-  let providerMessageId: string | null = null;
-  try {
-    const json = JSON.parse(text) as any;
-    providerMessageId = typeof json?.sid === "string" ? json.sid : null;
-  } catch {
-    // ignore
-  }
-
-  const { threadKey, peerAddress, peerKey } = makeSmsThreadKey(to);
-  await tryUpsertPortalInboxMessage({
-    ownerId,
-    channel: "SMS",
-    direction: "OUT",
-    threadKey,
-    peerAddress,
-    peerKey,
-    fromAddress: twilio.fromNumberE164,
-    toAddress: to,
-    bodyText: body,
-    provider: "TWILIO",
-    providerMessageId,
-  });
+  const res = await sendOwnerTwilioSms({ ownerId, to, body });
+  if (!res.ok) throw new Error(res.error || "Twilio send failed");
 }

@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import crypto from "crypto";
 
-import { findOwnerIdByTwilioToNumber } from "@/lib/twilioRouting";
+import { findOwnerIdByTwilioAccountSid, findOwnerIdByTwilioToNumber } from "@/lib/twilioRouting";
 import { makeSmsThreadKey, normalizeSmsPeerKey, upsertPortalInboxMessage } from "@/lib/portalInbox";
 import { prisma } from "@/lib/db";
 import { ensurePortalInboxSchema } from "@/lib/portalInboxSchema";
@@ -59,6 +59,7 @@ export async function POST(req: Request) {
   const bodyRaw = await req.text().catch(() => "");
   const form = new URLSearchParams(bodyRaw);
 
+  const accountSid = String(form.get("AccountSid") ?? "").trim();
   const from = String(form.get("From") ?? "").trim();
   const to = String(form.get("To") ?? "").trim();
   const body = String(form.get("Body") ?? "");
@@ -67,7 +68,7 @@ export async function POST(req: Request) {
   // MMS fields (optional)
   const numMedia = Math.max(0, Math.min(MAX_MEDIA, Number(form.get("NumMedia") ?? 0) || 0));
 
-  const ownerId = to ? await findOwnerIdByTwilioToNumber(to) : null;
+  const ownerId = (to ? await findOwnerIdByTwilioToNumber(to) : null) ?? (accountSid ? await findOwnerIdByTwilioAccountSid(accountSid) : null);
   if (!ownerId) return twimlEmpty();
 
   const peer = normalizeSmsPeerKey(from);

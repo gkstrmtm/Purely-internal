@@ -1082,8 +1082,15 @@ async function runAutomationOnce(opts: {
           }
 
           if (cfg.actionKind === "send_sms") {
-            const bodyTemplate = String(cfg.body || "").trim() || "Got it, thanks!";
-            const body = renderTextTemplate(bodyTemplate, getTemplateVars());
+            const bodyTemplate = String(cfg.body || "").trim();
+            if (!bodyTemplate) {
+              // Prevent surprising auto-replies when a user configures a send_sms action
+              // but leaves the body empty.
+              continue;
+            }
+
+            const body = renderTextTemplate(bodyTemplate, getTemplateVars()).trim();
+            if (!body) continue;
             const target = (String((cfg as any).smsTo || "inbound_sender") as MessageTarget) || "inbound_sender";
             let to: string | null = null;
 
