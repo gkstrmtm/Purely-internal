@@ -91,6 +91,7 @@ export async function PUT(req: Request) {
         smsUrl: null,
         statusCallbackUrl: null,
         phoneNumberSid: null,
+        messagingServiceSid: null,
         updatedAtIso: provisioning.updatedAtIso,
         lastError: provisioning.error,
       }).catch(() => null);
@@ -105,6 +106,7 @@ export async function PUT(req: Request) {
       smsUrl: provisioning.smsUrl,
       statusCallbackUrl: provisioning.statusCallbackUrl,
       phoneNumberSid: provisioning.phoneNumberSid,
+      messagingServiceSid: provisioning.messagingServiceSid,
       updatedAtIso: provisioning.updatedAtIso,
       lastError: null,
     });

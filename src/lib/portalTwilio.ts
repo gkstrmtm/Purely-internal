@@ -26,6 +26,7 @@ export type OwnerTwilioProvisioning = {
   smsUrl: string | null;
   statusCallbackUrl: string | null;
   phoneNumberSid: string | null;
+  messagingServiceSid: string | null;
   updatedAtIso: string;
   lastError: string | null;
 };
@@ -35,6 +36,7 @@ export type OwnerTwilioProvisioningMasked = {
   smsUrl: string | null;
   statusCallbackUrl: string | null;
   phoneNumberSidMasked: string | null;
+  messagingServiceSidMasked: string | null;
   updatedAtIso: string | null;
   lastError: string | null;
 };
@@ -70,6 +72,7 @@ function parseProvisioning(raw: unknown): OwnerTwilioProvisioning | null {
   const smsUrl = typeof rec.smsUrl === "string" ? rec.smsUrl.trim() : null;
   const statusCallbackUrl = typeof rec.statusCallbackUrl === "string" ? rec.statusCallbackUrl.trim() : null;
   const phoneNumberSid = typeof rec.phoneNumberSid === "string" ? rec.phoneNumberSid.trim() : null;
+  const messagingServiceSid = typeof rec.messagingServiceSid === "string" ? rec.messagingServiceSid.trim() : null;
   const updatedAtIso = typeof rec.updatedAtIso === "string" ? rec.updatedAtIso : "";
   const lastError = typeof rec.lastError === "string" ? rec.lastError : null;
 
@@ -78,6 +81,7 @@ function parseProvisioning(raw: unknown): OwnerTwilioProvisioning | null {
     smsUrl: smsUrl || null,
     statusCallbackUrl: statusCallbackUrl || null,
     phoneNumberSid: phoneNumberSid || null,
+    messagingServiceSid: messagingServiceSid || null,
     updatedAtIso,
     lastError,
   };
@@ -156,11 +160,19 @@ export async function getOwnerTwilioProvisioningMasked(ownerId: string): Promise
       : `${sid.slice(0, 2)}…${sid.slice(-4)}`
     : null;
 
+  const mg = prov?.messagingServiceSid || "";
+  const mgMasked = mg
+    ? mg.length <= 10
+      ? mg
+      : `${mg.slice(0, 2)}…${mg.slice(-4)}`
+    : null;
+
   return {
     configured: Boolean(prov),
     smsUrl: prov?.smsUrl ?? null,
     statusCallbackUrl: prov?.statusCallbackUrl ?? null,
     phoneNumberSidMasked: sidMasked,
+    messagingServiceSidMasked: mgMasked,
     updatedAtIso: prov?.updatedAtIso ?? null,
     lastError: prov?.lastError ?? null,
   };

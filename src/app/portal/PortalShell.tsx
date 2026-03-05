@@ -1543,7 +1543,7 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
                     </div>
                   ) : (
                     <div className="flex h-full w-full items-center justify-center p-8 text-center text-sm text-white/80">
-                      Media isn’t configured for this campaign.
+                      Media is not configured for this campaign.
                     </div>
                   )}
                 </div>
@@ -1564,7 +1564,7 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
                               {rewardClaimed ? (
                                 <>Credits added.</>
                               ) : (
-                                <>You’re all set. Claiming your credits…</>
+                                <>You are all set. Claiming your credits...</>
                               )}
                             </>
                           )
@@ -1575,7 +1575,7 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
                         <>Sponsored message</>
                       )}
                       {rewardCampaign?.creative?.mediaKind === "video" && !rewardMediaReady ? (
-                        <div className="mt-1 text-xs text-zinc-500">Loading video…</div>
+                        <div className="mt-1 text-xs text-zinc-500">Loading video...</div>
                       ) : null}
                     </div>
 
@@ -1625,7 +1625,7 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
                     >
                       <div className="text-base font-semibold text-zinc-900">Stop watching?</div>
                       <div className="mt-2 text-sm text-zinc-700">
-                        If you stop now, you won’t receive the {rewardCredits} credits.
+                        If you stop now, you will not receive the {rewardCredits} credits.
                       </div>
                       {rewardMinWatchSeconds > 0 ? (
                         <div className="mt-2 text-sm text-zinc-700">
