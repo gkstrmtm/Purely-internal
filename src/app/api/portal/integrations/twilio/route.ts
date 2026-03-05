@@ -5,6 +5,7 @@ import { requireClientSessionForService } from "@/lib/portalAccess";
 import { getOwnerTwilioSmsConfig, getOwnerTwilioSmsConfigMasked, setOwnerTwilioProvisioning, setOwnerTwilioSmsConfig } from "@/lib/portalTwilio";
 import {
   getPublicWebhookBaseUrl,
+  inspectTwilioSmsWebhookConfig,
   provisionTwilioSmsWebhooksForFromNumber,
   twilioSmsStatusCallbackUrl,
   twilioSmsWebhookUrl,
@@ -26,6 +27,18 @@ export async function GET() {
   const twilio = await getOwnerTwilioSmsConfigMasked(ownerId);
   const publicBaseUrl = getPublicWebhookBaseUrl();
 
+  // Live Twilio diagnostics (best-effort). This is the fastest way to debug
+  // Twilio's "No HTTP request logged" because it tells us what Twilio is actually set to call.
+  const cfg = await getOwnerTwilioSmsConfig(ownerId).catch(() => null);
+  const diagnostics = cfg
+    ? await inspectTwilioSmsWebhookConfig({
+        accountSid: cfg.accountSid,
+        authToken: cfg.authToken,
+        fromNumberE164: cfg.fromNumberE164,
+        baseUrl: publicBaseUrl,
+      }).catch((e) => ({ ok: false as const, error: e instanceof Error ? e.message : "Diagnostics failed" }))
+    : null;
+
   return NextResponse.json({
     ok: true,
     twilio,
@@ -33,6 +46,7 @@ export async function GET() {
       smsInboundUrl: twilioSmsWebhookUrl(publicBaseUrl),
       smsStatusCallbackUrl: twilioSmsStatusCallbackUrl(publicBaseUrl),
     },
+    diagnostics,
   });
 }
 

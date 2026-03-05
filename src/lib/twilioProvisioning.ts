@@ -43,6 +43,29 @@ export function twilioSmsStatusCallbackUrl(baseUrl: string): string {
   return `${cleanBaseUrl(baseUrl)}/api/public/twilio/sms/status`;
 }
 
+export type TwilioSmsWebhookDiagnostics = {
+  expected: {
+    smsUrl: string;
+    statusCallbackUrl: string;
+  };
+  phoneNumber: null | {
+    sid: string;
+    phoneNumberE164: string | null;
+    smsUrl: string | null;
+    smsMethod: string | null;
+    statusCallback: string | null;
+    statusCallbackMethod: string | null;
+    smsApplicationSid: string | null;
+  };
+  messagingService: null | {
+    sid: string;
+    inboundRequestUrl: string | null;
+    inboundMethod: string | null;
+    statusCallback: string | null;
+    useInboundWebhookOnNumber: boolean | null;
+  };
+};
+
 async function twilioFetchJson(opts: {
   accountSid: string;
   authToken: string;
@@ -73,6 +96,100 @@ async function twilioFetchJson(opts: {
   } catch {
     return { ok: false, status: res.status, text: text || "Invalid JSON from Twilio" };
   }
+}
+
+export async function inspectTwilioSmsWebhookConfig(opts: {
+  accountSid: string;
+  authToken: string;
+  fromNumberE164: string;
+  baseUrl?: string;
+}): Promise<{ ok: true; diagnostics: TwilioSmsWebhookDiagnostics } | { ok: false; error: string }> {
+  const baseUrl = cleanBaseUrl(opts.baseUrl || getPublicWebhookBaseUrl());
+  const expected = {
+    smsUrl: twilioSmsWebhookUrl(baseUrl),
+    statusCallbackUrl: twilioSmsStatusCallbackUrl(baseUrl),
+  };
+
+  const listUrl = `https://api.twilio.com/2010-04-01/Accounts/${encodeURIComponent(
+    opts.accountSid,
+  )}/IncomingPhoneNumbers.json?PhoneNumber=${encodeURIComponent(opts.fromNumberE164)}&PageSize=20`;
+
+  const listRes = await twilioFetchJson({
+    accountSid: opts.accountSid,
+    authToken: opts.authToken,
+    url: listUrl,
+    method: "GET",
+  });
+
+  if (!listRes.ok) {
+    return { ok: false, error: `Twilio list numbers failed (${listRes.status}): ${String(listRes.text || "").slice(0, 240)}` };
+  }
+
+  const rows = Array.isArray(listRes.json?.incoming_phone_numbers)
+    ? (listRes.json.incoming_phone_numbers as any[])
+    : [];
+  const match = rows.find((r) => String(r?.phone_number || "").trim() === opts.fromNumberE164) ?? rows[0];
+  const phoneNumberSid = typeof match?.sid === "string" ? String(match.sid).trim() : "";
+
+  const phoneNumber: TwilioSmsWebhookDiagnostics["phoneNumber"] = phoneNumberSid
+    ? {
+        sid: phoneNumberSid,
+        phoneNumberE164: typeof match?.phone_number === "string" ? match.phone_number : null,
+        smsUrl: typeof match?.sms_url === "string" ? match.sms_url : null,
+        smsMethod: typeof match?.sms_method === "string" ? match.sms_method : null,
+        statusCallback: typeof match?.status_callback === "string" ? match.status_callback : null,
+        statusCallbackMethod: typeof match?.status_callback_method === "string" ? match.status_callback_method : null,
+        smsApplicationSid: typeof match?.sms_application_sid === "string" ? match.sms_application_sid : null,
+      }
+    : null;
+
+  let messagingService: TwilioSmsWebhookDiagnostics["messagingService"] = null;
+  if (phoneNumberSid) {
+    const svcRes = await findMessagingServiceSidForPhoneNumberSid({
+      accountSid: opts.accountSid,
+      authToken: opts.authToken,
+      phoneNumberSid,
+    });
+
+    if (!svcRes.ok) return { ok: false, error: svcRes.error };
+
+    const serviceSid = svcRes.messagingServiceSid;
+    if (serviceSid) {
+      const svcUrl = `https://messaging.twilio.com/v1/Services/${encodeURIComponent(serviceSid)}`;
+      const svcGet = await twilioMessagingFetchJson({
+        accountSid: opts.accountSid,
+        authToken: opts.authToken,
+        url: svcUrl,
+        method: "GET",
+      });
+
+      if (!svcGet.ok) {
+        return {
+          ok: false,
+          error: `Twilio fetch Messaging Service failed (${svcGet.status}): ${String(svcGet.text || "").slice(0, 240)}`,
+        };
+      }
+
+      const j = svcGet.json;
+      messagingService = {
+        sid: serviceSid,
+        inboundRequestUrl: typeof j?.inbound_request_url === "string" ? j.inbound_request_url : null,
+        inboundMethod: typeof j?.inbound_method === "string" ? j.inbound_method : null,
+        statusCallback: typeof j?.status_callback === "string" ? j.status_callback : null,
+        useInboundWebhookOnNumber:
+          typeof j?.use_inbound_webhook_on_number === "boolean" ? j.use_inbound_webhook_on_number : null,
+      };
+    }
+  }
+
+  return {
+    ok: true,
+    diagnostics: {
+      expected,
+      phoneNumber,
+      messagingService,
+    },
+  };
 }
 
 async function twilioMessagingFetchJson(opts: {

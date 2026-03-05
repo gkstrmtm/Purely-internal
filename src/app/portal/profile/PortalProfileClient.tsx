@@ -146,7 +146,7 @@ export function PortalProfileClient() {
   const [mailboxLocalPart, setMailboxLocalPart] = useState<string>("");
 
   const [twilioMasked, setTwilioMasked] = useState<TwilioMasked | null>(null);
-  const [twilioWebhooks, setTwilioWebhooks] = useState<TwilioApiPayload["webhooks"] | null>(null);
+  // Twilio webhooks are auto-provisioned on connect; UI does not display URLs.
   const [twilioAccountSid, setTwilioAccountSid] = useState<string>("");
   const [twilioAuthToken, setTwilioAuthToken] = useState<string>("");
   const [twilioFromNumber, setTwilioFromNumber] = useState<string>("");
@@ -323,7 +323,6 @@ export function PortalProfileClient() {
       if (!canViewTwilio) {
         if (mounted) {
           setTwilioMasked(null);
-          setTwilioWebhooks(null);
         }
         return;
       }
@@ -333,7 +332,6 @@ export function PortalProfileClient() {
       const json = ((await res.json().catch(() => null)) as TwilioApiPayload | null) ?? null;
       if (json?.ok && json.twilio) {
         setTwilioMasked(json.twilio);
-        setTwilioWebhooks(json.webhooks ?? null);
         setTwilioFromNumber(json.twilio.fromNumberE164 ?? "");
       }
     })();
