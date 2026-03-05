@@ -968,12 +968,10 @@ export function PortalProfileClient() {
           {canViewWebhooks ? (
             <PortalSettingsSection
               title="Webhooks (copy/paste)"
-              description="Paste these into Twilio so calls + texts flow into your Inbox, AI Receptionist, and Missed-Call Text Back."
+              description="Paste these into Twilio so calls flow into your AI Receptionist and Missed-Call Text Back."
               accent="blue"
             >
               <div className="space-y-3">
-                <CopyRow label="Twilio SMS (A message comes in) (universal)" value={webhooks?.twilio?.smsInboundUrl ?? null} />
-                <CopyRow label="Twilio SMS status callback (recommended)" value={webhooks?.twilio?.smsStatusCallbackUrl ?? null} />
                 <CopyRow label="Calls (Primary handler: AI Receptionist)" value={webhooks?.legacy?.aiReceptionistVoiceUrl ?? null} />
                 <CopyRow label="Calls (If primary handler fails: Missed Call Text Back)" value={webhooks?.legacy?.missedCallVoiceUrl ?? null} />
 
@@ -981,16 +979,10 @@ export function PortalProfileClient() {
                   <div className="font-semibold text-zinc-900">Where do I paste these in Twilio?</div>
                   <div className="mt-2 space-y-1">
                     <div>1) Twilio Console → Phone Numbers → Manage → Active numbers → click your number</div>
-                    <div>2) For SMS: Messaging → A MESSAGE COMES IN → paste <span className="font-semibold">Twilio SMS (A message comes in) (universal)</span></div>
-                    <div>
-                      3) For calls: Voice &amp; Fax → A CALL COMES IN → paste <span className="font-semibold">Calls (Primary handler: AI Receptionist)</span>
-                    </div>
-                    <div>
-                      4) Still in Voice &amp; Fax → IF PRIMARY HANDLER FAILS → paste{" "}
-                      <span className="font-semibold">Calls (If primary handler fails: Missed Call Text Back)</span>
-                    </div>
+                    <div>2) For calls: Voice &amp; Fax → A CALL COMES IN → paste <span className="font-semibold">Calls (Primary handler: AI Receptionist)</span></div>
+                    <div>3) Still in Voice &amp; Fax → IF PRIMARY HANDLER FAILS → paste <span className="font-semibold">Calls (If primary handler fails: Missed Call Text Back)</span></div>
                   </div>
-                  <div className="mt-2 text-xs text-zinc-500">If you use a Messaging Service, paste the universal SMS URL there.</div>
+                  <div className="mt-2 text-xs text-zinc-500">SMS webhooks are configured automatically when you connect Twilio.</div>
                 </div>
 
                 {webhooks?.baseUrl ? (
@@ -1009,13 +1001,6 @@ export function PortalProfileClient() {
               accent="blue"
             >
               <div className="space-y-3">
-                {twilioWebhooks ? (
-                  <div className="space-y-3">
-                    <CopyRow label="Twilio SMS (A message comes in) (universal)" value={twilioWebhooks.smsInboundUrl} />
-                    <CopyRow label="Twilio SMS status callback (recommended)" value={twilioWebhooks.smsStatusCallbackUrl} />
-                  </div>
-                ) : null}
-
                 {twilioNote ? (
                   <div className="rounded-2xl border border-emerald-200 bg-emerald-50 p-4 text-sm text-emerald-800">{twilioNote}</div>
                 ) : null}
