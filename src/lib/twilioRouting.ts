@@ -35,7 +35,37 @@ async function findOwnerByIntegrationsJsonPathEquals(opts: {
 export async function findOwnerIdByTwilioAccountSid(accountSidRaw: string): Promise<string | null> {
   const accountSid = String(accountSidRaw || "").trim();
   if (!accountSid) return null;
-  return await findOwnerByIntegrationsJsonPathEquals({ path: ["twilio", "accountSid"], equals: accountSid });
+
+  // Fast path: JSON-path lookup (avoids scanning many rows).
+  const fast = await findOwnerByIntegrationsJsonPathEquals({ path: ["twilio", "accountSid"], equals: accountSid });
+  if (fast) return fast;
+
+  // Fallback: paginate through all rows (no hard cap).
+  let cursor: string | null = null;
+  for (let page = 0; page < 50; page += 1) {
+    const rows: Array<{ id: string; ownerId: string; dataJson: unknown }> = (await prisma.portalServiceSetup.findMany({
+      where: { serviceSlug: INTEGRATIONS_SLUG },
+      select: { id: true, ownerId: true, dataJson: true },
+      orderBy: { id: "asc" },
+      take: 1000,
+      ...(cursor ? { cursor: { id: cursor }, skip: 1 } : {}),
+    })) as any;
+
+    if (!rows.length) break;
+
+    for (const row of rows) {
+      const rec = row.dataJson && typeof row.dataJson === "object" && !Array.isArray(row.dataJson)
+        ? (row.dataJson as Record<string, unknown>)
+        : null;
+      const twilio = rec && twilioIsObject(rec.twilio) ? (rec.twilio as Record<string, unknown>) : null;
+      const sid = twilio ? String(twilio.accountSid ?? "").trim() : "";
+      if (sid && sid === accountSid) return row.ownerId;
+    }
+
+    cursor = rows[rows.length - 1]?.id ?? null;
+  }
+
+  return null;
 }
 
 export async function findOwnerIdByTwilioToNumber(toRaw: string): Promise<string | null> {

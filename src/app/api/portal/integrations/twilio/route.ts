@@ -3,13 +3,17 @@ import { z } from "zod";
 
 import { requireClientSessionForService } from "@/lib/portalAccess";
 import { getOwnerTwilioSmsConfig, getOwnerTwilioSmsConfigMasked, setOwnerTwilioProvisioning, setOwnerTwilioSmsConfig } from "@/lib/portalTwilio";
-import { getPublicWebhookBaseUrl, provisionTwilioSmsWebhooksForFromNumber } from "@/lib/twilioProvisioning";
-import { webhookUrlFromRequest } from "@/lib/webhookBase";
+import {
+  getPublicWebhookBaseUrl,
+  provisionTwilioSmsWebhooksForFromNumber,
+  twilioSmsStatusCallbackUrl,
+  twilioSmsWebhookUrl,
+} from "@/lib/twilioProvisioning";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
 
-export async function GET(req: Request) {
+export async function GET() {
   const auth = await requireClientSessionForService("twilio", "view");
   if (!auth.ok) {
     return NextResponse.json(
@@ -20,13 +24,14 @@ export async function GET(req: Request) {
 
   const ownerId = auth.session.user.id;
   const twilio = await getOwnerTwilioSmsConfigMasked(ownerId);
+  const publicBaseUrl = getPublicWebhookBaseUrl();
 
   return NextResponse.json({
     ok: true,
     twilio,
     webhooks: {
-      smsInboundUrl: webhookUrlFromRequest(req, "/api/public/twilio/sms"),
-      smsStatusCallbackUrl: webhookUrlFromRequest(req, "/api/public/twilio/sms/status"),
+      smsInboundUrl: twilioSmsWebhookUrl(publicBaseUrl),
+      smsStatusCallbackUrl: twilioSmsStatusCallbackUrl(publicBaseUrl),
     },
   });
 }

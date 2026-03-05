@@ -54,7 +54,6 @@ type SettingsRes = {
   twilio: { configured: boolean; fromNumberE164: string | null };
   webhooks: {
     twilioInboundSmsUrl: string;
-    twilioInboundSmsUrlLegacy?: string;
   };
 };
 
@@ -734,16 +733,6 @@ export function PortalInboxClient() {
     }
   }
 
-  async function regenToken() {
-    const res = await fetch("/api/portal/inbox/settings", {
-      method: "PUT",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({ regenerateToken: true }),
-    });
-    if (!res.ok) return;
-    setSettings((await res.json()) as SettingsRes);
-  }
-
   return (
     <div className="mx-auto w-full max-w-7xl">
       <PortalVariablePickerModal
@@ -779,7 +768,7 @@ export function PortalInboxClient() {
               <div className="space-y-3">
                 <div className="rounded-2xl border border-zinc-200 bg-white p-4">
                   <div className="text-xs font-semibold text-zinc-600">Twilio SMS webhook (universal)</div>
-                  <div className="mt-1 text-[11px] text-zinc-500">Paste into Twilio: Messaging → “A message comes in”</div>
+                  <div className="mt-1 text-[11px] text-zinc-500">Paste into Twilio: Messaging → A message comes in</div>
                   <div className="mt-2 break-all font-mono text-xs text-zinc-800">
                     {settings?.webhooks.twilioInboundSmsUrl || "Loading…"}
                   </div>
@@ -796,37 +785,6 @@ export function PortalInboxClient() {
                         }}
                       >
                         Copy
-                      </button>
-                    </div>
-                  </div>
-                </div>
-
-                <div className="rounded-2xl border border-zinc-200 bg-white p-4">
-                  <div className="text-xs font-semibold text-zinc-600">Twilio SMS webhook (legacy token URL)</div>
-                  <div className="mt-2 break-all font-mono text-xs text-zinc-800">
-                    {settings?.webhooks.twilioInboundSmsUrlLegacy || "Loading…"}
-                  </div>
-                  <div className="mt-3 flex items-center justify-between gap-3">
-                    <div className="text-[11px] text-zinc-500">Use only if support tells you to</div>
-                    <div className="flex items-center gap-2">
-                      <button
-                        type="button"
-                        className="rounded-xl border border-zinc-200 bg-white px-3 py-2 text-xs font-semibold hover:bg-zinc-50 disabled:opacity-60"
-                        disabled={!settings?.webhooks.twilioInboundSmsUrlLegacy}
-                        onClick={async () => {
-                          const v = settings?.webhooks.twilioInboundSmsUrlLegacy;
-                          if (v) await navigator.clipboard.writeText(v);
-                        }}
-                      >
-                        Copy
-                      </button>
-                      <button
-                        type="button"
-                        onClick={regenToken}
-                        className="rounded-xl border border-zinc-200 bg-white px-3 py-2 text-xs font-semibold text-brand-ink hover:bg-zinc-50"
-                        title="Regenerates the token in this URL"
-                      >
-                        Regenerate token
                       </button>
                     </div>
                   </div>

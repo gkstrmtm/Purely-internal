@@ -4,7 +4,12 @@ import { requireClientSessionForService } from "@/lib/portalAccess";
 import { getAiReceptionistServiceData } from "@/lib/aiReceptionist";
 import { getMissedCallTextBackServiceData } from "@/lib/missedCallTextBack";
 import { getPortalInboxSettings } from "@/lib/portalInbox";
-import { webhookBaseUrlFromRequest, webhookUrlFromRequest } from "@/lib/webhookBase";
+import { webhookBaseUrlFromRequest } from "@/lib/webhookBase";
+import {
+  getPublicWebhookBaseUrl,
+  twilioSmsStatusCallbackUrl,
+  twilioSmsWebhookUrl,
+} from "@/lib/twilioProvisioning";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
@@ -30,27 +35,29 @@ export async function GET(req: Request) {
   const aiToken = ai?.settings?.webhookToken || null;
   const missedToken = missed?.settings?.webhookToken || null;
 
+  const publicBaseUrl = getPublicWebhookBaseUrl();
+
   const inboxTwilioSmsUrlLegacy = inboxToken
-    ? webhookUrlFromRequest(req, `/api/public/inbox/${encodeURIComponent(inboxToken)}/twilio/sms`)
+    ? `${publicBaseUrl}/api/public/inbox/${encodeURIComponent(inboxToken)}/twilio/sms`
     : null;
 
   const aiReceptionistVoiceUrlLegacy = aiToken
-    ? webhookUrlFromRequest(req, `/api/public/twilio/ai-receptionist/${encodeURIComponent(aiToken)}/voice`)
+    ? `${publicBaseUrl}/api/public/twilio/ai-receptionist/${encodeURIComponent(aiToken)}/voice`
     : null;
 
   const missedCallVoiceUrlLegacy = missedToken
-    ? webhookUrlFromRequest(req, `/api/public/twilio/missed-call-textback/${encodeURIComponent(missedToken)}/voice`)
+    ? `${publicBaseUrl}/api/public/twilio/missed-call-textback/${encodeURIComponent(missedToken)}/voice`
     : null;
-
-  const twilioSmsInboundUrl = webhookUrlFromRequest(req, "/api/public/twilio/sms");
-  const twilioSmsStatusCallbackUrl = webhookUrlFromRequest(req, "/api/public/twilio/sms/status");
+  const twilioSmsInboundUrl = twilioSmsWebhookUrl(publicBaseUrl);
+  const twilioSmsStatusCbUrl = twilioSmsStatusCallbackUrl(publicBaseUrl);
 
   return NextResponse.json({
     ok: true,
-    baseUrl: webhookBaseUrlFromRequest(req),
+    baseUrl: publicBaseUrl,
+    requestBaseUrl: webhookBaseUrlFromRequest(req),
     twilio: {
       smsInboundUrl: twilioSmsInboundUrl,
-      smsStatusCallbackUrl: twilioSmsStatusCallbackUrl,
+      smsStatusCallbackUrl: twilioSmsStatusCbUrl,
     },
     legacy: {
       inboxTwilioSmsUrl: inboxTwilioSmsUrlLegacy,

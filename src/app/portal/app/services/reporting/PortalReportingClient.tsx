@@ -881,7 +881,7 @@ export function PortalReportingClient() {
                       : salesStatus?.ok === true &&
                           salesStatus.providers &&
                           Object.values(salesStatus.providers).some((p) => Boolean(p?.configured))
-                        ? "—"
+                        ? "-"
                         : "Connect"
                   }
                   sub={

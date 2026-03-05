@@ -1634,7 +1634,7 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
                               <span className="font-semibold">{rewardRemainingSeconds}s</span> remaining.
                             </>
                           ) : (
-                            <>You’re done — claiming now…</>
+                            <>You are done, claiming now...</>
                           )}
                         </div>
                       ) : null}

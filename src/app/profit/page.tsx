@@ -1479,7 +1479,7 @@ export default function ProfitVisualizationDashboardPage() {
                   <div className="rounded-2xl border border-zinc-200 bg-white px-3 py-2">
                     <div className="text-[11px] font-semibold uppercase tracking-wide text-zinc-500">Goal</div>
                     <div className="mt-0.5 text-lg font-bold text-zinc-900">{formatMoneyCompact(userSimSummary.goal)}</div>
-                    <div className="mt-0.5 text-[11px] font-semibold text-zinc-500">needs ~{userSimSummary.needed ? userSimSummary.needed.toLocaleString() : "—"} users</div>
+                    <div className="mt-0.5 text-[11px] font-semibold text-zinc-500">needs ~{userSimSummary.needed ? userSimSummary.needed.toLocaleString() : "-"} users</div>
                   </div>
                 </div>
 
@@ -2030,7 +2030,7 @@ export default function ProfitVisualizationDashboardPage() {
                     <div className="rounded-2xl bg-white px-4 py-3">
                       <div className="text-xs font-semibold uppercase tracking-wide text-zinc-500">Payback</div>
                       <div className="mt-1 text-lg font-bold text-zinc-900">
-                        {singleCustomerRoi.paybackMonths ? `${Math.max(0, Math.round(singleCustomerRoi.paybackMonths * 10) / 10)} mo` : "—"}
+                        {singleCustomerRoi.paybackMonths ? `${Math.max(0, Math.round(singleCustomerRoi.paybackMonths * 10) / 10)} mo` : "-"}
                       </div>
                       <div className="mt-1 text-[11px] text-zinc-600">If net is positive</div>
                     </div>
@@ -2130,7 +2130,7 @@ export default function ProfitVisualizationDashboardPage() {
                         Why these defaults? (the reasoning)
                       </summary>
                       <div className="mt-2 text-[11px] text-zinc-600">
-                        These are not pulled from your live usage — they’re intentionally conservative starter assumptions. The mental model is:
+                        These are not pulled from your live usage; they are intentionally conservative starter assumptions. The mental model is:
                         credits ≈ how often the service runs (messages, content, calls, enrichment), revenue lift ≈ small conversion/coverage gains,
                         and hours saved ≈ removing repetitive admin work. Tune them after you observe real call volume, lead volume, and AOV.
                       </div>
@@ -2228,11 +2228,11 @@ export default function ProfitVisualizationDashboardPage() {
                       ))}
                       <tr className="border-t border-zinc-200">
                         <td className="py-3 font-semibold text-zinc-900">Credits (usage)</td>
-                        <td className="py-3 text-zinc-700">—</td>
-                        <td className="py-3 text-zinc-700">—</td>
-                        <td className="py-3 text-zinc-700">—</td>
+                        <td className="py-3 text-zinc-700">-</td>
+                        <td className="py-3 text-zinc-700">-</td>
+                        <td className="py-3 text-zinc-700">-</td>
                         <td className="py-3 text-zinc-700">{formatMoneyCompact(serviceModel.creditsUsd)}</td>
-                        <td className="py-3 text-zinc-700">—</td>
+                        <td className="py-3 text-zinc-700">-</td>
                       </tr>
                     </tbody>
                   </table>

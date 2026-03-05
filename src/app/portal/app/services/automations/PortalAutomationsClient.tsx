@@ -2056,9 +2056,9 @@ export function PortalAutomationsClient(props: { mode?: "list" | "editor" }) {
     ];
 
     const formatUpdatedShort = (iso: string | null | undefined) => {
-      if (!iso) return "—";
+      if (!iso) return "-";
       const d = new Date(iso);
-      if (Number.isNaN(d.getTime())) return "—";
+      if (Number.isNaN(d.getTime())) return "-";
       return d.toLocaleString(undefined, { month: "numeric", day: "numeric", year: "2-digit", hour: "numeric", minute: "2-digit" });
     };
 
@@ -2145,9 +2145,9 @@ export function PortalAutomationsClient(props: { mode?: "list" | "editor" }) {
                   ? triggerKind === "manual"
                     ? "Manual"
                     : String(triggerKind).replace(/_/g, " ")
-                  : "—";
+                  : "-";
                 const updatedLabel = formatUpdatedShort(a.updatedAtIso);
-                const createdLabel = (a as any).createdAtIso ? new Date((a as any).createdAtIso).toLocaleDateString() : "—";
+                const createdLabel = (a as any).createdAtIso ? new Date((a as any).createdAtIso).toLocaleDateString() : "-";
                 return (
                   <div
                     key={a.id}

@@ -612,7 +612,7 @@ export default function NewAdsCampaignPage() {
                 <div>• It uses your campaign details + targeting to suggest copy.</div>
                 <div>• If you already typed a headline/body/CTA, it will improve what you wrote (not ignore it).</div>
                 <div>• You can click Generate multiple times to see options, then tweak by hand.</div>
-                <div>• Media is never edited — it only affects how your ad renders.</div>
+                <div>• Media is never edited; it only affects how your ad renders.</div>
               </div>
             </div>
           ) : null}

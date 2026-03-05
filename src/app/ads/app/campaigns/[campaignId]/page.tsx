@@ -198,13 +198,13 @@ export default async function AdsCampaignDetailsPage(props: { params: Promise<{ 
 
         <div className="rounded-3xl border border-zinc-200 bg-white p-6">
           <div className="text-xs font-semibold uppercase tracking-wide text-zinc-500">CTR (7d)</div>
-          <div className="mt-2 text-2xl font-bold text-zinc-900">{ctr7d ? `${ctr7d.toFixed(2)}%` : "—"}</div>
+          <div className="mt-2 text-2xl font-bold text-zinc-900">{ctr7d ? `${ctr7d.toFixed(2)}%` : "-"}</div>
           <div className="mt-2 text-sm text-zinc-600">Charged clicks: {chargedClicks7d.toLocaleString()}</div>
         </div>
 
         <div className="rounded-3xl border border-zinc-200 bg-white p-6">
           <div className="text-xs font-semibold uppercase tracking-wide text-zinc-500">Avg CPC (7d)</div>
-          <div className="mt-2 text-2xl font-bold text-zinc-900">{avgCpc7dCents ? usd(avgCpc7dCents) : "—"}</div>
+          <div className="mt-2 text-2xl font-bold text-zinc-900">{avgCpc7dCents ? usd(avgCpc7dCents) : "-"}</div>
           <div className="mt-2 text-sm text-zinc-600">Spend (30d): {usd(spend30dCents)}</div>
         </div>
       </div>
@@ -215,7 +215,7 @@ export default async function AdsCampaignDetailsPage(props: { params: Promise<{ 
           <div className="mt-3">
             <div className="rounded-2xl border border-zinc-200 bg-white p-4">
               <div className="text-xs font-semibold uppercase tracking-wide text-zinc-500">Daily budget</div>
-              <div className="mt-2 text-lg font-bold text-zinc-900">{dailyBudgetCents ? usd(dailyBudgetCents) : "—"}</div>
+              <div className="mt-2 text-lg font-bold text-zinc-900">{dailyBudgetCents ? usd(dailyBudgetCents) : "-"}</div>
             </div>
           </div>
           <div className="mt-3 text-xs text-zinc-500">

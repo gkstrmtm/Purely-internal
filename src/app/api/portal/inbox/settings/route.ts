@@ -5,12 +5,12 @@ import { requireClientSessionForService } from "@/lib/portalAccess";
 import { getOwnerTwilioSmsConfigMasked } from "@/lib/portalTwilio";
 import { getPortalInboxSettings, regeneratePortalInboxWebhookToken } from "@/lib/portalInbox";
 import { getOrCreateOwnerMailboxAddress } from "@/lib/portalMailbox";
-import { webhookUrlFromRequest } from "@/lib/webhookBase";
+import { getPublicWebhookBaseUrl, twilioSmsWebhookUrl } from "@/lib/twilioProvisioning";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
 
-export async function GET(req: Request) {
+export async function GET() {
   const auth = await requireClientSessionForService("inbox");
   if (!auth.ok) {
     return NextResponse.json(
@@ -34,12 +34,9 @@ export async function GET(req: Request) {
     webhooks: {
       // Universal router URL (recommended): works even when multiple services share the same Twilio number.
       // Routes by Twilio "To" number → owner.
-      twilioInboundSmsUrl: webhookUrlFromRequest(req, "/api/public/twilio/sms"),
-      // Legacy per-owner token URL (still supported).
-      twilioInboundSmsUrlLegacy: webhookUrlFromRequest(
-        req,
-        `/api/public/inbox/${settings.webhookToken}/twilio/sms`,
-      ),
+      twilioInboundSmsUrl: twilioSmsWebhookUrl(getPublicWebhookBaseUrl()),
+      // Legacy per-owner token URL (still supported for backwards compatibility).
+      twilioInboundSmsUrlLegacy: `${getPublicWebhookBaseUrl()}/api/public/inbox/${encodeURIComponent(settings.webhookToken)}/twilio/sms`,
     },
   });
 }
@@ -75,11 +72,8 @@ export async function PUT(req: Request) {
     twilio,
     mailbox: mailbox ? { emailAddress: mailbox.emailAddress, localPart: mailbox.localPart } : null,
     webhooks: {
-      twilioInboundSmsUrl: webhookUrlFromRequest(req, "/api/public/twilio/sms"),
-      twilioInboundSmsUrlLegacy: webhookUrlFromRequest(
-        req,
-        `/api/public/inbox/${settings.webhookToken}/twilio/sms`,
-      ),
+      twilioInboundSmsUrl: twilioSmsWebhookUrl(getPublicWebhookBaseUrl()),
+      twilioInboundSmsUrlLegacy: `${getPublicWebhookBaseUrl()}/api/public/inbox/${encodeURIComponent(settings.webhookToken)}/twilio/sms`,
     },
   });
 }

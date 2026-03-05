@@ -211,7 +211,7 @@ export async function POST(req: Request, ctx: { params: Promise<{ domainId: stri
 
       if (!vercel.ok) {
         const scopeHint = process.env.VERCEL_TEAM_ID
-          ? " If your Vercel project is NOT under a Team, the configured team scope may be wrong — remove the Team ID and retry."
+          ? " If your Vercel project is NOT under a Team, the configured team scope may be wrong. Remove the Team ID and retry."
           : "";
         if (domainRow.status === "VERIFIED") {
           await prisma.creditCustomDomain.update({ where: { id: domainRow.id }, data: { status: "PENDING", verifiedAt: null } });
