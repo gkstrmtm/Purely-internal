@@ -283,11 +283,13 @@ async function updateMessagingServiceWebhooks(opts: {
   statusCallbackUrl: string;
 }): Promise<{ ok: true } | { ok: false; error: string }> {
   const form = new URLSearchParams();
-  form.set("inboundRequestUrl", opts.smsUrl);
-  form.set("inboundMethod", "POST");
-  form.set("statusCallback", opts.statusCallbackUrl);
-  // Ensure the Service-level inbound URL is used (important when a Messaging Service is configured).
-  form.set("useInboundWebhookOnNumber", "false");
+  // Twilio Messaging Service API expects form parameters in PascalCase.
+  // We set both the Service-level URLs and also force inbound to use the phone-number webhook
+  // to avoid the common misconfiguration where the Service inbound URL is null.
+  form.set("InboundRequestUrl", opts.smsUrl);
+  form.set("InboundMethod", "POST");
+  form.set("StatusCallback", opts.statusCallbackUrl);
+  form.set("UseInboundWebhookOnNumber", "true");
 
   const url = `https://messaging.twilio.com/v1/Services/${encodeURIComponent(opts.messagingServiceSid)}`;
   const res = await twilioMessagingFetchJson({

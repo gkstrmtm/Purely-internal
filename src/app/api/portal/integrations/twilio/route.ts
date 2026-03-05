@@ -14,7 +14,7 @@ import {
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
 
-export async function GET() {
+export async function GET(req: Request) {
   const auth = await requireClientSessionForService("twilio", "view");
   if (!auth.ok) {
     return NextResponse.json(
@@ -27,16 +27,19 @@ export async function GET() {
   const twilio = await getOwnerTwilioSmsConfigMasked(ownerId);
   const publicBaseUrl = getPublicWebhookBaseUrl();
 
-  // Live Twilio diagnostics (best-effort). This is the fastest way to debug
-  // Twilio's "No HTTP request logged" because it tells us what Twilio is actually set to call.
-  const cfg = await getOwnerTwilioSmsConfig(ownerId).catch(() => null);
-  const diagnostics = cfg
-    ? await inspectTwilioSmsWebhookConfig({
-        accountSid: cfg.accountSid,
-        authToken: cfg.authToken,
-        fromNumberE164: cfg.fromNumberE164,
-        baseUrl: publicBaseUrl,
-      }).catch((e) => ({ ok: false as const, error: e instanceof Error ? e.message : "Diagnostics failed" }))
+  const url = new URL(req.url);
+  const includeDiagnostics = url.searchParams.get("diagnostics") === "1";
+  const diagnostics = includeDiagnostics
+    ? await (async () => {
+        const cfg = await getOwnerTwilioSmsConfig(ownerId).catch(() => null);
+        if (!cfg) return null;
+        return await inspectTwilioSmsWebhookConfig({
+          accountSid: cfg.accountSid,
+          authToken: cfg.authToken,
+          fromNumberE164: cfg.fromNumberE164,
+          baseUrl: publicBaseUrl,
+        }).catch((e) => ({ ok: false as const, error: e instanceof Error ? e.message : "Diagnostics failed" }));
+      })()
     : null;
 
   return NextResponse.json({
