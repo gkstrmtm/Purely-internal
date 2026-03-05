@@ -14,6 +14,7 @@ import {
 } from "@/lib/elevenLabsConvai";
 import { resolveElevenLabsConvaiToolIdsByKeys } from "@/lib/elevenLabsConvai";
 import { parseVoiceAgentConfig } from "@/lib/voiceAgentConfig.shared";
+import { resolveToolIdsForKeys } from "@/lib/voiceAgentTools";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -37,6 +38,15 @@ function envVoiceAgentId(): string {
 
 function envVoiceAgentApiKey(): string {
   return envFirst(["VOICE_AGENT_API_KEY", "ELEVENLABS_API_KEY", "ELEVEN_LABS_API_KEY"]).slice(0, 400);
+}
+
+function normalizeToolKey(raw: unknown): string {
+  const s = typeof raw === "string" ? raw.trim() : "";
+  if (!s) return "";
+  return s
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "_")
+    .replace(/^_+|_+$/g, "");
 }
 
 async function getProfileVoiceAgentId(ownerId: string): Promise<string | null> {
@@ -127,11 +137,16 @@ export async function POST(req: Request, ctx: { params: Promise<{ campaignId: st
     if (resolved && (resolved as any).ok === true) {
       const map = (resolved as any).toolIds as Record<string, string[]>;
       const flat = config.toolKeys
-        .map((k) => String(k || "").trim().toLowerCase())
+        .map((k) => normalizeToolKey(k))
         .filter(Boolean)
         .flatMap((k) => (Array.isArray((map as any)[k]) ? (map as any)[k] : []));
       resolvedToolIds = flat;
     }
+  }
+
+  // Last-resort fallback when env vars are set for tool IDs.
+  if (!resolvedToolIds.length && Array.isArray(config.toolKeys) && config.toolKeys.length) {
+    resolvedToolIds = resolveToolIdsForKeys(config.toolKeys);
   }
 
   resolvedToolIds = resolvedToolIds

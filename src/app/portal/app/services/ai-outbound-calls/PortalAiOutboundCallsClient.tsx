@@ -5,7 +5,6 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { PortalListboxDropdown } from "@/components/PortalListboxDropdown";
 import { PortalSelectDropdown } from "@/components/PortalSelectDropdown";
-import { InlineElevenLabsAgentTester } from "@/components/InlineElevenLabsAgentTester";
 import { useToast } from "@/components/ToastProvider";
 import { DEFAULT_TAG_COLORS } from "@/lib/tagColors.shared";
 import { DEFAULT_VOICE_AGENT_CONFIG, type VoiceAgentConfig } from "@/lib/voiceAgentConfig.shared";
@@ -52,6 +51,20 @@ type ApiCreateCampaignResponse =
 type ApiCreateTagResponse =
   | { ok: true; tag: ContactTag }
   | { ok: false; error: string };
+
+type ApiGenerateAgentConfigResponse =
+  | {
+      ok: true;
+      config: Partial<
+        Pick<VoiceAgentConfig, "firstMessage" | "goal" | "personality" | "tone" | "environment" | "guardRails">
+      >;
+      warning?: string;
+    }
+  | { ok: false; error: string };
+
+type ApiInboxSendResponse =
+  | { ok: true; threadId: string }
+  | { ok: false; error?: string };
 
 type ManualCall = {
   id: string;
@@ -282,9 +295,7 @@ export function PortalAiOutboundCallsClient() {
   const [voiceToolsApiKeyConfigured, setVoiceToolsApiKeyConfigured] = useState(true);
 
   const [callsAgentSyncRequired, setCallsAgentSyncRequired] = useState(false);
-  const [chatAgentSyncRequired, setChatAgentSyncRequired] = useState(false);
   const [callsAgentSyncedAtIso, setCallsAgentSyncedAtIso] = useState<string | null>(null);
-  const [chatAgentSyncedAtIso, setChatAgentSyncedAtIso] = useState<string | null>(null);
 
   const [activityLoading, setActivityLoading] = useState(false);
   const [activityCounts, setActivityCounts] = useState<CampaignActivityCounts | null>(null);
@@ -302,22 +313,37 @@ export function PortalAiOutboundCallsClient() {
   const selected = useMemo(() => campaigns.find((c) => c.id === selectedId) ?? null, [campaigns, selectedId]);
 
   const [callsToolsPreset, setCallsToolsPreset] = useState<"none" | "recommended" | "all">("recommended");
-  const [chatToolsPreset, setChatToolsPreset] = useState<"none" | "recommended" | "all">("recommended");
 
-  const [tab, setTab] = useState<"calls" | "chat" | "settings">("calls");
+  const [tab, setTab] = useState<"calls" | "messages" | "settings">("calls");
+  const [settingsTab, setSettingsTab] = useState<"calls" | "messages">("calls");
+
+  const [callsGenerateContext, setCallsGenerateContext] = useState("");
+  const [messagesGenerateContext, setMessagesGenerateContext] = useState("");
+  const [generateBusy, setGenerateBusy] = useState(false);
+
+  const [messageChannel, setMessageChannel] = useState<"sms" | "email">("sms");
+  const [messageTo, setMessageTo] = useState("");
+  const [messageSubject, setMessageSubject] = useState("");
+  const [messageBody, setMessageBody] = useState("");
+  const [messageSending, setMessageSending] = useState(false);
+  const [messageLastThreadId, setMessageLastThreadId] = useState<string | null>(null);
 
   useEffect(() => {
     setCallsAgentSyncRequired(false);
-    setChatAgentSyncRequired(false);
     setCallsAgentSyncedAtIso(null);
-    setChatAgentSyncedAtIso(null);
     setManualCallId(null);
     setManualCall(null);
     setTab("calls");
+    setSettingsTab("calls");
     setCallsToolsPreset("recommended");
-    setChatToolsPreset("recommended");
     setActivityCounts(null);
     setActivityRecent([]);
+    setCallsGenerateContext("");
+    setMessagesGenerateContext("");
+    setMessageTo("");
+    setMessageSubject("");
+    setMessageBody("");
+    setMessageLastThreadId(null);
   }, [selectedId]);
 
   const loadManualCalls = useCallback(async (campaignId?: string) => {
@@ -377,7 +403,7 @@ export function PortalAiOutboundCallsClient() {
         if (selected?.id) await loadManualCalls(selected.id);
 
         if (json.usedVoiceTranscript) toast.success("Updated transcript from voice platform");
-        else toast.success(json.requestedTranscription ? "Refreshing… transcript may take a minute" : "Updated");
+        else toast.success(json.requestedTranscription ? "Requested transcript refresh (may take a minute)" : "Updated");
       } catch (e) {
         toast.error(e instanceof Error ? e.message : "Unable to refresh call artifacts");
       } finally {
@@ -670,10 +696,6 @@ export function PortalAiOutboundCallsClient() {
       setCallsAgentSyncRequired(true);
       setCallsAgentSyncedAtIso(null);
     }
-    if (patch.chatAgentId !== undefined || patch.chatAgentConfig !== undefined) {
-      setChatAgentSyncRequired(true);
-      setChatAgentSyncedAtIso(null);
-    }
 
     if (busy) return;
     setBusy(true);
@@ -733,35 +755,116 @@ export function PortalAiOutboundCallsClient() {
     }
   }
 
-  async function syncChatAgent() {
+  async function generateAgentConfig(kind: "calls" | "messages") {
     if (!selected) return;
-    if (busy) return;
-    setBusy(true);
+    if (generateBusy) return;
+
+    const context = (kind === "calls" ? callsGenerateContext : messagesGenerateContext).trim();
+    if (!context) {
+      toast.error("Add a little context first");
+      return;
+    }
+
+    setGenerateBusy(true);
     setError(null);
 
     try {
       const res = await fetch(
-        `/api/portal/ai-outbound-calls/campaigns/${encodeURIComponent(selected.id)}/sync-chat-agent`,
-        { method: "POST" },
+        `/api/portal/ai-outbound-calls/campaigns/${encodeURIComponent(selected.id)}/generate-agent-config`,
+        {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ kind, context }),
+        },
       );
 
-      const json = (await res.json().catch(() => null)) as any;
-      if (!res.ok || !json || json.ok !== true) {
-        throw new Error(json?.error || "Failed to sync chat agent");
+      const json = (await res.json().catch(() => null)) as ApiGenerateAgentConfigResponse | null;
+      if (!res.ok || !json || (json as any).ok !== true) {
+        throw new Error((json as any)?.error || "Failed to generate");
       }
 
-      if (json.pulled) toast.success("Loaded chat agent settings");
-      else if (json.createdAgentId) toast.success("Created + synced chat agent");
-      else if (json.noop) toast.success("Chat agent already synced");
-      else toast.success("Synced chat agent");
+      const cfg = (json as any).config || {};
+      if (kind === "calls") {
+        setCampaigns((prev) =>
+          prev.map((c) =>
+            c.id === selected.id
+              ? {
+                  ...c,
+                  voiceAgentConfig: {
+                    ...(c.voiceAgentConfig ?? DEFAULT_VOICE_AGENT_CONFIG),
+                    ...cfg,
+                  },
+                }
+              : c,
+          ),
+        );
+        await updateCampaign({ voiceAgentConfig: cfg });
+      } else {
+        setCampaigns((prev) =>
+          prev.map((c) =>
+            c.id === selected.id
+              ? {
+                  ...c,
+                  chatAgentConfig: {
+                    ...(c.chatAgentConfig ?? DEFAULT_VOICE_AGENT_CONFIG),
+                    ...cfg,
+                  },
+                }
+              : c,
+          ),
+        );
+        await updateCampaign({ chatAgentConfig: cfg });
+      }
 
-      setChatAgentSyncRequired(false);
-      setChatAgentSyncedAtIso(new Date().toISOString());
-      await loadAll();
+      toast.success((json as any).warning ? "Generated (fallback)" : "Generated");
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Failed to sync chat agent");
+      setError(e instanceof Error ? e.message : "Failed to generate");
     } finally {
-      setBusy(false);
+      setGenerateBusy(false);
+    }
+  }
+
+  async function sendTestMessage() {
+    if (messageSending || busy) return;
+
+    const to = messageTo.trim();
+    const body = messageBody.trim();
+    const subject = messageChannel === "email" ? messageSubject.trim() : "";
+    if (!to) {
+      toast.error("Add a recipient");
+      return;
+    }
+    if (!body) {
+      toast.error("Add a message");
+      return;
+    }
+
+    setMessageSending(true);
+    setError(null);
+
+    try {
+      const res = await fetch("/api/portal/inbox/send", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          channel: messageChannel,
+          to,
+          subject: subject || undefined,
+          body,
+        }),
+      });
+
+      const json = (await res.json().catch(() => null)) as ApiInboxSendResponse | null;
+      if (!res.ok || !json || (json as any).ok !== true) {
+        throw new Error((json as any)?.error || "Failed to send");
+      }
+
+      setMessageLastThreadId(String((json as any).threadId || "") || null);
+      toast.success("Sent");
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Failed to send");
+    } finally {
+      setMessageSending(false);
     }
   }
 
@@ -854,20 +957,6 @@ export function PortalAiOutboundCallsClient() {
 
     // Back-compat: derive selected keys from stored toolIds when possible.
     const ids = new Set((selected?.voiceAgentConfig?.toolIds ?? []).map((x) => String(x || "").trim()).filter(Boolean));
-    if (!ids.size) return [];
-    return voiceTools
-      .filter((t) => Boolean(t.toolId && ids.has(t.toolId)))
-      .map((t) => t.key)
-      .filter(Boolean);
-  }, [selected, voiceTools]);
-
-  const selectedChatToolKeys = useMemo(() => {
-    const explicit = selected?.chatAgentConfig?.toolKeys;
-    if (Array.isArray(explicit) && explicit.length) {
-      return explicit.map((k) => String(k || "").trim().toLowerCase()).filter(Boolean);
-    }
-
-    const ids = new Set((selected?.chatAgentConfig?.toolIds ?? []).map((x) => String(x || "").trim()).filter(Boolean));
     if (!ids.size) return [];
     return voiceTools
       .filter((t) => Boolean(t.toolId && ids.has(t.toolId)))
@@ -1006,16 +1095,16 @@ export function PortalAiOutboundCallsClient() {
                 </button>
                 <button
                   type="button"
-                  onClick={() => setTab("chat")}
-                  aria-current={tab === "chat" ? "page" : undefined}
+                  onClick={() => setTab("messages")}
+                  aria-current={tab === "messages" ? "page" : undefined}
                   className={
                     "flex-1 min-w-[160px] rounded-2xl border px-4 py-2.5 text-sm font-semibold transition focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-ink/60 " +
-                    (tab === "chat"
+                    (tab === "messages"
                       ? "border-[color:var(--color-brand-blue)] bg-[color:var(--color-brand-blue)] text-white shadow-sm"
                       : "border-zinc-200 bg-white text-zinc-700 hover:bg-zinc-50")
                   }
                 >
-                  Chat
+                  Messages
                 </button>
                 <button
                   type="button"
@@ -1032,17 +1121,15 @@ export function PortalAiOutboundCallsClient() {
                 </button>
               </div>
 
-              {tab === "chat" ? (
+              {tab === "messages" ? (
                 <div className="mt-4 rounded-3xl border border-zinc-200 bg-white p-4">
-                  <div className="text-sm font-semibold text-zinc-900">Chat</div>
-                  <div className="mt-1 text-sm text-zinc-600">
-                    Test your campaign’s chat agent directly in the browser.
-                  </div>
+                  <div className="text-sm font-semibold text-zinc-900">Messages</div>
+                  <div className="mt-1 text-sm text-zinc-600">Send SMS/email and continue the thread in Inbox.</div>
 
                   <div className="mt-4 rounded-2xl border border-zinc-200 bg-zinc-50 p-4">
-                    <div className="text-sm font-semibold text-zinc-800">Chat audience tags</div>
+                    <div className="text-sm font-semibold text-zinc-800">Message audience tags</div>
                     <p className="mt-1 text-xs text-zinc-500">
-                      When a contact gets one of these tags, they’ll be included in the chat/text audience.
+                      When a contact gets one of these tags, they’ll be included in the messaging audience.
                     </p>
 
                     <div className="mt-3 max-w-sm">
@@ -1156,17 +1243,94 @@ export function PortalAiOutboundCallsClient() {
                     )}
                   </div>
 
-                  <div className="mt-4">
-                    {selected.chatAgentId && selected.chatAgentId.trim() ? (
-                      <InlineElevenLabsAgentTester agentId={selected.chatAgentId} />
-                    ) : (
-                      <div className="rounded-2xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900">
-                        <div className="font-semibold">No chat agent ID set</div>
-                        <div className="mt-1 text-amber-900/80">
-                          Add your voice API key in Profile, then click <span className="font-semibold">Sync chat agent</span> in Settings to create and save one for this campaign.
+                  <div className="mt-4 rounded-2xl border border-zinc-200 bg-white p-4">
+                    <div className="flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between">
+                      <div>
+                        <div className="text-sm font-semibold text-zinc-900">Send a test message</div>
+                        <div className="mt-1 text-xs text-zinc-500">Uses your configured Inbox channels.</div>
+                      </div>
+                      <Link
+                        href={
+                          messageLastThreadId
+                            ? `/portal/app/services/inbox?channel=${encodeURIComponent(messageChannel)}&threadId=${encodeURIComponent(messageLastThreadId)}`
+                            : "/portal/app/services/inbox"
+                        }
+                        className="rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm font-semibold text-zinc-800 hover:bg-zinc-50"
+                      >
+                        Open Inbox
+                      </Link>
+                    </div>
+
+                    <div className="mt-4 grid gap-3 sm:grid-cols-2">
+                      <div>
+                        <div className="text-sm font-semibold text-zinc-800">Channel</div>
+                        <div className="mt-1">
+                          <PortalListboxDropdown
+                            value={messageChannel}
+                            options={[
+                              { value: "sms", label: "SMS" },
+                              { value: "email", label: "Email" },
+                            ]}
+                            onChange={(v) => setMessageChannel(v as any)}
+                          />
                         </div>
                       </div>
-                    )}
+
+                      <div>
+                        <div className="text-sm font-semibold text-zinc-800">To</div>
+                        <input
+                          value={messageTo}
+                          onChange={(e) => setMessageTo(e.target.value)}
+                          placeholder={messageChannel === "sms" ? "+15551234567" : "name@example.com"}
+                          className="mt-1 w-full rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-sm"
+                        />
+                      </div>
+                    </div>
+
+                    {messageChannel === "email" ? (
+                      <div className="mt-3">
+                        <div className="text-sm font-semibold text-zinc-800">Subject</div>
+                        <input
+                          value={messageSubject}
+                          onChange={(e) => setMessageSubject(e.target.value)}
+                          placeholder="Subject"
+                          className="mt-1 w-full rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-sm"
+                        />
+                      </div>
+                    ) : null}
+
+                    <div className="mt-3">
+                      <div className="text-sm font-semibold text-zinc-800">Message</div>
+                      <textarea
+                        value={messageBody}
+                        onChange={(e) => setMessageBody(e.target.value)}
+                        placeholder={messageChannel === "sms" ? "Write an SMS…" : "Write an email…"}
+                        rows={5}
+                        className="mt-1 w-full resize-y rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-sm"
+                      />
+                    </div>
+
+                    <div className="mt-3 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+                      <button
+                        type="button"
+                        disabled={busy || messageSending}
+                        onClick={() => void sendTestMessage()}
+                        className={classNames(
+                          "rounded-2xl px-4 py-2 text-sm font-semibold",
+                          busy || messageSending
+                            ? "bg-zinc-200 text-zinc-600"
+                            : "bg-brand-ink text-white hover:opacity-95",
+                        )}
+                      >
+                        {messageSending ? "Sending…" : "Send"}
+                      </button>
+
+                      {messageLastThreadId ? (
+                        <div className="text-xs text-zinc-500">Thread: {messageLastThreadId}</div>
+                      ) : (
+                        <div className="text-xs text-zinc-500">Thread will appear after sending.</div>
+                      )}
+                    </div>
                   </div>
                 </div>
               ) : null}
@@ -1190,7 +1354,7 @@ export function PortalAiOutboundCallsClient() {
                           void loadActivity(selected.id);
                         }}
                       >
-                        {activityLoading ? "Refreshing…" : "Refresh activity"}
+                        Refresh activity
                       </button>
                     </div>
 
@@ -1528,7 +1692,7 @@ export function PortalAiOutboundCallsClient() {
                                       : "border-zinc-200 bg-white text-zinc-800 hover:bg-zinc-50")
                                   }
                                 >
-                                  {manualCallSyncBusy ? "Refreshing…" : "Refresh recording/transcript"}
+                                  Refresh recording/transcript
                                 </button>
                               </div>
                             </div>
@@ -1607,12 +1771,39 @@ export function PortalAiOutboundCallsClient() {
                   <div className="mt-5 rounded-3xl border border-zinc-200 bg-white p-4">
                     <div className="text-sm font-semibold text-zinc-900">Agents</div>
                     <div className="mt-1 text-xs text-zinc-600">
-                      Configure separate agents for <span className="font-semibold">Calls</span> and <span className="font-semibold">Chat</span>. If you leave behavior fields blank and click Sync,
-                      Purely will <span className="font-semibold">pull</span> your agent’s existing behavior instead of overwriting it.
+                      Configure the script/behavior for voice calls vs SMS/email messaging.
                     </div>
-                    {!voiceToolsApiKeyConfigured ? (
+
+                    <div className="mt-4 flex flex-wrap gap-2">
+                      <button
+                        type="button"
+                        onClick={() => setSettingsTab("calls")}
+                        className={
+                          "rounded-2xl border px-4 py-2 text-xs font-semibold transition " +
+                          (settingsTab === "calls"
+                            ? "border-[color:var(--color-brand-blue)] bg-[color:var(--color-brand-blue)] text-white"
+                            : "border-zinc-200 bg-white text-zinc-700 hover:bg-zinc-50")
+                        }
+                      >
+                        Calls agent
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setSettingsTab("messages")}
+                        className={
+                          "rounded-2xl border px-4 py-2 text-xs font-semibold transition " +
+                          (settingsTab === "messages"
+                            ? "border-[color:var(--color-brand-blue)] bg-[color:var(--color-brand-blue)] text-white"
+                            : "border-zinc-200 bg-white text-zinc-700 hover:bg-zinc-50")
+                        }
+                      >
+                        Messages agent
+                      </button>
+                    </div>
+
+                    {settingsTab === "calls" && !voiceToolsApiKeyConfigured ? (
                       <div className="mt-3 rounded-2xl border border-amber-200 bg-amber-50 px-3 py-2 text-[11px] text-amber-800">
-                        Add your voice API key in Profile to load tools and sync agents.
+                        Add your voice API key in Profile to load tools and sync the calls agent.
                         <Link href="/portal/profile" className="ml-2 font-semibold underline underline-offset-2">
                           Go to Profile
                         </Link>
@@ -1621,517 +1812,429 @@ export function PortalAiOutboundCallsClient() {
                   </div>
 
                   <div className="mt-5 grid grid-cols-1 gap-5">
-                    <div className="rounded-3xl border border-zinc-200 bg-white p-4">
-                      <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-                        <div>
-                          <div className="text-sm font-semibold text-zinc-900">Calls agent</div>
-                          <div className="mt-1 text-xs text-zinc-600">Used for outbound calls in this campaign.</div>
-                          <div className="mt-2 text-[11px] text-zinc-600">
-                            {callsAgentSyncRequired ? (
-                              <span className="inline-flex items-center rounded-full bg-blue-50 px-2 py-0.5 text-[10px] font-semibold text-blue-800 ring-1 ring-blue-200">
-                                Sync required
-                              </span>
-                            ) : callsAgentSyncedAtIso ? (
-                              <span
-                                className="inline-flex items-center rounded-full bg-emerald-50 px-2 py-0.5 text-[10px] font-semibold text-emerald-800 ring-1 ring-emerald-200"
-                                title={`Synced ${formatWhen(callsAgentSyncedAtIso)}`}
-                              >
-                                Synced
-                              </span>
-                            ) : (
-                              <span className="inline-flex items-center rounded-full bg-zinc-50 px-2 py-0.5 text-[10px] font-semibold text-zinc-700 ring-1 ring-zinc-200">
-                                Not synced yet
-                              </span>
+                    {settingsTab === "calls" ? (
+                      <div className="rounded-3xl border border-zinc-200 bg-white p-4">
+                        <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                          <div>
+                            <div className="text-sm font-semibold text-zinc-900">Calls agent</div>
+                            <div className="mt-1 text-xs text-zinc-600">Used for outbound calls in this campaign.</div>
+                            <div className="mt-2 text-[11px] text-zinc-600">
+                              {callsAgentSyncRequired ? (
+                                <span className="inline-flex items-center rounded-full bg-blue-50 px-2 py-0.5 text-[10px] font-semibold text-blue-800 ring-1 ring-blue-200">
+                                  Sync required
+                                </span>
+                              ) : callsAgentSyncedAtIso ? (
+                                <span
+                                  className="inline-flex items-center rounded-full bg-emerald-50 px-2 py-0.5 text-[10px] font-semibold text-emerald-800 ring-1 ring-emerald-200"
+                                  title={`Synced ${formatWhen(callsAgentSyncedAtIso)}`}
+                                >
+                                  Synced
+                                </span>
+                              ) : null}
+                              {callsAgentSyncedAtIso ? (
+                                <span className="ml-2 text-[10px] text-zinc-500">{formatWhen(callsAgentSyncedAtIso)}</span>
+                              ) : null}
+                            </div>
+                          </div>
+
+                          <button
+                            type="button"
+                            disabled={busy}
+                            onClick={syncCallsAgent}
+                            className={classNames(
+                              "rounded-2xl px-4 py-2 text-xs font-semibold",
+                              busy
+                                ? "bg-zinc-200 text-zinc-600"
+                                : "bg-[color:var(--color-brand-blue)] text-white hover:opacity-95",
                             )}
-                            {callsAgentSyncedAtIso ? (
-                              <span className="ml-2 text-[10px] text-zinc-500">{formatWhen(callsAgentSyncedAtIso)}</span>
-                            ) : null}
-                          </div>
+                            title={
+                              voiceToolsApiKeyConfigured
+                                ? "Sync calls agent"
+                                : "Sync calls agent (requires voice API key in Profile)"
+                            }
+                          >
+                            {busy ? "Syncing…" : "Sync calls agent"}
+                          </button>
                         </div>
 
-                        <button
-                          type="button"
-                          disabled={busy}
-                          onClick={syncCallsAgent}
-                          className={classNames(
-                            "rounded-2xl px-4 py-2 text-xs font-semibold",
-                            busy ? "bg-zinc-200 text-zinc-600" : "bg-[color:var(--color-brand-blue)] text-white hover:opacity-95",
-                          )}
-                          title={
-                            voiceToolsApiKeyConfigured
-                              ? "Sync calls agent"
-                              : "Sync calls agent (requires voice API key in Profile)"
-                          }
-                        >
-                          {busy ? "Syncing…" : "Sync calls agent"}
-                        </button>
-                      </div>
-
-                      <div className="mt-4 grid grid-cols-1 gap-3 sm:grid-cols-2">
-                        <div>
-                          <div className="text-xs font-semibold text-zinc-700">Agent ID</div>
-                          <div className="mt-1 text-[11px] text-zinc-500">Optional campaign override. Leave blank to let Purely create one on Sync.</div>
-                          <input
-                            value={selected.voiceAgentId ?? ""}
-                            onChange={(e) => {
-                              const voiceAgentId = e.target.value;
-                              setCampaigns((prev) => prev.map((c) => (c.id === selected.id ? { ...c, voiceAgentId } : c)));
-                            }}
-                            onBlur={() => updateCampaign({ voiceAgentId: (selected.voiceAgentId ?? "").trim() })}
-                            placeholder="agent_... (optional)"
-                            className="mt-1 w-full rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-sm"
-                          />
-                        </div>
-
-                        <div>
-                          <div className="text-xs font-semibold text-zinc-700">Tools</div>
-                          <div className="mt-1 rounded-2xl border border-zinc-200 bg-white p-3">
-                            <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-                              <div className="text-[11px] text-zinc-600">Pick which tools the calls agent can use.</div>
-                              <PortalListboxDropdown
-                                value={callsToolsPreset}
-                                onChange={(preset) => {
-                                  setCallsToolsPreset(preset);
-                                  const next = toolKeysForPreset(preset);
-                                  setCampaigns((prev) =>
-                                    prev.map((c) =>
-                                      c.id === selected.id
-                                        ? {
-                                            ...c,
-                                            voiceAgentConfig: {
-                                              ...(c.voiceAgentConfig ?? DEFAULT_VOICE_AGENT_CONFIG),
-                                              toolKeys: next,
-                                            },
-                                          }
-                                        : c,
-                                    ),
-                                  );
-                                  updateCampaign({ voiceAgentConfig: { toolKeys: next } });
-                                }}
-                                disabled={busy}
-                                options={[
-                                  { value: "recommended", label: "Recommended" },
-                                  { value: "none", label: "None" },
-                                  { value: "all", label: "All" },
-                                ]}
-                                className="min-w-[160px]"
-                                buttonClassName="flex h-9 w-full items-center justify-between gap-2 rounded-xl border border-zinc-200 bg-white px-2 text-xs hover:bg-zinc-50 focus-visible:ring-2 focus-visible:ring-zinc-300"
-                              />
+                        <div className="mt-4 rounded-2xl border border-zinc-200 bg-zinc-50 p-3">
+                          <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+                            <div>
+                              <div className="text-xs font-semibold text-zinc-700">Generate</div>
+                              <div className="mt-1 text-[11px] text-zinc-600">
+                                Paste quick context and generate goal/personality/tone/environment/guard rails + first message.
+                              </div>
                             </div>
-
-                            <div className="mt-3 grid grid-cols-1 gap-2">
-                              {voiceTools.length === 0 ? (
-                                <div className="text-[11px] text-zinc-500">No tools are available yet.</div>
-                              ) : (
-                                voiceTools.map((t) => {
-                                  const enabled = selectedToolKeys.includes(t.key);
-                                  const configured = Boolean(t.toolId);
-                                  return (
-                                    <label
-                                      key={t.key}
-                                      className={classNames(
-                                        "flex cursor-pointer items-start justify-between gap-3 rounded-xl border px-3 py-2",
-                                        "border-zinc-200 bg-zinc-50",
-                                      )}
-                                      title={t.description || t.label}
-                                    >
-                                      <span className="min-w-0">
-                                        <div className="truncate text-xs font-semibold text-zinc-800">{t.label}</div>
-                                        <div className="mt-0.5 text-[11px] text-zinc-500">
-                                          {t.description || ""}
-                                          {!configured && voiceToolsApiKeyConfigured ? " (Unavailable for this account.)" : ""}
-                                        </div>
-                                      </span>
-                                      <input
-                                        type="checkbox"
-                                        className="mt-1"
-                                        disabled={busy || (!configured && voiceToolsApiKeyConfigured)}
-                                        checked={enabled}
-                                        onChange={(e) => {
-                                          const cur = selectedToolKeys;
-                                          const set = new Set(cur);
-                                          if (e.target.checked) set.add(t.key);
-                                          else set.delete(t.key);
-                                          const next = Array.from(set);
-                                          setCampaigns((prev) =>
-                                            prev.map((c) =>
-                                              c.id === selected.id
-                                                ? {
-                                                    ...c,
-                                                    voiceAgentConfig: {
-                                                      ...(c.voiceAgentConfig ?? DEFAULT_VOICE_AGENT_CONFIG),
-                                                      toolKeys: next,
-                                                    },
-                                                  }
-                                                : c,
-                                            ),
-                                          );
-                                          updateCampaign({ voiceAgentConfig: { toolKeys: next } });
-                                        }}
-                                      />
-                                    </label>
-                                  );
-                                })
+                            <button
+                              type="button"
+                              disabled={busy || generateBusy}
+                              onClick={() => void generateAgentConfig("calls")}
+                              className={classNames(
+                                "inline-flex items-center gap-2 rounded-2xl px-4 py-2 text-xs font-semibold",
+                                busy || generateBusy
+                                  ? "bg-zinc-200 text-zinc-600"
+                                  : "bg-zinc-900 text-white hover:bg-zinc-800",
                               )}
-                            </div>
-                          </div>
-                        </div>
-                      </div>
-
-                      <div className="mt-4">
-                        <div className="text-xs font-semibold text-zinc-700">First message</div>
-                        <input
-                          value={selected.voiceAgentConfig?.firstMessage ?? ""}
-                          onChange={(e) => {
-                            const firstMessage = e.target.value;
-                            setCampaigns((prev) =>
-                              prev.map((c) =>
-                                c.id === selected.id
-                                  ? {
-                                      ...c,
-                                      voiceAgentConfig: {
-                                        ...(c.voiceAgentConfig ?? DEFAULT_VOICE_AGENT_CONFIG),
-                                        firstMessage,
-                                      },
-                                    }
-                                  : c,
-                              ),
-                            );
-                          }}
-                          onBlur={() =>
-                            updateCampaign({ voiceAgentConfig: { firstMessage: (selected.voiceAgentConfig?.firstMessage ?? "").trim() } })
-                          }
-                          placeholder="Hi, this is ..."
-                          className="mt-1 w-full rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-sm"
-                        />
-                      </div>
-
-                      <div className="mt-4 grid grid-cols-1 gap-3 sm:grid-cols-2">
-                        <div>
-                          <div className="text-xs font-semibold text-zinc-700">Goal</div>
-                          <textarea
-                            value={selected.voiceAgentConfig?.goal ?? ""}
-                            onChange={(e) => {
-                              const goal = e.target.value;
-                              setCampaigns((prev) =>
-                                prev.map((c) =>
-                                  c.id === selected.id
-                                    ? { ...c, voiceAgentConfig: { ...(c.voiceAgentConfig ?? DEFAULT_VOICE_AGENT_CONFIG), goal } }
-                                    : c,
-                                ),
-                              );
-                            }}
-                            onBlur={() => updateCampaign({ voiceAgentConfig: { goal: (selected.voiceAgentConfig?.goal ?? "").trim() } })}
-                            rows={4}
-                            className="mt-1 w-full rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-sm"
-                          />
-                        </div>
-                        <div>
-                          <div className="text-xs font-semibold text-zinc-700">Personality</div>
-                          <textarea
-                            value={selected.voiceAgentConfig?.personality ?? ""}
-                            onChange={(e) => {
-                              const personality = e.target.value;
-                              setCampaigns((prev) =>
-                                prev.map((c) =>
-                                  c.id === selected.id
-                                    ? {
-                                        ...c,
-                                        voiceAgentConfig: {
-                                          ...(c.voiceAgentConfig ?? DEFAULT_VOICE_AGENT_CONFIG),
-                                          personality,
-                                        },
-                                      }
-                                    : c,
-                                ),
-                              );
-                            }}
-                            onBlur={() => updateCampaign({ voiceAgentConfig: { personality: (selected.voiceAgentConfig?.personality ?? "").trim() } })}
-                            rows={4}
-                            className="mt-1 w-full rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-sm"
-                          />
-                        </div>
-                        <div>
-                          <div className="text-xs font-semibold text-zinc-700">Tone</div>
-                          <textarea
-                            value={selected.voiceAgentConfig?.tone ?? ""}
-                            onChange={(e) => {
-                              const tone = e.target.value;
-                              setCampaigns((prev) =>
-                                prev.map((c) =>
-                                  c.id === selected.id
-                                    ? { ...c, voiceAgentConfig: { ...(c.voiceAgentConfig ?? DEFAULT_VOICE_AGENT_CONFIG), tone } }
-                                    : c,
-                                ),
-                              );
-                            }}
-                            onBlur={() => updateCampaign({ voiceAgentConfig: { tone: (selected.voiceAgentConfig?.tone ?? "").trim() } })}
-                            rows={4}
-                            className="mt-1 w-full rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-sm"
-                          />
-                        </div>
-                        <div>
-                          <div className="text-xs font-semibold text-zinc-700">Environment</div>
-                          <textarea
-                            value={selected.voiceAgentConfig?.environment ?? ""}
-                            onChange={(e) => {
-                              const environment = e.target.value;
-                              setCampaigns((prev) =>
-                                prev.map((c) =>
-                                  c.id === selected.id
-                                    ? {
-                                        ...c,
-                                        voiceAgentConfig: {
-                                          ...(c.voiceAgentConfig ?? DEFAULT_VOICE_AGENT_CONFIG),
-                                          environment,
-                                        },
-                                      }
-                                    : c,
-                                ),
-                              );
-                            }}
-                            onBlur={() => updateCampaign({ voiceAgentConfig: { environment: (selected.voiceAgentConfig?.environment ?? "").trim() } })}
-                            rows={4}
-                            className="mt-1 w-full rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-sm"
-                          />
-                        </div>
-                        <div className="sm:col-span-2">
-                          <div className="text-xs font-semibold text-zinc-700">Guard rails</div>
-                          <textarea
-                            value={selected.voiceAgentConfig?.guardRails ?? ""}
-                            onChange={(e) => {
-                              const guardRails = e.target.value;
-                              setCampaigns((prev) =>
-                                prev.map((c) =>
-                                  c.id === selected.id
-                                    ? {
-                                        ...c,
-                                        voiceAgentConfig: {
-                                          ...(c.voiceAgentConfig ?? DEFAULT_VOICE_AGENT_CONFIG),
-                                          guardRails,
-                                        },
-                                      }
-                                    : c,
-                                ),
-                              );
-                            }}
-                            onBlur={() => updateCampaign({ voiceAgentConfig: { guardRails: (selected.voiceAgentConfig?.guardRails ?? "").trim() } })}
-                            rows={4}
-                            className="mt-1 w-full rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-sm"
-                          />
-                        </div>
-                      </div>
-                    </div>
-
-                    <div className="rounded-3xl border border-zinc-200 bg-white p-4">
-                      <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-                        <div>
-                          <div className="text-sm font-semibold text-zinc-900">Chat agent</div>
-                          <div className="mt-1 text-xs text-zinc-600">Used for chat/testing in this campaign.</div>
-                          <div className="mt-2 text-[11px] text-zinc-600">
-                            {chatAgentSyncRequired ? (
-                              <span className="inline-flex items-center rounded-full bg-blue-50 px-2 py-0.5 text-[10px] font-semibold text-blue-800 ring-1 ring-blue-200">
-                                Sync required
-                              </span>
-                            ) : chatAgentSyncedAtIso ? (
-                              <span
-                                className="inline-flex items-center rounded-full bg-emerald-50 px-2 py-0.5 text-[10px] font-semibold text-emerald-800 ring-1 ring-emerald-200"
-                                title={`Synced ${formatWhen(chatAgentSyncedAtIso)}`}
+                            >
+                              <svg
+                                aria-hidden="true"
+                                viewBox="0 0 24 24"
+                                className="h-4 w-4"
+                                fill="none"
+                                stroke="currentColor"
+                                strokeWidth="2"
+                                strokeLinecap="round"
+                                strokeLinejoin="round"
                               >
-                                Synced
-                              </span>
-                            ) : (
-                              <span className="inline-flex items-center rounded-full bg-zinc-50 px-2 py-0.5 text-[10px] font-semibold text-zinc-700 ring-1 ring-zinc-200">
-                                Not synced yet
-                              </span>
-                            )}
-                            {chatAgentSyncedAtIso ? (
-                              <span className="ml-2 text-[10px] text-zinc-500">{formatWhen(chatAgentSyncedAtIso)}</span>
-                            ) : null}
+                                <path d="M12 2l1.5 5.5L19 9l-5.5 1.5L12 16l-1.5-5.5L5 9l5.5-1.5L12 2z" />
+                                <path d="M19 14l.8 2.6L22 17l-2.2.4L19 20l-.8-2.6L16 17l2.2-.4L19 14z" />
+                              </svg>
+                              <span>{generateBusy ? "Generating…" : "Generate"}</span>
+                            </button>
+                          </div>
+                          <textarea
+                            value={callsGenerateContext}
+                            onChange={(e) => setCallsGenerateContext(e.target.value)}
+                            rows={3}
+                            placeholder="What do you sell, who are you targeting, what outcome do you want, any do/don'ts…"
+                            className="mt-3 w-full rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-sm"
+                          />
+                        </div>
+
+                        <div className="mt-4 grid grid-cols-1 gap-3 sm:grid-cols-2">
+                          <div>
+                            <div className="text-xs font-semibold text-zinc-700">Agent ID</div>
+                            <div className="mt-1 text-[11px] text-zinc-500">
+                              Optional campaign override. Leave blank to let Purely create one on Sync.
+                            </div>
+                            <input
+                              value={selected.voiceAgentId ?? ""}
+                              onChange={(e) => {
+                                const voiceAgentId = e.target.value;
+                                setCampaigns((prev) =>
+                                  prev.map((c) => (c.id === selected.id ? { ...c, voiceAgentId } : c)),
+                                );
+                              }}
+                              onBlur={() => updateCampaign({ voiceAgentId: (selected.voiceAgentId ?? "").trim() })}
+                              placeholder="agent_... (optional)"
+                              className="mt-1 w-full rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-sm"
+                            />
+                          </div>
+
+                          <div>
+                            <div className="text-xs font-semibold text-zinc-700">Tools</div>
+                            <div className="mt-1 rounded-2xl border border-zinc-200 bg-white p-3">
+                              <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+                                <div className="text-[11px] text-zinc-600">Pick which tools the calls agent can use.</div>
+                                <PortalListboxDropdown
+                                  value={callsToolsPreset}
+                                  onChange={(preset) => {
+                                    setCallsToolsPreset(preset);
+                                    const next = toolKeysForPreset(preset);
+                                    setCampaigns((prev) =>
+                                      prev.map((c) =>
+                                        c.id === selected.id
+                                          ? {
+                                              ...c,
+                                              voiceAgentConfig: {
+                                                ...(c.voiceAgentConfig ?? DEFAULT_VOICE_AGENT_CONFIG),
+                                                toolKeys: next,
+                                              },
+                                            }
+                                          : c,
+                                      ),
+                                    );
+                                    updateCampaign({ voiceAgentConfig: { toolKeys: next } });
+                                  }}
+                                  disabled={busy}
+                                  options={[
+                                    { value: "recommended", label: "Recommended" },
+                                    { value: "none", label: "None" },
+                                    { value: "all", label: "All" },
+                                  ]}
+                                  className="min-w-[160px]"
+                                  buttonClassName="flex h-9 w-full items-center justify-between gap-2 rounded-xl border border-zinc-200 bg-white px-2 text-xs hover:bg-zinc-50 focus-visible:ring-2 focus-visible:ring-zinc-300"
+                                />
+                              </div>
+
+                              <div className="mt-3 grid grid-cols-1 gap-2">
+                                {voiceTools.length === 0 ? (
+                                  <div className="text-[11px] text-zinc-500">No tools are available yet.</div>
+                                ) : (
+                                  voiceTools.map((t) => {
+                                    const enabled = selectedToolKeys.includes(t.key);
+                                    const configured = Boolean(t.toolId);
+                                    return (
+                                      <label
+                                        key={t.key}
+                                        className={classNames(
+                                          "flex cursor-pointer items-start justify-between gap-3 rounded-xl border px-3 py-2",
+                                          "border-zinc-200 bg-zinc-50",
+                                        )}
+                                        title={t.description || t.label}
+                                      >
+                                        <span className="min-w-0">
+                                          <div className="truncate text-xs font-semibold text-zinc-800">{t.label}</div>
+                                          <div className="mt-0.5 text-[11px] text-zinc-500">
+                                            {t.description || ""}
+                                            {!configured && voiceToolsApiKeyConfigured ? " (Will resolve on sync)" : ""}
+                                          </div>
+                                        </span>
+                                        <input
+                                          type="checkbox"
+                                          className="mt-1"
+                                          disabled={busy}
+                                          checked={enabled}
+                                          onChange={(e) => {
+                                            const cur = selectedToolKeys;
+                                            const set = new Set(cur);
+                                            if (e.target.checked) set.add(t.key);
+                                            else set.delete(t.key);
+                                            const next = Array.from(set);
+                                            setCampaigns((prev) =>
+                                              prev.map((c) =>
+                                                c.id === selected.id
+                                                  ? {
+                                                      ...c,
+                                                      voiceAgentConfig: {
+                                                        ...(c.voiceAgentConfig ?? DEFAULT_VOICE_AGENT_CONFIG),
+                                                        toolKeys: next,
+                                                      },
+                                                    }
+                                                  : c,
+                                              ),
+                                            );
+                                            updateCampaign({ voiceAgentConfig: { toolKeys: next } });
+                                          }}
+                                        />
+                                      </label>
+                                    );
+                                  })
+                                )}
+                              </div>
+                            </div>
                           </div>
                         </div>
 
-                        <button
-                          type="button"
-                          disabled={busy}
-                          onClick={syncChatAgent}
-                          className={classNames(
-                            "rounded-2xl px-4 py-2 text-xs font-semibold",
-                            busy ? "bg-zinc-200 text-zinc-600" : "bg-[color:var(--color-brand-blue)] text-white hover:opacity-95",
-                          )}
-                          title={
-                            voiceToolsApiKeyConfigured
-                              ? "Sync chat agent"
-                              : "Sync chat agent (requires voice API key in Profile)"
-                          }
-                        >
-                          {busy ? "Syncing…" : "Sync chat agent"}
-                        </button>
-                      </div>
-
-                      <div className="mt-4 grid grid-cols-1 gap-3 sm:grid-cols-2">
-                        <div>
-                          <div className="text-xs font-semibold text-zinc-700">Agent ID</div>
-                          <div className="mt-1 text-[11px] text-zinc-500">Separate from Calls. Leave blank to create one on Sync.</div>
+                        <div className="mt-4">
+                          <div className="text-xs font-semibold text-zinc-700">First message</div>
                           <input
-                            value={selected.chatAgentId ?? ""}
+                            value={selected.voiceAgentConfig?.firstMessage ?? ""}
                             onChange={(e) => {
-                              const chatAgentId = e.target.value;
-                              setCampaigns((prev) => prev.map((c) => (c.id === selected.id ? { ...c, chatAgentId } : c)));
+                              const firstMessage = e.target.value;
+                              setCampaigns((prev) =>
+                                prev.map((c) =>
+                                  c.id === selected.id
+                                    ? {
+                                        ...c,
+                                        voiceAgentConfig: {
+                                          ...(c.voiceAgentConfig ?? DEFAULT_VOICE_AGENT_CONFIG),
+                                          firstMessage,
+                                        },
+                                      }
+                                    : c,
+                                ),
+                              );
                             }}
-                            onBlur={() => updateCampaign({ chatAgentId: (selected.chatAgentId ?? "").trim() })}
-                            placeholder="agent_... (optional)"
+                            onBlur={() =>
+                              updateCampaign({
+                                voiceAgentConfig: { firstMessage: (selected.voiceAgentConfig?.firstMessage ?? "").trim() },
+                              })
+                            }
+                            placeholder="Hi, this is …"
                             className="mt-1 w-full rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-sm"
                           />
                         </div>
 
-                        <div>
-                          <div className="text-xs font-semibold text-zinc-700">Tools</div>
-                          <div className="mt-1 rounded-2xl border border-zinc-200 bg-white p-3">
-                            <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-                              <div className="text-[11px] text-zinc-600">Pick which tools the chat agent can use.</div>
-                              <PortalListboxDropdown
-                                value={chatToolsPreset}
-                                onChange={(preset) => {
-                                  setChatToolsPreset(preset);
-                                  const next = toolKeysForPreset(preset);
-                                  setCampaigns((prev) =>
-                                    prev.map((c) =>
-                                      c.id === selected.id
-                                        ? {
-                                            ...c,
-                                            chatAgentConfig: {
-                                              ...(c.chatAgentConfig ?? DEFAULT_VOICE_AGENT_CONFIG),
-                                              toolKeys: next,
-                                            },
-                                          }
-                                        : c,
-                                    ),
-                                  );
-                                  updateCampaign({ chatAgentConfig: { toolKeys: next } });
-                                }}
-                                disabled={busy}
-                                options={[
-                                  { value: "recommended", label: "Recommended" },
-                                  { value: "none", label: "None" },
-                                  { value: "all", label: "All" },
-                                ]}
-                                className="min-w-[160px]"
-                                buttonClassName="flex h-9 w-full items-center justify-between gap-2 rounded-xl border border-zinc-200 bg-white px-2 text-xs hover:bg-zinc-50 focus-visible:ring-2 focus-visible:ring-zinc-300"
-                              />
-                            </div>
-
-                            <div className="mt-3 grid grid-cols-1 gap-2">
-                              {voiceTools.length === 0 ? (
-                                <div className="text-[11px] text-zinc-500">No tools are available yet.</div>
-                              ) : (
-                                voiceTools.map((t) => {
-                                  const enabled = selectedChatToolKeys.includes(t.key);
-                                  const configured = Boolean(t.toolId);
-                                  return (
-                                    <label
-                                      key={t.key}
-                                      className={classNames(
-                                        "flex cursor-pointer items-start justify-between gap-3 rounded-xl border px-3 py-2",
-                                        "border-zinc-200 bg-zinc-50",
-                                      )}
-                                      title={t.description || t.label}
-                                    >
-                                      <span className="min-w-0">
-                                        <div className="truncate text-xs font-semibold text-zinc-800">{t.label}</div>
-                                        <div className="mt-0.5 text-[11px] text-zinc-500">
-                                          {t.description || ""}
-                                          {!configured && voiceToolsApiKeyConfigured ? " (Unavailable for this account.)" : ""}
-                                        </div>
-                                      </span>
-                                      <input
-                                        type="checkbox"
-                                        className="mt-1"
-                                        disabled={busy || (!configured && voiceToolsApiKeyConfigured)}
-                                        checked={enabled}
-                                        onChange={(e) => {
-                                          const cur = selectedChatToolKeys;
-                                          const set = new Set(cur);
-                                          if (e.target.checked) set.add(t.key);
-                                          else set.delete(t.key);
-                                          const next = Array.from(set);
-                                          setCampaigns((prev) =>
-                                            prev.map((c) =>
-                                              c.id === selected.id
-                                                ? {
-                                                    ...c,
-                                                    chatAgentConfig: {
-                                                      ...(c.chatAgentConfig ?? DEFAULT_VOICE_AGENT_CONFIG),
-                                                      toolKeys: next,
-                                                    },
-                                                  }
-                                                : c,
-                                            ),
-                                          );
-                                          updateCampaign({ chatAgentConfig: { toolKeys: next } });
-                                        }}
-                                      />
-                                    </label>
-                                  );
+                        <div className="mt-4 grid grid-cols-1 gap-3 sm:grid-cols-2">
+                          <div>
+                            <div className="text-xs font-semibold text-zinc-700">Goal</div>
+                            <textarea
+                              value={selected.voiceAgentConfig?.goal ?? ""}
+                              onChange={(e) => {
+                                const goal = e.target.value;
+                                setCampaigns((prev) =>
+                                  prev.map((c) =>
+                                    c.id === selected.id
+                                      ? { ...c, voiceAgentConfig: { ...(c.voiceAgentConfig ?? DEFAULT_VOICE_AGENT_CONFIG), goal } }
+                                      : c,
+                                  ),
+                                );
+                              }}
+                              onBlur={() =>
+                                updateCampaign({ voiceAgentConfig: { goal: (selected.voiceAgentConfig?.goal ?? "").trim() } })
+                              }
+                              rows={4}
+                              className="mt-1 w-full rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-sm"
+                            />
+                          </div>
+                          <div>
+                            <div className="text-xs font-semibold text-zinc-700">Personality</div>
+                            <textarea
+                              value={selected.voiceAgentConfig?.personality ?? ""}
+                              onChange={(e) => {
+                                const personality = e.target.value;
+                                setCampaigns((prev) =>
+                                  prev.map((c) =>
+                                    c.id === selected.id
+                                      ? {
+                                          ...c,
+                                          voiceAgentConfig: {
+                                            ...(c.voiceAgentConfig ?? DEFAULT_VOICE_AGENT_CONFIG),
+                                            personality,
+                                          },
+                                        }
+                                      : c,
+                                  ),
+                                );
+                              }}
+                              onBlur={() =>
+                                updateCampaign({
+                                  voiceAgentConfig: { personality: (selected.voiceAgentConfig?.personality ?? "").trim() },
                                 })
-                              )}
-                            </div>
+                              }
+                              rows={4}
+                              className="mt-1 w-full rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-sm"
+                            />
+                          </div>
+                          <div>
+                            <div className="text-xs font-semibold text-zinc-700">Tone</div>
+                            <textarea
+                              value={selected.voiceAgentConfig?.tone ?? ""}
+                              onChange={(e) => {
+                                const tone = e.target.value;
+                                setCampaigns((prev) =>
+                                  prev.map((c) =>
+                                    c.id === selected.id
+                                      ? { ...c, voiceAgentConfig: { ...(c.voiceAgentConfig ?? DEFAULT_VOICE_AGENT_CONFIG), tone } }
+                                      : c,
+                                  ),
+                                );
+                              }}
+                              onBlur={() =>
+                                updateCampaign({ voiceAgentConfig: { tone: (selected.voiceAgentConfig?.tone ?? "").trim() } })
+                              }
+                              rows={4}
+                              className="mt-1 w-full rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-sm"
+                            />
+                          </div>
+                          <div>
+                            <div className="text-xs font-semibold text-zinc-700">Environment</div>
+                            <textarea
+                              value={selected.voiceAgentConfig?.environment ?? ""}
+                              onChange={(e) => {
+                                const environment = e.target.value;
+                                setCampaigns((prev) =>
+                                  prev.map((c) =>
+                                    c.id === selected.id
+                                      ? {
+                                          ...c,
+                                          voiceAgentConfig: {
+                                            ...(c.voiceAgentConfig ?? DEFAULT_VOICE_AGENT_CONFIG),
+                                            environment,
+                                          },
+                                        }
+                                      : c,
+                                  ),
+                                );
+                              }}
+                              onBlur={() =>
+                                updateCampaign({
+                                  voiceAgentConfig: { environment: (selected.voiceAgentConfig?.environment ?? "").trim() },
+                                })
+                              }
+                              rows={4}
+                              className="mt-1 w-full rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-sm"
+                            />
+                          </div>
+                          <div className="sm:col-span-2">
+                            <div className="text-xs font-semibold text-zinc-700">Guard rails</div>
+                            <textarea
+                              value={selected.voiceAgentConfig?.guardRails ?? ""}
+                              onChange={(e) => {
+                                const guardRails = e.target.value;
+                                setCampaigns((prev) =>
+                                  prev.map((c) =>
+                                    c.id === selected.id
+                                      ? {
+                                          ...c,
+                                          voiceAgentConfig: {
+                                            ...(c.voiceAgentConfig ?? DEFAULT_VOICE_AGENT_CONFIG),
+                                            guardRails,
+                                          },
+                                        }
+                                      : c,
+                                  ),
+                                );
+                              }}
+                              onBlur={() =>
+                                updateCampaign({
+                                  voiceAgentConfig: { guardRails: (selected.voiceAgentConfig?.guardRails ?? "").trim() },
+                                })
+                              }
+                              rows={4}
+                              className="mt-1 w-full rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-sm"
+                            />
                           </div>
                         </div>
                       </div>
+                    ) : (
+                      <div className="rounded-3xl border border-zinc-200 bg-white p-4">
+                        <div className="text-sm font-semibold text-zinc-900">Messages agent</div>
+                        <div className="mt-1 text-xs text-zinc-600">
+                          Used for SMS/email outreach and replies in this campaign.
+                        </div>
 
-                      <div className="mt-4">
-                        <div className="text-xs font-semibold text-zinc-700">First message</div>
-                        <input
-                          value={selected.chatAgentConfig?.firstMessage ?? ""}
-                          onChange={(e) => {
-                            const firstMessage = e.target.value;
-                            setCampaigns((prev) =>
-                              prev.map((c) =>
-                                c.id === selected.id
-                                  ? {
-                                      ...c,
-                                      chatAgentConfig: {
-                                        ...(c.chatAgentConfig ?? DEFAULT_VOICE_AGENT_CONFIG),
-                                        firstMessage,
-                                      },
-                                    }
-                                  : c,
-                              ),
-                            );
-                          }}
-                          onBlur={() => updateCampaign({ chatAgentConfig: { firstMessage: (selected.chatAgentConfig?.firstMessage ?? "").trim() } })}
-                          placeholder="Hi, this is ..."
-                          className="mt-1 w-full rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-sm"
-                        />
-                      </div>
-
-                      <div className="mt-4 grid grid-cols-1 gap-3 sm:grid-cols-2">
-                        <div>
-                          <div className="text-xs font-semibold text-zinc-700">Goal</div>
+                        <div className="mt-4 rounded-2xl border border-zinc-200 bg-zinc-50 p-3">
+                          <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+                            <div>
+                              <div className="text-xs font-semibold text-zinc-700">Generate</div>
+                              <div className="mt-1 text-[11px] text-zinc-600">
+                                Paste quick context and generate goal/personality/tone/environment/guard rails + first message.
+                              </div>
+                            </div>
+                            <button
+                              type="button"
+                              disabled={busy || generateBusy}
+                              onClick={() => void generateAgentConfig("messages")}
+                              className={classNames(
+                                "inline-flex items-center gap-2 rounded-2xl px-4 py-2 text-xs font-semibold",
+                                busy || generateBusy
+                                  ? "bg-zinc-200 text-zinc-600"
+                                  : "bg-zinc-900 text-white hover:bg-zinc-800",
+                              )}
+                            >
+                              <svg
+                                aria-hidden="true"
+                                viewBox="0 0 24 24"
+                                className="h-4 w-4"
+                                fill="none"
+                                stroke="currentColor"
+                                strokeWidth="2"
+                                strokeLinecap="round"
+                                strokeLinejoin="round"
+                              >
+                                <path d="M12 2l1.5 5.5L19 9l-5.5 1.5L12 16l-1.5-5.5L5 9l5.5-1.5L12 2z" />
+                                <path d="M19 14l.8 2.6L22 17l-2.2.4L19 20l-.8-2.6L16 17l2.2-.4L19 14z" />
+                              </svg>
+                              <span>{generateBusy ? "Generating…" : "Generate"}</span>
+                            </button>
+                          </div>
                           <textarea
-                            value={selected.chatAgentConfig?.goal ?? ""}
-                            onChange={(e) => {
-                              const goal = e.target.value;
-                              setCampaigns((prev) =>
-                                prev.map((c) =>
-                                  c.id === selected.id
-                                    ? { ...c, chatAgentConfig: { ...(c.chatAgentConfig ?? DEFAULT_VOICE_AGENT_CONFIG), goal } }
-                                    : c,
-                                ),
-                              );
-                            }}
-                            onBlur={() => updateCampaign({ chatAgentConfig: { goal: (selected.chatAgentConfig?.goal ?? "").trim() } })}
-                            rows={4}
-                            className="mt-1 w-full rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-sm"
+                            value={messagesGenerateContext}
+                            onChange={(e) => setMessagesGenerateContext(e.target.value)}
+                            rows={3}
+                            placeholder="What do you sell, who are you targeting, what outcome do you want, any do/don'ts…"
+                            className="mt-3 w-full rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-sm"
                           />
                         </div>
-                        <div>
-                          <div className="text-xs font-semibold text-zinc-700">Personality</div>
-                          <textarea
-                            value={selected.chatAgentConfig?.personality ?? ""}
+
+                        <div className="mt-4">
+                          <div className="text-xs font-semibold text-zinc-700">First message</div>
+                          <input
+                            value={selected.chatAgentConfig?.firstMessage ?? ""}
                             onChange={(e) => {
-                              const personality = e.target.value;
+                              const firstMessage = e.target.value;
                               setCampaigns((prev) =>
                                 prev.map((c) =>
                                   c.id === selected.id
@@ -2139,110 +2242,156 @@ export function PortalAiOutboundCallsClient() {
                                         ...c,
                                         chatAgentConfig: {
                                           ...(c.chatAgentConfig ?? DEFAULT_VOICE_AGENT_CONFIG),
-                                          personality,
+                                          firstMessage,
                                         },
                                       }
                                     : c,
                                 ),
                               );
                             }}
-                            onBlur={() => updateCampaign({ chatAgentConfig: { personality: (selected.chatAgentConfig?.personality ?? "").trim() } })}
-                            rows={4}
+                            onBlur={() =>
+                              updateCampaign({
+                                chatAgentConfig: { firstMessage: (selected.chatAgentConfig?.firstMessage ?? "").trim() },
+                              })
+                            }
+                            placeholder="Hey {{first_name}} …"
                             className="mt-1 w-full rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-sm"
                           />
                         </div>
-                        <div>
-                          <div className="text-xs font-semibold text-zinc-700">Tone</div>
-                          <textarea
-                            value={selected.chatAgentConfig?.tone ?? ""}
-                            onChange={(e) => {
-                              const tone = e.target.value;
-                              setCampaigns((prev) =>
-                                prev.map((c) =>
-                                  c.id === selected.id
-                                    ? { ...c, chatAgentConfig: { ...(c.chatAgentConfig ?? DEFAULT_VOICE_AGENT_CONFIG), tone } }
-                                    : c,
-                                ),
-                              );
-                            }}
-                            onBlur={() => updateCampaign({ chatAgentConfig: { tone: (selected.chatAgentConfig?.tone ?? "").trim() } })}
-                            rows={4}
-                            className="mt-1 w-full rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-sm"
-                          />
-                        </div>
-                        <div>
-                          <div className="text-xs font-semibold text-zinc-700">Environment</div>
-                          <textarea
-                            value={selected.chatAgentConfig?.environment ?? ""}
-                            onChange={(e) => {
-                              const environment = e.target.value;
-                              setCampaigns((prev) =>
-                                prev.map((c) =>
-                                  c.id === selected.id
-                                    ? {
-                                        ...c,
-                                        chatAgentConfig: {
-                                          ...(c.chatAgentConfig ?? DEFAULT_VOICE_AGENT_CONFIG),
-                                          environment,
-                                        },
-                                      }
-                                    : c,
-                                ),
-                              );
-                            }}
-                            onBlur={() => updateCampaign({ chatAgentConfig: { environment: (selected.chatAgentConfig?.environment ?? "").trim() } })}
-                            rows={4}
-                            className="mt-1 w-full rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-sm"
-                          />
-                        </div>
-                        <div className="sm:col-span-2">
-                          <div className="text-xs font-semibold text-zinc-700">Guard rails</div>
-                          <textarea
-                            value={selected.chatAgentConfig?.guardRails ?? ""}
-                            onChange={(e) => {
-                              const guardRails = e.target.value;
-                              setCampaigns((prev) =>
-                                prev.map((c) =>
-                                  c.id === selected.id
-                                    ? {
-                                        ...c,
-                                        chatAgentConfig: {
-                                          ...(c.chatAgentConfig ?? DEFAULT_VOICE_AGENT_CONFIG),
-                                          guardRails,
-                                        },
-                                      }
-                                    : c,
-                                ),
-                              );
-                            }}
-                            onBlur={() => updateCampaign({ chatAgentConfig: { guardRails: (selected.chatAgentConfig?.guardRails ?? "").trim() } })}
-                            rows={4}
-                            className="mt-1 w-full rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-sm"
-                          />
-                        </div>
-                      </div>
-                    </div>
 
-                    <div className="rounded-3xl border border-zinc-200 bg-zinc-50 p-4 text-sm text-zinc-700">
-                      <div className="font-semibold text-zinc-900">Audience tags</div>
-                      <div className="mt-1 text-xs text-zinc-600">
-                        Configure who gets called vs chatted from the <span className="font-semibold">Calls</span> and <span className="font-semibold">Chat</span> tabs.
-                        <button
-                          type="button"
-                          onClick={() => setTab("calls")}
-                          className="ml-2 inline-flex items-center rounded-lg border border-zinc-200 bg-white px-2 py-1 text-[11px] font-semibold text-zinc-800 hover:bg-zinc-50"
-                        >
-                          Open Calls
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => setTab("chat")}
-                          className="ml-2 inline-flex items-center rounded-lg border border-zinc-200 bg-white px-2 py-1 text-[11px] font-semibold text-zinc-800 hover:bg-zinc-50"
-                        >
-                          Open Chat
-                        </button>
+                        <div className="mt-4 grid grid-cols-1 gap-3 sm:grid-cols-2">
+                          <div>
+                            <div className="text-xs font-semibold text-zinc-700">Goal</div>
+                            <textarea
+                              value={selected.chatAgentConfig?.goal ?? ""}
+                              onChange={(e) => {
+                                const goal = e.target.value;
+                                setCampaigns((prev) =>
+                                  prev.map((c) =>
+                                    c.id === selected.id
+                                      ? { ...c, chatAgentConfig: { ...(c.chatAgentConfig ?? DEFAULT_VOICE_AGENT_CONFIG), goal } }
+                                      : c,
+                                  ),
+                                );
+                              }}
+                              onBlur={() =>
+                                updateCampaign({ chatAgentConfig: { goal: (selected.chatAgentConfig?.goal ?? "").trim() } })
+                              }
+                              rows={4}
+                              className="mt-1 w-full rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-sm"
+                            />
+                          </div>
+                          <div>
+                            <div className="text-xs font-semibold text-zinc-700">Personality</div>
+                            <textarea
+                              value={selected.chatAgentConfig?.personality ?? ""}
+                              onChange={(e) => {
+                                const personality = e.target.value;
+                                setCampaigns((prev) =>
+                                  prev.map((c) =>
+                                    c.id === selected.id
+                                      ? {
+                                          ...c,
+                                          chatAgentConfig: {
+                                            ...(c.chatAgentConfig ?? DEFAULT_VOICE_AGENT_CONFIG),
+                                            personality,
+                                          },
+                                        }
+                                      : c,
+                                  ),
+                                );
+                              }}
+                              onBlur={() =>
+                                updateCampaign({
+                                  chatAgentConfig: { personality: (selected.chatAgentConfig?.personality ?? "").trim() },
+                                })
+                              }
+                              rows={4}
+                              className="mt-1 w-full rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-sm"
+                            />
+                          </div>
+                          <div>
+                            <div className="text-xs font-semibold text-zinc-700">Tone</div>
+                            <textarea
+                              value={selected.chatAgentConfig?.tone ?? ""}
+                              onChange={(e) => {
+                                const tone = e.target.value;
+                                setCampaigns((prev) =>
+                                  prev.map((c) =>
+                                    c.id === selected.id
+                                      ? { ...c, chatAgentConfig: { ...(c.chatAgentConfig ?? DEFAULT_VOICE_AGENT_CONFIG), tone } }
+                                      : c,
+                                  ),
+                                );
+                              }}
+                              onBlur={() =>
+                                updateCampaign({ chatAgentConfig: { tone: (selected.chatAgentConfig?.tone ?? "").trim() } })
+                              }
+                              rows={4}
+                              className="mt-1 w-full rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-sm"
+                            />
+                          </div>
+                          <div>
+                            <div className="text-xs font-semibold text-zinc-700">Environment</div>
+                            <textarea
+                              value={selected.chatAgentConfig?.environment ?? ""}
+                              onChange={(e) => {
+                                const environment = e.target.value;
+                                setCampaigns((prev) =>
+                                  prev.map((c) =>
+                                    c.id === selected.id
+                                      ? {
+                                          ...c,
+                                          chatAgentConfig: {
+                                            ...(c.chatAgentConfig ?? DEFAULT_VOICE_AGENT_CONFIG),
+                                            environment,
+                                          },
+                                        }
+                                      : c,
+                                  ),
+                                );
+                              }}
+                              onBlur={() =>
+                                updateCampaign({
+                                  chatAgentConfig: { environment: (selected.chatAgentConfig?.environment ?? "").trim() },
+                                })
+                              }
+                              rows={4}
+                              className="mt-1 w-full rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-sm"
+                            />
+                          </div>
+                          <div className="sm:col-span-2">
+                            <div className="text-xs font-semibold text-zinc-700">Guard rails</div>
+                            <textarea
+                              value={selected.chatAgentConfig?.guardRails ?? ""}
+                              onChange={(e) => {
+                                const guardRails = e.target.value;
+                                setCampaigns((prev) =>
+                                  prev.map((c) =>
+                                    c.id === selected.id
+                                      ? {
+                                          ...c,
+                                          chatAgentConfig: {
+                                            ...(c.chatAgentConfig ?? DEFAULT_VOICE_AGENT_CONFIG),
+                                            guardRails,
+                                          },
+                                        }
+                                      : c,
+                                  ),
+                                );
+                              }}
+                              onBlur={() =>
+                                updateCampaign({
+                                  chatAgentConfig: { guardRails: (selected.chatAgentConfig?.guardRails ?? "").trim() },
+                                })
+                              }
+                              rows={4}
+                              className="mt-1 w-full rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-sm"
+                            />
+                          </div>
+                        </div>
                       </div>
-                    </div>
+                    )}
                   </div>
                 </>
               ) : null}

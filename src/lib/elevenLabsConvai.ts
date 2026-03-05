@@ -337,6 +337,8 @@ async function fetchToolsFromUrl(apiKey: string, url: string): Promise<ElevenLab
     method: "GET",
     headers: {
       "xi-api-key": apiKey,
+      // Some ElevenLabs endpoints require Bearer auth even when xi-api-key is present.
+      Authorization: `Bearer ${apiKey}`,
       accept: "application/json",
     },
   }).catch(() => null as any);
@@ -347,12 +349,29 @@ async function fetchToolsFromUrl(apiKey: string, url: string): Promise<ElevenLab
 
   try {
     const json = JSON.parse(text) as any;
-    if (Array.isArray(json)) return json as ElevenLabsConvaiTool[];
+    const candidates: any[] = [];
+    candidates.push(json);
+
     if (json && typeof json === "object") {
-      if (Array.isArray((json as any).tools)) return (json as any).tools as ElevenLabsConvaiTool[];
-      if (Array.isArray((json as any).data)) return (json as any).data as ElevenLabsConvaiTool[];
-      if (Array.isArray((json as any).items)) return (json as any).items as ElevenLabsConvaiTool[];
+      candidates.push((json as any).tools);
+      candidates.push((json as any).data);
+      candidates.push((json as any).items);
+      candidates.push((json as any).result);
+      candidates.push((json as any).tool);
+
+      // Some APIs nest arrays under tools/data.
+      const toolsObj = (json as any).tools;
+      if (toolsObj && typeof toolsObj === "object") {
+        candidates.push((toolsObj as any).data);
+        candidates.push((toolsObj as any).items);
+        candidates.push((toolsObj as any).tools);
+      }
     }
+
+    for (const c of candidates) {
+      if (Array.isArray(c)) return c as ElevenLabsConvaiTool[];
+    }
+
     return [];
   } catch {
     return [];
