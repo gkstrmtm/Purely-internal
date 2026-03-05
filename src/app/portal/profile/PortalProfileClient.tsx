@@ -972,7 +972,7 @@ export function PortalProfileClient() {
               accent="blue"
             >
               <div className="space-y-3">
-                <CopyRow label='Twilio SMS ("A message comes in") — universal' value={webhooks?.twilio?.smsInboundUrl ?? null} />
+                <CopyRow label="Twilio SMS (A message comes in) — universal" value={webhooks?.twilio?.smsInboundUrl ?? null} />
                 <CopyRow label="Twilio SMS status callback (recommended)" value={webhooks?.twilio?.smsStatusCallbackUrl ?? null} />
                 <CopyRow label="Inbox (Twilio SMS) — legacy token URL" value={webhooks?.legacy?.inboxTwilioSmsUrl ?? null} />
                 <CopyRow label="Calls (Primary handler: AI Receptionist)" value={webhooks?.legacy?.aiReceptionistVoiceUrl ?? null} />
@@ -982,12 +982,12 @@ export function PortalProfileClient() {
                   <div className="font-semibold text-zinc-900">Where do I paste these in Twilio?</div>
                   <div className="mt-2 space-y-1">
                     <div>1) Twilio Console → Phone Numbers → Manage → Active numbers → click your number</div>
-                    <div>2) For SMS: Messaging → “A MESSAGE COMES IN” → paste <span className="font-semibold">Twilio SMS ("A message comes in") — universal</span></div>
+                    <div>2) For SMS: Messaging → A MESSAGE COMES IN → paste <span className="font-semibold">Twilio SMS (A message comes in) — universal</span></div>
                     <div>
-                      3) For calls: Voice &amp; Fax → “A CALL COMES IN” → paste <span className="font-semibold">Calls (Primary handler: AI Receptionist)</span>
+                      3) For calls: Voice &amp; Fax → A CALL COMES IN → paste <span className="font-semibold">Calls (Primary handler: AI Receptionist)</span>
                     </div>
                     <div>
-                      4) Still in Voice &amp; Fax → “IF PRIMARY HANDLER FAILS” → paste{" "}
+                      4) Still in Voice &amp; Fax → IF PRIMARY HANDLER FAILS → paste{" "}
                       <span className="font-semibold">Calls (If primary handler fails: Missed Call Text Back)</span>
                     </div>
                   </div>
@@ -1014,7 +1014,7 @@ export function PortalProfileClient() {
               <div className="space-y-3">
                 {twilioWebhooks ? (
                   <div className="space-y-3">
-                    <CopyRow label='Twilio SMS ("A message comes in") — universal' value={twilioWebhooks.smsInboundUrl} />
+                    <CopyRow label="Twilio SMS (A message comes in) — universal" value={twilioWebhooks.smsInboundUrl} />
                     <CopyRow label="Twilio SMS status callback (recommended)" value={twilioWebhooks.smsStatusCallbackUrl} />
                   </div>
                 ) : null}
@@ -1212,7 +1212,7 @@ export function PortalProfileClient() {
                         autoComplete="off"
                       />
                       <div className="mt-2 text-xs text-zinc-500">
-                        Find it in Stripe: <span className="font-semibold">Dashboard → Developers → API keys</span> → copy your “Secret key”.
+                        Find it in Stripe: <span className="font-semibold">Dashboard → Developers → API keys</span> → copy your Secret key.
                       </div>
                       <div className="mt-2 text-xs text-zinc-500">We store it encrypted and never show the full key back to you.</div>
                     </div>

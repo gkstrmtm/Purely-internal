@@ -4,7 +4,11 @@ import { normalizePhoneStrict } from "@/lib/phone";
 const INTEGRATIONS_SLUG = "integrations";
 
 function normalizeE164Maybe(raw: unknown): string | null {
-  const parsed = normalizePhoneStrict(String(raw ?? ""));
+  const s = String(raw ?? "").trim();
+  // Twilio can prefix addresses for non-SMS channels (e.g. "whatsapp:+1555...").
+  // Strip known scheme prefixes so phone normalization works.
+  const cleaned = s.replace(/^[a-z]+:/i, "");
+  const parsed = normalizePhoneStrict(cleaned);
   if (parsed.ok && parsed.e164) return parsed.e164;
   return null;
 }
@@ -68,6 +72,22 @@ export async function findOwnerIdByTwilioToNumber(toRaw: string): Promise<string
   }
 
   return null;
+}
+
+export async function findOwnerIdByInboundSmsToNumberHistory(toRaw: string): Promise<string | null> {
+  const toE164 = normalizeE164Maybe(toRaw);
+  if (!toE164) return null;
+
+  try {
+    const row = await (prisma as any).portalInboxMessage.findFirst({
+      where: { channel: "SMS", direction: "IN", toAddress: toE164 },
+      orderBy: { createdAt: "desc" },
+      select: { ownerId: true },
+    });
+    return row?.ownerId ? String(row.ownerId) : null;
+  } catch {
+    return null;
+  }
 }
 
 function twilioIsObject(v: unknown): v is Record<string, unknown> {
