@@ -6,6 +6,86 @@ const PORTAL_SESSION_COOKIE_NAME = "pa.portal.session";
 const CREDIT_PORTAL_SESSION_COOKIE_NAME = "pa.credit.session";
 const PORTAL_VARIANT_HEADER = "x-portal-variant";
 
+function hostnameFromHeader(value: string | null): string | null {
+  if (!value) return null;
+  const first = value.split(",")[0]?.trim().toLowerCase() || "";
+  if (!first) return null;
+  // Strip port.
+  return first.replace(/:\d+$/, "");
+}
+
+function parseHostnameFromUrl(raw: string | undefined): string | null {
+  const s = String(raw ?? "").trim();
+  if (!s) return null;
+  try {
+    return new URL(s).hostname.toLowerCase() || null;
+  } catch {
+    return null;
+  }
+}
+
+function addHostnameVariants(out: Set<string>, host: string) {
+  const h = String(host || "").trim().toLowerCase();
+  if (!h) return;
+  out.add(h);
+
+  // Only apply www/apex variants to real domains.
+  const isIp = /^\d{1,3}(?:\.\d{1,3}){3}$/.test(h);
+  if (isIp) return;
+  if (!h.includes(".")) return;
+
+  if (h.startsWith("www.")) out.add(h.slice(4));
+  else out.add(`www.${h}`);
+}
+
+function isPlatformHostnameCandidate(host: string): boolean {
+  const h = String(host || "").trim().toLowerCase();
+  if (!h) return false;
+  if (h === "localhost" || h === "127.0.0.1") return true;
+  if (h === "purelyautomation.com" || h.endsWith(".purelyautomation.com")) return true;
+  if (h.endsWith(".vercel.app")) return true;
+  return false;
+}
+
+function platformHostnames(): Set<string> {
+  const out = new Set<string>();
+  addHostnameVariants(out, "localhost");
+  addHostnameVariants(out, "127.0.0.1");
+  addHostnameVariants(out, "purelyautomation.com");
+
+  const candidates = [
+    process.env.NEXT_PUBLIC_APP_CANONICAL_URL,
+    process.env.APP_CANONICAL_URL,
+    process.env.NEXTAUTH_URL,
+    process.env.NEXT_PUBLIC_APP_URL,
+  ];
+
+  for (const raw of candidates) {
+    const h = parseHostnameFromUrl(raw);
+    // Only treat env-derived hostnames as "platform" if they look like our own platform,
+    // not a customer custom domain.
+    if (h && isPlatformHostnameCandidate(h)) addHostnameVariants(out, h);
+  }
+
+  return out;
+}
+
+const PLATFORM_HOSTNAMES = platformHostnames();
+
+function isBypassPath(pathname: string): boolean {
+  if (!pathname.startsWith("/")) return true;
+  if (pathname.startsWith("/_next")) return true;
+  if (pathname.startsWith("/api")) return true;
+  if (pathname.startsWith("/favicon")) return true;
+  if (pathname === "/robots.txt") return true;
+  if (pathname === "/sitemap.xml") return true;
+  if (pathname.startsWith("/opengraph-image")) return true;
+  if (pathname.startsWith("/twitter-image")) return true;
+  if (pathname.startsWith("/icon")) return true;
+  if (pathname.startsWith("/apple-icon")) return true;
+  return false;
+}
+
 function normalizePortalVariantHeader(raw: string | null) {
   if (!raw) return null;
   const v = raw.trim().toLowerCase();
@@ -34,6 +114,44 @@ function refererIsCredit(req: NextRequest) {
 
 export async function proxy(req: NextRequest) {
   const path = req.nextUrl.pathname;
+
+  // Custom domain routing: any non-platform host should serve funnels/forms via /domain-router/*.
+  // This must happen before portal/credit handling so customer domains never fall through
+  // to the platform marketing site.
+  if (!isBypassPath(path) && !path.startsWith("/domain-router/")) {
+    const debugDomains = process.env.DEBUG_DOMAIN_ROUTER_PROXY === "1";
+
+    // Prefer the canonical Host header. Some proxy/CDN setups can provide a misleading
+    // x-forwarded-host (or multiple values) that would cause us to skip custom-domain routing.
+    const rawHost = req.headers.get("host");
+    const rawForwardedHost = req.headers.get("x-forwarded-host");
+    const rawOriginalHost = req.headers.get("x-original-host");
+    const host =
+      hostnameFromHeader(rawHost) ?? hostnameFromHeader(rawForwardedHost) ?? hostnameFromHeader(rawOriginalHost);
+
+    if (debugDomains && (path === "/" || path.startsWith("/testing") || path.startsWith("/domain-router"))) {
+      console.log(
+        JSON.stringify({
+          kind: "domain-router-proxy",
+          path,
+          rawHost,
+          rawForwardedHost,
+          rawOriginalHost,
+          host,
+          isPlatform: !!(host && PLATFORM_HOSTNAMES.has(host)),
+        })
+      );
+    }
+
+    if (host && !PLATFORM_HOSTNAMES.has(host)) {
+      const url = req.nextUrl.clone();
+      url.pathname = `/domain-router/${encodeURIComponent(host)}${path}`;
+      if (debugDomains && (path === "/" || path.startsWith("/testing"))) {
+        console.log(JSON.stringify({ kind: "domain-router-proxy-rewrite", from: path, to: url.pathname, host }));
+      }
+      return NextResponse.rewrite(url);
+    }
+  }
 
   const secret = process.env.NEXTAUTH_SECRET;
   const employeeToken = await getToken({ req, secret });
@@ -361,13 +479,5 @@ export async function proxy(req: NextRequest) {
 }
 
 export const config = {
-  matcher: [
-    "/app/:path*",
-    "/dashboard/:path*",
-    "/portal/:path*",
-    "/credit/:path*",
-    "/api/portal/:path*",
-    "/api/auth/client-signup",
-    "/api/customer/me",
-  ],
+  matcher: ["/((?!_next/).*)"],
 };
