@@ -115,6 +115,12 @@ function refererIsCredit(req: NextRequest) {
 export async function proxy(req: NextRequest) {
   const path = req.nextUrl.pathname;
 
+  // Public API routes must never be gated by employee auth.
+  // Twilio (and other webhook senders) will fail delivery if we redirect.
+  if (path.startsWith("/api/public/")) {
+    return NextResponse.next();
+  }
+
   // Custom domain routing: any non-platform host should serve funnels/forms via /domain-router/*.
   // This must happen before portal/credit handling so customer domains never fall through
   // to the platform marketing site.
