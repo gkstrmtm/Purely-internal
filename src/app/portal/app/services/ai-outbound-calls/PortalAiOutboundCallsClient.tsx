@@ -328,6 +328,10 @@ export function PortalAiOutboundCallsClient() {
   const [messageSending, setMessageSending] = useState(false);
   const [messageLastThreadId, setMessageLastThreadId] = useState<string | null>(null);
 
+  const [previewInbound, setPreviewInbound] = useState("");
+  const [previewReply, setPreviewReply] = useState<string | null>(null);
+  const [previewBusy, setPreviewBusy] = useState(false);
+
   useEffect(() => {
     setCallsAgentSyncRequired(false);
     setCallsAgentSyncedAtIso(null);
@@ -344,6 +348,8 @@ export function PortalAiOutboundCallsClient() {
     setMessageSubject("");
     setMessageBody("");
     setMessageLastThreadId(null);
+    setPreviewInbound("");
+    setPreviewReply(null);
   }, [selectedId]);
 
   const loadManualCalls = useCallback(async (campaignId?: string) => {
@@ -868,6 +874,43 @@ export function PortalAiOutboundCallsClient() {
     }
   }
 
+  async function previewReplyForInbound() {
+    if (!selected?.id) return;
+    if (previewBusy || busy) return;
+
+    const inbound = previewInbound.trim();
+    if (!inbound) {
+      toast.error("Write an inbound message");
+      return;
+    }
+
+    setPreviewBusy(true);
+    setPreviewReply(null);
+    setError(null);
+
+    try {
+      const res = await fetch(
+        `/api/portal/ai-outbound-calls/campaigns/${encodeURIComponent(selected.id)}/preview-message-reply`,
+        {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ channel: messageChannel, inbound }),
+        },
+      );
+
+      const json = (await res.json().catch(() => null)) as any;
+      if (!res.ok || !json || json.ok !== true) {
+        throw new Error(json?.error || "Preview failed");
+      }
+
+      setPreviewReply(String(json.reply || "").trim() || null);
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Preview failed");
+    } finally {
+      setPreviewBusy(false);
+    }
+  }
+
   const statusOptions = useMemo(
     () =>
       ([
@@ -1246,8 +1289,10 @@ export function PortalAiOutboundCallsClient() {
                   <div className="mt-4 rounded-2xl border border-zinc-200 bg-white p-4">
                     <div className="flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between">
                       <div>
-                        <div className="text-sm font-semibold text-zinc-900">Send a test message</div>
-                        <div className="mt-1 text-xs text-zinc-500">Uses your configured Inbox channels.</div>
+                        <div className="text-sm font-semibold text-zinc-900">Send a one-off message</div>
+                        <div className="mt-1 text-xs text-zinc-500">
+                          Uses your configured Inbox channels. For automation, use the audience tags above.
+                        </div>
                       </div>
                       <Link
                         href={
@@ -1331,6 +1376,70 @@ export function PortalAiOutboundCallsClient() {
                         <div className="text-xs text-zinc-500">Thread will appear after sending.</div>
                       )}
                     </div>
+                  </div>
+
+                  <div className="mt-4 rounded-2xl border border-zinc-200 bg-white p-4">
+                    <div className="flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between">
+                      <div>
+                        <div className="text-sm font-semibold text-zinc-900">Conversation preview</div>
+                        <div className="mt-1 text-xs text-zinc-500">
+                          Paste a customer message and see what your messaging agent would reply.
+                        </div>
+                      </div>
+
+                      <button
+                        type="button"
+                        disabled={busy || previewBusy || !previewInbound.trim()}
+                        onClick={() => void previewReplyForInbound()}
+                        className={classNames(
+                          "rounded-2xl px-4 py-2 text-sm font-semibold",
+                          busy || previewBusy || !previewInbound.trim()
+                            ? "bg-zinc-200 text-zinc-600"
+                            : "bg-brand-ink text-white hover:opacity-95",
+                        )}
+                      >
+                        {previewBusy ? "Generating…" : "Generate reply"}
+                      </button>
+                    </div>
+
+                    <div className="mt-4 grid gap-3 sm:grid-cols-2">
+                      <div>
+                        <div className="text-sm font-semibold text-zinc-800">Channel</div>
+                        <div className="mt-1">
+                          <PortalListboxDropdown
+                            value={messageChannel}
+                            options={[
+                              { value: "sms", label: "SMS" },
+                              { value: "email", label: "Email" },
+                            ]}
+                            onChange={(v) => setMessageChannel(v as any)}
+                          />
+                        </div>
+                      </div>
+                      <div className="text-xs text-zinc-500 sm:self-end">
+                        Uses the campaign’s messaging agent config.
+                      </div>
+                    </div>
+
+                    <div className="mt-3">
+                      <div className="text-sm font-semibold text-zinc-800">Inbound message</div>
+                      <textarea
+                        value={previewInbound}
+                        onChange={(e) => setPreviewInbound(e.target.value)}
+                        placeholder={messageChannel === "sms" ? "Customer: Hey, can you send me pricing?" : "Customer: Hi, I’m interested in…"}
+                        rows={4}
+                        className="mt-1 w-full resize-y rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-sm"
+                      />
+                    </div>
+
+                    {previewReply ? (
+                      <div className="mt-3 rounded-2xl border border-zinc-200 bg-zinc-50 p-3">
+                        <div className="text-xs font-semibold uppercase tracking-wide text-zinc-500">AI reply</div>
+                        <div className="mt-2 whitespace-pre-wrap text-sm text-zinc-900">{previewReply}</div>
+                      </div>
+                    ) : (
+                      <div className="mt-3 text-xs text-zinc-500">No reply yet. Generate one above.</div>
+                    )}
                   </div>
                 </div>
               ) : null}

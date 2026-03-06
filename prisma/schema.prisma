@@ -191,6 +191,7 @@ model User {
   portalAiOutboundCallCampaigns   PortalAiOutboundCallCampaign[]
   portalAiOutboundCallEnrollments PortalAiOutboundCallEnrollment[]
   portalAiOutboundCallManualCalls PortalAiOutboundCallManualCall[]
+  portalAiOutboundMessageEnrollments PortalAiOutboundMessageEnrollment[]
 
   employeeInvitesCreated EmployeeInvite[] @relation("EmployeeInviteCreatedBy")
   employeeInvitesUsed    EmployeeInvite[] @relation("EmployeeInviteUsedBy")
@@ -782,6 +783,7 @@ model PortalContact {
   portalNurtureEnrollments PortalNurtureEnrollment[]
 
   portalAiOutboundCallEnrollments PortalAiOutboundCallEnrollment[]
+  portalAiOutboundMessageEnrollments PortalAiOutboundMessageEnrollment[]
 
   portalServiceTriggers PortalContactServiceTrigger[]
 
@@ -927,6 +929,13 @@ enum PortalAiOutboundCallEnrollmentStatus {
   QUEUED
   CALLING
   COMPLETED
+  FAILED
+  SKIPPED
+}
+
+enum PortalAiOutboundMessageEnrollmentStatus {
+  QUEUED
+  ACTIVE
   FAILED
   SKIPPED
 }
@@ -1229,6 +1238,7 @@ model PortalAiOutboundCallCampaign {
 
   owner       User                        @relation(fields: [ownerId], references: [id])
   enrollments PortalAiOutboundCallEnrollment[]
+  messageEnrollments PortalAiOutboundMessageEnrollment[]
   manualCalls PortalAiOutboundCallManualCall[]
 
   @@index([ownerId, updatedAt])
@@ -1261,6 +1271,45 @@ model PortalAiOutboundCallEnrollment {
   @@index([ownerId, status, nextCallAt])
   @@index([campaignId, status, nextCallAt])
   @@index([ownerId, contactId])
+}
+
+model PortalAiOutboundMessageEnrollment {
+  id String @id @default(cuid())
+
+  ownerId    String
+  campaignId String
+  contactId  String
+
+  status PortalAiOutboundMessageEnrollmentStatus @default(QUEUED)
+
+  // First message send
+  nextSendAt         DateTime?
+  sentFirstMessageAt DateTime?
+  threadId           String?
+  attemptCount       Int      @default(0)
+  lastError          String?
+
+  // Auto-reply queue
+  pendingReplyToMessageId  String?
+  nextReplyAt              DateTime?
+  replyAttemptCount        Int      @default(0)
+  replyLastError           String?
+  lastAutoRepliedMessageId String?
+  lastAutoReplyAt          DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  owner    User                        @relation(fields: [ownerId], references: [id])
+  campaign PortalAiOutboundCallCampaign @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+  contact  PortalContact                @relation(fields: [contactId], references: [id], onDelete: Cascade)
+
+  @@unique([campaignId, contactId])
+  @@index([ownerId, status, nextSendAt])
+  @@index([campaignId, status, nextSendAt])
+  @@index([ownerId, contactId])
+  @@index([ownerId, nextReplyAt])
+  @@index([campaignId, nextReplyAt])
 }
 
 model PortalAiOutboundCallManualCall {

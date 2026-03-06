@@ -9,6 +9,7 @@ import { mirrorUploadToMediaLibrary } from "@/lib/portalMediaUploads";
 import { getOwnerTwilioSmsConfig, sendOwnerTwilioSms } from "@/lib/portalTwilio";
 import { runOwnerAutomationsForInboundSms } from "@/lib/portalAutomationsRunner";
 import { getAppBaseUrl, listPortalAccountRecipientContacts, tryNotifyPortalAccountUsers } from "@/lib/portalNotifications";
+import { queueAiOutboundMessageRepliesForInboundMessage } from "@/lib/portalAiOutboundMessages";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
@@ -82,7 +83,7 @@ export async function POST(req: Request) {
   // Avoid runtime failures if schema patches haven't been applied yet.
   await ensurePortalInboxSchema();
 
-  const { messageId } = await upsertPortalInboxMessage({
+  const { threadId, messageId } = await upsertPortalInboxMessage({
     ownerId,
     channel: "SMS",
     direction: "IN",
@@ -95,6 +96,14 @@ export async function POST(req: Request) {
     provider: "TWILIO",
     providerMessageId: messageSid || null,
   });
+
+  // Best-effort: queue AI Outbound message auto-replies (sent by cron).
+  // Keep this fast to avoid Twilio webhook timeouts.
+  try {
+    await withTimeout(queueAiOutboundMessageRepliesForInboundMessage({ ownerId, threadId, messageId }), 1200);
+  } catch {
+    // ignore
+  }
 
   // Best-effort: notify portal users (keep this fast).
   try {

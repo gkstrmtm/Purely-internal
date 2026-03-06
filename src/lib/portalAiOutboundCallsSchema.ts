@@ -28,6 +28,15 @@ BEGIN
   ) THEN
     CREATE TYPE "PortalAiOutboundCallEnrollmentStatus" AS ENUM ('QUEUED','CALLING','COMPLETED','FAILED','SKIPPED');
   END IF;
+
+  IF NOT EXISTS (
+    SELECT 1
+    FROM pg_type t
+    JOIN pg_namespace n ON n.oid = t.typnamespace
+    WHERE n.nspname = 'public' AND t.typname = 'PortalAiOutboundMessageEnrollmentStatus'
+  ) THEN
+    CREATE TYPE "PortalAiOutboundMessageEnrollmentStatus" AS ENUM ('QUEUED','ACTIVE','FAILED','SKIPPED');
+  END IF;
 END $$;
     `.trim(),
 
@@ -93,6 +102,30 @@ CREATE TABLE IF NOT EXISTS "PortalAiOutboundCallEnrollment" (
 );
     `.trim(),
 
+  `
+CREATE TABLE IF NOT EXISTS "PortalAiOutboundMessageEnrollment" (
+  "id" TEXT NOT NULL,
+  "ownerId" TEXT NOT NULL,
+  "campaignId" TEXT NOT NULL,
+  "contactId" TEXT NOT NULL,
+  "status" "PortalAiOutboundMessageEnrollmentStatus" NOT NULL DEFAULT 'QUEUED',
+  "nextSendAt" TIMESTAMP(3),
+  "sentFirstMessageAt" TIMESTAMP(3),
+  "threadId" TEXT,
+  "attemptCount" INTEGER NOT NULL DEFAULT 0,
+  "lastError" TEXT,
+  "pendingReplyToMessageId" TEXT,
+  "nextReplyAt" TIMESTAMP(3),
+  "replyAttemptCount" INTEGER NOT NULL DEFAULT 0,
+  "replyLastError" TEXT,
+  "lastAutoRepliedMessageId" TEXT,
+  "lastAutoReplyAt" TIMESTAMP(3),
+  "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  "updatedAt" TIMESTAMP(3) NOT NULL,
+  CONSTRAINT "PortalAiOutboundMessageEnrollment_pkey" PRIMARY KEY ("id")
+);
+  `.trim(),
+
     `CREATE INDEX IF NOT EXISTS "PortalAiOutboundCallCampaign_ownerId_updatedAt_idx" ON "PortalAiOutboundCallCampaign"("ownerId","updatedAt");`,
     `CREATE INDEX IF NOT EXISTS "PortalAiOutboundCallCampaign_ownerId_status_updatedAt_idx" ON "PortalAiOutboundCallCampaign"("ownerId","status","updatedAt");`,
 
@@ -100,6 +133,13 @@ CREATE TABLE IF NOT EXISTS "PortalAiOutboundCallEnrollment" (
     `CREATE INDEX IF NOT EXISTS "PortalAiOutboundCallEnrollment_ownerId_status_nextCallAt_idx" ON "PortalAiOutboundCallEnrollment"("ownerId","status","nextCallAt");`,
     `CREATE INDEX IF NOT EXISTS "PortalAiOutboundCallEnrollment_campaignId_status_nextCallAt_idx" ON "PortalAiOutboundCallEnrollment"("campaignId","status","nextCallAt");`,
     `CREATE INDEX IF NOT EXISTS "PortalAiOutboundCallEnrollment_ownerId_contactId_idx" ON "PortalAiOutboundCallEnrollment"("ownerId","contactId");`,
+
+    `CREATE UNIQUE INDEX IF NOT EXISTS "PortalAiOutboundMessageEnrollment_campaignId_contactId_key" ON "PortalAiOutboundMessageEnrollment"("campaignId","contactId");`,
+    `CREATE INDEX IF NOT EXISTS "PortalAiOutboundMessageEnrollment_ownerId_status_nextSendAt_idx" ON "PortalAiOutboundMessageEnrollment"("ownerId","status","nextSendAt");`,
+    `CREATE INDEX IF NOT EXISTS "PortalAiOutboundMessageEnrollment_campaignId_status_nextSendAt_idx" ON "PortalAiOutboundMessageEnrollment"("campaignId","status","nextSendAt");`,
+    `CREATE INDEX IF NOT EXISTS "PortalAiOutboundMessageEnrollment_ownerId_contactId_idx" ON "PortalAiOutboundMessageEnrollment"("ownerId","contactId");`,
+    `CREATE INDEX IF NOT EXISTS "PortalAiOutboundMessageEnrollment_ownerId_nextReplyAt_idx" ON "PortalAiOutboundMessageEnrollment"("ownerId","nextReplyAt");`,
+    `CREATE INDEX IF NOT EXISTS "PortalAiOutboundMessageEnrollment_campaignId_nextReplyAt_idx" ON "PortalAiOutboundMessageEnrollment"("campaignId","nextReplyAt");`,
 
     `
 CREATE TABLE IF NOT EXISTS "PortalAiOutboundCallManualCall" (
@@ -150,10 +190,26 @@ BEGIN
   END IF;
 
   IF NOT EXISTS (
+    SELECT 1 FROM pg_constraint WHERE conname = 'PortalAiOutboundMessageEnrollment_ownerId_fkey'
+  ) THEN
+    ALTER TABLE "PortalAiOutboundMessageEnrollment"
+      ADD CONSTRAINT "PortalAiOutboundMessageEnrollment_ownerId_fkey"
+      FOREIGN KEY ("ownerId") REFERENCES "User"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
+  END IF;
+
+  IF NOT EXISTS (
     SELECT 1 FROM pg_constraint WHERE conname = 'PortalAiOutboundCallEnrollment_campaignId_fkey'
   ) THEN
     ALTER TABLE "PortalAiOutboundCallEnrollment"
       ADD CONSTRAINT "PortalAiOutboundCallEnrollment_campaignId_fkey"
+      FOREIGN KEY ("campaignId") REFERENCES "PortalAiOutboundCallCampaign"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+  END IF;
+
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_constraint WHERE conname = 'PortalAiOutboundMessageEnrollment_campaignId_fkey'
+  ) THEN
+    ALTER TABLE "PortalAiOutboundMessageEnrollment"
+      ADD CONSTRAINT "PortalAiOutboundMessageEnrollment_campaignId_fkey"
       FOREIGN KEY ("campaignId") REFERENCES "PortalAiOutboundCallCampaign"("id") ON DELETE CASCADE ON UPDATE CASCADE;
   END IF;
 
@@ -165,6 +221,14 @@ BEGIN
     ) THEN
       ALTER TABLE "PortalAiOutboundCallEnrollment"
         ADD CONSTRAINT "PortalAiOutboundCallEnrollment_contactId_fkey"
+        FOREIGN KEY ("contactId") REFERENCES "PortalContact"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+    END IF;
+
+    IF NOT EXISTS (
+      SELECT 1 FROM pg_constraint WHERE conname = 'PortalAiOutboundMessageEnrollment_contactId_fkey'
+    ) THEN
+      ALTER TABLE "PortalAiOutboundMessageEnrollment"
+        ADD CONSTRAINT "PortalAiOutboundMessageEnrollment_contactId_fkey"
         FOREIGN KEY ("contactId") REFERENCES "PortalContact"("id") ON DELETE CASCADE ON UPDATE CASCADE;
     END IF;
   END IF;

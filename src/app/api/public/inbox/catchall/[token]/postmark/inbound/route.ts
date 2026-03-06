@@ -14,6 +14,7 @@ import { mirrorUploadToMediaLibrary } from "@/lib/portalMediaUploads";
 import { runOwnerAutomationsForEvent } from "@/lib/portalAutomationsRunner";
 import { getAppBaseUrl, tryNotifyPortalAccountUsers } from "@/lib/portalNotifications";
 import { extractAllEmailAddresses, findOwnerIdByMailboxEmailAddress } from "@/lib/portalMailbox";
+import { queueAiOutboundMessageRepliesForInboundMessage } from "@/lib/portalAiOutboundMessages";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
@@ -27,6 +28,18 @@ function safeFilename(name: string) {
 
 const MAX_ATTACHMENTS = 10;
 const MAX_BYTES = 10 * 1024 * 1024; // 10MB per attachment
+
+async function withTimeout<T>(p: Promise<T>, ms: number): Promise<T> {
+  let timeoutId: NodeJS.Timeout | null = null;
+  const timeout = new Promise<T>((_resolve, reject) => {
+    timeoutId = setTimeout(() => reject(new Error("timeout")), ms);
+  });
+  try {
+    return await Promise.race([p, timeout]);
+  } finally {
+    if (timeoutId) clearTimeout(timeoutId);
+  }
+}
 
 function safeString(x: unknown) {
   return typeof x === "string" ? x : "";
@@ -90,7 +103,7 @@ export async function POST(req: Request, { params }: { params: Promise<{ token: 
 
   await ensurePortalInboxSchema();
 
-  const { messageId } = await upsertPortalInboxMessage({
+  const { threadId, messageId } = await upsertPortalInboxMessage({
     ownerId,
     channel: "EMAIL",
     direction: "IN",
@@ -105,6 +118,13 @@ export async function POST(req: Request, { params }: { params: Promise<{ token: 
     provider: "POSTMARK_INBOUND",
     providerMessageId,
   });
+
+  // Best-effort: queue AI Outbound message auto-replies (sent by cron).
+  try {
+    await withTimeout(queueAiOutboundMessageRepliesForInboundMessage({ ownerId, threadId, messageId }), 1200);
+  } catch {
+    // ignore
+  }
 
   try {
     const baseUrl = getAppBaseUrl();
