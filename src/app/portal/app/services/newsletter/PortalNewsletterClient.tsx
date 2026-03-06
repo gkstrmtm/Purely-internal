@@ -61,6 +61,13 @@ type NewsletterRow = {
   updatedAtIso: string;
 };
 
+type FunnelBuilderDomain = {
+  id: string;
+  domain: string;
+  status: "PENDING" | "VERIFIED";
+  verifiedAt: string | null;
+};
+
 function formatDate(value: string | null) {
   if (!value) return "";
   const d = new Date(value);
@@ -214,6 +221,9 @@ export function PortalNewsletterClient({ initialAudience }: { initialAudience: A
   const [siteConfigSlug, setSiteConfigSlug] = useState("");
   const [siteConfigDomain, setSiteConfigDomain] = useState("");
 
+  const [funnelDomains, setFunnelDomains] = useState<FunnelBuilderDomain[] | null>(null);
+  const [funnelDomainsBusy, setFunnelDomainsBusy] = useState(false);
+
   const siteHandle = useMemo(() => {
     if (!site) return null;
     return site.slug ?? site.id;
@@ -301,6 +311,35 @@ export function PortalNewsletterClient({ initialAudience }: { initialAudience: A
   useEffect(() => {
     if (aiStep === "styling" && !settings) setAiStep("delivery");
   }, [aiStep, settings]);
+
+  useEffect(() => {
+    if (!siteConfigOpen) return;
+    let mounted = true;
+
+    (async () => {
+      setFunnelDomainsBusy(true);
+      try {
+        const res = await fetch("/api/portal/funnel-builder/domains", { cache: "no-store" });
+        const json = (await res.json().catch(() => ({}))) as any;
+        if (!mounted) return;
+        if (!res.ok || json?.ok !== true) {
+          setFunnelDomains([]);
+          return;
+        }
+        setFunnelDomains(Array.isArray(json.domains) ? (json.domains as FunnelBuilderDomain[]) : []);
+      } catch {
+        if (!mounted) return;
+        setFunnelDomains([]);
+      } finally {
+        if (!mounted) return;
+        setFunnelDomainsBusy(false);
+      }
+    })();
+
+    return () => {
+      mounted = false;
+    };
+  }, [siteConfigOpen]);
 
   useEffect(() => {
     const days = Math.max(1, Math.floor(Number(settings?.frequencyDays) || 7));
@@ -877,11 +916,11 @@ export function PortalNewsletterClient({ initialAudience }: { initialAudience: A
             </div>
 
             <div className="mt-5 grid grid-cols-1 gap-3 sm:grid-cols-3">
-              <div className="rounded-2xl border border-zinc-200 bg-linear-to-br from-zinc-50 to-white p-4 shadow-sm">
+              <div className="rounded-2xl border border-zinc-200 bg-linear-to-br from-(--color-brand-mist) to-white p-4 shadow-sm">
                 <div className="text-xs font-semibold text-zinc-600">Total credits</div>
                 <div className="mt-2 text-2xl font-bold text-brand-ink">{credits === null ? "N/A" : credits.toLocaleString()}</div>
               </div>
-              <div className="rounded-2xl border border-zinc-200 bg-linear-to-br from-(--color-brand-mist) to-white p-4 shadow-sm">
+              <div className="rounded-2xl border border-zinc-200 bg-white p-4 shadow-sm">
                 <div className="text-xs font-semibold text-zinc-600">Newsletter credits used</div>
                 <div className="mt-2 text-2xl font-bold text-brand-ink">{creditsUsed30d === null ? "N/A" : creditsUsed30d.toLocaleString()}</div>
                 <div className="mt-1 text-xs text-zinc-500">
@@ -912,15 +951,6 @@ export function PortalNewsletterClient({ initialAudience }: { initialAudience: A
               >
                 + New newsletter
               </button>
-              {composerOpen ? (
-                <button
-                  type="button"
-                  className="inline-flex items-center justify-center rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm font-semibold text-zinc-700 hover:bg-zinc-50"
-                  onClick={() => setComposerOpen(false)}
-                >
-                  Hide composer
-                </button>
-              ) : null}
             </div>
 
             <div className="mt-4 overflow-hidden rounded-2xl border border-zinc-200">
@@ -1013,7 +1043,15 @@ export function PortalNewsletterClient({ initialAudience }: { initialAudience: A
           </div>
 
           {composerOpen ? (
-            <div className="mt-4 rounded-3xl border border-zinc-200 bg-white p-6">
+            <div
+              className="fixed inset-0 z-50 flex items-end justify-center bg-black/40 p-3 sm:items-center"
+              onMouseDown={() => setComposerOpen(false)}
+            >
+              <div
+                className="w-full max-w-5xl max-h-[calc(100vh-2rem)] overflow-hidden rounded-3xl border border-zinc-200 bg-white shadow-xl"
+                onMouseDown={(e) => e.stopPropagation()}
+              >
+                <div className="max-h-[calc(100vh-2rem)] overflow-y-auto p-6">
               <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
                 <div>
                   <div className="text-sm font-semibold text-zinc-900">Composer</div>
@@ -1026,7 +1064,9 @@ export function PortalNewsletterClient({ initialAudience }: { initialAudience: A
                     onClick={() => setMode("ai")}
                     className={
                       "inline-flex items-center gap-2 rounded-2xl px-4 py-2 text-xs font-semibold transition " +
-                      (mode === "ai" ? "bg-zinc-900 text-white hover:bg-zinc-800" : "border border-zinc-200 bg-white text-zinc-700 hover:bg-zinc-50")
+                      (mode === "ai"
+                        ? "bg-linear-to-r from-(--color-brand-blue) via-violet-500 to-(--color-brand-pink) text-white shadow-sm hover:opacity-90"
+                        : "border border-zinc-200 bg-white text-zinc-700 hover:bg-zinc-50")
                     }
                   >
                     <svg
@@ -1059,9 +1099,22 @@ export function PortalNewsletterClient({ initialAudience }: { initialAudience: A
                     type="button"
                     onClick={saveSettings}
                     disabled={saving || !settings}
-                    className="inline-flex items-center justify-center rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-xs font-semibold text-zinc-700 hover:bg-zinc-50 disabled:opacity-50"
+                    className={
+                      "inline-flex items-center justify-center rounded-2xl px-4 py-2 text-xs font-semibold shadow-sm transition " +
+                      (saving || !settings
+                        ? "bg-zinc-200 text-zinc-600"
+                        : "bg-(--color-brand-blue) text-white hover:opacity-90")
+                    }
                   >
                     {saving ? "Saving…" : "Save"}
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => setComposerOpen(false)}
+                    className="inline-flex items-center justify-center rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-xs font-semibold text-zinc-700 hover:bg-zinc-50"
+                  >
+                    Close
                   </button>
                 </div>
               </div>
@@ -1430,6 +1483,22 @@ export function PortalNewsletterClient({ initialAudience }: { initialAudience: A
 
               {aiStep === "delivery" ? (
                 <div className="mt-4 grid gap-4 sm:grid-cols-2">
+                  <div className="rounded-2xl border border-(--color-brand-blue)/20 bg-(--color-brand-blue)/5 px-4 py-3 sm:col-span-2">
+                    <div className="flex flex-col items-start justify-between gap-2 sm:flex-row sm:items-center">
+                      <div>
+                        <div className="text-sm font-semibold text-zinc-800">Skip to the end</div>
+                        <div className="mt-1 text-xs text-zinc-600">Skip to Review to generate this whole thing with AI.</div>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => setAiStep("review")}
+                        className="rounded-2xl bg-linear-to-r from-(--color-brand-blue) via-violet-500 to-(--color-brand-pink) px-4 py-2 text-xs font-semibold text-white shadow-sm hover:opacity-90"
+                      >
+                        Skip to Review
+                      </button>
+                    </div>
+                  </div>
+
                   <label className="flex items-center justify-between gap-4 rounded-2xl border border-zinc-200 bg-white px-4 py-3">
                     <div>
                       <div className="text-sm font-semibold text-zinc-800">Enabled</div>
@@ -1712,7 +1781,10 @@ export function PortalNewsletterClient({ initialAudience }: { initialAudience: A
                   <div className="mt-3 flex flex-wrap items-center justify-end gap-2">
                     <button
                       type="button"
-                      className="rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm font-semibold text-zinc-700 hover:bg-zinc-50 disabled:opacity-60"
+                      className={
+                        "rounded-2xl px-4 py-2 text-sm font-semibold shadow-sm transition " +
+                        (saving || !settings ? "bg-zinc-200 text-zinc-600" : "bg-(--color-brand-blue) text-white hover:opacity-90")
+                      }
                       disabled={saving || !settings}
                       onClick={saveSettings}
                     >
@@ -1727,7 +1799,9 @@ export function PortalNewsletterClient({ initialAudience }: { initialAudience: A
                       }}
                       className={
                         "inline-flex items-center gap-2 rounded-2xl px-4 py-2 text-sm font-semibold " +
-                        (generating || saving || !settings ? "bg-zinc-200 text-zinc-600" : "bg-zinc-900 text-white hover:bg-zinc-800")
+                        (generating || saving || !settings
+                          ? "bg-zinc-200 text-zinc-600"
+                          : "bg-linear-to-r from-(--color-brand-blue) via-violet-500 to-(--color-brand-pink) text-white shadow-sm hover:opacity-90")
                       }
                     >
                       <svg
@@ -1769,6 +1843,8 @@ export function PortalNewsletterClient({ initialAudience }: { initialAudience: A
               </div>
             </>
           ) : null}
+                </div>
+              </div>
             </div>
           ) : null}
         </>
@@ -2598,12 +2674,33 @@ export function PortalNewsletterClient({ initialAudience }: { initialAudience: A
 
               <label className="block">
                 <div className="text-xs font-semibold text-zinc-600">Custom domain (optional)</div>
-                <input
-                  value={siteConfigDomain}
-                  onChange={(e) => setSiteConfigDomain(e.target.value)}
-                  className="mt-1 w-full rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-sm outline-none focus:border-zinc-300"
-                  placeholder="news.yourdomain.com"
-                />
+                <div className="mt-1">
+                  <PortalListboxDropdown
+                    value={siteConfigDomain as any}
+                    disabled={siteConfigBusy || funnelDomainsBusy || !funnelDomains}
+                    options={
+                      [
+                        { value: "", label: "No custom domain" },
+                        ...((funnelDomains || []).map((d) => ({
+                          value: d.domain,
+                          label: d.domain,
+                          hint: d.status === "PENDING" ? "Pending DNS verification" : undefined,
+                        })) as any[]),
+                      ] as any
+                    }
+                    onChange={(v) => setSiteConfigDomain(String(v || ""))}
+                    placeholder={funnelDomainsBusy ? "Loading domains…" : (funnelDomains || []).length ? "Choose a domain" : "No domains yet"}
+                  />
+                </div>
+                <div className="mt-2 flex flex-col items-start justify-between gap-2 sm:flex-row sm:items-center">
+                  <div className="text-xs text-zinc-500">Domains come from Funnel Builder → Settings → Custom domains.</div>
+                  <Link
+                    href="/portal/app/services/funnel-builder/settings"
+                    className="text-xs font-semibold text-(--color-brand-blue) hover:underline"
+                  >
+                    Add / manage domains
+                  </Link>
+                </div>
               </label>
             </div>
 
@@ -2618,7 +2715,7 @@ export function PortalNewsletterClient({ initialAudience }: { initialAudience: A
               </button>
               <button
                 type="button"
-                className="rounded-2xl bg-zinc-900 px-4 py-2 text-sm font-semibold text-white hover:bg-zinc-800 disabled:opacity-60"
+                className="rounded-2xl bg-(--color-brand-blue) px-4 py-2 text-sm font-semibold text-white shadow-sm hover:opacity-90 disabled:opacity-60"
                 disabled={siteConfigBusy || siteConfigName.trim().length < 2}
                 onClick={async () => {
                   const name = siteConfigName.trim().slice(0, 120);

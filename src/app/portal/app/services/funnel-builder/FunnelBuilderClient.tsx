@@ -148,11 +148,17 @@ function deriveVerificationHostLabels(recordHost: string, apexDomain: string): {
   return { display: full, full };
 }
 
-export function FunnelBuilderClient() {
+export function FunnelBuilderClient(props: { initialTab?: TabKey } = {}) {
+  const { initialTab } = props;
   const pathname = usePathname();
   const basePath = pathname === "/credit" || pathname.startsWith("/credit/") ? "/credit" : "/portal";
 
-  const [tab, setTab] = useState<TabKey>("funnels");
+  const [tab, setTab] = useState<TabKey>(initialTab ?? "funnels");
+
+  useEffect(() => {
+    if (!initialTab) return;
+    setTab(initialTab);
+  }, [initialTab]);
 
   const [funnels, setFunnels] = useState<CreditFunnel[] | null>(null);
   const [forms, setForms] = useState<CreditForm[] | null>(null);
