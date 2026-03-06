@@ -129,6 +129,44 @@ export async function findOrCreatePortalContact(input: {
       if (!best || score > best.score) best = { c, score };
     }
 
+    // Phone number is identity: if we have a phoneKey match, always reuse that contact
+    // (even if the provided name/email differ) to avoid duplicates.
+    if (phoneKey) {
+      const phoneMatches = candidates.filter((c) => c.phoneKey && c.phoneKey === phoneKey);
+      if (phoneMatches.length) {
+        const existing = phoneMatches.sort((a, b) => b.updatedAt.getTime() - a.updatedAt.getTime())[0];
+        const data: any = {};
+
+        // Prefer setting a real name if the existing one looks like a placeholder.
+        const existingName = typeof existing.name === "string" ? existing.name.trim() : "";
+        const existingNameLooksLikePhone = existingName && phone && existingName.replace(/\s+/g, "") === phone.replace(/\s+/g, "");
+        if (name && (existing.nameKey === "unknown" || !existingName || existingNameLooksLikePhone)) {
+          data.name = name;
+          data.nameKey = nameKey;
+        }
+
+        if (!existing.emailKey && emailKey) {
+          data.email = email;
+          data.emailKey = emailKey;
+        }
+
+        if (!existing.phoneKey && phoneKey) {
+          data.phone = phone;
+          data.phoneKey = phoneKey;
+        }
+
+        if (Object.keys(data).length) {
+          await (prisma as any).portalContact.update({
+            where: { id: existing.id },
+            data,
+            select: { id: true },
+          });
+        }
+
+        return String(existing.id);
+      }
+    }
+
     if (best && best.score >= 2) {
       const existing = best.c;
       const data: any = {
@@ -167,6 +205,18 @@ export async function findOrCreatePortalContact(input: {
       },
       select: { id: true },
     });
+
+    // Fire automations for contact-created (best-effort, avoid hard dependency).
+    try {
+      const { runOwnerAutomationsForEvent } = await import("@/lib/portalAutomationsRunner");
+      await runOwnerAutomationsForEvent({
+        ownerId,
+        triggerKind: "contact_created",
+        contact: { id: String(created.id), name, email: emailKey ? email : null, phone: phoneKey ? phone : null },
+      });
+    } catch {
+      // ignore
+    }
 
     return String(created.id);
   } catch {

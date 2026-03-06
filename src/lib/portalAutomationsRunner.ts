@@ -71,6 +71,7 @@ type ActionKind =
   | "send_review_request"
   | "send_booking_link"
   | "update_contact"
+  | "create_contact"
   | "trigger_service";
 
 function getBasePublicUrl() {
@@ -1379,6 +1380,37 @@ async function runAutomationOnce(opts: {
                   // best-effort
                 }
               }
+            }
+          }
+
+          if (cfg.actionKind === "create_contact") {
+            const nameTemplate = String((cfg as any).contactName || "").trim();
+            const emailTemplate = String((cfg as any).contactEmail || "").trim();
+            const phoneTemplate = String((cfg as any).contactPhone || "").trim();
+
+            const vars = getTemplateVars();
+            const nextNameRaw = nameTemplate ? renderTextTemplate(nameTemplate, vars).trim().slice(0, 80) : "";
+            const nextEmailRaw = emailTemplate ? renderTextTemplate(emailTemplate, vars).trim().slice(0, 120) : "";
+            const nextPhoneRaw = phoneTemplate ? renderTextTemplate(phoneTemplate, vars).trim().slice(0, 64) : "";
+
+            const name = nextNameRaw || nextPhoneRaw || nextEmailRaw || "Contact";
+            const email = nextEmailRaw || null;
+            const phone = nextPhoneRaw || null;
+
+            try {
+              await ensurePortalContactsSchema().catch(() => null);
+              const cid = await findOrCreatePortalContact({ ownerId: opts.ownerId, name, email, phone }).catch(() => null);
+              if (cid) {
+                contactId = cid;
+                contactRow = await loadContactRow(cid);
+                ctx.contact.id = cid;
+                ctx.contact.phone = contactRow?.phone || phone || null;
+                ctx.contact.email = contactRow?.email || email || null;
+                ctx.contact.name = contactRow?.name || name || null;
+                serviceTriggerVars = await loadServiceTriggerVarsForContact(cid).catch(() => ({}));
+              }
+            } catch {
+              // best-effort
             }
           }
 

@@ -1,5 +1,6 @@
 "use client";
 
+import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { PortalPeopleTabs } from "@/app/portal/app/people/PortalPeopleTabs";
@@ -187,9 +188,13 @@ async function readJsonBody(res: Response): Promise<any | null> {
 
 export function PortalPeopleContactsClient() {
   const toast = useToast();
+  const router = useRouter();
   const [loading, setLoading] = useState(true);
   const [data, setData] = useState<ContactsPayload | null>(null);
   const [q, setQ] = useState("");
+
+  const [duplicateGroupsCount, setDuplicateGroupsCount] = useState(0);
+  const [duplicatesLoading, setDuplicatesLoading] = useState(false);
 
   const [importOpen, setImportOpen] = useState(false);
   const [importBusy, setImportBusy] = useState(false);
@@ -452,10 +457,25 @@ export function PortalPeopleContactsClient() {
     loading,
   ]);
 
+  const loadDuplicatesSummary = useCallback(async () => {
+    setDuplicatesLoading(true);
+    try {
+      const res = await fetch("/api/portal/people/contacts/duplicates?summary=1", { cache: "no-store" });
+      const body = await readJsonBody(res);
+      if (!res.ok || !body?.ok) return;
+      setDuplicateGroupsCount(Number(body.groupsCount || 0) || 0);
+    } catch {
+      // ignore
+    } finally {
+      setDuplicatesLoading(false);
+    }
+  }, []);
+
   useEffect(() => {
     void load();
     void loadOwnerTags();
-  }, [load, loadOwnerTags]);
+    void loadDuplicatesSummary();
+  }, [load, loadOwnerTags, loadDuplicatesSummary]);
 
   async function openContact(contactId: string) {
     setSelectedContactId(contactId);
@@ -776,6 +796,18 @@ export function PortalPeopleContactsClient() {
                 {q.trim() ? <span className="ml-2 text-xs font-semibold text-zinc-500">Filtered: {filteredContacts.length}</span> : null}
               </div>
               <div className="flex items-center gap-2">
+                {duplicateGroupsCount > 0 ? (
+                  <button
+                    type="button"
+                    onClick={() => router.push("/portal/app/people/contacts/duplicates")}
+                    className="rounded-2xl border border-amber-200 bg-amber-50 px-3 py-2 text-xs font-semibold text-amber-900 hover:bg-amber-100"
+                    title="Duplicates are grouped by phone number"
+                  >
+                    Duplicates ({duplicateGroupsCount})
+                  </button>
+                ) : duplicatesLoading ? (
+                  <div className="text-xs font-semibold text-zinc-400">Checking duplicates…</div>
+                ) : null}
                 <button
                   type="button"
                   onClick={openImportModal}

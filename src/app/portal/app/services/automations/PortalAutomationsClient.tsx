@@ -124,6 +124,7 @@ type ActionKind =
   | "send_review_request"
   | "send_booking_link"
   | "update_contact"
+  | "create_contact"
   | "trigger_service";
 type ConditionOp =
   | "equals"
@@ -517,6 +518,7 @@ function labelForConfig(t: BuilderNodeType, cfg: BuilderNodeConfig | undefined) 
       send_review_request: "Review Request",
       send_booking_link: "Book Appointment",
       update_contact: "Update Contact",
+      create_contact: "Create Contact",
       trigger_service: "Trigger Service",
     };
     return `Action: ${map[cfg.actionKind]}`;
@@ -4006,6 +4008,7 @@ export function PortalAutomationsClient(props: { mode?: "list" | "editor" }) {
                                 { value: "create_task", label: "Create Task" },
                                 { value: "assign_lead", label: "Assign Lead" },
                                 { value: "find_contact", label: "Find Contact" },
+                                { value: "create_contact", label: "Create Contact" },
                                 {
                                   value: "trigger_service",
                                   label: "Trigger service",
@@ -4705,7 +4708,7 @@ export function PortalAutomationsClient(props: { mode?: "list" | "editor" }) {
                                 );
                               }
 
-                              if (cfg.actionKind === "update_contact") {
+                              if (cfg.actionKind === "update_contact" || cfg.actionKind === "create_contact") {
                                 const contactName = String((cfg as any).contactName || "").slice(0, 200);
                                 const contactEmail = String((cfg as any).contactEmail || "").slice(0, 200);
                                 const contactPhone = String((cfg as any).contactPhone || "").slice(0, 64);
@@ -4792,6 +4795,12 @@ export function PortalAutomationsClient(props: { mode?: "list" | "editor" }) {
                                           onClick={() => openVariablePicker("update_contact_phone")}
                                         >
                                           Add variable
+
+                                      <div className="mt-1 text-[11px] text-zinc-600">
+                                        {cfg.actionKind === "create_contact"
+                                          ? "Creates (or reuses) a contact. Phone number de-dupes contacts."
+                                          : "Updates the current event contact."}
+                                      </div>
                                         </button>
                                       </div>
                                       <input
