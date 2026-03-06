@@ -21,6 +21,7 @@ type StoredKindSettings = {
   deliverySmsHint?: string;
   includeImages?: boolean;
   includeImagesWhereNeeded?: boolean;
+  fontKey?: "brand" | "sans" | "mono";
   audience?: {
     tagIds?: string[];
     contactIds?: string[];
@@ -100,6 +101,8 @@ function parseKindSettings(value: unknown): Required<
   const deliverySmsHint = typeof rec?.deliverySmsHint === "string" ? rec.deliverySmsHint.trim().slice(0, 800) : "";
   const includeImages = Boolean(rec?.includeImages);
   const includeImagesWhereNeeded = Boolean(rec?.includeImagesWhereNeeded);
+  const fontKeyRaw = typeof rec?.fontKey === "string" ? rec.fontKey.trim().toLowerCase() : "";
+  const fontKey = fontKeyRaw === "sans" || fontKeyRaw === "mono" || fontKeyRaw === "brand" ? (fontKeyRaw as any) : "brand";
 
   return {
     enabled,
@@ -110,6 +113,7 @@ function parseKindSettings(value: unknown): Required<
     topics,
     promptAnswers,
     audience,
+    fontKey,
     // These are optional in storage but we expose normalized values.
     ...(deliveryEmailHint ? { deliveryEmailHint } : {}),
     ...(deliverySmsHint ? { deliverySmsHint } : {}),
@@ -138,6 +142,7 @@ const putSchema = z.object({
   deliverySmsHint: z.string().trim().max(800).optional(),
   includeImages: z.boolean().optional(),
   includeImagesWhereNeeded: z.boolean().optional(),
+  fontKey: z.enum(["brand", "sans", "mono"]).optional(),
   audience: z
     .object({
       tagIds: z.array(z.string().trim().min(1).max(80)).max(200).optional(),
@@ -225,6 +230,7 @@ export async function PUT(req: Request) {
     frequencyDays: parsedBody.data.frequencyDays,
     cursor: prevKind.cursor,
     requireApproval: Boolean(parsedBody.data.requireApproval),
+    fontKey: parsedBody.data.fontKey ?? (prevKind as any).fontKey ?? "brand",
     channels: {
       email: parsedBody.data.channels ? Boolean(parsedBody.data.channels.email ?? true) : prevKind.channels.email,
       sms: parsedBody.data.channels ? Boolean(parsedBody.data.channels.sms ?? true) : prevKind.channels.sms,

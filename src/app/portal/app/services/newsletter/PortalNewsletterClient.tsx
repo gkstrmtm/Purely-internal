@@ -7,6 +7,7 @@ import { DEFAULT_TAG_COLORS } from "@/lib/tagColors.shared";
 import { RichTextMarkdownEditor } from "@/components/RichTextMarkdownEditor";
 import { PortalMediaPickerModal } from "@/components/PortalMediaPickerModal";
 import { ContactTagsEditor, type ContactTag } from "@/components/ContactTagsEditor";
+import { PortalListboxDropdown } from "@/components/PortalListboxDropdown";
 
 type AudienceTab = "external" | "internal";
 
@@ -32,6 +33,7 @@ type Settings = {
   deliverySmsHint?: string;
   includeImages?: boolean;
   includeImagesWhereNeeded?: boolean;
+  fontKey?: "sans" | "brand" | "mono";
   audience: { tagIds: string[]; contactIds: string[]; emails: string[]; userIds: string[]; sendAllUsers?: boolean };
   lastGeneratedAt: string | null;
   nextDueAt: string | null;
@@ -118,6 +120,7 @@ export function PortalNewsletterClient({ initialAudience }: { initialAudience: A
   const toast = useToast();
 
   const [audience, setAudience] = useState<AudienceTab>(initialAudience);
+  const [tab, setTab] = useState<"newsletters" | "activity">("newsletters");
 
   const [site, setSite] = useState<Site | null>(null);
   const [settings, setSettings] = useState<Settings | null>(null);
@@ -134,6 +137,14 @@ export function PortalNewsletterClient({ initialAudience }: { initialAudience: A
   const [generating, setGenerating] = useState(false);
 
   const [mode, setMode] = useState<"ai" | "manual">("ai");
+
+  const [tagSearch, setTagSearch] = useState("");
+  const [addTagValue, setAddTagValue] = useState("");
+  const [showCreateTag, setShowCreateTag] = useState(false);
+
+  const [contactSearchOpen, setContactSearchOpen] = useState(false);
+
+  const [aiStep, setAiStep] = useState<"delivery" | "images" | "guided" | "topics" | "review">("delivery");
 
   const [manualTitle, setManualTitle] = useState("");
   const [manualExcerpt, setManualExcerpt] = useState("");
@@ -249,6 +260,8 @@ export function PortalNewsletterClient({ initialAudience }: { initialAudience: A
   useEffect(() => {
     // Default to AI tab per audience switch.
     setMode("ai");
+    setTab("newsletters");
+    setAiStep("delivery");
   }, [audience]);
 
   const saveSettings = useCallback(async () => {
@@ -343,8 +356,18 @@ export function PortalNewsletterClient({ initialAudience }: { initialAudience: A
         next.sort((a, b) => a.name.localeCompare(b.name));
         return next;
       });
+
+      setSettings((prev) => {
+        if (!prev) return prev;
+        const next = new Set(prev.audience.tagIds);
+        next.add(created.id);
+        return { ...prev, audience: { ...prev.audience, tagIds: Array.from(next).slice(0, 200) } };
+      });
+
       setCreateTagName("");
       setCreateTagColor("#2563EB");
+      setShowCreateTag(false);
+      setAddTagValue("");
       toast.success("Tag created");
     } finally {
       setCreateTagBusy(false);
@@ -593,8 +616,36 @@ export function PortalNewsletterClient({ initialAudience }: { initialAudience: A
     await refresh();
   }, [refresh, toast]);
 
-  const selectedTagIds = new Set(settings?.audience?.tagIds ?? []);
   const selectedContactIds = new Set(settings?.audience?.contactIds ?? []);
+
+  const tagById = useMemo(() => {
+    const m = new Map<string, Tag>();
+    for (const t of tags) m.set(t.id, t);
+    return m;
+  }, [tags]);
+
+  const addTagOptions = useMemo(() => {
+    const q = tagSearch.trim().toLowerCase();
+    const selected = new Set(settings?.audience?.tagIds ?? []);
+    const filtered = q
+      ? tags.filter((t) => t.name.toLowerCase().includes(q))
+      : tags;
+
+    const out: Array<{ value: string; label: string; disabled?: boolean; hint?: string }> = [
+      { value: "", label: "Add tag…", disabled: true },
+      ...filtered
+        .slice(0, 120)
+        .map((t) => ({
+          value: t.id,
+          label: t.name,
+          hint: selected.has(t.id) ? "Already added" : undefined,
+          disabled: selected.has(t.id),
+        })),
+      { value: "__create__", label: "Create new tag…" },
+    ];
+
+    return out as any;
+  }, [settings?.audience?.tagIds, tagSearch, tags]);
 
   const promptFields = useMemo(() => {
     if (audience === "internal") {
@@ -613,6 +664,57 @@ export function PortalNewsletterClient({ initialAudience }: { initialAudience: A
     ];
   }, [audience]);
 
+  const aiStepOrder = ["delivery", "images", "guided", "topics", "review"] as const;
+  const aiStepIndex = Math.max(0, aiStepOrder.indexOf(aiStep));
+  const aiStepLabel = (step: (typeof aiStepOrder)[number]) => {
+    switch (step) {
+      case "delivery":
+        return "Delivery";
+      case "images":
+        return "Images";
+      case "guided":
+        return "Guided prompt";
+      case "topics":
+        return "Topic hints";
+      case "review":
+        return "Review";
+    }
+  };
+
+  const reviewSynopsis = useMemo(() => {
+    if (!settings) return "";
+    const channelParts = [settings.channels.email ? "Email" : null, settings.channels.sms ? "SMS" : null].filter(Boolean);
+    const font = settings.fontKey ?? "brand";
+    const enabledLine = settings.enabled ? `Enabled · every ${settings.frequencyDays}d` : "Disabled";
+    const approvalLine = settings.requireApproval ? "Requires approval (creates READY drafts)" : "Auto-send (sends immediately)";
+    const imagesLine = settings.includeImages
+      ? `Images: yes${settings.includeImagesWhereNeeded ? " (only where needed)" : ""}`
+      : "Images: no";
+    const topicsCount = (settings.topics ?? []).length;
+
+    const lines: string[] = [];
+    lines.push(audience === "internal" ? "Internal newsletter" : "External newsletter");
+    lines.push("");
+    lines.push(`Schedule: ${enabledLine}`);
+    lines.push(`Approval: ${approvalLine}`);
+    lines.push(`Channels: ${channelParts.length ? channelParts.join(" + ") : "None"}`);
+    lines.push(`Font: ${font}`);
+    lines.push(imagesLine);
+    lines.push(`Topic hints: ${topicsCount}`);
+    lines.push("");
+    lines.push("Delivery guidance");
+    lines.push(`- Email: ${(settings.deliveryEmailHint || "(none)").trim().slice(0, 240)}`);
+    lines.push(`- SMS: ${(settings.deliverySmsHint || "(none)").trim().slice(0, 240)}`);
+    lines.push("");
+    lines.push("Guided prompt");
+    for (const f of promptFields) {
+      const v = (settings.promptAnswers?.[f.key] ?? "").trim();
+      if (!v) continue;
+      lines.push(`- ${f.label}: ${v.slice(0, 260)}`);
+    }
+    return lines.join("\n");
+  }, [audience, promptFields, settings]);
+
   if (loading) {
     return (
       <div className="mx-auto w-full max-w-6xl">
@@ -623,104 +725,254 @@ export function PortalNewsletterClient({ initialAudience }: { initialAudience: A
 
   return (
     <div className="mx-auto w-full max-w-6xl">
-      <div className="flex flex-wrap items-start justify-between gap-4">
+      <div className="flex flex-col items-start justify-between gap-3 sm:flex-row sm:items-end">
         <div>
-          <h1 className="text-2xl font-bold text-brand-ink sm:text-3xl">Newsletter</h1>
-          <p className="mt-2 max-w-2xl text-sm text-zinc-600">
-            AI newsletters cost 30 credits per generation. Send by email and SMS (SMS includes a link to the hosted page).
+          <h1 className="text-2xl font-bold text-brand-ink sm:text-3xl">Your newsletters</h1>
+          <p className="mt-1 max-w-2xl text-sm text-zinc-600">
+            Capture—or reach out to—thousands with curated newsletters from your AI assistant.
           </p>
         </div>
-
-        <div className="flex items-center gap-2">
-          <Link
-            href="/portal/app/billing"
-            className="rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm font-semibold text-zinc-700 hover:bg-zinc-50"
-          >
-            {credits === null ? "Credits" : `Credits: ${credits}`}
-          </Link>
+        <div className="flex w-full flex-col gap-2 sm:w-auto sm:flex-row sm:items-center">
           <Link
             href={billingPath}
-            className="rounded-2xl bg-zinc-900 px-4 py-2 text-sm font-semibold text-white hover:bg-zinc-800"
+            className="inline-flex items-center justify-center rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm font-semibold text-brand-ink hover:bg-zinc-50"
           >
             Billing
           </Link>
         </div>
       </div>
 
-      <div className="mt-6 rounded-3xl border border-zinc-200 bg-white p-2">
-        <div className="flex flex-wrap items-center gap-2">
-          <button
-            type="button"
-            onClick={() => setMode("ai")}
-            className={
-              "rounded-2xl border px-4 py-2 text-sm font-semibold transition " +
-              (mode === "ai" ? "border-zinc-900 bg-zinc-900 text-white" : "border-zinc-200 bg-white text-zinc-700 hover:bg-zinc-50")
-            }
-          >
-            AI
-          </button>
-          <button
-            type="button"
-            onClick={() => setMode("manual")}
-            className={
-              "rounded-2xl border px-4 py-2 text-sm font-semibold transition " +
-              (mode === "manual" ? "border-zinc-900 bg-zinc-900 text-white" : "border-zinc-200 bg-white text-zinc-700 hover:bg-zinc-50")
-            }
-          >
-            Manual
-          </button>
-
-          <button
-            type="button"
-            onClick={() => setAudience("external")}
-            className={
-              "rounded-2xl border px-4 py-2 text-sm font-semibold transition " +
-              (audience === "external"
-                ? "border-zinc-900 bg-zinc-900 text-white"
-                : "border-zinc-200 bg-white text-zinc-700 hover:bg-zinc-50")
-            }
-          >
-            External (Leads/Customers)
-          </button>
-          <button
-            type="button"
-            onClick={() => setAudience("internal")}
-            className={
-              "rounded-2xl border px-4 py-2 text-sm font-semibold transition " +
-              (audience === "internal"
-                ? "border-zinc-900 bg-zinc-900 text-white"
-                : "border-zinc-200 bg-white text-zinc-700 hover:bg-zinc-50")
-            }
-          >
-            Internal (Team)
-          </button>
-
-          <div className="ml-auto flex items-center gap-2">
-            <button
-              type="button"
-              onClick={saveSettings}
-              disabled={saving || !settings}
-              className="rounded-2xl bg-zinc-900 px-4 py-2 text-sm font-semibold text-white shadow-sm hover:bg-zinc-800 disabled:opacity-50"
-            >
-              {saving ? "Saving…" : "Save"}
-            </button>
-            {mode === "ai" ? (
-              <button
-                type="button"
-                onClick={generateNow}
-                disabled={generating}
-                className="rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm font-semibold text-zinc-700 hover:bg-zinc-50 disabled:opacity-50"
-              >
-                {generating ? "Generating…" : "Generate now (30 credits)"}
-              </button>
-            ) : null}
-          </div>
-        </div>
+      <div className="mt-6 flex w-full flex-wrap gap-2">
+        <button
+          type="button"
+          onClick={() => setAudience("external")}
+          aria-current={audience === "external" ? "page" : undefined}
+          className={
+            "flex-1 min-w-40 rounded-2xl border px-4 py-2.5 text-sm font-semibold transition focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-ink/60 " +
+            (audience === "external"
+              ? "border-(--color-brand-blue) bg-(--color-brand-blue) text-white shadow-sm"
+              : "border-zinc-200 bg-white text-zinc-700 hover:bg-zinc-50")
+          }
+        >
+          External
+        </button>
+        <button
+          type="button"
+          onClick={() => setAudience("internal")}
+          aria-current={audience === "internal" ? "page" : undefined}
+          className={
+            "flex-1 min-w-40 rounded-2xl border px-4 py-2.5 text-sm font-semibold transition focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-ink/60 " +
+            (audience === "internal"
+              ? "border-(--color-brand-pink) bg-(--color-brand-pink) text-white shadow-sm"
+              : "border-zinc-200 bg-white text-zinc-700 hover:bg-zinc-50")
+          }
+        >
+          Internal
+        </button>
       </div>
 
-      <div className="mt-4 grid gap-4 lg:grid-cols-3">
+      <div className="mt-3 flex w-full flex-wrap gap-2">
+        <button
+          type="button"
+          onClick={() => setTab("newsletters")}
+          aria-current={tab === "newsletters" ? "page" : undefined}
+          className={
+            "flex-1 min-w-40 rounded-2xl border px-4 py-2.5 text-sm font-semibold transition focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-ink/60 " +
+            (tab === "newsletters"
+              ? "border-zinc-900 bg-zinc-900 text-white shadow-sm"
+              : "border-zinc-200 bg-white text-zinc-700 hover:bg-zinc-50")
+          }
+        >
+          Newsletters
+        </button>
+        <button
+          type="button"
+          onClick={() => setTab("activity")}
+          aria-current={tab === "activity" ? "page" : undefined}
+          className={
+            "flex-1 min-w-40 rounded-2xl border px-4 py-2.5 text-sm font-semibold transition focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-ink/60 " +
+            (tab === "activity"
+              ? "border-zinc-900 bg-zinc-900 text-white shadow-sm"
+              : "border-zinc-200 bg-white text-zinc-700 hover:bg-zinc-50")
+          }
+        >
+          Activity
+        </button>
+      </div>
+
+      {tab === "newsletters" ? (
+        <>
+          <div className="mt-6 rounded-3xl border border-zinc-200 bg-white p-6 shadow-sm">
+            <div className="flex flex-col items-start justify-between gap-3 sm:flex-row sm:items-center">
+              <div>
+                <div className="text-sm font-semibold text-zinc-900">Your newsletters</div>
+                <div className="mt-2 text-sm text-zinc-600">Draft, send, and keep your updates organized.</div>
+              </div>
+              <button
+                type="button"
+                onClick={refresh}
+                className="inline-flex items-center justify-center rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm font-semibold text-brand-ink hover:bg-zinc-50"
+              >
+                Refresh
+              </button>
+            </div>
+
+            <div className="mt-5 grid grid-cols-1 gap-3 sm:grid-cols-2">
+              <div className="rounded-2xl border border-zinc-200 bg-linear-to-br from-zinc-50 to-white p-4 shadow-sm">
+                <div className="text-xs font-semibold text-zinc-600">Total credits</div>
+                <div className="mt-2 text-2xl font-bold text-brand-ink">{credits === null ? "N/A" : credits.toLocaleString()}</div>
+              </div>
+              <div className="rounded-2xl border border-zinc-200 bg-linear-to-br from-(--color-brand-mist) to-white p-4 shadow-sm">
+                <div className="text-xs font-semibold text-zinc-600">Newsletter credits used</div>
+                <div className="mt-2 text-2xl font-bold text-brand-ink">{creditsUsed30d === null ? "N/A" : creditsUsed30d.toLocaleString()}</div>
+                <div className="mt-1 text-xs text-zinc-500">
+                  Last 30 days · {generations30d === null ? "N/A" : generations30d} generation{generations30d === 1 ? "" : "s"} · 30 credits/generation
+                </div>
+              </div>
+            </div>
+
+            <div className="mt-5 overflow-hidden rounded-2xl border border-zinc-200">
+              <table className="w-full text-left text-sm">
+                <thead className="bg-zinc-50 text-xs font-semibold text-zinc-600">
+                  <tr>
+                    <th className="px-4 py-3">Title</th>
+                    <th className="px-4 py-3">Status</th>
+                    <th className="px-4 py-3">Updated</th>
+                    <th className="px-4 py-3 text-right"></th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {newsletters.length === 0 ? (
+                    <tr>
+                      <td className="px-4 py-4 text-zinc-600" colSpan={4}>
+                        No newsletters yet.
+                      </td>
+                    </tr>
+                  ) : (
+                    newsletters.map((n) => {
+                      const statusLabel = n.status === "SENT" ? "Sent" : n.status === "READY" ? "Ready" : "Draft";
+                      const statusClasses =
+                        n.status === "SENT"
+                          ? "bg-emerald-50 text-emerald-700"
+                          : n.status === "READY"
+                            ? "bg-amber-50 text-amber-700"
+                            : "bg-zinc-100 text-zinc-700";
+
+                      const publicPath = siteHandle && n.status === "SENT"
+                        ? `${audience === "internal" ? `/${siteHandle}/internal-newsletters` : `/${siteHandle}/newsletters`}/${n.slug}`
+                        : null;
+
+                      return (
+                        <tr key={n.id} className="border-t border-zinc-200">
+                          <td className="px-4 py-3">
+                            <button
+                              type="button"
+                              onClick={() => void openDraft(n.id)}
+                              className="font-semibold text-brand-ink hover:underline"
+                            >
+                              {n.title || "(untitled)"}
+                            </button>
+                            <div className="mt-1 truncate text-xs text-zinc-500">/{n.slug}</div>
+                          </td>
+                          <td className="px-4 py-3">
+                            <span className={"inline-flex rounded-full px-2 py-1 text-xs font-semibold " + statusClasses}>
+                              {statusLabel}
+                            </span>
+                          </td>
+                          <td className="px-4 py-3 text-zinc-600">{formatDate(n.updatedAtIso)}</td>
+                          <td className="px-4 py-3">
+                            <div className="flex flex-wrap items-center justify-end gap-2">
+                              {publicPath ? (
+                                <Link
+                                  href={publicPath}
+                                  target="_blank"
+                                  className="rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-xs font-semibold text-zinc-700 hover:bg-zinc-50"
+                                >
+                                  View hosted
+                                </Link>
+                              ) : null}
+
+                              <button
+                                type="button"
+                                onClick={() => void openDraft(n.id)}
+                                className="rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-xs font-semibold text-zinc-700 hover:bg-zinc-50"
+                              >
+                                {n.status === "SENT" ? "Edit hosted" : "Edit / preview"}
+                              </button>
+
+                              {n.status === "READY" ? (
+                                <button
+                                  type="button"
+                                  onClick={() => void sendReady(n.id)}
+                                  className="rounded-2xl bg-zinc-900 px-3 py-2 text-xs font-semibold text-white hover:bg-zinc-800"
+                                >
+                                  Send now
+                                </button>
+                              ) : null}
+                            </div>
+                          </td>
+                        </tr>
+                      );
+                    })
+                  )}
+                </tbody>
+              </table>
+            </div>
+          </div>
+
+          <div className="mt-4 grid gap-4 lg:grid-cols-3">
         <div className="rounded-3xl border border-zinc-200 bg-white p-6 lg:col-span-2">
-          {mode === "ai" ? <div className="text-sm font-semibold text-zinc-900">Automation</div> : <div className="text-sm font-semibold text-zinc-900">Manual composer</div>}
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+            <div>
+              <div className="text-sm font-semibold text-zinc-900">Composer</div>
+              <div className="mt-1 text-sm text-zinc-600">Use AI to draft content, or write it manually.</div>
+            </div>
+
+            <div className="flex flex-wrap items-center gap-2">
+              <button
+                type="button"
+                onClick={() => setMode("ai")}
+                className={
+                  "inline-flex items-center gap-2 rounded-2xl px-4 py-2 text-xs font-semibold transition " +
+                  (mode === "ai" ? "bg-zinc-900 text-white hover:bg-zinc-800" : "border border-zinc-200 bg-white text-zinc-700 hover:bg-zinc-50")
+                }
+              >
+                <svg
+                  aria-hidden="true"
+                  viewBox="0 0 24 24"
+                  className="h-4 w-4"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="2"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                >
+                  <path d="M12 2l1.5 5.5L19 9l-5.5 1.5L12 16l-1.5-5.5L5 9l5.5-1.5L12 2z" />
+                  <path d="M19 14l.8 2.6L22 17l-2.2.4L19 20l-.8-2.6L16 17l2.2-.4L19 14z" />
+                </svg>
+                <span>AI</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => setMode("manual")}
+                className={
+                  "inline-flex items-center gap-2 rounded-2xl px-4 py-2 text-xs font-semibold transition " +
+                  (mode === "manual" ? "bg-zinc-900 text-white hover:bg-zinc-800" : "border border-zinc-200 bg-white text-zinc-700 hover:bg-zinc-50")
+                }
+              >
+                <span>Manual</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={saveSettings}
+                disabled={saving || !settings}
+                className="inline-flex items-center justify-center rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-xs font-semibold text-zinc-700 hover:bg-zinc-50 disabled:opacity-50"
+              >
+                {saving ? "Saving…" : "Save"}
+              </button>
+            </div>
+          </div>
 
           {mode === "manual" ? (
             <div className="mt-3 grid gap-4">
@@ -739,7 +991,7 @@ export function PortalNewsletterClient({ initialAudience }: { initialAudience: A
                 <textarea
                   value={manualExcerpt}
                   onChange={(e) => setManualExcerpt(e.target.value)}
-                  className="mt-1 min-h-[90px] w-full rounded-2xl border border-zinc-200 bg-white px-4 py-3 text-sm outline-none focus:border-zinc-300"
+                  className="mt-1 min-h-22.5 w-full rounded-2xl border border-zinc-200 bg-white px-4 py-3 text-sm outline-none focus:border-zinc-300"
                   placeholder="Write the email message. The hosted link is appended automatically."
                 />
               </div>
@@ -906,7 +1158,7 @@ export function PortalNewsletterClient({ initialAudience }: { initialAudience: A
 
                 {manualImagePreviewOpen && manualImagePreview ? (
                   <div
-                    className="fixed inset-0 z-[9998] flex items-end justify-center bg-black/40 p-3 sm:items-center"
+                    className="fixed inset-0 z-9998 flex items-end justify-center bg-black/40 p-3 sm:items-center"
                     onMouseDown={() => {
                       if (manualImageImporting) return;
                       setManualImagePreviewOpen(false);
@@ -944,7 +1196,7 @@ export function PortalNewsletterClient({ initialAudience }: { initialAudience: A
 
                       <div className="mt-3 flex flex-wrap items-center justify-between gap-2">
                         <a
-                          className="text-xs font-semibold text-[color:var(--color-brand-blue)] hover:underline"
+                          className="text-xs font-semibold text-(--color-brand-blue) hover:underline"
                           href={manualImagePreview.sourcePage}
                           target="_blank"
                           rel="noreferrer"
@@ -1077,245 +1329,420 @@ export function PortalNewsletterClient({ initialAudience }: { initialAudience: A
 
           {mode === "ai" ? (
             <>
-          <div className="mt-3 grid gap-4 sm:grid-cols-2">
-            <label className="flex items-center gap-3 rounded-2xl border border-zinc-200 bg-white px-4 py-3">
-              <input
-                type="checkbox"
-                checked={Boolean(settings?.enabled)}
-                onChange={(e) => setSettings((prev) => (prev ? { ...prev, enabled: e.target.checked } : prev))}
-              />
-              <div className="text-sm font-semibold text-zinc-800">Enabled</div>
-            </label>
-
-            <label className="rounded-2xl border border-zinc-200 bg-white px-4 py-3">
-              <div className="text-xs font-semibold uppercase tracking-wide text-zinc-500">Frequency (days)</div>
-              <input
-                type="number"
-                min={1}
-                max={30}
-                value={settings?.frequencyDays ?? 7}
-                onChange={(e) =>
-                  setSettings((prev) =>
-                    prev ? { ...prev, frequencyDays: Math.max(1, Math.min(30, Math.floor(Number(e.target.value) || 7))) } : prev,
-                  )
-                }
-                className="mt-2 w-full rounded-xl border border-zinc-200 px-3 py-2 text-sm"
-              />
-            </label>
-
-            <label className="flex items-center gap-3 rounded-2xl border border-zinc-200 bg-white px-4 py-3">
-              <input
-                type="checkbox"
-                checked={Boolean(settings?.requireApproval)}
-                onChange={(e) => setSettings((prev) => (prev ? { ...prev, requireApproval: e.target.checked } : prev))}
-              />
-              <div>
-                <div className="text-sm font-semibold text-zinc-800">Require approval</div>
-                <div className="mt-1 text-xs text-zinc-500">If enabled, scheduled runs create READY drafts you manually send.</div>
+              <div className="mt-4 rounded-2xl border border-zinc-200 bg-zinc-50 p-3">
+                <div className="flex flex-wrap gap-2">
+                  {aiStepOrder.map((s, idx) => {
+                    const active = s === aiStep;
+                    return (
+                      <button
+                        key={s}
+                        type="button"
+                        onClick={() => setAiStep(s)}
+                        className={
+                          "rounded-2xl border px-3 py-2 text-xs font-semibold transition " +
+                          (active
+                            ? "border-zinc-900 bg-zinc-900 text-white"
+                            : "border-zinc-200 bg-white text-zinc-700 hover:bg-zinc-50")
+                        }
+                      >
+                        {idx + 1}. {aiStepLabel(s)}
+                      </button>
+                    );
+                  })}
+                </div>
               </div>
-            </label>
 
-            <div className="rounded-2xl border border-zinc-200 bg-white px-4 py-3">
-              <div className="text-xs font-semibold uppercase tracking-wide text-zinc-500">Channels</div>
-              <div className="mt-2 flex flex-wrap gap-4 text-sm">
-                <label className="flex items-center gap-2">
-                  <input
-                    type="checkbox"
-                    checked={Boolean(settings?.channels?.email)}
-                    onChange={(e) =>
-                      setSettings((prev) => (prev ? { ...prev, channels: { ...prev.channels, email: e.target.checked } } : prev))
-                    }
-                  />
-                  Email
-                </label>
-                <label className="flex items-center gap-2">
-                  <input
-                    type="checkbox"
-                    checked={Boolean(settings?.channels?.sms)}
-                    onChange={(e) =>
-                      setSettings((prev) => (prev ? { ...prev, channels: { ...prev.channels, sms: e.target.checked } } : prev))
-                    }
-                  />
-                  SMS (link)
-                </label>
-              </div>
-            </div>
+              {aiStep === "delivery" ? (
+                <div className="mt-4 grid gap-4 sm:grid-cols-2">
+                  <label className="flex items-center gap-3 rounded-2xl border border-zinc-200 bg-white px-4 py-3">
+                    <input
+                      type="checkbox"
+                      checked={Boolean(settings?.enabled)}
+                      onChange={(e) => setSettings((prev) => (prev ? { ...prev, enabled: e.target.checked } : prev))}
+                    />
+                    <div className="text-sm font-semibold text-zinc-800">Enabled</div>
+                  </label>
 
-            <div className="rounded-2xl border border-zinc-200 bg-white px-4 py-3 sm:col-span-2">
-              <div className="text-xs font-semibold uppercase tracking-wide text-zinc-500">Delivery copy (AI)</div>
-              <div className="mt-2 grid gap-3 sm:grid-cols-2">
-                <label className="block">
-                  <div className="text-xs font-semibold text-zinc-600">Email message guidance</div>
+                  <label className="rounded-2xl border border-zinc-200 bg-white px-4 py-3">
+                    <div className="text-xs font-semibold uppercase tracking-wide text-zinc-500">Frequency (days)</div>
+                    <input
+                      type="number"
+                      min={1}
+                      max={30}
+                      value={settings?.frequencyDays ?? 7}
+                      onChange={(e) =>
+                        setSettings((prev) =>
+                          prev ? { ...prev, frequencyDays: Math.max(1, Math.min(30, Math.floor(Number(e.target.value) || 7))) } : prev,
+                        )
+                      }
+                      className="mt-2 w-full rounded-xl border border-zinc-200 px-3 py-2 text-sm"
+                    />
+                  </label>
+
+                  <label className="flex items-center gap-3 rounded-2xl border border-zinc-200 bg-white px-4 py-3">
+                    <input
+                      type="checkbox"
+                      checked={Boolean(settings?.requireApproval)}
+                      onChange={(e) => setSettings((prev) => (prev ? { ...prev, requireApproval: e.target.checked } : prev))}
+                    />
+                    <div>
+                      <div className="text-sm font-semibold text-zinc-800">Require approval</div>
+                      <div className="mt-1 text-xs text-zinc-500">If enabled, scheduled runs create READY drafts you manually send.</div>
+                    </div>
+                  </label>
+
+                  <div className="rounded-2xl border border-zinc-200 bg-white px-4 py-3">
+                    <div className="text-xs font-semibold uppercase tracking-wide text-zinc-500">Channels</div>
+                    <div className="mt-2 flex flex-wrap gap-4 text-sm">
+                      <label className="flex items-center gap-2">
+                        <input
+                          type="checkbox"
+                          checked={Boolean(settings?.channels?.email)}
+                          onChange={(e) =>
+                            setSettings((prev) => (prev ? { ...prev, channels: { ...prev.channels, email: e.target.checked } } : prev))
+                          }
+                        />
+                        Email
+                      </label>
+                      <label className="flex items-center gap-2">
+                        <input
+                          type="checkbox"
+                          checked={Boolean(settings?.channels?.sms)}
+                          onChange={(e) =>
+                            setSettings((prev) => (prev ? { ...prev, channels: { ...prev.channels, sms: e.target.checked } } : prev))
+                          }
+                        />
+                        SMS (link)
+                      </label>
+                    </div>
+                  </div>
+
+                  <div className="rounded-2xl border border-zinc-200 bg-white px-4 py-3 sm:col-span-2">
+                    <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                      <div>
+                        <div className="text-xs font-semibold uppercase tracking-wide text-zinc-500">Delivery copy (AI)</div>
+                        <div className="mt-1 text-xs text-zinc-500">Guide the tone and length. The system appends the hosted link.</div>
+                      </div>
+                      <div className="w-full sm:w-56">
+                        <div className="text-xs font-semibold uppercase tracking-wide text-zinc-500">Font</div>
+                        <div className="mt-1">
+                          <PortalListboxDropdown
+                            value={(settings?.fontKey ?? "brand") as any}
+                            options={
+                              [
+                                { value: "brand", label: "Brand" },
+                                { value: "sans", label: "Sans" },
+                                { value: "mono", label: "Mono" },
+                              ] as any
+                            }
+                            onChange={(v) => setSettings((prev) => (prev ? { ...prev, fontKey: v as any } : prev))}
+                            placeholder="Font"
+                          />
+                        </div>
+                      </div>
+                    </div>
+
+                    <div className="mt-3 grid gap-3 sm:grid-cols-2">
+                      <label className="block">
+                        <div className="text-xs font-semibold text-zinc-600">Email message guidance</div>
+                        <textarea
+                          value={settings?.deliveryEmailHint ?? ""}
+                          onChange={(e) =>
+                            setSettings((prev) => (prev ? { ...prev, deliveryEmailHint: e.target.value.slice(0, 1500) } : prev))
+                          }
+                          rows={3}
+                          className="mt-1 w-full rounded-2xl border border-zinc-200 px-3 py-2 text-sm"
+                          placeholder="Example: Keep it short. Mention the key value + 1 clear CTA."
+                        />
+                      </label>
+                      <label className="block">
+                        <div className="text-xs font-semibold text-zinc-600">SMS message guidance</div>
+                        <textarea
+                          value={settings?.deliverySmsHint ?? ""}
+                          onChange={(e) => setSettings((prev) => (prev ? { ...prev, deliverySmsHint: e.target.value.slice(0, 800) } : prev))}
+                          rows={3}
+                          className="mt-1 w-full rounded-2xl border border-zinc-200 px-3 py-2 text-sm"
+                          placeholder="Example: Under 140 characters if possible. Direct and friendly."
+                        />
+                      </label>
+                    </div>
+                  </div>
+
+                  <div className="rounded-2xl border border-zinc-200 bg-white px-4 py-3">
+                    <div className="text-xs font-semibold uppercase tracking-wide text-zinc-500">Last generated</div>
+                    <div className="mt-2 text-sm text-zinc-800">{formatDate(settings?.lastGeneratedAt ?? null) || "N/A"}</div>
+                  </div>
+                  <div className="rounded-2xl border border-zinc-200 bg-white px-4 py-3">
+                    <div className="text-xs font-semibold uppercase tracking-wide text-zinc-500">Next due</div>
+                    <div className="mt-2 text-sm text-zinc-800">{formatDate(settings?.nextDueAt ?? null) || "N/A"}</div>
+                  </div>
+                </div>
+              ) : null}
+
+              {aiStep === "images" ? (
+                <div className="mt-4 rounded-2xl border border-zinc-200 bg-white px-4 py-3">
+                  <div className="text-sm font-semibold text-zinc-900">Images (AI)</div>
+                  <div className="mt-1 text-sm text-zinc-600">Pull royalty-free images from Wikimedia Commons and insert into the hosted page.</div>
+                  <div className="mt-3 flex flex-wrap gap-4 text-sm">
+                    <label className="flex items-center gap-2">
+                      <input
+                        type="checkbox"
+                        checked={Boolean(settings?.includeImages)}
+                        onChange={(e) => setSettings((prev) => (prev ? { ...prev, includeImages: e.target.checked } : prev))}
+                      />
+                      Include royalty-free images
+                    </label>
+                    <label className="flex items-center gap-2">
+                      <input
+                        type="checkbox"
+                        checked={Boolean(settings?.includeImagesWhereNeeded)}
+                        onChange={(e) => setSettings((prev) => (prev ? { ...prev, includeImagesWhereNeeded: e.target.checked } : prev))}
+                        disabled={!Boolean(settings?.includeImages)}
+                      />
+                      Only where needed
+                    </label>
+                  </div>
+                </div>
+              ) : null}
+
+              {aiStep === "guided" ? (
+                <div className="mt-4">
+                  <div className="text-sm font-semibold text-zinc-900">Guided prompt</div>
+                  <div className="mt-2 text-sm text-zinc-600">Answer a few questions to steer the next draft.</div>
+                  <div className="mt-3 grid gap-3">
+                    {promptFields.map((f) => (
+                      <label key={f.key} className="block">
+                        <div className="text-xs font-semibold uppercase tracking-wide text-zinc-500">{f.label}</div>
+                        <textarea
+                          value={settings?.promptAnswers?.[f.key] ?? ""}
+                          onChange={(e) =>
+                            setSettings((prev) =>
+                              prev
+                                ? { ...prev, promptAnswers: { ...prev.promptAnswers, [f.key]: e.target.value.slice(0, 2000) } }
+                                : prev,
+                            )
+                          }
+                          rows={3}
+                          className="mt-2 w-full rounded-2xl border border-zinc-200 px-3 py-2 text-sm"
+                          placeholder={audience === "internal" ? "Type a few bullets…" : "Type a few sentences…"}
+                        />
+                      </label>
+                    ))}
+                  </div>
+                </div>
+              ) : null}
+
+              {aiStep === "topics" ? (
+                <div className="mt-4">
+                  <div className="text-sm font-semibold text-zinc-900">Topic hints (optional)</div>
+                  <div className="mt-2 text-sm text-zinc-600">One per line. The generator rotates through these over time.</div>
                   <textarea
-                    value={settings?.deliveryEmailHint ?? ""}
-                    onChange={(e) => setSettings((prev) => (prev ? { ...prev, deliveryEmailHint: e.target.value.slice(0, 1500) } : prev))}
-                    rows={3}
-                    className="mt-1 w-full rounded-2xl border border-zinc-200 px-3 py-2 text-sm"
-                    placeholder="Example: Keep it short. Mention the key value + 1 clear CTA. No URL; the system appends the hosted link."
+                    value={(settings?.topics ?? []).join("\n")}
+                    onChange={(e) => setSettings((prev) => (prev ? { ...prev, topics: splitLines(e.target.value) } : prev))}
+                    rows={6}
+                    className="mt-3 w-full rounded-2xl border border-zinc-200 px-3 py-2 text-sm"
+                    placeholder={audience === "internal" ? "Weekly priorities\nOps changes\nHiring" : "Seasonal maintenance tips\nBefore/after photos\nFAQ"}
                   />
-                </label>
-                <label className="block">
-                  <div className="text-xs font-semibold text-zinc-600">SMS message guidance</div>
-                  <textarea
-                    value={settings?.deliverySmsHint ?? ""}
-                    onChange={(e) => setSettings((prev) => (prev ? { ...prev, deliverySmsHint: e.target.value.slice(0, 800) } : prev))}
-                    rows={3}
-                    className="mt-1 w-full rounded-2xl border border-zinc-200 px-3 py-2 text-sm"
-                    placeholder="Example: Under 140 characters if possible. Direct and friendly. No URL (system appends link)."
-                  />
-                </label>
+                </div>
+              ) : null}
+
+              {aiStep === "review" ? (
+                <div className="mt-4 rounded-2xl border border-zinc-200 bg-white p-4">
+                  <div className="text-sm font-semibold text-zinc-900">Review</div>
+                  <div className="mt-1 text-sm text-zinc-600">Confirm the inputs, then generate a draft (30 credits).</div>
+                  <pre className="mt-3 whitespace-pre-wrap wrap-break-word rounded-2xl border border-zinc-200 bg-zinc-50 p-3 text-xs text-zinc-800">
+                    {reviewSynopsis || "No settings loaded."}
+                  </pre>
+
+                  <div className="mt-3 flex flex-wrap items-center justify-end gap-2">
+                    <button
+                      type="button"
+                      className="rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm font-semibold text-zinc-700 hover:bg-zinc-50 disabled:opacity-60"
+                      disabled={saving || !settings}
+                      onClick={saveSettings}
+                    >
+                      {saving ? "Saving…" : "Save"}
+                    </button>
+                    <button
+                      type="button"
+                      disabled={generating || saving || !settings}
+                      onClick={async () => {
+                        await saveSettings();
+                        await generateNow();
+                      }}
+                      className={
+                        "inline-flex items-center gap-2 rounded-2xl px-4 py-2 text-sm font-semibold " +
+                        (generating || saving || !settings ? "bg-zinc-200 text-zinc-600" : "bg-zinc-900 text-white hover:bg-zinc-800")
+                      }
+                    >
+                      <svg
+                        aria-hidden="true"
+                        viewBox="0 0 24 24"
+                        className="h-4 w-4"
+                        fill="none"
+                        stroke="currentColor"
+                        strokeWidth="2"
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                      >
+                        <path d="M12 2l1.5 5.5L19 9l-5.5 1.5L12 16l-1.5-5.5L5 9l5.5-1.5L12 2z" />
+                        <path d="M19 14l.8 2.6L22 17l-2.2.4L19 20l-.8-2.6L16 17l2.2-.4L19 14z" />
+                      </svg>
+                      <span>{generating ? "Generating…" : "Generate"}</span>
+                    </button>
+                  </div>
+                </div>
+              ) : null}
+
+              <div className="mt-4 flex flex-wrap items-center justify-between gap-2">
+                <button
+                  type="button"
+                  disabled={aiStepIndex <= 0}
+                  onClick={() => setAiStep(aiStepOrder[Math.max(0, aiStepIndex - 1)])}
+                  className="rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm font-semibold text-zinc-700 hover:bg-zinc-50 disabled:opacity-50"
+                >
+                  Back
+                </button>
+                <button
+                  type="button"
+                  disabled={aiStepIndex >= aiStepOrder.length - 1}
+                  onClick={() => setAiStep(aiStepOrder[Math.min(aiStepOrder.length - 1, aiStepIndex + 1)])}
+                  className="rounded-2xl bg-zinc-900 px-4 py-2 text-sm font-semibold text-white hover:bg-zinc-800 disabled:opacity-50"
+                >
+                  Next
+                </button>
               </div>
-            </div>
-
-            <div className="rounded-2xl border border-zinc-200 bg-white px-4 py-3 sm:col-span-2">
-              <div className="text-xs font-semibold uppercase tracking-wide text-zinc-500">Images (AI)</div>
-              <div className="mt-2 flex flex-wrap gap-4 text-sm">
-                <label className="flex items-center gap-2">
-                  <input
-                    type="checkbox"
-                    checked={Boolean(settings?.includeImages)}
-                    onChange={(e) => setSettings((prev) => (prev ? { ...prev, includeImages: e.target.checked } : prev))}
-                  />
-                  Include royalty-free images
-                </label>
-                <label className="flex items-center gap-2">
-                  <input
-                    type="checkbox"
-                    checked={Boolean(settings?.includeImagesWhereNeeded)}
-                    onChange={(e) => setSettings((prev) => (prev ? { ...prev, includeImagesWhereNeeded: e.target.checked } : prev))}
-                    disabled={!Boolean(settings?.includeImages)}
-                  />
-                  Only where needed
-                </label>
-                <div className="text-xs text-zinc-500">Images are pulled from Wikimedia Commons and inserted into the hosted page Markdown.</div>
-              </div>
-            </div>
-          </div>
-
-          <div className="mt-5 grid gap-4 sm:grid-cols-2">
-            <div className="rounded-2xl border border-zinc-200 bg-white px-4 py-3">
-              <div className="text-xs font-semibold uppercase tracking-wide text-zinc-500">Last generated</div>
-              <div className="mt-2 text-sm text-zinc-800">{formatDate(settings?.lastGeneratedAt ?? null) || "N/A"}</div>
-            </div>
-            <div className="rounded-2xl border border-zinc-200 bg-white px-4 py-3">
-              <div className="text-xs font-semibold uppercase tracking-wide text-zinc-500">Next due</div>
-              <div className="mt-2 text-sm text-zinc-800">{formatDate(settings?.nextDueAt ?? null) || "N/A"}</div>
-            </div>
-          </div>
-
-          <div className="mt-6">
-            <div className="text-sm font-semibold text-zinc-900">Guided prompt</div>
-            <div className="mt-3 grid gap-3">
-              {promptFields.map((f) => (
-                <label key={f.key} className="block">
-                  <div className="text-xs font-semibold uppercase tracking-wide text-zinc-500">{f.label}</div>
-                  <textarea
-                    value={settings?.promptAnswers?.[f.key] ?? ""}
-                    onChange={(e) =>
-                      setSettings((prev) =>
-                        prev
-                          ? { ...prev, promptAnswers: { ...prev.promptAnswers, [f.key]: e.target.value.slice(0, 2000) } }
-                          : prev,
-                      )
-                    }
-                    rows={2}
-                    className="mt-2 w-full rounded-2xl border border-zinc-200 px-3 py-2 text-sm"
-                    placeholder={audience === "internal" ? "Type a few bullets…" : "Type a few sentences…"}
-                  />
-                </label>
-              ))}
-            </div>
-          </div>
-
-          <div className="mt-6">
-            <div className="text-sm font-semibold text-zinc-900">Topic hints (optional)</div>
-            <div className="mt-2 text-sm text-zinc-600">One per line. The generator will rotate through these.</div>
-            <textarea
-              value={(settings?.topics ?? []).join("\n")}
-              onChange={(e) =>
-                setSettings((prev) =>
-                  prev ? { ...prev, topics: splitLines(e.target.value) } : prev,
-                )
-              }
-              rows={4}
-              className="mt-3 w-full rounded-2xl border border-zinc-200 px-3 py-2 text-sm"
-              placeholder={audience === "internal" ? "Weekly priorities\nOps changes\nHiring" : "Seasonal maintenance tips\nBefore/after photos\nFAQ"}
-            />
-          </div>
             </>
           ) : null}
         </div>
 
         <div className="rounded-3xl border border-zinc-200 bg-white p-6">
           <div className="text-sm font-semibold text-zinc-900">Audience</div>
-          <div className="mt-2 text-sm text-zinc-600">Select tags to include in the send list.</div>
+          <div className="mt-2 text-sm text-zinc-600">Choose which tags are included in this send list.</div>
 
-          <div className="mt-3 max-h-72 space-y-2 overflow-auto rounded-2xl border border-zinc-200 p-3">
-            {tags.length ? (
-              tags.map((t) => (
-                <label key={t.id} className="flex items-center gap-3 text-sm">
-                  <input
-                    type="checkbox"
-                    checked={selectedTagIds.has(t.id)}
-                    onChange={(e) =>
-                      setSettings((prev) => {
-                        if (!prev) return prev;
-                        const next = new Set(prev.audience.tagIds);
-                        if (e.target.checked) next.add(t.id);
-                        else next.delete(t.id);
-                        return { ...prev, audience: { ...prev.audience, tagIds: Array.from(next) } };
-                      })
-                    }
-                  />
-                  <span className="inline-flex h-2.5 w-2.5 rounded-full" style={{ backgroundColor: t.color || "#a1a1aa" }} />
-                  <span className="text-zinc-800">{t.name}</span>
-                </label>
-              ))
+          <div className="mt-3 max-w-sm">
+            <input
+              value={tagSearch}
+              onChange={(e) => setTagSearch(e.target.value)}
+              placeholder="Search tags…"
+              className="w-full rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-sm"
+            />
+            <div className="mt-2">
+              <PortalListboxDropdown
+                value={addTagValue as any}
+                options={addTagOptions as any}
+                onChange={(v) => {
+                  const id = String(v || "");
+                  if (!id) {
+                    setAddTagValue("");
+                    return;
+                  }
+                  if (id === "__create__") {
+                    setAddTagValue("");
+                    setShowCreateTag(true);
+                    return;
+                  }
+                  setAddTagValue("");
+                  setSettings((prev) => {
+                    if (!prev) return prev;
+                    const next = new Set(prev.audience.tagIds);
+                    next.add(id);
+                    return { ...prev, audience: { ...prev.audience, tagIds: Array.from(next).slice(0, 200) } };
+                  });
+                }}
+                placeholder="Add tag…"
+              />
+            </div>
+          </div>
+
+          <div className="mt-3 flex flex-wrap gap-2">
+            {(settings?.audience?.tagIds ?? []).length ? (
+              (settings?.audience?.tagIds ?? []).map((id) => {
+                const t = tagById.get(id);
+                if (!t) return null;
+                return (
+                  <span
+                    key={id}
+                    className="inline-flex items-center gap-2 rounded-full border border-zinc-200 bg-white px-3 py-1.5 text-xs font-semibold text-zinc-700"
+                  >
+                    <span className="inline-flex h-2.5 w-2.5 rounded-full" style={{ backgroundColor: t.color || "#a1a1aa" }} />
+                    <span>{t.name}</span>
+                    <button
+                      type="button"
+                      className="rounded-full px-1 text-zinc-500 hover:bg-zinc-100 hover:text-zinc-800"
+                      onClick={() =>
+                        setSettings((prev) => {
+                          if (!prev) return prev;
+                          const next = new Set(prev.audience.tagIds);
+                          next.delete(id);
+                          return { ...prev, audience: { ...prev.audience, tagIds: Array.from(next) } };
+                        })
+                      }
+                      aria-label={`Remove ${t.name}`}
+                      title="Remove"
+                    >
+                      ×
+                    </button>
+                  </span>
+                );
+              })
             ) : (
-              <div className="text-sm text-zinc-500">No tags yet.</div>
+              <div className="text-xs text-zinc-500">No audience tags selected yet.</div>
             )}
           </div>
 
-          <div className="mt-4 rounded-2xl border border-zinc-200 bg-zinc-50 p-3">
-            <div className="text-xs font-semibold text-zinc-600">Create new tag</div>
-            <div className="mt-2 grid grid-cols-1 gap-2 sm:grid-cols-3">
-              <input
-                className="sm:col-span-2 w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm outline-none focus:border-[color:var(--color-brand-blue)]"
-                placeholder="Tag name"
-                value={createTagName}
-                onChange={(e) => setCreateTagName(e.target.value)}
-              />
-              <div className="flex flex-wrap items-center gap-1.5 rounded-xl border border-zinc-200 bg-white px-2 py-2">
-                {DEFAULT_TAG_COLORS.slice(0, 10).map((c) => {
-                  const selected = c === createTagColor;
-                  return (
-                    <button
-                      key={c}
-                      type="button"
-                      className={
-                        "h-6 w-6 rounded-full border " +
-                        (selected ? "border-zinc-900 ring-2 ring-zinc-900/20" : "border-zinc-200")
-                      }
-                      style={{ backgroundColor: c }}
-                      onClick={() => setCreateTagColor(c)}
-                      title={c}
-                    />
-                  );
-                })}
+          {showCreateTag ? (
+            <div className="mt-4 rounded-2xl border border-zinc-200 bg-zinc-50 p-3">
+              <div className="flex items-center justify-between gap-3">
+                <div className="text-xs font-semibold text-zinc-700">Create tag</div>
+                <button
+                  type="button"
+                  className="rounded-xl border border-zinc-200 bg-white px-3 py-2 text-xs font-semibold text-zinc-700 hover:bg-zinc-50"
+                  onClick={() => setShowCreateTag(false)}
+                  disabled={createTagBusy}
+                >
+                  Cancel
+                </button>
+              </div>
+              <div className="mt-2 grid grid-cols-1 gap-2 sm:grid-cols-3">
+                <input
+                  className="sm:col-span-2 w-full rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-sm"
+                  placeholder="Tag name"
+                  value={createTagName}
+                  onChange={(e) => setCreateTagName(e.target.value)}
+                />
+                <div className="flex flex-wrap items-center gap-1.5 rounded-2xl border border-zinc-200 bg-white px-2 py-2">
+                  {DEFAULT_TAG_COLORS.slice(0, 10).map((c) => {
+                    const selected = c === createTagColor;
+                    return (
+                      <button
+                        key={c}
+                        type="button"
+                        className={
+                          "h-7 w-7 rounded-full border " +
+                          (selected ? "border-zinc-900 ring-2 ring-zinc-900/20" : "border-zinc-200")
+                        }
+                        style={{ backgroundColor: c }}
+                        onClick={() => setCreateTagColor(c)}
+                        title={c}
+                      />
+                    );
+                  })}
+                </div>
+              </div>
+              <div className="mt-2 flex items-center justify-between gap-3">
+                <div className="text-xs text-zinc-500">Pick a default color.</div>
+                <button
+                  type="button"
+                  className="rounded-xl bg-zinc-900 px-3 py-2 text-xs font-semibold text-white hover:bg-zinc-800 disabled:opacity-60"
+                  disabled={createTagBusy}
+                  onClick={() => void createOwnerTag()}
+                >
+                  {createTagBusy ? "Creating…" : "Create"}
+                </button>
               </div>
             </div>
-            <div className="mt-2 flex items-center justify-between gap-3">
-              <div className="text-xs text-zinc-500">Pick a default color.</div>
-              <button
-                type="button"
-                className="rounded-xl bg-zinc-900 px-3 py-2 text-xs font-semibold text-white hover:bg-zinc-800 disabled:opacity-60"
-                disabled={createTagBusy}
-                onClick={() => void createOwnerTag()}
-              >
-                {createTagBusy ? "Creating…" : "Create"}
-              </button>
-            </div>
-          </div>
+          ) : null}
 
           {audience === "external" ? (
             <div className="mt-5">
@@ -1325,68 +1752,74 @@ export function PortalNewsletterClient({ initialAudience }: { initialAudience: A
               <input
                 value={contactQuery}
                 onChange={(e) => setContactQuery(e.target.value)}
+                onFocus={() => setContactSearchOpen(true)}
+                onBlur={() => {
+                  window.setTimeout(() => setContactSearchOpen(false), 150);
+                }}
                 className="mt-3 w-full rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-sm outline-none focus:border-zinc-300"
                 placeholder="Search contacts…"
               />
 
-              <div className="mt-3 rounded-2xl border border-zinc-200 bg-white p-3">
-                <div className="text-xs font-semibold uppercase tracking-wide text-zinc-500">Results</div>
-                <div className="mt-2 space-y-2">
-                  {contactSearching ? (
-                    <div className="text-sm text-zinc-600">Searching…</div>
-                  ) : contactResults.length ? (
-                    contactResults.slice(0, 25).map((c) => {
-                      const added = selectedContactIds.has(c.id);
-                      return (
-                        <div key={c.id} className="rounded-2xl border border-zinc-200 p-3">
-                          <div className="flex flex-wrap items-start justify-between gap-3">
-                            <div>
-                              <div className="text-sm font-semibold text-zinc-900">{c.name || c.email || c.phone || "(contact)"}</div>
-                              <div className="mt-1 text-xs text-zinc-500">
-                                {c.email ? c.email : ""}{c.email && c.phone ? " · " : ""}{c.phone ? c.phone : ""}
+              {contactSearchOpen ? (
+                <div className="mt-3 rounded-2xl border border-zinc-200 bg-white p-3">
+                  <div className="text-xs font-semibold uppercase tracking-wide text-zinc-500">Results</div>
+                  <div className="mt-2 space-y-2">
+                    {contactSearching ? (
+                      <div className="text-sm text-zinc-600">Searching…</div>
+                    ) : contactResults.length ? (
+                      contactResults.slice(0, 25).map((c) => {
+                        const added = selectedContactIds.has(c.id);
+                        return (
+                          <div key={c.id} className="rounded-2xl border border-zinc-200 p-3">
+                            <div className="flex flex-wrap items-start justify-between gap-3">
+                              <div>
+                                <div className="text-sm font-semibold text-zinc-900">{c.name || c.email || c.phone || "(contact)"}</div>
+                                <div className="mt-1 text-xs text-zinc-500">
+                                  {c.email ? c.email : ""}{c.email && c.phone ? " · " : ""}{c.phone ? c.phone : ""}
+                                </div>
+                                <div className="mt-2">
+                                  <ContactTagsEditor
+                                    contactId={c.id}
+                                    tags={c.tags}
+                                    compact
+                                    onChange={(next) => {
+                                      setContactResults((prev) => prev.map((x) => (x.id === c.id ? { ...x, tags: next } : x)));
+                                      setSelectedContacts((prev) => prev.map((x) => (x.id === c.id ? { ...x, tags: next } : x)));
+                                    }}
+                                  />
+                                </div>
                               </div>
-                              <div className="mt-2">
-                                <ContactTagsEditor
-                                  contactId={c.id}
-                                  tags={c.tags}
-                                  compact
-                                  onChange={(next) => {
-                                    setContactResults((prev) => prev.map((x) => (x.id === c.id ? { ...x, tags: next } : x)));
-                                    setSelectedContacts((prev) => prev.map((x) => (x.id === c.id ? { ...x, tags: next } : x)));
-                                  }}
-                                />
-                              </div>
-                            </div>
 
-                            <button
-                              type="button"
-                              className={
-                                "rounded-2xl px-3 py-2 text-sm font-semibold " +
-                                (added
-                                  ? "border border-zinc-200 bg-white text-zinc-700 hover:bg-zinc-50"
-                                  : "bg-zinc-900 text-white hover:bg-zinc-800")
-                              }
-                              onClick={() =>
-                                setSettings((prev) => {
-                                  if (!prev) return prev;
-                                  const ids = new Set(prev.audience.contactIds);
-                                  if (added) ids.delete(c.id);
-                                  else ids.add(c.id);
-                                  return { ...prev, audience: { ...prev.audience, contactIds: Array.from(ids).slice(0, 200) } };
-                                })
-                              }
-                            >
-                              {added ? "Remove" : "Add"}
-                            </button>
+                              <button
+                                type="button"
+                                className={
+                                  "rounded-2xl px-3 py-2 text-sm font-semibold " +
+                                  (added
+                                    ? "border border-zinc-200 bg-white text-zinc-700 hover:bg-zinc-50"
+                                    : "bg-zinc-900 text-white hover:bg-zinc-800")
+                                }
+                                onClick={() =>
+                                  setSettings((prev) => {
+                                    if (!prev) return prev;
+                                    const ids = new Set(prev.audience.contactIds);
+                                    if (added) ids.delete(c.id);
+                                    else ids.add(c.id);
+                                    return { ...prev, audience: { ...prev.audience, contactIds: Array.from(ids).slice(0, 200) } };
+                                  })
+                                }
+                              >
+                                {added ? "Remove" : "Add"}
+                              </button>
+                            </div>
                           </div>
-                        </div>
-                      );
-                    })
-                  ) : (
-                    <div className="text-sm text-zinc-600">Type at least 2 characters to search.</div>
-                  )}
+                        );
+                      })
+                    ) : (
+                      <div className="text-sm text-zinc-600">Type at least 2 characters to search.</div>
+                    )}
+                  </div>
                 </div>
-              </div>
+              ) : null}
 
               <div className="mt-3 rounded-2xl border border-zinc-200 bg-zinc-50 p-3">
                 <div className="text-xs font-semibold uppercase tracking-wide text-zinc-500">Selected people</div>
@@ -1598,88 +2031,81 @@ export function PortalNewsletterClient({ initialAudience }: { initialAudience: A
           )}
         </div>
       </div>
+        </>
+      ) : (
+        <div className="mt-6 rounded-3xl border border-zinc-200 bg-white p-6 shadow-sm">
+          <div className="text-sm font-semibold text-zinc-900">Activity</div>
+          <div className="mt-2 text-sm text-zinc-600">Recent usage, hosted links, and drafts/sends.</div>
 
-      <div className="mt-6 rounded-3xl border border-zinc-200 bg-white p-6">
-        <div className="flex items-center justify-between gap-3">
-          <div>
-            <div className="text-sm font-semibold text-zinc-900">Recent newsletters</div>
-            <div className="mt-1 text-sm text-zinc-600">READY drafts can be sent manually when approval is required.</div>
+          <div className="mt-5 grid grid-cols-1 gap-3 sm:grid-cols-2">
+            <div className="rounded-2xl border border-zinc-200 bg-zinc-50 p-4">
+              <div className="text-xs font-semibold text-zinc-600">Usage (30d)</div>
+              <div className="mt-2 text-sm text-zinc-800">
+                {creditsUsed30d === null ? "N/A" : `${creditsUsed30d} credits used`} · {generations30d === null ? "N/A" : `${generations30d} generations`}
+              </div>
+            </div>
+            <div className="rounded-2xl border border-zinc-200 bg-zinc-50 p-4">
+              <div className="text-xs font-semibold text-zinc-600">Hosted pages</div>
+              <div className="mt-2 text-xs text-zinc-700 break-all">{publicBaseUrl || "Not configured yet"}</div>
+            </div>
           </div>
-          <button
-            type="button"
-            onClick={refresh}
-            className="rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm font-semibold text-zinc-700 hover:bg-zinc-50"
-          >
-            Refresh
-          </button>
-        </div>
 
-        <div className="mt-4 space-y-3">
-          {newsletters.length ? (
-            newsletters.map((n) => {
-              const publicPath = siteHandle
-                ? `${audience === "internal" ? `/${siteHandle}/internal-newsletters` : `/${siteHandle}/newsletters`}/${n.slug}`
-                : null;
+          <div className="mt-5 rounded-2xl border border-zinc-200 bg-white p-4">
+            <div className="flex items-center justify-between gap-3">
+              <div>
+                <div className="text-sm font-semibold text-zinc-900">Recent newsletters</div>
+                <div className="mt-1 text-sm text-zinc-600">READY drafts can be sent manually when approval is required.</div>
+              </div>
+              <button
+                type="button"
+                onClick={refresh}
+                className="rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm font-semibold text-zinc-700 hover:bg-zinc-50"
+              >
+                Refresh
+              </button>
+            </div>
 
-              return (
-                <div key={n.id} className="rounded-2xl border border-zinc-200 p-4">
-                  <div className="flex flex-wrap items-start justify-between gap-3">
-                    <div>
-                      <div className="text-sm font-semibold text-zinc-900">{n.title || "(untitled)"}</div>
-                      <div className="mt-1 text-xs text-zinc-500">
-                        {n.status} · created {formatDate(n.createdAtIso)}{n.sentAtIso ? ` · sent ${formatDate(n.sentAtIso)}` : ""}
+            <div className="mt-4 space-y-3">
+              {newsletters.length ? (
+                newsletters.slice(0, 15).map((n) => (
+                  <div key={n.id} className="rounded-2xl border border-zinc-200 p-4">
+                    <div className="flex flex-wrap items-start justify-between gap-3">
+                      <div>
+                        <div className="text-sm font-semibold text-zinc-900">{n.title || "(untitled)"}</div>
+                        <div className="mt-1 text-xs text-zinc-500">
+                          {n.status} · updated {formatDate(n.updatedAtIso)}{n.sentAtIso ? ` · sent ${formatDate(n.sentAtIso)}` : ""}
+                        </div>
+                        <div className="mt-2 text-sm text-zinc-600">{n.excerpt}</div>
                       </div>
-                      <div className="mt-2 text-sm text-zinc-600">{n.excerpt}</div>
-                    </div>
 
-                    <div className="flex items-center gap-2">
-                      {publicPath ? (
-                        <Link
-                          href={publicPath}
-                          target="_blank"
-                          className="rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-sm font-semibold text-zinc-700 hover:bg-zinc-50"
-                        >
-                          View hosted
-                        </Link>
-                      ) : null}
-
-                      {n.status !== "SENT" ? (
+                      <div className="flex items-center gap-2">
                         <button
                           type="button"
                           onClick={() => void openDraft(n.id)}
                           className="rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-sm font-semibold text-zinc-700 hover:bg-zinc-50"
                         >
-                          Edit / preview
+                          {n.status === "SENT" ? "Edit hosted" : "Edit / preview"}
                         </button>
-                      ) : (
-                        <button
-                          type="button"
-                          onClick={() => void openDraft(n.id)}
-                          className="rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-sm font-semibold text-zinc-700 hover:bg-zinc-50"
-                        >
-                          Edit hosted
-                        </button>
-                      )}
-
-                      {n.status === "READY" ? (
-                        <button
-                          type="button"
-                          onClick={() => void sendReady(n.id)}
-                          className="rounded-2xl bg-zinc-900 px-3 py-2 text-sm font-semibold text-white hover:bg-zinc-800"
-                        >
-                          Send now
-                        </button>
-                      ) : null}
+                        {n.status === "READY" ? (
+                          <button
+                            type="button"
+                            onClick={() => void sendReady(n.id)}
+                            className="rounded-2xl bg-zinc-900 px-3 py-2 text-sm font-semibold text-white hover:bg-zinc-800"
+                          >
+                            Send now
+                          </button>
+                        ) : null}
+                      </div>
                     </div>
                   </div>
-                </div>
-              );
-            })
-          ) : (
-            <div className="text-sm text-zinc-600">No newsletters yet.</div>
-          )}
+                ))
+              ) : (
+                <div className="text-sm text-zinc-600">No newsletters yet.</div>
+              )}
+            </div>
+          </div>
         </div>
-      </div>
+      )}
 
       {draftOpen ? (
         <div className="fixed inset-0 z-50 overflow-y-auto bg-black/30 p-4" onMouseDown={() => setDraftOpen(false)}>
@@ -1738,7 +2164,7 @@ export function PortalNewsletterClient({ initialAudience }: { initialAudience: A
                     <textarea
                       value={draftExcerpt}
                       onChange={(e) => setDraftExcerpt(e.target.value)}
-                      className="mt-1 min-h-[90px] w-full rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-sm outline-none focus:border-zinc-300"
+                      className="mt-1 min-h-22.5 w-full rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-sm outline-none focus:border-zinc-300"
                       maxLength={6000}
                     />
                     <div className="mt-1 text-xs text-zinc-500">This is what the email contains today (plus the hosted link).</div>
@@ -1954,7 +2380,7 @@ export function PortalNewsletterClient({ initialAudience }: { initialAudience: A
 
                     <div className="mt-3 rounded-2xl border border-zinc-200 bg-white p-3">
                       <div className="text-xs font-semibold text-zinc-700">Body</div>
-                      <pre className="mt-2 whitespace-pre-wrap break-words text-xs text-zinc-800">
+                      <pre className="mt-2 whitespace-pre-wrap wrap-break-word text-xs text-zinc-800">
                         {buildNewsletterEmailPreview({
                           excerpt: draftExcerpt,
                           link:
@@ -1969,7 +2395,7 @@ export function PortalNewsletterClient({ initialAudience }: { initialAudience: A
                   <div className="mt-6">
                     <div className="text-sm font-semibold text-zinc-900">SMS preview</div>
                     <div className="mt-2 rounded-2xl border border-zinc-200 bg-white p-3">
-                      <pre className="whitespace-pre-wrap break-words text-xs text-zinc-800">
+                      <pre className="whitespace-pre-wrap wrap-break-word text-xs text-zinc-800">
                         {buildNewsletterSmsPreview({
                           smsText: draftSmsText || null,
                           link:

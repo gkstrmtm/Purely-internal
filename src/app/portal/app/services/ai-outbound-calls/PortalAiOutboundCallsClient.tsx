@@ -1321,7 +1321,9 @@ export function PortalAiOutboundCallsClient() {
       <div className="flex flex-col items-start justify-between gap-3 sm:flex-row sm:items-end">
         <div>
           <h1 className="text-2xl font-bold text-brand-ink sm:text-3xl">AI outbound</h1>
-          <p className="mt-1 text-sm text-zinc-600">Automate outbound calls, review outcomes, and iterate your script.</p>
+          <p className="mt-1 text-sm text-zinc-600">
+            Reach out to thousands of leads automatically—or on demand—with a curated AI calling assistant.
+          </p>
         </div>
       </div>
 
