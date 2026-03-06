@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
+import { InlineElevenLabsAgentTester } from "@/components/InlineElevenLabsAgentTester";
 import { PortalListboxDropdown } from "@/components/PortalListboxDropdown";
 import { PortalSelectDropdown } from "@/components/PortalSelectDropdown";
 import { useToast } from "@/components/ToastProvider";
@@ -117,6 +118,45 @@ type CampaignActivityRow = {
 type ApiGetCampaignActivityResponse =
   | { ok: true; counts: CampaignActivityCounts; recent: CampaignActivityRow[] }
   | { ok: false; error?: string };
+
+type ContactSearchResult = { id: string; name: string | null; email: string | null; phone: string | null };
+
+type ApiSearchContactsResponse =
+  | { ok: true; contacts: ContactSearchResult[] }
+  | { ok: false; error?: string };
+
+type MessageActivityRow = {
+  id: string;
+  status: string;
+  source: "TAG" | "MANUAL" | "INBOUND" | string;
+  nextSendAtIso: string | null;
+  sentFirstMessageAtIso: string | null;
+  threadId: string | null;
+  attemptCount: number;
+  lastError: string | null;
+  nextReplyAtIso: string | null;
+  replyAttemptCount: number;
+  replyLastError: string | null;
+  createdAtIso: string;
+  updatedAtIso: string;
+  contact: { id: string; name: string | null; email: string | null; phone: string | null } | null;
+};
+
+type ApiGetMessagesActivityResponse =
+  | {
+      ok: true;
+      countsByStatus: Record<string, number>;
+      countsBySource: Record<string, number>;
+      recent: MessageActivityRow[];
+    }
+  | { ok: false; error?: string };
+
+type ChatTestMessage = {
+  id: string;
+  role: "agent" | "user";
+  text: string;
+  createdAtIso: string;
+};
 
 function classNames(...xs: Array<string | false | null | undefined>) {
   return xs.filter(Boolean).join(" ");
@@ -325,14 +365,23 @@ export function PortalAiOutboundCallsClient() {
   const [messagesGenerateContext, setMessagesGenerateContext] = useState("");
   const [generateBusy, setGenerateBusy] = useState(false);
 
-  const [manualEnrollTarget, setManualEnrollTarget] = useState("");
+  const [manualEnrollQuery, setManualEnrollQuery] = useState("");
+  const [manualEnrollResults, setManualEnrollResults] = useState<ContactSearchResult[]>([]);
+  const [manualEnrollSelected, setManualEnrollSelected] = useState<ContactSearchResult | null>(null);
+  const [manualEnrollSearchBusy, setManualEnrollSearchBusy] = useState(false);
+
   const [manualEnrollBusy, setManualEnrollBusy] = useState(false);
 
-  const [previewChannel, setPreviewChannel] = useState<"sms" | "email">("sms");
+  const [messagesActivityLoading, setMessagesActivityLoading] = useState(false);
+  const [messagesCountsByStatus, setMessagesCountsByStatus] = useState<Record<string, number>>({});
+  const [messagesCountsBySource, setMessagesCountsBySource] = useState<Record<string, number>>({});
+  const [messagesRecent, setMessagesRecent] = useState<MessageActivityRow[]>([]);
+  const [messagesActivityFilter, setMessagesActivityFilter] = useState<"all" | "manual" | "audience">("all");
 
-  const [previewInbound, setPreviewInbound] = useState("");
-  const [previewReply, setPreviewReply] = useState<string | null>(null);
-  const [previewBusy, setPreviewBusy] = useState(false);
+  const [messagesTestChannel, setMessagesTestChannel] = useState<"sms" | "email">("sms");
+  const [messagesTestInput, setMessagesTestInput] = useState("");
+  const [messagesTestBusy, setMessagesTestBusy] = useState(false);
+  const [messagesTestThread, setMessagesTestThread] = useState<ChatTestMessage[]>([]);
 
   useEffect(() => {
     setCallsAgentSyncRequired(false);
@@ -346,10 +395,92 @@ export function PortalAiOutboundCallsClient() {
     setActivityRecent([]);
     setCallsGenerateContext("");
     setMessagesGenerateContext("");
-    setManualEnrollTarget("");
-    setPreviewInbound("");
-    setPreviewReply(null);
+    setManualEnrollQuery("");
+    setManualEnrollResults([]);
+    setManualEnrollSelected(null);
+    setManualEnrollSearchBusy(false);
+    setMessagesCountsByStatus({});
+    setMessagesCountsBySource({});
+    setMessagesRecent([]);
+    setMessagesActivityFilter("all");
+    setMessagesTestChannel("sms");
+    setMessagesTestInput("");
+    setMessagesTestBusy(false);
+    setMessagesTestThread([]);
   }, [selectedId]);
+
+  const loadMessagesActivity = useCallback(
+    async (campaignId: string) => {
+      const id = String(campaignId || "").trim();
+      if (!id) return;
+      if (messagesActivityLoading) return;
+
+      setMessagesActivityLoading(true);
+      try {
+        const res = await fetch(
+          `/api/portal/ai-outbound-calls/campaigns/${encodeURIComponent(id)}/messages-activity`,
+          { cache: "no-store" },
+        ).catch(() => null as any);
+
+        if (!res || !res.ok) return;
+        const json = (await res.json().catch(() => null)) as ApiGetMessagesActivityResponse | null;
+        if (!json || (json as any).ok !== true) return;
+
+        setMessagesCountsByStatus((json as any).countsByStatus || {});
+        setMessagesCountsBySource((json as any).countsBySource || {});
+        setMessagesRecent(Array.isArray((json as any).recent) ? ((json as any).recent as MessageActivityRow[]) : []);
+      } finally {
+        setMessagesActivityLoading(false);
+      }
+    },
+    [messagesActivityLoading],
+  );
+
+  useEffect(() => {
+    if (tab !== "messages") return;
+    if (!selected?.id) return;
+    void loadMessagesActivity(selected.id);
+  }, [loadMessagesActivity, selected?.id, tab]);
+
+  useEffect(() => {
+    const q = manualEnrollQuery.trim();
+    if (!q || q.length < 2) {
+      setManualEnrollResults([]);
+      setManualEnrollSearchBusy(false);
+      return;
+    }
+
+    let alive = true;
+    setManualEnrollSearchBusy(true);
+
+    const t = window.setTimeout(() => {
+      void (async () => {
+        try {
+          const res = await fetch(
+            `/api/portal/ai-outbound-calls/contacts/search?q=${encodeURIComponent(q)}`,
+            { cache: "no-store" },
+          ).catch(() => null as any);
+
+          const json = (await res?.json?.().catch(() => null)) as ApiSearchContactsResponse | null;
+          if (!alive) return;
+          if (!res || !res.ok || !json || (json as any).ok !== true) {
+            setManualEnrollResults([]);
+            return;
+          }
+
+          const rows = Array.isArray((json as any).contacts) ? ((json as any).contacts as ContactSearchResult[]) : [];
+          setManualEnrollResults(rows);
+        } finally {
+          if (alive) setManualEnrollSearchBusy(false);
+        }
+      })();
+    }, 250);
+
+    return () => {
+      alive = false;
+      window.clearTimeout(t);
+    };
+  }, [manualEnrollQuery]);
 
   const loadManualCalls = useCallback(async (campaignId?: string) => {
     const qs = campaignId ? `?campaignId=${encodeURIComponent(campaignId)}` : "";
@@ -537,9 +668,9 @@ export function PortalAiOutboundCallsClient() {
     if (!selected?.id) return;
     if (busy || manualEnrollBusy) return;
 
-    const target = manualEnrollTarget.trim();
-    if (!target) {
-      toast.error("Enter a contact ID, phone, or email");
+    const contactId = manualEnrollSelected?.id ? String(manualEnrollSelected.id).trim() : "";
+    if (!contactId) {
+      toast.error("Pick a contact to enroll");
       return;
     }
 
@@ -552,7 +683,7 @@ export function PortalAiOutboundCallsClient() {
         {
           method: "POST",
           headers: { "content-type": "application/json" },
-          body: JSON.stringify({ target }),
+          body: JSON.stringify({ contactId }),
         },
       );
 
@@ -566,7 +697,10 @@ export function PortalAiOutboundCallsClient() {
           ? "Already enrolled (first message already sent)"
           : "Enrolled — first message will send shortly",
       );
-      setManualEnrollTarget("");
+      setManualEnrollQuery("");
+      setManualEnrollResults([]);
+      setManualEnrollSelected(null);
+      void loadMessagesActivity(selected.id);
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "Enroll failed");
     } finally {
@@ -867,40 +1001,81 @@ export function PortalAiOutboundCallsClient() {
     }
   }
 
-  async function previewReplyForInbound() {
-    if (!selected?.id) return;
-    if (previewBusy || busy) return;
+  function makeChatTestId(): string {
+    try {
+      const anyCrypto = (globalThis as any).crypto;
+      const fn = anyCrypto?.randomUUID;
+      if (typeof fn === "function") return String(fn.call(anyCrypto));
+    } catch {
+      // ignore
+    }
+    return `${Date.now()}_${Math.random().toString(16).slice(2)}`;
+  }
 
-    const inbound = previewInbound.trim();
-    if (!inbound) {
-      toast.error("Write an inbound message");
+  function resetMessagesTestThread() {
+    const first = (selected?.chatAgentConfig?.firstMessage || "").trim();
+    if (!first) {
+      setMessagesTestThread([]);
       return;
     }
+    setMessagesTestThread([{ id: makeChatTestId(), role: "agent", text: first, createdAtIso: new Date().toISOString() }]);
+  }
 
-    setPreviewBusy(true);
-    setPreviewReply(null);
+  async function sendMessagesTestUserText() {
+    if (!selected?.id) return;
+    if (messagesTestBusy || busy) return;
+
+    const inbound = messagesTestInput.trim();
+    if (!inbound) return;
+
+    const nowIso = new Date().toISOString();
+    const userMsg: ChatTestMessage = { id: makeChatTestId(), role: "user" as const, text: inbound, createdAtIso: nowIso };
+
+    const baseThread: ChatTestMessage[] = messagesTestThread.length
+      ? messagesTestThread
+      : (() => {
+          const first = (selected.chatAgentConfig?.firstMessage || "").trim();
+          if (!first) return [];
+          const initial: ChatTestMessage = { id: makeChatTestId(), role: "agent" as const, text: first, createdAtIso: nowIso };
+          return [initial];
+        })();
+
+    const nextThread: ChatTestMessage[] = [...baseThread, userMsg];
+    setMessagesTestThread(nextThread);
+    setMessagesTestInput("");
+    setMessagesTestBusy(true);
     setError(null);
 
     try {
+      const history = nextThread
+        .slice(0, -1)
+        .map((m) => ({ role: m.role === "user" ? "user" : "assistant", content: m.text }));
+
       const res = await fetch(
         `/api/portal/ai-outbound-calls/campaigns/${encodeURIComponent(selected.id)}/preview-message-reply`,
         {
           method: "POST",
           headers: { "content-type": "application/json" },
-          body: JSON.stringify({ channel: previewChannel, inbound }),
+          body: JSON.stringify({ channel: messagesTestChannel, inbound, history }),
         },
       );
 
       const json = (await res.json().catch(() => null)) as any;
       if (!res.ok || !json || json.ok !== true) {
-        throw new Error(json?.error || "Preview failed");
+        throw new Error(json?.error || "Test failed");
       }
 
-      setPreviewReply(String(json.reply || "").trim() || null);
+      const reply = String(json.reply || "").trim();
+      if (reply) {
+        setMessagesTestThread((prev) => [
+          ...prev,
+          { id: makeChatTestId(), role: "agent", text: reply, createdAtIso: new Date().toISOString() },
+        ]);
+      }
     } catch (e) {
-      toast.error(e instanceof Error ? e.message : "Preview failed");
+      toast.error(e instanceof Error ? e.message : "Test failed");
     } finally {
-      setPreviewBusy(false);
+      setMessagesTestBusy(false);
     }
   }
 
@@ -1299,12 +1474,60 @@ export function PortalAiOutboundCallsClient() {
                       <div className="sm:col-span-2">
                         <div className="text-sm font-semibold text-zinc-800">Contact</div>
                         <input
-                          value={manualEnrollTarget}
-                          onChange={(e) => setManualEnrollTarget(e.target.value)}
-                          placeholder="Contact ID, +15551234567, or name@example.com"
+                          value={manualEnrollQuery}
+                          onChange={(e) => {
+                            setManualEnrollQuery(e.target.value);
+                            setManualEnrollSelected(null);
+                          }}
+                          placeholder="Search contacts by name, email, or phone…"
                           className="mt-1 w-full rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-sm"
                         />
-                        <div className="mt-1 text-xs text-zinc-500">
+
+                        {manualEnrollSearchBusy ? (
+                          <div className="mt-2 text-xs text-zinc-500">Searching…</div>
+                        ) : manualEnrollQuery.trim().length >= 2 && manualEnrollResults.length ? (
+                          <div className="mt-2 max-h-56 overflow-auto rounded-2xl border border-zinc-200 bg-white">
+                            {manualEnrollResults.slice(0, 20).map((c) => {
+                              const name = (c.name || "").trim();
+                              const email = (c.email || "").trim();
+                              const phone = (c.phone || "").trim();
+                              const primary = name || phone || email || "Unknown";
+                              const secondary = [name ? null : phone || null, email || null].filter(Boolean).join(" • ");
+                              return (
+                                <button
+                                  key={c.id}
+                                  type="button"
+                                  className="block w-full border-b border-zinc-100 px-3 py-2 text-left hover:bg-zinc-50 last:border-b-0"
+                                  onClick={() => {
+                                    setManualEnrollSelected(c);
+                                    setManualEnrollResults([]);
+                                  }}
+                                >
+                                  <div className="truncate text-sm font-semibold text-zinc-900">{primary}</div>
+                                  <div className="mt-0.5 truncate text-xs text-zinc-500">{secondary || c.id}</div>
+                                </button>
+                              );
+                            })}
+                          </div>
+                        ) : manualEnrollQuery.trim().length >= 2 ? (
+                          <div className="mt-2 text-xs text-zinc-500">No matches.</div>
+                        ) : (
+                          <div className="mt-2 text-xs text-zinc-500">Type at least 2 characters.</div>
+                        )}
+
+                        {manualEnrollSelected ? (
+                          <div className="mt-2 rounded-2xl border border-zinc-200 bg-zinc-50 px-3 py-2">
+                            <div className="text-xs font-semibold text-zinc-700">Selected</div>
+                            <div className="mt-1 text-sm font-semibold text-zinc-900">
+                              {(manualEnrollSelected.name || manualEnrollSelected.phone || manualEnrollSelected.email || "Unknown").trim()}
+                            </div>
+                            <div className="mt-1 text-xs text-zinc-600">
+                              {[manualEnrollSelected.phone, manualEnrollSelected.email].filter(Boolean).join(" • ") || manualEnrollSelected.id}
+                            </div>
+                          </div>
+                        ) : null}
+
+                        <div className="mt-2 text-xs text-zinc-500">
                           Sends the first message automatically (SMS if possible, otherwise email).
                         </div>
                       </div>
@@ -1312,83 +1535,167 @@ export function PortalAiOutboundCallsClient() {
                       <div className="sm:self-end">
                         <button
                           type="button"
-                          disabled={busy || manualEnrollBusy || !manualEnrollTarget.trim()}
+                          disabled={busy || manualEnrollBusy || !manualEnrollSelected?.id}
                           onClick={() => void enrollContactForMessages()}
                           className={classNames(
                             "w-full rounded-2xl px-4 py-2 text-sm font-semibold",
-                            busy || manualEnrollBusy || !manualEnrollTarget.trim()
+                            busy || manualEnrollBusy || !manualEnrollSelected?.id
                               ? "bg-zinc-200 text-zinc-600"
                               : "bg-brand-ink text-white hover:opacity-95",
                           )}
                         >
                           {manualEnrollBusy ? "Enrolling…" : "Enroll"}
                         </button>
+                        <button
+                          type="button"
+                          className="mt-2 w-full rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm font-semibold text-zinc-700 hover:bg-zinc-50"
+                          onClick={() => {
+                            setManualEnrollQuery("");
+                            setManualEnrollResults([]);
+                            setManualEnrollSelected(null);
+                          }}
+                          disabled={busy || manualEnrollBusy}
+                        >
+                          Clear
+                        </button>
                       </div>
                     </div>
                   </div>
 
                   <div className="mt-4 rounded-2xl border border-zinc-200 bg-white p-4">
-                    <div className="flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between">
+                    <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
                       <div>
-                        <div className="text-sm font-semibold text-zinc-900">Conversation preview</div>
+                        <div className="text-sm font-semibold text-zinc-900">Activity</div>
                         <div className="mt-1 text-xs text-zinc-500">
-                          Paste a customer message and see what your messaging agent would reply.
+                          Manual vs automation enrollments, status counts, and recent updates.
                         </div>
                       </div>
-
-                      <button
-                        type="button"
-                        disabled={busy || previewBusy || !previewInbound.trim()}
-                        onClick={() => void previewReplyForInbound()}
-                        className={classNames(
-                          "rounded-2xl px-4 py-2 text-sm font-semibold",
-                          busy || previewBusy || !previewInbound.trim()
-                            ? "bg-zinc-200 text-zinc-600"
-                            : "bg-brand-ink text-white hover:opacity-95",
-                        )}
-                      >
-                        {previewBusy ? "Generating…" : "Generate reply"}
-                      </button>
-                    </div>
-
-                    <div className="mt-4 grid gap-3 sm:grid-cols-2">
-                      <div>
-                        <div className="text-sm font-semibold text-zinc-800">Channel</div>
-                        <div className="mt-1">
-                          <PortalListboxDropdown
-                            value={previewChannel}
-                            options={[
-                              { value: "sms", label: "SMS" },
-                              { value: "email", label: "Email" },
-                            ]}
-                            onChange={(v) => setPreviewChannel(v as any)}
-                          />
+                      <div className="flex flex-wrap items-center gap-2">
+                        <div className="flex rounded-2xl border border-zinc-200 bg-white p-1 text-xs font-semibold">
+                          {([
+                            { k: "all", label: "All" },
+                            { k: "manual", label: "Manual" },
+                            { k: "audience", label: "Automation" },
+                          ] as const).map((x) => (
+                            <button
+                              key={x.k}
+                              type="button"
+                              onClick={() => setMessagesActivityFilter(x.k)}
+                              className={classNames(
+                                "rounded-xl px-3 py-1",
+                                messagesActivityFilter === x.k
+                                  ? "bg-brand-ink text-white"
+                                  : "bg-white text-zinc-700 hover:bg-zinc-50",
+                              )}
+                            >
+                              {x.label}
+                            </button>
+                          ))}
                         </div>
-                      </div>
-                      <div className="text-xs text-zinc-500 sm:self-end">
-                        Uses the campaign’s messaging agent config.
+                        <button
+                          type="button"
+                          className="rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm font-semibold hover:bg-zinc-50 disabled:opacity-60"
+                          disabled={busy || messagesActivityLoading}
+                          onClick={() => {
+                            if (!selected?.id) return;
+                            void loadMessagesActivity(selected.id);
+                          }}
+                        >
+                          Refresh activity
+                        </button>
                       </div>
                     </div>
 
-                    <div className="mt-3">
-                      <div className="text-sm font-semibold text-zinc-800">Inbound message</div>
-                      <textarea
-                        value={previewInbound}
-                        onChange={(e) => setPreviewInbound(e.target.value)}
-                        placeholder={previewChannel === "sms" ? "Customer: Hey, can you send me pricing?" : "Customer: Hi, I’m interested in…"}
-                        rows={4}
-                        className="mt-1 w-full resize-y rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-sm"
-                      />
+                    <div className="mt-3 flex flex-wrap gap-2 text-xs">
+                      {([
+                        { key: "QUEUED", label: "Queued" },
+                        { key: "ACTIVE", label: "Active" },
+                        { key: "FAILED", label: "Failed" },
+                        { key: "SKIPPED", label: "Skipped" },
+                      ] as const).map((s) => (
+                        <span
+                          key={s.key}
+                          className={
+                            "rounded-full border px-2 py-0.5 font-semibold " +
+                            badgeClass(s.key) +
+                            ""
+                          }
+                        >
+                          {s.label}: {Number(messagesCountsByStatus[s.key] || 0)}
+                        </span>
+                      ))}
+
+                      {([
+                        { key: "MANUAL", label: "Manual" },
+                        { key: "TAG", label: "Tag" },
+                        { key: "INBOUND", label: "Inbound" },
+                      ] as const).map((s) => (
+                        <span
+                          key={s.key}
+                          className="rounded-full border border-zinc-200 bg-zinc-50 px-2 py-0.5 font-semibold text-zinc-700"
+                        >
+                          {s.label}: {Number(messagesCountsBySource[s.key] || 0)}
+                        </span>
+                      ))}
                     </div>
 
-                    {previewReply ? (
-                      <div className="mt-3 rounded-2xl border border-zinc-200 bg-zinc-50 p-3">
-                        <div className="text-xs font-semibold uppercase tracking-wide text-zinc-500">AI reply</div>
-                        <div className="mt-2 whitespace-pre-wrap text-sm text-zinc-900">{previewReply}</div>
-                      </div>
-                    ) : (
-                      <div className="mt-3 text-xs text-zinc-500">No reply yet. Generate one above.</div>
-                    )}
+                    {(() => {
+                      const filtered = messagesRecent
+                        .filter((e) => {
+                          const src = String(e.source || "").toUpperCase();
+                          if (messagesActivityFilter === "manual") return src === "MANUAL";
+                          if (messagesActivityFilter === "audience") return src !== "MANUAL";
+                          return true;
+                        })
+                        .slice(0, 60);
+
+                      if (!filtered.length) {
+                        return <div className="mt-4 text-xs text-zinc-500">No activity loaded yet.</div>;
+                      }
+
+                      return (
+                        <div className="mt-4 overflow-hidden rounded-2xl border border-zinc-200">
+                          <div className="max-h-90 overflow-auto bg-white">
+                            {filtered.map((e) => {
+                              const who =
+                                (e.contact?.name && String(e.contact.name).trim()) ||
+                                (e.contact?.phone && String(e.contact.phone).trim()) ||
+                                (e.contact?.email && String(e.contact.email).trim()) ||
+                                "Unknown contact";
+                              const when = e.updatedAtIso || e.createdAtIso;
+                              const err = sanitizeClientErrorText(e.lastError || e.replyLastError);
+                              const src = String(e.source || "TAG").toUpperCase();
+                              return (
+                                <div key={e.id} className="border-b border-zinc-100 px-4 py-3 last:border-b-0">
+                                  <div className="flex items-start justify-between gap-3">
+                                    <div className="min-w-0">
+                                      <div className="truncate text-sm font-semibold text-zinc-900">{who}</div>
+                                      <div className="mt-1 flex flex-wrap gap-2 text-xs text-zinc-500">
+                                        <span>{formatWhen(when)}</span>
+                                        {e.threadId ? <span className="truncate">Thread: {e.threadId}</span> : null}
+                                      </div>
+                                      {err ? <div className="mt-1 text-xs text-red-700">{err}</div> : null}
+                                    </div>
+
+                                    <div className="shrink-0 text-right">
+                                      <span
+                                        className={
+                                          "inline-flex rounded-full border px-2 py-0.5 text-[11px] font-semibold " +
+                                          badgeClass(e.status)
+                                        }
+                                      >
+                                        {String(e.status || "UNKNOWN").toUpperCase()}
+                                      </span>
+                                      <div className="mt-1 text-[11px] font-semibold text-zinc-600">{src}</div>
+                                    </div>
+                                  </div>
+                                </div>
+                              );
+                            })}
+                          </div>
+                        </div>
+                      );
+                    })()}
                   </div>
                 </div>
               ) : null}
@@ -2235,6 +2542,36 @@ export function PortalAiOutboundCallsClient() {
                             />
                           </div>
                         </div>
+
+                        <div className="mt-5 rounded-2xl border border-zinc-200 bg-zinc-50 p-3">
+                          <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
+                            <div>
+                              <div className="text-xs font-semibold text-zinc-700">Testing</div>
+                              <div className="mt-1 text-[11px] text-zinc-600">
+                                This connects to your live ElevenLabs calls agent so you can test voice behavior.
+                              </div>
+                            </div>
+                            <button
+                              type="button"
+                              className="rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-xs font-semibold text-zinc-700 hover:bg-zinc-50"
+                              onClick={() => void syncCallsAgent()}
+                              disabled={busy}
+                              title="Ensure the agent is created/synced before testing"
+                            >
+                              {busy ? "Syncing…" : "Sync first"}
+                            </button>
+                          </div>
+
+                          {selected.voiceAgentId ? (
+                            <div className="mt-3">
+                              <InlineElevenLabsAgentTester agentId={selected.voiceAgentId} />
+                            </div>
+                          ) : (
+                            <div className="mt-3 text-xs text-zinc-600">
+                              No calls agent ID yet. Click “Sync calls agent” to create it, then test here.
+                            </div>
+                          )}
+                        </div>
                       </div>
                     ) : (
                       <div className="rounded-3xl border border-zinc-200 bg-white p-4">
@@ -2446,6 +2783,98 @@ export function PortalAiOutboundCallsClient() {
                               rows={4}
                               className="mt-1 w-full rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-sm"
                             />
+                          </div>
+                        </div>
+
+                        <div className="mt-5 rounded-2xl border border-zinc-200 bg-zinc-50 p-3">
+                          <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
+                            <div>
+                              <div className="text-xs font-semibold text-zinc-700">Testing</div>
+                              <div className="mt-1 text-[11px] text-zinc-600">
+                                Simulate an inbox conversation with your messages agent config. This does not text/email real contacts.
+                              </div>
+                            </div>
+
+                            <div className="flex flex-wrap items-center gap-2">
+                              <div className="w-40">
+                                <PortalListboxDropdown
+                                  value={messagesTestChannel}
+                                  options={[
+                                    { value: "sms", label: "SMS" },
+                                    { value: "email", label: "Email" },
+                                  ]}
+                                  onChange={(v) => setMessagesTestChannel(v as any)}
+                                />
+                              </div>
+
+                              <button
+                                type="button"
+                                className="rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-xs font-semibold text-zinc-700 hover:bg-zinc-50"
+                                onClick={resetMessagesTestThread}
+                                disabled={busy || messagesTestBusy}
+                              >
+                                Reset
+                              </button>
+                            </div>
+                          </div>
+
+                          <div className="mt-3 max-h-80 overflow-auto rounded-2xl border border-zinc-200 bg-white p-3">
+                            {messagesTestThread.length ? (
+                              <div className="space-y-2">
+                                {messagesTestThread.map((m) => {
+                                  const isUser = m.role === "user";
+                                  return (
+                                    <div key={m.id} className={classNames("flex", isUser ? "justify-end" : "justify-start")}>
+                                      <div
+                                        className={classNames(
+                                          "max-w-[85%] whitespace-pre-wrap rounded-2xl px-3 py-2 text-sm",
+                                          isUser ? "bg-brand-ink text-white" : "bg-zinc-100 text-zinc-900",
+                                        )}
+                                      >
+                                        <div className="text-[11px] font-semibold opacity-70">
+                                          {isUser ? "You" : "Agent"}
+                                        </div>
+                                        <div className="mt-1">{m.text}</div>
+                                      </div>
+                                    </div>
+                                  );
+                                })}
+                              </div>
+                            ) : (
+                              <div className="text-sm text-zinc-600">
+                                <div className="font-semibold text-zinc-800">Start a test conversation</div>
+                                <div className="mt-1 text-xs text-zinc-500">
+                                  Click Reset to load the configured first message, then send a reply.
+                                </div>
+                              </div>
+                            )}
+                          </div>
+
+                          <div className="mt-3 grid gap-2 sm:grid-cols-[1fr,auto]">
+                            <textarea
+                              value={messagesTestInput}
+                              onChange={(e) => setMessagesTestInput(e.target.value)}
+                              rows={2}
+                              placeholder={
+                                messagesTestChannel === "sms"
+                                  ? "Customer: Hey — do you have pricing?"
+                                  : "Customer: Hi, I’m interested in your service…"
+                              }
+                              className="w-full resize-y rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-sm"
+                            />
+                            <button
+                              type="button"
+                              disabled={busy || messagesTestBusy || !messagesTestInput.trim()}
+                              onClick={() => void sendMessagesTestUserText()}
+                              className={classNames(
+                                "rounded-2xl px-4 py-2 text-sm font-semibold",
+                                busy || messagesTestBusy || !messagesTestInput.trim()
+                                  ? "bg-zinc-200 text-zinc-600"
+                                  : "bg-brand-ink text-white hover:opacity-95",
+                              )}
+                            >
+                              {messagesTestBusy ? "Replying…" : "Send"}
+                            </button>
                           </div>
                         </div>
                       </div>

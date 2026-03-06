@@ -37,6 +37,15 @@ BEGIN
   ) THEN
     CREATE TYPE "PortalAiOutboundMessageEnrollmentStatus" AS ENUM ('QUEUED','ACTIVE','FAILED','SKIPPED');
   END IF;
+
+  IF NOT EXISTS (
+    SELECT 1
+    FROM pg_type t
+    JOIN pg_namespace n ON n.oid = t.typnamespace
+    WHERE n.nspname = 'public' AND t.typname = 'PortalAiOutboundMessageEnrollmentSource'
+  ) THEN
+    CREATE TYPE "PortalAiOutboundMessageEnrollmentSource" AS ENUM ('TAG','MANUAL','INBOUND');
+  END IF;
 END $$;
     `.trim(),
 
@@ -109,6 +118,7 @@ CREATE TABLE IF NOT EXISTS "PortalAiOutboundMessageEnrollment" (
   "campaignId" TEXT NOT NULL,
   "contactId" TEXT NOT NULL,
   "status" "PortalAiOutboundMessageEnrollmentStatus" NOT NULL DEFAULT 'QUEUED',
+  "source" "PortalAiOutboundMessageEnrollmentSource" NOT NULL DEFAULT 'TAG',
   "nextSendAt" TIMESTAMP(3),
   "sentFirstMessageAt" TIMESTAMP(3),
   "threadId" TEXT,
@@ -126,6 +136,17 @@ CREATE TABLE IF NOT EXISTS "PortalAiOutboundMessageEnrollment" (
 );
   `.trim(),
 
+    `
+ALTER TABLE "PortalAiOutboundMessageEnrollment"
+  ADD COLUMN IF NOT EXISTS "source" "PortalAiOutboundMessageEnrollmentSource" NOT NULL DEFAULT 'TAG';
+    `.trim(),
+
+    `
+UPDATE "PortalAiOutboundMessageEnrollment"
+  SET "source" = 'TAG'
+  WHERE "source" IS NULL;
+    `.trim(),
+
     `CREATE INDEX IF NOT EXISTS "PortalAiOutboundCallCampaign_ownerId_updatedAt_idx" ON "PortalAiOutboundCallCampaign"("ownerId","updatedAt");`,
     `CREATE INDEX IF NOT EXISTS "PortalAiOutboundCallCampaign_ownerId_status_updatedAt_idx" ON "PortalAiOutboundCallCampaign"("ownerId","status","updatedAt");`,
 
@@ -140,6 +161,8 @@ CREATE TABLE IF NOT EXISTS "PortalAiOutboundMessageEnrollment" (
     `CREATE INDEX IF NOT EXISTS "PortalAiOutboundMessageEnrollment_ownerId_contactId_idx" ON "PortalAiOutboundMessageEnrollment"("ownerId","contactId");`,
     `CREATE INDEX IF NOT EXISTS "PortalAiOutboundMessageEnrollment_ownerId_nextReplyAt_idx" ON "PortalAiOutboundMessageEnrollment"("ownerId","nextReplyAt");`,
     `CREATE INDEX IF NOT EXISTS "PortalAiOutboundMessageEnrollment_campaignId_nextReplyAt_idx" ON "PortalAiOutboundMessageEnrollment"("campaignId","nextReplyAt");`,
+
+    `CREATE INDEX IF NOT EXISTS "PortalAiOutboundMessageEnrollment_campaignId_source_updatedAt_idx" ON "PortalAiOutboundMessageEnrollment"("campaignId","source","updatedAt");`,
 
     `
 CREATE TABLE IF NOT EXISTS "PortalAiOutboundCallManualCall" (

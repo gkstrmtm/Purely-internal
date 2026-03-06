@@ -174,6 +174,16 @@ export async function POST(req: Request, ctx: { params: Promise<{ campaignId: st
 
       return NextResponse.json({ ok: true, agentId, createdAgentId: createdAgentId || undefined, pulled: true });
     }
+
+    return NextResponse.json(
+      {
+        ok: false,
+        error:
+          "Messages agent config is empty, so there is nothing to sync. Add a First message/Goal/etc, or try again after fixing ElevenLabs connectivity.",
+        details: remote.error,
+      },
+      { status: remote.status || 400 },
+    );
   }
 
   const result = await patchElevenLabsAgent({

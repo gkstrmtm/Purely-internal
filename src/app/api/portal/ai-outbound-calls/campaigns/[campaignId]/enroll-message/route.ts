@@ -15,9 +15,12 @@ export const revalidate = 0;
 
 const idSchema = z.string().trim().min(1).max(120);
 
-const postSchema = z.object({
-  target: z.string().trim().min(1).max(200),
-});
+const postSchema = z
+  .object({
+    contactId: z.string().trim().min(1).max(120).optional(),
+    target: z.string().trim().min(1).max(200).optional(),
+  })
+  .refine((v) => Boolean(v.contactId || v.target), { message: "contactId or target required" });
 
 async function resolveContactId(ownerId: string, targetRaw: string): Promise<string | null> {
   const target = String(targetRaw || "").trim();
@@ -83,7 +86,9 @@ export async function POST(req: Request, ctx: { params: Promise<{ campaignId: st
     );
   }
 
-  const contactId = await resolveContactId(ownerId, parsed.data.target);
+  const contactId = parsed.data.contactId
+    ? String(parsed.data.contactId).trim()
+    : await resolveContactId(ownerId, parsed.data.target || "");
   if (!contactId) {
     return NextResponse.json(
       { ok: false, error: "Contact not found. Use a Contact ID, phone number, or email." },
@@ -101,7 +106,7 @@ export async function POST(req: Request, ctx: { params: Promise<{ campaignId: st
     await prisma.portalAiOutboundMessageEnrollment
       .update({
         where: { id: existing.id },
-        data: { status: "ACTIVE", lastError: null },
+        data: { status: "ACTIVE", source: "MANUAL", lastError: null },
         select: { id: true },
       })
       .catch(() => null);
@@ -120,6 +125,7 @@ export async function POST(req: Request, ctx: { params: Promise<{ campaignId: st
         campaignId: campaign.id,
         contactId,
         status: "QUEUED",
+        source: "MANUAL",
         nextSendAt: now,
         sentFirstMessageAt: null,
         threadId: null,
@@ -136,6 +142,7 @@ export async function POST(req: Request, ctx: { params: Promise<{ campaignId: st
       },
       update: {
         status: "QUEUED",
+        source: "MANUAL",
         nextSendAt: now,
         attemptCount: 0,
         lastError: null,

@@ -940,6 +940,12 @@ enum PortalAiOutboundMessageEnrollmentStatus {
   SKIPPED
 }
 
+enum PortalAiOutboundMessageEnrollmentSource {
+  TAG
+  MANUAL
+  INBOUND
+}
+
 enum PortalInboxChannel {
   EMAIL
   SMS
@@ -1282,6 +1288,8 @@ model PortalAiOutboundMessageEnrollment {
 
   status PortalAiOutboundMessageEnrollmentStatus @default(QUEUED)
 
+  source PortalAiOutboundMessageEnrollmentSource @default(TAG)
+
   // First message send
   nextSendAt         DateTime?
   sentFirstMessageAt DateTime?
@@ -1310,6 +1318,7 @@ model PortalAiOutboundMessageEnrollment {
   @@index([ownerId, contactId])
   @@index([ownerId, nextReplyAt])
   @@index([campaignId, nextReplyAt])
+  @@index([campaignId, source, updatedAt])
 }
 
 model PortalAiOutboundCallManualCall {

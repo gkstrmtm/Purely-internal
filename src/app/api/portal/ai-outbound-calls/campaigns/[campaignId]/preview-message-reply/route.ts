@@ -15,6 +15,15 @@ const idSchema = z.string().trim().min(1).max(120);
 const postSchema = z.object({
   channel: z.enum(["sms", "email"]),
   inbound: z.string().trim().min(1).max(4000),
+  history: z
+    .array(
+      z.object({
+        role: z.enum(["user", "assistant"]),
+        content: z.string().trim().min(1).max(2000),
+      }),
+    )
+    .max(20)
+    .optional(),
 });
 
 function parseAgentConfig(raw: unknown): Record<string, unknown> {
@@ -74,13 +83,30 @@ export async function POST(req: Request, ctx: { params: Promise<{ campaignId: st
   const cfg = parseAgentConfig(campaign.chatAgentConfigJson);
   const system = systemFromAgentConfig(cfg, parsed.data.channel);
 
+  const history = Array.isArray((parsed.data as any).history) ? ((parsed.data as any).history as any[]) : [];
+  const transcript = history
+    .map((m) => {
+      const role = m?.role === "assistant" ? "Agent" : "Customer";
+      const content = typeof m?.content === "string" ? m.content.trim() : "";
+      if (!content) return null;
+      return `${role}: ${content}`;
+    })
+    .filter(Boolean)
+    .join("\n");
+
   const user = [
     `Campaign: ${campaign.name}`,
-    "Reply to the customer message below.",
+    "You are continuing a conversation with a customer.",
+    transcript ? "Conversation so far:" : null,
+    transcript || null,
+    "",
+    "Reply to the latest customer message below.",
     "Only output the reply text.",
     "",
     `Customer: ${parsed.data.inbound}`,
-  ].join("\n");
+  ]
+    .filter(Boolean)
+    .join("\n");
 
   let reply = "";
   try {
