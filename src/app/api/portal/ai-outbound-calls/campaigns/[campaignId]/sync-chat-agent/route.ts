@@ -179,7 +179,7 @@ export async function POST(req: Request, ctx: { params: Promise<{ campaignId: st
       {
         ok: false,
         error:
-          "Messages agent config is empty, so there is nothing to sync. Add a First message/Goal/etc, or try again after fixing ElevenLabs connectivity.",
+          "Messages agent config is empty, so there is nothing to sync. Add a First message/Goal/etc, or try again after fixing voice agent connectivity.",
         details: remote.error,
       },
       { status: remote.status || 400 },

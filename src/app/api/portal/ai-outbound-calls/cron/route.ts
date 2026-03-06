@@ -480,6 +480,30 @@ export async function GET(req: Request) {
   const ownerContextCache = new Map<string, Awaited<ReturnType<typeof getOwnerContext>>>();
   const ownerTwilioCache = new Map<string, Awaited<ReturnType<typeof getOwnerTwilioSmsConfig>> | null>();
 
+  function normalizeMessageChannelPolicy(raw: unknown): "SMS" | "EMAIL" | "BOTH" {
+    const v = typeof raw === "string" ? raw.trim().toUpperCase() : "";
+    if (v === "SMS" || v === "EMAIL" || v === "BOTH") return v;
+    return "BOTH";
+  }
+
+  function policyAllowsChannel(policy: "SMS" | "EMAIL" | "BOTH", channel: "SMS" | "EMAIL") {
+    if (policy === "BOTH") return true;
+    return policy === channel;
+  }
+
+  function pickChannelForFirstMessage(opts: {
+    policy: "SMS" | "EMAIL" | "BOTH";
+    smsAvailable: boolean;
+    emailAvailable: boolean;
+  }): "SMS" | "EMAIL" | null {
+    const { policy, smsAvailable, emailAvailable } = opts;
+    if (policy === "SMS") return smsAvailable ? "SMS" : null;
+    if (policy === "EMAIL") return emailAvailable ? "EMAIL" : null;
+    if (smsAvailable) return "SMS";
+    if (emailAvailable) return "EMAIL";
+    return null;
+  }
+
   // 2) Process queued outbound messages (first message) for contacts in the Messages audience.
   const dueMessages = await prisma.portalAiOutboundMessageEnrollment.findMany({
     where: {
@@ -493,7 +517,8 @@ export async function GET(req: Request) {
       campaignId: true,
       contactId: true,
       attemptCount: true,
-      campaign: { select: { id: true, status: true, name: true, chatAgentConfigJson: true } },
+      channelPolicy: true,
+      campaign: { select: { id: true, status: true, name: true, chatAgentConfigJson: true, messageChannelPolicy: true } },
       contact: { select: { id: true, name: true, email: true, phone: true } },
     },
     orderBy: [{ nextSendAt: "asc" }, { id: "asc" }],
@@ -514,19 +539,28 @@ export async function GET(req: Request) {
     const contactEmail = String(e.contact?.email ?? "").trim();
     const contactPhone = String(e.contact?.phone ?? "").trim();
 
-    // Prefer SMS if phone exists and Twilio is configured; otherwise fall back to email.
+    // Channel selection is controlled by campaign/enrollment policy.
     const twilioCfg = ownerTwilioCache.has(e.ownerId)
       ? ownerTwilioCache.get(e.ownerId)!
       : await getOwnerTwilioSmsConfig(e.ownerId).catch(() => null);
     if (!ownerTwilioCache.has(e.ownerId)) ownerTwilioCache.set(e.ownerId, twilioCfg);
 
-    const useSms = Boolean(contactPhone && twilioCfg?.fromNumberE164);
-    const useEmail = Boolean(contactEmail);
+    const smsAvailable = Boolean(contactPhone && twilioCfg?.fromNumberE164);
+    const emailAvailable = Boolean(contactEmail);
 
-    if (!useSms && !useEmail) {
+    const policy = normalizeMessageChannelPolicy((e as any).channelPolicy || (e.campaign as any).messageChannelPolicy);
+    const channel = pickChannelForFirstMessage({ policy, smsAvailable, emailAvailable });
+
+    if (!channel) {
+      const msg =
+        policy === "SMS"
+          ? "Campaign is set to SMS only, but SMS is not available for this contact."
+          : policy === "EMAIL"
+            ? "Campaign is set to Email only, but email is not available for this contact."
+            : "No SMS/email available for this contact.";
       await prisma.portalAiOutboundMessageEnrollment.update({
         where: { id: e.id },
-        data: { status: "FAILED", lastError: "Contact has no phone/email.", nextSendAt: null },
+        data: { status: "FAILED", lastError: msg, nextSendAt: null },
         select: { id: true },
       });
       messagesProcessed += 1;
@@ -557,7 +591,7 @@ export async function GET(req: Request) {
 
       const body = renderTextTemplate(firstMessage, templateVars).trim();
 
-      if (useSms) {
+      if (channel === "SMS") {
         const parsedTo = normalizePhoneStrict(contactPhone);
         if (!parsedTo.ok || !parsedTo.e164) throw new Error("Contact phone number is invalid.");
         if (!twilioCfg?.fromNumberE164) throw new Error("Twilio is not configured.");
@@ -679,7 +713,8 @@ export async function GET(req: Request) {
       pendingReplyToMessageId: true,
       replyAttemptCount: true,
       lastAutoRepliedMessageId: true,
-      campaign: { select: { id: true, status: true, chatAgentConfigJson: true } },
+      channelPolicy: true,
+      campaign: { select: { id: true, status: true, chatAgentConfigJson: true, messageChannelPolicy: true } },
     },
     orderBy: [{ nextReplyAt: "asc" }, { id: "asc" }],
     take: 60,
@@ -726,6 +761,25 @@ export async function GET(req: Request) {
       });
       if (!thread?.id) throw new Error("Thread not found");
 
+      const threadChannel = String(thread.channel) === "SMS" ? "SMS" : "EMAIL";
+      const policy = normalizeMessageChannelPolicy((e as any).channelPolicy || (e.campaign as any).messageChannelPolicy);
+      if (!policyAllowsChannel(policy, threadChannel)) {
+        await prisma.portalAiOutboundMessageEnrollment.update({
+          where: { id: e.id },
+          data: {
+            pendingReplyToMessageId: null,
+            nextReplyAt: null,
+            replyLastError:
+              policy === "SMS"
+                ? "Campaign is set to SMS only; skipping email reply."
+                : "Campaign is set to Email only; skipping SMS reply.",
+          },
+          select: { id: true },
+        });
+        repliesProcessed += 1;
+        continue;
+      }
+
       const inbound = await (prisma as any).portalInboxMessage.findFirst({
         where: { ownerId: e.ownerId, id: replyToMessageId, threadId, direction: "IN" },
         select: { id: true, bodyText: true },
@@ -751,8 +805,7 @@ export async function GET(req: Request) {
         .join("\n");
 
       const cfg = parseAgentConfig(e.campaign.chatAgentConfigJson);
-      const channel = String(thread.channel) === "SMS" ? "SMS" : "EMAIL";
-      const system = systemFromAgentConfig(cfg, channel);
+      const system = systemFromAgentConfig(cfg, threadChannel);
 
       const userPrompt = [
         "Continue this conversation by replying to the most recent Customer message.",
@@ -772,7 +825,7 @@ export async function GET(req: Request) {
         : await getOwnerContext(e.ownerId);
       if (!ownerContextCache.has(e.ownerId)) ownerContextCache.set(e.ownerId, ownerCtx);
 
-      if (channel === "SMS") {
+      if (threadChannel === "SMS") {
         const twilioCfg = ownerTwilioCache.has(e.ownerId)
           ? ownerTwilioCache.get(e.ownerId)!
           : await getOwnerTwilioSmsConfig(e.ownerId).catch(() => null);

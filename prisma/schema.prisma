@@ -946,6 +946,12 @@ enum PortalAiOutboundMessageEnrollmentSource {
   INBOUND
 }
 
+enum PortalAiOutboundMessageChannelPolicy {
+  SMS
+  EMAIL
+  BOTH
+}
+
 enum PortalInboxChannel {
   EMAIL
   SMS
@@ -1239,6 +1245,9 @@ model PortalAiOutboundCallCampaign {
   // Optional chat agent configuration payload.
   chatAgentConfigJson Json?
 
+  // Which channels this campaign is allowed to message on.
+  messageChannelPolicy PortalAiOutboundMessageChannelPolicy @default(BOTH)
+
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
@@ -1289,6 +1298,9 @@ model PortalAiOutboundMessageEnrollment {
   status PortalAiOutboundMessageEnrollmentStatus @default(QUEUED)
 
   source PortalAiOutboundMessageEnrollmentSource @default(TAG)
+
+  // Channel policy for this specific enrollment (manual override). Defaults to campaign policy.
+  channelPolicy PortalAiOutboundMessageChannelPolicy @default(BOTH)
 
   // First message send
   nextSendAt         DateTime?

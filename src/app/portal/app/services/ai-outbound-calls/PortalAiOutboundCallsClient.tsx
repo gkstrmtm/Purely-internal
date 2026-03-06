@@ -22,6 +22,7 @@ type Campaign = {
   voiceAgentConfig: VoiceAgentConfig;
   chatAgentId: string;
   chatAgentConfig: VoiceAgentConfig;
+  messageChannelPolicy: "SMS" | "EMAIL" | "BOTH";
   createdAtIso: string;
   updatedAtIso: string;
   enrollQueued: number;
@@ -341,6 +342,9 @@ export function PortalAiOutboundCallsClient() {
   const [callsAgentSyncRequired, setCallsAgentSyncRequired] = useState(false);
   const [callsAgentSyncedAtIso, setCallsAgentSyncedAtIso] = useState<string | null>(null);
 
+  const [messagesAgentSyncRequired, setMessagesAgentSyncRequired] = useState(false);
+  const [messagesAgentSyncedAtIso, setMessagesAgentSyncedAtIso] = useState<string | null>(null);
+
   const [activityLoading, setActivityLoading] = useState(false);
   const [activityCounts, setActivityCounts] = useState<CampaignActivityCounts | null>(null);
   const [activityRecent, setActivityRecent] = useState<CampaignActivityRow[]>([]);
@@ -370,6 +374,8 @@ export function PortalAiOutboundCallsClient() {
   const [manualEnrollSelected, setManualEnrollSelected] = useState<ContactSearchResult | null>(null);
   const [manualEnrollSearchBusy, setManualEnrollSearchBusy] = useState(false);
 
+  const [manualEnrollChannelPolicy, setManualEnrollChannelPolicy] = useState<"SMS" | "EMAIL" | "BOTH">("BOTH");
+
   const [manualEnrollBusy, setManualEnrollBusy] = useState(false);
 
   const [messagesActivityLoading, setMessagesActivityLoading] = useState(false);
@@ -386,6 +392,8 @@ export function PortalAiOutboundCallsClient() {
   useEffect(() => {
     setCallsAgentSyncRequired(false);
     setCallsAgentSyncedAtIso(null);
+    setMessagesAgentSyncRequired(false);
+    setMessagesAgentSyncedAtIso(null);
     setManualCallId(null);
     setManualCall(null);
     setTab("calls");
@@ -399,6 +407,7 @@ export function PortalAiOutboundCallsClient() {
     setManualEnrollResults([]);
     setManualEnrollSelected(null);
     setManualEnrollSearchBusy(false);
+    setManualEnrollChannelPolicy("BOTH");
     setMessagesCountsByStatus({});
     setMessagesCountsBySource({});
     setMessagesRecent([]);
@@ -441,6 +450,17 @@ export function PortalAiOutboundCallsClient() {
     if (!selected?.id) return;
     void loadMessagesActivity(selected.id);
   }, [loadMessagesActivity, selected?.id, tab]);
+
+  useEffect(() => {
+    if (!selected?.id) return;
+    const policy = (selected as any).messageChannelPolicy;
+    if (policy === "SMS" || policy === "EMAIL" || policy === "BOTH") {
+      setManualEnrollChannelPolicy(policy);
+      if (policy === "SMS" && messagesTestChannel !== "sms") setMessagesTestChannel("sms");
+      if (policy === "EMAIL" && messagesTestChannel !== "email") setMessagesTestChannel("email");
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selected?.id]);
 
   useEffect(() => {
     const q = manualEnrollQuery.trim();
@@ -674,6 +694,21 @@ export function PortalAiOutboundCallsClient() {
       return;
     }
 
+    const phone = (manualEnrollSelected?.phone || "").trim();
+    const email = (manualEnrollSelected?.email || "").trim();
+    if (manualEnrollChannelPolicy === "SMS" && !phone) {
+      toast.error("Selected contact has no phone number for SMS");
+      return;
+    }
+    if (manualEnrollChannelPolicy === "EMAIL" && !email) {
+      toast.error("Selected contact has no email address for email");
+      return;
+    }
+    if (manualEnrollChannelPolicy === "BOTH" && !phone && !email) {
+      toast.error("Selected contact has no phone or email");
+      return;
+    }
+
     setManualEnrollBusy(true);
     setError(null);
 
@@ -683,7 +718,7 @@ export function PortalAiOutboundCallsClient() {
         {
           method: "POST",
           headers: { "content-type": "application/json" },
-          body: JSON.stringify({ contactId }),
+          body: JSON.stringify({ contactId, channelPolicy: manualEnrollChannelPolicy }),
         },
       );
 
@@ -860,7 +895,10 @@ export function PortalAiOutboundCallsClient() {
 
   async function updateCampaign(
     patch: Partial<
-      Pick<Campaign, "name" | "status" | "audienceTagIds" | "chatAudienceTagIds" | "voiceAgentId" | "chatAgentId">
+      Pick<
+        Campaign,
+        "name" | "status" | "audienceTagIds" | "chatAudienceTagIds" | "voiceAgentId" | "chatAgentId" | "messageChannelPolicy"
+      >
     > & {
       voiceAgentConfig?: Partial<VoiceAgentConfig>;
       chatAgentConfig?: Partial<VoiceAgentConfig>;
@@ -872,6 +910,15 @@ export function PortalAiOutboundCallsClient() {
     if (patch.voiceAgentId !== undefined || patch.voiceAgentConfig !== undefined) {
       setCallsAgentSyncRequired(true);
       setCallsAgentSyncedAtIso(null);
+    }
+
+    if (
+      patch.chatAgentId !== undefined ||
+      patch.chatAgentConfig !== undefined ||
+      patch.messageChannelPolicy !== undefined
+    ) {
+      setMessagesAgentSyncRequired(true);
+      setMessagesAgentSyncedAtIso(null);
     }
 
     if (busy) return;
@@ -930,6 +977,51 @@ export function PortalAiOutboundCallsClient() {
     } finally {
       setBusy(false);
     }
+  }
+
+  async function syncMessagesAgent() {
+    if (!selected) return;
+    if (busy) return;
+    setBusy(true);
+    setError(null);
+
+    try {
+      const res = await fetch(
+        `/api/portal/ai-outbound-calls/campaigns/${encodeURIComponent(selected.id)}/sync-chat-agent`,
+        { method: "POST" },
+      );
+
+      const json = (await res.json().catch(() => null)) as any;
+      if (!res.ok || !json || json.ok !== true) {
+        throw new Error(json?.error || "Failed to sync agent");
+      }
+
+      if (json.pulled) toast.success("Loaded agent settings");
+      else if (json.createdAgentId) toast.success("Created + synced agent");
+      else if (json.noop) toast.success("Already synced");
+      else toast.success("Synced agent");
+
+      setMessagesAgentSyncRequired(false);
+      setMessagesAgentSyncedAtIso(new Date().toISOString());
+      await loadAll();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Failed to sync agent");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function saveMessagesAgentSettings() {
+    if (!selected) return;
+    if (busy) return;
+
+    await updateCampaign({
+      messageChannelPolicy: selected.messageChannelPolicy,
+      chatAgentId: (selected.chatAgentId ?? "").trim(),
+      chatAgentConfig: selected.chatAgentConfig ?? {},
+    });
+
+    toast.success("Saved");
   }
 
   async function generateAgentConfig(kind: "calls" | "messages") {
@@ -1528,17 +1620,37 @@ export function PortalAiOutboundCallsClient() {
                         ) : null}
 
                         <div className="mt-2 text-xs text-zinc-500">
-                          Sends the first message automatically (SMS if possible, otherwise email).
+                          {manualEnrollChannelPolicy === "SMS"
+                            ? "Sends the first message automatically via SMS."
+                            : manualEnrollChannelPolicy === "EMAIL"
+                              ? "Sends the first message automatically via email."
+                              : "Sends the first message automatically (SMS if possible, otherwise email)."}
                         </div>
                       </div>
 
                       <div className="sm:self-end">
+                        <div>
+                          <div className="text-sm font-semibold text-zinc-800">Channel</div>
+                          <div className="mt-1">
+                            <PortalListboxDropdown
+                              value={manualEnrollChannelPolicy}
+                              options={[
+                                { value: "SMS", label: "SMS" },
+                                { value: "EMAIL", label: "Email" },
+                                { value: "BOTH", label: "Both (SMS if possible, else email)" },
+                              ]}
+                              onChange={(v) => setManualEnrollChannelPolicy(v as any)}
+                              disabled={busy || manualEnrollBusy}
+                              buttonClassName="flex w-full items-center justify-between gap-2 rounded-xl border border-zinc-200 bg-white px-2 py-2 text-sm font-semibold text-zinc-900 hover:bg-zinc-50 focus-visible:ring-2 focus-visible:ring-zinc-300"
+                            />
+                          </div>
+                        </div>
                         <button
                           type="button"
                           disabled={busy || manualEnrollBusy || !manualEnrollSelected?.id}
                           onClick={() => void enrollContactForMessages()}
                           className={classNames(
-                            "w-full rounded-2xl px-4 py-2 text-sm font-semibold",
+                            "mt-3 w-full rounded-2xl px-4 py-2 text-sm font-semibold",
                             busy || manualEnrollBusy || !manualEnrollSelected?.id
                               ? "bg-zinc-200 text-zinc-600"
                               : "bg-brand-ink text-white hover:opacity-95",
@@ -2548,7 +2660,7 @@ export function PortalAiOutboundCallsClient() {
                             <div>
                               <div className="text-xs font-semibold text-zinc-700">Testing</div>
                               <div className="mt-1 text-[11px] text-zinc-600">
-                                This connects to your live ElevenLabs calls agent so you can test voice behavior.
+                                This connects to your live calls agent so you can test voice behavior.
                               </div>
                             </div>
                             <button
@@ -2575,9 +2687,89 @@ export function PortalAiOutboundCallsClient() {
                       </div>
                     ) : (
                       <div className="rounded-3xl border border-zinc-200 bg-white p-4">
-                        <div className="text-sm font-semibold text-zinc-900">Messages agent</div>
-                        <div className="mt-1 text-xs text-zinc-600">
-                          Used for SMS/email outreach and replies in this campaign.
+                        <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                          <div>
+                            <div className="text-sm font-semibold text-zinc-900">Messages agent</div>
+                            <div className="mt-1 text-xs text-zinc-600">Used for SMS/email outreach and replies in this campaign.</div>
+                            <div className="mt-2 text-[11px] text-zinc-600">
+                              {messagesAgentSyncRequired ? (
+                                <span className="inline-flex items-center rounded-full bg-blue-50 px-2 py-0.5 text-[10px] font-semibold text-blue-800 ring-1 ring-blue-200">
+                                  Sync required
+                                </span>
+                              ) : messagesAgentSyncedAtIso ? (
+                                <span
+                                  className="inline-flex items-center rounded-full bg-emerald-50 px-2 py-0.5 text-[10px] font-semibold text-emerald-800 ring-1 ring-emerald-200"
+                                  title={`Synced ${formatWhen(messagesAgentSyncedAtIso)}`}
+                                >
+                                  Synced
+                                </span>
+                              ) : null}
+                              {messagesAgentSyncedAtIso ? (
+                                <span className="ml-2 text-[10px] text-zinc-500">{formatWhen(messagesAgentSyncedAtIso)}</span>
+                              ) : null}
+                            </div>
+                          </div>
+
+                          <div className="flex flex-wrap items-center gap-2">
+                            <button
+                              type="button"
+                              disabled={busy}
+                              onClick={() => void saveMessagesAgentSettings()}
+                              className={classNames(
+                                "rounded-2xl px-4 py-2 text-xs font-semibold",
+                                busy ? "bg-zinc-200 text-zinc-600" : "bg-zinc-900 text-white hover:bg-zinc-800",
+                              )}
+                              title="Save messages settings"
+                            >
+                              Save
+                            </button>
+                            <button
+                              type="button"
+                              disabled={busy}
+                              onClick={syncMessagesAgent}
+                              className={classNames(
+                                "rounded-2xl px-4 py-2 text-xs font-semibold",
+                                busy
+                                  ? "bg-zinc-200 text-zinc-600"
+                                  : "bg-(--color-brand-blue) text-white hover:opacity-95",
+                              )}
+                              title="Sync messages agent"
+                            >
+                              {busy ? "Syncing…" : "Sync messages agent"}
+                            </button>
+                          </div>
+                        </div>
+
+                        <div className="mt-4">
+                          <div className="text-xs font-semibold text-zinc-700">Channel policy</div>
+                          <div className="mt-1 text-[11px] text-zinc-600">
+                            Choose which channels this campaign can use for first messages. Click Save to apply.
+                          </div>
+                          <div className="mt-2 w-72 max-w-full">
+                            <PortalListboxDropdown
+                              value={selected.messageChannelPolicy}
+                              options={[
+                                { value: "SMS", label: "SMS only" },
+                                { value: "EMAIL", label: "Email only" },
+                                { value: "BOTH", label: "Both" },
+                              ]}
+                              onChange={(v) => {
+                                const next = v as any;
+                                setCampaigns((prev) =>
+                                  prev.map((c) => (c.id === selected.id ? { ...c, messageChannelPolicy: next } : c)),
+                                );
+                                setMessagesAgentSyncRequired(true);
+                                setMessagesAgentSyncedAtIso(null);
+                                if (next === "SMS" || next === "EMAIL" || next === "BOTH") {
+                                  setManualEnrollChannelPolicy(next);
+                                  if (next === "SMS") setMessagesTestChannel("sms");
+                                  if (next === "EMAIL") setMessagesTestChannel("email");
+                                }
+                              }}
+                              disabled={busy}
+                              buttonClassName="flex w-full items-center justify-between gap-2 rounded-xl border border-zinc-200 bg-white px-2 py-2 text-sm font-semibold text-zinc-900 hover:bg-zinc-50 focus-visible:ring-2 focus-visible:ring-zinc-300"
+                            />
+                          </div>
                         </div>
 
                         <div className="mt-4 rounded-2xl border border-zinc-200 bg-zinc-50 p-3">

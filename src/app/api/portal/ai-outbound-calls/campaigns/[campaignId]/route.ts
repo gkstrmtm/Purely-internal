@@ -32,6 +32,7 @@ const patchSchema = z
     status: z.enum(["DRAFT", "ACTIVE", "PAUSED", "ARCHIVED"]).optional(),
     audienceTagIds: z.array(z.string().trim().min(1).max(120)).max(50).optional(),
     chatAudienceTagIds: z.array(z.string().trim().min(1).max(120)).max(50).optional(),
+    messageChannelPolicy: z.enum(["SMS", "EMAIL", "BOTH"]).optional(),
     voiceAgentId: z.string().trim().max(120).optional(),
     voiceAgentConfig: voiceAgentConfigPatchSchema.optional(),
     chatAgentId: z.string().trim().max(120).optional(),
@@ -69,6 +70,7 @@ export async function PATCH(req: Request, ctx: { params: Promise<{ campaignId: s
   if (parsed.data.status !== undefined) data.status = parsed.data.status;
   if (parsed.data.audienceTagIds !== undefined) data.audienceTagIdsJson = normalizeTagIdList(parsed.data.audienceTagIds);
   if (parsed.data.chatAudienceTagIds !== undefined) data.chatAudienceTagIdsJson = normalizeTagIdList(parsed.data.chatAudienceTagIds);
+  if (parsed.data.messageChannelPolicy !== undefined) data.messageChannelPolicy = parsed.data.messageChannelPolicy;
 
   if (parsed.data.voiceAgentId !== undefined) {
     const id = parsed.data.voiceAgentId.trim().slice(0, 120);

@@ -21,7 +21,7 @@ export async function enqueueOutboundMessageForTaggedContact(opts: {
 
   const campaigns = await prisma.portalAiOutboundCallCampaign.findMany({
     where: { ownerId, status: "ACTIVE" },
-    select: { id: true, chatAudienceTagIdsJson: true },
+    select: { id: true, chatAudienceTagIdsJson: true, messageChannelPolicy: true },
     take: 200,
   });
 
@@ -45,6 +45,7 @@ export async function enqueueOutboundMessageForTaggedContact(opts: {
           contactId,
           status: "QUEUED",
           source: "TAG",
+          channelPolicy: (c as any).messageChannelPolicy || "BOTH",
           nextSendAt: now,
           sentFirstMessageAt: null,
           threadId: null,
@@ -115,14 +116,21 @@ export async function queueAiOutboundMessageRepliesForInboundMessage(opts: {
 
   const campaigns = await prisma.portalAiOutboundCallCampaign.findMany({
     where: { ownerId, status: "ACTIVE" },
-    select: { id: true, updatedAt: true, chatAudienceTagIdsJson: true },
+    select: { id: true, updatedAt: true, chatAudienceTagIdsJson: true, messageChannelPolicy: true },
     orderBy: [{ updatedAt: "desc" }],
     take: 200,
   });
 
+  const threadChannel = String(thread?.channel || "").toUpperCase() === "SMS" ? "SMS" : "EMAIL";
+
   const matched = campaigns.filter((c) => {
     const audience = normalizeTagIdList(c.chatAudienceTagIdsJson);
-    return audience.some((id) => tagIds.includes(id));
+    if (!audience.some((id) => tagIds.includes(id))) return false;
+
+    const policy = String((c as any).messageChannelPolicy || "BOTH").toUpperCase();
+    if (policy === "SMS") return threadChannel === "SMS";
+    if (policy === "EMAIL") return threadChannel === "EMAIL";
+    return true;
   });
 
   if (!matched.length) return { ok: true, queued: 0 };
@@ -142,6 +150,7 @@ export async function queueAiOutboundMessageRepliesForInboundMessage(opts: {
           contactId,
           status: "ACTIVE",
           source: "INBOUND",
+          channelPolicy: threadChannel,
           nextSendAt: null,
           sentFirstMessageAt: null,
           threadId,

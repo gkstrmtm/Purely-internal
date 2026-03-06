@@ -19,6 +19,7 @@ const postSchema = z
   .object({
     contactId: z.string().trim().min(1).max(120).optional(),
     target: z.string().trim().min(1).max(200).optional(),
+    channelPolicy: z.enum(["SMS", "EMAIL", "BOTH"]).optional(),
   })
   .refine((v) => Boolean(v.contactId || v.target), { message: "contactId or target required" });
 
@@ -75,7 +76,7 @@ export async function POST(req: Request, ctx: { params: Promise<{ campaignId: st
 
   const campaign = await prisma.portalAiOutboundCallCampaign.findFirst({
     where: { ownerId, id: campaignId.data },
-    select: { id: true, status: true },
+    select: { id: true, status: true, messageChannelPolicy: true },
   });
 
   if (!campaign) return NextResponse.json({ ok: false, error: "Not found" }, { status: 404 });
@@ -97,6 +98,10 @@ export async function POST(req: Request, ctx: { params: Promise<{ campaignId: st
   }
 
   const now = new Date();
+  const channelPolicy = (parsed.data.channelPolicy || (campaign as any).messageChannelPolicy || "BOTH") as
+    | "SMS"
+    | "EMAIL"
+    | "BOTH";
 
   const existing = await prisma.portalAiOutboundMessageEnrollment
     .findUnique({ where: { campaignId_contactId: { campaignId: campaign.id, contactId } }, select: { id: true, sentFirstMessageAt: true } })
@@ -106,7 +111,7 @@ export async function POST(req: Request, ctx: { params: Promise<{ campaignId: st
     await prisma.portalAiOutboundMessageEnrollment
       .update({
         where: { id: existing.id },
-        data: { status: "ACTIVE", source: "MANUAL", lastError: null },
+        data: { status: "ACTIVE", source: "MANUAL", channelPolicy, lastError: null },
         select: { id: true },
       })
       .catch(() => null);
@@ -126,6 +131,7 @@ export async function POST(req: Request, ctx: { params: Promise<{ campaignId: st
         contactId,
         status: "QUEUED",
         source: "MANUAL",
+        channelPolicy,
         nextSendAt: now,
         sentFirstMessageAt: null,
         threadId: null,
@@ -143,6 +149,7 @@ export async function POST(req: Request, ctx: { params: Promise<{ campaignId: st
       update: {
         status: "QUEUED",
         source: "MANUAL",
+        channelPolicy,
         nextSendAt: now,
         attemptCount: 0,
         lastError: null,
