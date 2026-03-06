@@ -64,10 +64,6 @@ export async function GET(req: Request) {
 
   const ownerId = auth.session.user.id;
 
-  // This endpoint must work even if the DB was recreated and
-  // runtime schema installers haven't been triggered yet.
-  await ensurePortalContactTagsReady().catch(() => null);
-
   const url = new URL(req.url);
   const take = Math.max(1, Math.min(50, Number(url.searchParams.get("take") || 50) || 50));
   const contactsCursor = parseCursor(url.searchParams.get("contactsCursor"));

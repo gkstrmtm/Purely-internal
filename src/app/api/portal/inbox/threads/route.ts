@@ -2,7 +2,6 @@ import { NextResponse } from "next/server";
 
 import { requireClientSessionForService } from "@/lib/portalAccess";
 import { prisma } from "@/lib/db";
-import { ensurePortalContactTagsReady } from "@/lib/portalContactTags";
 import { ensurePortalInboxSchema } from "@/lib/portalInboxSchema";
 
 export const dynamic = "force-dynamic";
@@ -61,7 +60,6 @@ export async function GET(req: Request) {
 
   // Avoid runtime failures if migrations haven't been applied yet.
   await ensurePortalInboxSchema();
-  await ensurePortalContactTagsReady().catch(() => null);
 
   try {
     const threads = await (prisma as any).portalInboxThread.findMany({

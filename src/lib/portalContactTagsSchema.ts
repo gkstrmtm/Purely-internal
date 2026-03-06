@@ -3,6 +3,67 @@ import { prisma } from "@/lib/db";
 let ensuredAt = 0;
 const ENSURE_TTL_MS = 10 * 60 * 1000;
 
+async function contactTagsSchemaLooksReady(): Promise<boolean> {
+  // We consider it ready if the core tables exist and the optional contactId
+  // columns (added by this installer) already exist where applicable.
+  try {
+    const rows = await prisma.$queryRaw<
+      Array<{
+        inboxThreadTable: boolean;
+        leadTable: boolean;
+        bookingTable: boolean;
+        tag: boolean;
+        assignment: boolean;
+        inboxThreadContactId: boolean;
+        leadContactId: boolean;
+        bookingContactId: boolean;
+      }>
+    >`
+      SELECT
+        EXISTS (
+          SELECT 1 FROM information_schema.tables
+          WHERE table_schema = 'public' AND table_name = 'PortalInboxThread'
+        ) AS "inboxThreadTable",
+        EXISTS (
+          SELECT 1 FROM information_schema.tables
+          WHERE table_schema = 'public' AND table_name = 'PortalLead'
+        ) AS "leadTable",
+        EXISTS (
+          SELECT 1 FROM information_schema.tables
+          WHERE table_schema = 'public' AND table_name = 'PortalBooking'
+        ) AS "bookingTable",
+        EXISTS (
+          SELECT 1 FROM information_schema.tables
+          WHERE table_schema = 'public' AND table_name = 'PortalContactTag'
+        ) AS "tag",
+        EXISTS (
+          SELECT 1 FROM information_schema.tables
+          WHERE table_schema = 'public' AND table_name = 'PortalContactTagAssignment'
+        ) AS "assignment",
+        EXISTS (
+          SELECT 1 FROM information_schema.columns
+          WHERE table_schema = 'public' AND table_name = 'PortalInboxThread' AND column_name = 'contactId'
+        ) AS "inboxThreadContactId",
+        EXISTS (
+          SELECT 1 FROM information_schema.columns
+          WHERE table_schema = 'public' AND table_name = 'PortalLead' AND column_name = 'contactId'
+        ) AS "leadContactId",
+        EXISTS (
+          SELECT 1 FROM information_schema.columns
+          WHERE table_schema = 'public' AND table_name = 'PortalBooking' AND column_name = 'contactId'
+        ) AS "bookingContactId";
+    `;
+    const r = rows?.[0];
+    if (!r?.tag || !r?.assignment) return false;
+    if (r.inboxThreadTable && !r.inboxThreadContactId) return false;
+    if (r.leadTable && !r.leadContactId) return false;
+    if (r.bookingTable && !r.bookingContactId) return false;
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 function tableExistsSql(tableName: string) {
   const t = tableName.replace(/"/g, "");
   return `EXISTS (SELECT 1 FROM information_schema.tables WHERE table_schema = 'public' AND table_name = '${t}')`;
@@ -11,6 +72,11 @@ function tableExistsSql(tableName: string) {
 export async function ensurePortalContactTagsSchema(): Promise<void> {
   const now = Date.now();
   if (ensuredAt && now - ensuredAt < ENSURE_TTL_MS) return;
+
+  if (await contactTagsSchemaLooksReady()) {
+    ensuredAt = Date.now();
+    return;
+  }
 
   const statements: string[] = [
     `

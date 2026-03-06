@@ -3,9 +3,28 @@ import { prisma } from "@/lib/db";
 let ensuredAt = 0;
 const ENSURE_TTL_MS = 10 * 60 * 1000;
 
+async function contactsSchemaLooksReady(): Promise<boolean> {
+  try {
+    const rows = await prisma.$queryRaw<Array<{ ok: boolean }>>`
+      SELECT EXISTS (
+        SELECT 1 FROM information_schema.tables
+        WHERE table_schema = 'public' AND table_name = 'PortalContact'
+      ) AS "ok";
+    `;
+    return Boolean(rows?.[0]?.ok);
+  } catch {
+    return false;
+  }
+}
+
 export async function ensurePortalContactsSchema(): Promise<void> {
   const now = Date.now();
   if (ensuredAt && now - ensuredAt < ENSURE_TTL_MS) return;
+
+  if (await contactsSchemaLooksReady()) {
+    ensuredAt = Date.now();
+    return;
+  }
 
   const statements: string[] = [
     `

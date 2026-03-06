@@ -3,9 +3,43 @@ import { prisma } from "@/lib/db";
 let ensuredAt = 0;
 const ENSURE_TTL_MS = 10 * 60 * 1000;
 
+async function inboxSchemaLooksReady(): Promise<boolean> {
+  // Cheap existence checks to avoid running a long sequence of DDL statements
+  // on hot paths (which can cause portal pages to feel "stuck loading").
+  try {
+    const rows = await prisma.$queryRaw<
+      Array<{ thread: boolean; message: boolean; attachment: boolean }>
+    >`
+      SELECT
+        EXISTS (
+          SELECT 1 FROM information_schema.tables
+          WHERE table_schema = 'public' AND table_name = 'PortalInboxThread'
+        ) AS "thread",
+        EXISTS (
+          SELECT 1 FROM information_schema.tables
+          WHERE table_schema = 'public' AND table_name = 'PortalInboxMessage'
+        ) AS "message",
+        EXISTS (
+          SELECT 1 FROM information_schema.tables
+          WHERE table_schema = 'public' AND table_name = 'PortalInboxAttachment'
+        ) AS "attachment";
+    `;
+    const r = rows?.[0];
+    return Boolean(r?.thread && r?.message && r?.attachment);
+  } catch {
+    return false;
+  }
+}
+
 export async function ensurePortalInboxSchema(): Promise<void> {
   const now = Date.now();
   if (ensuredAt && now - ensuredAt < ENSURE_TTL_MS) return;
+
+  // If the schema already exists, avoid running DDL.
+  if (await inboxSchemaLooksReady()) {
+    ensuredAt = Date.now();
+    return;
+  }
 
   // Idempotent schema installer (avoids prisma migrate in slow prod envs).
   // IMPORTANT: Prisma raw execution commonly rejects multi-statement queries,
