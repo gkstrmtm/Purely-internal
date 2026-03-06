@@ -189,7 +189,7 @@ export function PortalPeopleContactDuplicatesClient() {
                         {g.phone || g.phoneKey} <span className="ml-2 text-xs font-semibold text-zinc-500">({g.contacts.length} contacts)</span>
                       </div>
                       {g.needsEmailChoice ? (
-                        <div className="mt-1 text-xs font-semibold text-amber-700">Same phone, different emails — choose a primary email.</div>
+                        <div className="mt-1 text-xs font-semibold text-amber-700">Same phone, different emails. Choose a primary email.</div>
                       ) : (
                         <div className="mt-1 text-xs font-semibold text-emerald-700">Safe to merge automatically.</div>
                       )}

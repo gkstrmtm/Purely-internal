@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useToast } from "@/components/ToastProvider";
 import { DEFAULT_TAG_COLORS } from "@/lib/tagColors.shared";
 import { RichTextMarkdownEditor } from "@/components/RichTextMarkdownEditor";
@@ -119,13 +119,23 @@ function buildNewsletterSmsPreview(opts: { smsText: string | null; link: string 
 export function PortalNewsletterClient({ initialAudience }: { initialAudience: AudienceTab }) {
   const toast = useToast();
 
+  const audienceRef = useRef<AudienceTab>(initialAudience);
+
   const [audience, setAudience] = useState<AudienceTab>(initialAudience);
   const [tab, setTab] = useState<"newsletters" | "activity">("newsletters");
 
   const [site, setSite] = useState<Site | null>(null);
   const [settings, setSettings] = useState<Settings | null>(null);
+  const [settingsCache, setSettingsCache] = useState<{ external: Settings | null; internal: Settings | null }>({
+    external: null,
+    internal: null,
+  });
   const [tags, setTags] = useState<Tag[]>([]);
   const [newsletters, setNewsletters] = useState<NewsletterRow[]>([]);
+  const [newslettersCache, setNewslettersCache] = useState<{ external: NewsletterRow[]; internal: NewsletterRow[] }>({
+    external: [],
+    internal: [],
+  });
 
   const [credits, setCredits] = useState<number | null>(null);
   const [creditsUsed30d, setCreditsUsed30d] = useState<number | null>(null);
@@ -144,7 +154,10 @@ export function PortalNewsletterClient({ initialAudience }: { initialAudience: A
 
   const [contactSearchOpen, setContactSearchOpen] = useState(false);
 
-  const [aiStep, setAiStep] = useState<"delivery" | "images" | "guided" | "topics" | "review">("delivery");
+  const [aiStep, setAiStep] = useState<"delivery" | "styling" | "guided" | "topics" | "review">("delivery");
+
+  const [frequencyCount, setFrequencyCount] = useState<number>(1);
+  const [frequencyUnit, setFrequencyUnit] = useState<"days" | "weeks" | "months">("weeks");
 
   const [manualTitle, setManualTitle] = useState("");
   const [manualExcerpt, setManualExcerpt] = useState("");
@@ -158,6 +171,7 @@ export function PortalNewsletterClient({ initialAudience }: { initialAudience: A
   const [manualAssetBusy, setManualAssetBusy] = useState(false);
   const [manualAssetPickerOpen, setManualAssetPickerOpen] = useState(false);
   const [manualImageSearch, setManualImageSearch] = useState("");
+  const [manualImageResolvedQuery, setManualImageResolvedQuery] = useState<string | null>(null);
   const [manualImageSearching, setManualImageSearching] = useState(false);
   const [manualImageResults, setManualImageResults] = useState<Array<{ url: string; thumbUrl: string; title: string; sourcePage: string }>>([]);
   const [manualImagePreview, setManualImagePreview] = useState<{ url: string; thumbUrl: string; title: string; sourcePage: string } | null>(null);
@@ -193,6 +207,12 @@ export function PortalNewsletterClient({ initialAudience }: { initialAudience: A
   const [assetBusy, setAssetBusy] = useState(false);
   const [assetPickerOpen, setAssetPickerOpen] = useState(false);
 
+  const [siteConfigOpen, setSiteConfigOpen] = useState(false);
+  const [siteConfigBusy, setSiteConfigBusy] = useState(false);
+  const [siteConfigName, setSiteConfigName] = useState("Newsletter site");
+  const [siteConfigSlug, setSiteConfigSlug] = useState("");
+  const [siteConfigDomain, setSiteConfigDomain] = useState("");
+
   const siteHandle = useMemo(() => {
     if (!site) return null;
     return site.slug ?? site.id;
@@ -212,29 +232,39 @@ export function PortalNewsletterClient({ initialAudience }: { initialAudience: A
   const refresh = useCallback(async () => {
     setLoading(true);
 
-    const [siteRes, settingsRes, tagsRes, creditsRes, usageRes, listRes] = await Promise.all([
+    const [siteRes, settingsExternalRes, settingsInternalRes, tagsRes, creditsRes, usageRes, listExternalRes, listInternalRes] = await Promise.all([
       fetch("/api/portal/newsletter/site", { cache: "no-store" }),
-      fetch(`/api/portal/newsletter/automation/settings?kind=${audience}`, { cache: "no-store" }),
+      fetch("/api/portal/newsletter/automation/settings?kind=external", { cache: "no-store" }),
+      fetch("/api/portal/newsletter/automation/settings?kind=internal", { cache: "no-store" }),
       fetch("/api/portal/contact-tags", { cache: "no-store" }),
       fetch("/api/portal/credits", { cache: "no-store" }),
       fetch("/api/portal/newsletter/usage?range=30d", { cache: "no-store" }),
-      fetch(`/api/portal/newsletter/newsletters?kind=${audience}&take=100`, { cache: "no-store" }),
+      fetch("/api/portal/newsletter/newsletters?kind=external&take=100", { cache: "no-store" }),
+      fetch("/api/portal/newsletter/newsletters?kind=internal&take=100", { cache: "no-store" }),
     ]);
 
     const siteJson = (await siteRes.json().catch(() => ({}))) as any;
-    const settingsJson = (await settingsRes.json().catch(() => ({}))) as any;
+    const settingsExternalJson = (await settingsExternalRes.json().catch(() => ({}))) as any;
+    const settingsInternalJson = (await settingsInternalRes.json().catch(() => ({}))) as any;
     const tagsJson = (await tagsRes.json().catch(() => ({}))) as any;
     const creditsJson = (await creditsRes.json().catch(() => ({}))) as any;
     const usageJson = (await usageRes.json().catch(() => ({}))) as any;
-    const listJson = (await listRes.json().catch(() => ({}))) as any;
+    const listExternalJson = (await listExternalRes.json().catch(() => ({}))) as any;
+    const listInternalJson = (await listInternalRes.json().catch(() => ({}))) as any;
 
     if (!siteRes.ok) toast.error(siteJson?.error ?? "Unable to load newsletter site");
-    if (!settingsRes.ok) toast.error(settingsJson?.error ?? "Unable to load newsletter settings");
+    if (!settingsExternalRes.ok) toast.error(settingsExternalJson?.error ?? "Unable to load newsletter settings");
+    if (!settingsInternalRes.ok) toast.error(settingsInternalJson?.error ?? "Unable to load newsletter settings");
     if (!tagsRes.ok) toast.error(tagsJson?.error ?? "Unable to load contact tags");
 
     setSite(siteJson?.site ?? null);
 
-    if (settingsRes.ok && settingsJson?.settings) setSettings(settingsJson.settings as Settings);
+    const nextSettingsCache = {
+      external: settingsExternalRes.ok && settingsExternalJson?.settings ? (settingsExternalJson.settings as Settings) : null,
+      internal: settingsInternalRes.ok && settingsInternalJson?.settings ? (settingsInternalJson.settings as Settings) : null,
+    };
+    setSettingsCache(nextSettingsCache);
+    setSettings(nextSettingsCache[audienceRef.current] ?? null);
 
     setTags(Array.isArray(tagsJson?.tags) ? tagsJson.tags : []);
 
@@ -248,25 +278,52 @@ export function PortalNewsletterClient({ initialAudience }: { initialAudience: A
       setGenerations30d(typeof usageJson?.generations?.range === "number" ? usageJson.generations.range : 0);
     }
 
-    setNewsletters(Array.isArray(listJson?.newsletters) ? (listJson.newsletters as NewsletterRow[]) : []);
+    const nextNewslettersCache = {
+      external: Array.isArray(listExternalJson?.newsletters) ? (listExternalJson.newsletters as NewsletterRow[]) : [],
+      internal: Array.isArray(listInternalJson?.newsletters) ? (listInternalJson.newsletters as NewsletterRow[]) : [],
+    };
+    setNewslettersCache(nextNewslettersCache);
+    setNewsletters(nextNewslettersCache[audienceRef.current] ?? []);
 
     setLoading(false);
-  }, [audience, toast]);
+  }, [toast]);
 
   useEffect(() => {
     void refresh();
   }, [refresh]);
 
   useEffect(() => {
-    // Default to AI tab per audience switch.
-    setMode("ai");
-    setTab("newsletters");
-    setAiStep("delivery");
-  }, [audience]);
+    audienceRef.current = audience;
+    setSettings(settingsCache[audience] ?? null);
+    setNewsletters(newslettersCache[audience] ?? []);
+  }, [audience, newslettersCache, settingsCache]);
+
+  useEffect(() => {
+    if (aiStep === "styling" && !settings) setAiStep("delivery");
+  }, [aiStep, settings]);
+
+  useEffect(() => {
+    const days = Math.max(1, Math.floor(Number(settings?.frequencyDays) || 7));
+    if (days % 30 === 0) {
+      setFrequencyUnit("months");
+      setFrequencyCount(Math.max(1, Math.floor(days / 30)));
+      return;
+    }
+    if (days % 7 === 0) {
+      setFrequencyUnit("weeks");
+      setFrequencyCount(Math.max(1, Math.floor(days / 7)));
+      return;
+    }
+    setFrequencyUnit("days");
+    setFrequencyCount(days);
+  }, [settings?.frequencyDays]);
 
   const saveSettings = useCallback(async () => {
     if (!settings) return;
     setSaving(true);
+
+    const maxFrequencyDays = 365;
+    const normalizedFrequencyDays = Math.max(1, Math.min(maxFrequencyDays, Math.floor(Number(settings.frequencyDays) || 7)));
 
     const res = await fetch("/api/portal/newsletter/automation/settings", {
       method: "PUT",
@@ -274,7 +331,7 @@ export function PortalNewsletterClient({ initialAudience }: { initialAudience: A
       body: JSON.stringify({
         kind: audience,
         enabled: Boolean(settings.enabled),
-        frequencyDays: Math.max(1, Math.min(30, Math.floor(Number(settings.frequencyDays) || 7))),
+        frequencyDays: normalizedFrequencyDays,
         requireApproval: Boolean(settings.requireApproval),
         channels: settings.channels,
         topics: settings.topics,
@@ -283,6 +340,7 @@ export function PortalNewsletterClient({ initialAudience }: { initialAudience: A
         deliverySmsHint: settings.deliverySmsHint ?? "",
         includeImages: Boolean(settings.includeImages),
         includeImagesWhereNeeded: Boolean(settings.includeImagesWhereNeeded),
+        fontKey: (settings.fontKey ?? "brand") as any,
         audience: settings.audience,
       }),
     });
@@ -297,19 +355,26 @@ export function PortalNewsletterClient({ initialAudience }: { initialAudience: A
   }, [audience, refresh, settings, toast]);
 
   const searchManualImages = useCallback(async () => {
-    const q = manualImageSearch.trim();
-    if (q.length < 2) {
+    const prompt = manualImageSearch.trim();
+    if (prompt.length < 2) {
       setManualImageResults([]);
+      setManualImageResolvedQuery(null);
       return;
     }
     setManualImageSearching(true);
     try {
-      const res = await fetch(`/api/portal/newsletter/royalty-free-images?q=${encodeURIComponent(q)}&take=10`, { cache: "no-store" });
+      const res = await fetch("/api/portal/newsletter/royalty-free-images/suggest", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ prompt, take: 10 }),
+      });
       const json = (await res.json().catch(() => ({}))) as any;
       if (!res.ok || !json?.ok || !Array.isArray(json?.images)) {
         setManualImageResults([]);
+        setManualImageResolvedQuery(null);
         return;
       }
+      setManualImageResolvedQuery(typeof json?.query === "string" ? String(json.query) : null);
       setManualImageResults(
         json.images
           .map((i: any) => ({
@@ -664,14 +729,14 @@ export function PortalNewsletterClient({ initialAudience }: { initialAudience: A
     ];
   }, [audience]);
 
-  const aiStepOrder = ["delivery", "images", "guided", "topics", "review"] as const;
+  const aiStepOrder = ["delivery", "styling", "guided", "topics", "review"] as const;
   const aiStepIndex = Math.max(0, aiStepOrder.indexOf(aiStep));
   const aiStepLabel = (step: (typeof aiStepOrder)[number]) => {
     switch (step) {
       case "delivery":
         return "Delivery";
-      case "images":
-        return "Images";
+      case "styling":
+        return "Styling";
       case "guided":
         return "Guided prompt";
       case "topics":
@@ -715,7 +780,16 @@ export function PortalNewsletterClient({ initialAudience }: { initialAudience: A
     return lines.join("\n");
   }, [audience, promptFields, settings]);
 
-  if (loading) {
+  const initialLoading =
+    loading &&
+    !site &&
+    !settingsCache.external &&
+    !settingsCache.internal &&
+    tags.length === 0 &&
+    newslettersCache.external.length === 0 &&
+    newslettersCache.internal.length === 0;
+
+  if (initialLoading) {
     return (
       <div className="mx-auto w-full max-w-6xl">
         <div className="rounded-3xl border border-zinc-200 bg-white p-6 text-sm text-zinc-600">Loading…</div>
@@ -725,11 +799,14 @@ export function PortalNewsletterClient({ initialAudience }: { initialAudience: A
 
   return (
     <div className="mx-auto w-full max-w-6xl">
+      {loading ? (
+        <div className="mb-4 rounded-2xl border border-zinc-200 bg-zinc-50 px-4 py-2 text-sm text-zinc-600">Refreshing…</div>
+      ) : null}
       <div className="flex flex-col items-start justify-between gap-3 sm:flex-row sm:items-end">
         <div>
           <h1 className="text-2xl font-bold text-brand-ink sm:text-3xl">Your newsletters</h1>
           <p className="mt-1 max-w-2xl text-sm text-zinc-600">
-            Capture—or reach out to—thousands with curated newsletters from your AI assistant.
+            Capture leads and reach thousands with curated newsletters from your AI assistant.
           </p>
         </div>
         <div className="flex w-full flex-col gap-2 sm:w-auto sm:flex-row sm:items-center">
@@ -771,35 +848,6 @@ export function PortalNewsletterClient({ initialAudience }: { initialAudience: A
         </button>
       </div>
 
-      <div className="mt-3 flex w-full flex-wrap gap-2">
-        <button
-          type="button"
-          onClick={() => setTab("newsletters")}
-          aria-current={tab === "newsletters" ? "page" : undefined}
-          className={
-            "flex-1 min-w-40 rounded-2xl border px-4 py-2.5 text-sm font-semibold transition focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-ink/60 " +
-            (tab === "newsletters"
-              ? "border-zinc-900 bg-zinc-900 text-white shadow-sm"
-              : "border-zinc-200 bg-white text-zinc-700 hover:bg-zinc-50")
-          }
-        >
-          Newsletters
-        </button>
-        <button
-          type="button"
-          onClick={() => setTab("activity")}
-          aria-current={tab === "activity" ? "page" : undefined}
-          className={
-            "flex-1 min-w-40 rounded-2xl border px-4 py-2.5 text-sm font-semibold transition focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-ink/60 " +
-            (tab === "activity"
-              ? "border-zinc-900 bg-zinc-900 text-white shadow-sm"
-              : "border-zinc-200 bg-white text-zinc-700 hover:bg-zinc-50")
-          }
-        >
-          Activity
-        </button>
-      </div>
-
       {tab === "newsletters" ? (
         <>
           <div className="mt-6 rounded-3xl border border-zinc-200 bg-white p-6 shadow-sm">
@@ -808,16 +856,35 @@ export function PortalNewsletterClient({ initialAudience }: { initialAudience: A
                 <div className="text-sm font-semibold text-zinc-900">Your newsletters</div>
                 <div className="mt-2 text-sm text-zinc-600">Draft, send, and keep your updates organized.</div>
               </div>
-              <button
-                type="button"
-                onClick={refresh}
-                className="inline-flex items-center justify-center rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm font-semibold text-brand-ink hover:bg-zinc-50"
-              >
-                Refresh
-              </button>
+              <div className="flex flex-wrap items-center gap-2">
+                <div className="inline-flex items-center gap-1 rounded-2xl border border-zinc-200 bg-white p-1">
+                  <button
+                    type="button"
+                    onClick={() => setTab("newsletters")}
+                    className={"rounded-2xl bg-zinc-900 px-3 py-2 text-xs font-semibold text-white transition"}
+                  >
+                    Newsletters
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setTab("activity")}
+                    className="rounded-2xl px-3 py-2 text-xs font-semibold text-zinc-700 transition hover:bg-zinc-50"
+                  >
+                    Activity
+                  </button>
+                </div>
+
+                <button
+                  type="button"
+                  onClick={refresh}
+                  className="inline-flex items-center justify-center rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm font-semibold text-brand-ink hover:bg-zinc-50"
+                >
+                  Refresh
+                </button>
+              </div>
             </div>
 
-            <div className="mt-5 grid grid-cols-1 gap-3 sm:grid-cols-2">
+            <div className="mt-5 grid grid-cols-1 gap-3 sm:grid-cols-3">
               <div className="rounded-2xl border border-zinc-200 bg-linear-to-br from-zinc-50 to-white p-4 shadow-sm">
                 <div className="text-xs font-semibold text-zinc-600">Total credits</div>
                 <div className="mt-2 text-2xl font-bold text-brand-ink">{credits === null ? "N/A" : credits.toLocaleString()}</div>
@@ -828,6 +895,16 @@ export function PortalNewsletterClient({ initialAudience }: { initialAudience: A
                 <div className="mt-1 text-xs text-zinc-500">
                   Last 30 days · {generations30d === null ? "N/A" : generations30d} generation{generations30d === 1 ? "" : "s"} · 30 credits/generation
                 </div>
+              </div>
+              <div className="rounded-2xl border border-zinc-200 bg-linear-to-br from-brand-blue/10 via-white to-white p-4 shadow-sm">
+                <div className="text-xs font-semibold text-zinc-600">Schedule</div>
+                <div className="mt-2 text-sm text-zinc-800">
+                  <span className="font-semibold">Last:</span> {formatDate(settings?.lastGeneratedAt ?? null) || "N/A"}
+                </div>
+                <div className="mt-1 text-sm text-zinc-800">
+                  <span className="font-semibold">Next:</span> {formatDate(settings?.nextDueAt ?? null) || "N/A"}
+                </div>
+                <div className="mt-1 text-xs text-zinc-500">Based on current frequency.</div>
               </div>
             </div>
 
@@ -1015,7 +1092,7 @@ export function PortalNewsletterClient({ initialAudience }: { initialAudience: A
 
               <div className="rounded-2xl border border-zinc-200 bg-zinc-50 p-4">
                 <div className="text-sm font-semibold text-zinc-900">Images & files</div>
-                <div className="mt-2 text-sm text-zinc-600">Upload, pick from the media library, or pull a royalty-free image.</div>
+                <div className="mt-2 text-sm text-zinc-600">Upload, pick from the media library, or generate a royalty-free image suggestion.</div>
 
                 <div className="mt-4 grid gap-3 sm:grid-cols-2">
                   <div>
@@ -1028,49 +1105,30 @@ export function PortalNewsletterClient({ initialAudience }: { initialAudience: A
                     />
                   </div>
                   <div>
-                    <label className="text-xs font-semibold text-zinc-600">URL (optional)</label>
-                    <input
-                      value={manualAssetUrl ?? ""}
-                      onChange={(e) => setManualAssetUrl(e.target.value.trim() ? e.target.value : null)}
-                      className="mt-1 w-full rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-sm outline-none focus:border-zinc-300"
-                      placeholder="https://…"
-                    />
+                    <div className="flex items-center justify-between gap-2">
+                      <div className="text-xs font-semibold text-zinc-600">Selected file</div>
+                      {manualAssetUrl ? (
+                        <button
+                          type="button"
+                          className="text-xs font-semibold text-zinc-600 hover:underline"
+                          onClick={() => {
+                            setManualAssetUrl(null);
+                            setManualAssetFileName("");
+                          }}
+                        >
+                          Clear
+                        </button>
+                      ) : null}
+                    </div>
+                    <div className="mt-1 w-full rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-xs text-zinc-700 break-all">
+                      {manualAssetUrl ? manualAssetFileName || manualAssetUrl : "No file selected yet."}
+                    </div>
                   </div>
                 </div>
 
                 <div className="mt-3 flex flex-wrap gap-2">
                   <label className="inline-flex cursor-pointer items-center justify-center rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-xs font-semibold text-zinc-700 hover:bg-zinc-50">
-                    {manualAssetBusy ? "Uploading…" : "Upload image"}
-                    <input
-                      type="file"
-                      accept="image/*"
-                      className="hidden"
-                      disabled={manualAssetBusy}
-                      onChange={async (e) => {
-                        const file = e.target.files?.[0];
-                        if (!file) return;
-                        setManualAssetBusy(true);
-                        try {
-                          const fd = new FormData();
-                          fd.set("file", file);
-                          const up = await fetch("/api/uploads", { method: "POST", body: fd });
-                          const upBody = (await up.json().catch(() => ({}))) as any;
-                          if (!up.ok || !upBody.url) {
-                            toast.error(String(upBody.error || "Upload failed"));
-                            return;
-                          }
-                          setManualAssetUrl(String(upBody.url));
-                          setManualAssetFileName(String(upBody.fileName || file.name || ""));
-                        } finally {
-                          setManualAssetBusy(false);
-                          if (e.target) e.target.value = "";
-                        }
-                      }}
-                    />
-                  </label>
-
-                  <label className="inline-flex cursor-pointer items-center justify-center rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-xs font-semibold text-zinc-700 hover:bg-zinc-50">
-                    {manualAssetBusy ? "Uploading…" : "Upload file"}
+                    {manualAssetBusy ? "Uploading…" : "Upload"}
                     <input
                       type="file"
                       className="hidden"
@@ -1264,13 +1322,13 @@ export function PortalNewsletterClient({ initialAudience }: { initialAudience: A
                 ) : null}
 
                 <div className="mt-5 rounded-2xl border border-zinc-200 bg-white p-3">
-                  <div className="text-xs font-semibold uppercase tracking-wide text-zinc-500">Royalty-free images</div>
+                  <div className="text-xs font-semibold uppercase tracking-wide text-zinc-500">Generate an image (royalty-free)</div>
                   <div className="mt-2 flex gap-2">
                     <input
                       value={manualImageSearch}
                       onChange={(e) => setManualImageSearch(e.target.value)}
                       className="w-full rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-sm outline-none focus:border-zinc-300"
-                      placeholder="Search (e.g. office team, roofing, plumbing)…"
+                      placeholder="Describe the image (e.g. 'friendly team photo', 'roof inspection', 'plumbing tools')"
                     />
                     <button
                       type="button"
@@ -1278,9 +1336,12 @@ export function PortalNewsletterClient({ initialAudience }: { initialAudience: A
                       onClick={() => void searchManualImages()}
                       disabled={manualImageSearching}
                     >
-                      {manualImageSearching ? "Searching…" : "Search"}
+                      {manualImageSearching ? "Generating…" : "Generate"}
                     </button>
                   </div>
+                  {manualImageResolvedQuery ? (
+                    <div className="mt-2 text-xs text-zinc-600">Searching Wikimedia for: {manualImageResolvedQuery}</div>
+                  ) : null}
                   <div className="mt-3 grid gap-2 sm:grid-cols-2">
                     {manualImageResults.slice(0, 6).map((img) => (
                       <button
@@ -1354,7 +1415,7 @@ export function PortalNewsletterClient({ initialAudience }: { initialAudience: A
 
               {aiStep === "delivery" ? (
                 <div className="mt-4 grid gap-4 sm:grid-cols-2">
-                  <label className="flex items-center gap-3 rounded-2xl border border-zinc-200 bg-white px-4 py-3">
+                  <label className="flex items-center gap-3 rounded-2xl border border-zinc-200 bg-white px-3 py-2">
                     <input
                       type="checkbox"
                       checked={Boolean(settings?.enabled)}
@@ -1363,23 +1424,60 @@ export function PortalNewsletterClient({ initialAudience }: { initialAudience: A
                     <div className="text-sm font-semibold text-zinc-800">Enabled</div>
                   </label>
 
-                  <label className="rounded-2xl border border-zinc-200 bg-white px-4 py-3">
-                    <div className="text-xs font-semibold uppercase tracking-wide text-zinc-500">Frequency (days)</div>
-                    <input
-                      type="number"
-                      min={1}
-                      max={30}
-                      value={settings?.frequencyDays ?? 7}
-                      onChange={(e) =>
-                        setSettings((prev) =>
-                          prev ? { ...prev, frequencyDays: Math.max(1, Math.min(30, Math.floor(Number(e.target.value) || 7))) } : prev,
-                        )
-                      }
-                      className="mt-2 w-full rounded-xl border border-zinc-200 px-3 py-2 text-sm"
-                    />
-                  </label>
+                  <div className="rounded-2xl border border-zinc-200 bg-white px-3 py-2">
+                    <div className="text-xs font-semibold uppercase tracking-wide text-zinc-500">Frequency</div>
+                    <div className="mt-2 flex gap-2">
+                      <input
+                        type="number"
+                        min={1}
+                        max={365}
+                        value={frequencyCount}
+                        onChange={(e) => {
+                          const maxFrequencyDays = 365;
+                          const raw = Math.max(1, Math.floor(Number(e.target.value) || 1));
+                          const nextCount = Math.min(365, raw);
+                          const unit = frequencyUnit;
+                          const days =
+                            unit === "months"
+                              ? nextCount * 30
+                              : unit === "weeks"
+                                ? nextCount * 7
+                                : nextCount;
+                          setFrequencyCount(nextCount);
+                          setSettings((prev) => (prev ? { ...prev, frequencyDays: Math.max(1, Math.min(maxFrequencyDays, days)) } : prev));
+                        }}
+                        className="w-28 rounded-xl border border-zinc-200 px-3 py-2 text-sm"
+                      />
+                      <div className="min-w-36 flex-1">
+                        <PortalListboxDropdown
+                          value={frequencyUnit as any}
+                          options={
+                            [
+                              { value: "days", label: "Days" },
+                              { value: "weeks", label: "Weeks" },
+                              { value: "months", label: "Months" },
+                            ] as any
+                          }
+                          onChange={(v) => {
+                            const unit = v === "months" || v === "weeks" || v === "days" ? (v as any) : "weeks";
+                            const maxFrequencyDays = 365;
+                            const days =
+                              unit === "months"
+                                ? frequencyCount * 30
+                                : unit === "weeks"
+                                  ? frequencyCount * 7
+                                  : frequencyCount;
+                            setFrequencyUnit(unit);
+                            setSettings((prev) => (prev ? { ...prev, frequencyDays: Math.max(1, Math.min(maxFrequencyDays, days)) } : prev));
+                          }}
+                          placeholder="Unit"
+                        />
+                      </div>
+                    </div>
+                    <div className="mt-2 text-xs text-zinc-500">Stored as days for scheduling.</div>
+                  </div>
 
-                  <label className="flex items-center gap-3 rounded-2xl border border-zinc-200 bg-white px-4 py-3">
+                  <label className="flex items-center gap-3 rounded-2xl border border-zinc-200 bg-white px-3 py-2">
                     <input
                       type="checkbox"
                       checked={Boolean(settings?.requireApproval)}
@@ -1418,27 +1516,10 @@ export function PortalNewsletterClient({ initialAudience }: { initialAudience: A
                   </div>
 
                   <div className="rounded-2xl border border-zinc-200 bg-white px-4 py-3 sm:col-span-2">
-                    <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                    <div>
                       <div>
                         <div className="text-xs font-semibold uppercase tracking-wide text-zinc-500">Delivery copy (AI)</div>
                         <div className="mt-1 text-xs text-zinc-500">Guide the tone and length. The system appends the hosted link.</div>
-                      </div>
-                      <div className="w-full sm:w-56">
-                        <div className="text-xs font-semibold uppercase tracking-wide text-zinc-500">Font</div>
-                        <div className="mt-1">
-                          <PortalListboxDropdown
-                            value={(settings?.fontKey ?? "brand") as any}
-                            options={
-                              [
-                                { value: "brand", label: "Brand" },
-                                { value: "sans", label: "Sans" },
-                                { value: "mono", label: "Mono" },
-                              ] as any
-                            }
-                            onChange={(v) => setSettings((prev) => (prev ? { ...prev, fontKey: v as any } : prev))}
-                            placeholder="Font"
-                          />
-                        </div>
                       </div>
                     </div>
 
@@ -1467,40 +1548,55 @@ export function PortalNewsletterClient({ initialAudience }: { initialAudience: A
                       </label>
                     </div>
                   </div>
-
-                  <div className="rounded-2xl border border-zinc-200 bg-white px-4 py-3">
-                    <div className="text-xs font-semibold uppercase tracking-wide text-zinc-500">Last generated</div>
-                    <div className="mt-2 text-sm text-zinc-800">{formatDate(settings?.lastGeneratedAt ?? null) || "N/A"}</div>
-                  </div>
-                  <div className="rounded-2xl border border-zinc-200 bg-white px-4 py-3">
-                    <div className="text-xs font-semibold uppercase tracking-wide text-zinc-500">Next due</div>
-                    <div className="mt-2 text-sm text-zinc-800">{formatDate(settings?.nextDueAt ?? null) || "N/A"}</div>
-                  </div>
                 </div>
               ) : null}
 
-              {aiStep === "images" ? (
+              {aiStep === "styling" ? (
                 <div className="mt-4 rounded-2xl border border-zinc-200 bg-white px-4 py-3">
-                  <div className="text-sm font-semibold text-zinc-900">Images (AI)</div>
-                  <div className="mt-1 text-sm text-zinc-600">Pull royalty-free images from Wikimedia Commons and insert into the hosted page.</div>
-                  <div className="mt-3 flex flex-wrap gap-4 text-sm">
-                    <label className="flex items-center gap-2">
-                      <input
-                        type="checkbox"
-                        checked={Boolean(settings?.includeImages)}
-                        onChange={(e) => setSettings((prev) => (prev ? { ...prev, includeImages: e.target.checked } : prev))}
-                      />
-                      Include royalty-free images
-                    </label>
-                    <label className="flex items-center gap-2">
-                      <input
-                        type="checkbox"
-                        checked={Boolean(settings?.includeImagesWhereNeeded)}
-                        onChange={(e) => setSettings((prev) => (prev ? { ...prev, includeImagesWhereNeeded: e.target.checked } : prev))}
-                        disabled={!Boolean(settings?.includeImages)}
-                      />
-                      Only where needed
-                    </label>
+                  <div className="text-sm font-semibold text-zinc-900">Styling (AI)</div>
+                  <div className="mt-1 text-sm text-zinc-600">Choose how the hosted page should look. Email/SMS are sent as plain text.</div>
+
+                  <div className="mt-4 grid gap-3 sm:grid-cols-2">
+                    <div className="rounded-2xl border border-zinc-200 bg-zinc-50 px-3 py-2">
+                      <div className="text-xs font-semibold uppercase tracking-wide text-zinc-500">Font (hosted page)</div>
+                      <div className="mt-2">
+                        <PortalListboxDropdown
+                          value={(settings?.fontKey ?? "brand") as any}
+                          options={
+                            [
+                              { value: "brand", label: "Brand" },
+                              { value: "sans", label: "Sans" },
+                              { value: "mono", label: "Mono" },
+                            ] as any
+                          }
+                          onChange={(v) => setSettings((prev) => (prev ? { ...prev, fontKey: v as any } : prev))}
+                          placeholder="Font"
+                        />
+                      </div>
+                    </div>
+
+                    <div className="rounded-2xl border border-zinc-200 bg-zinc-50 px-3 py-2">
+                      <div className="text-xs font-semibold uppercase tracking-wide text-zinc-500">Images</div>
+                      <div className="mt-2 flex flex-wrap gap-4 text-sm">
+                        <label className="flex items-center gap-2">
+                          <input
+                            type="checkbox"
+                            checked={Boolean(settings?.includeImages)}
+                            onChange={(e) => setSettings((prev) => (prev ? { ...prev, includeImages: e.target.checked } : prev))}
+                          />
+                          Include royalty-free images
+                        </label>
+                        <label className="flex items-center gap-2">
+                          <input
+                            type="checkbox"
+                            checked={Boolean(settings?.includeImagesWhereNeeded)}
+                            onChange={(e) => setSettings((prev) => (prev ? { ...prev, includeImagesWhereNeeded: e.target.checked } : prev))}
+                            disabled={!Boolean(settings?.includeImages)}
+                          />
+                          Only where needed
+                        </label>
+                      </div>
+                    </div>
                   </div>
                 </div>
               ) : null}
@@ -2027,15 +2123,53 @@ export function PortalNewsletterClient({ initialAudience }: { initialAudience: A
               </div>
             </div>
           ) : (
-            <div className="mt-4 text-sm text-zinc-600">Configure hosting in Settings once the site is created.</div>
+            <div className="mt-4 rounded-2xl border border-zinc-200 bg-zinc-50 p-4 text-sm">
+              <div className="text-xs font-semibold uppercase tracking-wide text-zinc-500">Hosted pages</div>
+              <div className="mt-2 text-sm text-zinc-700">Set up hosted pages so every newsletter has a shareable link.</div>
+              <div className="mt-3 flex flex-wrap gap-2">
+                <button
+                  type="button"
+                  className="rounded-2xl bg-zinc-900 px-4 py-2 text-sm font-semibold text-white hover:bg-zinc-800"
+                  onClick={() => {
+                    setSiteConfigName(site?.name || "Newsletter site");
+                    setSiteConfigSlug(site?.slug || "");
+                    setSiteConfigDomain(site?.primaryDomain || "");
+                    setSiteConfigOpen(true);
+                  }}
+                >
+                  Set up hosted pages
+                </button>
+              </div>
+            </div>
           )}
         </div>
       </div>
         </>
       ) : (
         <div className="mt-6 rounded-3xl border border-zinc-200 bg-white p-6 shadow-sm">
-          <div className="text-sm font-semibold text-zinc-900">Activity</div>
-          <div className="mt-2 text-sm text-zinc-600">Recent usage, hosted links, and drafts/sends.</div>
+          <div className="flex flex-col items-start justify-between gap-3 sm:flex-row sm:items-center">
+            <div>
+              <div className="text-sm font-semibold text-zinc-900">Activity</div>
+              <div className="mt-2 text-sm text-zinc-600">Recent usage, hosted links, and drafts/sends.</div>
+            </div>
+
+            <div className="inline-flex items-center gap-1 rounded-2xl border border-zinc-200 bg-white p-1">
+              <button
+                type="button"
+                onClick={() => setTab("newsletters")}
+                className="rounded-2xl px-3 py-2 text-xs font-semibold text-zinc-700 transition hover:bg-zinc-50"
+              >
+                Newsletters
+              </button>
+              <button
+                type="button"
+                onClick={() => setTab("activity")}
+                className={"rounded-2xl bg-zinc-900 px-3 py-2 text-xs font-semibold text-white transition"}
+              >
+                Activity
+              </button>
+            </div>
+          </div>
 
           <div className="mt-5 grid grid-cols-1 gap-3 sm:grid-cols-2">
             <div className="rounded-2xl border border-zinc-200 bg-zinc-50 p-4">
@@ -2046,7 +2180,25 @@ export function PortalNewsletterClient({ initialAudience }: { initialAudience: A
             </div>
             <div className="rounded-2xl border border-zinc-200 bg-zinc-50 p-4">
               <div className="text-xs font-semibold text-zinc-600">Hosted pages</div>
-              <div className="mt-2 text-xs text-zinc-700 break-all">{publicBaseUrl || "Not configured yet"}</div>
+              {publicBaseUrl ? (
+                <div className="mt-2 text-xs text-zinc-700 break-all">{publicBaseUrl}</div>
+              ) : (
+                <div className="mt-2">
+                  <div className="text-xs text-zinc-700">Hosted pages are not set up yet.</div>
+                  <button
+                    type="button"
+                    className="mt-2 rounded-xl bg-zinc-900 px-3 py-2 text-xs font-semibold text-white hover:bg-zinc-800"
+                    onClick={() => {
+                      setSiteConfigName(site?.name || "Newsletter site");
+                      setSiteConfigSlug(site?.slug || "");
+                      setSiteConfigDomain(site?.primaryDomain || "");
+                      setSiteConfigOpen(true);
+                    }}
+                  >
+                    Set up hosted pages
+                  </button>
+                </div>
+              )}
             </div>
           </div>
 
@@ -2205,22 +2357,32 @@ export function PortalNewsletterClient({ initialAudience }: { initialAudience: A
                         />
                       </div>
                       <div>
-                        <label className="text-xs font-semibold text-zinc-600">URL (optional)</label>
-                        <input
-                          value={assetUrl ?? ""}
-                          onChange={(e) => setAssetUrl(e.target.value.trim() ? e.target.value : null)}
-                          className="mt-1 w-full rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-sm outline-none focus:border-zinc-300"
-                          placeholder="https://…"
-                        />
+                        <div className="flex items-center justify-between gap-2">
+                          <div className="text-xs font-semibold text-zinc-600">Selected file</div>
+                          {assetUrl ? (
+                            <button
+                              type="button"
+                              className="text-xs font-semibold text-zinc-600 hover:underline"
+                              onClick={() => {
+                                setAssetUrl(null);
+                                setAssetFileName("");
+                              }}
+                            >
+                              Clear
+                            </button>
+                          ) : null}
+                        </div>
+                        <div className="mt-1 w-full rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-xs text-zinc-700 break-all">
+                          {assetUrl ? assetFileName || assetUrl : "No file selected yet."}
+                        </div>
                       </div>
                     </div>
 
                     <div className="mt-3 flex flex-wrap gap-2">
                       <label className="inline-flex cursor-pointer items-center justify-center rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-xs font-semibold text-zinc-700 hover:bg-zinc-50">
-                        {assetBusy ? "Uploading…" : "Upload image"}
+                        {assetBusy ? "Uploading…" : "Upload"}
                         <input
                           type="file"
-                          accept="image/*"
                           className="hidden"
                           disabled={assetBusy}
                           onChange={async (e) => {
@@ -2238,35 +2400,6 @@ export function PortalNewsletterClient({ initialAudience }: { initialAudience: A
                               }
                               setAssetUrl(String(upBody.url));
                               setAssetFileName(String(upBody.fileName || file.name || ""));
-                            } finally {
-                              setAssetBusy(false);
-                              if (e.target) e.target.value = "";
-                            }
-                          }}
-                        />
-                      </label>
-
-                      <label className="inline-flex cursor-pointer items-center justify-center rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-xs font-semibold text-zinc-700 hover:bg-zinc-50">
-                        {assetBusy ? "Uploading…" : "Upload file"}
-                        <input
-                          type="file"
-                          className="hidden"
-                          disabled={assetBusy}
-                          onChange={async (e) => {
-                            const file = e.target.files?.[0];
-                            if (!file) return;
-                            setAssetBusy(true);
-                            try {
-                              const fd = new FormData();
-                              fd.set("file", file);
-                              const up = await fetch("/api/uploads", { method: "POST", body: fd });
-                              const upBody = (await up.json().catch(() => ({}))) as any;
-                              if (!up.ok || !upBody.url) {
-                                toast.error(String(upBody.error || "Upload failed"));
-                                return;
-                              }
-                              setAssetUrl(String(upBody.url));
-                              setAssetFileName(String(upBody.fileName || file.name || "file"));
                             } finally {
                               setAssetBusy(false);
                               if (e.target) e.target.value = "";
@@ -2419,6 +2552,113 @@ export function PortalNewsletterClient({ initialAudience }: { initialAudience: A
                 </div>
               </div>
             )}
+          </div>
+        </div>
+      ) : null}
+
+      {siteConfigOpen ? (
+        <div
+          className="fixed inset-0 z-50 flex items-end justify-center bg-black/40 p-3 sm:items-center"
+          onMouseDown={() => {
+            if (siteConfigBusy) return;
+            setSiteConfigOpen(false);
+          }}
+        >
+          <div
+            className="w-full max-w-lg rounded-3xl border border-zinc-200 bg-white p-4 shadow-xl"
+            onMouseDown={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-start justify-between gap-3">
+              <div>
+                <div className="text-sm font-semibold text-zinc-900">Set up hosted pages</div>
+                <div className="mt-1 text-sm text-zinc-600">Create a shareable link where your newsletters live.</div>
+              </div>
+              <button
+                type="button"
+                className="rounded-xl border border-zinc-200 bg-white px-3 py-2 text-xs font-semibold hover:bg-zinc-50 disabled:opacity-60"
+                onClick={() => setSiteConfigOpen(false)}
+                disabled={siteConfigBusy}
+              >
+                Close
+              </button>
+            </div>
+
+            <div className="mt-4 grid gap-3">
+              <label className="block">
+                <div className="text-xs font-semibold text-zinc-600">Site name</div>
+                <input
+                  value={siteConfigName}
+                  onChange={(e) => setSiteConfigName(e.target.value)}
+                  className="mt-1 w-full rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-sm outline-none focus:border-zinc-300"
+                  placeholder="Acme Newsletters"
+                />
+              </label>
+
+              <label className="block">
+                <div className="text-xs font-semibold text-zinc-600">Public link (slug)</div>
+                <input
+                  value={siteConfigSlug}
+                  onChange={(e) => setSiteConfigSlug(e.target.value)}
+                  className="mt-1 w-full rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-sm outline-none focus:border-zinc-300"
+                  placeholder="acme"
+                />
+                <div className="mt-1 text-xs text-zinc-500">This becomes part of the URL. Leave blank to auto-generate.</div>
+              </label>
+
+              <label className="block">
+                <div className="text-xs font-semibold text-zinc-600">Custom domain (optional)</div>
+                <input
+                  value={siteConfigDomain}
+                  onChange={(e) => setSiteConfigDomain(e.target.value)}
+                  className="mt-1 w-full rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-sm outline-none focus:border-zinc-300"
+                  placeholder="news.yourdomain.com"
+                />
+              </label>
+            </div>
+
+            <div className="mt-4 flex flex-wrap items-center justify-end gap-2">
+              <button
+                type="button"
+                className="rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm font-semibold text-zinc-700 hover:bg-zinc-50 disabled:opacity-60"
+                onClick={() => setSiteConfigOpen(false)}
+                disabled={siteConfigBusy}
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                className="rounded-2xl bg-zinc-900 px-4 py-2 text-sm font-semibold text-white hover:bg-zinc-800 disabled:opacity-60"
+                disabled={siteConfigBusy || siteConfigName.trim().length < 2}
+                onClick={async () => {
+                  const name = siteConfigName.trim().slice(0, 120);
+                  const slug = siteConfigSlug.trim().slice(0, 80);
+                  const primaryDomain = siteConfigDomain.trim().slice(0, 253);
+                  if (name.length < 2) return;
+
+                  setSiteConfigBusy(true);
+                  try {
+                    const res = await fetch("/api/portal/newsletter/site", {
+                      method: "POST",
+                      headers: { "content-type": "application/json" },
+                      body: JSON.stringify({ name, slug, primaryDomain }),
+                    });
+                    const json = (await res.json().catch(() => ({}))) as any;
+                    if (!res.ok || !json?.ok || !json?.site) {
+                      toast.error(String(json?.error || "Failed to save hosted pages"));
+                      return;
+                    }
+                    setSite(json.site as Site);
+                    toast.success("Hosted pages configured");
+                    setSiteConfigOpen(false);
+                    await refresh();
+                  } finally {
+                    setSiteConfigBusy(false);
+                  }
+                }}
+              >
+                {siteConfigBusy ? "Saving…" : "Save"}
+              </button>
+            </div>
           </div>
         </div>
       ) : null}

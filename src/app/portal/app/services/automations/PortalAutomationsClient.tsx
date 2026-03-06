@@ -9,7 +9,7 @@ import { PORTAL_SERVICES } from "@/app/portal/services/catalog";
 import { PORTAL_LINK_VARIABLES, PORTAL_MESSAGE_VARIABLES, type TemplateVariable } from "@/lib/portalTemplateVars";
 
 const PORTAL_TIME_VARIABLES: TemplateVariable[] = [
-  { key: "now.hour", label: "Current hour (0–23)", group: "Custom", appliesTo: "Now" },
+  { key: "now.hour", label: "Current hour (0-23)", group: "Custom", appliesTo: "Now" },
   { key: "now.weekday", label: "Current weekday (0=Sun…6=Sat)", group: "Custom", appliesTo: "Now" },
   { key: "now.date", label: "Today (YYYY-MM-DD)", group: "Custom", appliesTo: "Now" },
   { key: "now.iso", label: "Now (ISO timestamp)", group: "Custom", appliesTo: "Now" },

@@ -47,6 +47,9 @@
 # additional local chat history file (copilot transcript)
 /User: can you stage commit and push the .md
 
+# local-only Copilot context (do not commit)
+/newchathistory.md
+
 # debug
 npm-debug.log*
 yarn-debug.log*

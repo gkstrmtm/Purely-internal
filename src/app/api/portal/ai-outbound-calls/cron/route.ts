@@ -575,7 +575,7 @@ export async function GET(req: Request) {
 
       const cfg = parseAgentConfig(e.campaign.chatAgentConfigJson);
       const rawFirstMessage = typeof cfg.firstMessage === "string" ? cfg.firstMessage.trim() : "";
-      const firstMessage = rawFirstMessage || "Hey {{contact_name}}, quick question — do you have 2 minutes?";
+      const firstMessage = rawFirstMessage || "Hey {{contact_name}}, quick question. Do you have 2 minutes?";
 
       const templateVars = buildPortalTemplateVars({
         contact: {

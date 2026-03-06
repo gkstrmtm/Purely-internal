@@ -100,7 +100,7 @@ const NURTURE_TEMPLATES: NurtureTemplate[] = [
       {
         kind: "SMS",
         delayMinutes: 0,
-        body: "Hey {contact.firstName}, quick question. Want help getting this set up? – {business.name}",
+        body: "Hey {contact.firstName}, quick question. Want help getting this set up? - {business.name}",
       },
       {
         kind: "SMS",
@@ -111,7 +111,7 @@ const NURTURE_TEMPLATES: NurtureTemplate[] = [
         kind: "EMAIL",
         delayMinutes: 60 * 24 * 5,
         subject: "Quick question",
-        body: "Hi {contact.name},\n\nJust checking in. Do you want help getting this set up?\n\nIf it’s easier, reply with the best time today/tomorrow.\n\n– {business.name}",
+        body: "Hi {contact.name},\n\nJust checking in. Do you want help getting this set up?\n\nIf it’s easier, reply with the best time today/tomorrow.\n\n- {business.name}",
       },
     ],
   },
@@ -124,7 +124,7 @@ const NURTURE_TEMPLATES: NurtureTemplate[] = [
         kind: "EMAIL",
         delayMinutes: 0,
         subject: "Welcome: next steps",
-        body: "Hi {contact.firstName},\n\nWelcome! Excited to help. Here’s what happens next:\n\n1) We confirm your goals\n2) We set up the workflow\n3) You get results and reporting\n\nReply with your top priority and we’ll start there.\n\n– {business.name}",
+        body: "Hi {contact.firstName},\n\nWelcome! Excited to help. Here’s what happens next:\n\n1) We confirm your goals\n2) We set up the workflow\n3) You get results and reporting\n\nReply with your top priority and we’ll start there.\n\n- {business.name}",
       },
       {
         kind: "SMS",
@@ -140,7 +140,7 @@ const NURTURE_TEMPLATES: NurtureTemplate[] = [
         kind: "EMAIL",
         delayMinutes: 60 * 24 * 3,
         subject: "Should I close this out?",
-        body: "Hi {contact.firstName},\n\nTotally fine if now isn’t the right time. Should I close this out for now?\n\nIf you still want help, reply with ‘yes’ and I’ll send 2–3 quick questions.\n\n– {business.name}",
+        body: "Hi {contact.firstName},\n\nTotally fine if now isn’t the right time. Should I close this out for now?\n\nIf you still want help, reply with ‘yes’ and I’ll send 2-3 quick questions.\n\n- {business.name}",
       },
       {
         kind: "SMS",
@@ -163,7 +163,7 @@ const NURTURE_TEMPLATES: NurtureTemplate[] = [
         kind: "EMAIL",
         delayMinutes: 60 * 24,
         subject: "10 minutes this week?",
-        body: "Hi {contact.firstName},\n\nDo you have 10 minutes this week for a quick setup call?\n\nReply with two times that work and I’ll confirm.\n\n– {business.name}",
+        body: "Hi {contact.firstName},\n\nDo you have 10 minutes this week for a quick setup call?\n\nReply with two times that work and I’ll confirm.\n\n- {business.name}",
       },
       {
         kind: "SMS",
@@ -186,19 +186,19 @@ const NURTURE_TEMPLATES: NurtureTemplate[] = [
         kind: "EMAIL",
         delayMinutes: 0,
         subject: "Quick question",
-        body: "Hi {contact.firstName},\n\nQuick question: what are you trying to accomplish right now?\n\n– {business.name}",
+        body: "Hi {contact.firstName},\n\nQuick question: what are you trying to accomplish right now?\n\n- {business.name}",
       },
       {
         kind: "EMAIL",
         delayMinutes: 60 * 24 * 2,
         subject: "Bumping this",
-        body: "Hi {contact.firstName},\n\nJust bumping this. Do you want help getting this set up?\n\n– {business.name}",
+        body: "Hi {contact.firstName},\n\nJust bumping this. Do you want help getting this set up?\n\n- {business.name}",
       },
       {
         kind: "EMAIL",
         delayMinutes: 60 * 24 * 7,
         subject: "Close the loop?",
-        body: "Hi {contact.firstName},\n\nShould I close this out for now? If you still want help, reply with ‘yes’.\n\n– {business.name}",
+        body: "Hi {contact.firstName},\n\nShould I close this out for now? If you still want help, reply with ‘yes’.\n\n- {business.name}",
       },
     ],
   },
@@ -216,7 +216,7 @@ const NURTURE_TEMPLATES: NurtureTemplate[] = [
         kind: "EMAIL",
         delayMinutes: 60 * 24,
         subject: "Still want help?",
-        body: "Hi {contact.firstName},\n\nJust checking in. Do you still want help getting this set up?\n\nIf not, no worries. Just reply ‘stop’.\n\n– {business.name}",
+        body: "Hi {contact.firstName},\n\nJust checking in. Do you still want help getting this set up?\n\nIf not, no worries. Just reply ‘stop’.\n\n- {business.name}",
       },
       {
         kind: "SMS",

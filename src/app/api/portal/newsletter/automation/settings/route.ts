@@ -64,7 +64,7 @@ function parseKindSettings(value: unknown): Required<
   const enabled = Boolean(rec?.enabled);
   const frequencyDays =
     typeof rec?.frequencyDays === "number" && Number.isFinite(rec.frequencyDays)
-      ? Math.min(30, Math.max(1, Math.floor(rec.frequencyDays)))
+      ? Math.min(365, Math.max(1, Math.floor(rec.frequencyDays)))
       : 7;
   const cursor = typeof rec?.cursor === "number" && Number.isFinite(rec.cursor) ? Math.max(0, Math.floor(rec.cursor)) : 0;
   const requireApproval = Boolean(rec?.requireApproval);
@@ -133,7 +133,7 @@ function parseStored(value: unknown): { external: ReturnType<typeof parseKindSet
 const putSchema = z.object({
   kind: z.enum(["external", "internal"]),
   enabled: z.boolean(),
-  frequencyDays: z.number().int().min(1).max(30),
+  frequencyDays: z.number().int().min(1).max(365),
   requireApproval: z.boolean().optional(),
   channels: z.object({ email: z.boolean().optional(), sms: z.boolean().optional() }).optional(),
   topics: z.array(z.string().trim().min(1).max(200)).max(50).optional(),

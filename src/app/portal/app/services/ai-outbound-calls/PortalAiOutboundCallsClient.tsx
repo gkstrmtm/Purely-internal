@@ -742,7 +742,7 @@ export function PortalAiOutboundCallsClient() {
       toast.success(
         (json as any).alreadySentFirstMessage
           ? "Already enrolled (first message already sent)"
-          : "Enrolled — first message will send shortly",
+          : "Enrolled. First message will send shortly",
       );
 
       if ((json as any).activatedCampaign) {
@@ -1322,7 +1322,7 @@ export function PortalAiOutboundCallsClient() {
         <div>
           <h1 className="text-2xl font-bold text-brand-ink sm:text-3xl">AI outbound</h1>
           <p className="mt-1 text-sm text-zinc-600">
-            Reach out to thousands of leads automatically—or on demand—with a curated AI calling assistant.
+            Reach out to thousands of leads automatically or on demand, with a curated AI calling assistant.
           </p>
         </div>
       </div>
@@ -2082,7 +2082,7 @@ export function PortalAiOutboundCallsClient() {
                           placeholder="+15551234567"
                           className="mt-2 w-full rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-sm"
                         />
-                        <div className="mt-2 text-[11px] text-zinc-500">Recording + transcript usually appear 1–2 minutes after the call ends.</div>
+                        <div className="mt-2 text-[11px] text-zinc-500">Recording + transcript usually appear 1-2 minutes after the call ends.</div>
                       </div>
                       <div className="flex items-end">
                         <button
@@ -2361,7 +2361,7 @@ export function PortalAiOutboundCallsClient() {
                                       <div className="whitespace-pre-wrap text-sm text-zinc-800">{manualCall.transcriptText}</div>
                                     </div>
                                   ) : (
-                                    <div className="mt-2 text-sm text-zinc-600">No transcript yet. It can take 1–2 minutes to appear after the call ends.</div>
+                                    <div className="mt-2 text-sm text-zinc-600">No transcript yet. It can take 1-2 minutes to appear after the call ends.</div>
                                   )}
                                 </div>
                               </div>
@@ -3241,7 +3241,7 @@ export function PortalAiOutboundCallsClient() {
                               rows={2}
                               placeholder={
                                 messagesTestChannel === "sms"
-                                  ? "Customer: Hey — do you have pricing?"
+                                  ? "Customer: Hey, do you have pricing?"
                                   : "Customer: Hi, I’m interested in your service…"
                               }
                               className="w-full resize-y rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-sm"

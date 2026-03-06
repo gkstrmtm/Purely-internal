@@ -137,7 +137,7 @@ export async function POST(req: Request, ctx: { params: Promise<{ campaignId: st
   if (!agentId) {
     const create = await createElevenLabsAgent({
       apiKey,
-      name: `Purely AI outbound — Chat — ${campaign.name}`.slice(0, 160),
+      name: `Purely AI outbound - Chat - ${campaign.name}`.slice(0, 160),
       firstMessage: firstMessage || undefined,
       prompt: prompt || undefined,
       toolIds: resolvedToolIds,

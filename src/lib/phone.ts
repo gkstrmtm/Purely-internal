@@ -60,7 +60,7 @@ export function normalizePhoneStrict(inputRaw: string): StrictPhoneNormalizeResu
 
   const normalized = normalizePhoneForStorage(input);
   if (!normalized) {
-    return { ok: false, error: "Phone number must be 10–15 digits" };
+    return { ok: false, error: "Phone number must be 10-15 digits" };
   }
 
   const display = normalized.startsWith("+1") && normalized.length === 12 ? formatUsE164(normalized) : normalized;
