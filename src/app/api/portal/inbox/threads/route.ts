@@ -2,6 +2,8 @@ import { NextResponse } from "next/server";
 
 import { requireClientSessionForService } from "@/lib/portalAccess";
 import { prisma } from "@/lib/db";
+import { findOrCreatePortalContact } from "@/lib/portalContacts";
+import { extractEmailAddress } from "@/lib/portalInbox";
 import { ensurePortalInboxSchema } from "@/lib/portalInboxSchema";
 
 export const dynamic = "force-dynamic";
@@ -62,7 +64,7 @@ export async function GET(req: Request) {
   await ensurePortalInboxSchema();
 
   try {
-    const threads = await (prisma as any).portalInboxThread.findMany({
+    const threads = (await (prisma as any).portalInboxThread.findMany({
       where: { ownerId, channel },
       orderBy: { lastMessageAt: "desc" },
       take: 200,
@@ -79,7 +81,36 @@ export async function GET(req: Request) {
         lastMessageTo: true,
         lastMessageSubject: true,
       },
-    });
+    })) as any[];
+
+    // Repair: older threads may not have been linked to a contact.
+    // Best-effort attach based on peerAddress so UI can show names.
+    const threadsNeedingContact = (threads || []).filter((t) => !t?.contactId && t?.peerAddress).slice(0, 25);
+    if (threadsNeedingContact.length) {
+      await Promise.all(
+        threadsNeedingContact.map(async (t) => {
+          const peerAddressRaw = String(t.peerAddress ?? "").trim();
+          if (!peerAddressRaw) return;
+
+          const email = channel === "EMAIL" ? extractEmailAddress(peerAddressRaw) || peerAddressRaw : null;
+          const phone = channel === "SMS" ? peerAddressRaw : null;
+          const name = channel === "EMAIL" ? (email || peerAddressRaw) : peerAddressRaw;
+
+          const contactId = await findOrCreatePortalContact({ ownerId, name, email, phone });
+          if (!contactId) return;
+
+          try {
+            await (prisma as any).portalInboxThread.updateMany({
+              where: { ownerId, id: t.id, contactId: null },
+              data: { contactId },
+            });
+            t.contactId = contactId;
+          } catch {
+            // ignore
+          }
+        }),
+      );
+    }
 
     const contactIds = Array.from(
       new Set((threads || []).map((t: any) => String(t.contactId || "")).filter(Boolean)),
