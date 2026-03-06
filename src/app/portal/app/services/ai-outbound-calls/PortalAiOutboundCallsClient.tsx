@@ -384,6 +384,8 @@ export function PortalAiOutboundCallsClient() {
   const [messagesRecent, setMessagesRecent] = useState<MessageActivityRow[]>([]);
   const [messagesActivityFilter, setMessagesActivityFilter] = useState<"all" | "manual" | "audience">("all");
 
+  const [callsActivityFilter, setCallsActivityFilter] = useState<"all" | "manual" | "audience">("all");
+
   const [messagesTestChannel, setMessagesTestChannel] = useState<"sms" | "email">("sms");
   const [messagesTestInput, setMessagesTestInput] = useState("");
   const [messagesTestBusy, setMessagesTestBusy] = useState(false);
@@ -412,6 +414,7 @@ export function PortalAiOutboundCallsClient() {
     setMessagesCountsBySource({});
     setMessagesRecent([]);
     setMessagesActivityFilter("all");
+    setCallsActivityFilter("all");
     setMessagesTestChannel("sms");
     setMessagesTestInput("");
     setMessagesTestBusy(false);
@@ -1813,92 +1816,13 @@ export function PortalAiOutboundCallsClient() {
               ) : null}
 
               {tab === "calls" ? (
-                <div className="mt-4">
-                  <div className="rounded-3xl border border-zinc-200 bg-white p-4">
-                    <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
-                      <div>
-                        <div className="text-sm font-semibold text-zinc-900">Activity</div>
-                        <div className="mt-1 text-sm text-zinc-600">
-                          See what’s queued, calling, completed, and failing for this campaign.
-                        </div>
-                      </div>
-                      <button
-                        type="button"
-                        className="rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm font-semibold hover:bg-zinc-50 disabled:opacity-60"
-                        disabled={busy || activityLoading}
-                        onClick={() => {
-                          if (!selected?.id) return;
-                          void loadActivity(selected.id);
-                        }}
-                      >
-                        Refresh activity
-                      </button>
-                    </div>
+                <div className="mt-4 rounded-3xl border border-zinc-200 bg-white p-4">
+                  <div className="text-sm font-semibold text-zinc-900">Calls</div>
+                  <div className="mt-1 text-sm text-zinc-600">Queue automated calls via tags, or place manual calls for testing.</div>
 
-                    <div className="mt-3 flex flex-wrap gap-2 text-xs">
-                      {(() => {
-                        const c = activityCounts;
-                        const items = c
-                          ? [
-                              { label: "Queued", value: c.queued, cls: "bg-zinc-50 text-zinc-700 border-zinc-200" },
-                              { label: "Calling", value: c.calling, cls: "bg-sky-50 text-sky-700 border-sky-200" },
-                              { label: "Completed", value: c.completed, cls: "bg-emerald-50 text-emerald-700 border-emerald-200" },
-                              { label: "Failed", value: c.failed, cls: "bg-red-50 text-red-700 border-red-200" },
-                              { label: "Skipped", value: c.skipped, cls: "bg-zinc-50 text-zinc-700 border-zinc-200" },
-                            ]
-                          : [];
-                        if (!items.length) {
-                          return <span className="text-zinc-500">No activity loaded yet.</span>;
-                        }
-                        return items.map((x) => (
-                          <span key={x.label} className={"rounded-full border px-2 py-0.5 font-semibold " + x.cls}>
-                            {x.label}: {x.value}
-                          </span>
-                        ));
-                      })()}
-                    </div>
-
-                    {activityRecent.length ? (
-                      <div className="mt-4 overflow-hidden rounded-2xl border border-zinc-200">
-                        <div className="max-h-90 overflow-auto bg-white">
-                          {activityRecent.slice(0, 60).map((e) => {
-                            const who =
-                              (e.contact?.name && String(e.contact.name).trim()) ||
-                              (e.contact?.phone && String(e.contact.phone).trim()) ||
-                              (e.contact?.email && String(e.contact.email).trim()) ||
-                              "Unknown contact";
-                            const when = e.updatedAtIso || e.createdAtIso;
-                            const err = sanitizeClientErrorText(e.lastError);
-                            return (
-                              <div key={e.id} className="border-b border-zinc-100 px-4 py-3 last:border-b-0">
-                                <div className="flex items-start justify-between gap-3">
-                                  <div className="min-w-0">
-                                    <div className="truncate text-sm font-semibold text-zinc-900">{who}</div>
-                                    <div className="mt-1 text-xs text-zinc-500">{formatWhen(when)}</div>
-                                  </div>
-                                  <span className={"shrink-0 rounded-full border px-2 py-0.5 text-[11px] font-semibold " + badgeClass(e.status)}>
-                                    {String(e.status || "UNKNOWN").toUpperCase()}
-                                  </span>
-                                </div>
-                                {err ? <div className="mt-2 text-xs text-zinc-600">{err}</div> : null}
-                                {e.nextCallAtIso ? (
-                                  <div className="mt-1 text-[11px] text-zinc-500">Next call: {formatWhen(e.nextCallAtIso)}</div>
-                                ) : null}
-                              </div>
-                            );
-                          })}
-                        </div>
-                      </div>
-                    ) : (
-                      <div className="mt-3 text-xs text-zinc-500">No recent activity yet.</div>
-                    )}
-                  </div>
-
-                  <div className="mt-4 rounded-3xl border border-zinc-200 bg-white p-4">
+                  <div className="mt-4 rounded-2xl border border-zinc-200 bg-zinc-50 p-4">
                     <div className="text-sm font-semibold text-zinc-800">Calls audience tags</div>
-                    <p className="mt-1 text-xs text-zinc-500">
-                      When a contact gets one of these tags, they’ll be queued for a call.
-                    </p>
+                    <p className="mt-1 text-xs text-zinc-500">When a contact gets one of these tags, they’ll be queued for a call.</p>
 
                     <div className="mt-3 max-w-sm">
                       <input
@@ -1931,7 +1855,7 @@ export function PortalAiOutboundCallsClient() {
                     </div>
 
                     {showCreateTag && tagCreateContext === "calls" ? (
-                      <div className="mt-3 rounded-2xl border border-zinc-200 bg-zinc-50 p-3">
+                      <div className="mt-3 rounded-2xl border border-zinc-200 bg-white p-3">
                         <div className="text-xs font-semibold text-zinc-700">Create tag</div>
                         <div className="mt-2 grid grid-cols-1 gap-2 sm:grid-cols-3">
                           <input
@@ -2011,23 +1935,18 @@ export function PortalAiOutboundCallsClient() {
                     )}
                   </div>
 
-                  <div className="rounded-3xl border border-zinc-200 bg-white p-4">
-                    <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
+                  <div className="mt-4 rounded-2xl border border-zinc-200 bg-white p-4">
+                    <div className="flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between">
                       <div>
-                        <div className="text-sm font-semibold text-zinc-900">Manual calls</div>
-                        <div className="mt-1 text-sm text-zinc-600">
-                          Type a number, press Call, then review the recording + transcript here.
-                        </div>
+                        <div className="text-sm font-semibold text-zinc-900">Manual</div>
+                        <div className="mt-1 text-xs text-zinc-500">Type a number, press Call, then review recording + transcript in Activity.</div>
                       </div>
                       <button
                         type="button"
                         className="rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm font-semibold hover:bg-zinc-50 disabled:opacity-60"
                         disabled={busy || manualCallBusy}
                         onClick={() => {
-                          void (async () => {
-                            await loadManualCalls(selected.id);
-                            if (manualCallId) await loadManualCall(manualCallId);
-                          })();
+                          void loadManualCalls(selected.id);
                         }}
                       >
                         Refresh
@@ -2043,9 +1962,7 @@ export function PortalAiOutboundCallsClient() {
                           placeholder="+15551234567"
                           className="mt-2 w-full rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-sm"
                         />
-                        <div className="mt-2 text-[11px] text-zinc-500">
-                          Recording + transcript usually appear 1–2 minutes after the call ends.
-                        </div>
+                        <div className="mt-2 text-[11px] text-zinc-500">Recording + transcript usually appear 1–2 minutes after the call ends.</div>
                       </div>
                       <div className="flex items-end">
                         <button
@@ -2054,9 +1971,7 @@ export function PortalAiOutboundCallsClient() {
                           onClick={() => void startManualCall()}
                           className={classNames(
                             "rounded-2xl px-5 py-2.5 text-sm font-semibold",
-                            busy || manualCallBusy
-                              ? "bg-zinc-200 text-zinc-600"
-                              : "bg-emerald-600 text-white hover:bg-emerald-700",
+                            busy || manualCallBusy ? "bg-zinc-200 text-zinc-600" : "bg-emerald-600 text-white hover:bg-emerald-700",
                           )}
                         >
                           <span className="inline-flex items-center gap-2">
@@ -2079,166 +1994,306 @@ export function PortalAiOutboundCallsClient() {
                     </div>
                   </div>
 
-                  {manualCalls.length === 0 ? (
-                    <div className="mt-4 rounded-2xl border border-dashed border-zinc-200 bg-zinc-50 p-4 text-sm text-zinc-600">
-                      No manual calls yet.
+                  <div className="mt-4 rounded-2xl border border-zinc-200 bg-white p-4">
+                    <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
+                      <div>
+                        <div className="text-sm font-semibold text-zinc-900">Activity</div>
+                        <div className="mt-1 text-xs text-zinc-500">Manual calls and automated queued calls in one place.</div>
+                      </div>
+                      <div className="flex flex-wrap items-center gap-2">
+                        <div className="flex rounded-2xl border border-zinc-200 bg-white p-1 text-xs font-semibold">
+                          {([
+                            { k: "all", label: "All" },
+                            { k: "manual", label: "Manual" },
+                            { k: "audience", label: "Automation" },
+                          ] as const).map((x) => (
+                            <button
+                              key={x.k}
+                              type="button"
+                              onClick={() => setCallsActivityFilter(x.k)}
+                              className={classNames(
+                                "rounded-xl px-3 py-1",
+                                callsActivityFilter === x.k ? "bg-brand-ink text-white" : "bg-white text-zinc-700 hover:bg-zinc-50",
+                              )}
+                            >
+                              {x.label}
+                            </button>
+                          ))}
+                        </div>
+                        <button
+                          type="button"
+                          className="rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm font-semibold hover:bg-zinc-50 disabled:opacity-60"
+                          disabled={busy || activityLoading || manualCallBusy}
+                          onClick={() => {
+                            if (!selected?.id) return;
+                            void loadActivity(selected.id);
+                            void loadManualCalls(selected.id);
+                          }}
+                        >
+                          Refresh activity
+                        </button>
+                      </div>
                     </div>
-                  ) : (
-                    <div className="mt-4 grid grid-cols-1 gap-4 lg:grid-cols-5">
-                      <div className="lg:col-span-2">
-                        <div className="space-y-2">
-                          {manualCalls.slice(0, 80).map((c) => {
-                            const isSelected = c.id === manualCallId;
-                            const hasAudio = Boolean(c.recordingSid && c.recordingSid.trim());
-                            const hasTranscript = Boolean(c.transcriptText && c.transcriptText.trim());
-                            return (
-                              <button
-                                key={c.id}
-                                type="button"
-                                onClick={() => {
-                                  setManualCallId(c.id);
-                                  setManualCall(c);
-                                }}
-                                className={
-                                  "w-full rounded-2xl border px-4 py-3 text-left text-sm transition focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-ink/60 " +
-                                  (isSelected
-                                    ? "border-zinc-900 bg-zinc-900 text-white"
-                                    : "border-zinc-200 bg-zinc-50 hover:bg-zinc-100")
-                                }
-                              >
-                                <div className="flex items-center justify-between gap-3">
-                                  <div className="min-w-0">
-                                    <div className="truncate text-sm font-semibold">{c.toNumberE164}</div>
-                                    <div className={"mt-1 text-xs " + (isSelected ? "text-zinc-200" : "text-zinc-600")}>
-                                      {formatWhen(c.createdAtIso)}
-                                    </div>
-                                  </div>
-                                  <span
+
+                    <div className="mt-3 flex flex-wrap gap-2 text-xs">
+                      {callsActivityFilter !== "manual" ? (
+                        (() => {
+                          const c = activityCounts;
+                          const items = c
+                            ? [
+                                { label: "Queued", value: c.queued, cls: "bg-zinc-50 text-zinc-700 border-zinc-200" },
+                                { label: "Calling", value: c.calling, cls: "bg-sky-50 text-sky-700 border-sky-200" },
+                                { label: "Completed", value: c.completed, cls: "bg-emerald-50 text-emerald-700 border-emerald-200" },
+                                { label: "Failed", value: c.failed, cls: "bg-red-50 text-red-700 border-red-200" },
+                                { label: "Skipped", value: c.skipped, cls: "bg-zinc-50 text-zinc-700 border-zinc-200" },
+                              ]
+                            : [];
+
+                          if (!items.length) return null;
+
+                          return items.map((x) => (
+                            <span key={x.label} className={"rounded-full border px-2 py-0.5 font-semibold " + x.cls}>
+                              {x.label}: {x.value}
+                            </span>
+                          ));
+                        })()
+                      ) : null}
+
+                      {callsActivityFilter !== "audience" ? (
+                        (() => {
+                          const counts = manualCalls.reduce(
+                            (acc, c) => {
+                              const st = String(c.status || "").toUpperCase();
+                              acc.total += 1;
+                              if (st === "CALLING" || st === "IN_PROGRESS" || st === "ACTIVE") acc.calling += 1;
+                              else if (st === "COMPLETED") acc.completed += 1;
+                              else if (st === "FAILED") acc.failed += 1;
+                              else acc.other += 1;
+                              return acc;
+                            },
+                            { total: 0, calling: 0, completed: 0, failed: 0, other: 0 },
+                          );
+
+                          if (counts.total === 0) return null;
+
+                          const items = [
+                            { label: "Manual", value: counts.total, cls: "bg-zinc-50 text-zinc-700 border-zinc-200" },
+                            { label: "Calling", value: counts.calling, cls: "bg-sky-50 text-sky-700 border-sky-200" },
+                            { label: "Completed", value: counts.completed, cls: "bg-emerald-50 text-emerald-700 border-emerald-200" },
+                            { label: "Failed", value: counts.failed, cls: "bg-red-50 text-red-700 border-red-200" },
+                          ];
+
+                          return items.map((x) => (
+                            <span key={x.label} className={"rounded-full border px-2 py-0.5 font-semibold " + x.cls}>
+                              {x.label}: {x.value}
+                            </span>
+                          ));
+                        })()
+                      ) : null}
+                    </div>
+
+                    {callsActivityFilter !== "audience" ? (
+                      manualCalls.length === 0 ? (
+                        <div className="mt-4 rounded-2xl border border-dashed border-zinc-200 bg-zinc-50 p-4 text-sm text-zinc-600">
+                          No manual calls yet.
+                        </div>
+                      ) : (
+                        <div className="mt-4 grid grid-cols-1 gap-4 lg:grid-cols-5">
+                          <div className="lg:col-span-2">
+                            <div className="space-y-2">
+                              {manualCalls.slice(0, 80).map((c) => {
+                                const isSelected = c.id === manualCallId;
+                                const hasAudio = Boolean(c.recordingSid && c.recordingSid.trim());
+                                const hasTranscript = Boolean(c.transcriptText && c.transcriptText.trim());
+                                return (
+                                  <button
+                                    key={c.id}
+                                    type="button"
+                                    onClick={() => {
+                                      setManualCallId(c.id);
+                                      setManualCall(c);
+                                    }}
                                     className={
-                                      "shrink-0 rounded-full border px-2 py-0.5 text-[11px] font-semibold " +
-                                      (isSelected ? "border-white/20 bg-white/10 text-white" : badgeClass(c.status))
+                                      "w-full rounded-2xl border px-4 py-3 text-left text-sm transition focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-ink/60 " +
+                                      (isSelected
+                                        ? "border-zinc-900 bg-zinc-900 text-white"
+                                        : "border-zinc-200 bg-zinc-50 hover:bg-zinc-100")
                                     }
                                   >
-                                    {String(c.status || "UNKNOWN").toUpperCase()}
-                                  </span>
+                                    <div className="flex items-center justify-between gap-3">
+                                      <div className="min-w-0">
+                                        <div className="truncate text-sm font-semibold">{c.toNumberE164}</div>
+                                        <div className={"mt-1 text-xs " + (isSelected ? "text-zinc-200" : "text-zinc-600")}>
+                                          {formatWhen(c.createdAtIso)}
+                                        </div>
+                                      </div>
+                                      <span
+                                        className={
+                                          "shrink-0 rounded-full border px-2 py-0.5 text-[11px] font-semibold " +
+                                          (isSelected ? "border-white/20 bg-white/10 text-white" : badgeClass(c.status))
+                                        }
+                                      >
+                                        {String(c.status || "UNKNOWN").toUpperCase()}
+                                      </span>
+                                    </div>
+                                    <div
+                                      className={
+                                        "mt-2 flex flex-wrap items-center gap-2 text-xs " +
+                                        (isSelected ? "text-zinc-200" : "text-zinc-600")
+                                      }
+                                    >
+                                      {hasAudio ? (
+                                        <>
+                                          <span className={isSelected ? "text-emerald-200" : "text-emerald-700"}>Audio</span>
+                                          <span>•</span>
+                                        </>
+                                      ) : null}
+                                      {hasTranscript ? (
+                                        <span className={isSelected ? "text-sky-200" : "text-sky-700"}>Transcript</span>
+                                      ) : (
+                                        <span className={isSelected ? "text-zinc-300" : "text-zinc-500"}>
+                                          Transcript pending
+                                        </span>
+                                      )}
+                                    </div>
+                                  </button>
+                                );
+                              })}
+                            </div>
+                          </div>
+
+                          <div className="lg:col-span-3">
+                            {manualCall ? (
+                              <div className="rounded-3xl border border-zinc-200 bg-white p-5">
+                                <div className="flex items-start justify-between gap-4">
+                                  <div>
+                                    <div className="text-lg font-bold text-brand-ink">{manualCall.toNumberE164}</div>
+                                    <div className="mt-1 text-xs text-zinc-500">
+                                      {formatWhen(manualCall.createdAtIso)} · Status: {String(manualCall.status || "").toLowerCase()}
+                                    </div>
+                                  </div>
+                                  <div className="text-right text-xs text-zinc-500">
+                                    {manualCall.callSid ? <div className="font-mono">CallSid: {manualCall.callSid}</div> : null}
+                                    {manualCall.conversationId ? <div className="font-mono">Conversation: {manualCall.conversationId}</div> : null}
+                                    <button
+                                      type="button"
+                                      disabled={busy || manualCallBusy || manualCallSyncBusy}
+                                      onClick={() => {
+                                        if (manualCall.id) void syncManualCallArtifacts(manualCall.id);
+                                      }}
+                                      className={
+                                        "mt-2 inline-flex items-center justify-center rounded-xl border px-2.5 py-1.5 text-[11px] font-semibold " +
+                                        (busy || manualCallBusy || manualCallSyncBusy
+                                          ? "border-zinc-200 bg-zinc-100 text-zinc-500"
+                                          : "border-zinc-200 bg-white text-zinc-800 hover:bg-zinc-50")
+                                      }
+                                    >
+                                      Refresh recording/transcript
+                                    </button>
+                                  </div>
                                 </div>
-                                <div className={"mt-2 flex flex-wrap items-center gap-2 text-xs " + (isSelected ? "text-zinc-200" : "text-zinc-600")}>
-                                  {hasAudio ? (
-                                    <>
-                                      <span className={isSelected ? "text-emerald-200" : "text-emerald-700"}>Audio</span>
-                                      <span>•</span>
-                                    </>
-                                  ) : null}
-                                  {hasTranscript ? (
-                                    <span className={isSelected ? "text-sky-200" : "text-sky-700"}>Transcript</span>
+
+                                {(() => {
+                                  const err = String(manualCall.lastError || "").trim();
+                                  const hideTwilioTranscriptNoise =
+                                    Boolean(manualCall.conversationId) &&
+                                    /twilio\s+transcription|twilio\s+transcript|transcript request failed\.\s*transcription may be disabled/i.test(err);
+
+                                  if (!err || hideTwilioTranscriptNoise) return null;
+
+                                  return (
+                                    <div className="mt-3 rounded-2xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900">
+                                      <div className="font-semibold">Call issue</div>
+                                      <div className="mt-1 text-amber-900/80">
+                                        {sanitizeClientErrorText(manualCall.lastError) ?? "We hit an error generating call artifacts."}
+                                      </div>
+                                    </div>
+                                  );
+                                })()}
+
+                                <div className="mt-4">
+                                  <div className="text-xs font-semibold text-zinc-600">Recording</div>
+                                  {(() => {
+                                    const src =
+                                      manualCall.recordingSid && manualCall.recordingSid.trim()
+                                        ? `/api/portal/ai-outbound-calls/recordings/${encodeURIComponent(manualCall.recordingSid)}`
+                                        : "";
+                                    if (!src) {
+                                      return <div className="mt-2 text-sm text-zinc-600">No recording available for this call yet.</div>;
+                                    }
+                                    return (
+                                      <>
+                                        <MiniAudioPlayer src={src} durationHintSec={manualCall.recordingDurationSec ?? null} />
+                                        <div className="mt-2 text-xs">
+                                          <a className="font-semibold text-brand-ink hover:underline" href={src} target="_blank" rel="noreferrer">
+                                            Download recording
+                                          </a>
+                                        </div>
+                                      </>
+                                    );
+                                  })()}
+                                </div>
+
+                                <div className="mt-5">
+                                  <div className="text-xs font-semibold text-zinc-600">Transcript</div>
+                                  {manualCall.transcriptText && manualCall.transcriptText.trim() ? (
+                                    <div className="mt-2 max-h-130 overflow-auto rounded-xl border border-zinc-200 bg-zinc-50 p-4">
+                                      <div className="whitespace-pre-wrap text-sm text-zinc-800">{manualCall.transcriptText}</div>
+                                    </div>
                                   ) : (
-                                    <span className={isSelected ? "text-zinc-300" : "text-zinc-500"}>Transcript pending</span>
+                                    <div className="mt-2 text-sm text-zinc-600">No transcript yet. It can take 1–2 minutes to appear after the call ends.</div>
                                   )}
                                 </div>
-                              </button>
-                            );
-                          })}
+                              </div>
+                            ) : (
+                              <div className="rounded-3xl border border-zinc-200 bg-white p-5 text-sm text-zinc-600">Select a call to view details.</div>
+                            )}
+                          </div>
                         </div>
-                      </div>
+                      )
+                    ) : null}
 
-                      <div className="lg:col-span-3">
-                        {manualCall ? (
-                          <div className="rounded-3xl border border-zinc-200 bg-white p-5">
-                            <div className="flex items-start justify-between gap-4">
-                              <div>
-                                <div className="text-lg font-bold text-brand-ink">{manualCall.toNumberE164}</div>
-                                <div className="mt-1 text-xs text-zinc-500">
-                                  {formatWhen(manualCall.createdAtIso)} · Status: {String(manualCall.status || "").toLowerCase()}
-                                </div>
-                              </div>
-                              <div className="text-right text-xs text-zinc-500">
-                                {manualCall.callSid ? <div className="font-mono">CallSid: {manualCall.callSid}</div> : null}
-                                {manualCall.conversationId ? (
-                                  <div className="font-mono">Conversation: {manualCall.conversationId}</div>
-                                ) : null}
-                                <button
-                                  type="button"
-                                  disabled={busy || manualCallBusy || manualCallSyncBusy}
-                                  onClick={() => {
-                                    if (manualCall.id) void syncManualCallArtifacts(manualCall.id);
-                                  }}
-                                  className={
-                                    "mt-2 inline-flex items-center justify-center rounded-xl border px-2.5 py-1.5 text-[11px] font-semibold " +
-                                    (busy || manualCallBusy || manualCallSyncBusy
-                                      ? "border-zinc-200 bg-zinc-100 text-zinc-500"
-                                      : "border-zinc-200 bg-white text-zinc-800 hover:bg-zinc-50")
-                                  }
-                                >
-                                  Refresh recording/transcript
-                                </button>
-                              </div>
-                            </div>
-
-                            {(() => {
-                              const err = String(manualCall.lastError || "").trim();
-                              const hideTwilioTranscriptNoise =
-                                Boolean(manualCall.conversationId) &&
-                                /twilio\s+transcription|twilio\s+transcript|transcript request failed\.\s*transcription may be disabled/i.test(err);
-
-                              if (!err || hideTwilioTranscriptNoise) return null;
-
+                    {callsActivityFilter !== "manual" ? (
+                      activityRecent.length ? (
+                        <div className={classNames("mt-4 overflow-hidden rounded-2xl border border-zinc-200", callsActivityFilter === "all" ? "" : "") }>
+                          <div className="max-h-90 overflow-auto bg-white">
+                            {activityRecent.slice(0, 60).map((e) => {
+                              const who =
+                                (e.contact?.name && String(e.contact.name).trim()) ||
+                                (e.contact?.phone && String(e.contact.phone).trim()) ||
+                                (e.contact?.email && String(e.contact.email).trim()) ||
+                                "Unknown contact";
+                              const when = e.updatedAtIso || e.createdAtIso;
+                              const err = sanitizeClientErrorText(e.lastError);
                               return (
-                              <div className="mt-3 rounded-2xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900">
-                                <div className="font-semibold">Call issue</div>
-                                <div className="mt-1 text-amber-900/80">{sanitizeClientErrorText(manualCall.lastError) ?? "We hit an error generating call artifacts."}</div>
-                              </div>
-                              );
-                            })()}
-
-                            <div className="mt-4">
-                              <div className="text-xs font-semibold text-zinc-600">Recording</div>
-                              {(() => {
-                                const src =
-                                  manualCall.recordingSid && manualCall.recordingSid.trim()
-                                    ? `/api/portal/ai-outbound-calls/recordings/${encodeURIComponent(manualCall.recordingSid)}`
-                                    : "";
-                                if (!src) {
-                                  return <div className="mt-2 text-sm text-zinc-600">No recording available for this call yet.</div>;
-                                }
-                                return (
-                                  <>
-                                    <MiniAudioPlayer src={src} durationHintSec={manualCall.recordingDurationSec ?? null} />
-                                    <div className="mt-2 text-xs">
-                                      <a
-                                        className="font-semibold text-brand-ink hover:underline"
-                                        href={src}
-                                        target="_blank"
-                                        rel="noreferrer"
-                                      >
-                                        Download recording
-                                      </a>
+                                <div key={e.id} className="border-b border-zinc-100 px-4 py-3 last:border-b-0">
+                                  <div className="flex items-start justify-between gap-3">
+                                    <div className="min-w-0">
+                                      <div className="truncate text-sm font-semibold text-zinc-900">{who}</div>
+                                      <div className="mt-1 text-xs text-zinc-500">{formatWhen(when)}</div>
                                     </div>
-                                  </>
-                                );
-                              })()}
-                            </div>
-
-                            <div className="mt-5">
-                              <div className="text-xs font-semibold text-zinc-600">Transcript</div>
-                              {manualCall.transcriptText && manualCall.transcriptText.trim() ? (
-                                <div className="mt-2 max-h-130 overflow-auto rounded-xl border border-zinc-200 bg-zinc-50 p-4">
-                                  <div className="whitespace-pre-wrap text-sm text-zinc-800">{manualCall.transcriptText}</div>
+                                    <span
+                                      className={
+                                        "shrink-0 rounded-full border px-2 py-0.5 text-[11px] font-semibold " + badgeClass(e.status)
+                                      }
+                                    >
+                                      {String(e.status || "UNKNOWN").toUpperCase()}
+                                    </span>
+                                  </div>
+                                  {err ? <div className="mt-2 text-xs text-zinc-600">{err}</div> : null}
+                                  {e.nextCallAtIso ? (
+                                    <div className="mt-1 text-[11px] text-zinc-500">Next call: {formatWhen(e.nextCallAtIso)}</div>
+                                  ) : null}
                                 </div>
-                              ) : (
-                                <div className="mt-2 text-sm text-zinc-600">
-                                  No transcript yet. It can take 1–2 minutes to appear after the call ends.
-                                </div>
-                              )}
-                            </div>
+                              );
+                            })}
                           </div>
-                        ) : (
-                          <div className="rounded-3xl border border-zinc-200 bg-white p-5 text-sm text-zinc-600">
-                            Select a call to view details.
-                          </div>
-                        )}
-                      </div>
-                    </div>
-                  )}
+                        </div>
+                      ) : (
+                        <div className="mt-3 text-xs text-zinc-500">No recent activity yet.</div>
+                      )
+                    ) : null}
+                  </div>
                 </div>
               ) : null}
 
