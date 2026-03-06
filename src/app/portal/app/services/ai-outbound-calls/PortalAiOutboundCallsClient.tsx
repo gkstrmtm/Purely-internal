@@ -69,7 +69,7 @@ type ApiGenerateAgentConfigResponse =
   | { ok: false; error: string };
 
 type ApiEnrollMessageContactResponse =
-  | { ok: true; enrolled: true; alreadySentFirstMessage: boolean }
+  | { ok: true; enrolled: true; alreadySentFirstMessage: boolean; activatedCampaign?: boolean }
   | { ok: false; error?: string };
 
 type ManualCall = {
@@ -712,6 +712,15 @@ export function PortalAiOutboundCallsClient() {
       return;
     }
 
+    // UX: manual enrollment should just start the campaign.
+    if (selected.status !== "ACTIVE") {
+      if (selected.status === "ARCHIVED") {
+        toast.error("Campaign is archived");
+        return;
+      }
+      await updateCampaign({ status: "ACTIVE" });
+    }
+
     setManualEnrollBusy(true);
     setError(null);
 
@@ -735,6 +744,11 @@ export function PortalAiOutboundCallsClient() {
           ? "Already enrolled (first message already sent)"
           : "Enrolled — first message will send shortly",
       );
+
+      if ((json as any).activatedCampaign) {
+        toast.success("Campaign activated");
+      }
+
       setManualEnrollQuery("");
       setManualEnrollResults([]);
       setManualEnrollSelected(null);
@@ -1022,6 +1036,18 @@ export function PortalAiOutboundCallsClient() {
       messageChannelPolicy: selected.messageChannelPolicy,
       chatAgentId: (selected.chatAgentId ?? "").trim(),
       chatAgentConfig: selected.chatAgentConfig ?? {},
+    });
+
+    toast.success("Saved");
+  }
+
+  async function saveCallsAgentSettings() {
+    if (!selected) return;
+    if (busy) return;
+
+    await updateCampaign({
+      voiceAgentId: (selected.voiceAgentId ?? "").trim(),
+      voiceAgentConfig: selected.voiceAgentConfig ?? {},
     });
 
     toast.success("Saved");
@@ -1820,6 +1846,52 @@ export function PortalAiOutboundCallsClient() {
                   <div className="text-sm font-semibold text-zinc-900">Calls</div>
                   <div className="mt-1 text-sm text-zinc-600">Queue automated calls via tags, or place manual calls for testing.</div>
 
+                  <div className="mt-3 rounded-2xl border border-zinc-200 bg-zinc-50 p-3">
+                    <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+                      <div className="text-xs text-zinc-700">
+                        <span className="font-semibold">Campaign status:</span> {selected.status}
+                      </div>
+                      <div className="flex flex-wrap items-center gap-2">
+                        {selected.status === "ACTIVE" ? (
+                          <button
+                            type="button"
+                            disabled={busy}
+                            onClick={() => updateCampaign({ status: "PAUSED" })}
+                            className={classNames(
+                              "rounded-2xl border px-3 py-2 text-xs font-semibold",
+                              busy
+                                ? "border-zinc-200 bg-zinc-200 text-zinc-600"
+                                : "border-zinc-200 bg-white text-zinc-700 hover:bg-zinc-50",
+                            )}
+                            title="Pause this campaign"
+                          >
+                            Pause campaign
+                          </button>
+                        ) : selected.status === "ARCHIVED" ? (
+                          <span className="text-[11px] font-semibold text-zinc-500">Archived</span>
+                        ) : (
+                          <button
+                            type="button"
+                            disabled={busy}
+                            onClick={() => updateCampaign({ status: "ACTIVE" })}
+                            className={classNames(
+                              "rounded-2xl px-3 py-2 text-xs font-semibold",
+                              busy
+                                ? "bg-zinc-200 text-zinc-600"
+                                : "bg-emerald-600 text-white hover:bg-emerald-700",
+                            )}
+                            title="Activate this campaign"
+                          >
+                            Activate campaign
+                          </button>
+                        )}
+                      </div>
+                    </div>
+                    {selected.status !== "ACTIVE" && selected.status !== "ARCHIVED" ? (
+                      <div className="mt-2 text-[11px] text-zinc-500">Manual enroll will activate automatically.</div>
+                    ) : null}
+                  </div>
+
                   <div className="mt-4 rounded-2xl border border-zinc-200 bg-zinc-50 p-4">
                     <div className="text-sm font-semibold text-zinc-800">Calls audience tags</div>
                     <p className="mt-1 text-xs text-zinc-500">When a contact gets one of these tags, they’ll be queued for a call.</p>
@@ -1938,6 +2010,52 @@ export function PortalAiOutboundCallsClient() {
                   <div className="mt-4 rounded-2xl border border-zinc-200 bg-white p-4">
                     <div className="flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between">
                       <div>
+
+                    <div className="mt-3 rounded-2xl border border-zinc-200 bg-zinc-50 p-3">
+                      <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+                        <div className="text-xs text-zinc-700">
+                          <span className="font-semibold">Campaign status:</span> {selected.status}
+                        </div>
+                        <div className="flex flex-wrap items-center gap-2">
+                          {selected.status === "ACTIVE" ? (
+                            <button
+                              type="button"
+                              disabled={busy}
+                              onClick={() => updateCampaign({ status: "PAUSED" })}
+                              className={classNames(
+                                "rounded-2xl border px-3 py-2 text-xs font-semibold",
+                                busy
+                                  ? "border-zinc-200 bg-zinc-200 text-zinc-600"
+                                  : "border-zinc-200 bg-white text-zinc-700 hover:bg-zinc-50",
+                              )}
+                              title="Pause this campaign"
+                            >
+                              Pause campaign
+                            </button>
+                          ) : selected.status === "ARCHIVED" ? (
+                            <span className="text-[11px] font-semibold text-zinc-500">Archived</span>
+                          ) : (
+                            <button
+                              type="button"
+                              disabled={busy}
+                              onClick={() => updateCampaign({ status: "ACTIVE" })}
+                              className={classNames(
+                                "rounded-2xl px-3 py-2 text-xs font-semibold",
+                                busy
+                                  ? "bg-zinc-200 text-zinc-600"
+                                  : "bg-emerald-600 text-white hover:bg-emerald-700",
+                              )}
+                              title="Activate this campaign"
+                            >
+                              Activate campaign
+                            </button>
+                          )}
+                        </div>
+                      </div>
+                      {selected.status !== "ACTIVE" && selected.status !== "ARCHIVED" ? (
+                        <div className="mt-2 text-[11px] text-zinc-500">Manual enroll will activate automatically.</div>
+                      ) : null}
+                    </div>
                         <div className="text-sm font-semibold text-zinc-900">Manual</div>
                         <div className="mt-1 text-xs text-zinc-500">Type a number, press Call, then review recording + transcript in Activity.</div>
                       </div>
@@ -2369,24 +2487,41 @@ export function PortalAiOutboundCallsClient() {
                             </div>
                           </div>
 
-                          <button
-                            type="button"
-                            disabled={busy}
-                            onClick={syncCallsAgent}
-                            className={classNames(
-                              "rounded-2xl px-4 py-2 text-xs font-semibold",
-                              busy
-                                ? "bg-zinc-200 text-zinc-600"
-                                : "bg-(--color-brand-blue) text-white hover:opacity-95",
-                            )}
-                            title={
-                              voiceToolsApiKeyConfigured
-                                ? "Sync calls agent"
-                                : "Sync calls agent (requires voice API key in Profile)"
-                            }
-                          >
-                            {busy ? "Syncing…" : "Sync calls agent"}
-                          </button>
+
+                          <div className="flex flex-wrap items-center gap-2">
+                            <button
+                              type="button"
+                              disabled={busy}
+                              onClick={() => void saveCallsAgentSettings()}
+                              className={classNames(
+                                "rounded-2xl border px-4 py-2 text-xs font-semibold",
+                                busy
+                                  ? "border-zinc-200 bg-zinc-200 text-zinc-600"
+                                  : "border-zinc-200 bg-white text-zinc-700 hover:bg-zinc-50",
+                              )}
+                              title="Save calls agent settings"
+                            >
+                              Save
+                            </button>
+                            <button
+                              type="button"
+                              disabled={busy}
+                              onClick={syncCallsAgent}
+                              className={classNames(
+                                "rounded-2xl px-4 py-2 text-xs font-semibold",
+                                busy
+                                  ? "bg-zinc-200 text-zinc-600"
+                                  : "bg-(--color-brand-blue) text-white hover:opacity-95",
+                              )}
+                              title={
+                                voiceToolsApiKeyConfigured
+                                  ? "Sync calls agent"
+                                  : "Sync calls agent (requires voice API key in Profile)"
+                              }
+                            >
+                              {busy ? "Syncing…" : "Sync calls agent"}
+                            </button>
+                          </div>
                         </div>
 
                         <div className="mt-4 rounded-2xl border border-zinc-200 bg-zinc-50 p-3">

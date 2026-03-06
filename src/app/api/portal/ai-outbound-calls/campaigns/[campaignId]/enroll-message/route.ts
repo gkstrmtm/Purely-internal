@@ -80,11 +80,19 @@ export async function POST(req: Request, ctx: { params: Promise<{ campaignId: st
   });
 
   if (!campaign) return NextResponse.json({ ok: false, error: "Not found" }, { status: 404 });
-  if (campaign.status !== "ACTIVE") {
-    return NextResponse.json(
-      { ok: false, error: "Campaign must be Active to enroll contacts." },
-      { status: 400 },
-    );
+
+  // UX: manual enrollment is an explicit intent to run the campaign.
+  // Auto-activate Draft/Paused campaigns so users don't have to hunt for an activation toggle.
+  if (campaign.status === "ARCHIVED") {
+    return NextResponse.json({ ok: false, error: "Campaign is archived." }, { status: 400 });
+  }
+
+  const now = new Date();
+  const activatedCampaign = campaign.status !== "ACTIVE";
+  if (activatedCampaign) {
+    await prisma.portalAiOutboundCallCampaign
+      .update({ where: { id: campaign.id }, data: { status: "ACTIVE", updatedAt: now }, select: { id: true } })
+      .catch(() => null);
   }
 
   const contactId = parsed.data.contactId
@@ -97,7 +105,6 @@ export async function POST(req: Request, ctx: { params: Promise<{ campaignId: st
     );
   }
 
-  const now = new Date();
   const channelPolicy = (parsed.data.channelPolicy || (campaign as any).messageChannelPolicy || "BOTH") as
     | "SMS"
     | "EMAIL"
@@ -118,7 +125,7 @@ export async function POST(req: Request, ctx: { params: Promise<{ campaignId: st
 
     await recordPortalContactServiceTrigger({ ownerId, contactId, serviceSlug: "ai-outbound-calls" }).catch(() => null);
 
-    return NextResponse.json({ ok: true, enrolled: true, alreadySentFirstMessage: true });
+    return NextResponse.json({ ok: true, enrolled: true, alreadySentFirstMessage: true, activatedCampaign });
   }
 
   await prisma.portalAiOutboundMessageEnrollment
@@ -162,5 +169,5 @@ export async function POST(req: Request, ctx: { params: Promise<{ campaignId: st
 
   await recordPortalContactServiceTrigger({ ownerId, contactId, serviceSlug: "ai-outbound-calls" }).catch(() => null);
 
-  return NextResponse.json({ ok: true, enrolled: true, alreadySentFirstMessage: false });
+  return NextResponse.json({ ok: true, enrolled: true, alreadySentFirstMessage: false, activatedCampaign });
 }
