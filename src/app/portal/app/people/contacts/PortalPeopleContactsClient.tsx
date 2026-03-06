@@ -759,9 +759,9 @@ export function PortalPeopleContactsClient() {
             <button
               type="button"
               onClick={openImportModal}
-              className="rounded-xl border border-zinc-200 bg-white px-3 py-2 text-xs font-semibold text-zinc-800 hover:bg-zinc-50"
+              className="rounded-2xl bg-blue-600 px-3 py-2 text-xs font-semibold text-white hover:bg-blue-700"
             >
-              Add contacts
+              + New
             </button>
           </div>
         </div>
@@ -779,9 +779,9 @@ export function PortalPeopleContactsClient() {
                 <button
                   type="button"
                   onClick={openImportModal}
-                  className="rounded-xl border border-zinc-200 bg-white px-3 py-2 text-xs font-semibold text-zinc-800 hover:bg-zinc-50"
+                  className="rounded-2xl bg-blue-600 px-3 py-2 text-xs font-semibold text-white hover:bg-blue-700"
                 >
-                  Add contacts
+                  + New
                 </button>
                 <div className="text-xs text-zinc-500">Page {contactsCursorStack.length}</div>
                 <div className="text-xs text-zinc-500">•</div>
@@ -871,9 +871,9 @@ export function PortalPeopleContactsClient() {
                           <button
                             type="button"
                             onClick={openImportModal}
-                            className="rounded-xl border border-zinc-200 bg-white px-3 py-2 text-xs font-semibold text-zinc-800 hover:bg-zinc-50"
+                            className="rounded-2xl bg-blue-600 px-3 py-2 text-xs font-semibold text-white hover:bg-blue-700"
                           >
-                            Add contacts
+                            + New
                           </button>
                         </div>
                       </td>

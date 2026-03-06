@@ -33,11 +33,24 @@ function makeCursor(t: Date, id: string) {
 async function hasTable(tableName: string): Promise<boolean> {
   const safe = String(tableName || "").replace(/[^A-Za-z0-9_]/g, "");
   if (!safe) return false;
-  // Use to_regclass so quoted/case-sensitive tables ("PortalContact") are detected.
-  const rows = await prisma.$queryRawUnsafe<Array<{ exists: boolean }>>(
-    `SELECT (to_regclass('public."${safe}"') IS NOT NULL) AS "exists";`,
-  );
-  return Boolean(rows?.[0]?.exists);
+
+  // Keep this conservative and failure-tolerant. If this probe fails (permissions,
+  // driver quirks, etc.), callers should NOT treat it as a definitive "missing".
+  // We only use this for optional tables.
+  try {
+    // Use to_regclass so quoted/case-sensitive tables ("PortalContact") are detected.
+    const rel = `public."${safe}"`;
+    const rows = await prisma.$queryRaw<Array<{ exists: boolean }>>
+      `SELECT (to_regclass(${rel}) IS NOT NULL) AS "exists";`;
+    return Boolean(rows?.[0]?.exists);
+  } catch {
+    return false;
+  }
+}
+
+function isMissingRelationError(e: unknown) {
+  const msg = e instanceof Error ? e.message : String(e ?? "");
+  return /does not exist|relation .* does not exist|no such table/i.test(msg);
 }
 
 export async function GET(req: Request) {
@@ -60,25 +73,14 @@ export async function GET(req: Request) {
   const contactsCursor = parseCursor(url.searchParams.get("contactsCursor"));
   const leadsCursor = parseCursor(url.searchParams.get("leadsCursor"));
 
-  const [portalContactAvailable, portalLeadAvailable, portalTagAvailable, portalTagAssignmentAvailable] = await Promise.all([
-    hasTable("PortalContact").catch(() => false),
-    hasTable("PortalLead").catch(() => false),
-    hasTable("PortalContactTag").catch(() => false),
-    hasTable("PortalContactTagAssignment").catch(() => false),
+  // Optional tables: we avoid hard errors on brand-new / partially-provisioned portals.
+  // Note: we do NOT probe PortalContact anymore. If contacts exist (as confirmed by
+  // other features), a probe failure should not cause a false "No contacts" UI.
+  const [portalLeadAvailable, portalTagAvailable, portalTagAssignmentAvailable] = await Promise.all([
+    hasTable("PortalLead"),
+    hasTable("PortalContactTag"),
+    hasTable("PortalContactTagAssignment"),
   ]);
-
-  // Brand new / partially-provisioned portals should not hard error.
-  if (!portalContactAvailable) {
-    return NextResponse.json({
-      ok: true,
-      totalContacts: 0,
-      totalUnlinkedLeads: 0,
-      contactsNextCursor: null,
-      unlinkedLeadsNextCursor: null,
-      contacts: [],
-      unlinkedLeads: [],
-    });
-  }
 
   const contactsWhere: any = { ownerId };
   if (contactsCursor) {
@@ -157,6 +159,17 @@ export async function GET(req: Request) {
       portalLeadAvailable ? prisma.portalLead.count({ where: { ownerId, contactId: null } }) : Promise.resolve(0),
     ]);
   } catch (e: any) {
+    if (isMissingRelationError(e)) {
+      return NextResponse.json({
+        ok: true,
+        totalContacts: 0,
+        totalUnlinkedLeads: 0,
+        contactsNextCursor: null,
+        unlinkedLeadsNextCursor: null,
+        contacts: [],
+        unlinkedLeads: [],
+      });
+    }
     // Do not surface this as an error for end-users; treat as empty state.
     return NextResponse.json({
       ok: true,
