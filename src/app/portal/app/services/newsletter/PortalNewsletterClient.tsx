@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { usePathname, useRouter } from "next/navigation";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useToast } from "@/components/ToastProvider";
 import { DEFAULT_TAG_COLORS } from "@/lib/tagColors.shared";
@@ -125,6 +126,16 @@ function buildNewsletterSmsPreview(opts: { smsText: string | null; link: string 
 
 export function PortalNewsletterClient({ initialAudience }: { initialAudience: AudienceTab }) {
   const toast = useToast();
+
+  const router = useRouter();
+  const pathname = usePathname();
+
+  const basePath = useMemo(() => {
+    const p = String(pathname || "/portal/app/services/newsletter");
+    if (p.endsWith("/external")) return p.slice(0, -"/external".length);
+    if (p.endsWith("/internal")) return p.slice(0, -"/internal".length);
+    return p;
+  }, [pathname]);
 
   const audienceRef = useRef<AudienceTab>(initialAudience);
 
@@ -307,6 +318,14 @@ export function PortalNewsletterClient({ initialAudience }: { initialAudience: A
     setSettings(settingsCache[audience] ?? null);
     setNewsletters(newslettersCache[audience] ?? []);
   }, [audience, newslettersCache, settingsCache]);
+
+  const setAudienceAndRoute = useCallback(
+    (next: AudienceTab) => {
+      setAudience(next);
+      router.replace(`${basePath}/${next}`);
+    },
+    [basePath, router],
+  );
 
   useEffect(() => {
     if (aiStep === "styling" && !settings) setAiStep("delivery");
@@ -853,7 +872,7 @@ export function PortalNewsletterClient({ initialAudience }: { initialAudience: A
       <div className="mt-6 flex w-full flex-wrap gap-2">
         <button
           type="button"
-          onClick={() => setAudience("external")}
+          onClick={() => setAudienceAndRoute("external")}
           aria-current={audience === "external" ? "page" : undefined}
           className={
             "flex-1 min-w-40 rounded-2xl border px-4 py-2.5 text-sm font-semibold transition focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-ink/60 " +
@@ -866,7 +885,7 @@ export function PortalNewsletterClient({ initialAudience }: { initialAudience: A
         </button>
         <button
           type="button"
-          onClick={() => setAudience("internal")}
+          onClick={() => setAudienceAndRoute("internal")}
           aria-current={audience === "internal" ? "page" : undefined}
           className={
             "flex-1 min-w-40 rounded-2xl border px-4 py-2.5 text-sm font-semibold transition focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-ink/60 " +

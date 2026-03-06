@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { usePathname, useRouter } from "next/navigation";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { InlineElevenLabsAgentTester } from "@/components/InlineElevenLabsAgentTester";
@@ -327,8 +328,22 @@ function MiniAudioPlayer(props: { src: string; durationHintSec?: number | null }
   );
 }
 
-export function PortalAiOutboundCallsClient() {
+type OutboundTabKey = "calls" | "messages" | "settings";
+
+export function PortalAiOutboundCallsClient(props: { initialTab?: OutboundTabKey } = {}) {
   const toast = useToast();
+
+  const router = useRouter();
+  const pathname = usePathname();
+  const { initialTab } = props;
+
+  const basePath = useMemo(() => {
+    const p = String(pathname || "/portal/app/services/ai-outbound-calls");
+    if (p.endsWith("/calls")) return p.slice(0, -"/calls".length);
+    if (p.endsWith("/messages")) return p.slice(0, -"/messages".length);
+    if (p.endsWith("/settings")) return p.slice(0, -"/settings".length);
+    return p;
+  }, [pathname]);
 
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
@@ -362,8 +377,22 @@ export function PortalAiOutboundCallsClient() {
 
   const [callsToolsPreset, setCallsToolsPreset] = useState<"none" | "recommended" | "all">("recommended");
 
-  const [tab, setTab] = useState<"calls" | "messages" | "settings">("calls");
+  const [tab, setTab] = useState<OutboundTabKey>(initialTab ?? "calls");
   const [settingsTab, setSettingsTab] = useState<"calls" | "messages">("calls");
+
+  useEffect(() => {
+    if (!initialTab) return;
+    setTab(initialTab);
+  }, [initialTab]);
+
+  const setTabAndRoute = useCallback(
+    (next: OutboundTabKey) => {
+      setTab(next);
+      if (typeof window === "undefined") return;
+      router.replace(`${basePath}/${next}${window.location.search || ""}`);
+    },
+    [basePath, router],
+  );
 
   const [callsGenerateContext, setCallsGenerateContext] = useState("");
   const [messagesGenerateContext, setMessagesGenerateContext] = useState("");
@@ -398,8 +427,7 @@ export function PortalAiOutboundCallsClient() {
     setMessagesAgentSyncedAtIso(null);
     setManualCallId(null);
     setManualCall(null);
-    setTab("calls");
-    setSettingsTab("calls");
+    // Keep the current tab when switching campaigns.
     setCallsToolsPreset("recommended");
     setActivityCounts(null);
     setActivityRecent([]);
@@ -1416,7 +1444,7 @@ export function PortalAiOutboundCallsClient() {
               <div className="mt-4 flex w-full flex-wrap gap-2">
                 <button
                   type="button"
-                  onClick={() => setTab("calls")}
+                  onClick={() => setTabAndRoute("calls")}
                   aria-current={tab === "calls" ? "page" : undefined}
                   className={
                     "flex-1 min-w-40 rounded-2xl border px-4 py-2.5 text-sm font-semibold transition focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-ink/60 " +
@@ -1429,7 +1457,7 @@ export function PortalAiOutboundCallsClient() {
                 </button>
                 <button
                   type="button"
-                  onClick={() => setTab("messages")}
+                  onClick={() => setTabAndRoute("messages")}
                   aria-current={tab === "messages" ? "page" : undefined}
                   className={
                     "flex-1 min-w-40 rounded-2xl border px-4 py-2.5 text-sm font-semibold transition focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-ink/60 " +
@@ -1442,7 +1470,7 @@ export function PortalAiOutboundCallsClient() {
                 </button>
                 <button
                   type="button"
-                  onClick={() => setTab("settings")}
+                  onClick={() => setTabAndRoute("settings")}
                   aria-current={tab === "settings" ? "page" : undefined}
                   className={
                     "flex-1 min-w-40 rounded-2xl border px-4 py-2.5 text-sm font-semibold transition focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-ink/60 " +
@@ -1460,123 +1488,6 @@ export function PortalAiOutboundCallsClient() {
                   <div className="text-sm font-semibold text-zinc-900">Messages</div>
                   <div className="mt-1 text-sm text-zinc-600">Send SMS/email and continue the thread in Inbox.</div>
 
-                  <div className="mt-4 rounded-2xl border border-zinc-200 bg-zinc-50 p-4">
-                    <div className="text-sm font-semibold text-zinc-800">Message audience tags</div>
-                    <p className="mt-1 text-xs text-zinc-500">
-                      When a contact gets one of these tags, they’ll be included in the messaging audience.
-                    </p>
-
-                    <div className="mt-3 max-w-sm">
-                      <input
-                        value={chatTagSearch}
-                        onChange={(e) => setChatTagSearch(e.target.value)}
-                        placeholder="Search tags…"
-                        className="w-full rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-sm"
-                      />
-                      <div className="mt-2">
-                        <PortalListboxDropdown
-                          value={chatAddTagValue}
-                          options={addChatTagOptions as any}
-                          onChange={(v) => {
-                            const id = String(v || "");
-                            if (!id) {
-                              setChatAddTagValue("");
-                              return;
-                            }
-                            if (id === "__create__") {
-                              setChatAddTagValue("");
-                              setTagCreateContext("chat");
-                              setShowCreateTag(true);
-                              return;
-                            }
-                            setChatAddTagValue("");
-                            addAudienceTag("chat", id);
-                          }}
-                        />
-                      </div>
-                    </div>
-
-                    {showCreateTag && tagCreateContext === "chat" ? (
-                      <div className="mt-3 rounded-2xl border border-zinc-200 bg-white p-3">
-                        <div className="text-xs font-semibold text-zinc-700">Create tag</div>
-                        <div className="mt-2 grid grid-cols-1 gap-2 sm:grid-cols-3">
-                          <input
-                            value={newTagName}
-                            onChange={(e) => setNewTagName(e.target.value)}
-                            placeholder="Tag name"
-                            className="sm:col-span-2 w-full rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-sm"
-                          />
-
-                          <div className="flex flex-wrap items-center gap-1.5 rounded-2xl border border-zinc-200 bg-white px-2 py-2">
-                            {DEFAULT_TAG_COLORS.slice(0, 10).map((c) => {
-                              const sel = c === createTagColor;
-                              return (
-                                <button
-                                  key={c}
-                                  type="button"
-                                  className={classNames(
-                                    "h-7 w-7 rounded-full border",
-                                    sel ? "border-zinc-900 ring-2 ring-zinc-900/20" : "border-zinc-200",
-                                  )}
-                                  style={{ backgroundColor: c }}
-                                  onClick={() => setCreateTagColor(c)}
-                                  title={c}
-                                />
-                              );
-                            })}
-                          </div>
-                        </div>
-
-                        <div className="mt-2 flex items-center justify-between gap-3">
-                          <button
-                            type="button"
-                            onClick={() => {
-                              setShowCreateTag(false);
-                              setNewTagName("");
-                            }}
-                            className="rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-xs font-semibold text-zinc-700 hover:bg-zinc-50"
-                            disabled={busy}
-                          >
-                            Cancel
-                          </button>
-                          <button
-                            type="button"
-                            disabled={busy || !newTagName.trim()}
-                            onClick={createTagAndMaybeAdd}
-                            className={classNames(
-                              "rounded-2xl px-4 py-2 text-xs font-semibold",
-                              busy || !newTagName.trim()
-                                ? "bg-zinc-200 text-zinc-600"
-                                : "bg-brand-ink text-white hover:opacity-95",
-                            )}
-                          >
-                            {busy ? "Creating…" : "Create"}
-                          </button>
-                        </div>
-                      </div>
-                    ) : null}
-
-                    {selectedChatTags.length ? (
-                      <div className="mt-3 flex flex-wrap gap-2">
-                        {selectedChatTags.map((t) => (
-                          <button
-                            key={t.id}
-                            type="button"
-                            onClick={() => removeAudienceTag("chat", t.id)}
-                            className="inline-flex items-center gap-2 rounded-full border border-zinc-200 bg-white px-3 py-1 text-xs font-semibold text-zinc-800 hover:bg-zinc-50"
-                            title="Remove"
-                          >
-                            <span className="h-2 w-2 rounded-full" style={{ backgroundColor: t.color || "#64748B" }} />
-                            <span className="max-w-45 truncate">{t.name}</span>
-                            <span className="text-zinc-400">×</span>
-                          </button>
-                        ))}
-                      </div>
-                    ) : (
-                      <div className="mt-3 text-xs text-zinc-500">No tags selected.</div>
-                    )}
-                  </div>
-
                   <div className="mt-4 rounded-2xl border border-zinc-200 bg-white p-4">
                     <div className="flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between">
                       <div>
@@ -1592,7 +1503,7 @@ export function PortalAiOutboundCallsClient() {
                         Open Inbox
                       </Link>
                     </div>
-
+                        href="/portal/app/services/inbox/email"
                     <div className="mt-4 grid gap-3 sm:grid-cols-3">
                       <div className="sm:col-span-2">
                         <div className="text-sm font-semibold text-zinc-800">Contact</div>
@@ -1848,216 +1759,41 @@ export function PortalAiOutboundCallsClient() {
                   <div className="text-sm font-semibold text-zinc-900">Calls</div>
                   <div className="mt-1 text-sm text-zinc-600">Queue automated calls via tags, or place manual calls for testing.</div>
 
-                  <div className="mt-3 rounded-2xl border border-zinc-200 bg-zinc-50 p-3">
-                    <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-                      <div className="text-xs text-zinc-700">
-                        <span className="font-semibold">Campaign status:</span> {selected.status}
-                      </div>
-                      <div className="flex flex-wrap items-center gap-2">
-                        {selected.status === "ACTIVE" ? (
-                          <button
-                            type="button"
-                            disabled={busy}
-                            onClick={() => updateCampaign({ status: "PAUSED" })}
-                            className={classNames(
-                              "rounded-2xl border px-3 py-2 text-xs font-semibold",
-                              busy
-                                ? "border-zinc-200 bg-zinc-200 text-zinc-600"
-                                : "border-zinc-200 bg-white text-zinc-700 hover:bg-zinc-50",
-                            )}
-                            title="Pause this campaign"
-                          >
-                            Pause campaign
-                          </button>
-                        ) : selected.status === "ARCHIVED" ? (
-                          <span className="text-[11px] font-semibold text-zinc-500">Archived</span>
-                        ) : (
-                          <button
-                            type="button"
-                            disabled={busy}
-                            onClick={() => updateCampaign({ status: "ACTIVE" })}
-                            className={classNames(
-                              "rounded-2xl px-3 py-2 text-xs font-semibold",
-                              busy
-                                ? "bg-zinc-200 text-zinc-600"
-                                : "bg-emerald-600 text-white hover:bg-emerald-700",
-                            )}
-                            title="Activate this campaign"
-                          >
-                            Activate campaign
-                          </button>
-                        )}
+                  <label className="mt-4 flex items-center justify-between gap-4 rounded-2xl border border-zinc-200 bg-white px-4 py-3">
+                    <div>
+                      <div className="text-sm font-semibold text-zinc-800">Enabled</div>
+                      <div className="mt-1 text-xs text-zinc-500">
+                        {selected.status === "ARCHIVED"
+                          ? "Archived campaigns can’t be enabled."
+                          : "Queues tagged contacts for calls when enabled."}
                       </div>
                     </div>
-                    {selected.status !== "ACTIVE" && selected.status !== "ARCHIVED" ? (
-                      <div className="mt-2 text-[11px] text-zinc-500">Manual enroll will activate automatically.</div>
-                    ) : null}
-                  </div>
-
-                  <div className="mt-4 rounded-2xl border border-zinc-200 bg-zinc-50 p-4">
-                    <div className="text-sm font-semibold text-zinc-800">Calls audience tags</div>
-                    <p className="mt-1 text-xs text-zinc-500">When a contact gets one of these tags, they’ll be queued for a call.</p>
-
-                    <div className="mt-3 max-w-sm">
-                      <input
-                        value={callsTagSearch}
-                        onChange={(e) => setCallsTagSearch(e.target.value)}
-                        placeholder="Search tags…"
-                        className="w-full rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-sm"
-                      />
-                      <div className="mt-2">
-                        <PortalListboxDropdown
-                          value={callsAddTagValue}
-                          options={addCallsTagOptions as any}
-                          onChange={(v) => {
-                            const id = String(v || "");
-                            if (!id) {
-                              setCallsAddTagValue("");
-                              return;
-                            }
-                            if (id === "__create__") {
-                              setCallsAddTagValue("");
-                              setTagCreateContext("calls");
-                              setShowCreateTag(true);
-                              return;
-                            }
-                            setCallsAddTagValue("");
-                            addAudienceTag("calls", id);
+                    <div className="flex items-center gap-3">
+                      <span className="hidden text-xs font-semibold text-zinc-600 sm:inline">{selected.status}</span>
+                      <span className="relative inline-flex h-6 w-11 shrink-0 items-center">
+                        <input
+                          type="checkbox"
+                          className="peer sr-only"
+                          checked={selected.status === "ACTIVE"}
+                          disabled={busy || selected.status === "ARCHIVED"}
+                          onChange={(e) => {
+                            const nextStatus = e.target.checked ? "ACTIVE" : "PAUSED";
+                            updateCampaign({ status: nextStatus });
                           }}
                         />
-                      </div>
+                        <span className="absolute inset-0 rounded-full bg-zinc-200 transition peer-checked:bg-(--color-brand-blue) peer-disabled:opacity-60" />
+                        <span className="absolute left-0.5 top-0.5 h-5 w-5 rounded-full bg-white shadow-sm transition peer-checked:translate-x-5 peer-disabled:opacity-80" />
+                      </span>
                     </div>
+                  </label>
 
-                    {showCreateTag && tagCreateContext === "calls" ? (
-                      <div className="mt-3 rounded-2xl border border-zinc-200 bg-white p-3">
-                        <div className="text-xs font-semibold text-zinc-700">Create tag</div>
-                        <div className="mt-2 grid grid-cols-1 gap-2 sm:grid-cols-3">
-                          <input
-                            value={newTagName}
-                            onChange={(e) => setNewTagName(e.target.value)}
-                            placeholder="Tag name"
-                            className="sm:col-span-2 w-full rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-sm"
-                          />
-
-                          <div className="flex flex-wrap items-center gap-1.5 rounded-2xl border border-zinc-200 bg-white px-2 py-2">
-                            {DEFAULT_TAG_COLORS.slice(0, 10).map((c) => {
-                              const sel = c === createTagColor;
-                              return (
-                                <button
-                                  key={c}
-                                  type="button"
-                                  className={classNames(
-                                    "h-7 w-7 rounded-full border",
-                                    sel ? "border-zinc-900 ring-2 ring-zinc-900/20" : "border-zinc-200",
-                                  )}
-                                  style={{ backgroundColor: c }}
-                                  onClick={() => setCreateTagColor(c)}
-                                  title={c}
-                                />
-                              );
-                            })}
-                          </div>
-                        </div>
-
-                        <div className="mt-2 flex items-center justify-between gap-3">
-                          <button
-                            type="button"
-                            onClick={() => {
-                              setShowCreateTag(false);
-                              setNewTagName("");
-                            }}
-                            className="rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-xs font-semibold text-zinc-700 hover:bg-zinc-50"
-                            disabled={busy}
-                          >
-                            Cancel
-                          </button>
-                          <button
-                            type="button"
-                            disabled={busy || !newTagName.trim()}
-                            onClick={createTagAndMaybeAdd}
-                            className={classNames(
-                              "rounded-2xl px-4 py-2 text-xs font-semibold",
-                              busy || !newTagName.trim()
-                                ? "bg-zinc-200 text-zinc-600"
-                                : "bg-brand-ink text-white hover:opacity-95",
-                            )}
-                          >
-                            {busy ? "Creating…" : "Create"}
-                          </button>
-                        </div>
-                      </div>
-                    ) : null}
-
-                    {selectedCallTags.length ? (
-                      <div className="mt-3 flex flex-wrap gap-2">
-                        {selectedCallTags.map((t) => (
-                          <button
-                            key={t.id}
-                            type="button"
-                            onClick={() => removeAudienceTag("calls", t.id)}
-                            className="inline-flex items-center gap-2 rounded-full border border-zinc-200 bg-white px-3 py-1 text-xs font-semibold text-zinc-800 hover:bg-zinc-50"
-                            title="Remove"
-                          >
-                            <span className="h-2 w-2 rounded-full" style={{ backgroundColor: t.color || "#64748B" }} />
-                            <span className="max-w-45 truncate">{t.name}</span>
-                            <span className="text-zinc-400">×</span>
-                          </button>
-                        ))}
-                      </div>
-                    ) : (
-                      <div className="mt-3 text-xs text-zinc-500">No tags selected.</div>
-                    )}
-                  </div>
+                  {selected.status !== "ACTIVE" && selected.status !== "ARCHIVED" ? (
+                    <div className="mt-2 text-[11px] text-zinc-500">Manual enroll will activate automatically.</div>
+                  ) : null}
 
                   <div className="mt-4 rounded-2xl border border-zinc-200 bg-white p-4">
                     <div className="flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between">
                       <div>
-
-                    <div className="mt-3 rounded-2xl border border-zinc-200 bg-zinc-50 p-3">
-                      <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-                        <div className="text-xs text-zinc-700">
-                          <span className="font-semibold">Campaign status:</span> {selected.status}
-                        </div>
-                        <div className="flex flex-wrap items-center gap-2">
-                          {selected.status === "ACTIVE" ? (
-                            <button
-                              type="button"
-                              disabled={busy}
-                              onClick={() => updateCampaign({ status: "PAUSED" })}
-                              className={classNames(
-                                "rounded-2xl border px-3 py-2 text-xs font-semibold",
-                                busy
-                                  ? "border-zinc-200 bg-zinc-200 text-zinc-600"
-                                  : "border-zinc-200 bg-white text-zinc-700 hover:bg-zinc-50",
-                              )}
-                              title="Pause this campaign"
-                            >
-                              Pause campaign
-                            </button>
-                          ) : selected.status === "ARCHIVED" ? (
-                            <span className="text-[11px] font-semibold text-zinc-500">Archived</span>
-                          ) : (
-                            <button
-                              type="button"
-                              disabled={busy}
-                              onClick={() => updateCampaign({ status: "ACTIVE" })}
-                              className={classNames(
-                                "rounded-2xl px-3 py-2 text-xs font-semibold",
-                                busy
-                                  ? "bg-zinc-200 text-zinc-600"
-                                  : "bg-emerald-600 text-white hover:bg-emerald-700",
-                              )}
-                              title="Activate this campaign"
-                            >
-                              Activate campaign
-                            </button>
-                          )}
-                        </div>
-                      </div>
-                      {selected.status !== "ACTIVE" && selected.status !== "ARCHIVED" ? (
-                        <div className="mt-2 text-[11px] text-zinc-500">Manual enroll will activate automatically.</div>
-                      ) : null}
-                    </div>
                         <div className="text-sm font-semibold text-zinc-900">Manual</div>
                         <div className="mt-1 text-xs text-zinc-500">Type a number, press Call, then review recording + transcript in Activity.</div>
                       </div>
@@ -2542,7 +2278,7 @@ export function PortalAiOutboundCallsClient() {
                                 "inline-flex items-center gap-2 rounded-2xl px-4 py-2 text-xs font-semibold",
                                 busy || generateBusy
                                   ? "bg-zinc-200 text-zinc-600"
-                                  : "bg-zinc-900 text-white hover:bg-zinc-800",
+                                  : "bg-linear-to-r from-(--color-brand-blue) via-violet-500 to-(--color-brand-pink) text-white shadow-sm hover:opacity-90",
                               )}
                             >
                               <svg
@@ -2980,7 +2716,7 @@ export function PortalAiOutboundCallsClient() {
                                 "inline-flex items-center gap-2 rounded-2xl px-4 py-2 text-xs font-semibold",
                                 busy || generateBusy
                                   ? "bg-zinc-200 text-zinc-600"
-                                  : "bg-zinc-900 text-white hover:bg-zinc-800",
+                                  : "bg-linear-to-r from-(--color-brand-blue) via-violet-500 to-(--color-brand-pink) text-white shadow-sm hover:opacity-90",
                               )}
                             >
                               <svg
@@ -3261,6 +2997,240 @@ export function PortalAiOutboundCallsClient() {
                             </button>
                           </div>
                         </div>
+                      </div>
+                    )}
+
+                    {settingsTab === "calls" ? (
+                      <div className="rounded-3xl border border-zinc-200 bg-white p-4">
+                        <div className="text-sm font-semibold text-zinc-900">Calls audience tags</div>
+                        <p className="mt-1 text-xs text-zinc-500">When a contact gets one of these tags, they’ll be queued for a call.</p>
+
+                        <div className="mt-3 max-w-sm">
+                          <input
+                            value={callsTagSearch}
+                            onChange={(e) => setCallsTagSearch(e.target.value)}
+                            placeholder="Search tags…"
+                            className="w-full rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-sm"
+                          />
+                          <div className="mt-2">
+                            <PortalListboxDropdown
+                              value={callsAddTagValue}
+                              options={addCallsTagOptions as any}
+                              onChange={(v) => {
+                                const id = String(v || "");
+                                if (!id) {
+                                  setCallsAddTagValue("");
+                                  return;
+                                }
+                                if (id === "__create__") {
+                                  setCallsAddTagValue("");
+                                  setTagCreateContext("calls");
+                                  setShowCreateTag(true);
+                                  return;
+                                }
+                                setCallsAddTagValue("");
+                                addAudienceTag("calls", id);
+                              }}
+                            />
+                          </div>
+                        </div>
+
+                        {showCreateTag && tagCreateContext === "calls" ? (
+                          <div className="mt-3 rounded-2xl border border-zinc-200 bg-white p-3">
+                            <div className="text-xs font-semibold text-zinc-700">Create tag</div>
+                            <div className="mt-2 grid grid-cols-1 gap-2 sm:grid-cols-3">
+                              <input
+                                value={newTagName}
+                                onChange={(e) => setNewTagName(e.target.value)}
+                                placeholder="Tag name"
+                                className="sm:col-span-2 w-full rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-sm"
+                              />
+
+                              <div className="flex flex-wrap items-center gap-1.5 rounded-2xl border border-zinc-200 bg-white px-2 py-2">
+                                {DEFAULT_TAG_COLORS.slice(0, 10).map((c) => {
+                                  const sel = c === createTagColor;
+                                  return (
+                                    <button
+                                      key={c}
+                                      type="button"
+                                      className={classNames(
+                                        "h-7 w-7 rounded-full border",
+                                        sel ? "border-zinc-900 ring-2 ring-zinc-900/20" : "border-zinc-200",
+                                      )}
+                                      style={{ backgroundColor: c }}
+                                      onClick={() => setCreateTagColor(c)}
+                                      title={c}
+                                    />
+                                  );
+                                })}
+                              </div>
+                            </div>
+
+                            <div className="mt-2 flex items-center justify-between gap-3">
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setShowCreateTag(false);
+                                  setNewTagName("");
+                                }}
+                                className="rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-xs font-semibold text-zinc-700 hover:bg-zinc-50"
+                                disabled={busy}
+                              >
+                                Cancel
+                              </button>
+                              <button
+                                type="button"
+                                disabled={busy || !newTagName.trim()}
+                                onClick={createTagAndMaybeAdd}
+                                className={classNames(
+                                  "rounded-2xl px-4 py-2 text-xs font-semibold",
+                                  busy || !newTagName.trim()
+                                    ? "bg-zinc-200 text-zinc-600"
+                                    : "bg-brand-ink text-white hover:opacity-95",
+                                )}
+                              >
+                                {busy ? "Creating…" : "Create"}
+                              </button>
+                            </div>
+                          </div>
+                        ) : null}
+
+                        {selectedCallTags.length ? (
+                          <div className="mt-3 flex flex-wrap gap-2">
+                            {selectedCallTags.map((t) => (
+                              <button
+                                key={t.id}
+                                type="button"
+                                onClick={() => removeAudienceTag("calls", t.id)}
+                                className="inline-flex items-center gap-2 rounded-full border border-zinc-200 bg-white px-3 py-1 text-xs font-semibold text-zinc-800 hover:bg-zinc-50"
+                                title="Remove"
+                              >
+                                <span className="h-2 w-2 rounded-full" style={{ backgroundColor: t.color || "#64748B" }} />
+                                <span className="max-w-45 truncate">{t.name}</span>
+                                <span className="text-zinc-400">×</span>
+                              </button>
+                            ))}
+                          </div>
+                        ) : (
+                          <div className="mt-3 text-xs text-zinc-500">No tags selected.</div>
+                        )}
+                      </div>
+                    ) : (
+                      <div className="rounded-3xl border border-zinc-200 bg-white p-4">
+                        <div className="text-sm font-semibold text-zinc-900">Message audience tags</div>
+                        <p className="mt-1 text-xs text-zinc-500">
+                          When a contact gets one of these tags, they’ll be included in the messaging audience.
+                        </p>
+
+                        <div className="mt-3 max-w-sm">
+                          <input
+                            value={chatTagSearch}
+                            onChange={(e) => setChatTagSearch(e.target.value)}
+                            placeholder="Search tags…"
+                            className="w-full rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-sm"
+                          />
+                          <div className="mt-2">
+                            <PortalListboxDropdown
+                              value={chatAddTagValue}
+                              options={addChatTagOptions as any}
+                              onChange={(v) => {
+                                const id = String(v || "");
+                                if (!id) {
+                                  setChatAddTagValue("");
+                                  return;
+                                }
+                                if (id === "__create__") {
+                                  setChatAddTagValue("");
+                                  setTagCreateContext("chat");
+                                  setShowCreateTag(true);
+                                  return;
+                                }
+                                setChatAddTagValue("");
+                                addAudienceTag("chat", id);
+                              }}
+                            />
+                          </div>
+                        </div>
+
+                        {showCreateTag && tagCreateContext === "chat" ? (
+                          <div className="mt-3 rounded-2xl border border-zinc-200 bg-white p-3">
+                            <div className="text-xs font-semibold text-zinc-700">Create tag</div>
+                            <div className="mt-2 grid grid-cols-1 gap-2 sm:grid-cols-3">
+                              <input
+                                value={newTagName}
+                                onChange={(e) => setNewTagName(e.target.value)}
+                                placeholder="Tag name"
+                                className="sm:col-span-2 w-full rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-sm"
+                              />
+
+                              <div className="flex flex-wrap items-center gap-1.5 rounded-2xl border border-zinc-200 bg-white px-2 py-2">
+                                {DEFAULT_TAG_COLORS.slice(0, 10).map((c) => {
+                                  const sel = c === createTagColor;
+                                  return (
+                                    <button
+                                      key={c}
+                                      type="button"
+                                      className={classNames(
+                                        "h-7 w-7 rounded-full border",
+                                        sel ? "border-zinc-900 ring-2 ring-zinc-900/20" : "border-zinc-200",
+                                      )}
+                                      style={{ backgroundColor: c }}
+                                      onClick={() => setCreateTagColor(c)}
+                                      title={c}
+                                    />
+                                  );
+                                })}
+                              </div>
+                            </div>
+
+                            <div className="mt-2 flex items-center justify-between gap-3">
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setShowCreateTag(false);
+                                  setNewTagName("");
+                                }}
+                                className="rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-xs font-semibold text-zinc-700 hover:bg-zinc-50"
+                                disabled={busy}
+                              >
+                                Cancel
+                              </button>
+                              <button
+                                type="button"
+                                disabled={busy || !newTagName.trim()}
+                                onClick={createTagAndMaybeAdd}
+                                className={classNames(
+                                  "rounded-2xl px-4 py-2 text-xs font-semibold",
+                                  busy || !newTagName.trim()
+                                    ? "bg-zinc-200 text-zinc-600"
+                                    : "bg-brand-ink text-white hover:opacity-95",
+                                )}
+                              >
+                                {busy ? "Creating…" : "Create"}
+                              </button>
+                            </div>
+                          </div>
+                        ) : null}
+
+                        {selectedChatTags.length ? (
+                          <div className="mt-3 flex flex-wrap gap-2">
+                            {selectedChatTags.map((t) => (
+                              <button
+                                key={t.id}
+                                type="button"
+                                onClick={() => removeAudienceTag("chat", t.id)}
+                                className="inline-flex items-center gap-2 rounded-full border border-zinc-200 bg-white px-3 py-1 text-xs font-semibold text-zinc-800 hover:bg-zinc-50"
+                                title="Remove"
+                              >
+                                <span className="h-2 w-2 rounded-full" style={{ backgroundColor: t.color || "#64748B" }} />
+                                <span className="max-w-45 truncate">{t.name}</span>
+                                <span className="text-zinc-400">×</span>
+                              </button>
+                            ))}
+                          </div>
+                        ) : (
+                          <div className="mt-3 text-xs text-zinc-500">No tags selected.</div>
+                        )}
                       </div>
                     )}
                   </div>

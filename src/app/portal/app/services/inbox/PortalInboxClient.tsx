@@ -1,5 +1,6 @@
 "use client";
 
+import { usePathname, useRouter } from "next/navigation";
 import { useEffect, useMemo, useRef, useState } from "react";
 
 import styles from "./PortalInboxClient.module.css";
@@ -134,14 +135,36 @@ function safeEmailFromPeer(raw: string) {
   return m ? m[0] : "";
 }
 
-export function PortalInboxClient() {
+export function PortalInboxClient(props: { initialChannel?: Channel } = {}) {
   const toast = useToast();
+  const router = useRouter();
+  const pathname = usePathname();
+
+  const { initialChannel } = props;
+
+  const basePath = useMemo(() => {
+    const p = String(pathname || "/portal/app/services/inbox");
+    if (p.endsWith("/email")) return p.slice(0, -"/email".length);
+    if (p.endsWith("/sms")) return p.slice(0, -"/sms".length);
+    return p;
+  }, [pathname]);
+
   const [tab, setTab] = useState<Channel>(() => {
+    if (initialChannel) return initialChannel;
+    const p = String(pathname || "");
+    if (p.endsWith("/sms")) return "sms";
+    if (p.endsWith("/email")) return "email";
+
     if (typeof window === "undefined") return "email";
-    const p = new URLSearchParams(window.location.search);
-    const ch = String(p.get("channel") || "").toLowerCase();
+    const sp = new URLSearchParams(window.location.search);
+    const ch = String(sp.get("channel") || "").toLowerCase();
     return ch === "sms" ? "sms" : "email";
   });
+
+  useEffect(() => {
+    if (!initialChannel) return;
+    setTab(initialChannel);
+  }, [initialChannel]);
   const [emailBox, setEmailBox] = useState<EmailBox>("inbox");
   const [threads, setThreads] = useState<Thread[]>([]);
   const [activeThreadId, setActiveThreadId] = useState<string | null>(null);
@@ -185,6 +208,13 @@ export function PortalInboxClient() {
   }, [error, toast]);
 
   const [settings, setSettings] = useState<SettingsRes | null>(null);
+
+  function setChannel(next: Channel) {
+    setTab(next);
+    if (typeof window === "undefined") return;
+    const search = window.location.search || "";
+    router.replace(`${basePath}/${next}${search}`);
+  }
 
   const activeThread = useMemo(
     () => threads.find((t) => t.id === activeThreadId) ?? null,
@@ -777,7 +807,7 @@ export function PortalInboxClient() {
       <div className="mt-6 flex w-full flex-wrap gap-2">
         <button
           type="button"
-          onClick={() => setTab("email")}
+          onClick={() => setChannel("email")}
           aria-current={tab === "email" ? "page" : undefined}
           className={
             "flex-1 min-w-35 rounded-2xl border px-4 py-2.5 text-sm font-semibold transition focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-ink/60 " +
@@ -790,7 +820,7 @@ export function PortalInboxClient() {
         </button>
         <button
           type="button"
-          onClick={() => setTab("sms")}
+          onClick={() => setChannel("sms")}
           aria-current={tab === "sms" ? "page" : undefined}
           className={
             "flex-1 min-w-35 rounded-2xl border px-4 py-2.5 text-sm font-semibold transition focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-ink/60 " +

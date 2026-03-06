@@ -1,5 +1,6 @@
 import { PortalServiceGate } from "@/app/portal/app/services/PortalServiceGate";
 import { PortalNewsletterClient } from "@/app/portal/app/services/newsletter/PortalNewsletterClient";
+import { redirect } from "next/navigation";
 
 export default async function PortalServiceNewsletterPage({
   searchParams,
@@ -14,6 +15,9 @@ export default async function PortalServiceNewsletterPage({
         ? resolvedSearchParams?.audience[0]
         : "external";
   const audience = String(audienceRaw || "external").toLowerCase() === "internal" ? "internal" : "external";
+
+  // Back-compat: old route used `?audience=internal|external`.
+  redirect(`/portal/app/services/newsletter/${audience}`);
 
   return (
     <PortalServiceGate slug="newsletter">
