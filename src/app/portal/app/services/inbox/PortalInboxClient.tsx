@@ -753,7 +753,7 @@ export function PortalInboxClient() {
           </p>
         </div>
 
-        <div className="w-full sm:max-w-[440px]">
+        <div className="w-full sm:max-w-110">
           {settings?.twilio?.configured ? null : (
             <PortalSettingsSection
               title="Inbound setup"
@@ -780,7 +780,7 @@ export function PortalInboxClient() {
           onClick={() => setTab("email")}
           aria-current={tab === "email" ? "page" : undefined}
           className={
-            "flex-1 min-w-[140px] rounded-2xl border px-4 py-2.5 text-sm font-semibold transition focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-ink/60 " +
+            "flex-1 min-w-35 rounded-2xl border px-4 py-2.5 text-sm font-semibold transition focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-ink/60 " +
             (tab === "email"
               ? "border-zinc-900 bg-zinc-900 text-white shadow-sm"
               : "border-zinc-200 bg-white text-zinc-700 hover:bg-zinc-50")
@@ -793,7 +793,7 @@ export function PortalInboxClient() {
           onClick={() => setTab("sms")}
           aria-current={tab === "sms" ? "page" : undefined}
           className={
-            "flex-1 min-w-[140px] rounded-2xl border px-4 py-2.5 text-sm font-semibold transition focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-ink/60 " +
+            "flex-1 min-w-35 rounded-2xl border px-4 py-2.5 text-sm font-semibold transition focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-ink/60 " +
             (tab === "sms"
               ? "border-zinc-900 bg-zinc-900 text-white shadow-sm"
               : "border-zinc-200 bg-white text-zinc-700 hover:bg-zinc-50")
@@ -967,7 +967,7 @@ export function PortalInboxClient() {
                 const active = t.id === activeThreadId;
 
                 if (tab === "sms") {
-                  const title = displayNameFromAddress(t.peerAddress);
+                  const title = t.contact?.name?.trim() ? t.contact.name.trim() : displayNameFromAddress(t.peerAddress);
                   const subtitle = firstLinePreview(t.lastMessagePreview);
                   return (
                     <button
@@ -1118,7 +1118,7 @@ export function PortalInboxClient() {
                 <div className="border-b border-zinc-100 p-3">
                   {toSuggestionsOpen ? (
                     <div
-                      className="fixed inset-0 z-[65]"
+                      className="fixed inset-0 z-65"
                       onMouseDown={() => setToSuggestionsOpen(false)}
                       onTouchStart={() => setToSuggestionsOpen(false)}
                       aria-hidden
@@ -1148,7 +1148,7 @@ export function PortalInboxClient() {
                     </div>
 
                     {toSuggestionsOpen ? (
-                      <div className="absolute left-0 right-0 top-full z-[80] mt-2 overflow-hidden rounded-2xl border border-zinc-200 bg-white shadow-lg">
+                      <div className="absolute left-0 right-0 top-full z-80 mt-2 overflow-hidden rounded-2xl border border-zinc-200 bg-white shadow-lg">
                         {contactsLoading ? (
                           <div className="px-3 py-3 text-sm text-zinc-600">Loading contacts…</div>
                         ) : (
@@ -1216,7 +1216,7 @@ export function PortalInboxClient() {
                                     return (
                                       <a key={a.id} href={a.url} target="_blank" rel="noreferrer" className="block">
                                         {/* eslint-disable-next-line @next/next/no-img-element */}
-                                        <img src={a.url} alt={a.fileName} className="max-h-56 w-full max-w-[240px] rounded-2xl object-cover" />
+                                        <img src={a.url} alt={a.fileName} className="max-h-56 w-full max-w-60 rounded-2xl object-cover" />
                                       </a>
                                     );
                                   }
@@ -1238,7 +1238,7 @@ export function PortalInboxClient() {
                                 })}
                               </div>
                             ) : null}
-                            <div className="whitespace-pre-wrap break-words">{m.bodyText}</div>
+                            <div className="whitespace-pre-wrap wrap-break-word">{m.bodyText}</div>
                             {endsGroup ? (
                               <div className={classNames("mt-1 text-[11px]", mine ? "text-white/80" : "text-zinc-600")}>
                                 {formatTimeOnly(m.createdAt)}
@@ -1270,7 +1270,7 @@ export function PortalInboxClient() {
                             </div>
                           )}
                           <div className="min-w-0">
-                            <div className="max-w-[180px] truncate text-xs font-semibold text-zinc-900">{a.fileName}</div>
+                            <div className="max-w-45 truncate text-xs font-semibold text-zinc-900">{a.fileName}</div>
                             <div className="text-[11px] text-zinc-500">{formatBytes(a.fileSize)}</div>
                           </div>
                           <button
@@ -1291,12 +1291,12 @@ export function PortalInboxClient() {
                     {smsMoreOpen ? (
                       <>
                         <div
-                          className="fixed inset-0 z-[70]"
+                          className="fixed inset-0 z-70"
                           onMouseDown={() => setSmsMoreOpen(false)}
                           onTouchStart={() => setSmsMoreOpen(false)}
                           aria-hidden
                         />
-                        <div className="absolute bottom-full left-0 z-[75] mb-2 w-64 overflow-hidden rounded-2xl border border-zinc-200 bg-white shadow-lg">
+                        <div className="absolute bottom-full left-0 z-75 mb-2 w-64 overflow-hidden rounded-2xl border border-zinc-200 bg-white shadow-lg">
                           <button
                             type="button"
                             className="w-full px-4 py-3 text-left text-sm font-semibold text-zinc-900 hover:bg-zinc-50"
@@ -1423,7 +1423,7 @@ export function PortalInboxClient() {
                 <div className="border-b border-zinc-100 p-4">
                   {toSuggestionsOpen ? (
                     <div
-                      className="fixed inset-0 z-[65]"
+                      className="fixed inset-0 z-65"
                       onMouseDown={() => setToSuggestionsOpen(false)}
                       onTouchStart={() => setToSuggestionsOpen(false)}
                       aria-hidden
@@ -1461,7 +1461,7 @@ export function PortalInboxClient() {
                         />
 
                         {toSuggestionsOpen ? (
-                          <div className="absolute left-0 right-0 top-full z-[80] mt-2 overflow-hidden rounded-2xl border border-zinc-200 bg-white shadow-lg">
+                          <div className="absolute left-0 right-0 top-full z-80 mt-2 overflow-hidden rounded-2xl border border-zinc-200 bg-white shadow-lg">
                             {contactsLoading ? (
                               <div className="px-3 py-3 text-sm text-zinc-600">Loading contacts…</div>
                             ) : (
@@ -1534,7 +1534,7 @@ export function PortalInboxClient() {
                           <div className="text-[11px] text-zinc-500">{formatWhen(m.createdAt)}</div>
                         </div>
                         <div className="mt-1 text-xs text-zinc-500">To: {m.toAddress}</div>
-                        <div className="mt-3 whitespace-pre-wrap break-words text-sm text-zinc-800">{m.bodyText}</div>
+                        <div className="mt-3 whitespace-pre-wrap wrap-break-word text-sm text-zinc-800">{m.bodyText}</div>
                         {m.attachments?.length ? (
                           <div className="mt-3 flex flex-wrap gap-2">
                             {m.attachments.map((a) => (
@@ -1581,7 +1581,7 @@ export function PortalInboxClient() {
                   <div className="mt-2 flex flex-wrap gap-2">
                     {composeAttachments.map((a) => (
                       <div key={a.id} className="flex items-center gap-2 rounded-2xl border border-zinc-200 bg-white px-2 py-1">
-                        <div className="max-w-[220px] truncate text-xs font-semibold text-zinc-900">{a.fileName}</div>
+                        <div className="max-w-55 truncate text-xs font-semibold text-zinc-900">{a.fileName}</div>
                         <div className="text-[11px] text-zinc-500">{formatBytes(a.fileSize)}</div>
                         <button
                           type="button"
