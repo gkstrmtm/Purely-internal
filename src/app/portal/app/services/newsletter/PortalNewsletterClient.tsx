@@ -122,7 +122,9 @@ export function PortalNewsletterClient({ initialAudience }: { initialAudience: A
   const audienceRef = useRef<AudienceTab>(initialAudience);
 
   const [audience, setAudience] = useState<AudienceTab>(initialAudience);
-  const [tab, setTab] = useState<"newsletters" | "activity">("newsletters");
+  const [tab, setTab] = useState<"newsletters" | "settings">("newsletters");
+
+  const [composerOpen, setComposerOpen] = useState(false);
 
   const [site, setSite] = useState<Site | null>(null);
   const [settings, setSettings] = useState<Settings | null>(null);
@@ -140,7 +142,6 @@ export function PortalNewsletterClient({ initialAudience }: { initialAudience: A
   const [credits, setCredits] = useState<number | null>(null);
   const [creditsUsed30d, setCreditsUsed30d] = useState<number | null>(null);
   const [generations30d, setGenerations30d] = useState<number | null>(null);
-  const [billingPath, setBillingPath] = useState<string>("/portal/app/billing");
 
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -270,7 +271,6 @@ export function PortalNewsletterClient({ initialAudience }: { initialAudience: A
 
     if (creditsRes.ok) {
       setCredits(typeof creditsJson?.credits === "number" ? creditsJson.credits : 0);
-      setBillingPath(typeof creditsJson?.billingPath === "string" ? creditsJson.billingPath : "/portal/app/billing");
     }
 
     if (usageRes.ok) {
@@ -809,14 +809,6 @@ export function PortalNewsletterClient({ initialAudience }: { initialAudience: A
             Capture leads and reach thousands with curated newsletters from your AI assistant.
           </p>
         </div>
-        <div className="flex w-full flex-col gap-2 sm:w-auto sm:flex-row sm:items-center">
-          <Link
-            href={billingPath}
-            className="inline-flex items-center justify-center rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm font-semibold text-brand-ink hover:bg-zinc-50"
-          >
-            Billing
-          </Link>
-        </div>
       </div>
 
       <div className="mt-6 flex w-full flex-wrap gap-2">
@@ -861,23 +853,23 @@ export function PortalNewsletterClient({ initialAudience }: { initialAudience: A
                   <button
                     type="button"
                     onClick={() => setTab("newsletters")}
-                    className={"rounded-2xl bg-zinc-900 px-3 py-2 text-xs font-semibold text-white transition"}
+                    className="rounded-2xl bg-(--color-brand-blue) px-3 py-2 text-xs font-semibold text-white shadow-sm transition"
                   >
                     Newsletters
                   </button>
                   <button
                     type="button"
-                    onClick={() => setTab("activity")}
+                    onClick={() => setTab("settings")}
                     className="rounded-2xl px-3 py-2 text-xs font-semibold text-zinc-700 transition hover:bg-zinc-50"
                   >
-                    Activity
+                    Settings
                   </button>
                 </div>
 
                 <button
                   type="button"
                   onClick={refresh}
-                  className="inline-flex items-center justify-center rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm font-semibold text-brand-ink hover:bg-zinc-50"
+                  className="inline-flex items-center justify-center rounded-2xl bg-(--color-brand-blue) px-4 py-2 text-sm font-semibold text-white shadow-sm hover:opacity-90"
                 >
                   Refresh
                 </button>
@@ -908,7 +900,30 @@ export function PortalNewsletterClient({ initialAudience }: { initialAudience: A
               </div>
             </div>
 
-            <div className="mt-5 overflow-hidden rounded-2xl border border-zinc-200">
+            <div className="mt-4 flex flex-wrap items-center justify-between gap-2">
+              <button
+                type="button"
+                className="inline-flex items-center justify-center rounded-2xl bg-(--color-brand-blue) px-4 py-2 text-sm font-semibold text-white shadow-sm hover:opacity-90"
+                onClick={() => {
+                  setComposerOpen(true);
+                  setMode("ai");
+                  setAiStep("delivery");
+                }}
+              >
+                + New newsletter
+              </button>
+              {composerOpen ? (
+                <button
+                  type="button"
+                  className="inline-flex items-center justify-center rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm font-semibold text-zinc-700 hover:bg-zinc-50"
+                  onClick={() => setComposerOpen(false)}
+                >
+                  Hide composer
+                </button>
+              ) : null}
+            </div>
+
+            <div className="mt-4 overflow-hidden rounded-2xl border border-zinc-200">
               <table className="w-full text-left text-sm">
                 <thead className="bg-zinc-50 text-xs font-semibold text-zinc-600">
                   <tr>
@@ -997,59 +1012,59 @@ export function PortalNewsletterClient({ initialAudience }: { initialAudience: A
             </div>
           </div>
 
-          <div className="mt-4 grid gap-4 lg:grid-cols-3">
-        <div className="rounded-3xl border border-zinc-200 bg-white p-6 lg:col-span-2">
-          <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-            <div>
-              <div className="text-sm font-semibold text-zinc-900">Composer</div>
-              <div className="mt-1 text-sm text-zinc-600">Use AI to draft content, or write it manually.</div>
-            </div>
+          {composerOpen ? (
+            <div className="mt-4 rounded-3xl border border-zinc-200 bg-white p-6">
+              <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                <div>
+                  <div className="text-sm font-semibold text-zinc-900">Composer</div>
+                  <div className="mt-1 text-sm text-zinc-600">Use AI to draft content, or write it manually.</div>
+                </div>
 
-            <div className="flex flex-wrap items-center gap-2">
-              <button
-                type="button"
-                onClick={() => setMode("ai")}
-                className={
-                  "inline-flex items-center gap-2 rounded-2xl px-4 py-2 text-xs font-semibold transition " +
-                  (mode === "ai" ? "bg-zinc-900 text-white hover:bg-zinc-800" : "border border-zinc-200 bg-white text-zinc-700 hover:bg-zinc-50")
-                }
-              >
-                <svg
-                  aria-hidden="true"
-                  viewBox="0 0 24 24"
-                  className="h-4 w-4"
-                  fill="none"
-                  stroke="currentColor"
-                  strokeWidth="2"
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                >
-                  <path d="M12 2l1.5 5.5L19 9l-5.5 1.5L12 16l-1.5-5.5L5 9l5.5-1.5L12 2z" />
-                  <path d="M19 14l.8 2.6L22 17l-2.2.4L19 20l-.8-2.6L16 17l2.2-.4L19 14z" />
-                </svg>
-                <span>AI</span>
-              </button>
-              <button
-                type="button"
-                onClick={() => setMode("manual")}
-                className={
-                  "inline-flex items-center gap-2 rounded-2xl px-4 py-2 text-xs font-semibold transition " +
-                  (mode === "manual" ? "bg-zinc-900 text-white hover:bg-zinc-800" : "border border-zinc-200 bg-white text-zinc-700 hover:bg-zinc-50")
-                }
-              >
-                <span>Manual</span>
-              </button>
+                <div className="flex flex-wrap items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setMode("ai")}
+                    className={
+                      "inline-flex items-center gap-2 rounded-2xl px-4 py-2 text-xs font-semibold transition " +
+                      (mode === "ai" ? "bg-zinc-900 text-white hover:bg-zinc-800" : "border border-zinc-200 bg-white text-zinc-700 hover:bg-zinc-50")
+                    }
+                  >
+                    <svg
+                      aria-hidden="true"
+                      viewBox="0 0 24 24"
+                      className="h-4 w-4"
+                      fill="none"
+                      stroke="currentColor"
+                      strokeWidth="2"
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                    >
+                      <path d="M12 2l1.5 5.5L19 9l-5.5 1.5L12 16l-1.5-5.5L5 9l5.5-1.5L12 2z" />
+                      <path d="M19 14l.8 2.6L22 17l-2.2.4L19 20l-.8-2.6L16 17l2.2-.4L19 14z" />
+                    </svg>
+                    <span>AI</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setMode("manual")}
+                    className={
+                      "inline-flex items-center gap-2 rounded-2xl px-4 py-2 text-xs font-semibold transition " +
+                      (mode === "manual" ? "bg-zinc-900 text-white hover:bg-zinc-800" : "border border-zinc-200 bg-white text-zinc-700 hover:bg-zinc-50")
+                    }
+                  >
+                    <span>Manual</span>
+                  </button>
 
-              <button
-                type="button"
-                onClick={saveSettings}
-                disabled={saving || !settings}
-                className="inline-flex items-center justify-center rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-xs font-semibold text-zinc-700 hover:bg-zinc-50 disabled:opacity-50"
-              >
-                {saving ? "Saving…" : "Save"}
-              </button>
-            </div>
-          </div>
+                  <button
+                    type="button"
+                    onClick={saveSettings}
+                    disabled={saving || !settings}
+                    className="inline-flex items-center justify-center rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-xs font-semibold text-zinc-700 hover:bg-zinc-50 disabled:opacity-50"
+                  >
+                    {saving ? "Saving…" : "Save"}
+                  </button>
+                </div>
+              </div>
 
           {mode === "manual" ? (
             <div className="mt-3 grid gap-4">
@@ -1415,13 +1430,21 @@ export function PortalNewsletterClient({ initialAudience }: { initialAudience: A
 
               {aiStep === "delivery" ? (
                 <div className="mt-4 grid gap-4 sm:grid-cols-2">
-                  <label className="flex items-center gap-3 rounded-2xl border border-zinc-200 bg-white px-3 py-2">
-                    <input
-                      type="checkbox"
-                      checked={Boolean(settings?.enabled)}
-                      onChange={(e) => setSettings((prev) => (prev ? { ...prev, enabled: e.target.checked } : prev))}
-                    />
-                    <div className="text-sm font-semibold text-zinc-800">Enabled</div>
+                  <label className="flex items-center justify-between gap-4 rounded-2xl border border-zinc-200 bg-white px-4 py-3">
+                    <div>
+                      <div className="text-sm font-semibold text-zinc-800">Enabled</div>
+                      <div className="mt-1 text-xs text-zinc-500">Runs on schedule when enabled.</div>
+                    </div>
+                    <span className="relative inline-flex h-6 w-11 shrink-0 items-center">
+                      <input
+                        type="checkbox"
+                        className="peer sr-only"
+                        checked={Boolean(settings?.enabled)}
+                        onChange={(e) => setSettings((prev) => (prev ? { ...prev, enabled: e.target.checked } : prev))}
+                      />
+                      <span className="absolute inset-0 rounded-full bg-zinc-200 transition peer-checked:bg-(--color-brand-blue)" />
+                      <span className="absolute left-0.5 top-0.5 h-5 w-5 rounded-full bg-white shadow-sm transition peer-checked:translate-x-5" />
+                    </span>
                   </label>
 
                   <div className="rounded-2xl border border-zinc-200 bg-white px-3 py-2">
@@ -1477,37 +1500,73 @@ export function PortalNewsletterClient({ initialAudience }: { initialAudience: A
                     <div className="mt-2 text-xs text-zinc-500">Stored as days for scheduling.</div>
                   </div>
 
-                  <label className="flex items-center gap-3 rounded-2xl border border-zinc-200 bg-white px-3 py-2">
-                    <input
-                      type="checkbox"
-                      checked={Boolean(settings?.requireApproval)}
-                      onChange={(e) => setSettings((prev) => (prev ? { ...prev, requireApproval: e.target.checked } : prev))}
-                    />
+                  <label className="flex items-center justify-between gap-4 rounded-2xl border border-zinc-200 bg-white px-4 py-3">
                     <div>
                       <div className="text-sm font-semibold text-zinc-800">Require approval</div>
                       <div className="mt-1 text-xs text-zinc-500">If enabled, scheduled runs create READY drafts you manually send.</div>
                     </div>
+                    <span className="relative inline-flex h-6 w-11 shrink-0 items-center">
+                      <input
+                        type="checkbox"
+                        className="peer sr-only"
+                        checked={Boolean(settings?.requireApproval)}
+                        onChange={(e) => setSettings((prev) => (prev ? { ...prev, requireApproval: e.target.checked } : prev))}
+                      />
+                      <span className="absolute inset-0 rounded-full bg-zinc-200 transition peer-checked:bg-(--color-brand-blue)" />
+                      <span className="absolute left-0.5 top-0.5 h-5 w-5 rounded-full bg-white shadow-sm transition peer-checked:translate-x-5" />
+                    </span>
                   </label>
 
                   <div className="rounded-2xl border border-zinc-200 bg-white px-4 py-3">
                     <div className="text-xs font-semibold uppercase tracking-wide text-zinc-500">Channels</div>
-                    <div className="mt-2 flex flex-wrap gap-4 text-sm">
-                      <label className="flex items-center gap-2">
+                    <div className="mt-2 flex flex-wrap gap-2">
+                      <label
+                        className={
+                          "inline-flex cursor-pointer items-center gap-2 rounded-2xl border px-3 py-2 text-sm font-semibold transition " +
+                          (settings?.channels?.email
+                            ? "border-(--color-brand-blue) bg-(--color-brand-mist) text-brand-ink"
+                            : "border-zinc-200 bg-white text-zinc-700 hover:bg-zinc-50")
+                        }
+                      >
                         <input
                           type="checkbox"
+                          className="sr-only"
                           checked={Boolean(settings?.channels?.email)}
                           onChange={(e) =>
                             setSettings((prev) => (prev ? { ...prev, channels: { ...prev.channels, email: e.target.checked } } : prev))
                           }
                         />
+                        <span
+                          aria-hidden="true"
+                          className={
+                            "h-2.5 w-2.5 rounded-full " +
+                            (settings?.channels?.email ? "bg-(--color-brand-blue)" : "bg-zinc-300")
+                          }
+                        />
                         Email
                       </label>
-                      <label className="flex items-center gap-2">
+
+                      <label
+                        className={
+                          "inline-flex cursor-pointer items-center gap-2 rounded-2xl border px-3 py-2 text-sm font-semibold transition " +
+                          (settings?.channels?.sms
+                            ? "border-(--color-brand-blue) bg-(--color-brand-mist) text-brand-ink"
+                            : "border-zinc-200 bg-white text-zinc-700 hover:bg-zinc-50")
+                        }
+                      >
                         <input
                           type="checkbox"
+                          className="sr-only"
                           checked={Boolean(settings?.channels?.sms)}
                           onChange={(e) =>
                             setSettings((prev) => (prev ? { ...prev, channels: { ...prev.channels, sms: e.target.checked } } : prev))
+                          }
+                        />
+                        <span
+                          aria-hidden="true"
+                          className={
+                            "h-2.5 w-2.5 rounded-full " +
+                            (settings?.channels?.sms ? "bg-(--color-brand-blue)" : "bg-zinc-300")
                           }
                         />
                         SMS (link)
@@ -1710,550 +1769,482 @@ export function PortalNewsletterClient({ initialAudience }: { initialAudience: A
               </div>
             </>
           ) : null}
-        </div>
-
-        <div className="rounded-3xl border border-zinc-200 bg-white p-6">
-          <div className="text-sm font-semibold text-zinc-900">Audience</div>
-          <div className="mt-2 text-sm text-zinc-600">Choose which tags are included in this send list.</div>
-
-          <div className="mt-3 max-w-sm">
-            <input
-              value={tagSearch}
-              onChange={(e) => setTagSearch(e.target.value)}
-              placeholder="Search tags…"
-              className="w-full rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-sm"
-            />
-            <div className="mt-2">
-              <PortalListboxDropdown
-                value={addTagValue as any}
-                options={addTagOptions as any}
-                onChange={(v) => {
-                  const id = String(v || "");
-                  if (!id) {
-                    setAddTagValue("");
-                    return;
-                  }
-                  if (id === "__create__") {
-                    setAddTagValue("");
-                    setShowCreateTag(true);
-                    return;
-                  }
-                  setAddTagValue("");
-                  setSettings((prev) => {
-                    if (!prev) return prev;
-                    const next = new Set(prev.audience.tagIds);
-                    next.add(id);
-                    return { ...prev, audience: { ...prev.audience, tagIds: Array.from(next).slice(0, 200) } };
-                  });
-                }}
-                placeholder="Add tag…"
-              />
-            </div>
-          </div>
-
-          <div className="mt-3 flex flex-wrap gap-2">
-            {(settings?.audience?.tagIds ?? []).length ? (
-              (settings?.audience?.tagIds ?? []).map((id) => {
-                const t = tagById.get(id);
-                if (!t) return null;
-                return (
-                  <span
-                    key={id}
-                    className="inline-flex items-center gap-2 rounded-full border border-zinc-200 bg-white px-3 py-1.5 text-xs font-semibold text-zinc-700"
-                  >
-                    <span className="inline-flex h-2.5 w-2.5 rounded-full" style={{ backgroundColor: t.color || "#a1a1aa" }} />
-                    <span>{t.name}</span>
-                    <button
-                      type="button"
-                      className="rounded-full px-1 text-zinc-500 hover:bg-zinc-100 hover:text-zinc-800"
-                      onClick={() =>
-                        setSettings((prev) => {
-                          if (!prev) return prev;
-                          const next = new Set(prev.audience.tagIds);
-                          next.delete(id);
-                          return { ...prev, audience: { ...prev.audience, tagIds: Array.from(next) } };
-                        })
-                      }
-                      aria-label={`Remove ${t.name}`}
-                      title="Remove"
-                    >
-                      ×
-                    </button>
-                  </span>
-                );
-              })
-            ) : (
-              <div className="text-xs text-zinc-500">No audience tags selected yet.</div>
-            )}
-          </div>
-
-          {showCreateTag ? (
-            <div className="mt-4 rounded-2xl border border-zinc-200 bg-zinc-50 p-3">
-              <div className="flex items-center justify-between gap-3">
-                <div className="text-xs font-semibold text-zinc-700">Create tag</div>
-                <button
-                  type="button"
-                  className="rounded-xl border border-zinc-200 bg-white px-3 py-2 text-xs font-semibold text-zinc-700 hover:bg-zinc-50"
-                  onClick={() => setShowCreateTag(false)}
-                  disabled={createTagBusy}
-                >
-                  Cancel
-                </button>
-              </div>
-              <div className="mt-2 grid grid-cols-1 gap-2 sm:grid-cols-3">
-                <input
-                  className="sm:col-span-2 w-full rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-sm"
-                  placeholder="Tag name"
-                  value={createTagName}
-                  onChange={(e) => setCreateTagName(e.target.value)}
-                />
-                <div className="flex flex-wrap items-center gap-1.5 rounded-2xl border border-zinc-200 bg-white px-2 py-2">
-                  {DEFAULT_TAG_COLORS.slice(0, 10).map((c) => {
-                    const selected = c === createTagColor;
-                    return (
-                      <button
-                        key={c}
-                        type="button"
-                        className={
-                          "h-7 w-7 rounded-full border " +
-                          (selected ? "border-zinc-900 ring-2 ring-zinc-900/20" : "border-zinc-200")
-                        }
-                        style={{ backgroundColor: c }}
-                        onClick={() => setCreateTagColor(c)}
-                        title={c}
-                      />
-                    );
-                  })}
-                </div>
-              </div>
-              <div className="mt-2 flex items-center justify-between gap-3">
-                <div className="text-xs text-zinc-500">Pick a default color.</div>
-                <button
-                  type="button"
-                  className="rounded-xl bg-zinc-900 px-3 py-2 text-xs font-semibold text-white hover:bg-zinc-800 disabled:opacity-60"
-                  disabled={createTagBusy}
-                  onClick={() => void createOwnerTag()}
-                >
-                  {createTagBusy ? "Creating…" : "Create"}
-                </button>
-              </div>
             </div>
           ) : null}
-
-          {audience === "external" ? (
-            <div className="mt-5">
-              <div className="text-sm font-semibold text-zinc-900">Manually add people to this newsletter list</div>
-              <div className="mt-2 text-sm text-zinc-600">Search contacts by name, email, or phone and add them.</div>
-
-              <input
-                value={contactQuery}
-                onChange={(e) => setContactQuery(e.target.value)}
-                onFocus={() => setContactSearchOpen(true)}
-                onBlur={() => {
-                  window.setTimeout(() => setContactSearchOpen(false), 150);
-                }}
-                className="mt-3 w-full rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-sm outline-none focus:border-zinc-300"
-                placeholder="Search contacts…"
-              />
-
-              {contactSearchOpen ? (
-                <div className="mt-3 rounded-2xl border border-zinc-200 bg-white p-3">
-                  <div className="text-xs font-semibold uppercase tracking-wide text-zinc-500">Results</div>
-                  <div className="mt-2 space-y-2">
-                    {contactSearching ? (
-                      <div className="text-sm text-zinc-600">Searching…</div>
-                    ) : contactResults.length ? (
-                      contactResults.slice(0, 25).map((c) => {
-                        const added = selectedContactIds.has(c.id);
-                        return (
-                          <div key={c.id} className="rounded-2xl border border-zinc-200 p-3">
-                            <div className="flex flex-wrap items-start justify-between gap-3">
-                              <div>
-                                <div className="text-sm font-semibold text-zinc-900">{c.name || c.email || c.phone || "(contact)"}</div>
-                                <div className="mt-1 text-xs text-zinc-500">
-                                  {c.email ? c.email : ""}{c.email && c.phone ? " · " : ""}{c.phone ? c.phone : ""}
-                                </div>
-                                <div className="mt-2">
-                                  <ContactTagsEditor
-                                    contactId={c.id}
-                                    tags={c.tags}
-                                    compact
-                                    onChange={(next) => {
-                                      setContactResults((prev) => prev.map((x) => (x.id === c.id ? { ...x, tags: next } : x)));
-                                      setSelectedContacts((prev) => prev.map((x) => (x.id === c.id ? { ...x, tags: next } : x)));
-                                    }}
-                                  />
-                                </div>
-                              </div>
-
-                              <button
-                                type="button"
-                                className={
-                                  "rounded-2xl px-3 py-2 text-sm font-semibold " +
-                                  (added
-                                    ? "border border-zinc-200 bg-white text-zinc-700 hover:bg-zinc-50"
-                                    : "bg-zinc-900 text-white hover:bg-zinc-800")
-                                }
-                                onClick={() =>
-                                  setSettings((prev) => {
-                                    if (!prev) return prev;
-                                    const ids = new Set(prev.audience.contactIds);
-                                    if (added) ids.delete(c.id);
-                                    else ids.add(c.id);
-                                    return { ...prev, audience: { ...prev.audience, contactIds: Array.from(ids).slice(0, 200) } };
-                                  })
-                                }
-                              >
-                                {added ? "Remove" : "Add"}
-                              </button>
-                            </div>
-                          </div>
-                        );
-                      })
-                    ) : (
-                      <div className="text-sm text-zinc-600">Type at least 2 characters to search.</div>
-                    )}
-                  </div>
-                </div>
-              ) : null}
-
-              <div className="mt-3 rounded-2xl border border-zinc-200 bg-zinc-50 p-3">
-                <div className="text-xs font-semibold uppercase tracking-wide text-zinc-500">Selected people</div>
-                <div className="mt-2 space-y-2">
-                  {selectedContacts.length ? (
-                    selectedContacts.slice(0, 50).map((c) => (
-                      <div key={c.id} className="flex flex-wrap items-center justify-between gap-2 rounded-2xl border border-zinc-200 bg-white px-3 py-2">
-                        <div className="min-w-0">
-                          <div className="truncate text-sm font-semibold text-zinc-900">{c.name || c.email || c.phone || c.id}</div>
-                          <div className="mt-0.5 truncate text-xs text-zinc-500">
-                            {c.email ? c.email : ""}{c.email && c.phone ? " · " : ""}{c.phone ? c.phone : ""}
-                          </div>
-                        </div>
-                        <button
-                          type="button"
-                          className="rounded-xl border border-zinc-200 bg-white px-3 py-1.5 text-xs font-semibold text-zinc-700 hover:bg-zinc-50"
-                          onClick={() =>
-                            setSettings((prev) => {
-                              if (!prev) return prev;
-                              const ids = prev.audience.contactIds.filter((id) => id !== c.id);
-                              return { ...prev, audience: { ...prev.audience, contactIds: ids } };
-                            })
-                          }
-                        >
-                          Remove
-                        </button>
-                      </div>
-                    ))
-                  ) : (
-                    <div className="text-sm text-zinc-600">No manual people selected.</div>
-                  )}
-                </div>
-              </div>
-            </div>
-          ) : null}
-
-          {audience === "internal" ? (
-            <div className="mt-5 space-y-4">
-              <label className="flex items-center gap-3 rounded-2xl border border-zinc-200 bg-white px-4 py-3">
-                <input
-                  type="checkbox"
-                  checked={Boolean(settings?.audience?.sendAllUsers)}
-                  onChange={(e) =>
-                    setSettings((prev) =>
-                      prev ? { ...prev, audience: { ...prev.audience, sendAllUsers: e.target.checked } } : prev,
-                    )
-                  }
-                />
-                <div>
-                  <div className="text-sm font-semibold text-zinc-800">Send to all users under this account</div>
-                  <div className="mt-1 text-xs text-zinc-500">Includes all team members. Use extra emails for additional recipients.</div>
-                </div>
-              </label>
-
-              <div>
-                <div className="text-sm font-semibold text-zinc-900">Extra emails (internal only)</div>
-                <div className="mt-2 text-sm text-zinc-600">Add one at a time, or upload a CSV.</div>
-
-                <div className="mt-3 flex gap-2">
-                  <input
-                    value={internalEmailInput}
-                    onChange={(e) => setInternalEmailInput(e.target.value)}
-                    className="w-full rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-sm outline-none focus:border-zinc-300"
-                    placeholder="name@company.com"
-                    onKeyDown={(e) => {
-                      if (e.key !== "Enter") return;
-                      const next = internalEmailInput.trim();
-                      if (!isEmail(next)) {
-                        toast.error("Enter a valid email");
-                        return;
-                      }
-                      setSettings((prev) => {
-                        if (!prev) return prev;
-                        const nextSet = new Set(prev.audience.emails.map((x) => x.toLowerCase()));
-                        const normalized = next.toLowerCase();
-                        const emails = [...prev.audience.emails];
-                        if (!nextSet.has(normalized)) emails.push(next);
-                        return { ...prev, audience: { ...prev.audience, emails: emails.slice(0, 200) } };
-                      });
-                      setInternalEmailInput("");
-                    }}
-                  />
-                  <button
-                    type="button"
-                    className="rounded-2xl bg-zinc-900 px-3 py-2 text-sm font-semibold text-white hover:bg-zinc-800"
-                    onClick={() => {
-                      const next = internalEmailInput.trim();
-                      if (!isEmail(next)) {
-                        toast.error("Enter a valid email");
-                        return;
-                      }
-                      setSettings((prev) => {
-                        if (!prev) return prev;
-                        const nextSet = new Set(prev.audience.emails.map((x) => x.toLowerCase()));
-                        const normalized = next.toLowerCase();
-                        const emails = [...prev.audience.emails];
-                        if (!nextSet.has(normalized)) emails.push(next);
-                        return { ...prev, audience: { ...prev.audience, emails: emails.slice(0, 200) } };
-                      });
-                      setInternalEmailInput("");
-                    }}
-                  >
-                    +
-                  </button>
-                </div>
-
-                <div className="mt-3 flex flex-wrap gap-2">
-                  {(settings?.audience?.emails ?? []).length ? (
-                    (settings?.audience?.emails ?? []).map((e) => (
-                      <button
-                        key={e}
-                        type="button"
-                        className="inline-flex items-center gap-2 rounded-full border border-zinc-200 bg-white px-3 py-1 text-xs font-semibold text-zinc-700 hover:bg-zinc-50"
-                        title="Remove"
-                        onClick={() =>
-                          setSettings((prev) => {
-                            if (!prev) return prev;
-                            return { ...prev, audience: { ...prev.audience, emails: prev.audience.emails.filter((x) => x !== e) } };
-                          })
-                        }
-                      >
-                        {e}
-                        <span className="text-zinc-400">×</span>
-                      </button>
-                    ))
-                  ) : (
-                    <div className="text-sm text-zinc-600">No extra emails added.</div>
-                  )}
-                </div>
-
-                <div className="mt-3">
-                  <label className="inline-flex cursor-pointer items-center justify-center rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm font-semibold text-zinc-700 hover:bg-zinc-50">
-                    Upload CSV
-                    <input
-                      type="file"
-                      accept=".csv,text/csv"
-                      className="hidden"
-                      onChange={async (e) => {
-                        const file = e.target.files?.[0];
-                        if (!file) return;
-                        try {
-                          const text = await file.text();
-                          const parsed = splitEmails(text).filter(isEmail);
-                          if (!parsed.length) {
-                            toast.error("No valid emails found in CSV");
-                            return;
-                          }
-                          setSettings((prev) => {
-                            if (!prev) return prev;
-                            const next = new Map<string, string>();
-                            for (const x of prev.audience.emails) next.set(x.toLowerCase(), x);
-                            for (const x of parsed) next.set(x.toLowerCase(), x);
-                            return { ...prev, audience: { ...prev.audience, emails: Array.from(next.values()).slice(0, 200) } };
-                          });
-                          toast.success(`Added ${parsed.length} emails`);
-                        } finally {
-                          if (e.target) e.target.value = "";
-                        }
-                      }}
-                    />
-                  </label>
-                </div>
-              </div>
-            </div>
-          ) : null}
-
-          <div className="mt-6 rounded-2xl border border-zinc-200 bg-zinc-50 p-4">
-            <div className="text-xs font-semibold uppercase tracking-wide text-zinc-500">Usage (30d)</div>
-            <div className="mt-2 text-sm text-zinc-800">
-              {creditsUsed30d === null ? "N/A" : `${creditsUsed30d} credits used`} · {generations30d === null ? "N/A" : `${generations30d} generations`}
-            </div>
-          </div>
-
-          {siteHandle ? (
-            <div className="mt-4 text-sm">
-              <div className="text-xs font-semibold uppercase tracking-wide text-zinc-500">Hosted pages</div>
-              <div className="mt-2 flex flex-col gap-2">
-                <div className="rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-xs text-zinc-700 break-all">
-                  {publicBaseUrl}
-                </div>
-                <div className="flex flex-wrap items-center gap-2">
-                  <button
-                    type="button"
-                    className="rounded-xl border border-zinc-200 bg-white px-3 py-2 text-xs font-semibold text-zinc-700 hover:bg-zinc-50"
-                    onClick={async () => {
-                      if (!publicBaseUrl) return;
-                      try {
-                        await navigator.clipboard.writeText(publicBaseUrl);
-                        toast.success("Copied");
-                      } catch {
-                        toast.error("Copy failed");
-                      }
-                    }}
-                  >
-                    Copy link
-                  </button>
-                  <Link
-                    href={publicBasePath || "#"}
-                    target="_blank"
-                    className="rounded-xl bg-zinc-900 px-3 py-2 text-xs font-semibold text-white hover:bg-zinc-800"
-                  >
-                    Open
-                  </Link>
-                </div>
-              </div>
-            </div>
-          ) : (
-            <div className="mt-4 rounded-2xl border border-zinc-200 bg-zinc-50 p-4 text-sm">
-              <div className="text-xs font-semibold uppercase tracking-wide text-zinc-500">Hosted pages</div>
-              <div className="mt-2 text-sm text-zinc-700">Set up hosted pages so every newsletter has a shareable link.</div>
-              <div className="mt-3 flex flex-wrap gap-2">
-                <button
-                  type="button"
-                  className="rounded-2xl bg-zinc-900 px-4 py-2 text-sm font-semibold text-white hover:bg-zinc-800"
-                  onClick={() => {
-                    setSiteConfigName(site?.name || "Newsletter site");
-                    setSiteConfigSlug(site?.slug || "");
-                    setSiteConfigDomain(site?.primaryDomain || "");
-                    setSiteConfigOpen(true);
-                  }}
-                >
-                  Set up hosted pages
-                </button>
-              </div>
-            </div>
-          )}
-        </div>
-      </div>
         </>
       ) : (
         <div className="mt-6 rounded-3xl border border-zinc-200 bg-white p-6 shadow-sm">
           <div className="flex flex-col items-start justify-between gap-3 sm:flex-row sm:items-center">
             <div>
-              <div className="text-sm font-semibold text-zinc-900">Activity</div>
-              <div className="mt-2 text-sm text-zinc-600">Recent usage, hosted links, and drafts/sends.</div>
+              <div className="text-sm font-semibold text-zinc-900">Settings</div>
+              <div className="mt-2 text-sm text-zinc-600">Audience, hosted pages, and delivery preferences.</div>
             </div>
 
-            <div className="inline-flex items-center gap-1 rounded-2xl border border-zinc-200 bg-white p-1">
-              <button
-                type="button"
-                onClick={() => setTab("newsletters")}
-                className="rounded-2xl px-3 py-2 text-xs font-semibold text-zinc-700 transition hover:bg-zinc-50"
-              >
-                Newsletters
-              </button>
-              <button
-                type="button"
-                onClick={() => setTab("activity")}
-                className={"rounded-2xl bg-zinc-900 px-3 py-2 text-xs font-semibold text-white transition"}
-              >
-                Activity
-              </button>
-            </div>
-          </div>
-
-          <div className="mt-5 grid grid-cols-1 gap-3 sm:grid-cols-2">
-            <div className="rounded-2xl border border-zinc-200 bg-zinc-50 p-4">
-              <div className="text-xs font-semibold text-zinc-600">Usage (30d)</div>
-              <div className="mt-2 text-sm text-zinc-800">
-                {creditsUsed30d === null ? "N/A" : `${creditsUsed30d} credits used`} · {generations30d === null ? "N/A" : `${generations30d} generations`}
+            <div className="flex flex-wrap items-center gap-2">
+              <div className="inline-flex items-center gap-1 rounded-2xl border border-zinc-200 bg-white p-1">
+                <button
+                  type="button"
+                  onClick={() => setTab("newsletters")}
+                  className="rounded-2xl px-3 py-2 text-xs font-semibold text-zinc-700 transition hover:bg-zinc-50"
+                >
+                  Newsletters
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setTab("settings")}
+                  className="rounded-2xl bg-(--color-brand-blue) px-3 py-2 text-xs font-semibold text-white shadow-sm transition"
+                >
+                  Settings
+                </button>
               </div>
-            </div>
-            <div className="rounded-2xl border border-zinc-200 bg-zinc-50 p-4">
-              <div className="text-xs font-semibold text-zinc-600">Hosted pages</div>
-              {publicBaseUrl ? (
-                <div className="mt-2 text-xs text-zinc-700 break-all">{publicBaseUrl}</div>
-              ) : (
-                <div className="mt-2">
-                  <div className="text-xs text-zinc-700">Hosted pages are not set up yet.</div>
-                  <button
-                    type="button"
-                    className="mt-2 rounded-xl bg-zinc-900 px-3 py-2 text-xs font-semibold text-white hover:bg-zinc-800"
-                    onClick={() => {
-                      setSiteConfigName(site?.name || "Newsletter site");
-                      setSiteConfigSlug(site?.slug || "");
-                      setSiteConfigDomain(site?.primaryDomain || "");
-                      setSiteConfigOpen(true);
-                    }}
-                  >
-                    Set up hosted pages
-                  </button>
-                </div>
-              )}
-            </div>
-          </div>
 
-          <div className="mt-5 rounded-2xl border border-zinc-200 bg-white p-4">
-            <div className="flex items-center justify-between gap-3">
-              <div>
-                <div className="text-sm font-semibold text-zinc-900">Recent newsletters</div>
-                <div className="mt-1 text-sm text-zinc-600">READY drafts can be sent manually when approval is required.</div>
-              </div>
               <button
                 type="button"
                 onClick={refresh}
-                className="rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm font-semibold text-zinc-700 hover:bg-zinc-50"
+                className="inline-flex items-center justify-center rounded-2xl bg-(--color-brand-blue) px-4 py-2 text-sm font-semibold text-white shadow-sm hover:opacity-90"
               >
                 Refresh
               </button>
             </div>
+          </div>
 
-            <div className="mt-4 space-y-3">
-              {newsletters.length ? (
-                newsletters.slice(0, 15).map((n) => (
-                  <div key={n.id} className="rounded-2xl border border-zinc-200 p-4">
-                    <div className="flex flex-wrap items-start justify-between gap-3">
-                      <div>
-                        <div className="text-sm font-semibold text-zinc-900">{n.title || "(untitled)"}</div>
-                        <div className="mt-1 text-xs text-zinc-500">
-                          {n.status} · updated {formatDate(n.updatedAtIso)}{n.sentAtIso ? ` · sent ${formatDate(n.sentAtIso)}` : ""}
-                        </div>
-                        <div className="mt-2 text-sm text-zinc-600">{n.excerpt}</div>
-                      </div>
+          <div className="mt-5 grid gap-4 lg:grid-cols-3">
+            <div className="rounded-3xl border border-zinc-200 bg-white p-6 lg:col-span-2">
+              <div className="text-sm font-semibold text-zinc-900">Audience</div>
+              <div className="mt-2 text-sm text-zinc-600">Choose which tags are included in this send list.</div>
 
-                      <div className="flex items-center gap-2">
+              <div className="mt-3 max-w-sm">
+                <input
+                  value={tagSearch}
+                  onChange={(e) => setTagSearch(e.target.value)}
+                  placeholder="Search tags…"
+                  className="w-full rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-sm"
+                />
+                <div className="mt-2">
+                  <PortalListboxDropdown
+                    value={addTagValue as any}
+                    options={addTagOptions as any}
+                    onChange={(v) => {
+                      const id = String(v || "");
+                      if (!id) {
+                        setAddTagValue("");
+                        return;
+                      }
+                      if (id === "__create__") {
+                        setAddTagValue("");
+                        setShowCreateTag(true);
+                        return;
+                      }
+                      setAddTagValue("");
+                      setSettings((prev) => {
+                        if (!prev) return prev;
+                        const next = new Set(prev.audience.tagIds);
+                        next.add(id);
+                        return { ...prev, audience: { ...prev.audience, tagIds: Array.from(next).slice(0, 200) } };
+                      });
+                    }}
+                    placeholder="Add tag…"
+                  />
+                </div>
+              </div>
+
+              <div className="mt-3 flex flex-wrap gap-2">
+                {(settings?.audience?.tagIds ?? []).length ? (
+                  (settings?.audience?.tagIds ?? []).map((id) => {
+                    const t = tagById.get(id);
+                    if (!t) return null;
+                    return (
+                      <span
+                        key={id}
+                        className="inline-flex items-center gap-2 rounded-full border border-zinc-200 bg-white px-3 py-1.5 text-xs font-semibold text-zinc-700"
+                      >
+                        <span className="inline-flex h-2.5 w-2.5 rounded-full" style={{ backgroundColor: t.color || "#a1a1aa" }} />
+                        <span>{t.name}</span>
                         <button
                           type="button"
-                          onClick={() => void openDraft(n.id)}
-                          className="rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-sm font-semibold text-zinc-700 hover:bg-zinc-50"
+                          className="rounded-full px-1 text-zinc-500 hover:bg-zinc-100 hover:text-zinc-800"
+                          onClick={() =>
+                            setSettings((prev) => {
+                              if (!prev) return prev;
+                              const next = new Set(prev.audience.tagIds);
+                              next.delete(id);
+                              return { ...prev, audience: { ...prev.audience, tagIds: Array.from(next) } };
+                            })
+                          }
+                          aria-label={`Remove ${t.name}`}
+                          title="Remove"
                         >
-                          {n.status === "SENT" ? "Edit hosted" : "Edit / preview"}
+                          ×
                         </button>
-                        {n.status === "READY" ? (
+                      </span>
+                    );
+                  })
+                ) : (
+                  <div className="text-xs text-zinc-500">No audience tags selected yet.</div>
+                )}
+              </div>
+
+              {showCreateTag ? (
+                <div className="mt-4 rounded-2xl border border-zinc-200 bg-zinc-50 p-3">
+                  <div className="flex items-center justify-between gap-3">
+                    <div className="text-xs font-semibold text-zinc-700">Create tag</div>
+                    <button
+                      type="button"
+                      className="rounded-xl border border-zinc-200 bg-white px-3 py-2 text-xs font-semibold text-zinc-700 hover:bg-zinc-50"
+                      onClick={() => setShowCreateTag(false)}
+                      disabled={createTagBusy}
+                    >
+                      Cancel
+                    </button>
+                  </div>
+                  <div className="mt-2 grid grid-cols-1 gap-2 sm:grid-cols-3">
+                    <input
+                      className="sm:col-span-2 w-full rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-sm"
+                      placeholder="Tag name"
+                      value={createTagName}
+                      onChange={(e) => setCreateTagName(e.target.value)}
+                    />
+                    <div className="flex flex-wrap items-center gap-1.5 rounded-2xl border border-zinc-200 bg-white px-2 py-2">
+                      {DEFAULT_TAG_COLORS.slice(0, 10).map((c) => {
+                        const selected = c === createTagColor;
+                        return (
                           <button
+                            key={c}
                             type="button"
-                            onClick={() => void sendReady(n.id)}
-                            className="rounded-2xl bg-zinc-900 px-3 py-2 text-sm font-semibold text-white hover:bg-zinc-800"
-                          >
-                            Send now
-                          </button>
-                        ) : null}
-                      </div>
+                            className={
+                              "h-7 w-7 rounded-full border " +
+                              (selected ? "border-zinc-900 ring-2 ring-zinc-900/20" : "border-zinc-200")
+                            }
+                            style={{ backgroundColor: c }}
+                            onClick={() => setCreateTagColor(c)}
+                            title={c}
+                          />
+                        );
+                      })}
                     </div>
                   </div>
-                ))
-              ) : (
-                <div className="text-sm text-zinc-600">No newsletters yet.</div>
-              )}
+                  <div className="mt-2 flex items-center justify-between gap-3">
+                    <div className="text-xs text-zinc-500">Pick a default color.</div>
+                    <button
+                      type="button"
+                      className="rounded-xl bg-zinc-900 px-3 py-2 text-xs font-semibold text-white hover:bg-zinc-800 disabled:opacity-60"
+                      disabled={createTagBusy}
+                      onClick={() => void createOwnerTag()}
+                    >
+                      {createTagBusy ? "Creating…" : "Create"}
+                    </button>
+                  </div>
+                </div>
+              ) : null}
+
+              {audience === "external" ? (
+                <div className="mt-5">
+                  <div className="text-sm font-semibold text-zinc-900">Manually add people to this newsletter list</div>
+                  <div className="mt-2 text-sm text-zinc-600">Search contacts by name, email, or phone and add them.</div>
+
+                  <input
+                    value={contactQuery}
+                    onChange={(e) => setContactQuery(e.target.value)}
+                    onFocus={() => setContactSearchOpen(true)}
+                    onBlur={() => {
+                      window.setTimeout(() => setContactSearchOpen(false), 150);
+                    }}
+                    className="mt-3 w-full rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-sm outline-none focus:border-zinc-300"
+                    placeholder="Search contacts…"
+                  />
+
+                  {contactSearchOpen ? (
+                    <div className="mt-3 rounded-2xl border border-zinc-200 bg-white p-3">
+                      <div className="text-xs font-semibold uppercase tracking-wide text-zinc-500">Results</div>
+                      <div className="mt-2 space-y-2">
+                        {contactSearching ? (
+                          <div className="text-sm text-zinc-600">Searching…</div>
+                        ) : contactResults.length ? (
+                          contactResults.slice(0, 25).map((c) => {
+                            const added = selectedContactIds.has(c.id);
+                            return (
+                              <div key={c.id} className="rounded-2xl border border-zinc-200 p-3">
+                                <div className="flex flex-wrap items-start justify-between gap-3">
+                                  <div>
+                                    <div className="text-sm font-semibold text-zinc-900">{c.name || c.email || c.phone || "(contact)"}</div>
+                                    <div className="mt-1 text-xs text-zinc-500">
+                                      {c.email ? c.email : ""}{c.email && c.phone ? " · " : ""}{c.phone ? c.phone : ""}
+                                    </div>
+                                    <div className="mt-2">
+                                      <ContactTagsEditor
+                                        contactId={c.id}
+                                        tags={c.tags}
+                                        compact
+                                        onChange={(next) => {
+                                          setContactResults((prev) => prev.map((x) => (x.id === c.id ? { ...x, tags: next } : x)));
+                                          setSelectedContacts((prev) => prev.map((x) => (x.id === c.id ? { ...x, tags: next } : x)));
+                                        }}
+                                      />
+                                    </div>
+                                  </div>
+
+                                  <button
+                                    type="button"
+                                    className={
+                                      "rounded-2xl px-3 py-2 text-sm font-semibold " +
+                                      (added
+                                        ? "border border-zinc-200 bg-white text-zinc-700 hover:bg-zinc-50"
+                                        : "bg-zinc-900 text-white hover:bg-zinc-800")
+                                    }
+                                    onClick={() =>
+                                      setSettings((prev) => {
+                                        if (!prev) return prev;
+                                        const ids = new Set(prev.audience.contactIds);
+                                        if (added) ids.delete(c.id);
+                                        else ids.add(c.id);
+                                        return { ...prev, audience: { ...prev.audience, contactIds: Array.from(ids).slice(0, 200) } };
+                                      })
+                                    }
+                                  >
+                                    {added ? "Remove" : "Add"}
+                                  </button>
+                                </div>
+                              </div>
+                            );
+                          })
+                        ) : (
+                          <div className="text-sm text-zinc-600">Type at least 2 characters to search.</div>
+                        )}
+                      </div>
+                    </div>
+                  ) : null}
+
+                  <div className="mt-3 rounded-2xl border border-zinc-200 bg-zinc-50 p-3">
+                    <div className="text-xs font-semibold uppercase tracking-wide text-zinc-500">Selected people</div>
+                    <div className="mt-2 space-y-2">
+                      {selectedContacts.length ? (
+                        selectedContacts.slice(0, 50).map((c) => (
+                          <div key={c.id} className="flex flex-wrap items-center justify-between gap-2 rounded-2xl border border-zinc-200 bg-white px-3 py-2">
+                            <div className="min-w-0">
+                              <div className="truncate text-sm font-semibold text-zinc-900">{c.name || c.email || c.phone || c.id}</div>
+                              <div className="mt-0.5 truncate text-xs text-zinc-500">
+                                {c.email ? c.email : ""}{c.email && c.phone ? " · " : ""}{c.phone ? c.phone : ""}
+                              </div>
+                            </div>
+                            <button
+                              type="button"
+                              className="rounded-xl border border-zinc-200 bg-white px-3 py-1.5 text-xs font-semibold text-zinc-700 hover:bg-zinc-50"
+                              onClick={() =>
+                                setSettings((prev) => {
+                                  if (!prev) return prev;
+                                  const ids = prev.audience.contactIds.filter((id) => id !== c.id);
+                                  return { ...prev, audience: { ...prev.audience, contactIds: ids } };
+                                })
+                              }
+                            >
+                              Remove
+                            </button>
+                          </div>
+                        ))
+                      ) : (
+                        <div className="text-sm text-zinc-600">No manual people selected.</div>
+                      )}
+                    </div>
+                  </div>
+                </div>
+              ) : null}
+
+              {audience === "internal" ? (
+                <div className="mt-5 space-y-4">
+                  <label className="flex items-center justify-between gap-4 rounded-2xl border border-zinc-200 bg-white px-4 py-3">
+                    <div>
+                      <div className="text-sm font-semibold text-zinc-800">Send to all users under this account</div>
+                      <div className="mt-1 text-xs text-zinc-500">Includes all team members. Use extra emails for additional recipients.</div>
+                    </div>
+                    <span className="relative inline-flex h-6 w-11 shrink-0 items-center">
+                      <input
+                        type="checkbox"
+                        className="peer sr-only"
+                        checked={Boolean(settings?.audience?.sendAllUsers)}
+                        onChange={(e) =>
+                          setSettings((prev) =>
+                            prev ? { ...prev, audience: { ...prev.audience, sendAllUsers: e.target.checked } } : prev,
+                          )
+                        }
+                      />
+                      <span className="absolute inset-0 rounded-full bg-zinc-200 transition peer-checked:bg-(--color-brand-blue)" />
+                      <span className="absolute left-0.5 top-0.5 h-5 w-5 rounded-full bg-white shadow-sm transition peer-checked:translate-x-5" />
+                    </span>
+                  </label>
+
+                  <div>
+                    <div className="text-sm font-semibold text-zinc-900">Extra emails (internal only)</div>
+                    <div className="mt-2 text-sm text-zinc-600">Add one at a time, or upload a CSV.</div>
+
+                    <div className="mt-3 flex gap-2">
+                      <input
+                        value={internalEmailInput}
+                        onChange={(e) => setInternalEmailInput(e.target.value)}
+                        className="w-full rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-sm outline-none focus:border-zinc-300"
+                        placeholder="name@company.com"
+                        onKeyDown={(e) => {
+                          if (e.key !== "Enter") return;
+                          const next = internalEmailInput.trim();
+                          if (!isEmail(next)) {
+                            toast.error("Enter a valid email");
+                            return;
+                          }
+                          setSettings((prev) => {
+                            if (!prev) return prev;
+                            const nextSet = new Set(prev.audience.emails.map((x) => x.toLowerCase()));
+                            const normalized = next.toLowerCase();
+                            const emails = [...prev.audience.emails];
+                            if (!nextSet.has(normalized)) emails.push(next);
+                            return { ...prev, audience: { ...prev.audience, emails: emails.slice(0, 200) } };
+                          });
+                          setInternalEmailInput("");
+                        }}
+                      />
+                      <button
+                        type="button"
+                        className="rounded-2xl bg-zinc-900 px-3 py-2 text-sm font-semibold text-white hover:bg-zinc-800"
+                        onClick={() => {
+                          const next = internalEmailInput.trim();
+                          if (!isEmail(next)) {
+                            toast.error("Enter a valid email");
+                            return;
+                          }
+                          setSettings((prev) => {
+                            if (!prev) return prev;
+                            const nextSet = new Set(prev.audience.emails.map((x) => x.toLowerCase()));
+                            const normalized = next.toLowerCase();
+                            const emails = [...prev.audience.emails];
+                            if (!nextSet.has(normalized)) emails.push(next);
+                            return { ...prev, audience: { ...prev.audience, emails: emails.slice(0, 200) } };
+                          });
+                          setInternalEmailInput("");
+                        }}
+                      >
+                        +
+                      </button>
+                    </div>
+
+                    <div className="mt-3 flex flex-wrap gap-2">
+                      {(settings?.audience?.emails ?? []).length ? (
+                        (settings?.audience?.emails ?? []).map((e) => (
+                          <button
+                            key={e}
+                            type="button"
+                            className="inline-flex items-center gap-2 rounded-full border border-zinc-200 bg-white px-3 py-1 text-xs font-semibold text-zinc-700 hover:bg-zinc-50"
+                            title="Remove"
+                            onClick={() =>
+                              setSettings((prev) => {
+                                if (!prev) return prev;
+                                return { ...prev, audience: { ...prev.audience, emails: prev.audience.emails.filter((x) => x !== e) } };
+                              })
+                            }
+                          >
+                            {e}
+                            <span className="text-zinc-400">×</span>
+                          </button>
+                        ))
+                      ) : (
+                        <div className="text-sm text-zinc-600">No extra emails added.</div>
+                      )}
+                    </div>
+
+                    <div className="mt-3">
+                      <label className="inline-flex cursor-pointer items-center justify-center rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm font-semibold text-zinc-700 hover:bg-zinc-50">
+                        Upload CSV
+                        <input
+                          type="file"
+                          accept=".csv,text/csv"
+                          className="hidden"
+                          onChange={async (e) => {
+                            const file = e.target.files?.[0];
+                            if (!file) return;
+                            try {
+                              const text = await file.text();
+                              const parsed = splitEmails(text).filter(isEmail);
+                              if (!parsed.length) {
+                                toast.error("No valid emails found in CSV");
+                                return;
+                              }
+                              setSettings((prev) => {
+                                if (!prev) return prev;
+                                const next = new Map<string, string>();
+                                for (const x of prev.audience.emails) next.set(x.toLowerCase(), x);
+                                for (const x of parsed) next.set(x.toLowerCase(), x);
+                                return { ...prev, audience: { ...prev.audience, emails: Array.from(next.values()).slice(0, 200) } };
+                              });
+                              toast.success(`Added ${parsed.length} emails`);
+                            } finally {
+                              if (e.target) e.target.value = "";
+                            }
+                          }}
+                        />
+                      </label>
+                    </div>
+                  </div>
+                </div>
+              ) : null}
+            </div>
+
+            <div className="space-y-4">
+              <div className="rounded-3xl border border-zinc-200 bg-white p-6">
+                <div className="text-xs font-semibold uppercase tracking-wide text-zinc-500">Usage (30d)</div>
+                <div className="mt-2 text-sm text-zinc-800">
+                  {creditsUsed30d === null ? "N/A" : `${creditsUsed30d} credits used`} · {generations30d === null ? "N/A" : `${generations30d} generations`}
+                </div>
+              </div>
+
+              <div className="rounded-3xl border border-zinc-200 bg-white p-6 text-sm">
+                <div className="text-xs font-semibold uppercase tracking-wide text-zinc-500">Hosted pages</div>
+                {siteHandle ? (
+                  <div className="mt-2 flex flex-col gap-2">
+                    <div className="rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-xs text-zinc-700 break-all">
+                      {publicBaseUrl}
+                    </div>
+                    <div className="flex flex-wrap items-center gap-2">
+                      <button
+                        type="button"
+                        className="rounded-xl border border-zinc-200 bg-white px-3 py-2 text-xs font-semibold text-zinc-700 hover:bg-zinc-50"
+                        onClick={async () => {
+                          if (!publicBaseUrl) return;
+                          try {
+                            await navigator.clipboard.writeText(publicBaseUrl);
+                            toast.success("Copied");
+                          } catch {
+                            toast.error("Copy failed");
+                          }
+                        }}
+                      >
+                        Copy link
+                      </button>
+                      <Link
+                        href={publicBasePath || "#"}
+                        target="_blank"
+                        className="rounded-xl bg-zinc-900 px-3 py-2 text-xs font-semibold text-white hover:bg-zinc-800"
+                      >
+                        Open
+                      </Link>
+                    </div>
+                  </div>
+                ) : (
+                  <div className="mt-2">
+                    <div className="text-sm text-zinc-700">Set up hosted pages so every newsletter has a shareable link.</div>
+                    <div className="mt-3 flex flex-wrap gap-2">
+                      <button
+                        type="button"
+                        className="rounded-2xl bg-zinc-900 px-4 py-2 text-sm font-semibold text-white hover:bg-zinc-800"
+                        onClick={() => {
+                          setSiteConfigName(site?.name || "Newsletter site");
+                          setSiteConfigSlug(site?.slug || "");
+                          setSiteConfigDomain(site?.primaryDomain || "");
+                          setSiteConfigOpen(true);
+                        }}
+                      >
+                        Set up hosted pages
+                      </button>
+                    </div>
+                  </div>
+                )}
+              </div>
             </div>
           </div>
         </div>
