@@ -52,6 +52,10 @@ type ApiCreateTagResponse =
   | { ok: true; tag: ContactTag }
   | { ok: false; error: string };
 
+type ApiGetContactTagsResponse =
+  | { ok: true; tags: ContactTag[] }
+  | { ok: false; error?: string };
+
 type ApiGenerateAgentConfigResponse =
   | {
       ok: true;
@@ -62,8 +66,8 @@ type ApiGenerateAgentConfigResponse =
     }
   | { ok: false; error: string };
 
-type ApiInboxSendResponse =
-  | { ok: true; threadId: string }
+type ApiEnrollMessageContactResponse =
+  | { ok: true; enrolled: true; alreadySentFirstMessage: boolean }
   | { ok: false; error?: string };
 
 type ManualCall = {
@@ -243,7 +247,7 @@ function MiniAudioPlayer(props: { src: string; durationHintSec?: number | null }
           {playing ? "Pause" : "Play"}
         </button>
 
-        <div className="min-w-[220px] flex-1">
+        <div className="min-w-55 flex-1">
           <input
             type="range"
             min={0}
@@ -273,7 +277,7 @@ function MiniAudioPlayer(props: { src: string; durationHintSec?: number | null }
             value={rate}
             onChange={(v) => setRate(v)}
             options={[0.75, 1, 1.25, 1.5, 2].map((v) => ({ value: v, label: `${v}x` }))}
-            className="min-w-[84px]"
+            className="min-w-21"
             buttonClassName="flex w-full items-center justify-between gap-2 rounded-xl border border-zinc-200 bg-white px-2 py-2 text-sm font-semibold text-zinc-900 hover:bg-zinc-50 focus-visible:ring-2 focus-visible:ring-zinc-300"
           />
         </div>
@@ -321,12 +325,10 @@ export function PortalAiOutboundCallsClient() {
   const [messagesGenerateContext, setMessagesGenerateContext] = useState("");
   const [generateBusy, setGenerateBusy] = useState(false);
 
-  const [messageChannel, setMessageChannel] = useState<"sms" | "email">("sms");
-  const [messageTo, setMessageTo] = useState("");
-  const [messageSubject, setMessageSubject] = useState("");
-  const [messageBody, setMessageBody] = useState("");
-  const [messageSending, setMessageSending] = useState(false);
-  const [messageLastThreadId, setMessageLastThreadId] = useState<string | null>(null);
+  const [manualEnrollTarget, setManualEnrollTarget] = useState("");
+  const [manualEnrollBusy, setManualEnrollBusy] = useState(false);
+
+  const [previewChannel, setPreviewChannel] = useState<"sms" | "email">("sms");
 
   const [previewInbound, setPreviewInbound] = useState("");
   const [previewReply, setPreviewReply] = useState<string | null>(null);
@@ -344,10 +346,7 @@ export function PortalAiOutboundCallsClient() {
     setActivityRecent([]);
     setCallsGenerateContext("");
     setMessagesGenerateContext("");
-    setMessageTo("");
-    setMessageSubject("");
-    setMessageBody("");
-    setMessageLastThreadId(null);
+    setManualEnrollTarget("");
     setPreviewInbound("");
     setPreviewReply(null);
   }, [selectedId]);
@@ -534,50 +533,46 @@ export function PortalAiOutboundCallsClient() {
     };
   }, []);
 
-  async function loadAll() {
-    setLoading(true);
+  async function enrollContactForMessages() {
+    if (!selected?.id) return;
+    if (busy || manualEnrollBusy) return;
+
+    const target = manualEnrollTarget.trim();
+    if (!target) {
+      toast.error("Enter a contact ID, phone, or email");
+      return;
+    }
+
+    setManualEnrollBusy(true);
     setError(null);
 
     try {
-      const [cRes, tRes] = await Promise.all([
-        fetch("/api/portal/ai-outbound-calls/campaigns", { cache: "no-store" }),
-        fetch("/api/portal/contact-tags", { cache: "no-store" }),
-      ]);
+      const res = await fetch(
+        `/api/portal/ai-outbound-calls/campaigns/${encodeURIComponent(selected.id)}/enroll-message`,
+        {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ target }),
+        },
+      );
 
-      const cJson = (await cRes.json().catch(() => null)) as ApiGetCampaignsResponse | null;
-      if (!cRes.ok || !cJson || !cJson.ok) {
-        throw new Error((cJson as any)?.error || "Failed to load campaigns");
+      const json = (await res.json().catch(() => null)) as ApiEnrollMessageContactResponse | null;
+      if (!res.ok || !json || (json as any).ok !== true) {
+        throw new Error((json as any)?.error || "Enroll failed");
       }
 
-      const tJson = (await tRes.json().catch(() => null)) as any;
-      const nextTags: ContactTag[] = Array.isArray(tJson?.tags)
-        ? tJson.tags
-            .map((x: any) => ({
-              id: String(x?.id || ""),
-              name: String(x?.name || ""),
-              color: x?.color ? String(x.color) : null,
-            }))
-            .filter((x: ContactTag) => Boolean(x.id && x.name))
-        : [];
-
-      if (!mountedRef.current) return;
-      setCampaigns(cJson.campaigns);
-      setTags(nextTags);
-      if (!selectedId && cJson.campaigns[0]?.id) setSelectedId(cJson.campaigns[0].id);
+      toast.success(
+        (json as any).alreadySentFirstMessage
+          ? "Already enrolled (first message already sent)"
+          : "Enrolled — first message will send shortly",
+      );
+      setManualEnrollTarget("");
     } catch (e) {
-      if (!mountedRef.current) return;
-      setError(e instanceof Error ? e.message : "Failed to load");
+      toast.error(e instanceof Error ? e.message : "Enroll failed");
     } finally {
-      if (!mountedRef.current) return;
-      setLoading(false);
+      setManualEnrollBusy(false);
     }
   }
-
-  useEffect(() => {
-    loadAll();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
-
   useEffect(() => {
     let mounted = true;
     (async () => {
@@ -615,6 +610,48 @@ export function PortalAiOutboundCallsClient() {
   useEffect(() => {
     if (error) toast.error(error);
   }, [error, toast]);
+
+  const loadAll = useCallback(async () => {
+    setLoading(true);
+    setError(null);
+
+    try {
+      const [campaignRes, tagsRes] = await Promise.all([
+        fetch("/api/portal/ai-outbound-calls/campaigns", { cache: "no-store" }),
+        fetch("/api/portal/contact-tags", { cache: "no-store" }),
+      ]);
+
+      const campaignsJson = (await campaignRes.json().catch(() => null)) as ApiGetCampaignsResponse | null;
+      if (!campaignRes.ok || !campaignsJson || (campaignsJson as any).ok !== true) {
+        throw new Error((campaignsJson as any)?.error || "Failed to load campaigns");
+      }
+
+      const tagsJson = (await tagsRes.json().catch(() => null)) as ApiGetContactTagsResponse | null;
+      if (!tagsRes.ok || !tagsJson || (tagsJson as any).ok !== true) {
+        throw new Error((tagsJson as any)?.error || "Failed to load tags");
+      }
+
+      const nextCampaigns = Array.isArray((campaignsJson as any).campaigns)
+        ? ((campaignsJson as any).campaigns as Campaign[])
+        : [];
+
+      setCampaigns(nextCampaigns);
+      setTags(Array.isArray((tagsJson as any).tags) ? ((tagsJson as any).tags as ContactTag[]) : []);
+
+      setSelectedId((prev) => {
+        if (prev && nextCampaigns.some((c) => c.id === prev)) return prev;
+        return nextCampaigns[0]?.id ?? null;
+      });
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Failed to load");
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    void loadAll();
+  }, [loadAll]);
 
   async function createCampaign() {
     if (busy) return;
@@ -830,50 +867,6 @@ export function PortalAiOutboundCallsClient() {
     }
   }
 
-  async function sendTestMessage() {
-    if (messageSending || busy) return;
-
-    const to = messageTo.trim();
-    const body = messageBody.trim();
-    const subject = messageChannel === "email" ? messageSubject.trim() : "";
-    if (!to) {
-      toast.error("Add a recipient");
-      return;
-    }
-    if (!body) {
-      toast.error("Add a message");
-      return;
-    }
-
-    setMessageSending(true);
-    setError(null);
-
-    try {
-      const res = await fetch("/api/portal/inbox/send", {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({
-          channel: messageChannel,
-          to,
-          subject: subject || undefined,
-          body,
-        }),
-      });
-
-      const json = (await res.json().catch(() => null)) as ApiInboxSendResponse | null;
-      if (!res.ok || !json || (json as any).ok !== true) {
-        throw new Error((json as any)?.error || "Failed to send");
-      }
-
-      setMessageLastThreadId(String((json as any).threadId || "") || null);
-      toast.success("Sent");
-    } catch (e) {
-      toast.error(e instanceof Error ? e.message : "Failed to send");
-    } finally {
-      setMessageSending(false);
-    }
-  }
-
   async function previewReplyForInbound() {
     if (!selected?.id) return;
     if (previewBusy || busy) return;
@@ -894,7 +887,7 @@ export function PortalAiOutboundCallsClient() {
         {
           method: "POST",
           headers: { "content-type": "application/json" },
-          body: JSON.stringify({ channel: messageChannel, inbound }),
+          body: JSON.stringify({ channel: previewChannel, inbound }),
         },
       );
 
@@ -1110,7 +1103,7 @@ export function PortalAiOutboundCallsClient() {
                   />
                 </div>
 
-                <div className="w-full sm:w-[220px]">
+                <div className="w-full sm:w-55">
                   <div className="text-sm font-semibold text-zinc-800">Status</div>
                   <div className="mt-1">
                     <PortalListboxDropdown
@@ -1128,9 +1121,9 @@ export function PortalAiOutboundCallsClient() {
                   onClick={() => setTab("calls")}
                   aria-current={tab === "calls" ? "page" : undefined}
                   className={
-                    "flex-1 min-w-[160px] rounded-2xl border px-4 py-2.5 text-sm font-semibold transition focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-ink/60 " +
+                    "flex-1 min-w-40 rounded-2xl border px-4 py-2.5 text-sm font-semibold transition focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-ink/60 " +
                     (tab === "calls"
-                      ? "border-[color:var(--color-brand-blue)] bg-[color:var(--color-brand-blue)] text-white shadow-sm"
+                      ? "border-(--color-brand-blue) bg-(--color-brand-blue) text-white shadow-sm"
                       : "border-zinc-200 bg-white text-zinc-700 hover:bg-zinc-50")
                   }
                 >
@@ -1141,9 +1134,9 @@ export function PortalAiOutboundCallsClient() {
                   onClick={() => setTab("messages")}
                   aria-current={tab === "messages" ? "page" : undefined}
                   className={
-                    "flex-1 min-w-[160px] rounded-2xl border px-4 py-2.5 text-sm font-semibold transition focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-ink/60 " +
+                    "flex-1 min-w-40 rounded-2xl border px-4 py-2.5 text-sm font-semibold transition focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-ink/60 " +
                     (tab === "messages"
-                      ? "border-[color:var(--color-brand-blue)] bg-[color:var(--color-brand-blue)] text-white shadow-sm"
+                      ? "border-(--color-brand-blue) bg-(--color-brand-blue) text-white shadow-sm"
                       : "border-zinc-200 bg-white text-zinc-700 hover:bg-zinc-50")
                   }
                 >
@@ -1154,9 +1147,9 @@ export function PortalAiOutboundCallsClient() {
                   onClick={() => setTab("settings")}
                   aria-current={tab === "settings" ? "page" : undefined}
                   className={
-                    "flex-1 min-w-[160px] rounded-2xl border px-4 py-2.5 text-sm font-semibold transition focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-ink/60 " +
+                    "flex-1 min-w-40 rounded-2xl border px-4 py-2.5 text-sm font-semibold transition focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-ink/60 " +
                     (tab === "settings"
-                      ? "border-[color:var(--color-brand-blue)] bg-[color:var(--color-brand-blue)] text-white shadow-sm"
+                      ? "border-(--color-brand-blue) bg-(--color-brand-blue) text-white shadow-sm"
                       : "border-zinc-200 bg-white text-zinc-700 hover:bg-zinc-50")
                   }
                 >
@@ -1276,7 +1269,7 @@ export function PortalAiOutboundCallsClient() {
                             title="Remove"
                           >
                             <span className="h-2 w-2 rounded-full" style={{ backgroundColor: t.color || "#64748B" }} />
-                            <span className="max-w-[180px] truncate">{t.name}</span>
+                            <span className="max-w-45 truncate">{t.name}</span>
                             <span className="text-zinc-400">×</span>
                           </button>
                         ))}
@@ -1289,92 +1282,48 @@ export function PortalAiOutboundCallsClient() {
                   <div className="mt-4 rounded-2xl border border-zinc-200 bg-white p-4">
                     <div className="flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between">
                       <div>
-                        <div className="text-sm font-semibold text-zinc-900">Send a one-off message</div>
+                        <div className="text-sm font-semibold text-zinc-900">Manual enrollment</div>
                         <div className="mt-1 text-xs text-zinc-500">
-                          Uses your configured Inbox channels. For automation, use the audience tags above.
+                          Enroll a single contact into this campaign’s messaging automation.
                         </div>
                       </div>
                       <Link
-                        href={
-                          messageLastThreadId
-                            ? `/portal/app/services/inbox?channel=${encodeURIComponent(messageChannel)}&threadId=${encodeURIComponent(messageLastThreadId)}`
-                            : "/portal/app/services/inbox"
-                        }
+                        href="/portal/app/services/inbox"
                         className="rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm font-semibold text-zinc-800 hover:bg-zinc-50"
                       >
                         Open Inbox
                       </Link>
                     </div>
 
-                    <div className="mt-4 grid gap-3 sm:grid-cols-2">
-                      <div>
-                        <div className="text-sm font-semibold text-zinc-800">Channel</div>
-                        <div className="mt-1">
-                          <PortalListboxDropdown
-                            value={messageChannel}
-                            options={[
-                              { value: "sms", label: "SMS" },
-                              { value: "email", label: "Email" },
-                            ]}
-                            onChange={(v) => setMessageChannel(v as any)}
-                          />
+                    <div className="mt-4 grid gap-3 sm:grid-cols-3">
+                      <div className="sm:col-span-2">
+                        <div className="text-sm font-semibold text-zinc-800">Contact</div>
+                        <input
+                          value={manualEnrollTarget}
+                          onChange={(e) => setManualEnrollTarget(e.target.value)}
+                          placeholder="Contact ID, +15551234567, or name@example.com"
+                          className="mt-1 w-full rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-sm"
+                        />
+                        <div className="mt-1 text-xs text-zinc-500">
+                          Sends the first message automatically (SMS if possible, otherwise email).
                         </div>
                       </div>
 
-                      <div>
-                        <div className="text-sm font-semibold text-zinc-800">To</div>
-                        <input
-                          value={messageTo}
-                          onChange={(e) => setMessageTo(e.target.value)}
-                          placeholder={messageChannel === "sms" ? "+15551234567" : "name@example.com"}
-                          className="mt-1 w-full rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-sm"
-                        />
+                      <div className="sm:self-end">
+                        <button
+                          type="button"
+                          disabled={busy || manualEnrollBusy || !manualEnrollTarget.trim()}
+                          onClick={() => void enrollContactForMessages()}
+                          className={classNames(
+                            "w-full rounded-2xl px-4 py-2 text-sm font-semibold",
+                            busy || manualEnrollBusy || !manualEnrollTarget.trim()
+                              ? "bg-zinc-200 text-zinc-600"
+                              : "bg-brand-ink text-white hover:opacity-95",
+                          )}
+                        >
+                          {manualEnrollBusy ? "Enrolling…" : "Enroll"}
+                        </button>
                       </div>
-                    </div>
-
-                    {messageChannel === "email" ? (
-                      <div className="mt-3">
-                        <div className="text-sm font-semibold text-zinc-800">Subject</div>
-                        <input
-                          value={messageSubject}
-                          onChange={(e) => setMessageSubject(e.target.value)}
-                          placeholder="Subject"
-                          className="mt-1 w-full rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-sm"
-                        />
-                      </div>
-                    ) : null}
-
-                    <div className="mt-3">
-                      <div className="text-sm font-semibold text-zinc-800">Message</div>
-                      <textarea
-                        value={messageBody}
-                        onChange={(e) => setMessageBody(e.target.value)}
-                        placeholder={messageChannel === "sms" ? "Write an SMS…" : "Write an email…"}
-                        rows={5}
-                        className="mt-1 w-full resize-y rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-sm"
-                      />
-                    </div>
-
-                    <div className="mt-3 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-                      <button
-                        type="button"
-                        disabled={busy || messageSending}
-                        onClick={() => void sendTestMessage()}
-                        className={classNames(
-                          "rounded-2xl px-4 py-2 text-sm font-semibold",
-                          busy || messageSending
-                            ? "bg-zinc-200 text-zinc-600"
-                            : "bg-brand-ink text-white hover:opacity-95",
-                        )}
-                      >
-                        {messageSending ? "Sending…" : "Send"}
-                      </button>
-
-                      {messageLastThreadId ? (
-                        <div className="text-xs text-zinc-500">Thread: {messageLastThreadId}</div>
-                      ) : (
-                        <div className="text-xs text-zinc-500">Thread will appear after sending.</div>
-                      )}
                     </div>
                   </div>
 
@@ -1407,12 +1356,12 @@ export function PortalAiOutboundCallsClient() {
                         <div className="text-sm font-semibold text-zinc-800">Channel</div>
                         <div className="mt-1">
                           <PortalListboxDropdown
-                            value={messageChannel}
+                            value={previewChannel}
                             options={[
                               { value: "sms", label: "SMS" },
                               { value: "email", label: "Email" },
                             ]}
-                            onChange={(v) => setMessageChannel(v as any)}
+                            onChange={(v) => setPreviewChannel(v as any)}
                           />
                         </div>
                       </div>
@@ -1426,7 +1375,7 @@ export function PortalAiOutboundCallsClient() {
                       <textarea
                         value={previewInbound}
                         onChange={(e) => setPreviewInbound(e.target.value)}
-                        placeholder={messageChannel === "sms" ? "Customer: Hey, can you send me pricing?" : "Customer: Hi, I’m interested in…"}
+                        placeholder={previewChannel === "sms" ? "Customer: Hey, can you send me pricing?" : "Customer: Hi, I’m interested in…"}
                         rows={4}
                         className="mt-1 w-full resize-y rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-sm"
                       />
@@ -1492,7 +1441,7 @@ export function PortalAiOutboundCallsClient() {
 
                     {activityRecent.length ? (
                       <div className="mt-4 overflow-hidden rounded-2xl border border-zinc-200">
-                        <div className="max-h-[360px] overflow-auto bg-white">
+                        <div className="max-h-90 overflow-auto bg-white">
                           {activityRecent.slice(0, 60).map((e) => {
                             const who =
                               (e.contact?.name && String(e.contact.name).trim()) ||
@@ -1633,7 +1582,7 @@ export function PortalAiOutboundCallsClient() {
                             title="Remove"
                           >
                             <span className="h-2 w-2 rounded-full" style={{ backgroundColor: t.color || "#64748B" }} />
-                            <span className="max-w-[180px] truncate">{t.name}</span>
+                            <span className="max-w-45 truncate">{t.name}</span>
                             <span className="text-zinc-400">×</span>
                           </button>
                         ))}
@@ -1853,7 +1802,7 @@ export function PortalAiOutboundCallsClient() {
                             <div className="mt-5">
                               <div className="text-xs font-semibold text-zinc-600">Transcript</div>
                               {manualCall.transcriptText && manualCall.transcriptText.trim() ? (
-                                <div className="mt-2 max-h-[520px] overflow-auto rounded-xl border border-zinc-200 bg-zinc-50 p-4">
+                                <div className="mt-2 max-h-130 overflow-auto rounded-xl border border-zinc-200 bg-zinc-50 p-4">
                                   <div className="whitespace-pre-wrap text-sm text-zinc-800">{manualCall.transcriptText}</div>
                                 </div>
                               ) : (
@@ -1890,7 +1839,7 @@ export function PortalAiOutboundCallsClient() {
                         className={
                           "rounded-2xl border px-4 py-2 text-xs font-semibold transition " +
                           (settingsTab === "calls"
-                            ? "border-[color:var(--color-brand-blue)] bg-[color:var(--color-brand-blue)] text-white"
+                            ? "border-(--color-brand-blue) bg-(--color-brand-blue) text-white"
                             : "border-zinc-200 bg-white text-zinc-700 hover:bg-zinc-50")
                         }
                       >
@@ -1902,7 +1851,7 @@ export function PortalAiOutboundCallsClient() {
                         className={
                           "rounded-2xl border px-4 py-2 text-xs font-semibold transition " +
                           (settingsTab === "messages"
-                            ? "border-[color:var(--color-brand-blue)] bg-[color:var(--color-brand-blue)] text-white"
+                            ? "border-(--color-brand-blue) bg-(--color-brand-blue) text-white"
                             : "border-zinc-200 bg-white text-zinc-700 hover:bg-zinc-50")
                         }
                       >
@@ -1954,7 +1903,7 @@ export function PortalAiOutboundCallsClient() {
                               "rounded-2xl px-4 py-2 text-xs font-semibold",
                               busy
                                 ? "bg-zinc-200 text-zinc-600"
-                                : "bg-[color:var(--color-brand-blue)] text-white hover:opacity-95",
+                                : "bg-(--color-brand-blue) text-white hover:opacity-95",
                             )}
                             title={
                               voiceToolsApiKeyConfigured
@@ -2061,7 +2010,7 @@ export function PortalAiOutboundCallsClient() {
                                     { value: "none", label: "None" },
                                     { value: "all", label: "All" },
                                   ]}
-                                  className="min-w-[160px]"
+                                  className="min-w-40"
                                   buttonClassName="flex h-9 w-full items-center justify-between gap-2 rounded-xl border border-zinc-200 bg-white px-2 text-xs hover:bg-zinc-50 focus-visible:ring-2 focus-visible:ring-zinc-300"
                                 />
                               </div>
