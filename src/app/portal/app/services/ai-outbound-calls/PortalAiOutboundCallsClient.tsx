@@ -174,6 +174,12 @@ function formatWhen(iso: string) {
 
 function badgeClass(kind: string) {
   switch (String(kind || "").toUpperCase()) {
+    case "QUEUED":
+    case "QUEUED_FOR_SEND":
+    case "ENQUEUED":
+      return "bg-sky-50 text-sky-700 border-sky-200";
+    case "ACTIVE":
+      return "bg-emerald-50 text-emerald-700 border-emerald-200";
     case "CALLING":
     case "IN_PROGRESS":
       return "bg-sky-50 text-sky-700 border-sky-200";
@@ -1497,13 +1503,12 @@ export function PortalAiOutboundCallsClient(props: { initialTab?: OutboundTabKey
                         </div>
                       </div>
                       <Link
-                        href="/portal/app/services/inbox"
+                        href="/portal/app/services/inbox/email"
                         className="rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm font-semibold text-zinc-800 hover:bg-zinc-50"
                       >
                         Open Inbox
                       </Link>
                     </div>
-                        href="/portal/app/services/inbox/email"
                     <div className="mt-4 grid gap-3 sm:grid-cols-3">
                       <div className="sm:col-span-2">
                         <div className="text-sm font-semibold text-zinc-800">Contact</div>

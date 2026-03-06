@@ -142,6 +142,11 @@ export function PortalNewsletterClient({ initialAudience }: { initialAudience: A
   const [audience, setAudience] = useState<AudienceTab>(initialAudience);
   const [tab, setTab] = useState<"newsletters" | "settings">("newsletters");
 
+  useEffect(() => {
+    audienceRef.current = initialAudience;
+    setAudience(initialAudience);
+  }, [initialAudience]);
+
   const [composerOpen, setComposerOpen] = useState(false);
 
   const [site, setSite] = useState<Site | null>(null);

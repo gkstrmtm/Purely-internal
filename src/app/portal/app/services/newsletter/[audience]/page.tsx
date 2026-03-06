@@ -1,5 +1,3 @@
-import { PortalServiceGate } from "@/app/portal/app/services/PortalServiceGate";
-import { PortalNewsletterClient } from "@/app/portal/app/services/newsletter/PortalNewsletterClient";
 import { redirect } from "next/navigation";
 
 export const dynamic = "force-dynamic";
@@ -17,9 +15,5 @@ export default async function PortalServiceNewsletterAudiencePage({
     redirect("/portal/app/services/newsletter/external");
   }
 
-  return (
-    <PortalServiceGate slug="newsletter">
-      <PortalNewsletterClient initialAudience={raw} />
-    </PortalServiceGate>
-  );
+  return null;
 }
