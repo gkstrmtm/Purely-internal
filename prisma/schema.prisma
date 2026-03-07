@@ -1249,6 +1249,12 @@ model PortalAiOutboundCallCampaign {
   // Which channels this campaign is allowed to message on.
   messageChannelPolicy PortalAiOutboundMessageChannelPolicy @default(BOTH)
 
+  // Optional: auto-apply tags after call outcomes.
+  callOutcomeTaggingJson Json?
+
+  // Optional: auto-apply tags after the first outbound message outcome.
+  messageOutcomeTaggingJson Json?
+
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 

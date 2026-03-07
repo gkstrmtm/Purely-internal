@@ -1,3 +1,4 @@
+import crypto from "crypto";
 import { NextResponse } from "next/server";
 
 import { prisma } from "@/lib/db";
@@ -10,6 +11,7 @@ import { placeElevenLabsTwilioOutboundCall, resolveElevenLabsAgentPhoneNumberId 
 import { getOwnerTwilioSmsConfig, sendOwnerTwilioSms } from "@/lib/portalTwilio";
 import { isVercelCronRequest, readCronAuthValue } from "@/lib/cronAuth";
 import { ensurePortalInboxSchema } from "@/lib/portalInboxSchema";
+import { ensurePortalContactTagsReady } from "@/lib/portalContactTags";
 import { buildPortalTemplateVars } from "@/lib/portalTemplateVars";
 import { renderTextTemplate } from "@/lib/textTemplate";
 import { makeEmailThreadKey, makeSmsThreadKey, normalizeSubjectKey, upsertPortalInboxMessage } from "@/lib/portalInbox";
@@ -81,6 +83,95 @@ function startedMinutesFromSeconds(durationSec: number | null) {
   return Math.ceil(s / 60);
 }
 
+function safeRecord(raw: unknown): Record<string, unknown> {
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return {};
+  return raw as Record<string, unknown>;
+}
+
+function normalizeIdList(raw: unknown): string[] {
+  const arr = Array.isArray(raw) ? raw : [];
+  const out: string[] = [];
+  const seen = new Set<string>();
+  for (const v of arr) {
+    const id = typeof v === "string" ? v.trim() : String(v ?? "").trim();
+    if (!id) continue;
+    if (seen.has(id)) continue;
+    seen.add(id);
+    out.push(id);
+    if (out.length >= 50) break;
+  }
+  return out;
+}
+
+function parseCallOutcomeTagging(raw: unknown): {
+  enabled: boolean;
+  onCompletedTagIds: string[];
+  onFailedTagIds: string[];
+  onSkippedTagIds: string[];
+} {
+  const rec = safeRecord(raw);
+  return {
+    enabled: Boolean(rec.enabled),
+    onCompletedTagIds: normalizeIdList(rec.onCompletedTagIds),
+    onFailedTagIds: normalizeIdList(rec.onFailedTagIds),
+    onSkippedTagIds: normalizeIdList(rec.onSkippedTagIds),
+  };
+}
+
+function parseMessageOutcomeTagging(raw: unknown): {
+  enabled: boolean;
+  onSentTagIds: string[];
+  onFailedTagIds: string[];
+  onSkippedTagIds: string[];
+} {
+  const rec = safeRecord(raw);
+  return {
+    enabled: Boolean(rec.enabled),
+    onSentTagIds: normalizeIdList(rec.onSentTagIds),
+    onFailedTagIds: normalizeIdList(rec.onFailedTagIds),
+    onSkippedTagIds: normalizeIdList(rec.onSkippedTagIds),
+  };
+}
+
+function cuidish(prefix: string) {
+  return `${prefix}_${crypto.randomUUID().replace(/-/g, "")}`;
+}
+
+async function addContactTagAssignmentFast(opts: {
+  ownerId: string;
+  contactId: string;
+  tagId: string;
+}): Promise<void> {
+  const ownerId = String(opts.ownerId);
+  const contactId = String(opts.contactId);
+  const tagId = String(opts.tagId);
+  if (!ownerId || !contactId || !tagId) return;
+
+  // Idempotent upsert prevents double-tagging.
+  await (prisma as any).portalContactTagAssignment
+    .upsert({
+      where: { contactId_tagId: { contactId, tagId } },
+      create: { id: cuidish("pcta"), ownerId, contactId, tagId },
+      update: {},
+      select: { id: true },
+    })
+    .catch(() => null);
+}
+
+async function applyContactTags(opts: {
+  ownerId: string;
+  contactId: string;
+  tagIds: string[];
+}): Promise<void> {
+  const ownerId = String(opts.ownerId);
+  const contactId = String(opts.contactId);
+  const tagIds = Array.isArray(opts.tagIds) ? opts.tagIds : [];
+  if (!ownerId || !contactId) return;
+  for (const tagId of tagIds) {
+    await addContactTagAssignmentFast({ ownerId, contactId, tagId });
+  }
+}
+
 async function getProfileVoiceAgentId(ownerId: string): Promise<string | null> {
   const row = await prisma.portalServiceSetup.findUnique({
     where: { ownerId_serviceSlug: { ownerId, serviceSlug: PROFILE_EXTRAS_SERVICE_SLUG } },
@@ -140,6 +231,7 @@ export async function GET(req: Request) {
 
   await ensurePortalAiOutboundCallsSchema();
   await ensurePortalInboxSchema();
+  await ensurePortalContactTagsReady();
 
   const now = new Date();
 
@@ -153,7 +245,10 @@ export async function GET(req: Request) {
     select: {
       id: true,
       ownerId: true,
+      campaignId: true,
+      contactId: true,
       callSid: true,
+      campaign: { select: { callOutcomeTaggingJson: true } },
     },
     orderBy: [{ nextCallAt: "asc" }, { id: "asc" }],
     take: 60,
@@ -218,6 +313,11 @@ export async function GET(req: Request) {
         },
         select: { id: true },
       });
+
+      const cfg = parseCallOutcomeTagging((c as any)?.campaign?.callOutcomeTaggingJson);
+      if (cfg.enabled && cfg.onCompletedTagIds.length) {
+        await applyContactTags({ ownerId: c.ownerId, contactId: c.contactId, tagIds: cfg.onCompletedTagIds });
+      }
       continue;
     }
 
@@ -233,6 +333,13 @@ export async function GET(req: Request) {
       },
       select: { id: true },
     });
+
+    {
+      const cfg = parseCallOutcomeTagging((c as any)?.campaign?.callOutcomeTaggingJson);
+      if (cfg.enabled && cfg.onFailedTagIds.length) {
+        await applyContactTags({ ownerId: c.ownerId, contactId: c.contactId, tagIds: cfg.onFailedTagIds });
+      }
+    }
   }
 
   const due = await prisma.portalAiOutboundCallEnrollment.findMany({
@@ -247,7 +354,7 @@ export async function GET(req: Request) {
       campaignId: true,
       contactId: true,
       attemptCount: true,
-      campaign: { select: { id: true, status: true, voiceAgentId: true } },
+      campaign: { select: { id: true, status: true, voiceAgentId: true, callOutcomeTaggingJson: true } },
       contact: { select: { id: true, name: true, email: true, phone: true } },
     },
     orderBy: [{ nextCallAt: "asc" }, { id: "asc" }],
@@ -275,6 +382,11 @@ export async function GET(req: Request) {
         data: { status: "SKIPPED", lastError: "Campaign is not active.", nextCallAt: null, updatedAt: now },
         select: { id: true },
       });
+
+      const cfg = parseCallOutcomeTagging((e.campaign as any)?.callOutcomeTaggingJson);
+      if (cfg.enabled && cfg.onSkippedTagIds.length) {
+        await applyContactTags({ ownerId: e.ownerId, contactId: e.contactId, tagIds: cfg.onSkippedTagIds });
+      }
       processed += 1;
       continue;
     }
@@ -286,6 +398,11 @@ export async function GET(req: Request) {
         data: { status: "FAILED", lastError: "Contact has no phone number.", nextCallAt: null, updatedAt: now, completedAt: now },
         select: { id: true },
       });
+
+      const cfg = parseCallOutcomeTagging((e.campaign as any)?.callOutcomeTaggingJson);
+      if (cfg.enabled && cfg.onFailedTagIds.length) {
+        await applyContactTags({ ownerId: e.ownerId, contactId: e.contactId, tagIds: cfg.onFailedTagIds });
+      }
       processed += 1;
       continue;
     }
@@ -408,6 +525,13 @@ export async function GET(req: Request) {
         select: { id: true },
       });
 
+      if (done) {
+        const cfg = parseCallOutcomeTagging((e.campaign as any)?.callOutcomeTaggingJson);
+        if (cfg.enabled && cfg.onFailedTagIds.length) {
+          await applyContactTags({ ownerId: e.ownerId, contactId: e.contactId, tagIds: cfg.onFailedTagIds });
+        }
+      }
+
       processed += 1;
     }
   }
@@ -518,7 +642,9 @@ export async function GET(req: Request) {
       contactId: true,
       attemptCount: true,
       channelPolicy: true,
-      campaign: { select: { id: true, status: true, name: true, chatAgentConfigJson: true, messageChannelPolicy: true } },
+      campaign: {
+        select: { id: true, status: true, name: true, chatAgentConfigJson: true, messageChannelPolicy: true, messageOutcomeTaggingJson: true },
+      },
       contact: { select: { id: true, name: true, email: true, phone: true } },
     },
     orderBy: [{ nextSendAt: "asc" }, { id: "asc" }],
@@ -532,6 +658,11 @@ export async function GET(req: Request) {
         data: { status: "SKIPPED", lastError: "Campaign is not active.", nextSendAt: null },
         select: { id: true },
       });
+
+      const tagCfg = parseMessageOutcomeTagging((e.campaign as any)?.messageOutcomeTaggingJson);
+      if (tagCfg.enabled && tagCfg.onSkippedTagIds.length) {
+        await applyContactTags({ ownerId: e.ownerId, contactId: e.contactId, tagIds: tagCfg.onSkippedTagIds });
+      }
       messagesProcessed += 1;
       continue;
     }
@@ -563,6 +694,11 @@ export async function GET(req: Request) {
         data: { status: "FAILED", lastError: msg, nextSendAt: null },
         select: { id: true },
       });
+
+      const tagCfg = parseMessageOutcomeTagging((e.campaign as any)?.messageOutcomeTaggingJson);
+      if (tagCfg.enabled && tagCfg.onFailedTagIds.length) {
+        await applyContactTags({ ownerId: e.ownerId, contactId: e.contactId, tagIds: tagCfg.onFailedTagIds });
+      }
       messagesProcessed += 1;
       continue;
     }
@@ -626,6 +762,11 @@ export async function GET(req: Request) {
           select: { id: true },
         });
 
+        const tagCfg = parseMessageOutcomeTagging((e.campaign as any)?.messageOutcomeTaggingJson);
+        if (tagCfg.enabled && tagCfg.onSentTagIds.length) {
+          await applyContactTags({ ownerId: e.ownerId, contactId: e.contactId, tagIds: tagCfg.onSentTagIds });
+        }
+
         messagesProcessed += 1;
         continue;
       }
@@ -672,6 +813,11 @@ export async function GET(req: Request) {
         select: { id: true },
       });
 
+      const tagCfg = parseMessageOutcomeTagging((e.campaign as any)?.messageOutcomeTaggingJson);
+      if (tagCfg.enabled && tagCfg.onSentTagIds.length) {
+        await applyContactTags({ ownerId: e.ownerId, contactId: e.contactId, tagIds: tagCfg.onSentTagIds });
+      }
+
       messagesProcessed += 1;
     } catch (err: any) {
       const msg = String(err?.message || err || "Message send failed").slice(0, 500);
@@ -691,6 +837,13 @@ export async function GET(req: Request) {
         },
         select: { id: true },
       });
+
+      if (done) {
+        const tagCfg = parseMessageOutcomeTagging((e.campaign as any)?.messageOutcomeTaggingJson);
+        if (tagCfg.enabled && tagCfg.onFailedTagIds.length) {
+          await applyContactTags({ ownerId: e.ownerId, contactId: e.contactId, tagIds: tagCfg.onFailedTagIds });
+        }
+      }
 
       messagesProcessed += 1;
     }

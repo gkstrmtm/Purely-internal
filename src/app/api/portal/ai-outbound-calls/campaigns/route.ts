@@ -19,6 +19,30 @@ const postSchema = z
   })
   .strict();
 
+function safeRecord(raw: unknown): Record<string, unknown> {
+  return raw && typeof raw === "object" && !Array.isArray(raw) ? (raw as Record<string, unknown>) : {};
+}
+
+function parseCallOutcomeTagging(raw: unknown) {
+  const rec = safeRecord(raw);
+  return {
+    enabled: Boolean(rec.enabled),
+    onCompletedTagIds: normalizeTagIdList(rec.onCompletedTagIds),
+    onFailedTagIds: normalizeTagIdList(rec.onFailedTagIds),
+    onSkippedTagIds: normalizeTagIdList(rec.onSkippedTagIds),
+  };
+}
+
+function parseMessageOutcomeTagging(raw: unknown) {
+  const rec = safeRecord(raw);
+  return {
+    enabled: Boolean(rec.enabled),
+    onSentTagIds: normalizeTagIdList(rec.onSentTagIds),
+    onFailedTagIds: normalizeTagIdList(rec.onFailedTagIds),
+    onSkippedTagIds: normalizeTagIdList(rec.onSkippedTagIds),
+  };
+}
+
 export async function GET() {
   const auth = await requireClientSessionForService("aiOutboundCalls");
   if (!auth.ok) {
@@ -44,6 +68,8 @@ export async function GET() {
       chatAgentId: true,
       chatAgentConfigJson: true,
       messageChannelPolicy: true,
+      callOutcomeTaggingJson: true,
+      messageOutcomeTaggingJson: true,
       createdAt: true,
       updatedAt: true,
     },
@@ -86,6 +112,8 @@ export async function GET() {
         chatAgentId: c.chatAgentId ? String(c.chatAgentId) : "",
         chatAgentConfig: parseVoiceAgentConfig(c.chatAgentConfigJson),
         messageChannelPolicy: String((c as any).messageChannelPolicy || "BOTH"),
+        callOutcomeTagging: parseCallOutcomeTagging((c as any).callOutcomeTaggingJson),
+        messageOutcomeTagging: parseMessageOutcomeTagging((c as any).messageOutcomeTaggingJson),
         createdAtIso: c.createdAt.toISOString(),
         updatedAtIso: c.updatedAt.toISOString(),
         enrollQueued: counts.queued,

@@ -26,6 +26,24 @@ const voiceAgentConfigPatchSchema = z
   })
   .strict();
 
+const callOutcomeTaggingPatchSchema = z
+  .object({
+    enabled: z.boolean().optional(),
+    onCompletedTagIds: z.array(z.string().trim().min(1).max(120)).max(50).optional(),
+    onFailedTagIds: z.array(z.string().trim().min(1).max(120)).max(50).optional(),
+    onSkippedTagIds: z.array(z.string().trim().min(1).max(120)).max(50).optional(),
+  })
+  .strict();
+
+const messageOutcomeTaggingPatchSchema = z
+  .object({
+    enabled: z.boolean().optional(),
+    onSentTagIds: z.array(z.string().trim().min(1).max(120)).max(50).optional(),
+    onFailedTagIds: z.array(z.string().trim().min(1).max(120)).max(50).optional(),
+    onSkippedTagIds: z.array(z.string().trim().min(1).max(120)).max(50).optional(),
+  })
+  .strict();
+
 const patchSchema = z
   .object({
     name: z.string().trim().min(1).max(80).optional(),
@@ -37,8 +55,34 @@ const patchSchema = z
     voiceAgentConfig: voiceAgentConfigPatchSchema.optional(),
     chatAgentId: z.string().trim().max(120).optional(),
     chatAgentConfig: voiceAgentConfigPatchSchema.optional(),
+    callOutcomeTagging: callOutcomeTaggingPatchSchema.optional(),
+    messageOutcomeTagging: messageOutcomeTaggingPatchSchema.optional(),
   })
   .strict();
+
+function safeRecord(raw: unknown): Record<string, unknown> {
+  return raw && typeof raw === "object" && !Array.isArray(raw) ? (raw as Record<string, unknown>) : {};
+}
+
+function parseCallOutcomeTagging(raw: unknown) {
+  const rec = safeRecord(raw);
+  return {
+    enabled: Boolean(rec.enabled),
+    onCompletedTagIds: normalizeTagIdList(rec.onCompletedTagIds),
+    onFailedTagIds: normalizeTagIdList(rec.onFailedTagIds),
+    onSkippedTagIds: normalizeTagIdList(rec.onSkippedTagIds),
+  };
+}
+
+function parseMessageOutcomeTagging(raw: unknown) {
+  const rec = safeRecord(raw);
+  return {
+    enabled: Boolean(rec.enabled),
+    onSentTagIds: normalizeTagIdList(rec.onSentTagIds),
+    onFailedTagIds: normalizeTagIdList(rec.onFailedTagIds),
+    onSkippedTagIds: normalizeTagIdList(rec.onSkippedTagIds),
+  };
+}
 
 export async function PATCH(req: Request, ctx: { params: Promise<{ campaignId: string }> }) {
   const auth = await requireClientSessionForService("aiOutboundCalls", "edit");
@@ -61,7 +105,7 @@ export async function PATCH(req: Request, ctx: { params: Promise<{ campaignId: s
 
   const existing = await prisma.portalAiOutboundCallCampaign.findFirst({
     where: { ownerId, id: campaignId.data },
-    select: { id: true, voiceAgentConfigJson: true, chatAgentConfigJson: true },
+    select: { id: true, voiceAgentConfigJson: true, chatAgentConfigJson: true, callOutcomeTaggingJson: true, messageOutcomeTaggingJson: true },
   });
   if (!existing) return NextResponse.json({ ok: false, error: "Not found" }, { status: 404 });
 
@@ -118,6 +162,36 @@ export async function PATCH(req: Request, ctx: { params: Promise<{ campaignId: s
     };
 
     data.chatAgentConfigJson = next as any;
+  }
+
+  if (parsed.data.callOutcomeTagging !== undefined) {
+    const base = parseCallOutcomeTagging((existing as any).callOutcomeTaggingJson);
+    const patch = parsed.data.callOutcomeTagging;
+
+    const next = {
+      ...base,
+      ...(patch.enabled !== undefined ? { enabled: Boolean(patch.enabled) } : {}),
+      ...(patch.onCompletedTagIds !== undefined ? { onCompletedTagIds: normalizeTagIdList(patch.onCompletedTagIds) } : {}),
+      ...(patch.onFailedTagIds !== undefined ? { onFailedTagIds: normalizeTagIdList(patch.onFailedTagIds) } : {}),
+      ...(patch.onSkippedTagIds !== undefined ? { onSkippedTagIds: normalizeTagIdList(patch.onSkippedTagIds) } : {}),
+    };
+
+    data.callOutcomeTaggingJson = next as any;
+  }
+
+  if (parsed.data.messageOutcomeTagging !== undefined) {
+    const base = parseMessageOutcomeTagging((existing as any).messageOutcomeTaggingJson);
+    const patch = parsed.data.messageOutcomeTagging;
+
+    const next = {
+      ...base,
+      ...(patch.enabled !== undefined ? { enabled: Boolean(patch.enabled) } : {}),
+      ...(patch.onSentTagIds !== undefined ? { onSentTagIds: normalizeTagIdList(patch.onSentTagIds) } : {}),
+      ...(patch.onFailedTagIds !== undefined ? { onFailedTagIds: normalizeTagIdList(patch.onFailedTagIds) } : {}),
+      ...(patch.onSkippedTagIds !== undefined ? { onSkippedTagIds: normalizeTagIdList(patch.onSkippedTagIds) } : {}),
+    };
+
+    data.messageOutcomeTaggingJson = next as any;
   }
 
   await prisma.portalAiOutboundCallCampaign.update({

@@ -6,6 +6,8 @@ import { ensureStoredBlogSiteSlug, getStoredBlogSiteSlug } from "@/lib/blogSiteS
 import { buildPortalTemplateVars } from "@/lib/portalTemplateVars";
 import { renderTextTemplate } from "@/lib/textTemplate";
 import { upsertHoursSavedEvent } from "@/lib/hoursSaved";
+import { addContactTagAssignment } from "@/lib/portalContactTags";
+import { findOrCreatePortalContact } from "@/lib/portalContacts";
 import type { Prisma } from "@prisma/client";
 
 const SERVICE_SLUG = "reviews";
@@ -143,10 +145,16 @@ export type ReviewsAutomationSettings = {
   calendarIds: string[];
 };
 
+export type ReviewsTagAfterSendSettings = {
+  enabled: boolean;
+  tagId: string | null;
+};
+
 export type ReviewRequestsSettings = {
   version: 1;
   enabled: boolean;
   automation: ReviewsAutomationSettings;
+  tagAfterSend: ReviewsTagAfterSendSettings;
   sendAfter: ReviewDelay;
   destinations: ReviewDestination[];
   defaultDestinationId?: string;
@@ -154,6 +162,33 @@ export type ReviewRequestsSettings = {
   calendarMessageTemplates?: Record<string, string>;
   publicPage: ReviewsPublicPageSettings;
 };
+
+async function applyTagAfterReviewRequestSent(opts: {
+  ownerId: string;
+  settings: ReviewRequestsSettings;
+  contactId?: string | null;
+  contactName?: string | null;
+  contactPhone?: string | null;
+}): Promise<void> {
+  const ownerId = String(opts.ownerId || "").trim();
+  if (!ownerId) return;
+
+  const cfg = opts.settings?.tagAfterSend;
+  if (!cfg?.enabled) return;
+
+  const tagId = typeof cfg.tagId === "string" ? cfg.tagId.trim() : "";
+  if (!tagId) return;
+
+  let contactId = typeof opts.contactId === "string" ? opts.contactId.trim() : "";
+  if (!contactId) {
+    const name = String(opts.contactName || "").trim() || String(opts.contactPhone || "").trim() || "Unknown";
+    const phone = String(opts.contactPhone || "").trim() || null;
+    contactId = (await findOrCreatePortalContact({ ownerId, name, email: null, phone }).catch(() => null)) || "";
+  }
+
+  if (!contactId) return;
+  await addContactTagAssignment({ ownerId, contactId, tagId }).catch(() => null);
+}
 
 export type ReviewRequestEvent = {
   id: string;
@@ -241,6 +276,7 @@ export function parseReviewRequestsSettings(raw: unknown): ReviewRequestsSetting
     version: 1,
     enabled: false,
     automation: { autoSend: true, manualSend: true, calendarIds: [] },
+    tagAfterSend: { enabled: false, tagId: null },
     sendAfter: { value: 30, unit: "minutes" },
     destinations: [],
     messageTemplate: "Hi {name}, thanks again! If you have 30 seconds, would you leave us a review? {link}",
@@ -306,6 +342,12 @@ export function parseReviewRequestsSettings(raw: unknown): ReviewRequestsSetting
   const defaultDestinationId = typeof rec.defaultDestinationId === "string" ? rec.defaultDestinationId.trim().slice(0, 50) : undefined;
 
   const template = normalizeString(rec.messageTemplate, MAX_BODY_LEN, base.messageTemplate) || base.messageTemplate;
+
+  const tagRaw = rec.tagAfterSend && typeof rec.tagAfterSend === "object" && !Array.isArray(rec.tagAfterSend) ? (rec.tagAfterSend as any) : null;
+  const tagAfterSend: ReviewsTagAfterSendSettings = {
+    enabled: typeof tagRaw?.enabled === "boolean" ? tagRaw.enabled : base.tagAfterSend.enabled,
+    tagId: typeof tagRaw?.tagId === "string" && tagRaw.tagId.trim() ? tagRaw.tagId.trim().slice(0, 80) : null,
+  };
 
   const calendarTemplatesRaw =
     rec.calendarMessageTemplates && typeof rec.calendarMessageTemplates === "object" && !Array.isArray(rec.calendarMessageTemplates)
@@ -398,6 +440,7 @@ export function parseReviewRequestsSettings(raw: unknown): ReviewRequestsSetting
     version: 1,
     enabled,
     automation,
+    tagAfterSend,
     sendAfter,
     destinations,
     ...(defaultDestinationId ? { defaultDestinationId } : {}),
@@ -682,6 +725,14 @@ export async function sendReviewRequestForBooking(opts: { ownerId: string; booki
         sourceId: evt.id,
         secondsSaved: 5 * 60,
       }).catch(() => null);
+
+      await applyTagAfterReviewRequestSent({
+        ownerId,
+        settings,
+        contactId: null,
+        contactName: booking.contactName,
+        contactPhone: parsed.e164,
+      }).catch(() => null);
     }
 
     if (!result.ok) return { ok: false, error: result.error };
@@ -787,6 +838,14 @@ export async function sendReviewRequestForContact(opts: {
         kind: "review_request_sent",
         sourceId: evt.id,
         secondsSaved: 5 * 60,
+      }).catch(() => null);
+
+      await applyTagAfterReviewRequestSent({
+        ownerId,
+        settings,
+        contactId,
+        contactName,
+        contactPhone: parsed.e164,
       }).catch(() => null);
     }
 
@@ -1017,6 +1076,14 @@ export async function processDueReviewRequests(opts?: { ownersLimit?: number; pe
             kind: "review_request_sent",
             sourceId: evt.id,
             secondsSaved: 5 * 60,
+          }).catch(() => null);
+
+          await applyTagAfterReviewRequestSent({
+            ownerId,
+            settings,
+            contactId: null,
+            contactName: booking.contactName,
+            contactPhone: parsed.e164,
           }).catch(() => null);
         } catch (err) {
           failed += 1;

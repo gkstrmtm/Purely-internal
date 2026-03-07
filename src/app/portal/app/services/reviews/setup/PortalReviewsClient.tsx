@@ -121,10 +121,17 @@ type ReviewsPublicPageSettings = {
   photoUrls: string[];
 };
 
+type ContactTag = {
+  id: string;
+  name: string;
+  color: string | null;
+};
+
 type ReviewRequestsSettings = {
   version: 1;
   enabled: boolean;
   automation: { autoSend: boolean; manualSend: boolean; calendarIds: string[] };
+  tagAfterSend: { enabled: boolean; tagId: string | null };
   sendAfter: ReviewDelay;
   destinations: ReviewDestination[];
   defaultDestinationId?: string;
@@ -178,6 +185,7 @@ const DEFAULT_SETTINGS: ReviewRequestsSettings = {
   version: 1,
   enabled: false,
   automation: { autoSend: true, manualSend: true, calendarIds: [] },
+  tagAfterSend: { enabled: false, tagId: null },
   sendAfter: { value: 30, unit: "minutes" },
   destinations: [],
   messageTemplate: "Hi {name}, thanks again! If you have 30 seconds, would you leave us a review? {link}",
@@ -231,6 +239,8 @@ export default function PortalReviewsClient() {
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [settings, setSettings] = useState<ReviewRequestsSettings>(DEFAULT_SETTINGS);
+
+  const [contactTags, setContactTags] = useState<ContactTag[]>([]);
 
   useEffect(() => {
     if (error) toast.error(error);
@@ -371,7 +381,7 @@ export default function PortalReviewsClient() {
     setLoading(true);
     setError(null);
     try {
-      const [s, e, handle, cals, inbox, qa] = await Promise.all([
+      const [s, e, handle, cals, inbox, qa, tags] = await Promise.all([
         fetch("/api/portal/reviews/settings", { cache: "no-store" }).then((r) => readJsonSafe<any>(r)),
         fetch("/api/portal/reviews/events?limit=50", { cache: "no-store" }).then((r) => readJsonSafe<any>(r)),
         fetch("/api/portal/reviews/handle", { cache: "no-store" }).then((r) => readJsonSafe<any>(r)).catch(() => null),
@@ -380,6 +390,7 @@ export default function PortalReviewsClient() {
           .catch(() => null),
         fetch("/api/portal/reviews/inbox?includeArchived=1", { cache: "no-store" }).then((r) => readJsonSafe<any>(r)),
         fetch("/api/portal/reviews/questions", { cache: "no-store" }).then((r) => readJsonSafe<any>(r)).catch(() => null),
+        fetch("/api/portal/contact-tags", { cache: "no-store" }).then((r) => readJsonSafe<any>(r)).catch(() => null),
       ]);
       if (!s || !s.ok) throw new Error((s as any)?.error || "Failed to load settings");
       const sData = s.data;
@@ -434,12 +445,23 @@ export default function PortalReviewsClient() {
           .filter((x: any) => x && typeof x.id === "string" && typeof x.title === "string")
           .map((x: any) => ({ id: x.id, title: x.title, enabled: x.enabled })),
       );
+
+      const tagsData = tags && (tags as any).ok ? (tags as any).data : null;
+      if (tagsData?.ok) {
+        setContactTags(Array.isArray(tagsData.tags) ? tagsData.tags : []);
+      } else {
+        setContactTags([]);
+      }
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
     } finally {
       setLoading(false);
     }
   }, [readJsonSafe]);
+
+  const contactTagOptions = useMemo(() => {
+    return [{ value: "", label: "No tag" }, ...contactTags.map((t) => ({ value: t.id, label: t.name }))];
+  }, [contactTags]);
 
   const loadBookings = useCallback(async () => {
     setBookingsLoading(true);
@@ -932,6 +954,55 @@ export default function PortalReviewsClient() {
                       onChange={(checked) => setSettings({ ...settings, automation: { ...settings.automation, manualSend: checked } })}
                     />
                   </label>
+                </div>
+
+                <div className="mt-4">
+                  <div className="text-sm font-medium">Tag after send</div>
+                  <div className="mt-1 text-xs text-neutral-600">
+                    Optionally apply a contact tag after a review request is successfully sent.
+                  </div>
+
+                  <div className="mt-2 grid gap-2">
+                    <label className="flex items-center justify-between gap-4 rounded-2xl border border-zinc-200 bg-white px-4 py-3">
+                      <div className="min-w-0">
+                        <div className="text-sm font-semibold text-zinc-800">Enabled</div>
+                        <div className="mt-1 text-xs text-zinc-500">Only applies when the send succeeds.</div>
+                      </div>
+                      <ToggleSwitch
+                        checked={Boolean(settings.tagAfterSend?.enabled)}
+                        accent="pink"
+                        onChange={(checked) =>
+                          setSettings({
+                            ...settings,
+                            tagAfterSend: { ...settings.tagAfterSend, enabled: checked },
+                          })
+                        }
+                      />
+                    </label>
+
+                    {settings.tagAfterSend?.enabled ? (
+                      <div className="rounded-2xl border border-zinc-200 bg-white px-4 py-3">
+                        <div className="text-xs font-semibold uppercase tracking-wide text-zinc-500">Tag</div>
+                        <div className="mt-2 max-w-sm">
+                          <PortalListboxDropdown
+                            value={settings.tagAfterSend.tagId || ""}
+                            onChange={(tagId) =>
+                              setSettings({
+                                ...settings,
+                                tagAfterSend: { ...settings.tagAfterSend, tagId: tagId ? String(tagId) : null },
+                              })
+                            }
+                            options={contactTagOptions}
+                            placeholder="Select a tag"
+                            buttonClassName="flex h-10 w-full items-center justify-between gap-2 rounded-xl border border-zinc-200 bg-white px-3 text-sm hover:bg-zinc-50 focus-visible:ring-2 focus-visible:ring-zinc-300"
+                          />
+                        </div>
+                        {contactTags.length === 0 ? (
+                          <div className="mt-2 text-xs text-zinc-500">No tags found yet. Create one in People → Tags.</div>
+                        ) : null}
+                      </div>
+                    ) : null}
+                  </div>
                 </div>
 
                 <div className="mt-4">

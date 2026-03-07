@@ -108,6 +108,16 @@ ALTER TABLE "PortalAiOutboundCallCampaign"
     `.trim(),
 
     `
+ALTER TABLE "PortalAiOutboundCallCampaign"
+  ADD COLUMN IF NOT EXISTS "callOutcomeTaggingJson" JSONB;
+    `.trim(),
+
+    `
+ALTER TABLE "PortalAiOutboundCallCampaign"
+  ADD COLUMN IF NOT EXISTS "messageOutcomeTaggingJson" JSONB;
+    `.trim(),
+
+    `
 CREATE TABLE IF NOT EXISTS "PortalAiOutboundCallEnrollment" (
   "id" TEXT NOT NULL,
   "ownerId" TEXT NOT NULL,

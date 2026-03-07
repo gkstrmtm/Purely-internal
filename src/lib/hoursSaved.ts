@@ -7,6 +7,7 @@ export type HoursSavedKind =
   | "ai_outbound_call"
   | "review_request_sent"
   | "nurture_message_sent"
+  | "nurture_tag_applied"
   | "automation_built"
   | "automation_run";
 

@@ -13,6 +13,20 @@ import { DEFAULT_VOICE_AGENT_CONFIG, type VoiceAgentConfig } from "@/lib/voiceAg
 
 type CampaignStatus = "DRAFT" | "ACTIVE" | "PAUSED" | "ARCHIVED";
 
+type CallOutcomeTagging = {
+  enabled: boolean;
+  onCompletedTagIds: string[];
+  onFailedTagIds: string[];
+  onSkippedTagIds: string[];
+};
+
+type MessageOutcomeTagging = {
+  enabled: boolean;
+  onSentTagIds: string[];
+  onFailedTagIds: string[];
+  onSkippedTagIds: string[];
+};
+
 type Campaign = {
   id: string;
   name: string;
@@ -24,6 +38,8 @@ type Campaign = {
   chatAgentId: string;
   chatAgentConfig: VoiceAgentConfig;
   messageChannelPolicy: "SMS" | "EMAIL" | "BOTH";
+  callOutcomeTagging: CallOutcomeTagging;
+  messageOutcomeTagging: MessageOutcomeTagging;
   createdAtIso: string;
   updatedAtIso: string;
   enrollQueued: number;
@@ -211,6 +227,21 @@ function sanitizeClientErrorText(error?: string | null) {
   if (!singleLine) return "We hit an error generating call artifacts.";
   if (singleLine.length > 240) return `${singleLine.slice(0, 239)}…`;
   return singleLine;
+}
+
+function buildAddTagOptionsFromTags(tags: ContactTag[], excludeTagIds: string[], search: string) {
+  const excluded = new Set(excludeTagIds);
+  const q = String(search || "").trim().toLowerCase();
+  const usable = tags
+    .filter((t) => !excluded.has(t.id))
+    .filter((t) => (!q ? true : t.name.toLowerCase().includes(q)))
+    .sort((a, b) => a.name.localeCompare(b.name));
+
+  return [
+    { value: "", label: "Add a tag…" },
+    ...usable.map((t) => ({ value: t.id, label: t.name })),
+    { value: "__create__", label: "Create tag…" },
+  ];
 }
 
 function MiniAudioPlayer(props: { src: string; durationHintSec?: number | null }) {
@@ -709,9 +740,29 @@ export function PortalAiOutboundCallsClient(props: { initialTab?: OutboundTabKey
   const [newTagName, setNewTagName] = useState("");
   const [callsTagSearch, setCallsTagSearch] = useState("");
   const [chatTagSearch, setChatTagSearch] = useState("");
+  const [callsOutcomeTagSearch, setCallsOutcomeTagSearch] = useState("");
+  const [messagesOutcomeTagSearch, setMessagesOutcomeTagSearch] = useState("");
+
+  const [callsOutcomeAddCompletedValue, setCallsOutcomeAddCompletedValue] = useState<string>("");
+  const [callsOutcomeAddFailedValue, setCallsOutcomeAddFailedValue] = useState<string>("");
+  const [callsOutcomeAddSkippedValue, setCallsOutcomeAddSkippedValue] = useState<string>("");
+
+  const [messagesOutcomeAddSentValue, setMessagesOutcomeAddSentValue] = useState<string>("");
+  const [messagesOutcomeAddFailedValue, setMessagesOutcomeAddFailedValue] = useState<string>("");
+  const [messagesOutcomeAddSkippedValue, setMessagesOutcomeAddSkippedValue] = useState<string>("");
+
   const [createTagColor, setCreateTagColor] = useState<(typeof DEFAULT_TAG_COLORS)[number]>("#2563EB");
   const [showCreateTag, setShowCreateTag] = useState(false);
-  const [tagCreateContext, setTagCreateContext] = useState<"calls" | "chat">("calls");
+  const [tagCreateContext, setTagCreateContext] = useState<
+    | "calls_audience"
+    | "chat_audience"
+    | "calls_outcome_completed"
+    | "calls_outcome_failed"
+    | "calls_outcome_skipped"
+    | "messages_outcome_sent"
+    | "messages_outcome_failed"
+    | "messages_outcome_skipped"
+  >("calls_audience");
 
   const mountedRef = useRef(true);
   useEffect(() => {
@@ -933,7 +984,7 @@ export function PortalAiOutboundCallsClient(props: { initialTab?: OutboundTabKey
 
       // Convenience: add to the selected campaign if present.
       if (selected?.id && json.tag?.id) {
-        addAudienceTag(tagCreateContext, json.tag.id);
+        addTagToContext(tagCreateContext, json.tag.id);
       }
 
       toast.success("Tag created");
@@ -953,6 +1004,8 @@ export function PortalAiOutboundCallsClient(props: { initialTab?: OutboundTabKey
     > & {
       voiceAgentConfig?: Partial<VoiceAgentConfig>;
       chatAgentConfig?: Partial<VoiceAgentConfig>;
+      callOutcomeTagging?: Partial<CallOutcomeTagging>;
+      messageOutcomeTagging?: Partial<MessageOutcomeTagging>;
     },
   ) {
     if (!selected) return;
@@ -1305,6 +1358,67 @@ export function PortalAiOutboundCallsClient(props: { initialTab?: OutboundTabKey
     updateCampaign({ audienceTagIds: next });
   }
 
+  function addCallOutcomeTag(kind: "completed" | "failed" | "skipped", tagId: string) {
+    if (!selected) return;
+    const id = String(tagId || "").trim();
+    if (!id) return;
+
+    const base = selected.callOutcomeTagging;
+    const key = kind === "completed" ? "onCompletedTagIds" : kind === "failed" ? "onFailedTagIds" : "onSkippedTagIds";
+    const prev = Array.isArray((base as any)[key]) ? ((base as any)[key] as string[]) : [];
+    if (prev.includes(id)) return;
+    const next = [...prev, id].slice(0, 50);
+    updateCampaign({ callOutcomeTagging: { [key]: next } as any });
+  }
+
+  function removeCallOutcomeTag(kind: "completed" | "failed" | "skipped", tagId: string) {
+    if (!selected) return;
+    const id = String(tagId || "").trim();
+    if (!id) return;
+
+    const base = selected.callOutcomeTagging;
+    const key = kind === "completed" ? "onCompletedTagIds" : kind === "failed" ? "onFailedTagIds" : "onSkippedTagIds";
+    const prev = Array.isArray((base as any)[key]) ? ((base as any)[key] as string[]) : [];
+    const next = prev.filter((x) => x !== id);
+    updateCampaign({ callOutcomeTagging: { [key]: next } as any });
+  }
+
+  function addMessageOutcomeTag(kind: "sent" | "failed" | "skipped", tagId: string) {
+    if (!selected) return;
+    const id = String(tagId || "").trim();
+    if (!id) return;
+
+    const base = selected.messageOutcomeTagging;
+    const key = kind === "sent" ? "onSentTagIds" : kind === "failed" ? "onFailedTagIds" : "onSkippedTagIds";
+    const prev = Array.isArray((base as any)[key]) ? ((base as any)[key] as string[]) : [];
+    if (prev.includes(id)) return;
+    const next = [...prev, id].slice(0, 50);
+    updateCampaign({ messageOutcomeTagging: { [key]: next } as any });
+  }
+
+  function removeMessageOutcomeTag(kind: "sent" | "failed" | "skipped", tagId: string) {
+    if (!selected) return;
+    const id = String(tagId || "").trim();
+    if (!id) return;
+
+    const base = selected.messageOutcomeTagging;
+    const key = kind === "sent" ? "onSentTagIds" : kind === "failed" ? "onFailedTagIds" : "onSkippedTagIds";
+    const prev = Array.isArray((base as any)[key]) ? ((base as any)[key] as string[]) : [];
+    const next = prev.filter((x) => x !== id);
+    updateCampaign({ messageOutcomeTagging: { [key]: next } as any });
+  }
+
+  function addTagToContext(ctx: typeof tagCreateContext, tagId: string) {
+    if (ctx === "calls_audience") return addAudienceTag("calls", tagId);
+    if (ctx === "chat_audience") return addAudienceTag("chat", tagId);
+    if (ctx === "calls_outcome_completed") return addCallOutcomeTag("completed", tagId);
+    if (ctx === "calls_outcome_failed") return addCallOutcomeTag("failed", tagId);
+    if (ctx === "calls_outcome_skipped") return addCallOutcomeTag("skipped", tagId);
+    if (ctx === "messages_outcome_sent") return addMessageOutcomeTag("sent", tagId);
+    if (ctx === "messages_outcome_failed") return addMessageOutcomeTag("failed", tagId);
+    if (ctx === "messages_outcome_skipped") return addMessageOutcomeTag("skipped", tagId);
+  }
+
   const selectedCallTags = useMemo(() => {
     const map = new Map(tags.map((t) => [t.id, t] as const));
     return (selected?.audienceTagIds ?? []).map((id) => map.get(id)).filter(Boolean) as ContactTag[];
@@ -1313,6 +1427,66 @@ export function PortalAiOutboundCallsClient(props: { initialTab?: OutboundTabKey
   const selectedChatTags = useMemo(() => {
     const map = new Map(tags.map((t) => [t.id, t] as const));
     return (selected?.chatAudienceTagIds ?? []).map((id) => map.get(id)).filter(Boolean) as ContactTag[];
+  }, [tags, selected]);
+
+  const addCallsOutcomeCompletedTagOptions = useMemo(() => {
+    const excluded = selected?.callOutcomeTagging?.onCompletedTagIds ?? [];
+    return buildAddTagOptionsFromTags(tags, excluded, callsOutcomeTagSearch);
+  }, [callsOutcomeTagSearch, tags, selected]);
+
+  const addCallsOutcomeFailedTagOptions = useMemo(() => {
+    const excluded = selected?.callOutcomeTagging?.onFailedTagIds ?? [];
+    return buildAddTagOptionsFromTags(tags, excluded, callsOutcomeTagSearch);
+  }, [callsOutcomeTagSearch, tags, selected]);
+
+  const addCallsOutcomeSkippedTagOptions = useMemo(() => {
+    const excluded = selected?.callOutcomeTagging?.onSkippedTagIds ?? [];
+    return buildAddTagOptionsFromTags(tags, excluded, callsOutcomeTagSearch);
+  }, [callsOutcomeTagSearch, tags, selected]);
+
+  const addMessagesOutcomeSentTagOptions = useMemo(() => {
+    const excluded = selected?.messageOutcomeTagging?.onSentTagIds ?? [];
+    return buildAddTagOptionsFromTags(tags, excluded, messagesOutcomeTagSearch);
+  }, [messagesOutcomeTagSearch, tags, selected]);
+
+  const addMessagesOutcomeFailedTagOptions = useMemo(() => {
+    const excluded = selected?.messageOutcomeTagging?.onFailedTagIds ?? [];
+    return buildAddTagOptionsFromTags(tags, excluded, messagesOutcomeTagSearch);
+  }, [messagesOutcomeTagSearch, tags, selected]);
+
+  const addMessagesOutcomeSkippedTagOptions = useMemo(() => {
+    const excluded = selected?.messageOutcomeTagging?.onSkippedTagIds ?? [];
+    return buildAddTagOptionsFromTags(tags, excluded, messagesOutcomeTagSearch);
+  }, [messagesOutcomeTagSearch, tags, selected]);
+
+  const selectedCallsOutcomeCompletedTags = useMemo(() => {
+    const map = new Map(tags.map((t) => [t.id, t] as const));
+    return (selected?.callOutcomeTagging?.onCompletedTagIds ?? []).map((id) => map.get(id)).filter(Boolean) as ContactTag[];
+  }, [tags, selected]);
+
+  const selectedCallsOutcomeFailedTags = useMemo(() => {
+    const map = new Map(tags.map((t) => [t.id, t] as const));
+    return (selected?.callOutcomeTagging?.onFailedTagIds ?? []).map((id) => map.get(id)).filter(Boolean) as ContactTag[];
+  }, [tags, selected]);
+
+  const selectedCallsOutcomeSkippedTags = useMemo(() => {
+    const map = new Map(tags.map((t) => [t.id, t] as const));
+    return (selected?.callOutcomeTagging?.onSkippedTagIds ?? []).map((id) => map.get(id)).filter(Boolean) as ContactTag[];
+  }, [tags, selected]);
+
+  const selectedMessagesOutcomeSentTags = useMemo(() => {
+    const map = new Map(tags.map((t) => [t.id, t] as const));
+    return (selected?.messageOutcomeTagging?.onSentTagIds ?? []).map((id) => map.get(id)).filter(Boolean) as ContactTag[];
+  }, [tags, selected]);
+
+  const selectedMessagesOutcomeFailedTags = useMemo(() => {
+    const map = new Map(tags.map((t) => [t.id, t] as const));
+    return (selected?.messageOutcomeTagging?.onFailedTagIds ?? []).map((id) => map.get(id)).filter(Boolean) as ContactTag[];
+  }, [tags, selected]);
+
+  const selectedMessagesOutcomeSkippedTags = useMemo(() => {
+    const map = new Map(tags.map((t) => [t.id, t] as const));
+    return (selected?.messageOutcomeTagging?.onSkippedTagIds ?? []).map((id) => map.get(id)).filter(Boolean) as ContactTag[];
   }, [tags, selected]);
 
   const selectedToolKeys = useMemo(() => {
@@ -3029,7 +3203,7 @@ export function PortalAiOutboundCallsClient(props: { initialTab?: OutboundTabKey
                                 }
                                 if (id === "__create__") {
                                   setCallsAddTagValue("");
-                                  setTagCreateContext("calls");
+                                  setTagCreateContext("calls_audience");
                                   setShowCreateTag(true);
                                   return;
                                 }
@@ -3040,7 +3214,7 @@ export function PortalAiOutboundCallsClient(props: { initialTab?: OutboundTabKey
                           </div>
                         </div>
 
-                        {showCreateTag && tagCreateContext === "calls" ? (
+                        {showCreateTag && (tagCreateContext === "calls_audience" || tagCreateContext.startsWith("calls_outcome_")) ? (
                           <div className="mt-3 rounded-2xl border border-zinc-200 bg-white p-3">
                             <div className="text-xs font-semibold text-zinc-700">Create tag</div>
                             <div className="mt-2 grid grid-cols-1 gap-2 sm:grid-cols-3">
@@ -3119,6 +3293,179 @@ export function PortalAiOutboundCallsClient(props: { initialTab?: OutboundTabKey
                         ) : (
                           <div className="mt-3 text-xs text-zinc-500">No tags selected.</div>
                         )}
+
+                        <div className="mt-5 border-t border-zinc-200 pt-4">
+                          <div className="text-sm font-semibold text-zinc-900">Auto-tag after call outcomes</div>
+                          <p className="mt-1 text-xs text-zinc-500">
+                            Optionally apply tags automatically after a call completes, fails, or is skipped.
+                          </p>
+
+                          <label className="mt-3 flex items-center justify-between gap-4 rounded-2xl border border-zinc-200 bg-white px-4 py-3">
+                            <div>
+                              <div className="text-sm font-semibold text-zinc-800">Enabled</div>
+                              <div className="mt-1 text-xs text-zinc-500">Applies tags right after the outcome is recorded.</div>
+                            </div>
+                            <span className="relative inline-flex h-6 w-11 shrink-0 items-center">
+                              <input
+                                type="checkbox"
+                                className="peer sr-only"
+                                checked={Boolean(selected.callOutcomeTagging?.enabled)}
+                                disabled={busy}
+                                onChange={(e) => updateCampaign({ callOutcomeTagging: { enabled: e.target.checked } })}
+                              />
+                              <span className="absolute inset-0 rounded-full bg-zinc-200 transition peer-checked:bg-(--color-brand-blue) peer-disabled:opacity-60" />
+                              <span className="absolute left-0.5 top-0.5 h-5 w-5 rounded-full bg-white shadow-sm transition peer-checked:translate-x-5 peer-disabled:opacity-80" />
+                            </span>
+                          </label>
+
+                          {selected.callOutcomeTagging?.enabled ? (
+                            <div className="mt-3">
+                              <input
+                                value={callsOutcomeTagSearch}
+                                onChange={(e) => setCallsOutcomeTagSearch(e.target.value)}
+                                placeholder="Search tags…"
+                                className="w-full max-w-sm rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-sm"
+                              />
+
+                              <div className="mt-3 grid gap-3 md:grid-cols-3">
+                                <div className="rounded-2xl border border-zinc-200 bg-white p-3">
+                                  <div className="text-xs font-semibold text-zinc-700">On completed</div>
+                                  <div className="mt-2">
+                                    <PortalListboxDropdown
+                                      value={callsOutcomeAddCompletedValue}
+                                      options={addCallsOutcomeCompletedTagOptions as any}
+                                      onChange={(v) => {
+                                        const id = String(v || "");
+                                        if (!id) {
+                                          setCallsOutcomeAddCompletedValue("");
+                                          return;
+                                        }
+                                        if (id === "__create__") {
+                                          setCallsOutcomeAddCompletedValue("");
+                                          setTagCreateContext("calls_outcome_completed");
+                                          setShowCreateTag(true);
+                                          return;
+                                        }
+                                        setCallsOutcomeAddCompletedValue("");
+                                        addCallOutcomeTag("completed", id);
+                                      }}
+                                    />
+                                  </div>
+
+                                  {selectedCallsOutcomeCompletedTags.length ? (
+                                    <div className="mt-2 flex flex-wrap gap-2">
+                                      {selectedCallsOutcomeCompletedTags.map((t) => (
+                                        <button
+                                          key={t.id}
+                                          type="button"
+                                          onClick={() => removeCallOutcomeTag("completed", t.id)}
+                                          className="inline-flex items-center gap-2 rounded-full border border-zinc-200 bg-white px-3 py-1 text-xs font-semibold text-zinc-800 hover:bg-zinc-50"
+                                          title="Remove"
+                                        >
+                                          <span className="h-2 w-2 rounded-full" style={{ backgroundColor: t.color || "#64748B" }} />
+                                          <span className="max-w-36 truncate">{t.name}</span>
+                                          <span className="text-zinc-400">×</span>
+                                        </button>
+                                      ))}
+                                    </div>
+                                  ) : (
+                                    <div className="mt-2 text-[11px] text-zinc-500">No tags selected.</div>
+                                  )}
+                                </div>
+
+                                <div className="rounded-2xl border border-zinc-200 bg-white p-3">
+                                  <div className="text-xs font-semibold text-zinc-700">On failed</div>
+                                  <div className="mt-2">
+                                    <PortalListboxDropdown
+                                      value={callsOutcomeAddFailedValue}
+                                      options={addCallsOutcomeFailedTagOptions as any}
+                                      onChange={(v) => {
+                                        const id = String(v || "");
+                                        if (!id) {
+                                          setCallsOutcomeAddFailedValue("");
+                                          return;
+                                        }
+                                        if (id === "__create__") {
+                                          setCallsOutcomeAddFailedValue("");
+                                          setTagCreateContext("calls_outcome_failed");
+                                          setShowCreateTag(true);
+                                          return;
+                                        }
+                                        setCallsOutcomeAddFailedValue("");
+                                        addCallOutcomeTag("failed", id);
+                                      }}
+                                    />
+                                  </div>
+
+                                  {selectedCallsOutcomeFailedTags.length ? (
+                                    <div className="mt-2 flex flex-wrap gap-2">
+                                      {selectedCallsOutcomeFailedTags.map((t) => (
+                                        <button
+                                          key={t.id}
+                                          type="button"
+                                          onClick={() => removeCallOutcomeTag("failed", t.id)}
+                                          className="inline-flex items-center gap-2 rounded-full border border-zinc-200 bg-white px-3 py-1 text-xs font-semibold text-zinc-800 hover:bg-zinc-50"
+                                          title="Remove"
+                                        >
+                                          <span className="h-2 w-2 rounded-full" style={{ backgroundColor: t.color || "#64748B" }} />
+                                          <span className="max-w-36 truncate">{t.name}</span>
+                                          <span className="text-zinc-400">×</span>
+                                        </button>
+                                      ))}
+                                    </div>
+                                  ) : (
+                                    <div className="mt-2 text-[11px] text-zinc-500">No tags selected.</div>
+                                  )}
+                                </div>
+
+                                <div className="rounded-2xl border border-zinc-200 bg-white p-3">
+                                  <div className="text-xs font-semibold text-zinc-700">On skipped</div>
+                                  <div className="mt-2">
+                                    <PortalListboxDropdown
+                                      value={callsOutcomeAddSkippedValue}
+                                      options={addCallsOutcomeSkippedTagOptions as any}
+                                      onChange={(v) => {
+                                        const id = String(v || "");
+                                        if (!id) {
+                                          setCallsOutcomeAddSkippedValue("");
+                                          return;
+                                        }
+                                        if (id === "__create__") {
+                                          setCallsOutcomeAddSkippedValue("");
+                                          setTagCreateContext("calls_outcome_skipped");
+                                          setShowCreateTag(true);
+                                          return;
+                                        }
+                                        setCallsOutcomeAddSkippedValue("");
+                                        addCallOutcomeTag("skipped", id);
+                                      }}
+                                    />
+                                  </div>
+
+                                  {selectedCallsOutcomeSkippedTags.length ? (
+                                    <div className="mt-2 flex flex-wrap gap-2">
+                                      {selectedCallsOutcomeSkippedTags.map((t) => (
+                                        <button
+                                          key={t.id}
+                                          type="button"
+                                          onClick={() => removeCallOutcomeTag("skipped", t.id)}
+                                          className="inline-flex items-center gap-2 rounded-full border border-zinc-200 bg-white px-3 py-1 text-xs font-semibold text-zinc-800 hover:bg-zinc-50"
+                                          title="Remove"
+                                        >
+                                          <span className="h-2 w-2 rounded-full" style={{ backgroundColor: t.color || "#64748B" }} />
+                                          <span className="max-w-36 truncate">{t.name}</span>
+                                          <span className="text-zinc-400">×</span>
+                                        </button>
+                                      ))}
+                                    </div>
+                                  ) : (
+                                    <div className="mt-2 text-[11px] text-zinc-500">No tags selected.</div>
+                                  )}
+                                </div>
+                              </div>
+                            </div>
+                          ) : null}
+                        </div>
                       </div>
                     ) : (
                       <div className="rounded-3xl border border-zinc-200 bg-white p-4">
@@ -3146,7 +3493,7 @@ export function PortalAiOutboundCallsClient(props: { initialTab?: OutboundTabKey
                                 }
                                 if (id === "__create__") {
                                   setChatAddTagValue("");
-                                  setTagCreateContext("chat");
+                                  setTagCreateContext("chat_audience");
                                   setShowCreateTag(true);
                                   return;
                                 }
@@ -3157,7 +3504,7 @@ export function PortalAiOutboundCallsClient(props: { initialTab?: OutboundTabKey
                           </div>
                         </div>
 
-                        {showCreateTag && tagCreateContext === "chat" ? (
+                        {showCreateTag && (tagCreateContext === "chat_audience" || tagCreateContext.startsWith("messages_outcome_")) ? (
                           <div className="mt-3 rounded-2xl border border-zinc-200 bg-white p-3">
                             <div className="text-xs font-semibold text-zinc-700">Create tag</div>
                             <div className="mt-2 grid grid-cols-1 gap-2 sm:grid-cols-3">
@@ -3236,6 +3583,179 @@ export function PortalAiOutboundCallsClient(props: { initialTab?: OutboundTabKey
                         ) : (
                           <div className="mt-3 text-xs text-zinc-500">No tags selected.</div>
                         )}
+
+                        <div className="mt-5 border-t border-zinc-200 pt-4">
+                          <div className="text-sm font-semibold text-zinc-900">Auto-tag after message outcomes</div>
+                          <p className="mt-1 text-xs text-zinc-500">
+                            Optionally apply tags after the first outbound message is sent, fails, or is skipped.
+                          </p>
+
+                          <label className="mt-3 flex items-center justify-between gap-4 rounded-2xl border border-zinc-200 bg-white px-4 py-3">
+                            <div>
+                              <div className="text-sm font-semibold text-zinc-800">Enabled</div>
+                              <div className="mt-1 text-xs text-zinc-500">Applies tags right after the first message attempt resolves.</div>
+                            </div>
+                            <span className="relative inline-flex h-6 w-11 shrink-0 items-center">
+                              <input
+                                type="checkbox"
+                                className="peer sr-only"
+                                checked={Boolean(selected.messageOutcomeTagging?.enabled)}
+                                disabled={busy}
+                                onChange={(e) => updateCampaign({ messageOutcomeTagging: { enabled: e.target.checked } })}
+                              />
+                              <span className="absolute inset-0 rounded-full bg-zinc-200 transition peer-checked:bg-(--color-brand-blue) peer-disabled:opacity-60" />
+                              <span className="absolute left-0.5 top-0.5 h-5 w-5 rounded-full bg-white shadow-sm transition peer-checked:translate-x-5 peer-disabled:opacity-80" />
+                            </span>
+                          </label>
+
+                          {selected.messageOutcomeTagging?.enabled ? (
+                            <div className="mt-3">
+                              <input
+                                value={messagesOutcomeTagSearch}
+                                onChange={(e) => setMessagesOutcomeTagSearch(e.target.value)}
+                                placeholder="Search tags…"
+                                className="w-full max-w-sm rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-sm"
+                              />
+
+                              <div className="mt-3 grid gap-3 md:grid-cols-3">
+                                <div className="rounded-2xl border border-zinc-200 bg-white p-3">
+                                  <div className="text-xs font-semibold text-zinc-700">On sent</div>
+                                  <div className="mt-2">
+                                    <PortalListboxDropdown
+                                      value={messagesOutcomeAddSentValue}
+                                      options={addMessagesOutcomeSentTagOptions as any}
+                                      onChange={(v) => {
+                                        const id = String(v || "");
+                                        if (!id) {
+                                          setMessagesOutcomeAddSentValue("");
+                                          return;
+                                        }
+                                        if (id === "__create__") {
+                                          setMessagesOutcomeAddSentValue("");
+                                          setTagCreateContext("messages_outcome_sent");
+                                          setShowCreateTag(true);
+                                          return;
+                                        }
+                                        setMessagesOutcomeAddSentValue("");
+                                        addMessageOutcomeTag("sent", id);
+                                      }}
+                                    />
+                                  </div>
+
+                                  {selectedMessagesOutcomeSentTags.length ? (
+                                    <div className="mt-2 flex flex-wrap gap-2">
+                                      {selectedMessagesOutcomeSentTags.map((t) => (
+                                        <button
+                                          key={t.id}
+                                          type="button"
+                                          onClick={() => removeMessageOutcomeTag("sent", t.id)}
+                                          className="inline-flex items-center gap-2 rounded-full border border-zinc-200 bg-white px-3 py-1 text-xs font-semibold text-zinc-800 hover:bg-zinc-50"
+                                          title="Remove"
+                                        >
+                                          <span className="h-2 w-2 rounded-full" style={{ backgroundColor: t.color || "#64748B" }} />
+                                          <span className="max-w-36 truncate">{t.name}</span>
+                                          <span className="text-zinc-400">×</span>
+                                        </button>
+                                      ))}
+                                    </div>
+                                  ) : (
+                                    <div className="mt-2 text-[11px] text-zinc-500">No tags selected.</div>
+                                  )}
+                                </div>
+
+                                <div className="rounded-2xl border border-zinc-200 bg-white p-3">
+                                  <div className="text-xs font-semibold text-zinc-700">On failed</div>
+                                  <div className="mt-2">
+                                    <PortalListboxDropdown
+                                      value={messagesOutcomeAddFailedValue}
+                                      options={addMessagesOutcomeFailedTagOptions as any}
+                                      onChange={(v) => {
+                                        const id = String(v || "");
+                                        if (!id) {
+                                          setMessagesOutcomeAddFailedValue("");
+                                          return;
+                                        }
+                                        if (id === "__create__") {
+                                          setMessagesOutcomeAddFailedValue("");
+                                          setTagCreateContext("messages_outcome_failed");
+                                          setShowCreateTag(true);
+                                          return;
+                                        }
+                                        setMessagesOutcomeAddFailedValue("");
+                                        addMessageOutcomeTag("failed", id);
+                                      }}
+                                    />
+                                  </div>
+
+                                  {selectedMessagesOutcomeFailedTags.length ? (
+                                    <div className="mt-2 flex flex-wrap gap-2">
+                                      {selectedMessagesOutcomeFailedTags.map((t) => (
+                                        <button
+                                          key={t.id}
+                                          type="button"
+                                          onClick={() => removeMessageOutcomeTag("failed", t.id)}
+                                          className="inline-flex items-center gap-2 rounded-full border border-zinc-200 bg-white px-3 py-1 text-xs font-semibold text-zinc-800 hover:bg-zinc-50"
+                                          title="Remove"
+                                        >
+                                          <span className="h-2 w-2 rounded-full" style={{ backgroundColor: t.color || "#64748B" }} />
+                                          <span className="max-w-36 truncate">{t.name}</span>
+                                          <span className="text-zinc-400">×</span>
+                                        </button>
+                                      ))}
+                                    </div>
+                                  ) : (
+                                    <div className="mt-2 text-[11px] text-zinc-500">No tags selected.</div>
+                                  )}
+                                </div>
+
+                                <div className="rounded-2xl border border-zinc-200 bg-white p-3">
+                                  <div className="text-xs font-semibold text-zinc-700">On skipped</div>
+                                  <div className="mt-2">
+                                    <PortalListboxDropdown
+                                      value={messagesOutcomeAddSkippedValue}
+                                      options={addMessagesOutcomeSkippedTagOptions as any}
+                                      onChange={(v) => {
+                                        const id = String(v || "");
+                                        if (!id) {
+                                          setMessagesOutcomeAddSkippedValue("");
+                                          return;
+                                        }
+                                        if (id === "__create__") {
+                                          setMessagesOutcomeAddSkippedValue("");
+                                          setTagCreateContext("messages_outcome_skipped");
+                                          setShowCreateTag(true);
+                                          return;
+                                        }
+                                        setMessagesOutcomeAddSkippedValue("");
+                                        addMessageOutcomeTag("skipped", id);
+                                      }}
+                                    />
+                                  </div>
+
+                                  {selectedMessagesOutcomeSkippedTags.length ? (
+                                    <div className="mt-2 flex flex-wrap gap-2">
+                                      {selectedMessagesOutcomeSkippedTags.map((t) => (
+                                        <button
+                                          key={t.id}
+                                          type="button"
+                                          onClick={() => removeMessageOutcomeTag("skipped", t.id)}
+                                          className="inline-flex items-center gap-2 rounded-full border border-zinc-200 bg-white px-3 py-1 text-xs font-semibold text-zinc-800 hover:bg-zinc-50"
+                                          title="Remove"
+                                        >
+                                          <span className="h-2 w-2 rounded-full" style={{ backgroundColor: t.color || "#64748B" }} />
+                                          <span className="max-w-36 truncate">{t.name}</span>
+                                          <span className="text-zinc-400">×</span>
+                                        </button>
+                                      ))}
+                                    </div>
+                                  ) : (
+                                    <div className="mt-2 text-[11px] text-zinc-500">No tags selected.</div>
+                                  )}
+                                </div>
+                              </div>
+                            </div>
+                          ) : null}
+                        </div>
                       </div>
                     )}
                   </div>
