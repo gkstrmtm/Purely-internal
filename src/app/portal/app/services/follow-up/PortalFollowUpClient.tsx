@@ -201,13 +201,11 @@ export function PortalFollowUpClient({ embedded }: { embedded?: boolean } = {}) 
   const [builtinVariables, setBuiltinVariables] = useState<string[]>([]);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [notice, setNotice] = useState<string | null>(null);
 
   useEffect(() => {
     if (error) toast.error(error);
   }, [error, toast]);
 
-  const [expandedStepId, setExpandedStepId] = useState<string | null>(null);
   const [stepEmailDrafts, setStepEmailDrafts] = useState<Record<string, string>>({});
   const [stepPhoneDrafts, setStepPhoneDrafts] = useState<Record<string, string>>({});
 
@@ -602,7 +600,6 @@ export function PortalFollowUpClient({ embedded }: { embedded?: boolean } = {}) 
     if (!settings || !canSave) return;
     setBusy(true);
     setError(null);
-    setNotice(null);
     const res = await fetch("/api/portal/follow-up/settings", {
       method: "PUT",
       headers: { "content-type": "application/json" },
@@ -627,7 +624,7 @@ export function PortalFollowUpClient({ embedded }: { embedded?: boolean } = {}) 
     setCalendars(Array.isArray(json.calendars) ? json.calendars : []);
     setSiteNotificationEmails(Array.isArray(json.siteNotificationEmails) ? json.siteNotificationEmails : []);
     setBuiltinVariables(Array.isArray(json.builtinVariables) ? json.builtinVariables : []);
-    setNotice("Saved.");
+    toast.success("Saved");
   }
 
   function fmtDelay(minutes: number) {
@@ -664,7 +661,6 @@ export function PortalFollowUpClient({ embedded }: { embedded?: boolean } = {}) 
   async function sendTest(channel: "EMAIL" | "SMS") {
     setTestBusy(true);
     setError(null);
-    setNotice(null);
     const res = await fetch("/api/portal/follow-up/test-send", {
       method: "POST",
       headers: { "content-type": "application/json" },
@@ -681,7 +677,7 @@ export function PortalFollowUpClient({ embedded }: { embedded?: boolean } = {}) 
       setError(json.error ?? "Test send failed");
       return;
     }
-    setNotice(json.note ?? "Sent.");
+    toast.success(json.note ?? "Sent");
   }
 
   if (!service) {
@@ -787,8 +783,6 @@ export function PortalFollowUpClient({ embedded }: { embedded?: boolean } = {}) 
         </button>
       </div>
 
-      {notice ? <div className="mt-4 rounded-2xl border border-emerald-200 bg-emerald-50 p-4 text-sm text-emerald-800">{notice}</div> : null}
-
       {tab === "settings" ? (
         <div className="mt-4 grid grid-cols-1 gap-6 lg:grid-cols-3">
           <div className="min-w-0 lg:col-span-2">
@@ -864,7 +858,7 @@ export function PortalFollowUpClient({ embedded }: { embedded?: boolean } = {}) 
                               chainTemplates: [...(settings.chainTemplates ?? []), next].slice(0, 50),
                             });
                             setChainTemplateDraftName("");
-                            setNotice("Saved template (remember to Save settings)");
+                            toast.success("Saved template (remember to Save settings)");
                           }}
                         >
                           Save template
@@ -884,8 +878,7 @@ export function PortalFollowUpClient({ embedded }: { embedded?: boolean } = {}) 
                             className="w-full rounded-3xl border border-zinc-200 bg-white p-4 text-left hover:bg-zinc-50 disabled:opacity-60"
                             onClick={() => {
                               chainTemplatePicker.setSteps(stepsFromBuiltInTemplate(t));
-                              setExpandedStepId(null);
-                              setNotice("Loaded template (not saved yet)");
+                              toast.success("Loaded template (remember to Save settings)");
                               setChainTemplatePicker(null);
                             }}
                           >
@@ -916,8 +909,7 @@ export function PortalFollowUpClient({ embedded }: { embedded?: boolean } = {}) 
                               className="w-full rounded-3xl border border-zinc-200 bg-white p-4 text-left hover:bg-zinc-50 disabled:opacity-60"
                               onClick={() => {
                                 chainTemplatePicker.setSteps(cloneStepsForLoad(t.steps));
-                                setExpandedStepId(null);
-                                setNotice("Loaded template (not saved yet)");
+                                toast.success("Loaded template (remember to Save settings)");
                                 setChainTemplatePicker(null);
                               }}
                             >
@@ -939,7 +931,7 @@ export function PortalFollowUpClient({ embedded }: { embedded?: boolean } = {}) 
                                       ...settings,
                                       chainTemplates: (settings.chainTemplates ?? []).filter((x) => x.id !== t.id),
                                     });
-                                    setNotice("Deleted template (remember to Save settings)");
+                                    toast.success("Deleted template (remember to Save settings)");
                                   }}
                                 >
                                   Delete
@@ -1013,12 +1005,10 @@ export function PortalFollowUpClient({ embedded }: { embedded?: boolean } = {}) 
 
                   const addStep = (step: FollowUpStep) => {
                     opts.setSteps([...steps, step].slice(0, 30));
-                    setExpandedStepId(step.id);
                   };
 
                   const removeStep = (stepId: string) => {
                     opts.setSteps(steps.filter((s) => s.id !== stepId));
-                    setExpandedStepId((prev) => (prev === stepId ? null : prev));
                   };
 
                   const addInternalEmailToStep = (stepId: string) => {
@@ -1026,7 +1016,7 @@ export function PortalFollowUpClient({ embedded }: { embedded?: boolean } = {}) 
                     if (!email) return;
                     const emailLike = /^[^@\s]+@[^@\s]+\.[^@\s]+$/;
                     if (!emailLike.test(email)) {
-                      setNotice("Invalid email.");
+                      toast.error("Invalid email");
                       return;
                     }
                     const s = steps.find((x) => x.id === stepId);
@@ -1050,7 +1040,7 @@ export function PortalFollowUpClient({ embedded }: { embedded?: boolean } = {}) 
                     const phone = (stepPhoneDrafts[stepId] ?? "").trim();
                     if (!phone) return;
                     if (!/^[0-9+()\- .]*$/.test(phone) || phone.replace(/\D/g, "").length < 10) {
-                      setNotice("Invalid phone.");
+                      toast.error("Invalid phone");
                       return;
                     }
                     const s = steps.find((x) => x.id === stepId);
@@ -1084,54 +1074,92 @@ export function PortalFollowUpClient({ embedded }: { embedded?: boolean } = {}) 
                     <div className="mt-4">
                       <div className="flex flex-wrap items-center justify-between gap-2">
                         <div className="text-xs font-semibold text-zinc-600">{opts.title}</div>
-                        <button
-                          type="button"
-                          disabled={busy}
-                          className="rounded-xl bg-brand-ink px-3 py-1.5 text-xs font-semibold text-white hover:opacity-95 disabled:opacity-60"
-                          onClick={() => {
-                            setChainTemplateDraftName("");
-                            setChainTemplatePicker({
-                              title: opts.title,
-                              stepsSnapshot: steps,
-                              setSteps: opts.setSteps,
-                            });
-                          }}
-                        >
-                          Load template
-                        </button>
+                        <div className="flex flex-wrap items-center gap-2">
+                          <button
+                            type="button"
+                            disabled={busy}
+                            className="rounded-xl bg-brand-ink px-3 py-1.5 text-xs font-semibold text-white hover:opacity-95 disabled:opacity-60"
+                            onClick={() => {
+                              setChainTemplateDraftName("");
+                              setChainTemplatePicker({
+                                title: opts.title,
+                                stepsSnapshot: steps,
+                                setSteps: opts.setSteps,
+                              });
+                            }}
+                          >
+                            Load template
+                          </button>
+                          <button
+                            type="button"
+                            disabled={busy}
+                            onClick={() => addStep(makeBlankStep("EMAIL"))}
+                            className="rounded-xl border border-zinc-200 bg-white px-3 py-1.5 text-xs font-semibold text-brand-ink hover:bg-zinc-50 disabled:opacity-60"
+                          >
+                            + Email step
+                          </button>
+                          <button
+                            type="button"
+                            disabled={busy}
+                            onClick={() => addStep(makeBlankStep("SMS"))}
+                            className="rounded-xl border border-zinc-200 bg-white px-3 py-1.5 text-xs font-semibold text-brand-ink hover:bg-zinc-50 disabled:opacity-60"
+                          >
+                            + SMS step
+                          </button>
+                          <button
+                            type="button"
+                            disabled={busy}
+                            onClick={() => addStep(makeBlankStep("TAG"))}
+                            className="rounded-xl border border-zinc-200 bg-white px-3 py-1.5 text-xs font-semibold text-brand-ink hover:bg-zinc-50 disabled:opacity-60"
+                          >
+                            + Tag step
+                          </button>
+                        </div>
                       </div>
                       <div className="mt-2 space-y-3">
                         {steps.length ? (
-                          steps.map((s) => {
-                            const open = expandedStepId === s.id;
+                          steps.map((s, idx) => {
                             const best = delayToBestUnit(s.delayMinutes);
                             const quickPicks = Array.from(
                               new Set([...(siteNotificationEmails || []), ...calendars.flatMap((c) => c.notificationEmails ?? [])]),
                             ).slice(0, 12);
+                            const kindLabel = s.kind === "EMAIL" ? "Email" : s.kind === "SMS" ? "SMS" : "Tag";
                             return (
-                              <div key={s.id} className="rounded-2xl border border-zinc-200 bg-zinc-50 p-4">
+                              <div key={s.id} className="rounded-2xl border border-zinc-200 p-4">
                                 <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
                                   <div className="min-w-0 flex-1">
-                                    <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
-                                      <button
-                                        type="button"
-                                        onClick={() => setExpandedStepId((prev) => (prev === s.id ? null : s.id))}
-                                        className="w-fit rounded-xl border border-zinc-200 bg-white px-2 py-1 text-xs font-semibold text-brand-ink hover:bg-zinc-50"
-                                      >
-                                        {open ? "Hide" : "Edit"}
-                                      </button>
-
-                                      <input
-                                        value={s.name}
-                                        onChange={(e) => updateStep(s.id, { name: e.target.value })}
-                                        className="w-full rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-sm font-semibold text-zinc-900 outline-none focus:border-zinc-300"
-                                      />
+                                    <div className="flex items-start gap-3">
+                                      <span className="mt-0.5 inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-2xl bg-linear-to-r from-(--color-brand-blue) via-violet-500 to-(--color-brand-pink) text-white">
+                                        <svg
+                                          aria-hidden="true"
+                                          viewBox="0 0 24 24"
+                                          className="h-4 w-4"
+                                          fill="none"
+                                          stroke="currentColor"
+                                          strokeWidth="2"
+                                          strokeLinecap="round"
+                                          strokeLinejoin="round"
+                                        >
+                                          <path d="M12 2l1.5 5.5L19 9l-5.5 1.5L12 16l-1.5-5.5L5 9l5.5-1.5L12 2z" />
+                                          <path d="M19 14l.8 2.6L22 17l-2.2.4L19 20l-.8-2.6L16 17l2.2-.4L19 14z" />
+                                        </svg>
+                                      </span>
+                                      <div className="min-w-0 flex-1">
+                                        <div className="text-xs font-semibold text-zinc-600">
+                                          {kindLabel} step {idx + 1}
+                                        </div>
+                                        <input
+                                          value={s.name}
+                                          onChange={(e) => updateStep(s.id, { name: e.target.value })}
+                                          className="mt-1 w-full rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-sm font-semibold text-zinc-900 outline-none focus:border-zinc-300"
+                                        />
+                                      </div>
                                     </div>
 
                                     <div className="mt-2 flex flex-wrap items-center gap-2 text-xs text-zinc-600">
                                       <span>{fmtDelay(s.delayMinutes)}</span>
                                       <span>•</span>
-                                      <span>{s.kind === "EMAIL" ? "Email" : s.kind === "SMS" ? "SMS" : "Tag"}</span>
+                                      <span>{kindLabel}</span>
                                       {(s.audience ?? "CONTACT") === "INTERNAL" ? (
                                         <>
                                           <span>•</span>
@@ -1176,8 +1204,7 @@ export function PortalFollowUpClient({ embedded }: { embedded?: boolean } = {}) 
                                   </div>
                                 </div>
 
-                                {open ? (
-                                  <div className="mt-4 space-y-4">
+                                <div className="mt-4 space-y-4">
                                     <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
                                       <div>
                                         <label className="text-xs font-semibold text-zinc-600">Delay</label>
@@ -1382,7 +1409,10 @@ export function PortalFollowUpClient({ embedded }: { embedded?: boolean } = {}) 
                                               <button
                                                 type="button"
                                                 disabled={busy}
-                                                className="rounded-xl border border-zinc-200 bg-white px-3 py-1.5 text-xs font-semibold text-brand-ink hover:bg-zinc-50 disabled:opacity-60"
+                                                className={
+                                                  "inline-flex items-center gap-2 rounded-xl px-2 py-1 text-xs font-semibold text-white shadow-sm transition hover:opacity-90 disabled:opacity-60 " +
+                                                  "bg-linear-to-r from-(--color-brand-blue) via-violet-500 to-(--color-brand-pink)"
+                                                }
                                                 onClick={() => {
                                                   setAiDraftError(null);
                                                   setAiDraftInstruction("");
@@ -1396,7 +1426,20 @@ export function PortalFollowUpClient({ embedded }: { embedded?: boolean } = {}) 
                                                   });
                                                 }}
                                               >
-                                                AI draft
+                                                <svg
+                                                  aria-hidden="true"
+                                                  viewBox="0 0 24 24"
+                                                  className="h-3.5 w-3.5"
+                                                  fill="none"
+                                                  stroke="currentColor"
+                                                  strokeWidth="2"
+                                                  strokeLinecap="round"
+                                                  strokeLinejoin="round"
+                                                >
+                                                  <path d="M12 2l1.5 5.5L19 9l-5.5 1.5L12 16l-1.5-5.5L5 9l5.5-1.5L12 2z" />
+                                                  <path d="M19 14l.8 2.6L22 17l-2.2.4L19 20l-.8-2.6L16 17l2.2-.4L19 14z" />
+                                                </svg>
+                                                <span>AI draft</span>
                                               </button>
                                               <button
                                                 type="button"
@@ -1431,7 +1474,10 @@ export function PortalFollowUpClient({ embedded }: { embedded?: boolean } = {}) 
                                             <button
                                               type="button"
                                               disabled={busy}
-                                              className="rounded-xl border border-zinc-200 bg-white px-3 py-1.5 text-xs font-semibold text-brand-ink hover:bg-zinc-50 disabled:opacity-60"
+                                              className={
+                                                "inline-flex items-center gap-2 rounded-xl px-2 py-1 text-xs font-semibold text-white shadow-sm transition hover:opacity-90 disabled:opacity-60 " +
+                                                "bg-linear-to-r from-(--color-brand-blue) via-violet-500 to-(--color-brand-pink)"
+                                              }
                                               onClick={() => {
                                                 setAiDraftError(null);
                                                 setAiDraftInstruction("");
@@ -1444,7 +1490,20 @@ export function PortalFollowUpClient({ embedded }: { embedded?: boolean } = {}) 
                                                 });
                                               }}
                                             >
-                                              AI draft
+                                              <svg
+                                                aria-hidden="true"
+                                                viewBox="0 0 24 24"
+                                                className="h-3.5 w-3.5"
+                                                fill="none"
+                                                stroke="currentColor"
+                                                strokeWidth="2"
+                                                strokeLinecap="round"
+                                                strokeLinejoin="round"
+                                              >
+                                                <path d="M12 2l1.5 5.5L19 9l-5.5 1.5L12 16l-1.5-5.5L5 9l5.5-1.5L12 2z" />
+                                                <path d="M19 14l.8 2.6L22 17l-2.2.4L19 20l-.8-2.6L16 17l2.2-.4L19 14z" />
+                                              </svg>
+                                              <span>AI draft</span>
                                             </button>
                                             <button
                                               type="button"
@@ -1503,40 +1562,13 @@ export function PortalFollowUpClient({ embedded }: { embedded?: boolean } = {}) 
                                         </div>
                                       </div>
                                     ) : null}
-                                  </div>
-                                ) : null}
+                                </div>
                               </div>
                             );
                           })
                         ) : (
                           <div className="text-sm text-zinc-600">No steps yet.</div>
                         )}
-
-                        <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
-                          <div className="grid w-full grid-cols-1 gap-2 sm:w-auto sm:grid-cols-3">
-                            <button
-                              type="button"
-                              onClick={() => addStep(makeBlankStep("EMAIL"))}
-                              className="inline-flex items-center justify-center rounded-2xl bg-[color:var(--color-brand-blue)] px-4 py-2 text-sm font-semibold text-white hover:opacity-95"
-                            >
-                              + Email step
-                            </button>
-                            <button
-                              type="button"
-                              onClick={() => addStep(makeBlankStep("SMS"))}
-                              className="inline-flex items-center justify-center rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm font-semibold text-brand-ink hover:bg-zinc-50"
-                            >
-                              + SMS step
-                            </button>
-                            <button
-                              type="button"
-                              onClick={() => addStep(makeBlankStep("TAG"))}
-                              className="inline-flex items-center justify-center rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm font-semibold text-brand-ink hover:bg-zinc-50"
-                            >
-                              + Tag step
-                            </button>
-                          </div>
-                        </div>
                       </div>
                     </div>
                   );

@@ -90,6 +90,44 @@ function getApiError(body: unknown): string | undefined {
   return typeof rec.error === "string" ? rec.error : undefined;
 }
 
+async function generateReminderDraft(opts: {
+  kind: "EMAIL" | "SMS";
+  stepName?: string;
+  prompt?: string;
+  existingSubject?: string;
+  existingBody?: string;
+}): Promise<{ subject?: string; body: string } | null> {
+  const res = await fetch("/api/portal/follow-up/ai/generate-step", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({
+      kind: opts.kind,
+      stepName: opts.stepName,
+      prompt: opts.prompt,
+      existingSubject: opts.existingSubject,
+      existingBody: opts.existingBody,
+    }),
+  });
+
+  const json = await res.json().catch(() => ({}));
+  if (!res.ok) {
+    const code = (json as any)?.code;
+    if (res.status === 402 && code === "INSUFFICIENT_CREDITS") {
+      throw new Error("Insufficient credits to generate");
+    }
+    throw new Error(String((json as any)?.error || "Failed to generate"));
+  }
+
+  if (opts.kind === "EMAIL") {
+    return {
+      subject: String((json as any)?.subject ?? "").slice(0, 200),
+      body: String((json as any)?.body ?? "").slice(0, 8000),
+    };
+  }
+
+  return { body: String((json as any)?.body ?? "").slice(0, 8000) };
+}
+
 function makeClientId(prefix: string) {
   try {
     const bytes = new Uint8Array(6);
@@ -144,6 +182,11 @@ export function PortalAppointmentRemindersClient() {
   const [createTagName, setCreateTagName] = useState("");
   const [createTagBusy, setCreateTagBusy] = useState(false);
   const [createTagStepId, setCreateTagStepId] = useState<string | null>(null);
+
+  const [aiDraftStepId, setAiDraftStepId] = useState<string | null>(null);
+  const [aiDraftInstruction, setAiDraftInstruction] = useState("");
+  const [aiDraftBusy, setAiDraftBusy] = useState(false);
+  const [aiDraftError, setAiDraftError] = useState<string | null>(null);
 
   const [varPickerOpen, setVarPickerOpen] = useState(false);
   const [varPickerStepId, setVarPickerStepId] = useState<string | null>(null);
@@ -657,12 +700,31 @@ export function PortalAppointmentRemindersClient() {
                 {draft.steps.map((s, idx) => (
                   <div key={s.id} className="rounded-2xl border border-zinc-200 p-4">
                     <div className="flex items-start justify-between gap-3">
-                      <div className="min-w-0">
-                        <div className="text-sm font-semibold text-zinc-900">
-                          {s.kind === "EMAIL" ? "Email" : s.kind === "TAG" ? "Tag" : "SMS"} step {idx + 1}
+                      <div className="min-w-0 flex-1">
+                        <div className="flex items-start gap-3">
+                          <span className="mt-0.5 inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-2xl bg-linear-to-r from-(--color-brand-blue) via-violet-500 to-(--color-brand-pink) text-white">
+                            <svg
+                              aria-hidden="true"
+                              viewBox="0 0 24 24"
+                              className="h-4 w-4"
+                              fill="none"
+                              stroke="currentColor"
+                              strokeWidth="2"
+                              strokeLinecap="round"
+                              strokeLinejoin="round"
+                            >
+                              <path d="M12 2l1.5 5.5L19 9l-5.5 1.5L12 16l-1.5-5.5L5 9l5.5-1.5L12 2z" />
+                              <path d="M19 14l.8 2.6L22 17l-2.2.4L19 20l-.8-2.6L16 17l2.2-.4L19 14z" />
+                            </svg>
+                          </span>
+                          <div className="min-w-0">
+                            <div className="text-sm font-semibold text-zinc-900">
+                              {s.kind === "EMAIL" ? "Email" : s.kind === "TAG" ? "Tag" : "SMS"} step {idx + 1}
+                            </div>
+                            <div className="mt-1 text-xs text-zinc-600">{s.leadTime.value} {s.leadTime.unit} before</div>
+                            <div className="mt-1 text-xs text-zinc-600">Variables: {"{name}"}, {"{when}"}</div>
+                          </div>
                         </div>
-                        <div className="mt-1 text-xs text-zinc-600">{s.leadTime.value} {s.leadTime.unit} before</div>
-                        <div className="mt-1 text-xs text-zinc-600">Variables: {"{name}"}, {"{when}"}</div>
                       </div>
 
                       <div className="flex items-center gap-2">
@@ -752,6 +814,34 @@ export function PortalAppointmentRemindersClient() {
                           <div className="flex items-center gap-2">
                             {s.kind !== "TAG" ? (
                               <>
+                                <button
+                                  type="button"
+                                  disabled={saving}
+                                  className={
+                                    "inline-flex items-center gap-2 rounded-xl px-2 py-1 text-xs font-semibold text-white shadow-sm transition hover:opacity-90 disabled:opacity-60 " +
+                                    "bg-linear-to-r from-(--color-brand-blue) via-violet-500 to-(--color-brand-pink)"
+                                  }
+                                  onClick={() => {
+                                    setAiDraftStepId(s.id);
+                                    setAiDraftInstruction("");
+                                    setAiDraftError(null);
+                                  }}
+                                >
+                                  <svg
+                                    aria-hidden="true"
+                                    viewBox="0 0 24 24"
+                                    className="h-3.5 w-3.5"
+                                    fill="none"
+                                    stroke="currentColor"
+                                    strokeWidth="2"
+                                    strokeLinecap="round"
+                                    strokeLinejoin="round"
+                                  >
+                                    <path d="M12 2l1.5 5.5L19 9l-5.5 1.5L12 16l-1.5-5.5L5 9l5.5-1.5L12 2z" />
+                                    <path d="M19 14l.8 2.6L22 17l-2.2.4L19 20l-.8-2.6L16 17l2.2-.4L19 14z" />
+                                  </svg>
+                                  <span>AI draft</span>
+                                </button>
                                 <button
                                   type="button"
                                   disabled={saving}
@@ -969,6 +1059,102 @@ export function PortalAppointmentRemindersClient() {
             placeholder="e.g. Confirmed"
           />
         </label>
+      </AppModal>
+
+      <AppModal
+        open={Boolean(aiDraftStepId)}
+        title="AI draft"
+        description="Describe what you want this reminder to say."
+        onClose={() => {
+          if (aiDraftBusy) return;
+          setAiDraftStepId(null);
+          setAiDraftError(null);
+        }}
+        widthClassName="w-[min(640px,calc(100vw-32px))]"
+        footer={
+          <div className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
+            <button
+              type="button"
+              className="rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm font-semibold text-zinc-800 hover:bg-zinc-50 disabled:opacity-60"
+              disabled={aiDraftBusy}
+              onClick={() => {
+                setAiDraftStepId(null);
+                setAiDraftError(null);
+              }}
+            >
+              Cancel
+            </button>
+            <button
+              type="button"
+              className="rounded-2xl bg-brand-ink px-4 py-2 text-sm font-semibold text-white hover:opacity-95 disabled:opacity-60"
+              disabled={aiDraftBusy || !aiDraftStepId}
+              onClick={async () => {
+                if (!draft) return;
+                const stepId = aiDraftStepId;
+                if (!stepId) return;
+
+                const step = draft.steps.find((x) => x.id === stepId);
+                if (!step || step.kind === "TAG") {
+                  setAiDraftStepId(null);
+                  return;
+                }
+
+                setAiDraftBusy(true);
+                setAiDraftError(null);
+                try {
+                  const generated = await generateReminderDraft({
+                    kind: step.kind,
+                    stepName: step.kind === "EMAIL" ? "Email reminder" : "SMS reminder",
+                    prompt: aiDraftInstruction.trim() || undefined,
+                    existingSubject: step.kind === "EMAIL" ? String(step.subjectTemplate ?? "") : undefined,
+                    existingBody: String(step.messageBody ?? ""),
+                  });
+
+                  if (!generated) return;
+
+                  if (step.kind === "EMAIL") {
+                    const subject = (generated.subject ?? String(step.subjectTemplate ?? "")).trim();
+                    updateStep(stepId, {
+                      subjectTemplate: subject || "Appointment reminder",
+                      messageBody: String(generated.body || ""),
+                    });
+                  } else {
+                    updateStep(stepId, { messageBody: String(generated.body || "") });
+                  }
+
+                  setAiDraftStepId(null);
+                  setAiDraftInstruction("");
+                  toast.success("Draft applied");
+                } catch (e: any) {
+                  setAiDraftError(String(e?.message || "Failed to generate"));
+                } finally {
+                  setAiDraftBusy(false);
+                }
+              }}
+            >
+              {aiDraftBusy ? "Drafting…" : "Generate"}
+            </button>
+          </div>
+        }
+      >
+        <div className="space-y-3">
+          <label className="block">
+            <div className="text-xs font-semibold text-zinc-600">Instructions</div>
+            <textarea
+              className="mt-2 min-h-24 w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm"
+              value={aiDraftInstruction}
+              onChange={(e) => setAiDraftInstruction(e.target.value)}
+              disabled={aiDraftBusy}
+              placeholder="e.g. Friendly, short, and include the appointment time."
+            />
+          </label>
+
+          {aiDraftError ? (
+            <div className="rounded-2xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-800">{aiDraftError}</div>
+          ) : null}
+
+          <div className="text-xs text-zinc-500">Tip: you can reference variables like {"{name}"} and {"{when}"}.</div>
+        </div>
       </AppModal>
 
       <PortalMediaPickerModal
