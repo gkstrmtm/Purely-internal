@@ -77,15 +77,16 @@ type TwilioMasked = {
 };
 
 type AppointmentReminderSettings = {
-  version: 3;
+  version: 4;
   enabled: boolean;
-  channel: "SMS" | "EMAIL";
   steps: {
     id: string;
     enabled: boolean;
+    kind: "SMS" | "EMAIL" | "TAG";
     leadTime: { value: number; unit: "minutes" | "hours" | "days" | "weeks" };
     subjectTemplate?: string;
-    messageBody: string;
+    messageBody?: string;
+    tagId?: string;
   }[];
 };
 
@@ -101,10 +102,12 @@ type AppointmentReminderEvent = {
 
   contactName: string;
   contactPhoneRaw: string | null;
+  contactEmailRaw?: string | null;
+  contactId?: string | null;
   smsTo: string | null;
   smsBody: string | null;
 
-  channel?: "SMS" | "EMAIL";
+  channel?: "SMS" | "EMAIL" | "TAG";
   to?: string | null;
   body?: string | null;
 
@@ -377,6 +380,13 @@ export function PortalBookingClient() {
   const [reminderGeneratingStepId, setReminderGeneratingStepId] = useState<string | null>(null);
   const [reminderTemplateOpen, setReminderTemplateOpen] = useState(false);
 
+  const [reminderOwnerTags, setReminderOwnerTags] = useState<ContactTag[]>([]);
+  const [reminderTagsLoading, setReminderTagsLoading] = useState(false);
+  const [reminderCreateTagOpen, setReminderCreateTagOpen] = useState(false);
+  const [reminderCreateTagName, setReminderCreateTagName] = useState("");
+  const [reminderCreateTagStepId, setReminderCreateTagStepId] = useState<string | null>(null);
+  const [reminderCreateTagBusy, setReminderCreateTagBusy] = useState(false);
+
   const [reminderCalendarId, setReminderCalendarId] = useState<string | null>(null);
   const reminderCalendarIdRef = useRef<string | null>(null);
 
@@ -460,22 +470,17 @@ export function PortalBookingClient() {
 
   function applyReminderTemplate(t: ReminderTemplate) {
     if (!reminderDraft) return;
-    const channel = reminderDraft.channel;
-    const relevant = t.steps.filter((s) => s.kind === channel).slice(0, 8);
-    if (!relevant.length) {
-      toast.error(`This template has no ${channel} steps.`);
-      return;
-    }
 
     const next: AppointmentReminderSettings = {
       ...reminderDraft,
-      version: 3,
-      steps: relevant.map((s) => ({
+      version: 4,
+      steps: t.steps.slice(0, 8).map((s) => ({
         id: makeClientId("rem_"),
         enabled: true,
+        kind: s.kind === "EMAIL" ? "EMAIL" : "SMS",
         leadTime: bestLeadTimeForMinutes(s.leadMinutes),
-        subjectTemplate: channel === "EMAIL" ? String(s.subject || "Appointment reminder") : undefined,
-        messageBody: String(s.body || ""),
+        subjectTemplate: s.kind === "EMAIL" ? String(s.subject || "Appointment reminder") : undefined,
+        messageBody: s.kind === "EMAIL" || s.kind === "SMS" ? String(s.body || "") : undefined,
       })),
     };
 
@@ -680,29 +685,88 @@ export function PortalBookingClient() {
 
   async function setReminderEnabled(enabled: boolean) {
     if (!reminderDraft) return;
-    const next: AppointmentReminderSettings = { ...reminderDraft, enabled, version: 3 };
+    const next: AppointmentReminderSettings = { ...reminderDraft, enabled, version: 4 };
     setReminderDraft(next);
     await saveReminders(next);
   }
 
-  async function setReminderChannel(channel: "SMS" | "EMAIL") {
-    if (!reminderDraft) return;
-    const next: AppointmentReminderSettings = { ...reminderDraft, channel, version: 3 };
-    setReminderDraft(next);
-    await saveReminders(next);
+  const refreshReminderTags = useCallback(async () => {
+    setReminderTagsLoading(true);
+    try {
+      const res = await fetch("/api/portal/contact-tags", { cache: "no-store" });
+      const json = (await res.json().catch(() => ({}))) as any;
+      if (!res.ok || !json.ok || !Array.isArray(json.tags)) {
+        throw new Error(typeof json?.error === "string" ? json.error : "Failed to load tags");
+      }
+      const next = (json.tags as any[])
+        .map((t: any) => ({
+          id: String(t?.id || ""),
+          name: String(t?.name || "").slice(0, 60),
+          color: typeof t?.color === "string" ? String(t.color) : null,
+        }))
+        .filter((t: ContactTag) => t.id && t.name);
+      next.sort((a: ContactTag, b: ContactTag) => a.name.localeCompare(b.name));
+      setReminderOwnerTags(next);
+    } catch {
+      setReminderOwnerTags([]);
+    } finally {
+      setReminderTagsLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (topTab !== "reminders") return;
+    void refreshReminderTags();
+  }, [topTab, refreshReminderTags]);
+
+  async function createReminderTag() {
+    const name = reminderCreateTagName.trim();
+    if (!name) {
+      toast.error("Enter a tag name");
+      return;
+    }
+
+    setReminderCreateTagBusy(true);
+    try {
+      const res = await fetch("/api/portal/contact-tags", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ name }),
+      });
+      const json = (await res.json().catch(() => ({}))) as any;
+      if (!res.ok || !json.ok || !json.tag?.id) {
+        throw new Error(typeof json?.error === "string" ? json.error : "Failed to create tag");
+      }
+
+      const createdId = String(json.tag.id);
+      await refreshReminderTags();
+
+      const stepId = reminderCreateTagStepId;
+      if (stepId) updateReminderStep(stepId, { tagId: createdId });
+
+      setReminderCreateTagOpen(false);
+      setReminderCreateTagStepId(null);
+      setReminderCreateTagName("");
+      toast.success("Created tag");
+    } catch (e: any) {
+      toast.error(String(e?.message || "Failed to create tag"));
+    } finally {
+      setReminderCreateTagBusy(false);
+    }
   }
 
   async function generateReminderStep(stepId: string) {
     if (!reminderDraft) return;
     const step = reminderDraft.steps.find((s) => s.id === stepId);
     if (!step) return;
+    if (step.kind === "TAG") return;
 
     setReminderGeneratingStepId(stepId);
     setError(null);
     setStatus(null);
 
     try {
-      const kind: "SMS" | "EMAIL" = reminderDraft.channel;
+      const kind: "SMS" | "EMAIL" = step.kind === "EMAIL" ? "EMAIL" : "SMS";
       const res = await fetch("/api/portal/booking/reminders/ai/generate-step", {
         method: "POST",
         headers: { "content-type": "application/json" },
@@ -795,11 +859,11 @@ export function PortalBookingClient() {
       const idx = steps.findIndex((s) => s.id === stepId);
       if (idx < 0) return prev;
       steps[idx] = { ...steps[idx], ...partial };
-      return { ...prev, version: 3, steps };
+      return { ...prev, version: 4, steps };
     });
   }
 
-  function addReminderStep() {
+  function addReminderStep(kind: "SMS" | "EMAIL" | "TAG") {
     const defaultBody = "Reminder: your appointment is scheduled for {when}.";
     const defaultSubject = "Appointment reminder: {when}";
     setReminderDraft((prev) => {
@@ -809,11 +873,28 @@ export function PortalBookingClient() {
       const nextStep = {
         id: makeClientId("rem_"),
         enabled: true,
+        kind,
         leadTime: { value: 1, unit: "hours" as const },
-        subjectTemplate: defaultSubject,
-        messageBody: defaultBody,
+        subjectTemplate: kind === "EMAIL" ? defaultSubject : undefined,
+        messageBody: kind === "TAG" ? undefined : defaultBody,
+        tagId: kind === "TAG" ? undefined : undefined,
       };
-      return { ...prev, version: 3, steps: [...steps, nextStep] };
+      return { ...prev, version: 4, steps: [...steps, nextStep] };
+    });
+  }
+
+  function moveReminderStep(stepId: string, delta: number) {
+    setReminderDraft((prev) => {
+      if (!prev) return prev;
+      const steps = Array.isArray(prev.steps) ? prev.steps.slice() : [];
+      const idx = steps.findIndex((s) => s.id === stepId);
+      if (idx < 0) return prev;
+      const nextIdx = idx + delta;
+      if (nextIdx < 0 || nextIdx >= steps.length) return prev;
+      const tmp = steps[idx];
+      steps[idx] = steps[nextIdx];
+      steps[nextIdx] = tmp;
+      return { ...prev, version: 4, steps };
     });
   }
 
@@ -821,7 +902,7 @@ export function PortalBookingClient() {
     setReminderDraft((prev) => {
       if (!prev) return prev;
       const steps = Array.isArray(prev.steps) ? prev.steps.filter((s) => s.id !== stepId) : [];
-      return { ...prev, version: 3, steps: steps.length ? steps : prev.steps };
+      return { ...prev, version: 4, steps: steps.length ? steps : prev.steps };
     });
   }
 
@@ -1479,7 +1560,7 @@ export function PortalBookingClient() {
               <div>
                 <div className="text-sm font-semibold text-zinc-900">Appointment reminders</div>
                 <div className="mt-2 text-sm text-zinc-600">
-                  Automatically send reminders before appointments. Choose SMS or email for the sequence.
+                  Automatically send reminders before appointments. Build a sequence of SMS steps, email steps, and tag steps.
                 </div>
               </div>
 
@@ -1523,24 +1604,6 @@ export function PortalBookingClient() {
 
             {reminderDraft ? (
               <>
-                <div className="mt-4">
-                  <label className="block text-xs font-semibold text-zinc-600">Channel</label>
-                  <div className="mt-2 flex flex-col gap-2 sm:flex-row sm:items-center">
-                    <PortalListboxDropdown
-                      value={reminderDraft.channel}
-                      onChange={(v) => void setReminderChannel(v as "SMS" | "EMAIL")}
-                      disabled={reminderSaving}
-                      options={[
-                        { value: "EMAIL", label: "Email" },
-                        { value: "SMS", label: "SMS" },
-                      ]}
-                      className="w-full max-w-56"
-                      buttonClassName="flex w-full items-center justify-between gap-2 rounded-2xl border border-zinc-200 bg-white px-4 py-3 text-sm hover:bg-zinc-50 focus-visible:ring-2 focus-visible:ring-zinc-300"
-                    />
-                    <div className="text-xs text-zinc-500">Applies to all reminder steps.</div>
-                  </div>
-                </div>
-
                 <div className="mt-5 flex items-center justify-between gap-3">
                   <div className="text-xs font-semibold text-zinc-600">Reminder steps</div>
                   <div className="flex items-center gap-2">
@@ -1556,9 +1619,25 @@ export function PortalBookingClient() {
                       type="button"
                       className="rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm hover:bg-zinc-50 disabled:opacity-60"
                       disabled={reminderSaving || reminderDraft.steps.length >= 8}
-                      onClick={() => addReminderStep()}
+                      onClick={() => addReminderStep("SMS")}
                     >
-                      Add step
+                      + SMS step
+                    </button>
+                    <button
+                      type="button"
+                      className="rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm hover:bg-zinc-50 disabled:opacity-60"
+                      disabled={reminderSaving || reminderDraft.steps.length >= 8}
+                      onClick={() => addReminderStep("EMAIL")}
+                    >
+                      + Email step
+                    </button>
+                    <button
+                      type="button"
+                      className="rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm hover:bg-zinc-50 disabled:opacity-60"
+                      disabled={reminderSaving || reminderDraft.steps.length >= 8}
+                      onClick={() => addReminderStep("TAG")}
+                    >
+                      + Tag step
                     </button>
                   </div>
                 </div>
@@ -1583,12 +1662,11 @@ export function PortalBookingClient() {
 
                       <div className="mt-4 flex-1 space-y-2 overflow-auto pr-1">
                         {REMINDER_TEMPLATES.map((t) => {
-                          const countForChannel = t.steps.filter((s) => s.kind === reminderDraft.channel).length;
                           return (
                             <button
                               key={t.id}
                               type="button"
-                              disabled={reminderSaving || countForChannel === 0}
+                              disabled={reminderSaving || t.steps.length === 0}
                               className="w-full rounded-3xl border border-zinc-200 bg-white p-4 text-left hover:bg-zinc-50 disabled:opacity-60"
                               onClick={() => {
                                 applyReminderTemplate(t);
@@ -1601,7 +1679,7 @@ export function PortalBookingClient() {
                                   <div className="mt-1 text-sm text-zinc-600">{t.description}</div>
                                 </div>
                                 <div className="shrink-0 rounded-full border border-zinc-200 bg-zinc-50 px-2 py-1 text-[11px] font-semibold text-zinc-700">
-                                  {countForChannel} {reminderDraft.channel} step{countForChannel === 1 ? "" : "s"}
+                                  {t.steps.length} step{t.steps.length === 1 ? "" : "s"}
                                 </div>
                               </div>
                             </button>
@@ -1619,10 +1697,35 @@ export function PortalBookingClient() {
                     <div key={s.id} className="rounded-2xl border border-zinc-200 p-4">
                       <div className="flex items-start justify-between gap-3">
                         <div className="min-w-0">
-                          <div className="text-sm font-semibold text-zinc-900">Step {idx + 1}</div>
+                          <div className="text-sm font-semibold text-zinc-900">
+                            {s.kind === "EMAIL" ? "Email" : s.kind === "TAG" ? "Tag" : "SMS"} step {idx + 1}
+                          </div>
+                          <div className="mt-1 text-xs text-zinc-600">
+                            {s.leadTime.value} {s.leadTime.unit} before
+                          </div>
                         </div>
 
                         <div className="flex items-center gap-2">
+                          <div className="flex items-center gap-1">
+                            <button
+                              type="button"
+                              className="rounded-xl border border-zinc-200 bg-white px-2 py-2 text-sm hover:bg-zinc-50 disabled:opacity-60"
+                              disabled={reminderSaving || idx === 0}
+                              onClick={() => moveReminderStep(s.id, -1)}
+                              title="Move up"
+                            >
+                              ↑
+                            </button>
+                            <button
+                              type="button"
+                              className="rounded-xl border border-zinc-200 bg-white px-2 py-2 text-sm hover:bg-zinc-50 disabled:opacity-60"
+                              disabled={reminderSaving || idx === reminderDraft.steps.length - 1}
+                              onClick={() => moveReminderStep(s.id, 1)}
+                              title="Move down"
+                            >
+                              ↓
+                            </button>
+                          </div>
                           <div className="flex items-center gap-2 text-sm">
                             <span className="text-xs text-zinc-600">On</span>
                             <ToggleSwitch
@@ -1687,42 +1790,78 @@ export function PortalBookingClient() {
                         <label className="rounded-2xl border border-zinc-200 bg-zinc-50 px-4 py-3 text-sm sm:col-span-2">
                           <div className="flex items-center justify-between gap-3">
                             <div className="font-medium text-zinc-800">
-                              {reminderDraft.channel === "EMAIL" ? "Email" : "SMS"} message
+                              {s.kind === "EMAIL" ? "Email" : s.kind === "TAG" ? "Tag" : "SMS"} content
                             </div>
                             <div className="flex items-center gap-2">
-                              <button
-                                type="button"
-                                disabled={reminderSaving || reminderGeneratingStepId === s.id}
-                                className="rounded-xl border border-zinc-200 bg-white px-3 py-1.5 text-xs font-semibold text-brand-ink hover:bg-zinc-50 disabled:opacity-60"
-                                onClick={() => void generateReminderStep(s.id)}
-                              >
-                                {reminderGeneratingStepId === s.id ? "Generating…" : "Generate"}
-                              </button>
-                              <label className="rounded-xl border border-zinc-200 bg-white px-3 py-1.5 text-xs font-semibold text-zinc-700 hover:bg-zinc-50 disabled:opacity-60">
-                                {reminderUploadBusyStepId === s.id ? "Uploading…" : "Upload file"}
-                                <input
-                                  type="file"
-                                  className="hidden"
-                                  disabled={reminderSaving || reminderUploadBusyStepId === s.id}
-                                  onChange={(e) => {
-                                    const f = e.target.files?.[0];
-                                    if (f) void uploadFileForReminderStep(s.id, f);
-                                    e.currentTarget.value = "";
-                                  }}
-                                />
-                              </label>
-                              <button
-                                type="button"
-                                disabled={reminderSaving}
-                                className="rounded-xl border border-zinc-200 bg-white px-3 py-1.5 text-xs font-semibold text-zinc-700 hover:bg-zinc-50 disabled:opacity-60"
-                                onClick={() => setReminderMediaPickerStepId(s.id)}
-                              >
-                                Attach files
-                              </button>
+                              {s.kind !== "TAG" ? (
+                                <>
+                                  <button
+                                    type="button"
+                                    disabled={reminderSaving || reminderGeneratingStepId === s.id}
+                                    className="rounded-xl border border-zinc-200 bg-white px-3 py-1.5 text-xs font-semibold text-brand-ink hover:bg-zinc-50 disabled:opacity-60"
+                                    onClick={() => void generateReminderStep(s.id)}
+                                  >
+                                    {reminderGeneratingStepId === s.id ? "Drafting…" : "AI draft"}
+                                  </button>
+                                  <label className="rounded-xl border border-zinc-200 bg-white px-3 py-1.5 text-xs font-semibold text-zinc-700 hover:bg-zinc-50 disabled:opacity-60">
+                                    {reminderUploadBusyStepId === s.id ? "Uploading…" : "Upload file"}
+                                    <input
+                                      type="file"
+                                      className="hidden"
+                                      disabled={reminderSaving || reminderUploadBusyStepId === s.id}
+                                      onChange={(e) => {
+                                        const f = e.target.files?.[0];
+                                        if (f) void uploadFileForReminderStep(s.id, f);
+                                        e.currentTarget.value = "";
+                                      }}
+                                    />
+                                  </label>
+                                  <button
+                                    type="button"
+                                    disabled={reminderSaving}
+                                    className="rounded-xl border border-zinc-200 bg-white px-3 py-1.5 text-xs font-semibold text-zinc-700 hover:bg-zinc-50 disabled:opacity-60"
+                                    onClick={() => setReminderMediaPickerStepId(s.id)}
+                                  >
+                                    Attach files
+                                  </button>
+                                </>
+                              ) : null}
                             </div>
                           </div>
 
-                          {reminderDraft.channel === "EMAIL" ? (
+                          {s.kind === "TAG" ? (
+                            <div className="mt-3">
+                              <div className="flex items-center justify-between gap-3">
+                                <div className="text-xs font-semibold text-zinc-600">Tag to apply</div>
+                                <button
+                                  type="button"
+                                  className="rounded-xl border border-zinc-200 bg-white px-3 py-1.5 text-xs font-semibold text-brand-ink hover:bg-zinc-50 disabled:opacity-60"
+                                  disabled={reminderSaving}
+                                  onClick={() => {
+                                    setReminderCreateTagStepId(s.id);
+                                    setReminderCreateTagName("");
+                                    setReminderCreateTagOpen(true);
+                                  }}
+                                >
+                                  New tag
+                                </button>
+                              </div>
+                              <PortalListboxDropdown
+                                value={String(s.tagId || "")}
+                                disabled={reminderSaving || reminderTagsLoading}
+                                onChange={(v) => updateReminderStep(s.id, { tagId: String(v || "") || undefined })}
+                                options={[
+                                  { value: "", label: reminderTagsLoading ? "Loading tags…" : "Select a tag…" },
+                                  ...reminderOwnerTags.map((t) => ({ value: t.id, label: t.name })),
+                                ]}
+                                className="mt-2 w-full max-w-md"
+                                buttonClassName="flex h-10 w-full items-center justify-between gap-2 rounded-xl border border-zinc-200 bg-white px-3 text-sm hover:bg-zinc-50 focus-visible:ring-2 focus-visible:ring-zinc-300"
+                              />
+                              <div className="mt-2 text-xs text-zinc-500">This step applies a tag to the contact (no message is sent).</div>
+                            </div>
+                          ) : null}
+
+                          {s.kind === "EMAIL" ? (
                             <div className="mt-3">
                               <div className="flex items-center justify-between gap-3">
                                 <div className="text-xs font-semibold text-zinc-600">Subject</div>
@@ -1736,12 +1875,14 @@ export function PortalBookingClient() {
                             </div>
                           ) : null}
 
-                          <textarea
-                            className="mt-2 min-h-[90px] w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm"
-                            value={s.messageBody}
-                            onChange={(e) => updateReminderStep(s.id, { messageBody: e.target.value })}
-                            disabled={reminderSaving}
-                          />
+                          {s.kind !== "TAG" ? (
+                            <textarea
+                              className="mt-2 min-h-[90px] w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm"
+                              value={String(s.messageBody ?? "")}
+                              onChange={(e) => updateReminderStep(s.id, { messageBody: e.target.value })}
+                              disabled={reminderSaving}
+                            />
+                          ) : null}
                         </label>
                       </div>
                     </div>
@@ -1763,7 +1904,7 @@ export function PortalBookingClient() {
                     disabled={
                       reminderSaving ||
                       reminderDraft.steps.length === 0 ||
-                      reminderDraft.steps.some((x) => !String(x.messageBody || "").trim())
+                      reminderDraft.steps.some((x) => (x.kind === "TAG" ? !String(x.tagId || "").trim() : !String(x.messageBody || "").trim()))
                     }
                     onClick={() => void saveReminders(reminderDraft)}
                   >
@@ -1846,6 +1987,48 @@ export function PortalBookingClient() {
           </div>
         </div>
       ) : null}
+
+      <AppModal
+        open={reminderCreateTagOpen}
+        title="Create tag"
+        description="Create a new contact tag to use in this reminder step."
+        onClose={() => {
+          if (reminderCreateTagBusy) return;
+          setReminderCreateTagOpen(false);
+        }}
+        widthClassName="w-[min(560px,calc(100vw-32px))]"
+        footer={
+          <div className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
+            <button
+              type="button"
+              className="rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm font-semibold text-zinc-800 hover:bg-zinc-50 disabled:opacity-60"
+              disabled={reminderCreateTagBusy}
+              onClick={() => setReminderCreateTagOpen(false)}
+            >
+              Cancel
+            </button>
+            <button
+              type="button"
+              className="rounded-2xl bg-brand-ink px-4 py-2 text-sm font-semibold text-white hover:opacity-95 disabled:opacity-60"
+              disabled={reminderCreateTagBusy || !reminderCreateTagName.trim()}
+              onClick={() => void createReminderTag()}
+            >
+              {reminderCreateTagBusy ? "Creating…" : "Create"}
+            </button>
+          </div>
+        }
+      >
+        <label className="block">
+          <div className="text-xs font-semibold text-zinc-600">Tag name</div>
+          <input
+            className="mt-2 h-10 w-full rounded-xl border border-zinc-200 bg-white px-3 text-sm"
+            value={reminderCreateTagName}
+            onChange={(e) => setReminderCreateTagName(e.target.value)}
+            disabled={reminderCreateTagBusy}
+            placeholder="e.g. Confirmed"
+          />
+        </label>
+      </AppModal>
 
       <PortalMediaPickerModal
         open={Boolean(reminderMediaPickerStepId)}
@@ -1965,6 +2148,7 @@ export function PortalBookingClient() {
           description="Create multiple booking links (different appointment types) with their own title and duration."
           accent="slate"
           collapsible={false}
+          dotClassName="hidden"
         >
 
           <div className="mt-4 rounded-2xl border border-zinc-200 bg-zinc-50 p-4">

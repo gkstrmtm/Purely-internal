@@ -1,4 +1,4 @@
-export type FollowUpStepKind = "SMS" | "EMAIL";
+export type FollowUpStepKind = "SMS" | "EMAIL" | "TAG";
 
 export type FollowUpTemplate = {
   id: string;

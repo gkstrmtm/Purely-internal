@@ -3,11 +3,14 @@ import { getBookingCalendarsConfig } from "@/lib/bookingCalendars";
 import { normalizePhoneForStorage } from "@/lib/phone";
 import { getOwnerTwilioSmsConfig, sendOwnerTwilioSms } from "@/lib/portalTwilio";
 import { runOwnerAutomationsForEvent } from "@/lib/portalAutomationsRunner";
+import { addContactTagAssignment } from "@/lib/portalContactTags";
 import { buildPortalTemplateVars } from "@/lib/portalTemplateVars";
 import { renderTextTemplate } from "@/lib/textTemplate";
 import { getOutboundEmailFrom, isOutboundEmailConfigured, sendTransactionalEmail } from "@/lib/emailSender";
 
-export type FollowUpChannel = "EMAIL" | "SMS";
+export type FollowUpChannel = "EMAIL" | "SMS" | "TAG";
+
+export type FollowUpStepKind = FollowUpChannel;
 
 export type FollowUpAudience = "CONTACT" | "INTERNAL";
 
@@ -46,19 +49,17 @@ export type FollowUpStep = {
   name: string;
   enabled: boolean;
   delayMinutes: number;
+  kind: FollowUpStepKind;
   audience?: FollowUpAudience;
   internalRecipients?: FollowUpInternalRecipients;
-  channels: {
-    email: boolean;
-    sms: boolean;
-  };
-  email: {
+  email?: {
     subjectTemplate: string;
     bodyTemplate: string;
   };
-  sms: {
+  sms?: {
     bodyTemplate: string;
   };
+  tagId?: string;
   /** Optional metadata for UI: indicates the preset this step was created from. */
   presetId?: string;
 };
@@ -70,7 +71,7 @@ export type FollowUpChainTemplate = {
 };
 
 export type FollowUpSettings = {
-  version: 3;
+  version: 4;
   enabled: boolean;
   /** Optional preset library. Steps copy from presets; presets do not run by themselves. */
   templates: FollowUpTemplate[];
@@ -91,9 +92,11 @@ export type FollowUpQueueItem = {
   stepName: string;
   calendarId?: string;
   channel: FollowUpChannel;
-  to: string;
+  to?: string;
+  contactId?: string;
+  tagId?: string;
   subject?: string;
-  body: string;
+  body?: string;
   sendAtIso: string;
   status: "PENDING" | "SENT" | "FAILED" | "CANCELED";
   attempts: number;
@@ -103,7 +106,7 @@ export type FollowUpQueueItem = {
 };
 
 type ServiceData = {
-  version: 3;
+  version: 4;
   settings: FollowUpSettings;
   queue: FollowUpQueueItem[];
   bookingMeta?: Record<string, { calendarId?: string; updatedAtIso?: string }>;
@@ -330,16 +333,15 @@ export function defaultFollowUpSettings(): FollowUpSettings {
     name: first.name,
     enabled: true,
     delayMinutes: first.delayMinutes,
+    kind: "EMAIL",
     audience: first.audience,
     internalRecipients: first.internalRecipients,
-    channels: { ...first.channels },
     email: { ...first.email },
-    sms: { ...first.sms },
     presetId: first.id,
   };
 
   return {
-    version: 3,
+    version: 4,
     enabled: false,
     templates,
     chainTemplates: [],
@@ -359,25 +361,47 @@ export function parseFollowUpSettings(value: unknown): FollowUpSettings {
       : rec;
 
   const defaults = defaultFollowUpSettings();
-  const version = settingsRaw.version === 3 ? 3 : settingsRaw.version === 2 ? 2 : settingsRaw.version === 1 ? 1 : undefined;
+  const version =
+    settingsRaw.version === 4 ? 4 : settingsRaw.version === 3 ? 3 : settingsRaw.version === 2 ? 2 : settingsRaw.version === 1 ? 1 : undefined;
 
-  function templateToStep(t: FollowUpTemplate, stepId: string, override?: Partial<FollowUpStep>): FollowUpStep {
-    const base: FollowUpStep = {
-      id: stepId,
-      name: t.name,
-      enabled: Boolean(t.enabled),
-      delayMinutes: clampInt(t.delayMinutes, 60, 0, MAX_DELAY_MINUTES),
-      audience: t.audience === "INTERNAL" ? "INTERNAL" : "CONTACT",
-      internalRecipients: t.audience === "INTERNAL" ? t.internalRecipients : undefined,
-      channels: { ...t.channels },
-      email: { ...t.email },
-      sms: { ...t.sms },
-      presetId: t.id,
-    };
-    return { ...base, ...(override ?? {}) };
+  type V3Step = {
+    id: string;
+    name: string;
+    enabled: boolean;
+    delayMinutes: number;
+    audience?: FollowUpAudience;
+    internalRecipients?: FollowUpInternalRecipients;
+    channels: { email: boolean; sms: boolean };
+    email: { subjectTemplate: string; bodyTemplate: string };
+    sms: { bodyTemplate: string };
+    presetId?: string;
+  };
+
+  type V3Settings = {
+    enabled: boolean;
+    templates: FollowUpTemplate[];
+    chainTemplates: Array<{ id: string; name: string; steps: V3Step[] }>;
+    assignments: { defaultSteps: V3Step[]; calendarSteps: Record<string, V3Step[]> };
+    customVariables: Record<string, string>;
+  };
+
+  function normalizeInternalRecipients(audience: FollowUpAudience, raw: unknown): FollowUpInternalRecipients | undefined {
+    if (audience !== "INTERNAL") return undefined;
+    const internalRecipientsRaw = raw && typeof raw === "object" && !Array.isArray(raw) ? (raw as Record<string, unknown>) : {};
+    const mode = internalRecipientsRaw.mode === "CUSTOM" ? "CUSTOM" : "BOOKING_NOTIFICATION_EMAILS";
+    if (mode === "CUSTOM") {
+      const emails = normalizeEmailList(internalRecipientsRaw.emails, 20);
+      const phones = normalizePhoneList(internalRecipientsRaw.phones, 20);
+      return {
+        mode: "CUSTOM",
+        emails: emails.length ? emails : undefined,
+        phones: phones.length ? phones : undefined,
+      };
+    }
+    return { mode: "BOOKING_NOTIFICATION_EMAILS" };
   }
 
-  function normalizeStep(raw: unknown, fallbackId: string): FollowUpStep | null {
+  function normalizeStepV3(raw: unknown, fallbackId: string): V3Step | null {
     const item = raw && typeof raw === "object" && !Array.isArray(raw) ? (raw as Record<string, unknown>) : null;
     if (!item) return null;
 
@@ -399,26 +423,9 @@ export function parseFollowUpSettings(value: unknown): FollowUpSettings {
         : {};
 
     const audience: FollowUpAudience = item.audience === "INTERNAL" ? "INTERNAL" : "CONTACT";
-    const internalRecipientsRaw =
-      item.internalRecipients && typeof item.internalRecipients === "object" && !Array.isArray(item.internalRecipients)
-        ? (item.internalRecipients as Record<string, unknown>)
-        : {};
-    const internalRecipients: FollowUpInternalRecipients | undefined = (() => {
-      if (audience !== "INTERNAL") return undefined;
-      const mode = internalRecipientsRaw.mode === "CUSTOM" ? "CUSTOM" : "BOOKING_NOTIFICATION_EMAILS";
-      if (mode === "CUSTOM") {
-        const emails = normalizeEmailList(internalRecipientsRaw.emails, 20);
-        const phones = normalizePhoneList(internalRecipientsRaw.phones, 20);
-        return {
-          mode: "CUSTOM",
-          emails: emails.length ? emails : undefined,
-          phones: phones.length ? phones : undefined,
-        };
-      }
-      return { mode: "BOOKING_NOTIFICATION_EMAILS" };
-    })();
+    const internalRecipients = normalizeInternalRecipients(audience, item.internalRecipients);
 
-    const step: FollowUpStep = {
+    return {
       id,
       name,
       enabled: normalizeBool(item.enabled, true),
@@ -438,8 +445,140 @@ export function parseFollowUpSettings(value: unknown): FollowUpSettings {
       },
       presetId: typeof item.presetId === "string" ? normalizeId(item.presetId, "").slice(0, 40) || undefined : undefined,
     };
+  }
 
-    return step;
+  function v3StepToV4Steps(step: V3Step): FollowUpStep[] {
+    const both = Boolean(step.channels.email) && Boolean(step.channels.sms);
+    const base = {
+      enabled: Boolean(step.enabled),
+      delayMinutes: clampInt(step.delayMinutes, 60, 0, MAX_DELAY_MINUTES),
+      audience: step.audience === "INTERNAL" ? "INTERNAL" : "CONTACT",
+      internalRecipients: step.audience === "INTERNAL" ? step.internalRecipients : undefined,
+      presetId: step.presetId,
+    } satisfies Omit<FollowUpStep, "id" | "name" | "kind">;
+
+    const out: FollowUpStep[] = [];
+    if (step.channels.email) {
+      out.push({
+        id: (both ? `${step.id}_email` : step.id).slice(0, 60),
+        name: both ? `${step.name} (Email)` : step.name,
+        kind: "EMAIL",
+        ...base,
+        email: { ...step.email },
+      });
+    }
+    if (step.channels.sms) {
+      out.push({
+        id: (both ? `${step.id}_sms` : step.id).slice(0, 60),
+        name: both ? `${step.name} (SMS)` : step.name,
+        kind: "SMS",
+        ...base,
+        sms: { ...step.sms },
+      });
+    }
+    return out;
+  }
+
+  function normalizeStepV4(raw: unknown, fallbackId: string): FollowUpStep | null {
+    const item = raw && typeof raw === "object" && !Array.isArray(raw) ? (raw as Record<string, unknown>) : null;
+    if (!item) return null;
+
+    const id = normalizeId(item.id, fallbackId).slice(0, 60);
+    const name = normalizeString(item.name, "Step", 80).trim();
+    if (!name) return null;
+
+    const kind: FollowUpStepKind = item.kind === "SMS" || item.kind === "EMAIL" || item.kind === "TAG" ? (item.kind as FollowUpStepKind) : "EMAIL";
+    const audience: FollowUpAudience = item.audience === "INTERNAL" ? "INTERNAL" : "CONTACT";
+    const internalRecipients = normalizeInternalRecipients(audience, item.internalRecipients);
+
+    const presetId = typeof item.presetId === "string" ? normalizeId(item.presetId, "").slice(0, 40) || undefined : undefined;
+
+    const emailRaw =
+      item.email && typeof item.email === "object" && !Array.isArray(item.email) ? (item.email as Record<string, unknown>) : {};
+    const smsRaw =
+      item.sms && typeof item.sms === "object" && !Array.isArray(item.sms) ? (item.sms as Record<string, unknown>) : {};
+
+    const base: FollowUpStep = {
+      id,
+      name,
+      enabled: normalizeBool(item.enabled, true),
+      delayMinutes: clampInt(item.delayMinutes, 60, 0, MAX_DELAY_MINUTES),
+      kind,
+      audience,
+      internalRecipients,
+      presetId,
+    };
+
+    if (kind === "EMAIL") {
+      return {
+        ...base,
+        email: {
+          subjectTemplate: normalizeString(emailRaw.subjectTemplate, defaults.templates[0]!.email.subjectTemplate, 200),
+          bodyTemplate: normalizeString(emailRaw.bodyTemplate, defaults.templates[0]!.email.bodyTemplate, 5000),
+        },
+      };
+    }
+
+    if (kind === "SMS") {
+      return {
+        ...base,
+        sms: {
+          bodyTemplate: normalizeString(smsRaw.bodyTemplate, defaults.templates[0]!.sms.bodyTemplate, 900),
+        },
+      };
+    }
+
+    const tagId = typeof item.tagId === "string" ? String(item.tagId).trim().slice(0, 80) : "";
+    return {
+      ...base,
+      tagId: tagId || undefined,
+    };
+  }
+
+  function convertV3ToV4(v3: V3Settings): FollowUpSettings {
+    const convertSteps = (steps: V3Step[]) => {
+      const out: FollowUpStep[] = [];
+      const seenStep = new Set<string>();
+      for (const s of steps) {
+        for (const v4 of v3StepToV4Steps(s)) {
+          if (!v4) continue;
+          if (seenStep.has(v4.id)) continue;
+          seenStep.add(v4.id);
+          out.push(v4);
+          if (out.length >= 30) break;
+        }
+        if (out.length >= 30) break;
+      }
+      return out;
+    };
+
+    const chainTemplates: FollowUpChainTemplate[] = [];
+    for (const t of v3.chainTemplates) {
+      const steps = convertSteps(t.steps);
+      if (!steps.length) continue;
+      chainTemplates.push({ id: t.id, name: t.name, steps });
+      if (chainTemplates.length >= 50) break;
+    }
+
+    const calendarSteps: Record<string, FollowUpStep[]> = {};
+    for (const [calId, steps] of Object.entries(v3.assignments.calendarSteps || {})) {
+      const next = convertSteps(steps);
+      if (next.length) calendarSteps[calId] = next;
+    }
+
+    const defaultSteps = convertSteps(v3.assignments.defaultSteps || []);
+
+    return {
+      version: 4,
+      enabled: Boolean(v3.enabled),
+      templates: Array.isArray(v3.templates) && v3.templates.length ? v3.templates : defaults.templates,
+      chainTemplates,
+      assignments: {
+        defaultSteps: defaultSteps.length ? defaultSteps : defaults.assignments.defaultSteps,
+        calendarSteps,
+      },
+      customVariables: v3.customVariables,
+    };
   }
 
   // Back-compat: v1 settings become a single template + additional defaults (disabled) for convenience.
@@ -481,19 +620,27 @@ export function parseFollowUpSettings(value: unknown): FollowUpSettings {
       .map((t) => ({ ...t, enabled: false }));
 
     const templates = [primary, ...extraDefaults].slice(0, 20);
-    const step = templateToStep(primary, "step_default_1", { enabled: true });
 
-    return {
-      version: 3,
+    const stepV3: V3Step = {
+      id: "step_default_1",
+      name: primary.name,
+      enabled: true,
+      delayMinutes: primary.delayMinutes,
+      audience: primary.audience,
+      internalRecipients: primary.audience === "INTERNAL" ? primary.internalRecipients : undefined,
+      channels: { ...primary.channels },
+      email: { ...primary.email },
+      sms: { ...primary.sms },
+      presetId: primary.id,
+    };
+
+    return convertV3ToV4({
       enabled: normalizeBool(settingsRaw.enabled, defaults.enabled),
       templates,
       chainTemplates: [],
-      assignments: {
-        defaultSteps: [step],
-        calendarSteps: {},
-      },
+      assignments: { defaultSteps: [stepV3], calendarSteps: {} },
       customVariables: {},
-    };
+    });
   }
 
   // Back-compat: v2 (template assignments) -> v3 (step chains).
@@ -587,20 +734,31 @@ export function parseFollowUpSettings(value: unknown): FollowUpSettings {
       .filter(Boolean)
       .slice(0, 20);
 
-    const defaultSteps: FollowUpStep[] = [];
+    const defaultStepsV3: V3Step[] = [];
     for (let i = 0; i < defaultTemplateIds.length; i += 1) {
       const tid = defaultTemplateIds[i]!;
       const t = templateById.get(tid);
       if (!t) continue;
-      defaultSteps.push(templateToStep(t, `step_default_${tid}_${i + 1}`.slice(0, 60), { enabled: true }));
-      if (defaultSteps.length >= 20) break;
+      defaultStepsV3.push({
+        id: `step_default_${tid}_${i + 1}`.slice(0, 60),
+        name: t.name,
+        enabled: true,
+        delayMinutes: clampInt(t.delayMinutes, 60, 0, MAX_DELAY_MINUTES),
+        audience: t.audience === "INTERNAL" ? "INTERNAL" : "CONTACT",
+        internalRecipients: t.audience === "INTERNAL" ? t.internalRecipients : undefined,
+        channels: { ...t.channels },
+        email: { ...t.email },
+        sms: { ...t.sms },
+        presetId: t.id,
+      });
+      if (defaultStepsV3.length >= 20) break;
     }
 
     const calendarTemplateIdsRaw =
       assignmentsRaw.calendarTemplateIds && typeof assignmentsRaw.calendarTemplateIds === "object" && !Array.isArray(assignmentsRaw.calendarTemplateIds)
         ? (assignmentsRaw.calendarTemplateIds as Record<string, unknown>)
         : {};
-    const calendarSteps: Record<string, FollowUpStep[]> = {};
+    const calendarStepsV3: Record<string, V3Step[]> = {};
     for (const [calId0, list0] of Object.entries(calendarTemplateIdsRaw)) {
       const calId = normalizeId(calId0, "").slice(0, 40);
       if (!calId) continue;
@@ -610,33 +768,43 @@ export function parseFollowUpSettings(value: unknown): FollowUpSettings {
         .map((x) => normalizeId(x, "").slice(0, 40))
         .filter(Boolean)
         .slice(0, 20);
-      const steps: FollowUpStep[] = [];
+      const steps: V3Step[] = [];
       for (let i = 0; i < ids.length; i += 1) {
         const tid = ids[i]!;
         const t = templateById.get(tid);
         if (!t) continue;
-        steps.push(templateToStep(t, `step_cal_${calId}_${tid}_${i + 1}`.slice(0, 60), { enabled: true }));
+        steps.push({
+          id: `step_cal_${calId}_${tid}_${i + 1}`.slice(0, 60),
+          name: t.name,
+          enabled: true,
+          delayMinutes: clampInt(t.delayMinutes, 60, 0, MAX_DELAY_MINUTES),
+          audience: t.audience === "INTERNAL" ? "INTERNAL" : "CONTACT",
+          internalRecipients: t.audience === "INTERNAL" ? t.internalRecipients : undefined,
+          channels: { ...t.channels },
+          email: { ...t.email },
+          sms: { ...t.sms },
+          presetId: t.id,
+        });
         if (steps.length >= 20) break;
       }
-      if (steps.length) calendarSteps[calId] = steps;
+      if (steps.length) calendarStepsV3[calId] = steps;
     }
 
     const customVariables = normalizeStringRecord(v2.customVariables, 30, 32, 800);
 
-    return {
-      version: 3,
+    return convertV3ToV4({
       enabled: normalizeBool(v2.enabled, defaults.enabled),
       templates: templatesNormalized,
       chainTemplates: [],
       assignments: {
-        defaultSteps: defaultSteps.length ? defaultSteps : defaults.assignments.defaultSteps,
-        calendarSteps,
+        defaultSteps: defaultStepsV3,
+        calendarSteps: calendarStepsV3,
       },
       customVariables,
-    };
+    });
   }
 
-  // v3 normalization
+  // v3/v4 normalization (template library is still stored v3-style)
   const templatesRaw = Array.isArray(settingsRaw.templates) ? settingsRaw.templates : [];
   const templates: FollowUpTemplate[] = [];
   const seen = new Set<string>();
@@ -708,7 +876,8 @@ export function parseFollowUpSettings(value: unknown): FollowUpSettings {
   const chainTemplatesRaw = Array.isArray((settingsRaw as any).chainTemplates)
     ? (((settingsRaw as any).chainTemplates as unknown[]) ?? [])
     : [];
-  const chainTemplates: FollowUpChainTemplate[] = [];
+  const chainTemplatesV4: FollowUpChainTemplate[] = [];
+  const chainTemplatesV3: V3Settings["chainTemplates"] = [];
   {
     const seenTpl = new Set<string>();
     for (let i = 0; i < chainTemplatesRaw.length; i += 1) {
@@ -726,20 +895,36 @@ export function parseFollowUpSettings(value: unknown): FollowUpSettings {
       if (!name) continue;
 
       const stepsRaw = Array.isArray(item.steps) ? item.steps : [];
-      const steps: FollowUpStep[] = [];
-      const seenStep = new Set<string>();
-      for (let j = 0; j < stepsRaw.length; j += 1) {
-        const step = normalizeStep(stepsRaw[j], `step${j + 1}`);
-        if (!step) continue;
-        if (seenStep.has(step.id)) continue;
-        seenStep.add(step.id);
-        steps.push(step);
-        if (steps.length >= 30) break;
-      }
-      if (!steps.length) continue;
 
-      chainTemplates.push({ id, name, steps });
-      if (chainTemplates.length >= 50) break;
+      if (version === 4) {
+        const steps: FollowUpStep[] = [];
+        const seenStep = new Set<string>();
+        for (let j = 0; j < stepsRaw.length; j += 1) {
+          const step = normalizeStepV4(stepsRaw[j], `step${j + 1}`);
+          if (!step) continue;
+          if (seenStep.has(step.id)) continue;
+          seenStep.add(step.id);
+          steps.push(step);
+          if (steps.length >= 30) break;
+        }
+        if (!steps.length) continue;
+        chainTemplatesV4.push({ id, name, steps });
+        if (chainTemplatesV4.length >= 50) break;
+      } else {
+        const steps: V3Step[] = [];
+        const seenStep = new Set<string>();
+        for (let j = 0; j < stepsRaw.length; j += 1) {
+          const step = normalizeStepV3(stepsRaw[j], `step${j + 1}`);
+          if (!step) continue;
+          if (seenStep.has(step.id)) continue;
+          seenStep.add(step.id);
+          steps.push(step);
+          if (steps.length >= 30) break;
+        }
+        if (!steps.length) continue;
+        chainTemplatesV3.push({ id, name, steps });
+        if (chainTemplatesV3.length >= 50) break;
+      }
     }
   }
 
@@ -749,16 +934,26 @@ export function parseFollowUpSettings(value: unknown): FollowUpSettings {
       : {};
 
   const defaultStepsRaw = Array.isArray(assignmentsRaw.defaultSteps) ? assignmentsRaw.defaultSteps : [];
-  const defaultSteps: FollowUpStep[] = [];
+  const defaultStepsV4: FollowUpStep[] = [];
+  const defaultStepsV3: V3Step[] = [];
   {
     const seenStep = new Set<string>();
     for (let i = 0; i < defaultStepsRaw.length; i += 1) {
-      const step = normalizeStep(defaultStepsRaw[i], `step${i + 1}`);
-      if (!step) continue;
-      if (seenStep.has(step.id)) continue;
-      seenStep.add(step.id);
-      defaultSteps.push(step);
-      if (defaultSteps.length >= 30) break;
+      if (version === 4) {
+        const step = normalizeStepV4(defaultStepsRaw[i], `step${i + 1}`);
+        if (!step) continue;
+        if (seenStep.has(step.id)) continue;
+        seenStep.add(step.id);
+        defaultStepsV4.push(step);
+        if (defaultStepsV4.length >= 30) break;
+      } else {
+        const step = normalizeStepV3(defaultStepsRaw[i], `step${i + 1}`);
+        if (!step) continue;
+        if (seenStep.has(step.id)) continue;
+        seenStep.add(step.id);
+        defaultStepsV3.push(step);
+        if (defaultStepsV3.length >= 30) break;
+      }
     }
   }
 
@@ -766,37 +961,65 @@ export function parseFollowUpSettings(value: unknown): FollowUpSettings {
     assignmentsRaw.calendarSteps && typeof assignmentsRaw.calendarSteps === "object" && !Array.isArray(assignmentsRaw.calendarSteps)
       ? (assignmentsRaw.calendarSteps as Record<string, unknown>)
       : {};
-  const calendarSteps: Record<string, FollowUpStep[]> = {};
+  const calendarStepsV4: Record<string, FollowUpStep[]> = {};
+  const calendarStepsV3: Record<string, V3Step[]> = {};
   for (const [calId0, list0] of Object.entries(calendarStepsRaw)) {
     const calId = normalizeId(calId0, "").slice(0, 40);
     if (!calId) continue;
     const list = Array.isArray(list0) ? list0 : [];
-    const steps: FollowUpStep[] = [];
+    const stepsV4: FollowUpStep[] = [];
+    const stepsV3: V3Step[] = [];
     const seenStep = new Set<string>();
     for (let i = 0; i < list.length; i += 1) {
-      const step = normalizeStep(list[i], `step${i + 1}`);
-      if (!step) continue;
-      if (seenStep.has(step.id)) continue;
-      seenStep.add(step.id);
-      steps.push(step);
-      if (steps.length >= 30) break;
+      if (version === 4) {
+        const step = normalizeStepV4(list[i], `step${i + 1}`);
+        if (!step) continue;
+        if (seenStep.has(step.id)) continue;
+        seenStep.add(step.id);
+        stepsV4.push(step);
+        if (stepsV4.length >= 30) break;
+      } else {
+        const step = normalizeStepV3(list[i], `step${i + 1}`);
+        if (!step) continue;
+        if (seenStep.has(step.id)) continue;
+        seenStep.add(step.id);
+        stepsV3.push(step);
+        if (stepsV3.length >= 30) break;
+      }
     }
-    if (steps.length) calendarSteps[calId] = steps;
+    if (version === 4) {
+      if (stepsV4.length) calendarStepsV4[calId] = stepsV4;
+    } else {
+      if (stepsV3.length) calendarStepsV3[calId] = stepsV3;
+    }
   }
 
   const customVariables = normalizeStringRecord(settingsRaw.customVariables, 30, 32, 800);
 
-  return {
-    version: 3,
+  if (version === 4) {
+    return {
+      version: 4,
+      enabled: normalizeBool(settingsRaw.enabled, defaults.enabled),
+      templates: templates.length ? templates : defaults.templates,
+      chainTemplates: chainTemplatesV4,
+      assignments: {
+        defaultSteps: defaultStepsV4.length ? defaultStepsV4 : defaults.assignments.defaultSteps,
+        calendarSteps: calendarStepsV4,
+      },
+      customVariables,
+    };
+  }
+
+  return convertV3ToV4({
     enabled: normalizeBool(settingsRaw.enabled, defaults.enabled),
     templates: templates.length ? templates : defaults.templates,
-    chainTemplates,
+    chainTemplates: chainTemplatesV3,
     assignments: {
-      defaultSteps: defaultSteps.length ? defaultSteps : defaults.assignments.defaultSteps,
-      calendarSteps,
+      defaultSteps: defaultStepsV3,
+      calendarSteps: calendarStepsV3,
     },
     customVariables,
-  };
+  });
 }
 
 function parseServiceData(value: unknown): ServiceData {
@@ -825,9 +1048,12 @@ function parseServiceData(value: unknown): ServiceData {
           ? r.templateName
           : "Step";
     const calendarId = typeof r.calendarId === "string" ? r.calendarId : undefined;
-    const channel = r.channel === "EMAIL" || r.channel === "SMS" ? (r.channel as FollowUpChannel) : null;
-    const to = typeof r.to === "string" ? r.to : null;
-    const body = typeof r.body === "string" ? r.body : null;
+    const channel =
+      r.channel === "EMAIL" || r.channel === "SMS" || r.channel === "TAG" ? (r.channel as FollowUpChannel) : null;
+    const to = typeof r.to === "string" ? r.to : undefined;
+    const body = typeof r.body === "string" ? r.body : undefined;
+    const contactId = typeof r.contactId === "string" ? r.contactId : undefined;
+    const tagId = typeof r.tagId === "string" ? r.tagId : undefined;
     const sendAtIso = typeof r.sendAtIso === "string" ? r.sendAtIso : null;
     const status =
       r.status === "PENDING" || r.status === "SENT" || r.status === "FAILED" || r.status === "CANCELED"
@@ -839,7 +1065,9 @@ function parseServiceData(value: unknown): ServiceData {
     const lastError = typeof r.lastError === "string" ? r.lastError : undefined;
     const sentAtIso = typeof r.sentAtIso === "string" ? r.sentAtIso : undefined;
 
-    if (!id || !bookingId || !ownerId || !channel || !to || !body || !sendAtIso) continue;
+    if (!id || !bookingId || !ownerId || !channel || !sendAtIso) continue;
+    if ((channel === "EMAIL" || channel === "SMS") && (!to || !body)) continue;
+    if (channel === "TAG" && (!contactId || !tagId)) continue;
     queue.push({
       id,
       bookingId,
@@ -849,6 +1077,8 @@ function parseServiceData(value: unknown): ServiceData {
       calendarId,
       channel,
       to,
+      contactId,
+      tagId,
       subject,
       body,
       sendAtIso,
@@ -866,7 +1096,7 @@ function parseServiceData(value: unknown): ServiceData {
       ? (bookingMetaRaw as Record<string, { calendarId?: string; updatedAtIso?: string }>)
       : undefined;
 
-  return { version: 3, settings, queue, bookingMeta };
+  return { version: 4, settings, queue, bookingMeta };
 }
 
 async function getServiceRow(ownerId: string) {
@@ -891,7 +1121,7 @@ export async function setFollowUpSettings(ownerId: string, next: Partial<FollowU
   const merged = parseFollowUpSettings({ ...current.settings, ...next });
 
   const payload: any = {
-    version: 3,
+    version: 4,
     settings: merged,
     queue: current.queue,
     bookingMeta: current.bookingMeta ?? {},
@@ -1027,7 +1257,12 @@ export async function scheduleFollowUpsForBooking(
 
   const desiredKeys = new Set<string>();
 
-  function upsert(step: FollowUpStep, channel: FollowUpChannel, to: string, subject: string | undefined, body: string, sendAt: Date) {
+  function desiredKeyForQueueItem(q: Pick<FollowUpQueueItem, "bookingId" | "stepId" | "channel" | "to" | "contactId" | "tagId">) {
+    if (q.channel === "TAG") return `${q.bookingId}:${q.stepId}:TAG:${q.contactId || ""}:${q.tagId || ""}`;
+    return `${q.bookingId}:${q.stepId}:${q.channel}:${String(q.to || "").trim().toLowerCase()}`;
+  }
+
+  function upsertMessage(step: FollowUpStep, channel: "EMAIL" | "SMS", to: string, subject: string | undefined, body: string, sendAt: Date) {
     const toKey = String(to || "").trim().toLowerCase();
     const desiredKey = `${bookingRow.id}:${step.id}:${channel}:${toKey}`;
     desiredKeys.add(desiredKey);
@@ -1040,6 +1275,7 @@ export async function scheduleFollowUpsForBooking(
         String(x.to || "").trim().toLowerCase() === toKey &&
         x.status === "PENDING",
     );
+
     const base: FollowUpQueueItem = {
       id: existingIndex >= 0 ? nextQueue[existingIndex]!.id : randomId("fu"),
       bookingId: bookingRow.id,
@@ -1051,6 +1287,39 @@ export async function scheduleFollowUpsForBooking(
       to,
       subject,
       body,
+      sendAtIso: sendAt.toISOString(),
+      status: "PENDING",
+      attempts: existingIndex >= 0 ? nextQueue[existingIndex]!.attempts : 0,
+      createdAtIso: existingIndex >= 0 ? nextQueue[existingIndex]!.createdAtIso : nowIso(),
+    };
+    if (existingIndex >= 0) nextQueue[existingIndex] = base;
+    else nextQueue.push(base);
+  }
+
+  function upsertTag(step: FollowUpStep, contactId: string, tagId: string, sendAt: Date) {
+    const desiredKey = `${bookingRow.id}:${step.id}:TAG:${contactId}:${tagId}`;
+    desiredKeys.add(desiredKey);
+
+    const existingIndex = nextQueue.findIndex(
+      (x) =>
+        x.bookingId === bookingRow.id &&
+        x.stepId === step.id &&
+        x.channel === "TAG" &&
+        x.contactId === contactId &&
+        x.tagId === tagId &&
+        x.status === "PENDING",
+    );
+
+    const base: FollowUpQueueItem = {
+      id: existingIndex >= 0 ? nextQueue[existingIndex]!.id : randomId("fu"),
+      bookingId: bookingRow.id,
+      ownerId,
+      stepId: step.id,
+      stepName: step.name,
+      calendarId: calendarId || undefined,
+      channel: "TAG",
+      contactId,
+      tagId,
       sendAtIso: sendAt.toISOString(),
       status: "PENDING",
       attempts: existingIndex >= 0 ? nextQueue[existingIndex]!.attempts : 0,
@@ -1094,27 +1363,31 @@ export async function scheduleFollowUpsForBooking(
       return { emails, phones: [] as string[] };
     })();
 
-    if (step.channels.email) {
-      const subject = renderTemplate(step.email.subjectTemplate, vars).slice(0, 120);
-      const body = renderTemplate(step.email.bodyTemplate, vars).slice(0, 5000);
+    if (step.kind === "EMAIL") {
+      const subject = renderTemplate(step.email?.subjectTemplate || "Follow-up", vars).slice(0, 120);
+      const body = renderTemplate(step.email?.bodyTemplate || "", vars).slice(0, 5000);
       if (audience === "CONTACT") {
-        if (bookingRow.contactEmail) upsert(step, "EMAIL", bookingRow.contactEmail, subject, body, sendAt);
+        if (bookingRow.contactEmail) upsertMessage(step, "EMAIL", bookingRow.contactEmail, subject, body, sendAt);
       } else {
         for (const email of internal.emails) {
-          upsert(step, "EMAIL", email, subject, body, sendAt);
+          upsertMessage(step, "EMAIL", email, subject, body, sendAt);
         }
       }
-    }
-
-    if (step.channels.sms) {
-      const body = renderTemplate(step.sms.bodyTemplate, vars).slice(0, 900);
+    } else if (step.kind === "SMS") {
+      const body = renderTemplate(step.sms?.bodyTemplate || "", vars).slice(0, 900);
       if (audience === "CONTACT") {
-        if (bookingRow.contactPhone) upsert(step, "SMS", bookingRow.contactPhone, undefined, body, sendAt);
+        if (bookingRow.contactPhone) upsertMessage(step, "SMS", bookingRow.contactPhone, undefined, body, sendAt);
       } else {
         for (const phone of internal.phones) {
-          upsert(step, "SMS", phone, undefined, body, sendAt);
+          upsertMessage(step, "SMS", phone, undefined, body, sendAt);
         }
       }
+    } else if (step.kind === "TAG") {
+      if (audience !== "CONTACT") continue;
+      const contactId = bookingRow.contactId;
+      const tagId = step.tagId;
+      if (!contactId || !tagId) continue;
+      upsertTag(step, contactId, tagId, sendAt);
     }
   }
 
@@ -1123,7 +1396,7 @@ export async function scheduleFollowUpsForBooking(
     const q = nextQueue[i]!;
     if (q.bookingId !== bookingRow.id) continue;
     if (q.status !== "PENDING") continue;
-    const key = `${q.bookingId}:${q.stepId}:${q.channel}:${String(q.to || "").trim().toLowerCase()}`;
+    const key = desiredKeyForQueueItem(q);
     if (!desiredKeys.has(key)) {
       nextQueue[i] = { ...q, status: "CANCELED" };
     }
@@ -1142,7 +1415,7 @@ export async function scheduleFollowUpsForBooking(
     .slice(0, 200);
   const trimmedMeta = Object.fromEntries(metaEntries);
 
-  const payload: any = { version: 3, settings, queue: trimmed, bookingMeta: trimmedMeta };
+  const payload: any = { version: 4, settings, queue: trimmed, bookingMeta: trimmedMeta };
   await prisma.portalServiceSetup.upsert({
     where: { ownerId_serviceSlug: { ownerId, serviceSlug: SERVICE_SLUG } },
     create: { ownerId, serviceSlug: SERVICE_SLUG, status: "COMPLETE", dataJson: payload },
@@ -1158,7 +1431,7 @@ export async function cancelFollowUpsForBooking(ownerId: string, bookingId: stri
   const nextQueue = service.queue.map((q) =>
     q.bookingId === bookingId && q.status === "PENDING" ? { ...q, status: "CANCELED" as const } : q,
   );
-  const payload: any = { version: 3, settings: service.settings, queue: nextQueue, bookingMeta: service.bookingMeta ?? {} };
+  const payload: any = { version: 4, settings: service.settings, queue: nextQueue, bookingMeta: service.bookingMeta ?? {} };
   await prisma.portalServiceSetup.upsert({
     where: { ownerId_serviceSlug: { ownerId, serviceSlug: SERVICE_SLUG } },
     create: { ownerId, serviceSlug: SERVICE_SLUG, status: "COMPLETE", dataJson: payload },
@@ -1219,6 +1492,8 @@ export async function processDueFollowUps(opts: { limit: number }): Promise<{ pr
 
       try {
         if (msg.channel === "EMAIL") {
+          const to = msg.to || "";
+          const body = msg.body || "";
           if (!emailConfigured || !fromEmail) {
             skipped++;
             nextQueue[idx] = { ...nextQueue[idx]!, status: "FAILED", attempts: msg.attempts + 1, lastError: "Email not configured" };
@@ -1226,12 +1501,19 @@ export async function processDueFollowUps(opts: { limit: number }): Promise<{ pr
             continue;
           }
 
+          if (!to || !body) {
+            failed++;
+            nextQueue[idx] = { ...nextQueue[idx]!, status: "FAILED", attempts: msg.attempts + 1, lastError: "Missing email payload" };
+            changed = true;
+            continue;
+          }
+
           const subject = (msg.subject || "Follow-up").slice(0, 120);
           try {
             await sendTransactionalEmail({
-              to: msg.to,
+              to,
               subject,
-              text: msg.body,
+              text: body,
               fromName,
             });
           } catch (err: any) {
@@ -1255,13 +1537,15 @@ export async function processDueFollowUps(opts: { limit: number }): Promise<{ pr
             await runOwnerAutomationsForEvent({
               ownerId: row.ownerId,
               triggerKind: "follow_up_sent",
-              message: { from: fromEmail || "", to: msg.to, body: msg.body },
-              contact: { name: msg.to, email: msg.to },
+              message: { from: fromEmail || "", to, body },
+              contact: { name: to, email: to },
             });
           } catch {
             // ignore
           }
-        } else {
+        } else if (msg.channel === "SMS") {
+          const to = msg.to || "";
+          const body = msg.body || "";
           if (!twilio) {
             skipped++;
             nextQueue[idx] = { ...nextQueue[idx]!, status: "FAILED", attempts: msg.attempts + 1, lastError: "Texting not configured" };
@@ -1269,7 +1553,14 @@ export async function processDueFollowUps(opts: { limit: number }): Promise<{ pr
             continue;
           }
 
-          const res = await sendOwnerTwilioSms({ ownerId: row.ownerId, to: msg.to, body: msg.body.slice(0, 900) });
+          if (!to || !body) {
+            failed++;
+            nextQueue[idx] = { ...nextQueue[idx]!, status: "FAILED", attempts: msg.attempts + 1, lastError: "Missing SMS payload" };
+            changed = true;
+            continue;
+          }
+
+          const res = await sendOwnerTwilioSms({ ownerId: row.ownerId, to, body: body.slice(0, 900) });
           if (!res.ok) {
             failed++;
             nextQueue[idx] = {
@@ -1291,12 +1582,33 @@ export async function processDueFollowUps(opts: { limit: number }): Promise<{ pr
             await runOwnerAutomationsForEvent({
               ownerId: row.ownerId,
               triggerKind: "follow_up_sent",
-              message: { from: twilio?.fromNumberE164 || "", to: msg.to, body: msg.body },
-              contact: { name: msg.to, phone: msg.to },
+              message: { from: twilio?.fromNumberE164 || "", to, body },
+              contact: { name: to, phone: to },
             });
           } catch {
             // ignore
           }
+        } else {
+          const contactId = msg.contactId || "";
+          const tagId = msg.tagId || "";
+          if (!contactId || !tagId) {
+            failed++;
+            nextQueue[idx] = { ...nextQueue[idx]!, status: "FAILED", attempts: msg.attempts + 1, lastError: "Missing tag payload" };
+            changed = true;
+            continue;
+          }
+
+          const ok = await addContactTagAssignment({ ownerId: row.ownerId, contactId, tagId });
+          if (!ok) {
+            failed++;
+            nextQueue[idx] = { ...nextQueue[idx]!, status: "FAILED", attempts: msg.attempts + 1, lastError: "Failed to apply tag" };
+            changed = true;
+            continue;
+          }
+
+          sent++;
+          nextQueue[idx] = { ...nextQueue[idx]!, status: "SENT", sentAtIso: nowIso(), lastError: undefined };
+          changed = true;
         }
       } catch (e) {
         failed++;
@@ -1311,7 +1623,7 @@ export async function processDueFollowUps(opts: { limit: number }): Promise<{ pr
     }
 
     if (changed) {
-      const payload: any = { version: 3, settings: service.settings, queue: nextQueue, bookingMeta: service.bookingMeta ?? {} };
+      const payload: any = { version: 4, settings: service.settings, queue: nextQueue, bookingMeta: service.bookingMeta ?? {} };
       await prisma.portalServiceSetup.updateMany({
         where: { ownerId: row.ownerId, serviceSlug: SERVICE_SLUG },
         data: { dataJson: payload, status: "COMPLETE" },

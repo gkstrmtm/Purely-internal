@@ -1,9 +1,10 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 
 import { PORTAL_SERVICES } from "@/app/portal/services/catalog";
+import { AppModal } from "@/components/AppModal";
 import { PortalListboxDropdown } from "@/components/PortalListboxDropdown";
 import { PortalSettingsSection } from "@/components/PortalSettingsSection";
 import { PortalVariablePickerModal } from "@/components/PortalVariablePickerModal";
@@ -21,7 +22,7 @@ type Me = {
 };
 
 type Settings = {
-  version: 3;
+  version: 4;
   enabled: boolean;
   templates: {
     id: string;
@@ -57,6 +58,7 @@ type FollowUpStep = {
   name: string;
   enabled: boolean;
   delayMinutes: number;
+  kind: "EMAIL" | "SMS" | "TAG";
   audience?: "CONTACT" | "INTERNAL";
   internalRecipients?:
     | {
@@ -65,13 +67,15 @@ type FollowUpStep = {
         phones?: string[];
       }
     | undefined;
-  channels: { email: boolean; sms: boolean };
-  email: { subjectTemplate: string; bodyTemplate: string };
-  sms: { bodyTemplate: string };
+  email?: { subjectTemplate: string; bodyTemplate: string };
+  sms?: { bodyTemplate: string };
+  tagId?: string;
   presetId?: string;
 };
 
 type Calendar = { id: string; title: string; enabled: boolean; notificationEmails?: string[] };
+
+type ContactTag = { id: string; name: string; color: string | null };
 
 type QueueItem = {
   id: string;
@@ -79,10 +83,12 @@ type QueueItem = {
   stepId: string;
   stepName: string;
   calendarId?: string;
-  channel: "EMAIL" | "SMS";
-  to: string;
+  channel: "EMAIL" | "SMS" | "TAG";
+  to?: string;
+  contactId?: string;
+  tagId?: string;
   subject?: string;
-  body: string;
+  body?: string;
   sendAtIso: string;
   status: "PENDING" | "SENT" | "FAILED" | "CANCELED";
   attempts: number;
@@ -210,7 +216,28 @@ export function PortalFollowUpClient({ embedded }: { embedded?: boolean } = {}) 
   const [testMessage, setTestMessage] = useState("Just testing follow-up automation.");
   const [testBusy, setTestBusy] = useState(false);
 
-  const [generateBusy, setGenerateBusy] = useState<null | { id: string; channel: "EMAIL" | "SMS" }>(null);
+  type AiDraftModalState =
+    | null
+    | {
+        stepId: string;
+        kind: "EMAIL" | "SMS";
+        stepName: string;
+        existingSubject?: string;
+        existingBody: string;
+        apply: (patch: Partial<FollowUpStep>) => void;
+      };
+
+  const [aiDraftModal, setAiDraftModal] = useState<AiDraftModalState>(null);
+  const [aiDraftInstruction, setAiDraftInstruction] = useState("");
+  const [aiDraftBusy, setAiDraftBusy] = useState(false);
+  const [aiDraftError, setAiDraftError] = useState<string | null>(null);
+
+  const [ownerTags, setOwnerTags] = useState<ContactTag[]>([]);
+  const [tagsLoading, setTagsLoading] = useState(false);
+  const [createTagOpen, setCreateTagOpen] = useState(false);
+  const [createTagName, setCreateTagName] = useState("");
+  const [createTagBusy, setCreateTagBusy] = useState(false);
+  const [createTagStepId, setCreateTagStepId] = useState<string | null>(null);
 
   const [varPickerOpen, setVarPickerOpen] = useState(false);
   const [varPickerTarget, setVarPickerTarget] = useState<
@@ -347,41 +374,102 @@ export function PortalFollowUpClient({ embedded }: { embedded?: boolean } = {}) 
     return Boolean(me?.entitlements?.booking);
   }, [me]);
 
+  const refreshTags = useCallback(async () => {
+    setTagsLoading(true);
+    try {
+      const res = await fetch("/api/portal/contact-tags", { cache: "no-store" });
+      const json = (await res.json().catch(() => ({}))) as any;
+      if (!res.ok || !json.ok || !Array.isArray(json.tags)) {
+        throw new Error(typeof json?.error === "string" ? json.error : "Failed to load tags");
+      }
+      const next = (json.tags as any[])
+        .map((t: any) => ({
+          id: String(t?.id || ""),
+          name: String(t?.name || "").slice(0, 60),
+          color: typeof t?.color === "string" ? String(t.color) : null,
+        }))
+        .filter((t: ContactTag) => t.id && t.name);
+      next.sort((a: ContactTag, b: ContactTag) => a.name.localeCompare(b.name));
+      setOwnerTags(next);
+    } catch {
+      setOwnerTags([]);
+    } finally {
+      setTagsLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (!unlocked) return;
+    void refreshTags();
+  }, [refreshTags, unlocked]);
+
+  async function createTag() {
+    const name = createTagName.trim();
+    if (!name) {
+      toast.error("Enter a tag name");
+      return;
+    }
+
+    setCreateTagBusy(true);
+    try {
+      const res = await fetch("/api/portal/contact-tags", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ name }),
+      });
+      const json = (await res.json().catch(() => ({}))) as any;
+      if (!res.ok || !json.ok || !json.tag?.id) {
+        throw new Error(typeof json?.error === "string" ? json.error : "Failed to create tag");
+      }
+
+      const createdId = String(json.tag.id);
+      await refreshTags();
+
+      const stepId = createTagStepId;
+      if (stepId) patchStepById(stepId, { tagId: createdId });
+      setCreateTagOpen(false);
+      setCreateTagName("");
+      setCreateTagStepId(null);
+      toast.success("Created tag");
+    } catch (e: any) {
+      toast.error(String(e?.message || "Failed to create tag"));
+    } finally {
+      setCreateTagBusy(false);
+    }
+  }
+
   const canSave = useMemo(() => {
     if (!settings) return false;
 
-    const validateMessage = (m: {
-      enabled: boolean;
-      delayMinutes: number;
-      audience?: "CONTACT" | "INTERNAL";
-      internalRecipients?: { mode: "BOOKING_NOTIFICATION_EMAILS" | "CUSTOM"; emails?: string[]; phones?: string[] };
-      channels: { email: boolean; sms: boolean };
-      email: { subjectTemplate: string; bodyTemplate: string };
-      sms: { bodyTemplate: string };
-    }) => {
-      if (!m.enabled) return true;
-      if (m.delayMinutes < 0 || m.delayMinutes > MAX_DELAY_MINUTES) return false;
-      if (!m.channels.email && !m.channels.sms) return false;
+    const validateStep = (s: FollowUpStep) => {
+      if (!s.enabled) return true;
+      if (s.delayMinutes < 0 || s.delayMinutes > MAX_DELAY_MINUTES) return false;
 
-      const audience = m.audience ?? "CONTACT";
+      const audience = s.audience ?? "CONTACT";
+      if (s.kind === "TAG" && audience === "INTERNAL") return false;
+
       if (audience === "INTERNAL") {
-        const mode = m.internalRecipients?.mode ?? "BOOKING_NOTIFICATION_EMAILS";
+        const mode = s.internalRecipients?.mode ?? "BOOKING_NOTIFICATION_EMAILS";
         if (mode === "CUSTOM") {
-          const emails = Array.isArray(m.internalRecipients?.emails) ? m.internalRecipients!.emails! : [];
-          const phones = Array.isArray(m.internalRecipients?.phones) ? m.internalRecipients!.phones! : [];
-          if (m.channels.email && emails.filter(Boolean).length < 1) return false;
-          if (m.channels.sms && phones.filter(Boolean).length < 1) return false;
+          const emails = Array.isArray(s.internalRecipients?.emails) ? s.internalRecipients.emails : [];
+          const phones = Array.isArray(s.internalRecipients?.phones) ? s.internalRecipients.phones : [];
+          if (s.kind === "EMAIL" && emails.filter(Boolean).length < 1) return false;
+          if (s.kind === "SMS" && phones.filter(Boolean).length < 1) return false;
         }
       }
 
-      if (m.channels.email) {
-        if (m.email.subjectTemplate.trim().length < 2) return false;
-        if (m.email.bodyTemplate.trim().length < 5) return false;
+      if (s.kind === "EMAIL") {
+        if ((s.email?.subjectTemplate ?? "").trim().length < 2) return false;
+        if ((s.email?.bodyTemplate ?? "").trim().length < 5) return false;
+        return true;
       }
-      if (m.channels.sms) {
-        if (m.sms.bodyTemplate.trim().length < 2) return false;
+
+      if (s.kind === "SMS") {
+        if ((s.sms?.bodyTemplate ?? "").trim().length < 2) return false;
+        return true;
       }
-      return true;
+
+      return Boolean((s.tagId ?? "").trim());
     };
 
     const chains: FollowUpStep[][] = [settings.assignments.defaultSteps ?? []];
@@ -389,7 +477,7 @@ export function PortalFollowUpClient({ embedded }: { embedded?: boolean } = {}) 
     for (const steps of chains) {
       for (const s of steps) {
         if (!s.id.trim() || !s.name.trim()) return false;
-        if (!validateMessage(s)) return false;
+        if (!validateStep(s)) return false;
       }
     }
 
@@ -432,10 +520,10 @@ export function PortalFollowUpClient({ embedded }: { embedded?: boolean } = {}) 
         name: `${kind === "EMAIL" ? "Email" : "SMS"} step ${idx + 1}`,
         enabled: true,
         delayMinutes: clampDelayMinutes(s.delayMinutes),
+        kind,
         audience: "CONTACT",
-        channels: { email: kind === "EMAIL", sms: kind === "SMS" },
-        email: { subjectTemplate: emailSubject, bodyTemplate: body },
-        sms: { bodyTemplate: body },
+        email: kind === "EMAIL" ? { subjectTemplate: emailSubject, bodyTemplate: body } : undefined,
+        sms: kind === "SMS" ? { bodyTemplate: body } : undefined,
       };
     });
   }
@@ -445,9 +533,9 @@ export function PortalFollowUpClient({ embedded }: { embedded?: boolean } = {}) 
     return steps.map((s) => ({
       ...s,
       id: randomStepId(),
-      channels: { ...s.channels },
-      email: { ...s.email },
-      sms: { ...s.sms },
+      email: s.email ? { ...s.email } : undefined,
+      sms: s.sms ? { ...s.sms } : undefined,
+      tagId: typeof s.tagId === "string" ? s.tagId : undefined,
       internalRecipients:
         (s.audience ?? "CONTACT") === "INTERNAL"
           ? s.internalRecipients?.mode === "CUSTOM"
@@ -466,9 +554,9 @@ export function PortalFollowUpClient({ embedded }: { embedded?: boolean } = {}) 
     return steps.map((s, idx) => ({
       ...s,
       id: `step${idx + 1}`,
-      channels: { ...s.channels },
-      email: { ...s.email },
-      sms: { ...s.sms },
+      email: s.email ? { ...s.email } : undefined,
+      sms: s.sms ? { ...s.sms } : undefined,
+      tagId: typeof s.tagId === "string" ? s.tagId : undefined,
       internalRecipients:
         (s.audience ?? "CONTACT") === "INTERNAL"
           ? s.internalRecipients?.mode === "CUSTOM"
@@ -873,31 +961,42 @@ export function PortalFollowUpClient({ embedded }: { embedded?: boolean } = {}) 
               {(() => {
                 if (!settings) return null;
 
-                const makeBlankStep = (kind: "EMAIL" | "SMS"): FollowUpStep => ({
-                  id: randomStepId(),
-                  name: kind === "EMAIL" ? "Email step" : "SMS step",
-                  enabled: true,
-                  delayMinutes: 60,
-                  audience: "CONTACT",
-                  channels: { email: kind === "EMAIL", sms: kind === "SMS" },
-                  email: { subjectTemplate: "Thanks, {contactName}", bodyTemplate: "Hi {contactName},\n\nThanks again, {businessName}" },
-                  sms: { bodyTemplate: "Thanks again, {businessName}" },
-                });
+                const makeBlankStep = (kind: "EMAIL" | "SMS" | "TAG"): FollowUpStep => {
+                  if (kind === "TAG") {
+                    return {
+                      id: randomStepId(),
+                      name: "Tag step",
+                      enabled: true,
+                      delayMinutes: 60,
+                      kind: "TAG",
+                      audience: "CONTACT",
+                      tagId: undefined,
+                    };
+                  }
 
-                const stepFromPreset = (presetId: string): FollowUpStep | null => {
-                  const t = settings.templates.find((x) => x.id === presetId);
-                  if (!t) return null;
+                  if (kind === "SMS") {
+                    return {
+                      id: randomStepId(),
+                      name: "SMS step",
+                      enabled: true,
+                      delayMinutes: 60,
+                      kind: "SMS",
+                      audience: "CONTACT",
+                      sms: { bodyTemplate: "Thanks again, {businessName}" },
+                    };
+                  }
+
                   return {
                     id: randomStepId(),
-                    name: t.name,
+                    name: "Email step",
                     enabled: true,
-                    delayMinutes: clampDelayMinutes(t.delayMinutes),
-                    audience: t.audience ?? "CONTACT",
-                    internalRecipients: (t.audience ?? "CONTACT") === "INTERNAL" ? (t.internalRecipients ?? { mode: "BOOKING_NOTIFICATION_EMAILS" }) : undefined,
-                    channels: { ...t.channels },
-                    email: { ...t.email },
-                    sms: { ...t.sms },
-                    presetId: t.id,
+                    delayMinutes: 60,
+                    kind: "EMAIL",
+                    audience: "CONTACT",
+                    email: {
+                      subjectTemplate: "Thanks, {contactName}",
+                      bodyTemplate: "Hi {contactName},\n\nThanks again, {businessName}",
+                    },
                   };
                 };
 
@@ -1032,11 +1131,7 @@ export function PortalFollowUpClient({ embedded }: { embedded?: boolean } = {}) 
                                     <div className="mt-2 flex flex-wrap items-center gap-2 text-xs text-zinc-600">
                                       <span>{fmtDelay(s.delayMinutes)}</span>
                                       <span>•</span>
-                                      <span>
-                                        {s.channels.email ? "Email" : ""}
-                                        {s.channels.email && s.channels.sms ? ", " : ""}
-                                        {s.channels.sms ? "SMS" : ""}
-                                      </span>
+                                      <span>{s.kind === "EMAIL" ? "Email" : s.kind === "SMS" ? "SMS" : "Tag"}</span>
                                       {(s.audience ?? "CONTACT") === "INTERNAL" ? (
                                         <>
                                           <span>•</span>
@@ -1255,28 +1350,7 @@ export function PortalFollowUpClient({ embedded }: { embedded?: boolean } = {}) 
                                       </div>
                                     ) : null}
 
-                                    <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-                                      <div className="flex items-center justify-between gap-3 rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm text-zinc-800">
-                                        <div>Email</div>
-                                        <ToggleSwitch
-                                          checked={Boolean(s.channels.email)}
-                                          disabled={busy}
-                                          accent="blue"
-                                          onChange={(checked) => updateStep(s.id, { channels: { ...s.channels, email: checked } })}
-                                        />
-                                      </div>
-                                      <div className="flex items-center justify-between gap-3 rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm text-zinc-800">
-                                        <div>Text (SMS)</div>
-                                        <ToggleSwitch
-                                          checked={Boolean(s.channels.sms)}
-                                          disabled={busy}
-                                          accent="blue"
-                                          onChange={(checked) => updateStep(s.id, { channels: { ...s.channels, sms: checked } })}
-                                        />
-                                      </div>
-                                    </div>
-
-                                    {s.channels.email ? (
+                                    {s.kind === "EMAIL" ? (
                                       <div className="space-y-3">
                                         <div>
                                           <div className="flex items-center justify-between gap-3">
@@ -1293,8 +1367,8 @@ export function PortalFollowUpClient({ embedded }: { embedded?: boolean } = {}) 
                                             </button>
                                           </div>
                                           <input
-                                            value={s.email.subjectTemplate}
-                                            onChange={(e) => updateStep(s.id, { email: { ...s.email, subjectTemplate: e.target.value } })}
+                                            value={s.email?.subjectTemplate ?? ""}
+                                            onChange={(e) => updateStep(s.id, { email: { ...(s.email ?? { subjectTemplate: "", bodyTemplate: "" }), subjectTemplate: e.target.value } })}
                                             onFocus={(e) => {
                                               activeFieldElRef.current = e.currentTarget;
                                             }}
@@ -1307,33 +1381,22 @@ export function PortalFollowUpClient({ embedded }: { embedded?: boolean } = {}) 
                                             <div className="flex items-center gap-2">
                                               <button
                                                 type="button"
-                                                disabled={Boolean(generateBusy) || busy}
+                                                disabled={busy}
                                                 className="rounded-xl border border-zinc-200 bg-white px-3 py-1.5 text-xs font-semibold text-brand-ink hover:bg-zinc-50 disabled:opacity-60"
-                                                onClick={async () => {
-                                                  setGenerateBusy({ id: s.id, channel: "EMAIL" });
-                                                  try {
-                                                    const draft = await generateDraft({
-                                                      kind: "EMAIL",
-                                                      stepName: s.name,
-                                                      existingSubject: s.email.subjectTemplate,
-                                                      existingBody: s.email.bodyTemplate,
-                                                    });
-                                                    if (!draft) return;
-                                                    updateStep(s.id, {
-                                                      email: {
-                                                        ...s.email,
-                                                        subjectTemplate: (draft.subject ?? s.email.subjectTemplate) || "",
-                                                        bodyTemplate: draft.body || "",
-                                                      },
-                                                    });
-                                                  } finally {
-                                                    setGenerateBusy(null);
-                                                  }
+                                                onClick={() => {
+                                                  setAiDraftError(null);
+                                                  setAiDraftInstruction("");
+                                                  setAiDraftModal({
+                                                    stepId: s.id,
+                                                    kind: "EMAIL",
+                                                    stepName: s.name,
+                                                    existingSubject: s.email?.subjectTemplate ?? "",
+                                                    existingBody: s.email?.bodyTemplate ?? "",
+                                                    apply: (patch) => updateStep(s.id, patch),
+                                                  });
                                                 }}
                                               >
-                                                {generateBusy?.id === s.id && generateBusy.channel === "EMAIL"
-                                                  ? "Generating…"
-                                                  : "Generate"}
+                                                AI draft
                                               </button>
                                               <button
                                                 type="button"
@@ -1348,8 +1411,8 @@ export function PortalFollowUpClient({ embedded }: { embedded?: boolean } = {}) 
                                             </div>
                                           </div>
                                           <textarea
-                                            value={s.email.bodyTemplate}
-                                            onChange={(e) => updateStep(s.id, { email: { ...s.email, bodyTemplate: e.target.value } })}
+                                            value={s.email?.bodyTemplate ?? ""}
+                                            onChange={(e) => updateStep(s.id, { email: { ...(s.email ?? { subjectTemplate: "", bodyTemplate: "" }), bodyTemplate: e.target.value } })}
                                             onFocus={(e) => {
                                               activeFieldElRef.current = e.currentTarget;
                                             }}
@@ -1360,55 +1423,84 @@ export function PortalFollowUpClient({ embedded }: { embedded?: boolean } = {}) 
                                       </div>
                                     ) : null}
 
-                                    {s.channels.sms ? (
+                                    {s.kind === "SMS" ? (
                                       <div>
                                         <div className="flex items-center justify-between gap-3">
                                           <label className="text-xs font-semibold text-zinc-600">SMS body</label>
-                                            <div className="flex items-center gap-2">
-                                              <button
-                                                type="button"
-                                                disabled={Boolean(generateBusy) || busy}
-                                                className="rounded-xl border border-zinc-200 bg-white px-3 py-1.5 text-xs font-semibold text-brand-ink hover:bg-zinc-50 disabled:opacity-60"
-                                                onClick={async () => {
-                                                  setGenerateBusy({ id: s.id, channel: "SMS" });
-                                                  try {
-                                                    const draft = await generateDraft({
-                                                      kind: "SMS",
-                                                      stepName: s.name,
-                                                      existingBody: s.sms.bodyTemplate,
-                                                    });
-                                                    if (!draft) return;
-                                                    updateStep(s.id, { sms: { ...s.sms, bodyTemplate: draft.body || "" } });
-                                                  } finally {
-                                                    setGenerateBusy(null);
-                                                  }
-                                                }}
-                                              >
-                                                {generateBusy?.id === s.id && generateBusy.channel === "SMS"
-                                                  ? "Generating…"
-                                                  : "Generate"}
-                                              </button>
-                                              <button
-                                                type="button"
-                                                className="rounded-xl border border-zinc-200 bg-white px-3 py-1.5 text-xs font-semibold text-brand-ink hover:bg-zinc-50"
-                                                onClick={() => {
-                                                  setVarPickerTarget({ kind: "step", stepId: s.id, field: "smsBody" });
-                                                  setVarPickerOpen(true);
-                                                }}
-                                              >
-                                                Insert variable
-                                              </button>
-                                            </div>
+                                          <div className="flex items-center gap-2">
+                                            <button
+                                              type="button"
+                                              disabled={busy}
+                                              className="rounded-xl border border-zinc-200 bg-white px-3 py-1.5 text-xs font-semibold text-brand-ink hover:bg-zinc-50 disabled:opacity-60"
+                                              onClick={() => {
+                                                setAiDraftError(null);
+                                                setAiDraftInstruction("");
+                                                setAiDraftModal({
+                                                  stepId: s.id,
+                                                  kind: "SMS",
+                                                  stepName: s.name,
+                                                  existingBody: s.sms?.bodyTemplate ?? "",
+                                                  apply: (patch) => updateStep(s.id, patch),
+                                                });
+                                              }}
+                                            >
+                                              AI draft
+                                            </button>
+                                            <button
+                                              type="button"
+                                              className="rounded-xl border border-zinc-200 bg-white px-3 py-1.5 text-xs font-semibold text-brand-ink hover:bg-zinc-50"
+                                              onClick={() => {
+                                                setVarPickerTarget({ kind: "step", stepId: s.id, field: "smsBody" });
+                                                setVarPickerOpen(true);
+                                              }}
+                                            >
+                                              Insert variable
+                                            </button>
+                                          </div>
                                         </div>
                                         <textarea
-                                          value={s.sms.bodyTemplate}
-                                          onChange={(e) => updateStep(s.id, { sms: { ...s.sms, bodyTemplate: e.target.value } })}
+                                          value={s.sms?.bodyTemplate ?? ""}
+                                          onChange={(e) => updateStep(s.id, { sms: { ...(s.sms ?? { bodyTemplate: "" }), bodyTemplate: e.target.value } })}
                                           onFocus={(e) => {
                                             activeFieldElRef.current = e.currentTarget;
                                           }}
                                           rows={3}
                                           className="mt-1 w-full rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm outline-none focus:border-zinc-300"
                                         />
+                                      </div>
+                                    ) : null}
+
+                                    {s.kind === "TAG" ? (
+                                      <div>
+                                        <div className="flex items-center justify-between gap-3">
+                                          <div className="text-xs font-semibold text-zinc-600">Tag to apply</div>
+                                          <button
+                                            type="button"
+                                            disabled={busy}
+                                            className="rounded-xl border border-zinc-200 bg-white px-3 py-1.5 text-xs font-semibold text-brand-ink hover:bg-zinc-50 disabled:opacity-60"
+                                            onClick={() => {
+                                              setCreateTagStepId(s.id);
+                                              setCreateTagName("");
+                                              setCreateTagOpen(true);
+                                            }}
+                                          >
+                                            New tag
+                                          </button>
+                                        </div>
+                                        <PortalListboxDropdown
+                                          value={String(s.tagId || "")}
+                                          disabled={busy || tagsLoading}
+                                          onChange={(v) => updateStep(s.id, { tagId: String(v || "") || undefined })}
+                                          options={[
+                                            { value: "", label: tagsLoading ? "Loading tags…" : "Select a tag…" },
+                                            ...ownerTags.map((t) => ({ value: t.id, label: t.name })),
+                                          ]}
+                                          className="mt-2 w-full max-w-md"
+                                          buttonClassName="flex h-10 w-full items-center justify-between gap-2 rounded-xl border border-zinc-200 bg-white px-3 text-sm hover:bg-zinc-50 focus-visible:ring-2 focus-visible:ring-zinc-300"
+                                        />
+                                        <div className="mt-2 text-xs text-zinc-500">
+                                          This step applies a tag to the contact (no message is sent).
+                                        </div>
                                       </div>
                                     ) : null}
                                   </div>
@@ -1421,37 +1513,29 @@ export function PortalFollowUpClient({ embedded }: { embedded?: boolean } = {}) 
                         )}
 
                         <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
-                          <div className="grid w-full grid-cols-1 gap-2 sm:w-auto sm:grid-cols-2">
+                          <div className="grid w-full grid-cols-1 gap-2 sm:w-auto sm:grid-cols-3">
                             <button
                               type="button"
                               onClick={() => addStep(makeBlankStep("EMAIL"))}
                               className="inline-flex items-center justify-center rounded-2xl bg-[color:var(--color-brand-blue)] px-4 py-2 text-sm font-semibold text-white hover:opacity-95"
                             >
-                              Add email step
+                              + Email step
                             </button>
                             <button
                               type="button"
                               onClick={() => addStep(makeBlankStep("SMS"))}
                               className="inline-flex items-center justify-center rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm font-semibold text-brand-ink hover:bg-zinc-50"
                             >
-                              Add SMS step
+                              + SMS step
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => addStep(makeBlankStep("TAG"))}
+                              className="inline-flex items-center justify-center rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm font-semibold text-brand-ink hover:bg-zinc-50"
+                            >
+                              + Tag step
                             </button>
                           </div>
-
-                          <PortalListboxDropdown
-                            value={""}
-                            onChange={(presetId) => {
-                              if (!presetId) return;
-                              const step = stepFromPreset(presetId);
-                              if (step) addStep(step);
-                            }}
-                            options={[
-                              { value: "", label: "Add from preset…", disabled: true },
-                              ...settings.templates.map((t) => ({ value: t.id, label: t.name })),
-                            ]}
-                            className="w-full"
-                            buttonClassName="flex w-full items-center justify-between gap-2 rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm hover:bg-zinc-50 focus-visible:ring-2 focus-visible:ring-zinc-300"
-                          />
                         </div>
                       </div>
                     </div>
@@ -1593,32 +1677,49 @@ export function PortalFollowUpClient({ embedded }: { embedded?: boolean } = {}) 
                 <div className="col-span-2">Status</div>
               </div>
               <div className="divide-y divide-zinc-200">
-                {queue.length ? (
-                  queue.slice(0, 60).map((q) => (
-                    <a
-                      key={q.id}
-                      href={`/portal/app/services/inbox/${q.channel === "SMS" ? "sms" : "email"}?to=${encodeURIComponent(q.to)}`}
-                      className="grid grid-cols-12 gap-2 px-4 py-3 text-sm hover:bg-zinc-50"
-                      title="Open thread in Inbox"
-                    >
-                      <div className="col-span-2 text-zinc-700">{fmtWhen(q.sendAtIso)}</div>
-                      <div className="col-span-3 truncate text-zinc-700">{q.stepName}</div>
-                      <div className="col-span-2 text-zinc-700">{q.channel}</div>
-                      <div className="col-span-3 truncate font-medium text-brand-ink">{q.to}</div>
-                      <div className="col-span-2 text-zinc-600">
-                        {q.status === "FAILED" ? (
-                          <span className="text-red-700">FAILED</span>
-                        ) : q.status === "SENT" ? (
-                          <span className="text-emerald-700">SENT</span>
-                        ) : q.status === "CANCELED" ? (
-                          <span className="text-zinc-500">CANCELED</span>
-                        ) : (
-                          <span className="text-zinc-700">PENDING</span>
-                        )}
-                        {q.lastError ? <div className="mt-1 text-xs text-red-700">{q.lastError}</div> : null}
-                      </div>
-                    </a>
-                  ))
+                {queue.length > 0 ? (
+                  queue.map((q) => {
+                    const recipient = q.channel === "TAG" ? q.contactId || "" : q.to || "";
+                    const canLink = q.channel !== "TAG" && Boolean(q.to);
+
+                    const Row = ({ children }: { children: ReactNode }) =>
+                      canLink ? (
+                        <a
+                          href={`/portal/app/services/inbox/${q.channel === "SMS" ? "sms" : "email"}?to=${encodeURIComponent(q.to || "")}`}
+                          className="grid grid-cols-12 gap-2 px-4 py-3 text-sm hover:bg-zinc-50"
+                          title="Open thread in Inbox"
+                        >
+                          {children}
+                        </a>
+                      ) : (
+                        <div className="grid grid-cols-12 gap-2 px-4 py-3 text-sm">
+                          {children}
+                        </div>
+                      );
+
+                    return (
+                      <Row key={q.id}>
+                        <div className="col-span-2 text-zinc-700">{fmtWhen(q.sendAtIso)}</div>
+                        <div className="col-span-3 truncate text-zinc-700">{q.stepName}</div>
+                        <div className="col-span-2 text-zinc-700">{q.channel}</div>
+                        <div className="col-span-3 truncate font-medium text-brand-ink">
+                          {recipient || (q.channel === "TAG" ? "(missing contact)" : "")}
+                        </div>
+                        <div className="col-span-2 text-zinc-600">
+                          {q.status === "FAILED" ? (
+                            <span className="text-red-700">FAILED</span>
+                          ) : q.status === "SENT" ? (
+                            <span className="text-emerald-700">SENT</span>
+                          ) : q.status === "CANCELED" ? (
+                            <span className="text-zinc-500">CANCELED</span>
+                          ) : (
+                            <span className="text-zinc-700">PENDING</span>
+                          )}
+                          {q.lastError ? <div className="mt-1 text-xs text-red-700">{q.lastError}</div> : null}
+                        </div>
+                      </Row>
+                    );
+                  })
                 ) : (
                   <div className="px-4 py-6 text-sm text-zinc-600">No follow-ups queued yet.</div>
                 )}
@@ -1681,8 +1782,12 @@ export function PortalFollowUpClient({ embedded }: { embedded?: boolean } = {}) 
           if (!step) return;
 
           if (varPickerTarget.field === "emailSubject") {
-            const { next, cursor } = insertAtCursor(step.email.subjectTemplate, insert, activeFieldElRef.current);
-            patchStepById(step.id, { email: { ...step.email, subjectTemplate: next } });
+            if (step.kind !== "EMAIL") return;
+            const current = step.email?.subjectTemplate ?? "";
+            const { next, cursor } = insertAtCursor(current, insert, activeFieldElRef.current);
+            patchStepById(step.id, {
+              email: { ...(step.email ?? { subjectTemplate: "", bodyTemplate: "" }), subjectTemplate: next },
+            });
             requestAnimationFrame(() => {
               const el = activeFieldElRef.current;
               if (!el) return;
@@ -1693,8 +1798,12 @@ export function PortalFollowUpClient({ embedded }: { embedded?: boolean } = {}) 
           }
 
           if (varPickerTarget.field === "emailBody") {
-            const { next, cursor } = insertAtCursor(step.email.bodyTemplate, insert, activeFieldElRef.current);
-            patchStepById(step.id, { email: { ...step.email, bodyTemplate: next } });
+            if (step.kind !== "EMAIL") return;
+            const current = step.email?.bodyTemplate ?? "";
+            const { next, cursor } = insertAtCursor(current, insert, activeFieldElRef.current);
+            patchStepById(step.id, {
+              email: { ...(step.email ?? { subjectTemplate: "", bodyTemplate: "" }), bodyTemplate: next },
+            });
             requestAnimationFrame(() => {
               const el = activeFieldElRef.current;
               if (!el) return;
@@ -1704,8 +1813,10 @@ export function PortalFollowUpClient({ embedded }: { embedded?: boolean } = {}) 
             return;
           }
 
-          const { next, cursor } = insertAtCursor(step.sms.bodyTemplate, insert, activeFieldElRef.current);
-          patchStepById(step.id, { sms: { ...step.sms, bodyTemplate: next } });
+          if (step.kind !== "SMS") return;
+          const current = step.sms?.bodyTemplate ?? "";
+          const { next, cursor } = insertAtCursor(current, insert, activeFieldElRef.current);
+          patchStepById(step.id, { sms: { ...(step.sms ?? { bodyTemplate: "" }), bodyTemplate: next } });
           requestAnimationFrame(() => {
             const el = activeFieldElRef.current;
             if (!el) return;
@@ -1714,6 +1825,138 @@ export function PortalFollowUpClient({ embedded }: { embedded?: boolean } = {}) 
           });
         }}
       />
+
+      <AppModal
+        open={createTagOpen}
+        title="Create tag"
+        description="Create a new contact tag to use in this follow-up step."
+        onClose={() => {
+          if (createTagBusy) return;
+          setCreateTagOpen(false);
+        }}
+        widthClassName="w-[min(560px,calc(100vw-32px))]"
+        footer={
+          <div className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
+            <button
+              type="button"
+              className="rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm font-semibold text-zinc-800 hover:bg-zinc-50 disabled:opacity-60"
+              disabled={createTagBusy}
+              onClick={() => setCreateTagOpen(false)}
+            >
+              Cancel
+            </button>
+            <button
+              type="button"
+              className="rounded-2xl bg-brand-ink px-4 py-2 text-sm font-semibold text-white hover:opacity-95 disabled:opacity-60"
+              disabled={createTagBusy || !createTagName.trim()}
+              onClick={() => void createTag()}
+            >
+              {createTagBusy ? "Creating…" : "Create"}
+            </button>
+          </div>
+        }
+      >
+        <label className="block">
+          <div className="text-xs font-semibold text-zinc-600">Tag name</div>
+          <input
+            className="mt-2 h-10 w-full rounded-xl border border-zinc-200 bg-white px-3 text-sm"
+            value={createTagName}
+            onChange={(e) => setCreateTagName(e.target.value)}
+            disabled={createTagBusy}
+            placeholder="e.g. Confirmed"
+          />
+        </label>
+      </AppModal>
+
+      <AppModal
+        open={Boolean(aiDraftModal)}
+        title="AI draft"
+        description="Describe what you want this step to say."
+        onClose={() => {
+          if (aiDraftBusy) return;
+          setAiDraftModal(null);
+          setAiDraftError(null);
+        }}
+        widthClassName="w-[min(640px,calc(100vw-32px))]"
+        footer={
+          <div className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
+            <button
+              type="button"
+              className="rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm font-semibold text-zinc-800 hover:bg-zinc-50 disabled:opacity-60"
+              disabled={aiDraftBusy}
+              onClick={() => {
+                setAiDraftModal(null);
+                setAiDraftError(null);
+              }}
+            >
+              Cancel
+            </button>
+            <button
+              type="button"
+              className="rounded-2xl bg-brand-ink px-4 py-2 text-sm font-semibold text-white hover:opacity-95 disabled:opacity-60"
+              disabled={aiDraftBusy || !aiDraftModal}
+              onClick={async () => {
+                if (!aiDraftModal) return;
+                setAiDraftBusy(true);
+                setAiDraftError(null);
+                try {
+                  const draft = await generateDraft({
+                    kind: aiDraftModal.kind,
+                    stepName: aiDraftModal.stepName,
+                    prompt: aiDraftInstruction.trim() || undefined,
+                    existingSubject: aiDraftModal.kind === "EMAIL" ? aiDraftModal.existingSubject : undefined,
+                    existingBody: aiDraftModal.existingBody,
+                  });
+
+                  if (!draft) return;
+
+                  if (aiDraftModal.kind === "EMAIL") {
+                    const subject = (draft.subject ?? aiDraftModal.existingSubject ?? "").trim();
+                    aiDraftModal.apply({
+                      email: {
+                        subjectTemplate: subject || "Follow-up",
+                        bodyTemplate: String(draft.body || ""),
+                      },
+                    });
+                  } else {
+                    aiDraftModal.apply({ sms: { bodyTemplate: String(draft.body || "") } });
+                  }
+
+                  setAiDraftModal(null);
+                  setAiDraftInstruction("");
+                } catch (e: any) {
+                  setAiDraftError(String(e?.message || "Failed to generate"));
+                } finally {
+                  setAiDraftBusy(false);
+                }
+              }}
+            >
+              {aiDraftBusy ? "Drafting…" : "Generate"}
+            </button>
+          </div>
+        }
+      >
+        <div className="space-y-3">
+          <label className="block">
+            <div className="text-xs font-semibold text-zinc-600">Instructions</div>
+            <textarea
+              className="mt-2 min-h-24 w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm"
+              value={aiDraftInstruction}
+              onChange={(e) => setAiDraftInstruction(e.target.value)}
+              disabled={aiDraftBusy}
+              placeholder="e.g. Friendly, short, and ask them to reply with any questions."
+            />
+          </label>
+
+          {aiDraftError ? (
+            <div className="rounded-2xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-800">{aiDraftError}</div>
+          ) : null}
+
+          <div className="text-xs text-zinc-500">
+            Tip: you can reference variables like {"{contactName}"} and {"{businessName}"}.
+          </div>
+        </div>
+      </AppModal>
     </div>
   );
 }

@@ -338,7 +338,11 @@ export function PortalNurtureCampaignsClient() {
   );
 
   const updateStep = useCallback(
-    async (stepId: string, patch: Partial<{ ord: number; kind: StepKind; delayMinutes: number; subject: string | null; body: string }>) => {
+    async (
+      stepId: string,
+      patch: Partial<{ ord: number; kind: StepKind; delayMinutes: number; subject: string | null; body: string }>,
+      opts?: { toast?: boolean },
+    ) => {
       if (!detail) return;
       try {
         const res = await fetch(`/api/portal/nurture/steps/${encodeURIComponent(stepId)}`, {
@@ -350,7 +354,7 @@ export function PortalNurtureCampaignsClient() {
         if (!res.ok || !json?.ok) throw new Error(String(json?.error || "Failed to update step"));
         await refreshDetail(detail.id);
         await refreshList({ keepSelected: true });
-        toast.success("Step saved");
+        if (opts?.toast !== false) toast.success("Step saved");
       } catch (e: any) {
         toast.error(String(e?.message || "Failed to update step"));
       }
@@ -455,9 +459,26 @@ export function PortalNurtureCampaignsClient() {
       const steps = [...detail.steps].sort((a, b) => a.ord - b.ord);
       const idx = steps.findIndex((s) => s.id === step.id);
       if (idx < 0) return;
-      const next = idx + delta;
-      if (next < 0 || next >= steps.length) return;
-      await updateStep(step.id, { ord: next });
+      const nextIdx = idx + delta;
+      if (nextIdx < 0 || nextIdx >= steps.length) return;
+
+      // Optimistically reorder locally so the UI updates instantly.
+      setDetail((prev) => {
+        if (!prev) return prev;
+        const sorted = [...prev.steps].sort((a, b) => a.ord - b.ord);
+        const cur = sorted.findIndex((s) => s.id === step.id);
+        if (cur < 0) return prev;
+        const to = cur + delta;
+        if (to < 0 || to >= sorted.length) return prev;
+        const next = sorted.slice();
+        const [item] = next.splice(cur, 1);
+        next.splice(to, 0, item!);
+        const reindexed = next.map((s, ord) => ({ ...s, ord }));
+        return { ...prev, steps: reindexed };
+      });
+
+      // Persist reorder using the server's index-based reindexing (no toast spam).
+      await updateStep(step.id, { ord: nextIdx }, { toast: false });
     },
     [detail, updateStep],
   );

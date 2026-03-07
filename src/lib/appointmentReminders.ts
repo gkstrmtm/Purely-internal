@@ -4,6 +4,7 @@ import { sendOwnerTwilioSms, getOwnerTwilioSmsConfig } from "@/lib/portalTwilio"
 import { buildPortalTemplateVars } from "@/lib/portalTemplateVars";
 import { renderTextTemplate } from "@/lib/textTemplate";
 import { sendTransactionalEmail } from "@/lib/emailSender";
+import { addContactTagAssignment } from "@/lib/portalContactTags";
 
 const SERVICE_SLUG = "appointment-reminders";
 
@@ -16,15 +17,16 @@ export type AppointmentReminderLeadTimeUnit = "minutes" | "hours" | "days" | "we
 
 export type AppointmentReminderChannel = "SMS" | "EMAIL";
 
+export type AppointmentReminderStepKind = AppointmentReminderChannel | "TAG";
+
 export type AppointmentReminderLeadTime = {
   value: number;
   unit: AppointmentReminderLeadTimeUnit;
 };
 
 export type AppointmentReminderSettings = {
-  version: 3;
+  version: 4;
   enabled: boolean;
-  channel: AppointmentReminderChannel;
   steps: AppointmentReminderStep[];
 };
 
@@ -32,8 +34,10 @@ export type AppointmentReminderStep = {
   id: string;
   enabled: boolean;
   leadTime: AppointmentReminderLeadTime;
+  kind: AppointmentReminderStepKind;
   subjectTemplate?: string;
-  messageBody: string;
+  messageBody?: string;
+  tagId?: string;
 };
 
 export type AppointmentReminderEvent = {
@@ -50,7 +54,9 @@ export type AppointmentReminderEvent = {
   contactPhoneRaw: string | null;
   contactEmailRaw?: string | null;
 
-  channel?: AppointmentReminderChannel;
+  contactId?: string | null;
+
+  channel?: AppointmentReminderStepKind;
   to?: string | null;
   body?: string | null;
 
@@ -127,14 +133,14 @@ export function parseAppointmentReminderSettings(raw: unknown): AppointmentRemin
     id: "step_1",
     enabled: true,
     leadTime: { value: 1, unit: "hours" },
+    kind: "SMS",
     subjectTemplate: "Appointment reminder: {when}",
     messageBody: "Reminder: your appointment is scheduled for {when}.",
   };
 
   const base: AppointmentReminderSettings = {
-    version: 3,
+    version: 4,
     enabled: false,
-    channel: "SMS",
     steps: [baseStep],
   };
 
@@ -155,14 +161,14 @@ export function parseAppointmentReminderSettings(raw: unknown): AppointmentRemin
       typeof rec.messageBody === "string" ? rec.messageBody.slice(0, MAX_BODY_LEN).trim() : baseStep.messageBody;
 
     return {
-      version: 3,
+      version: 4,
       enabled,
-      channel: "SMS",
       steps: [
         {
           id: "step_1",
           enabled: true,
           leadTime: normalizeLeadTime(null, leadTimeMinutes),
+          kind: "SMS",
           subjectTemplate: baseStep.subjectTemplate,
           messageBody: messageBody || baseStep.messageBody,
         },
@@ -175,8 +181,8 @@ export function parseAppointmentReminderSettings(raw: unknown): AppointmentRemin
     const enabled = typeof rec.enabled === "boolean" ? rec.enabled : base.enabled;
     const steps = Array.isArray(rec.steps)
       ? (rec.steps as unknown[])
-          .flatMap((s) => {
-            if (!s || typeof s !== "object" || Array.isArray(s)) return [] as AppointmentReminderStep[];
+          .flatMap((s): AppointmentReminderStep[] => {
+            if (!s || typeof s !== "object" || Array.isArray(s)) return [];
             const r = s as Record<string, unknown>;
             const id = typeof r.id === "string" ? r.id.trim() : "";
             const stepEnabled = typeof r.enabled === "boolean" ? r.enabled : true;
@@ -184,14 +190,19 @@ export function parseAppointmentReminderSettings(raw: unknown): AppointmentRemin
             const subjectTemplate =
               typeof r.subjectTemplate === "string" ? r.subjectTemplate.slice(0, MAX_SUBJECT_LEN).trim() : baseStep.subjectTemplate;
             const messageBody =
-              typeof r.messageBody === "string" ? r.messageBody.slice(0, MAX_BODY_LEN).trim() : baseStep.messageBody;
-            if (!id) return [] as AppointmentReminderStep[];
-            if (!messageBody.trim()) return [] as AppointmentReminderStep[];
+              typeof r.messageBody === "string"
+                ? r.messageBody.slice(0, MAX_BODY_LEN).trim()
+                : typeof baseStep.messageBody === "string"
+                  ? baseStep.messageBody
+                  : "";
+            if (!id) return [];
+            if (!messageBody.trim()) return [];
             return [
               {
                 id: id.slice(0, 40),
                 enabled: stepEnabled,
                 leadTime: normalizeLeadTime(null, leadTimeMinutes),
+                kind: "SMS",
                 subjectTemplate: subjectTemplate || baseStep.subjectTemplate,
                 messageBody: messageBody.trim(),
               },
@@ -200,13 +211,51 @@ export function parseAppointmentReminderSettings(raw: unknown): AppointmentRemin
           .slice(0, 8)
       : [];
 
-    return { version: 3, enabled, channel: "SMS", steps: steps.length ? steps : [baseStep] };
+    return { version: 4, enabled, steps: steps.length ? steps : [baseStep] };
+  }
+
+  // Back-compat: v3 had a global channel applying to all steps.
+  if (rec.version === 3) {
+    const enabled = typeof rec.enabled === "boolean" ? rec.enabled : base.enabled;
+    const channelRaw = typeof rec.channel === "string" ? rec.channel.trim().toUpperCase() : "";
+    const channel: AppointmentReminderChannel = channelRaw === "EMAIL" ? "EMAIL" : "SMS";
+
+    const steps = Array.isArray(rec.steps)
+      ? (rec.steps as unknown[])
+          .flatMap((s): AppointmentReminderStep[] => {
+            if (!s || typeof s !== "object" || Array.isArray(s)) return [];
+            const r = s as Record<string, unknown>;
+            const id = typeof r.id === "string" ? r.id.trim() : "";
+            const stepEnabled = typeof r.enabled === "boolean" ? r.enabled : true;
+            const leadTime = normalizeLeadTime(r.leadTime, 60);
+            const subjectTemplate =
+              typeof r.subjectTemplate === "string" ? r.subjectTemplate.slice(0, MAX_SUBJECT_LEN).trim() : baseStep.subjectTemplate;
+            const messageBody =
+              typeof r.messageBody === "string"
+                ? r.messageBody.slice(0, MAX_BODY_LEN).trim()
+                : typeof baseStep.messageBody === "string"
+                  ? baseStep.messageBody
+                  : "";
+            if (!id) return [];
+            if (!messageBody.trim()) return [];
+            return [
+              {
+                id: id.slice(0, 40),
+                enabled: stepEnabled,
+                leadTime,
+                kind: channel,
+                subjectTemplate: subjectTemplate || baseStep.subjectTemplate,
+                messageBody: messageBody.trim(),
+              },
+            ];
+          })
+          .slice(0, 8)
+      : [];
+
+    return { version: 4, enabled, steps: steps.length ? steps : [baseStep] };
   }
 
   const enabled = typeof rec.enabled === "boolean" ? rec.enabled : base.enabled;
-
-  const channelRaw = typeof rec.channel === "string" ? rec.channel.trim().toUpperCase() : "";
-  const channel: AppointmentReminderChannel = channelRaw === "EMAIL" ? "EMAIL" : "SMS";
 
   const steps = Array.isArray(rec.steps)
     ? (rec.steps as unknown[])
@@ -216,17 +265,40 @@ export function parseAppointmentReminderSettings(raw: unknown): AppointmentRemin
           const id = typeof r.id === "string" ? r.id.trim() : "";
           const stepEnabled = typeof r.enabled === "boolean" ? r.enabled : true;
           const leadTime = normalizeLeadTime(r.leadTime, 60);
+          if (!id) return [] as AppointmentReminderStep[];
+
+          const kindRaw = typeof r.kind === "string" ? r.kind.trim().toUpperCase() : "";
+          const kind: AppointmentReminderStepKind = kindRaw === "EMAIL" ? "EMAIL" : kindRaw === "TAG" ? "TAG" : "SMS";
+
           const subjectTemplate =
             typeof r.subjectTemplate === "string" ? r.subjectTemplate.slice(0, MAX_SUBJECT_LEN).trim() : baseStep.subjectTemplate;
           const messageBody =
-            typeof r.messageBody === "string" ? r.messageBody.slice(0, MAX_BODY_LEN).trim() : baseStep.messageBody;
-          if (!id) return [] as AppointmentReminderStep[];
-          if (!messageBody.trim()) return [] as AppointmentReminderStep[];
+            typeof r.messageBody === "string"
+              ? r.messageBody.slice(0, MAX_BODY_LEN).trim()
+              : typeof baseStep.messageBody === "string"
+                ? baseStep.messageBody
+                : "";
+          const tagId = typeof r.tagId === "string" ? r.tagId.trim().slice(0, 80) : "";
+
+          if (kind === "TAG") {
+            return [
+              {
+                id: id.slice(0, 40),
+                enabled: stepEnabled,
+                leadTime,
+                kind,
+                tagId: tagId || undefined,
+              },
+            ];
+          }
+
+          if (!messageBody.trim()) return [];
           return [
             {
               id: id.slice(0, 40),
               enabled: stepEnabled,
               leadTime,
+              kind,
               subjectTemplate: subjectTemplate || baseStep.subjectTemplate,
               messageBody: messageBody.trim(),
             },
@@ -236,9 +308,8 @@ export function parseAppointmentReminderSettings(raw: unknown): AppointmentRemin
     : [];
 
   return {
-    version: 3,
+    version: 4,
     enabled,
-    channel,
     steps: steps.length ? steps : [baseStep],
   };
 }
@@ -328,7 +399,15 @@ function parseServiceData(raw: unknown): AppointmentRemindersServiceData {
               ? Math.round(r.stepLeadTimeMinutes)
               : 60;
           const contactName = typeof r.contactName === "string" ? r.contactName : "";
+          const contactId = typeof r.contactId === "string" ? r.contactId : null;
           const createdAtIso = typeof r.createdAtIso === "string" ? r.createdAtIso : nowIso();
+
+          const channelRaw = typeof r.channel === "string" ? r.channel.trim().toUpperCase() : "";
+          const channel: AppointmentReminderStepKind | undefined =
+            channelRaw === "EMAIL" ? "EMAIL" : channelRaw === "TAG" ? "TAG" : channelRaw === "SMS" ? "SMS" : undefined;
+
+          const to = typeof r.to === "string" ? r.to : null;
+          const body = typeof r.body === "string" ? r.body : null;
 
           const status = r.status === "SENT" || r.status === "SKIPPED" || r.status === "FAILED" ? r.status : "SKIPPED";
 
@@ -344,8 +423,14 @@ function parseServiceData(raw: unknown): AppointmentRemindersServiceData {
             stepId,
             stepLeadTimeMinutes,
 
+            ...(contactId ? { contactId } : {}),
             contactName,
             contactPhoneRaw: typeof r.contactPhoneRaw === "string" ? r.contactPhoneRaw : null,
+            ...(typeof r.contactEmailRaw === "string" ? { contactEmailRaw: r.contactEmailRaw } : {}),
+
+            ...(channel ? { channel } : {}),
+            ...(to ? { to } : {}),
+            ...(body ? { body } : {}),
             smsTo: typeof r.smsTo === "string" ? r.smsTo : null,
             smsBody: typeof r.smsBody === "string" ? r.smsBody : null,
             status,
@@ -536,7 +621,11 @@ export async function processDueAppointmentReminders(opts?: { ownersLimit?: numb
 
       const allLeadTimes = new Set<number>();
       for (const s of enabledSettings) {
-        for (const step of (s.steps ?? []).filter((x) => x && x.enabled && x.messageBody?.trim())) {
+        for (const step of (s.steps ?? []).filter((x) => {
+          if (!x || !x.enabled) return false;
+          if (x.kind === "TAG") return Boolean(String(x.tagId || "").trim());
+          return Boolean(String(x.messageBody || "").trim());
+        })) {
           allLeadTimes.add(toLeadTimeMinutes(step.leadTime));
         }
       }
@@ -596,7 +685,7 @@ export async function processDueAppointmentReminders(opts?: { ownersLimit?: numb
           },
           orderBy: { startAt: "asc" },
           take: perOwnerLimit,
-          select: { id: true, startAt: true, endAt: true, contactName: true, contactPhone: true, contactEmail: true },
+          select: { id: true, startAt: true, endAt: true, contactId: true, contactName: true, contactPhone: true, contactEmail: true },
         });
 
         if (bookings.length === 0) continue;
@@ -606,9 +695,12 @@ export async function processDueAppointmentReminders(opts?: { ownersLimit?: numb
           const effective = calendarId && calendarSettings[calendarId] ? calendarSettings[calendarId] : serviceData.defaultSettings;
           if (!effective?.enabled) continue;
 
-          const dueSteps = (effective.steps ?? []).filter(
-            (s) => s && s.enabled && s.messageBody?.trim() && toLeadTimeMinutes(s.leadTime) === leadTimeMinutes,
-          );
+          const dueSteps = (effective.steps ?? []).filter((s) => {
+            if (!s || !s.enabled) return false;
+            if (toLeadTimeMinutes(s.leadTime) !== leadTimeMinutes) return false;
+            if (s.kind === "TAG") return Boolean(String(s.tagId || "").trim());
+            return Boolean(String(s.messageBody || "").trim());
+          });
           if (!dueSteps.length) continue;
 
           const bookingStartAtIso = booking.startAt.toISOString();
@@ -619,7 +711,8 @@ export async function processDueAppointmentReminders(opts?: { ownersLimit?: numb
             const key = `${booking.id}:${scopeKey}:${step.id}`;
             if (sentSet.has(key)) continue;
 
-            const channel: AppointmentReminderChannel = effective.channel === "EMAIL" ? "EMAIL" : "SMS";
+            const channel: AppointmentReminderStepKind =
+              step.kind === "EMAIL" ? "EMAIL" : step.kind === "TAG" ? "TAG" : "SMS";
 
             const when = formatWhen(booking.startAt, site.timeZone);
             const vars = {
@@ -639,7 +732,140 @@ export async function processDueAppointmentReminders(opts?: { ownersLimit?: numb
               endAt: booking.endAt.toISOString(),
             };
 
-            const body = renderAppointmentReminderBody(step.messageBody, vars);
+            if (channel === "TAG") {
+              const tagId = String(step.tagId || "").trim();
+              const contactId = booking.contactId ? String(booking.contactId) : "";
+
+              if (!tagId) {
+                remindersSkipped += 1;
+                const evt: AppointmentReminderEvent = {
+                  id: `evt_${booking.id}_${scopeKey}_${step.id}`,
+                  bookingId: booking.id,
+                  ...(calendarId ? { calendarId } : {}),
+                  bookingStartAtIso,
+                  scheduledForIso,
+
+                  stepId: step.id,
+                  stepLeadTimeMinutes: leadTimeMinutes,
+
+                  contactId: booking.contactId ?? null,
+                  contactName: booking.contactName,
+                  contactPhoneRaw: booking.contactPhone ?? null,
+                  contactEmailRaw: booking.contactEmail ?? null,
+                  channel: "TAG",
+                  to: null,
+                  body: null,
+                  smsTo: null,
+                  smsBody: null,
+                  status: "SKIPPED",
+                  reason: "Missing tag",
+                  createdAtIso: nowIso(),
+                };
+                events.unshift(evt);
+                sentKeys.unshift(key);
+                sentSet.add(key);
+                mutated = true;
+                continue;
+              }
+
+              if (!contactId) {
+                remindersSkipped += 1;
+                const evt: AppointmentReminderEvent = {
+                  id: `evt_${booking.id}_${scopeKey}_${step.id}`,
+                  bookingId: booking.id,
+                  ...(calendarId ? { calendarId } : {}),
+                  bookingStartAtIso,
+                  scheduledForIso,
+
+                  stepId: step.id,
+                  stepLeadTimeMinutes: leadTimeMinutes,
+
+                  contactId: booking.contactId ?? null,
+                  contactName: booking.contactName,
+                  contactPhoneRaw: booking.contactPhone ?? null,
+                  contactEmailRaw: booking.contactEmail ?? null,
+                  channel: "TAG",
+                  to: null,
+                  body: null,
+                  smsTo: null,
+                  smsBody: null,
+                  status: "SKIPPED",
+                  reason: "Missing contact",
+                  createdAtIso: nowIso(),
+                };
+                events.unshift(evt);
+                sentKeys.unshift(key);
+                sentSet.add(key);
+                mutated = true;
+                continue;
+              }
+
+              try {
+                const ok = await addContactTagAssignment({ ownerId, contactId, tagId });
+                if (!ok) throw new Error("Failed to add tag");
+
+                remindersSent += 1;
+                const evt: AppointmentReminderEvent = {
+                  id: `evt_${booking.id}_${scopeKey}_${step.id}`,
+                  bookingId: booking.id,
+                  ...(calendarId ? { calendarId } : {}),
+                  bookingStartAtIso,
+                  scheduledForIso,
+
+                  stepId: step.id,
+                  stepLeadTimeMinutes: leadTimeMinutes,
+
+                  contactId: booking.contactId ?? null,
+                  contactName: booking.contactName,
+                  contactPhoneRaw: booking.contactPhone ?? null,
+                  contactEmailRaw: booking.contactEmail ?? null,
+                  channel: "TAG",
+                  to: contactId,
+                  body: `TAG:${tagId}`,
+                  smsTo: null,
+                  smsBody: null,
+                  status: "SENT",
+                  createdAtIso: nowIso(),
+                };
+                events.unshift(evt);
+                sentKeys.unshift(key);
+                sentSet.add(key);
+                mutated = true;
+              } catch (err) {
+                remindersFailed += 1;
+                const evt: AppointmentReminderEvent = {
+                  id: `evt_${booking.id}_${scopeKey}_${step.id}`,
+                  bookingId: booking.id,
+                  ...(calendarId ? { calendarId } : {}),
+                  bookingStartAtIso,
+                  scheduledForIso,
+
+                  stepId: step.id,
+                  stepLeadTimeMinutes: leadTimeMinutes,
+
+                  contactId: booking.contactId ?? null,
+                  contactName: booking.contactName,
+                  contactPhoneRaw: booking.contactPhone ?? null,
+                  contactEmailRaw: booking.contactEmail ?? null,
+                  channel: "TAG",
+                  to: contactId,
+                  body: `TAG:${tagId}`,
+                  smsTo: null,
+                  smsBody: null,
+                  status: "FAILED",
+                  error: err instanceof Error ? err.message : String(err),
+                  createdAtIso: nowIso(),
+                };
+                events.unshift(evt);
+                sentKeys.unshift(key);
+                sentSet.add(key);
+                mutated = true;
+              }
+
+              continue;
+            }
+
+            const body = renderAppointmentReminderBody(step.messageBody || "", vars);
             const subject = renderAppointmentReminderSubject(step.subjectTemplate, { ...vars, when });
 
             if (channel === "EMAIL") {
@@ -656,6 +882,7 @@ export async function processDueAppointmentReminders(opts?: { ownersLimit?: numb
                   stepId: step.id,
                   stepLeadTimeMinutes: leadTimeMinutes,
 
+                  contactId: booking.contactId ?? null,
                   contactName: booking.contactName,
                   contactPhoneRaw: booking.contactPhone ?? null,
                   contactEmailRaw: booking.contactEmail ?? null,
@@ -694,6 +921,7 @@ export async function processDueAppointmentReminders(opts?: { ownersLimit?: numb
                   stepId: step.id,
                   stepLeadTimeMinutes: leadTimeMinutes,
 
+                  contactId: booking.contactId ?? null,
                   contactName: booking.contactName,
                   contactPhoneRaw: booking.contactPhone ?? null,
                   contactEmailRaw: booking.contactEmail ?? null,
@@ -721,6 +949,7 @@ export async function processDueAppointmentReminders(opts?: { ownersLimit?: numb
                   stepId: step.id,
                   stepLeadTimeMinutes: leadTimeMinutes,
 
+                  contactId: booking.contactId ?? null,
                   contactName: booking.contactName,
                   contactPhoneRaw: booking.contactPhone ?? null,
                   contactEmailRaw: booking.contactEmail ?? null,
@@ -754,6 +983,7 @@ export async function processDueAppointmentReminders(opts?: { ownersLimit?: numb
                 stepId: step.id,
                 stepLeadTimeMinutes: leadTimeMinutes,
 
+                contactId: booking.contactId ?? null,
                 contactName: booking.contactName,
                 contactPhoneRaw: booking.contactPhone ?? null,
                 contactEmailRaw: booking.contactEmail ?? null,
@@ -787,6 +1017,7 @@ export async function processDueAppointmentReminders(opts?: { ownersLimit?: numb
                 stepId: step.id,
                 stepLeadTimeMinutes: leadTimeMinutes,
 
+                contactId: booking.contactId ?? null,
                 contactName: booking.contactName,
                 contactPhoneRaw: booking.contactPhone ?? null,
                 contactEmailRaw: booking.contactEmail ?? null,
@@ -821,6 +1052,7 @@ export async function processDueAppointmentReminders(opts?: { ownersLimit?: numb
                   stepId: step.id,
                   stepLeadTimeMinutes: leadTimeMinutes,
 
+                  contactId: booking.contactId ?? null,
                   contactName: booking.contactName,
                   contactPhoneRaw: booking.contactPhone ?? null,
                   contactEmailRaw: booking.contactEmail ?? null,
@@ -851,6 +1083,7 @@ export async function processDueAppointmentReminders(opts?: { ownersLimit?: numb
                 stepId: step.id,
                 stepLeadTimeMinutes: leadTimeMinutes,
 
+                contactId: booking.contactId ?? null,
                 contactName: booking.contactName,
                 contactPhoneRaw: booking.contactPhone ?? null,
                 contactEmailRaw: booking.contactEmail ?? null,

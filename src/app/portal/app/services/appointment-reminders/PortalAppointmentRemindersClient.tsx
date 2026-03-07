@@ -5,6 +5,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { PortalListboxDropdown, type PortalListboxOption } from "@/components/PortalListboxDropdown";
 import { PortalSettingsSection } from "@/components/PortalSettingsSection";
+import { AppModal } from "@/components/AppModal";
 import { PortalMediaPickerModal, type PortalMediaPickItem } from "@/components/PortalMediaPickerModal";
 import { PortalVariablePickerModal } from "@/components/PortalVariablePickerModal";
 import { useToast } from "@/components/ToastProvider";
@@ -31,14 +32,16 @@ type TwilioMasked = {
 };
 
 type AppointmentReminderSettings = {
-  version: 3;
+  version: 4;
   enabled: boolean;
-  channel: "SMS" | "EMAIL";
   steps: {
     id: string;
     enabled: boolean;
+    kind: "SMS" | "EMAIL" | "TAG";
     leadTime: { value: number; unit: "minutes" | "hours" | "days" | "weeks" };
-    messageBody: string;
+    subjectTemplate?: string;
+    messageBody?: string;
+    tagId?: string;
   }[];
 };
 
@@ -54,10 +57,12 @@ type AppointmentReminderEvent = {
 
   contactName: string;
   contactPhoneRaw: string | null;
+  contactEmailRaw?: string | null;
+  contactId?: string | null;
   smsTo: string | null;
   smsBody: string | null;
 
-  channel?: "SMS" | "EMAIL";
+  channel?: "SMS" | "EMAIL" | "TAG";
   to?: string | null;
   body?: string | null;
 
@@ -76,6 +81,8 @@ type BookingCalendar = {
   description?: string;
   durationMinutes?: number;
 };
+
+type ContactTag = { id: string; name: string; color: string | null };
 
 function getApiError(body: unknown): string | undefined {
   if (!body || typeof body !== "object") return undefined;
@@ -131,9 +138,73 @@ export function PortalAppointmentRemindersClient() {
   const [mediaPickerStepId, setMediaPickerStepId] = useState<string | null>(null);
   const [uploadBusyStepId, setUploadBusyStepId] = useState<string | null>(null);
 
+  const [ownerTags, setOwnerTags] = useState<ContactTag[]>([]);
+  const [tagsLoading, setTagsLoading] = useState(false);
+  const [createTagOpen, setCreateTagOpen] = useState(false);
+  const [createTagName, setCreateTagName] = useState("");
+  const [createTagBusy, setCreateTagBusy] = useState(false);
+  const [createTagStepId, setCreateTagStepId] = useState<string | null>(null);
+
   const [varPickerOpen, setVarPickerOpen] = useState(false);
   const [varPickerStepId, setVarPickerStepId] = useState<string | null>(null);
   const activeMessageElRef = useRef<HTMLTextAreaElement | null>(null);
+
+  const refreshTags = useCallback(async () => {
+    setTagsLoading(true);
+    try {
+      const res = await fetch("/api/portal/contact-tags", { cache: "no-store" });
+      const json = (await res.json().catch(() => ({}))) as any;
+      if (!res.ok || !json.ok || !Array.isArray(json.tags)) {
+        throw new Error(typeof json?.error === "string" ? json.error : "Failed to load tags");
+      }
+      const next = (json.tags as any[])
+        .map((t: any) => ({
+          id: String(t?.id || ""),
+          name: String(t?.name || "").slice(0, 60),
+          color: typeof t?.color === "string" ? String(t.color) : null,
+        }))
+        .filter((t: ContactTag) => t.id && t.name);
+      next.sort((a: ContactTag, b: ContactTag) => a.name.localeCompare(b.name));
+      setOwnerTags(next);
+    } catch {
+      setOwnerTags([]);
+    } finally {
+      setTagsLoading(false);
+    }
+  }, []);
+
+  async function createTag() {
+    const name = createTagName.trim();
+    if (!name) {
+      toast.error("Enter a tag name");
+      return;
+    }
+
+    setCreateTagBusy(true);
+    try {
+      const res = await fetch("/api/portal/contact-tags", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ name }),
+      });
+      const json = (await res.json().catch(() => ({}))) as any;
+      if (!res.ok || !json.ok || !json.tag?.id) {
+        throw new Error(typeof json?.error === "string" ? json.error : "Failed to create tag");
+      }
+      const createdId = String(json.tag.id);
+      await refreshTags();
+      const stepId = createTagStepId;
+      if (stepId) updateStep(stepId, { tagId: createdId });
+      setCreateTagOpen(false);
+      setCreateTagName("");
+      setCreateTagStepId(null);
+      toast.success("Created tag");
+    } catch (e: any) {
+      toast.error(String(e?.message || "Failed to create tag"));
+    } finally {
+      setCreateTagBusy(false);
+    }
+  }
 
   function insertAtCursor(current: string, insert: string, el: HTMLTextAreaElement | null) {
     const start = el?.selectionStart ?? current.length;
@@ -143,6 +214,11 @@ export function PortalAppointmentRemindersClient() {
   }
 
   const unlocked = useMemo(() => Boolean(me?.entitlements?.booking), [me?.entitlements?.booking]);
+
+  useEffect(() => {
+    if (!unlocked) return;
+    void refreshTags();
+  }, [refreshTags, unlocked]);
 
   const calendarsById = useMemo(() => {
     const m = new Map<string, BookingCalendar>();
@@ -289,23 +365,46 @@ export function PortalAppointmentRemindersClient() {
       const idx = steps.findIndex((s) => s.id === stepId);
       if (idx < 0) return prev;
       steps[idx] = { ...steps[idx], ...partial };
-      return { ...prev, version: 3, steps };
+      return { ...prev, version: 4, steps };
     });
   }
 
-  function addStep() {
+  function addStep(kind: "SMS" | "EMAIL" | "TAG") {
+    const defaultSubject = "Appointment reminder: {when}";
     setDraft((prev) => {
       if (!prev) return prev;
       const steps = Array.isArray(prev.steps) ? prev.steps.slice() : [];
       if (steps.length >= 8) return prev;
       return {
         ...prev,
-        version: 3,
+        version: 4,
         steps: [
           ...steps,
-          { id: makeClientId("rem_"), enabled: true, leadTime: { value: 1, unit: "hours" }, messageBody: DEFAULT_BODY },
+          {
+            id: makeClientId("rem_"),
+            enabled: true,
+            kind,
+            leadTime: { value: 1, unit: "hours" },
+            ...(kind === "EMAIL" ? { subjectTemplate: defaultSubject } : {}),
+            ...(kind === "TAG" ? {} : { messageBody: DEFAULT_BODY }),
+          },
         ],
       };
+    });
+  }
+
+  function moveStep(stepId: string, delta: number) {
+    setDraft((prev) => {
+      if (!prev) return prev;
+      const steps = Array.isArray(prev.steps) ? prev.steps.slice() : [];
+      const idx = steps.findIndex((s) => s.id === stepId);
+      if (idx < 0) return prev;
+      const nextIdx = idx + delta;
+      if (nextIdx < 0 || nextIdx >= steps.length) return prev;
+      const tmp = steps[idx];
+      steps[idx] = steps[nextIdx];
+      steps[nextIdx] = tmp;
+      return { ...prev, version: 4, steps };
     });
   }
 
@@ -314,7 +413,7 @@ export function PortalAppointmentRemindersClient() {
       if (!prev) return prev;
       const steps = Array.isArray(prev.steps) ? prev.steps.filter((s) => s.id !== stepId) : [];
       if (steps.length === 0) return prev;
-      return { ...prev, version: 3, steps };
+      return { ...prev, version: 4, steps };
     });
   }
 
@@ -364,16 +463,9 @@ export function PortalAppointmentRemindersClient() {
     }
   }
 
-  async function setChannel(channel: "SMS" | "EMAIL") {
-    if (!draft) return;
-    const next: AppointmentReminderSettings = { ...draft, channel, version: 3 };
-    setDraft(next);
-    await save(next);
-  }
-
   async function setEnabled(enabled: boolean) {
     if (!draft) return;
-    const next: AppointmentReminderSettings = { ...draft, enabled, version: 3 };
+    const next: AppointmentReminderSettings = { ...draft, enabled, version: 4 };
     setDraft(next);
     await save(next);
   }
@@ -529,43 +621,36 @@ export function PortalAppointmentRemindersClient() {
             </div>
           </div>
 
-          <div className="mt-4">
-            <label className="block text-xs font-semibold text-zinc-600">Delivery</label>
-            <div className="mt-2 inline-flex overflow-hidden rounded-2xl border border-zinc-200">
-              <button
-                type="button"
-                className={`px-4 py-2 text-sm font-semibold ${draft?.channel === "SMS" ? "bg-zinc-900 text-white" : "bg-white text-zinc-700 hover:bg-zinc-50"}`}
-                disabled={saving || !draft}
-                onClick={() => void setChannel("SMS")}
-              >
-                Text (SMS)
-              </button>
-              <button
-                type="button"
-                className={`px-4 py-2 text-sm font-semibold ${draft?.channel === "EMAIL" ? "bg-zinc-900 text-white" : "bg-white text-zinc-700 hover:bg-zinc-50"}`}
-                disabled={saving || !draft}
-                onClick={() => void setChannel("EMAIL")}
-              >
-                Email
-              </button>
-            </div>
-            <div className="mt-2 text-xs text-zinc-500">
-              {draft?.channel === "EMAIL" ? "Email reminders send to the booking’s email address." : "SMS reminders send to the booking’s phone number."}
-            </div>
-          </div>
-
           {draft ? (
             <>
               <div className="mt-5 flex items-center justify-between gap-3">
                 <div className="text-xs font-semibold text-zinc-600">Reminder steps</div>
-                <button
-                  type="button"
-                  className="rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm hover:bg-zinc-50 disabled:opacity-60"
-                  disabled={saving || draft.steps.length >= 8}
-                  onClick={() => addStep()}
-                >
-                  Add step
-                </button>
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    className="rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm hover:bg-zinc-50 disabled:opacity-60"
+                    disabled={saving || draft.steps.length >= 8}
+                    onClick={() => addStep("SMS")}
+                  >
+                    + SMS step
+                  </button>
+                  <button
+                    type="button"
+                    className="rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm hover:bg-zinc-50 disabled:opacity-60"
+                    disabled={saving || draft.steps.length >= 8}
+                    onClick={() => addStep("EMAIL")}
+                  >
+                    + Email step
+                  </button>
+                  <button
+                    type="button"
+                    className="rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm hover:bg-zinc-50 disabled:opacity-60"
+                    disabled={saving || draft.steps.length >= 8}
+                    onClick={() => addStep("TAG")}
+                  >
+                    + Tag step
+                  </button>
+                </div>
               </div>
 
               <div className="mt-3 space-y-3">
@@ -573,11 +658,34 @@ export function PortalAppointmentRemindersClient() {
                   <div key={s.id} className="rounded-2xl border border-zinc-200 p-4">
                     <div className="flex items-start justify-between gap-3">
                       <div className="min-w-0">
-                        <div className="text-sm font-semibold text-zinc-900">Step {idx + 1}</div>
+                        <div className="text-sm font-semibold text-zinc-900">
+                          {s.kind === "EMAIL" ? "Email" : s.kind === "TAG" ? "Tag" : "SMS"} step {idx + 1}
+                        </div>
+                        <div className="mt-1 text-xs text-zinc-600">{s.leadTime.value} {s.leadTime.unit} before</div>
                         <div className="mt-1 text-xs text-zinc-600">Variables: {"{name}"}, {"{when}"}</div>
                       </div>
 
                       <div className="flex items-center gap-2">
+                        <div className="flex items-center gap-1">
+                          <button
+                            type="button"
+                            className="rounded-xl border border-zinc-200 bg-white px-2 py-2 text-sm hover:bg-zinc-50 disabled:opacity-60"
+                            disabled={saving || idx === 0}
+                            onClick={() => moveStep(s.id, -1)}
+                            title="Move up"
+                          >
+                            ↑
+                          </button>
+                          <button
+                            type="button"
+                            className="rounded-xl border border-zinc-200 bg-white px-2 py-2 text-sm hover:bg-zinc-50 disabled:opacity-60"
+                            disabled={saving || idx === draft.steps.length - 1}
+                            onClick={() => moveStep(s.id, 1)}
+                            title="Move down"
+                          >
+                            ↓
+                          </button>
+                        </div>
                         <label className="flex items-center gap-2 text-sm">
                           <span className="text-xs text-zinc-600">On</span>
                           <input
@@ -640,51 +748,99 @@ export function PortalAppointmentRemindersClient() {
 
                       <label className="rounded-2xl border border-zinc-200 bg-zinc-50 px-4 py-3 text-sm sm:col-span-2">
                         <div className="flex items-center justify-between gap-3">
-                          <div className="font-medium text-zinc-800">Message</div>
+                          <div className="font-medium text-zinc-800">{s.kind === "TAG" ? "Tag" : "Message"}</div>
                           <div className="flex items-center gap-2">
-                            <button
-                              type="button"
-                              disabled={saving}
-                              className="rounded-xl border border-zinc-200 bg-white px-3 py-1.5 text-xs font-semibold text-brand-ink hover:bg-zinc-50 disabled:opacity-60"
-                              onClick={() => {
-                                setVarPickerStepId(s.id);
-                                setVarPickerOpen(true);
-                              }}
-                            >
-                              Insert variable
-                            </button>
-                            <label className="rounded-xl border border-zinc-200 bg-white px-3 py-1.5 text-xs font-semibold text-zinc-700 hover:bg-zinc-50 disabled:opacity-60">
-                              {uploadBusyStepId === s.id ? "Uploading…" : "Upload file"}
-                              <input
-                                type="file"
-                                className="hidden"
-                                disabled={saving || uploadBusyStepId === s.id}
-                                onChange={(e) => {
-                                  const f = e.target.files?.[0];
-                                  if (f) void uploadFileForStep(s.id, f);
-                                  e.currentTarget.value = "";
+                            {s.kind !== "TAG" ? (
+                              <>
+                                <button
+                                  type="button"
+                                  disabled={saving}
+                                  className="rounded-xl border border-zinc-200 bg-white px-3 py-1.5 text-xs font-semibold text-brand-ink hover:bg-zinc-50 disabled:opacity-60"
+                                  onClick={() => {
+                                    setVarPickerStepId(s.id);
+                                    setVarPickerOpen(true);
+                                  }}
+                                >
+                                  Insert variable
+                                </button>
+                                <label className="rounded-xl border border-zinc-200 bg-white px-3 py-1.5 text-xs font-semibold text-zinc-700 hover:bg-zinc-50 disabled:opacity-60">
+                                  {uploadBusyStepId === s.id ? "Uploading…" : "Upload file"}
+                                  <input
+                                    type="file"
+                                    className="hidden"
+                                    disabled={saving || uploadBusyStepId === s.id}
+                                    onChange={(e) => {
+                                      const f = e.target.files?.[0];
+                                      if (f) void uploadFileForStep(s.id, f);
+                                      e.currentTarget.value = "";
+                                    }}
+                                  />
+                                </label>
+                                <button
+                                  type="button"
+                                  disabled={saving}
+                                  className="rounded-xl border border-zinc-200 bg-white px-3 py-1.5 text-xs font-semibold text-zinc-700 hover:bg-zinc-50 disabled:opacity-60"
+                                  onClick={() => setMediaPickerStepId(s.id)}
+                                >
+                                  Attach files
+                                </button>
+                              </>
+                            ) : (
+                              <button
+                                type="button"
+                                disabled={saving}
+                                className="rounded-xl border border-zinc-200 bg-white px-3 py-1.5 text-xs font-semibold text-brand-ink hover:bg-zinc-50 disabled:opacity-60"
+                                onClick={() => {
+                                  setCreateTagStepId(s.id);
+                                  setCreateTagName("");
+                                  setCreateTagOpen(true);
                                 }}
-                              />
-                            </label>
-                            <button
-                              type="button"
-                              disabled={saving}
-                              className="rounded-xl border border-zinc-200 bg-white px-3 py-1.5 text-xs font-semibold text-zinc-700 hover:bg-zinc-50 disabled:opacity-60"
-                              onClick={() => setMediaPickerStepId(s.id)}
-                            >
-                              Attach files
-                            </button>
+                              >
+                                New tag
+                              </button>
+                            )}
                           </div>
                         </div>
-                        <textarea
-                          className="mt-2 min-h-[90px] w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm"
-                          value={s.messageBody}
-                          onChange={(e) => updateStep(s.id, { messageBody: e.target.value })}
-                          disabled={saving}
-                          onFocus={(e) => {
-                            activeMessageElRef.current = e.currentTarget;
-                          }}
-                        />
+
+                        {s.kind === "TAG" ? (
+                          <>
+                            <PortalListboxDropdown
+                              value={String(s.tagId || "")}
+                              disabled={saving || tagsLoading}
+                              onChange={(v) => updateStep(s.id, { tagId: String(v || "") || undefined })}
+                              options={[
+                                { value: "", label: tagsLoading ? "Loading tags…" : "Select a tag…" },
+                                ...ownerTags.map((t) => ({ value: t.id, label: t.name })),
+                              ]}
+                              className="mt-2 w-full max-w-md"
+                              buttonClassName="flex h-10 w-full items-center justify-between gap-2 rounded-xl border border-zinc-200 bg-white px-3 text-sm hover:bg-zinc-50 focus-visible:ring-2 focus-visible:ring-zinc-300"
+                            />
+                            <div className="mt-2 text-xs text-zinc-500">This step applies a tag to the contact (no message is sent).</div>
+                          </>
+                        ) : (
+                          <>
+                            {s.kind === "EMAIL" ? (
+                              <div className="mt-3">
+                                <div className="text-xs font-semibold text-zinc-600">Subject</div>
+                                <input
+                                  className="mt-2 h-10 w-full rounded-xl border border-zinc-200 bg-white px-3 text-sm"
+                                  value={String(s.subjectTemplate ?? "")}
+                                  onChange={(e) => updateStep(s.id, { subjectTemplate: e.target.value })}
+                                  disabled={saving}
+                                />
+                              </div>
+                            ) : null}
+                            <textarea
+                              className="mt-2 min-h-[90px] w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm"
+                              value={String(s.messageBody ?? "")}
+                              onChange={(e) => updateStep(s.id, { messageBody: e.target.value })}
+                              disabled={saving}
+                              onFocus={(e) => {
+                                activeMessageElRef.current = e.currentTarget;
+                              }}
+                            />
+                          </>
+                        )}
                       </label>
                     </div>
                   </div>
@@ -703,7 +859,11 @@ export function PortalAppointmentRemindersClient() {
                 <button
                   type="button"
                   className="rounded-2xl bg-[color:var(--color-brand-blue)] px-4 py-2 text-sm font-semibold text-white hover:opacity-95 disabled:opacity-60"
-                  disabled={saving || draft.steps.length === 0 || draft.steps.some((x) => !String(x.messageBody || "").trim())}
+                  disabled={
+                    saving ||
+                    draft.steps.length === 0 ||
+                    draft.steps.some((x) => (x.kind === "TAG" ? !String(x.tagId || "").trim() : !String(x.messageBody || "").trim()))
+                  }
                   onClick={() => void save(draft)}
                 >
                   {saving ? "Saving…" : "Save"}
@@ -769,6 +929,48 @@ export function PortalAppointmentRemindersClient() {
         Tip: reminders are processed every 5 minutes.
       </div>
 
+      <AppModal
+        open={createTagOpen}
+        title="Create tag"
+        description="Create a new contact tag to use in this reminder step."
+        onClose={() => {
+          if (createTagBusy) return;
+          setCreateTagOpen(false);
+        }}
+        widthClassName="w-[min(560px,calc(100vw-32px))]"
+        footer={
+          <div className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
+            <button
+              type="button"
+              className="rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm font-semibold text-zinc-800 hover:bg-zinc-50 disabled:opacity-60"
+              disabled={createTagBusy}
+              onClick={() => setCreateTagOpen(false)}
+            >
+              Cancel
+            </button>
+            <button
+              type="button"
+              className="rounded-2xl bg-brand-ink px-4 py-2 text-sm font-semibold text-white hover:opacity-95 disabled:opacity-60"
+              disabled={createTagBusy || !createTagName.trim()}
+              onClick={() => void createTag()}
+            >
+              {createTagBusy ? "Creating…" : "Create"}
+            </button>
+          </div>
+        }
+      >
+        <label className="block">
+          <div className="text-xs font-semibold text-zinc-600">Tag name</div>
+          <input
+            className="mt-2 h-10 w-full rounded-xl border border-zinc-200 bg-white px-3 text-sm"
+            value={createTagName}
+            onChange={(e) => setCreateTagName(e.target.value)}
+            disabled={createTagBusy}
+            placeholder="e.g. Confirmed"
+          />
+        </label>
+      </AppModal>
+
       <PortalMediaPickerModal
         open={Boolean(mediaPickerStepId)}
         onClose={() => setMediaPickerStepId(null)}
@@ -791,6 +993,7 @@ export function PortalAppointmentRemindersClient() {
           if (!stepId) return;
           const step = draft.steps.find((x) => x.id === stepId);
           if (!step) return;
+          if (step.kind === "TAG") return;
 
           const token = `{${key}}`;
           const { next, cursor } = insertAtCursor(step.messageBody || "", token, activeMessageElRef.current);
