@@ -43,6 +43,12 @@ function appendFooter(body: string, footer: string) {
   return b + "\n\n" + f;
 }
 
+function parseTagBody(body: string): { tagId: string } {
+  const s = String(body || "");
+  if (!s.startsWith("TAG:")) return { tagId: "" };
+  return { tagId: s.slice("TAG:".length).trim() };
+}
+
 export async function GET(req: Request) {
   const auth = checkAuth(req);
   if (!auth.ok) return NextResponse.json({ ok: false, error: auth.error }, { status: auth.status });
@@ -159,6 +165,62 @@ export async function GET(req: Request) {
       });
       processed += 1;
       continue;
+    }
+
+    if (step.kind === "TAG") {
+      try {
+        const { tagId } = parseTagBody(step.body);
+        if (!tagId) throw new Error("Missing tag id for TAG step.");
+
+        await prisma.portalContactTagAssignment.upsert({
+          where: { contactId_tagId: { contactId: e.contactId, tagId } },
+          create: {
+            id: crypto.randomUUID(),
+            ownerId: e.ownerId,
+            contactId: e.contactId,
+            tagId,
+            createdAt: now,
+          },
+          update: {},
+        });
+
+        const nextIndex = e.stepIndex + 1;
+        const nextStep = steps[nextIndex] ?? null;
+        const nextSendAt = nextStep ? new Date(now.getTime() + Math.max(0, Number(nextStep.delayMinutes) || 0) * 60 * 1000) : null;
+
+        await prisma.portalNurtureEnrollment.update({
+          where: { id: e.id },
+          data: {
+            stepIndex: nextIndex,
+            lastSentAt: now,
+            lastError: null,
+            status: nextStep ? "ACTIVE" : "COMPLETED",
+            nextSendAt,
+            updatedAt: now,
+          },
+        });
+
+        await upsertHoursSavedEvent({
+          ownerId: e.ownerId,
+          kind: "nurture_tag_applied",
+          sourceId: `${e.id}:${e.stepIndex}`,
+          secondsSaved: 30,
+          occurredAt: now,
+        }).catch(() => null);
+
+        processed += 1;
+        continue;
+      } catch (err: any) {
+        const msg = String(err?.message || err || "Step failed").slice(0, 500);
+        errors.push({ enrollmentId: e.id, error: msg });
+        const retryAt = new Date(now.getTime() + 15 * 60 * 1000);
+        await prisma.portalNurtureEnrollment.update({
+          where: { id: e.id },
+          data: { lastError: msg, nextSendAt: retryAt, updatedAt: now },
+        });
+        processed += 1;
+        continue;
+      }
     }
 
     const profile = await prisma.businessProfile.findUnique({ where: { ownerId: e.ownerId }, select: { businessName: true } }).catch(

@@ -33,14 +33,47 @@ function ToggleSwitch({
     <span className="relative inline-flex h-6 w-11 shrink-0 items-center">
       <input
         type="checkbox"
-        className="peer absolute inset-0 h-full w-full cursor-pointer opacity-0"
+        className="peer absolute inset-0 z-10 h-full w-full cursor-pointer opacity-0"
         checked={checked}
         disabled={disabled}
         onChange={(e) => onChange(e.target.checked)}
       />
-      <span className={"absolute inset-0 rounded-full bg-zinc-200 transition " + checkedBgClass + " peer-disabled:opacity-60"} />
-      <span className="absolute left-0.5 top-0.5 h-5 w-5 rounded-full bg-white shadow-sm transition peer-checked:translate-x-5 peer-disabled:opacity-60" />
+      <span
+        aria-hidden="true"
+        className={
+          "pointer-events-none absolute inset-0 rounded-full bg-zinc-200 transition " +
+          checkedBgClass +
+          " peer-disabled:opacity-60"
+        }
+      />
+      <span
+        aria-hidden="true"
+        className="pointer-events-none absolute left-0.5 top-0.5 h-5 w-5 rounded-full bg-white shadow-sm transition peer-checked:translate-x-5 peer-disabled:opacity-60"
+      />
     </span>
+  );
+}
+
+function PlainSettingsSection({
+  title,
+  description,
+  children,
+}: {
+  title: string;
+  description?: string;
+  children: React.ReactNode;
+}) {
+  return (
+    <div className="rounded-3xl border border-zinc-200 bg-white p-5">
+      <div className="flex items-start gap-3">
+        <span className="mt-1 h-2.5 w-2.5 shrink-0 rounded-full bg-slate-500" />
+        <div className="min-w-0">
+          <div className="text-sm font-semibold text-zinc-900">{title}</div>
+          {description ? <div className="mt-1 text-sm text-zinc-600">{description}</div> : null}
+        </div>
+      </div>
+      <div className="mt-4">{children}</div>
+    </div>
   );
 }
 
@@ -1010,7 +1043,7 @@ export default function PortalReviewsClient() {
                 </div>
               </PortalSettingsSection>
 
-              <PortalSettingsSection title="Timing" description="Send after appointment ends." accent="slate" collapsible={false}>
+              <PlainSettingsSection title="Timing" description="Send after appointment ends.">
                 <div className="text-xs font-semibold uppercase tracking-wide text-zinc-500">Delay</div>
                 <div className="mt-2 flex flex-wrap items-center gap-2">
                   <input
@@ -1041,10 +1074,10 @@ export default function PortalReviewsClient() {
                   </div>
                   <div className="text-xs text-zinc-500">Max 2 weeks total.</div>
                 </div>
-              </PortalSettingsSection>
+              </PlainSettingsSection>
 
-              <PortalSettingsSection title="Review destinations" description="Where the review link goes (Google, Yelp, etc)." accent="slate" collapsible={false}>
-                <div className="mt-2 space-y-2">
+              <PlainSettingsSection title="Review destinations" description="Where the review link goes (Google, Yelp, etc).">
+                <div className="space-y-2">
                   {settings.destinations.length === 0 ? (
                     <div className="text-sm text-zinc-600">
                       Optional. If you add links (Google, Yelp, etc), they’ll appear on your hosted reviews page.
@@ -1052,13 +1085,16 @@ export default function PortalReviewsClient() {
                   ) : null}
 
                   {settings.destinations.map((d) => (
-                    <div key={d.id} className="flex flex-col gap-2 rounded-lg border border-zinc-200 bg-white p-3 sm:flex-row sm:items-center sm:justify-between">
+                    <div
+                      key={d.id}
+                      className="flex flex-col gap-2 rounded-2xl border border-zinc-200 bg-white p-4 sm:flex-row sm:items-center sm:justify-between"
+                    >
                       <div className="min-w-0">
-                        <div className="truncate text-sm font-medium">{d.label}</div>
+                        <div className="truncate text-sm font-semibold text-zinc-900">{d.label}</div>
                         <div className="truncate text-xs text-neutral-500">{d.url}</div>
                       </div>
                       <div className="flex items-center gap-2">
-                        <label className="flex items-center gap-2 text-xs text-neutral-700">
+                        <label className="flex items-center gap-2 rounded-xl border border-zinc-200 bg-white px-3 py-2 text-xs font-semibold text-neutral-700">
                           <input
                             type="radio"
                             checked={
@@ -1071,7 +1107,7 @@ export default function PortalReviewsClient() {
                         </label>
                         <button
                           type="button"
-                          className="h-9 rounded-lg border border-zinc-200 bg-white px-3 text-xs hover:bg-zinc-50"
+                          className="h-9 rounded-xl border border-zinc-200 bg-white px-3 text-xs font-semibold text-zinc-800 hover:bg-zinc-50"
                           onClick={() => removeDestination(d.id)}
                         >
                           Remove
@@ -1083,33 +1119,34 @@ export default function PortalReviewsClient() {
 
                 <div className="mt-3 flex flex-col gap-2 sm:flex-row">
                   <input
-                    className="h-10 flex-1 rounded-lg border border-zinc-200 bg-white px-3 text-sm"
+                    className="h-10 flex-1 rounded-xl border border-zinc-200 bg-white px-3 text-sm"
                     placeholder="Label (e.g. Google Reviews)"
                     value={newDestLabel}
                     onChange={(e) => setNewDestLabel(e.target.value)}
                   />
                   <input
-                    className="h-10 flex-2 rounded-lg border border-zinc-200 bg-white px-3 text-sm"
+                    className="h-10 flex-2 rounded-xl border border-zinc-200 bg-white px-3 text-sm"
                     placeholder="https://..."
                     value={newDestUrl}
                     onChange={(e) => setNewDestUrl(e.target.value)}
                   />
                   <button
-                    className="h-10 rounded-lg bg-neutral-900 px-4 text-sm font-medium text-white"
+                    className="inline-flex h-10 items-center justify-center gap-2 rounded-xl bg-(--color-brand-blue) px-4 text-sm font-semibold text-white hover:opacity-95"
                     onClick={addDestination}
                     type="button"
                   >
-                    Add
+                    <span className="text-base leading-none">+</span>
+                    <span>Add</span>
                   </button>
                 </div>
-              </PortalSettingsSection>
+              </PlainSettingsSection>
 
-              <PortalSettingsSection title="SMS template" description="Controls the message body for review request texts." accent="slate" defaultOpen={false}>
-                <div className="mt-2 text-xs text-neutral-500">Use placeholders: {"{name}"}, {"{link}"}, {"{business}"}</div>
+              <PlainSettingsSection title="SMS template" description="Controls the message body for review request texts.">
+                <div className="text-xs text-neutral-500">Use placeholders: {"{name}"}, {"{link}"}, {"{business}"}</div>
                 <div className="mt-2 flex items-center justify-end">
                   <button
                     type="button"
-                    className="rounded-lg border border-zinc-200 bg-white px-3 py-1.5 text-xs font-semibold text-brand-ink hover:bg-zinc-50"
+                    className="rounded-xl border border-zinc-200 bg-white px-3 py-1.5 text-xs font-semibold text-brand-ink hover:bg-zinc-50"
                     onClick={() => {
                       setVarPickerTarget({ kind: "default" });
                       setVarPickerOpen(true);
@@ -1119,18 +1156,18 @@ export default function PortalReviewsClient() {
                   </button>
                 </div>
                 <textarea
-                  className="mt-2 min-h-30 w-full rounded-lg border border-zinc-200 bg-white px-3 py-2 text-sm"
+                  className="mt-2 min-h-30 w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm"
                   value={settings.messageTemplate}
                   onChange={(e) => setSettings({ ...settings, messageTemplate: e.target.value })}
                   onFocus={(e) => {
                     activeTemplateElRef.current = e.currentTarget;
                   }}
                 />
-                <div className="mt-2 rounded-lg border border-zinc-200 bg-neutral-50 p-3 text-xs text-neutral-700">
-                  <div className="font-medium">Preview</div>
+                <div className="mt-2 rounded-xl border border-zinc-200 bg-zinc-50 p-3 text-xs text-neutral-700">
+                  <div className="font-semibold">Preview</div>
                   <div className="mt-1 whitespace-pre-wrap">{previewBody}</div>
                 </div>
-              </PortalSettingsSection>
+              </PlainSettingsSection>
 
               <PortalSettingsSection title="Hosted reviews page" description="Configure the public reviews page and its form." accent="slate" defaultOpen={false}>
                 {publicSiteSlug ? (

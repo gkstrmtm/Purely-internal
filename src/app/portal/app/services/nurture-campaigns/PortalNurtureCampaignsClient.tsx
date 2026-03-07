@@ -21,7 +21,7 @@ type CampaignListRow = {
   enrollments: { active: number; completed: number; stopped: number };
 };
 
-type StepKind = "SMS" | "EMAIL";
+type StepKind = "SMS" | "EMAIL" | "TAG";
 
 type StepRow = {
   id: string;
@@ -61,13 +61,6 @@ function formatDate(iso: string | null | undefined) {
   if (!iso) return "";
   const d = new Date(iso);
   return Number.isFinite(d.getTime()) ? d.toLocaleString() : "";
-}
-
-function pillStyle(color: string | null) {
-  const bg = color ? `${color}20` : "#0f172a12";
-  const border = color ? `${color}40` : "#0f172a22";
-  const text = color || "#0f172a";
-  return { backgroundColor: bg, borderColor: border, color: text } as const;
 }
 
 function bestUnit(minutes: number): { unit: "minutes" | "hours" | "days"; value: number } {
@@ -230,6 +223,81 @@ const NURTURE_TEMPLATES: NurtureTemplate[] = [
       },
     ],
   },
+  {
+    id: "quote-followup",
+    title: "Quote follow-up (4 steps)",
+    description: "Nudges after sending pricing or an estimate.",
+    steps: [
+      {
+        kind: "SMS",
+        delayMinutes: 0,
+        body: "Hey {contact.firstName}, I just sent pricing. Want me to walk you through it real quick? - {business.name}",
+      },
+      {
+        kind: "EMAIL",
+        delayMinutes: 60 * 24,
+        subject: "Any questions on the quote?",
+        body: "Hi {contact.firstName},\n\nQuick check-in - did you have any questions on the quote?\n\nIf you tell me what matters most (speed, budget, quality), I can recommend the best option.\n\n- {business.name}",
+      },
+      {
+        kind: "SMS",
+        delayMinutes: 60 * 24 * 2,
+        body: "Just bumping this, {contact.firstName}. Should I keep this open or pause it for now?",
+      },
+      {
+        kind: "EMAIL",
+        delayMinutes: 60 * 24 * 5,
+        subject: "Should I close this out?",
+        body: "Hi {contact.firstName},\n\nTotally fine if timing is not right. Should I close this out for now?\n\nIf you still want to move forward, reply with your ideal start date and I will confirm next steps.\n\n- {business.name}",
+      },
+    ],
+  },
+  {
+    id: "no-show-reschedule",
+    title: "No-show reschedule (3 steps)",
+    description: "Polite sequence to reschedule when they miss an appointment.",
+    steps: [
+      {
+        kind: "SMS",
+        delayMinutes: 0,
+        body: "Hey {contact.firstName}, we missed you today. Want to reschedule? Reply with a good time. - {business.name}",
+      },
+      {
+        kind: "SMS",
+        delayMinutes: 60 * 24,
+        body: "Quick ping {contact.firstName} - still want to reschedule, or should I close this out?",
+      },
+      {
+        kind: "EMAIL",
+        delayMinutes: 60 * 24 * 3,
+        subject: "Reschedule your appointment",
+        body: "Hi {contact.firstName},\n\nJust following up to help you reschedule. Reply with two times that work and I will confirm.\n\n- {business.name}",
+      },
+    ],
+  },
+  {
+    id: "referral-ask",
+    title: "Referral ask (3 steps)",
+    description: "Ask happy customers for a referral in a simple, low-pressure way.",
+    steps: [
+      {
+        kind: "EMAIL",
+        delayMinutes: 0,
+        subject: "Quick favor?",
+        body: "Hi {contact.firstName},\n\nQuick favor - if you know anyone who could use help with this, would you introduce us?\n\nEven a name and number is perfect, and I will take great care of them.\n\n- {business.name}",
+      },
+      {
+        kind: "SMS",
+        delayMinutes: 60 * 24,
+        body: "Hey {contact.firstName}, quick favor - know anyone who could use help with this? Happy to take great care of them.",
+      },
+      {
+        kind: "SMS",
+        delayMinutes: 60 * 24 * 4,
+        body: "Last one from me, {contact.firstName}. If someone comes to mind later, just reply here anytime.",
+      },
+    ],
+  },
 ];
 
 export function PortalNurtureCampaignsClient() {
@@ -286,12 +354,28 @@ export function PortalNurtureCampaignsClient() {
   const [savingCampaign, setSavingCampaign] = useState(false);
 
   const [addTagValue, setAddTagValue] = useState<string>("__none__");
+  const [tagSearch, setTagSearch] = useState("");
 
   const [templateOpen, setTemplateOpen] = useState(false);
   const [templateBusy, setTemplateBusy] = useState(false);
 
   const selected = useMemo(() => campaigns.find((c) => c.id === selectedId) ?? null, [campaigns, selectedId]);
   const selectedTagIds = useMemo(() => new Set(detail?.audienceTagIds || []), [detail?.audienceTagIds]);
+
+  const addTagOptions = useMemo(() => {
+    const q = tagSearch.trim().toLowerCase();
+    const filtered = q ? ownerTags.filter((t) => t.name.toLowerCase().includes(q)) : ownerTags;
+    return [
+      { value: "__none__", label: "Add tag…", disabled: true },
+      ...filtered.slice(0, 120).map((t) => ({
+        value: t.id,
+        label: t.name,
+        disabled: selectedTagIds.has(t.id),
+        hint: selectedTagIds.has(t.id) ? "Already added" : undefined,
+      })),
+      { value: "__create__", label: "Create new tag…" },
+    ] as any;
+  }, [ownerTags, selectedTagIds, tagSearch]);
 
   const refreshList = useCallback(async (opts?: { keepSelected?: boolean }) => {
     setLoadingList(true);
@@ -553,11 +637,12 @@ export function PortalNurtureCampaignsClient() {
         <div className="flex flex-wrap items-center gap-2">
           <button
             type="button"
-            className="rounded-2xl bg-zinc-900 px-4 py-2 text-sm font-semibold text-white hover:bg-zinc-800 disabled:opacity-60"
+            className="inline-flex items-center gap-2 rounded-2xl bg-(--color-brand-blue) px-4 py-2 text-sm font-semibold text-white shadow-sm hover:opacity-90 disabled:opacity-60"
             onClick={() => void createCampaign()}
             disabled={loadingList}
           >
-            New campaign
+            <span className="text-base leading-none">+</span>
+            <span>New campaign</span>
           </button>
           <button
             type="button"
@@ -585,19 +670,20 @@ export function PortalNurtureCampaignsClient() {
                     type="button"
                     className={classNames(
                       "w-full rounded-2xl border px-3 py-3 text-left transition",
-                      active ? "border-zinc-900 bg-zinc-900 text-white" : "border-zinc-200 bg-white hover:bg-zinc-50",
+                      active
+                        ? "border-(--color-brand-blue) bg-brand-blue/5 text-zinc-900 ring-2 ring-brand-blue/15"
+                        : "border-zinc-200 bg-white hover:bg-zinc-50",
                     )}
                     onClick={() => setSelectedId(c.id)}
                   >
                     <div className="flex items-start justify-between gap-2">
-                      <div className={classNames("min-w-0", active ? "text-white" : "text-zinc-900")}
-                        >
+                      <div className={classNames("min-w-0", active ? "text-zinc-900" : "text-zinc-900")}>
                         <div className="truncate text-sm font-semibold">{c.name}</div>
-                        <div className={classNames("mt-1 text-xs", active ? "text-white/80" : "text-zinc-500")}>
+                        <div className={classNames("mt-1 text-xs", active ? "text-(--color-brand-blue)" : "text-zinc-500")}>
                           {c.status} · {c.stepsCount} step{c.stepsCount === 1 ? "" : "s"}
                         </div>
                       </div>
-                      <div className={classNames("shrink-0 text-right text-xs", active ? "text-white/80" : "text-zinc-500")}>
+                      <div className={classNames("shrink-0 text-right text-xs", active ? "text-zinc-600" : "text-zinc-500")}>
                         <div title="Active enrollments">{c.enrollments.active} active</div>
                         <div title="Completed enrollments">{c.enrollments.completed} done</div>
                       </div>
@@ -635,7 +721,9 @@ export function PortalNurtureCampaignsClient() {
                     type="button"
                     className={classNames(
                       "rounded-2xl px-4 py-2 text-sm font-semibold disabled:opacity-60",
-                      campaignDirty ? "bg-zinc-900 text-white hover:bg-zinc-800" : "border border-zinc-200 bg-white text-zinc-700 hover:bg-zinc-50",
+                      campaignDirty
+                        ? "bg-(--color-brand-blue) text-white shadow-sm hover:opacity-90"
+                        : "border border-zinc-200 bg-white text-zinc-700 hover:bg-zinc-50",
                     )}
                     onClick={() => void saveCampaign()}
                     disabled={!campaignDirty || savingCampaign}
@@ -663,7 +751,7 @@ export function PortalNurtureCampaignsClient() {
                 <div>
                   <label className="text-xs font-semibold text-zinc-600">Name</label>
                   <input
-                    className="mt-1 w-full rounded-2xl border border-zinc-200 bg-white px-4 py-3 text-sm outline-none focus:border-[color:var(--color-brand-blue)]"
+                    className="mt-1 w-full rounded-2xl border border-zinc-200 bg-white px-4 py-3 text-sm outline-none focus:border-(--color-brand-blue)"
                     value={detail.name}
                     onChange={(e) => {
                       setDetail((p) => (p ? { ...p, name: e.target.value.slice(0, 80) } : p));
@@ -694,81 +782,80 @@ export function PortalNurtureCampaignsClient() {
                 </div>
               </div>
 
-              <div className="mt-5 rounded-3xl border border-zinc-200 bg-zinc-50 p-4">
+              <div className="mt-5 rounded-3xl border border-zinc-200 bg-white p-4">
                 <div className="flex flex-wrap items-start justify-between gap-3">
                   <div>
                     <div className="text-sm font-semibold text-zinc-900">Audience tags</div>
                     <div className="mt-1 text-sm text-zinc-600">Contacts with any selected tag will be enrolled.</div>
                   </div>
-
-                  <button
-                    type="button"
-                    className="rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-xs font-semibold text-zinc-700 hover:bg-zinc-50 disabled:opacity-60"
-                    onClick={() => void refreshTags()}
-                    disabled={loadingTags}
-                  >
-                    {loadingTags ? "Loading…" : "Refresh tags"}
-                  </button>
+                  {loadingTags ? <div className="text-xs font-semibold text-zinc-500">Refreshing…</div> : null}
                 </div>
 
-                <div className="mt-3 flex flex-wrap items-center gap-2">
+                <div className="mt-3 flex flex-wrap gap-2">
                   {selectedTags.length ? (
                     selectedTags.map((t) => (
-                      <button
+                      <span
                         key={t.id}
-                        type="button"
-                        className="inline-flex items-center gap-2 rounded-full border px-3 py-1 text-xs font-semibold"
-                        style={pillStyle(t.color)}
-                        title="Remove"
-                        onClick={() => {
-                          setDetail((p) => {
-                            if (!p) return p;
-                            return { ...p, audienceTagIds: p.audienceTagIds.filter((id) => id !== t.id) };
-                          });
-                          setCampaignDirty(true);
-                        }}
+                        className="inline-flex items-center gap-2 rounded-full border border-zinc-200 bg-white px-3 py-1.5 text-xs font-semibold text-zinc-700"
                       >
-                        <span className="h-2 w-2 rounded-full" style={{ backgroundColor: t.color || "#e4e4e7" }} />
-                        {t.name}
-                        <span className="text-zinc-400">×</span>
-                      </button>
+                        <span className="inline-flex h-2.5 w-2.5 rounded-full" style={{ backgroundColor: t.color || "#a1a1aa" }} />
+                        <span className="max-w-60 truncate">{t.name}</span>
+                        <button
+                          type="button"
+                          className="rounded-full px-1 text-zinc-500 hover:bg-zinc-100 hover:text-zinc-800"
+                          onClick={() => {
+                            setDetail((p) => {
+                              if (!p) return p;
+                              return { ...p, audienceTagIds: p.audienceTagIds.filter((id) => id !== t.id) };
+                            });
+                            setCampaignDirty(true);
+                          }}
+                          aria-label={`Remove ${t.name}`}
+                          title="Remove"
+                        >
+                          ×
+                        </button>
+                      </span>
                     ))
                   ) : (
-                    <div className="text-sm text-zinc-600">No tags selected.</div>
+                    <div className="text-xs text-zinc-500">No tags selected.</div>
                   )}
                 </div>
 
                 <div className="mt-4 grid grid-cols-1 gap-3 lg:grid-cols-2">
                   <div>
-                    <label className="text-xs font-semibold text-zinc-600">Add existing tag</label>
-                    <div className="mt-1">
-                      <PortalListboxDropdown
-                        value={addTagValue}
-                        options={[
-                          { value: "__none__", label: "Select a tag…", disabled: true },
-                          { value: "__create__", label: "Create new tag…" },
-                          ...ownerTags
-                            .filter((t) => !selectedTagIds.has(t.id))
-                            .map((t) => ({ value: t.id, label: t.name })),
-                        ]}
-                        onChange={(tagId) => {
-                          if (tagId === "__create__") {
-                            setAddTagValue("__none__");
-                            requestAnimationFrame(() => createTagNameRef.current?.focus());
-                            return;
-                          }
-                          if (!tagId || tagId === "__none__") return;
-                          setDetail((p) => {
-                            if (!p) return p;
-                            const set = new Set(p.audienceTagIds);
-                            set.add(tagId);
-                            return { ...p, audienceTagIds: Array.from(set).slice(0, 100) };
-                          });
-                          setCampaignDirty(true);
-                          setAddTagValue("__none__");
-                        }}
-                        className="w-full"
+                    <label className="text-xs font-semibold text-zinc-600">Add tags</label>
+                    <div className="mt-2 max-w-sm">
+                      <input
+                        value={tagSearch}
+                        onChange={(e) => setTagSearch(e.target.value)}
+                        placeholder="Search tags…"
+                        className="w-full rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-sm"
                       />
+                      <div className="mt-2">
+                        <PortalListboxDropdown
+                          value={addTagValue}
+                          options={addTagOptions}
+                          onChange={(tagId) => {
+                            if (tagId === "__create__") {
+                              setAddTagValue("__none__");
+                              requestAnimationFrame(() => createTagNameRef.current?.focus());
+                              return;
+                            }
+                            if (!tagId || tagId === "__none__") return;
+                            setDetail((p) => {
+                              if (!p) return p;
+                              const set = new Set(p.audienceTagIds);
+                              set.add(tagId);
+                              return { ...p, audienceTagIds: Array.from(set).slice(0, 100) };
+                            });
+                            setCampaignDirty(true);
+                            setAddTagValue("__none__");
+                          }}
+                          className="w-full"
+                          placeholder="Add tag…"
+                        />
+                      </div>
                     </div>
                   </div>
 
@@ -777,7 +864,7 @@ export function PortalNurtureCampaignsClient() {
                     <div className="mt-2 flex flex-wrap items-center gap-2">
                       <input
                         ref={createTagNameRef}
-                        className="min-w-[220px] flex-1 rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-sm"
+                        className="min-w-55 flex-1 rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-sm"
                         placeholder="Tag name (e.g., Hot lead)"
                         value={createTagName}
                         onChange={(e) => setCreateTagName(e.target.value)}
@@ -802,7 +889,7 @@ export function PortalNurtureCampaignsClient() {
                       </div>
                       <button
                         type="button"
-                        className="rounded-2xl bg-zinc-900 px-3 py-2 text-xs font-semibold text-white hover:bg-zinc-800 disabled:opacity-60"
+                        className="rounded-2xl bg-(--color-brand-blue) px-3 py-2 text-xs font-semibold text-white shadow-sm hover:opacity-90 disabled:opacity-60"
                         disabled={createTagBusy}
                         onClick={() => {
                           const name = createTagName.trim().slice(0, 60);
@@ -849,7 +936,7 @@ export function PortalNurtureCampaignsClient() {
                 <div>
                   <label className="text-xs font-semibold text-zinc-600">SMS footer</label>
                   <textarea
-                    className="mt-1 min-h-[90px] w-full rounded-2xl border border-zinc-200 bg-white px-4 py-3 text-sm outline-none focus:border-[color:var(--color-brand-blue)]"
+                    className="mt-1 min-h-22.5 w-full rounded-2xl border border-zinc-200 bg-white px-4 py-3 text-sm outline-none focus:border-(--color-brand-blue)"
                     value={detail.smsFooter}
                     onChange={(e) => {
                       setDetail((p) => (p ? { ...p, smsFooter: e.target.value.slice(0, 300) } : p));
@@ -861,7 +948,7 @@ export function PortalNurtureCampaignsClient() {
                 <div>
                   <label className="text-xs font-semibold text-zinc-600">Email footer</label>
                   <textarea
-                    className="mt-1 min-h-[90px] w-full rounded-2xl border border-zinc-200 bg-white px-4 py-3 text-sm outline-none focus:border-[color:var(--color-brand-blue)]"
+                    className="mt-1 min-h-22.5 w-full rounded-2xl border border-zinc-200 bg-white px-4 py-3 text-sm outline-none focus:border-(--color-brand-blue)"
                     value={detail.emailFooter}
                     onChange={(e) => {
                       setDetail((p) => (p ? { ...p, emailFooter: e.target.value.slice(0, 2000) } : p));
@@ -881,7 +968,7 @@ export function PortalNurtureCampaignsClient() {
                   <div className="flex flex-wrap items-center gap-2">
                     <button
                       type="button"
-                      className="rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-xs font-semibold text-zinc-700 hover:bg-zinc-50 disabled:opacity-60"
+                      className="rounded-2xl bg-(--color-brand-blue) px-3 py-2 text-xs font-semibold text-white shadow-sm hover:opacity-90 disabled:opacity-60"
                       onClick={() => setTemplateOpen(true)}
                       disabled={templateBusy}
                     >
@@ -901,11 +988,18 @@ export function PortalNurtureCampaignsClient() {
                     >
                       + Email step
                     </button>
+                    <button
+                      type="button"
+                      className="rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-xs font-semibold text-zinc-700 hover:bg-zinc-50"
+                      onClick={() => void addStep("TAG")}
+                    >
+                      + Tag step
+                    </button>
                   </div>
                 </div>
 
                 {templateOpen ? (
-                  <div className="fixed inset-0 z-[9998] flex items-end justify-center bg-black/30 p-3 sm:items-center">
+                  <div className="fixed inset-0 z-9998 flex items-end justify-center bg-black/30 p-3 sm:items-center">
                     <div className="w-full max-w-2xl rounded-3xl border border-zinc-200 bg-white p-5 shadow-xl">
                       <div className="flex items-start justify-between gap-3">
                         <div>
@@ -1007,6 +1101,7 @@ export function PortalNurtureCampaignsClient() {
                         <StepCard
                           key={s.id}
                           step={s}
+                          ownerTags={ownerTags}
                           campaignName={detail.name}
                           index={idx}
                           total={detail.steps.length}
@@ -1038,7 +1133,7 @@ export function PortalNurtureCampaignsClient() {
                     </button>
                     <button
                       type="button"
-                      className="rounded-2xl bg-zinc-900 px-3 py-2 text-xs font-semibold text-white hover:bg-zinc-800"
+                      className="rounded-2xl bg-(--color-brand-blue) px-3 py-2 text-xs font-semibold text-white shadow-sm hover:opacity-90"
                       onClick={() => void enroll(false)}
                     >
                       Enroll now
@@ -1060,6 +1155,7 @@ export function PortalNurtureCampaignsClient() {
 
 function StepCard(props: {
   step: StepRow;
+  ownerTags: ContactTag[];
   campaignName: string;
   index: number;
   total: number;
@@ -1068,7 +1164,7 @@ function StepCard(props: {
   onMoveDown: () => void;
   onDelete: () => void;
 }) {
-  const { step, campaignName, index, total, onSave, onMoveUp, onMoveDown, onDelete } = props;
+  const { step, ownerTags, campaignName, index, total, onSave, onMoveUp, onMoveDown, onDelete } = props;
 
   const toast = useToast();
 
@@ -1080,10 +1176,22 @@ function StepCard(props: {
   const [body, setBody] = useState<string>(step.body);
   const [dirty, setDirty] = useState(false);
 
+  const parseTagId = useCallback((raw: string) => {
+    const s = String(raw || "");
+    if (!s.startsWith("TAG:")) return "";
+    return s.slice("TAG:".length).trim();
+  }, []);
+
+  const [tagId, setTagId] = useState<string>(() => (step.kind === "TAG" ? parseTagId(step.body) : ""));
+
   const [varPickerOpen, setVarPickerOpen] = useState(false);
   const [varPickerTarget, setVarPickerTarget] = useState<"subject" | "body">("body");
   const [mediaOpen, setMediaOpen] = useState(false);
   const [aiBusy, setAiBusy] = useState(false);
+
+  const [aiModalOpen, setAiModalOpen] = useState(false);
+  const [aiInstruction, setAiInstruction] = useState("");
+  const [aiError, setAiError] = useState<string | null>(null);
   const [uploadBusy, setUploadBusy] = useState(false);
 
   const subjectRef = useRef<HTMLInputElement | null>(null);
@@ -1124,19 +1232,21 @@ function StepCard(props: {
     setDelayUnit(delay2.unit);
     setSubject(step.subject ?? "");
     setBody(step.body);
+    setTagId(step.kind === "TAG" ? parseTagId(step.body) : "");
     setDirty(false);
-  }, [step.body, step.delayMinutes, step.kind, step.subject, step.updatedAtIso]);
+  }, [parseTagId, step.body, step.delayMinutes, step.kind, step.subject, step.updatedAtIso]);
 
   const save = useCallback(() => {
     const nextDelayMinutes = toMinutes(delayValue, delayUnit);
+    const nextBody = kind === "TAG" ? `TAG:${String(tagId || "").trim()}` : body.slice(0, 8000);
     onSave({
       kind,
       delayMinutes: nextDelayMinutes,
       subject: kind === "EMAIL" ? subject.slice(0, 200) : null,
-      body: body.slice(0, 8000),
+      body: nextBody,
     });
     setDirty(false);
-  }, [body, delayUnit, delayValue, kind, onSave, subject]);
+  }, [body, delayUnit, delayValue, kind, onSave, subject, tagId]);
 
   return (
     <div className="rounded-3xl border border-zinc-200 bg-white p-4">
@@ -1188,9 +1298,15 @@ function StepCard(props: {
               options={[
                 { value: "SMS", label: "SMS" },
                 { value: "EMAIL", label: "Email" },
+                { value: "TAG", label: "Tag" },
               ]}
               onChange={(next) => {
                 setKind(next);
+                if (next === "TAG") {
+                  const fallbackTagId = tagId || ownerTags[0]?.id || "";
+                  setTagId(fallbackTagId);
+                  setSubject("");
+                }
                 setDirty(true);
               }}
             />
@@ -1246,7 +1362,9 @@ function StepCard(props: {
             type="button"
             className={classNames(
               "rounded-2xl px-3 py-2 text-xs font-semibold",
-              dirty ? "bg-zinc-900 text-white hover:bg-zinc-800" : "border border-zinc-200 bg-white text-zinc-700 hover:bg-zinc-50",
+              dirty
+                ? "bg-(--color-brand-blue) text-white shadow-sm hover:opacity-90"
+                : "border border-zinc-200 bg-white text-zinc-700 hover:bg-zinc-50",
             )}
             onClick={save}
             disabled={!dirty}
@@ -1293,6 +1411,30 @@ function StepCard(props: {
         </div>
       ) : null}
 
+      {kind === "TAG" ? (
+        <div className="mt-3 rounded-2xl border border-zinc-200 bg-white p-4">
+          <div className="text-xs font-semibold text-zinc-700">Tag to apply</div>
+          <div className="mt-1 text-xs text-zinc-500">This step applies a tag to the contact (no message is sent).</div>
+          <div className="mt-3 max-w-sm">
+            <PortalListboxDropdown
+              value={tagId || "__none__"}
+              options={[
+                { value: "__none__", label: ownerTags.length ? "Select a tag…" : "No tags available", disabled: true },
+                ...ownerTags.slice(0, 200).map((t) => ({ value: t.id, label: t.name })),
+              ]}
+              onChange={(next) => {
+                if (!next || next === "__none__") return;
+                setTagId(next);
+                setDirty(true);
+              }}
+              className="w-full"
+              placeholder="Select a tag…"
+            />
+          </div>
+        </div>
+      ) : null}
+
+      {kind === "TAG" ? null : (
       <div className="mt-3">
         <div className="flex flex-wrap items-center justify-between gap-2">
           <label className="text-xs font-semibold text-zinc-600">Message</label>
@@ -1351,43 +1493,30 @@ function StepCard(props: {
             <button
               type="button"
               disabled={aiBusy}
-              className="rounded-xl bg-zinc-900 px-2 py-1 text-xs font-semibold text-white hover:bg-zinc-800 disabled:opacity-60"
               onClick={() => {
                 if (aiBusy) return;
-                const extra = window.prompt("Optional: add an instruction for the AI draft (tone, CTA, etc)", "") || "";
-                void (async () => {
-                  setAiBusy(true);
-                  try {
-                    const res = await fetch("/api/portal/nurture/ai/generate-step", {
-                      method: "POST",
-                      headers: { "content-type": "application/json" },
-                      body: JSON.stringify({
-                        kind,
-                        campaignName,
-                        prompt: extra.trim() || undefined,
-                        existingSubject: kind === "EMAIL" ? subject : undefined,
-                        existingBody: body,
-                      }),
-                    });
-                    const json = (await res.json().catch(() => ({}))) as any;
-                    if (!res.ok || !json?.ok) throw new Error(String(json?.error || "AI draft failed"));
-                    if (kind === "EMAIL" && typeof json.subject === "string" && json.subject.trim()) {
-                      setSubject(String(json.subject).slice(0, 200));
-                    }
-                    if (typeof json.body === "string") {
-                      setBody(String(json.body).slice(0, 8000));
-                      setDirty(true);
-                    }
-                    toast.success("Draft generated");
-                  } catch (e: any) {
-                    toast.error(String(e?.message || "AI draft failed"));
-                  } finally {
-                    setAiBusy(false);
-                  }
-                })();
+                setAiError(null);
+                setAiModalOpen(true);
               }}
+              className={
+                "inline-flex items-center gap-2 rounded-xl px-2 py-1 text-xs font-semibold text-white shadow-sm transition hover:opacity-90 disabled:opacity-60 " +
+                "bg-linear-to-r from-(--color-brand-blue) via-violet-500 to-(--color-brand-pink)"
+              }
             >
-              {aiBusy ? "Drafting…" : "AI draft"}
+              <svg
+                aria-hidden="true"
+                viewBox="0 0 24 24"
+                className="h-3.5 w-3.5"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+              >
+                <path d="M12 2l1.5 5.5L19 9l-5.5 1.5L12 16l-1.5-5.5L5 9l5.5-1.5L12 2z" />
+                <path d="M19 14l.8 2.6L22 17l-2.2.4L19 20l-.8-2.6L16 17l2.2-.4L19 14z" />
+              </svg>
+              <span>{aiBusy ? "Drafting…" : "AI draft"}</span>
             </button>
           </div>
         </div>
@@ -1395,7 +1524,7 @@ function StepCard(props: {
           ref={(el) => {
             bodyRef.current = el;
           }}
-          className="mt-1 min-h-[120px] w-full rounded-2xl border border-zinc-200 bg-white px-4 py-3 text-sm"
+          className="mt-1 min-h-30 w-full rounded-2xl border border-zinc-200 bg-white px-4 py-3 text-sm"
           value={body}
           onChange={(e) => {
             setBody(e.target.value);
@@ -1407,6 +1536,118 @@ function StepCard(props: {
           Supports templates like <span className="font-mono">{"{contact.name}"}</span> and <span className="font-mono">{"{business.name}"}</span>.
         </div>
       </div>
+      )}
+
+      {aiModalOpen ? (
+        <div className="fixed inset-0 z-9999 flex items-end justify-center bg-black/40 p-3 sm:items-center" onMouseDown={() => !aiBusy && setAiModalOpen(false)}>
+          <div
+            className="w-full max-w-xl rounded-3xl border border-zinc-200 bg-white p-5 shadow-xl"
+            onMouseDown={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-start justify-between gap-3">
+              <div>
+                <div className="inline-flex items-center gap-2 text-base font-semibold text-zinc-900">
+                  <span className="inline-flex h-7 w-7 items-center justify-center rounded-2xl bg-linear-to-r from-(--color-brand-blue) via-violet-500 to-(--color-brand-pink) text-white">
+                    <svg
+                      aria-hidden="true"
+                      viewBox="0 0 24 24"
+                      className="h-4 w-4"
+                      fill="none"
+                      stroke="currentColor"
+                      strokeWidth="2"
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                    >
+                      <path d="M12 2l1.5 5.5L19 9l-5.5 1.5L12 16l-1.5-5.5L5 9l5.5-1.5L12 2z" />
+                      <path d="M19 14l.8 2.6L22 17l-2.2.4L19 20l-.8-2.6L16 17l2.2-.4L19 14z" />
+                    </svg>
+                  </span>
+                  <span>AI draft</span>
+                </div>
+                <div className="mt-1 text-sm text-zinc-600">Optional: add an instruction for tone, CTA, or details to include.</div>
+              </div>
+              <button
+                type="button"
+                className="rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-sm font-semibold text-zinc-700 hover:bg-zinc-50 disabled:opacity-60"
+                onClick={() => setAiModalOpen(false)}
+                disabled={aiBusy}
+              >
+                Close
+              </button>
+            </div>
+
+            <div className="mt-4">
+              <label className="text-xs font-semibold text-zinc-600">Instruction (optional)</label>
+              <textarea
+                className="mt-1 min-h-22.5 w-full rounded-2xl border border-zinc-200 bg-white px-4 py-3 text-sm"
+                value={aiInstruction}
+                onChange={(e) => setAiInstruction(e.target.value)}
+                placeholder="Example: keep it friendly, ask for a quick reply, mention scheduling a 10-minute call"
+                disabled={aiBusy}
+              />
+              {aiError ? <div className="mt-2 text-sm font-semibold text-red-600">{aiError}</div> : null}
+            </div>
+
+            <div className="mt-4 flex items-center justify-end gap-2">
+              <button
+                type="button"
+                className="rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm font-semibold text-zinc-700 hover:bg-zinc-50 disabled:opacity-60"
+                onClick={() => {
+                  setAiModalOpen(false);
+                  setAiError(null);
+                }}
+                disabled={aiBusy}
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                disabled={aiBusy}
+                className={
+                  "inline-flex items-center justify-center gap-2 rounded-2xl px-4 py-2 text-sm font-semibold text-white shadow-sm transition hover:opacity-90 disabled:opacity-60 " +
+                  "bg-linear-to-r from-(--color-brand-blue) via-violet-500 to-(--color-brand-pink)"
+                }
+                onClick={() => {
+                  if (aiBusy) return;
+                  setAiError(null);
+                  void (async () => {
+                    setAiBusy(true);
+                    try {
+                      const res = await fetch("/api/portal/nurture/ai/generate-step", {
+                        method: "POST",
+                        headers: { "content-type": "application/json" },
+                        body: JSON.stringify({
+                          kind,
+                          campaignName,
+                          prompt: aiInstruction.trim() || undefined,
+                          existingSubject: kind === "EMAIL" ? subject : undefined,
+                          existingBody: body,
+                        }),
+                      });
+                      const json = (await res.json().catch(() => ({}))) as any;
+                      if (!res.ok || !json?.ok) throw new Error(String(json?.error || "AI draft failed"));
+                      if (kind === "EMAIL" && typeof json.subject === "string" && json.subject.trim()) {
+                        setSubject(String(json.subject).slice(0, 200));
+                      }
+                      if (typeof json.body === "string") {
+                        setBody(String(json.body).slice(0, 8000));
+                        setDirty(true);
+                      }
+                      setAiModalOpen(false);
+                    } catch (e: any) {
+                      setAiError(String(e?.message || "AI draft failed"));
+                    } finally {
+                      setAiBusy(false);
+                    }
+                  })();
+                }}
+              >
+                {aiBusy ? "Drafting…" : "Generate"}
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
     </div>
   );
 }

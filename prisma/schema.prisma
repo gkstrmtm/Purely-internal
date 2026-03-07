@@ -910,6 +910,7 @@ enum PortalNurtureCampaignStatus {
 enum PortalNurtureStepKind {
   SMS
   EMAIL
+  TAG
 }
 
 enum PortalNurtureEnrollmentStatus {

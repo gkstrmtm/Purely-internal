@@ -26,7 +26,17 @@ BEGIN
     JOIN pg_namespace n ON n.oid = t.typnamespace
     WHERE n.nspname = 'public' AND t.typname = 'PortalNurtureStepKind'
   ) THEN
-    CREATE TYPE "PortalNurtureStepKind" AS ENUM ('SMS','EMAIL');
+    CREATE TYPE "PortalNurtureStepKind" AS ENUM ('SMS','EMAIL','TAG');
+  ELSE
+    IF NOT EXISTS (
+      SELECT 1
+      FROM pg_enum e
+      JOIN pg_type t ON t.oid = e.enumtypid
+      JOIN pg_namespace n ON n.oid = t.typnamespace
+      WHERE n.nspname = 'public' AND t.typname = 'PortalNurtureStepKind' AND e.enumlabel = 'TAG'
+    ) THEN
+      ALTER TYPE "PortalNurtureStepKind" ADD VALUE 'TAG';
+    END IF;
   END IF;
 
   IF NOT EXISTS (

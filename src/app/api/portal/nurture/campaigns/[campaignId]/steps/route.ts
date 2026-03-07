@@ -11,7 +11,7 @@ export const revalidate = 0;
 
 const postSchema = z
   .object({
-    kind: z.enum(["SMS", "EMAIL"]).optional(),
+    kind: z.enum(["SMS", "EMAIL", "TAG"]).optional(),
   })
   .strict();
 
@@ -41,6 +41,27 @@ export async function POST(req: Request, ctx: { params: Promise<{ campaignId: st
   const id = crypto.randomUUID();
   const kind = parsed.data.kind ?? "SMS";
 
+  if (kind === "TAG") {
+    await prisma.portalNurtureStep.create({
+      data: {
+        id,
+        ownerId,
+        campaignId,
+        ord,
+        kind,
+        delayMinutes: ord === 0 ? 0 : 60 * 24,
+        subject: null,
+        body: "TAG:",
+        createdAt: now,
+        updatedAt: now,
+      },
+    });
+
+    await prisma.portalNurtureCampaign.updateMany({ where: { ownerId, id: campaignId }, data: { updatedAt: now } });
+
+    return NextResponse.json({ ok: true, id });
+  }
+
   await prisma.portalNurtureStep.create({
     data: {
       id,
@@ -52,7 +73,7 @@ export async function POST(req: Request, ctx: { params: Promise<{ campaignId: st
       subject: kind === "EMAIL" ? "Quick question" : null,
       body:
         kind === "EMAIL"
-          ? "Hi {contact.name},\n\nJust checking in. Do you want help getting this set up?\n\n– {business.name}"
+          ? "Hi {contact.name},\n\nJust checking in. Do you want help getting this set up?\n\n- {business.name}"
           : "Hey {contact.name}, just checking in. Want help getting this set up?",
       createdAt: now,
       updatedAt: now,

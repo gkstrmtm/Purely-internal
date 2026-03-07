@@ -12,7 +12,7 @@ export const revalidate = 0;
 const patchSchema = z
   .object({
     ord: z.number().int().min(0).max(200).optional(),
-    kind: z.enum(["SMS", "EMAIL"]).optional(),
+    kind: z.enum(["SMS", "EMAIL", "TAG"]).optional(),
     delayMinutes: z.number().int().min(0).max(60 * 24 * 365).optional(),
     subject: z.string().max(200).optional().nullable(),
     body: z.string().min(1).max(8000).optional(),
@@ -38,12 +38,18 @@ export async function PATCH(req: Request, ctx: { params: Promise<{ stepId: strin
 
   const existing = await prisma.portalNurtureStep.findFirst({
     where: { ownerId, id: stepId },
-    select: { id: true, campaignId: true, ord: true },
+    select: { id: true, campaignId: true, ord: true, kind: true, body: true },
   });
 
   if (!existing) return NextResponse.json({ ok: false, error: "Not found" }, { status: 404 });
 
   const now = new Date();
+
+  const nextKind = parsed.data.kind ?? existing.kind;
+  const nextBody = parsed.data.body ?? existing.body;
+  if (nextKind === "TAG" && typeof nextBody === "string" && !nextBody.startsWith("TAG:")) {
+    return NextResponse.json({ ok: false, error: 'TAG steps must have body like "TAG:<tagId>"' }, { status: 400 });
+  }
 
   if (parsed.data.ord !== undefined && parsed.data.ord !== existing.ord) {
     const steps = await prisma.portalNurtureStep.findMany({
@@ -74,6 +80,11 @@ export async function PATCH(req: Request, ctx: { params: Promise<{ stepId: strin
   if (parsed.data.delayMinutes !== undefined) data.delayMinutes = parsed.data.delayMinutes;
   if (parsed.data.subject !== undefined) data.subject = parsed.data.subject;
   if (parsed.data.body !== undefined) data.body = parsed.data.body;
+
+  if (nextKind === "TAG") {
+    data.subject = null;
+    data.body = typeof nextBody === "string" ? nextBody : "TAG:";
+  }
 
   await prisma.portalNurtureStep.updateMany({ where: { ownerId, id: stepId }, data });
 
