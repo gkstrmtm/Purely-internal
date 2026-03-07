@@ -6,6 +6,9 @@ import { createPortal } from "react-dom";
 import { PortalSettingsSection } from "@/components/PortalSettingsSection";
 import { useToast } from "@/components/ToastProvider";
 
+export type BlogsTab = "posts" | "automation" | "settings";
+type FrequencyUnit = "days" | "weeks" | "months";
+
 type Me = {
   user: { email: string; name: string; role: string };
   entitlements: { blog: boolean; booking: boolean; crm: boolean };
@@ -67,7 +70,30 @@ function formatDate(value: string | null) {
   return Number.isFinite(d.getTime()) ? d.toLocaleString() : "";
 }
 
-export function PortalBlogsClient() {
+function inferFrequencyPreset(days: number): { count: number; unit: FrequencyUnit } {
+  const d = Math.min(30, Math.max(1, Math.floor(Number(days) || 7)));
+  if (d === 30) return { count: 1, unit: "months" };
+  if (d % 7 === 0) {
+    const weeks = d / 7;
+    if (weeks >= 1 && weeks <= 4) return { count: weeks, unit: "weeks" };
+  }
+  return { count: d, unit: "days" };
+}
+
+function clampFrequencyCount(count: number, unit: FrequencyUnit) {
+  const c = Math.max(1, Math.floor(Number(count) || 1));
+  if (unit === "weeks") return Math.min(4, c);
+  if (unit === "months") return 1;
+  return Math.min(30, c);
+}
+
+export function PortalBlogsClient({
+  routeTab,
+  onTabChange,
+}: {
+  routeTab: BlogsTab;
+  onTabChange: (tab: BlogsTab) => void;
+}) {
   const toast = useToast();
   const [me, setMe] = useState<Me | null>(null);
   const [site, setSite] = useState<Site | null>(null);
@@ -88,21 +114,41 @@ export function PortalBlogsClient() {
 
   const [siteName, setSiteName] = useState("");
   const [siteSlug, setSiteSlug] = useState("");
+  const [siteDomain, setSiteDomain] = useState("");
   const [siteSaving, setSiteSaving] = useState(false);
-  const [tab, setTab] = useState<"posts" | "automation" | "settings">("posts");
   const [openPostMenu, setOpenPostMenu] = useState<null | { postId: string; left: number; top: number }>(null);
   const [confirm, setConfirm] = useState<PostConfirm>(null);
 
   const [autoEnabled, setAutoEnabled] = useState(false);
-  const [autoFrequencyDays, setAutoFrequencyDays] = useState(7);
+  const [autoFrequencyCount, setAutoFrequencyCount] = useState(1);
+  const [autoFrequencyUnit, setAutoFrequencyUnit] = useState<FrequencyUnit>("weeks");
   const [autoTopics, setAutoTopics] = useState<string[]>([]);
   const [autoPublish, setAutoPublish] = useState(false);
   const [autoSaving, setAutoSaving] = useState(false);
 
+  const [domainVerifying, setDomainVerifying] = useState(false);
+  const [domainVerifyInfo, setDomainVerifyInfo] = useState<null | {
+    ok: boolean;
+    recordName?: string;
+    expected?: string;
+    found?: string[];
+  }>(null);
+
   const entitled = Boolean(me?.entitlements?.blog);
 
   const siteHandle = useMemo(() => site?.slug ?? site?.id ?? null, [site?.id, site?.slug]);
-  const blogPagePath = siteHandle ? `/${siteHandle}/blogs` : null;
+  const hostedBlogPath = siteHandle ? `/${siteHandle}/blogs` : null;
+
+  const customBlogUrl = useMemo(() => {
+    const d = site?.primaryDomain ? String(site.primaryDomain).trim() : "";
+    if (!d) return null;
+    return `https://${d}/blogs`;
+  }, [site?.primaryDomain]);
+
+  const previewBlogsHref = useMemo(() => {
+    if (site?.verifiedAt && site?.primaryDomain) return `https://${site.primaryDomain}/blogs`;
+    return hostedBlogPath;
+  }, [hostedBlogPath, site?.primaryDomain, site?.verifiedAt]);
 
   const openPostMenuPost = useMemo(() => {
     if (!openPostMenu) return null;
@@ -115,6 +161,14 @@ export function PortalBlogsClient() {
     if (typeof window === "undefined") return `/${handle}/blogs`;
     return `${window.location.origin}/${handle}/blogs`;
   }, [site?.id, site?.slug, siteSlug]);
+
+  const autoFrequencyDays = useMemo(() => {
+    const unit = autoFrequencyUnit;
+    const count = clampFrequencyCount(autoFrequencyCount, unit);
+    if (unit === "weeks") return Math.min(30, Math.max(1, count * 7));
+    if (unit === "months") return 30;
+    return Math.min(30, Math.max(1, count));
+  }, [autoFrequencyCount, autoFrequencyUnit]);
 
   const creditsPerWeekEstimate = useMemo(() => {
     const freq = Math.max(1, Math.floor(Number(autoFrequencyDays) || 7));
@@ -167,6 +221,7 @@ export function PortalBlogsClient() {
     setSite(s);
     setSiteName(s?.name ?? "");
     setSiteSlug(s?.slug ?? "");
+    setSiteDomain(s?.primaryDomain ?? "");
 
     setPosts(Array.isArray(postsJson.posts) ? postsJson.posts : []);
 
@@ -189,11 +244,9 @@ export function PortalBlogsClient() {
     if (autoRes.ok && autoJson.settings) {
       setAutomation(autoJson.settings);
       setAutoEnabled(Boolean(autoJson.settings.enabled));
-      setAutoFrequencyDays(
-        typeof autoJson.settings.frequencyDays === "number" && Number.isFinite(autoJson.settings.frequencyDays)
-          ? autoJson.settings.frequencyDays
-          : 7,
-      );
+      const preset = inferFrequencyPreset(autoJson.settings.frequencyDays);
+      setAutoFrequencyUnit(preset.unit);
+      setAutoFrequencyCount(preset.count);
       setAutoTopics(sanitizeTopics((autoJson.settings.topics ?? []) as any));
       setAutoPublish(Boolean(autoJson.settings.autoPublish));
     }
@@ -217,10 +270,6 @@ export function PortalBlogsClient() {
       document.removeEventListener("visibilitychange", onVis);
     };
   }, [refreshAll]);
-
-  useEffect(() => {
-    setTab(site ? "posts" : "settings");
-  }, [site]);
 
   useEffect(() => {
     if (!openPostMenu) return;
@@ -295,7 +344,7 @@ export function PortalBlogsClient() {
     const res = await fetch("/api/portal/blogs/site", {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ name: siteName || "My Blog", slug: siteSlug, primaryDomain: site?.primaryDomain ?? "" }),
+      body: JSON.stringify({ name: siteName || "My Blog", slug: siteSlug, primaryDomain: siteDomain }),
     });
     const json = (await res.json().catch(() => ({}))) as { ok?: boolean; site?: Site; error?: string };
     setSiteSaving(false);
@@ -308,6 +357,7 @@ export function PortalBlogsClient() {
     setSite(json.site);
     setSiteName(json.site.name);
     setSiteSlug(json.site.slug ?? "");
+    setSiteDomain(json.site.primaryDomain ?? "");
     await refreshAll();
   }
 
@@ -323,8 +373,7 @@ export function PortalBlogsClient() {
       body: JSON.stringify({
         name: siteName,
         slug: siteSlug,
-        // Preserve existing domain until the UI supports editing it again.
-        primaryDomain: site?.primaryDomain ?? "",
+        primaryDomain: siteDomain,
       }),
     });
 
@@ -339,12 +388,50 @@ export function PortalBlogsClient() {
     setSite(json.site);
     setSiteName(json.site.name);
     setSiteSlug(json.site.slug ?? "");
+    setSiteDomain(json.site.primaryDomain ?? "");
     await refreshAll();
+  }
+
+  async function verifyDomain() {
+    if (!site) {
+      setError("Create your blog workspace first.");
+      onTabChange("settings");
+      return;
+    }
+
+    const d = String(siteDomain || "").trim();
+    if (!d) {
+      setError("Enter a domain first.");
+      return;
+    }
+
+    setDomainVerifying(true);
+    setDomainVerifyInfo(null);
+    setError(null);
+
+    const res = await fetch("/api/portal/blogs/site/verify", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ domain: d }),
+    });
+
+    const json = (await res.json().catch(() => ({}))) as any;
+    setDomainVerifying(false);
+
+    if (json?.ok && json?.verified) {
+      setDomainVerifyInfo({ ok: true, recordName: json?.recordName, expected: json?.expected });
+      await refreshAll();
+      return;
+    }
+
+    setDomainVerifyInfo({ ok: false, recordName: json?.recordName, expected: json?.expected, found: json?.found });
+    setError(json?.error ?? "Domain verification failed");
   }
 
   async function newDraft() {
     if (!site) {
       setError("Create your blog workspace first (Settings → Create blog workspace).");
+      onTabChange("settings");
       return;
     }
 
@@ -448,19 +535,13 @@ export function PortalBlogsClient() {
           </p>
         </div>
         <div className="flex w-full flex-col gap-3 sm:w-auto sm:flex-row">
-          <Link
-            href="/portal/app/onboarding"
-            className="inline-flex items-center justify-center rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm font-semibold text-brand-ink hover:bg-zinc-50"
-          >
-            Setup checklist
-          </Link>
           <a
-            href={blogPagePath ?? undefined}
+            href={previewBlogsHref ?? undefined}
             target="_blank"
             rel="noreferrer"
             className={
               "inline-flex items-center justify-center rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm font-semibold text-brand-ink hover:bg-zinc-50 " +
-              (!blogPagePath ? "pointer-events-none opacity-60" : "")
+              (!previewBlogsHref ? "pointer-events-none opacity-60" : "")
             }
           >
             Preview blogs page
@@ -468,9 +549,10 @@ export function PortalBlogsClient() {
           <button
             type="button"
             onClick={newDraft}
-            className="inline-flex items-center justify-center rounded-2xl bg-brand-ink px-4 py-2 text-sm font-semibold text-white hover:opacity-95"
+            aria-label="New draft"
+            className="inline-flex h-10 w-10 items-center justify-center rounded-2xl bg-brand-ink text-lg font-semibold text-white hover:opacity-95"
           >
-            New draft
+            +
           </button>
         </div>
       </div>
@@ -478,11 +560,11 @@ export function PortalBlogsClient() {
       <div className="mt-6 flex w-full flex-wrap gap-2">
         <button
           type="button"
-          onClick={() => setTab("posts")}
-          aria-current={tab === "posts" ? "page" : undefined}
+          onClick={() => onTabChange("posts")}
+          aria-current={routeTab === "posts" ? "page" : undefined}
           className={
             "flex-1 min-w-[140px] rounded-2xl border px-4 py-2.5 text-sm font-semibold transition focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-ink/60 " +
-            (tab === "posts"
+            (routeTab === "posts"
               ? "border-zinc-900 bg-zinc-900 text-white shadow-sm"
               : "border-zinc-200 bg-white text-zinc-700 hover:bg-zinc-50")
           }
@@ -491,24 +573,24 @@ export function PortalBlogsClient() {
         </button>
         <button
           type="button"
-          onClick={() => setTab("automation")}
-          aria-current={tab === "automation" ? "page" : undefined}
+          onClick={() => onTabChange("automation")}
+          aria-current={routeTab === "automation" ? "page" : undefined}
           className={
             "flex-1 min-w-[140px] rounded-2xl border px-4 py-2.5 text-sm font-semibold transition focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-ink/60 " +
-            (tab === "automation"
+            (routeTab === "automation"
               ? "border-zinc-900 bg-zinc-900 text-white shadow-sm"
               : "border-zinc-200 bg-white text-zinc-700 hover:bg-zinc-50")
           }
         >
-          Automation
+          Blog Automation
         </button>
         <button
           type="button"
-          onClick={() => setTab("settings")}
-          aria-current={tab === "settings" ? "page" : undefined}
+          onClick={() => onTabChange("settings")}
+          aria-current={routeTab === "settings" ? "page" : undefined}
           className={
             "flex-1 min-w-[140px] rounded-2xl border px-4 py-2.5 text-sm font-semibold transition focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-ink/60 " +
-            (tab === "settings"
+            (routeTab === "settings"
               ? "border-zinc-900 bg-zinc-900 text-white shadow-sm"
               : "border-zinc-200 bg-white text-zinc-700 hover:bg-zinc-50")
           }
@@ -517,7 +599,7 @@ export function PortalBlogsClient() {
         </button>
       </div>
 
-      {tab === "posts" ? (
+      {routeTab === "posts" ? (
         <>
           <div className="mt-6 rounded-3xl border border-zinc-200 bg-white p-6 shadow-sm">
             <div className="flex flex-col items-start justify-between gap-3 sm:flex-row sm:items-center">
@@ -525,12 +607,6 @@ export function PortalBlogsClient() {
                 <div className="text-sm font-semibold text-zinc-900">Your posts</div>
                 <div className="mt-2 text-sm text-zinc-600">Edit drafts, export Markdown, and keep everything organized.</div>
               </div>
-              <Link
-                href={billingPath}
-                className="inline-flex items-center justify-center rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm font-semibold text-brand-ink hover:bg-zinc-50"
-              >
-                Billing
-              </Link>
             </div>
 
             <div className="mt-5 grid grid-cols-1 gap-3 sm:grid-cols-2">
@@ -563,7 +639,7 @@ export function PortalBlogsClient() {
                   {posts.length === 0 ? (
                     <tr>
                       <td className="px-4 py-4 text-zinc-600" colSpan={4}>
-                        No posts yet. Click “New draft” to start.
+                        No posts yet. Click “+” to start.
                       </td>
                     </tr>
                   ) : (
@@ -619,9 +695,9 @@ export function PortalBlogsClient() {
         </>
       ) : null}
 
-      {tab === "automation" ? (
+      {routeTab === "automation" ? (
         <div className="mt-6 rounded-3xl border border-zinc-200 bg-white p-6 shadow-sm">
-          <div className="text-sm font-semibold text-zinc-900">Automation schedule</div>
+          <div className="text-sm font-semibold text-zinc-900">Blog automation schedule</div>
           <div className="mt-2 text-sm text-zinc-600">Set it once, and we’ll generate posts on schedule.</div>
 
           <div className="mt-5 space-y-4">
@@ -637,18 +713,34 @@ export function PortalBlogsClient() {
 
             <div>
               <label className="text-xs font-semibold text-zinc-600">Frequency</label>
-              <div className="mt-1 flex items-center gap-2">
+              <div className="mt-1 flex flex-col gap-2 sm:flex-row sm:items-center">
                 <input
                   type="number"
                   min={1}
-                  max={30}
-                  value={autoFrequencyDays}
-                  onChange={(e) => setAutoFrequencyDays(Number(e.target.value))}
-                  className="w-24 rounded-2xl border border-zinc-200 bg-white px-4 py-3 text-sm outline-none focus:border-zinc-300"
+                  max={autoFrequencyUnit === "weeks" ? 4 : autoFrequencyUnit === "months" ? 1 : 30}
+                  value={autoFrequencyCount}
+                  onChange={(e) => setAutoFrequencyCount(clampFrequencyCount(Number(e.target.value), autoFrequencyUnit))}
+                  disabled={autoFrequencyUnit === "months"}
+                  className="w-28 rounded-2xl border border-zinc-200 bg-white px-4 py-3 text-sm outline-none focus:border-zinc-300 disabled:bg-zinc-50"
                 />
-                <div className="text-sm text-zinc-600">days per post</div>
+                <select
+                  value={autoFrequencyUnit}
+                  onChange={(e) => {
+                    const nextUnit = (e.target.value as FrequencyUnit) || "days";
+                    setAutoFrequencyUnit(nextUnit);
+                    setAutoFrequencyCount((prev) => clampFrequencyCount(prev, nextUnit));
+                  }}
+                  className="w-full rounded-2xl border border-zinc-200 bg-white px-4 py-3 text-sm outline-none focus:border-zinc-300 sm:w-44"
+                >
+                  <option value="days">day(s)</option>
+                  <option value="weeks">week(s)</option>
+                  <option value="months">month(s)</option>
+                </select>
+                <div className="text-sm text-zinc-600">per post</div>
               </div>
-              <div className="mt-1 text-xs text-zinc-500">Example: 7 = weekly, 14 = every 2 weeks.</div>
+              <div className="mt-1 text-xs text-zinc-500">
+                Max is 30 days. Weekly = 1 week · Biweekly = 2 weeks · Monthly = 1 month.
+              </div>
               {Number(autoFrequencyDays) < 7 ? (
                 <div className="mt-2 rounded-2xl border border-amber-200 bg-amber-50 p-3 text-xs text-amber-800">
                   More often than weekly uses credits. Estimated: {creditsPerWeekEstimate} credit{creditsPerWeekEstimate === 1 ? "" : "s"} / week.
@@ -731,6 +823,7 @@ export function PortalBlogsClient() {
                 onClick={async () => {
                   if (!site) {
                     setError("Create your blog workspace first (Settings → Create blog workspace).");
+                    onTabChange("settings");
                     return;
                   }
 
@@ -754,7 +847,7 @@ export function PortalBlogsClient() {
 
                   window.location.href = `/portal/app/services/blogs/${json.postId}`;
                 }}
-                className="inline-flex w-full items-center justify-center rounded-2xl border border-zinc-200 bg-white px-5 py-3 text-sm font-semibold text-brand-ink hover:bg-zinc-50 disabled:opacity-60"
+                className="inline-flex w-full items-center justify-center rounded-2xl bg-gradient-to-r from-[color:var(--color-brand-blue)] to-[color:var(--color-brand-pink)] px-5 py-3 text-sm font-semibold text-white hover:opacity-95 disabled:opacity-60"
               >
                 {generatingNow ? "Generating…" : "Generate next post now"}
               </button>
@@ -772,13 +865,13 @@ export function PortalBlogsClient() {
         </div>
       ) : null}
 
-      {tab === "settings" ? (
+      {routeTab === "settings" ? (
         <div className="mt-6">
           <PortalSettingsSection
             title="Blog settings"
             description="Configure your hosted blog link and workspace."
             accent="slate"
-            defaultOpen={false}
+            defaultOpen={true}
           >
             <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
               <div>
@@ -833,12 +926,12 @@ export function PortalBlogsClient() {
                   Copy
                 </button>
                 <a
-                  href={blogPagePath ?? undefined}
+                  href={hostedBlogPath ?? undefined}
                   target="_blank"
                   rel="noreferrer"
                   className={
                     "inline-flex items-center justify-center rounded-2xl border border-zinc-200 bg-white px-4 py-3 text-sm font-semibold text-brand-ink hover:bg-zinc-50 " +
-                    (!blogPagePath ? "pointer-events-none opacity-60" : "")
+                    (!hostedBlogPath ? "pointer-events-none opacity-60" : "")
                   }
                 >
                   Preview blogs page
@@ -847,6 +940,111 @@ export function PortalBlogsClient() {
               <div className="mt-1 text-xs text-zinc-500">
                 This is your public blog hosted on Purely Automation. If you also want to publish elsewhere, use “Export Markdown”.
               </div>
+            </div>
+
+            <div className="mt-6">
+              <div className="flex flex-col items-start justify-between gap-2 sm:flex-row sm:items-center">
+                <div>
+                  <div className="text-sm font-semibold text-zinc-900">Custom domain</div>
+                  <div className="mt-1 text-xs text-zinc-500">Optional. Verify a DNS TXT record to use your own domain.</div>
+                </div>
+                {site?.primaryDomain ? (
+                  <span
+                    className={
+                      "inline-flex rounded-full px-2.5 py-1 text-xs font-semibold " +
+                      (site?.verifiedAt ? "bg-emerald-50 text-emerald-700" : "bg-zinc-100 text-zinc-700")
+                    }
+                  >
+                    {site?.verifiedAt ? "Verified" : "Not verified"}
+                  </span>
+                ) : null}
+              </div>
+
+              <div className="mt-3 grid grid-cols-1 gap-4 lg:grid-cols-2">
+                <div>
+                  <label className="text-xs font-semibold text-zinc-600">Domain</label>
+                  <input
+                    value={siteDomain}
+                    onChange={(e) => setSiteDomain(e.target.value)}
+                    className="mt-1 w-full rounded-2xl border border-zinc-200 bg-white px-4 py-3 text-sm outline-none focus:border-zinc-300"
+                    placeholder="blog.yourdomain.com"
+                    disabled={!site}
+                  />
+                  <div className="mt-1 text-xs text-zinc-500">Example: blog.yourdomain.com (no http/https)</div>
+                </div>
+
+                <div>
+                  <label className="text-xs font-semibold text-zinc-600">Custom domain preview</label>
+                  <div className="mt-1 flex flex-col gap-2 sm:flex-row sm:items-center">
+                    <div className="min-w-0 flex-1 rounded-2xl border border-zinc-200 bg-zinc-50 px-4 py-3 text-sm text-zinc-800">
+                      <div className="truncate">{customBlogUrl ?? "Save a domain to preview."}</div>
+                    </div>
+                    <a
+                      href={site?.primaryDomain && site?.verifiedAt ? customBlogUrl ?? undefined : undefined}
+                      target="_blank"
+                      rel="noreferrer"
+                      className={
+                        "inline-flex items-center justify-center rounded-2xl border border-zinc-200 bg-white px-4 py-3 text-sm font-semibold text-brand-ink hover:bg-zinc-50 " +
+                        (site?.primaryDomain && site?.verifiedAt ? "" : "pointer-events-none opacity-60")
+                      }
+                    >
+                      Preview
+                    </a>
+                  </div>
+                </div>
+              </div>
+
+              {site?.primaryDomain ? (
+                <div className="mt-4 rounded-2xl border border-zinc-200 bg-zinc-50 p-4 text-xs text-zinc-700">
+                  <div className="font-semibold text-zinc-900">DNS TXT record</div>
+                  <div className="mt-2">
+                    <div>
+                      <span className="text-zinc-600">Name:</span> <span className="font-mono">_purelyautomation.{site.primaryDomain}</span>
+                    </div>
+                    <div className="mt-1">
+                      <span className="text-zinc-600">Value:</span> <span className="font-mono">verify={site.verificationToken}</span>
+                    </div>
+                    {site.verifiedAt ? (
+                      <div className="mt-2 text-zinc-600">Verified at: {formatDate(site.verifiedAt)}</div>
+                    ) : (
+                      <div className="mt-2 text-zinc-600">After adding the TXT record, click Verify.</div>
+                    )}
+                  </div>
+                </div>
+              ) : null}
+
+              <div className="mt-4 flex flex-col gap-3 sm:flex-row">
+                <button
+                  type="button"
+                  onClick={() => void saveSite()}
+                  disabled={siteSaving || !site || !siteName.trim()}
+                  className="inline-flex items-center justify-center rounded-2xl bg-brand-ink px-5 py-3 text-sm font-semibold text-white hover:opacity-95 disabled:opacity-60"
+                >
+                  {siteSaving ? "Saving…" : "Save domain"}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => void verifyDomain()}
+                  disabled={domainVerifying || !site || !site?.primaryDomain}
+                  className="inline-flex items-center justify-center rounded-2xl border border-zinc-200 bg-white px-5 py-3 text-sm font-semibold text-brand-ink hover:bg-zinc-50 disabled:opacity-60"
+                >
+                  {domainVerifying ? "Verifying…" : "Verify domain"}
+                </button>
+              </div>
+
+              {domainVerifyInfo && !domainVerifyInfo.ok ? (
+                <div className="mt-3 rounded-2xl border border-amber-200 bg-amber-50 p-4 text-xs text-amber-800">
+                  <div className="font-semibold">Verification not found yet</div>
+                  {domainVerifyInfo.recordName ? <div className="mt-1">Record: {domainVerifyInfo.recordName}</div> : null}
+                  {domainVerifyInfo.expected ? <div className="mt-1">Expected: {domainVerifyInfo.expected}</div> : null}
+                </div>
+              ) : null}
+
+              {domainVerifyInfo && domainVerifyInfo.ok ? (
+                <div className="mt-3 rounded-2xl border border-emerald-200 bg-emerald-50 p-4 text-xs text-emerald-800">
+                  Domain verified.
+                </div>
+              ) : null}
             </div>
 
             <div className="mt-6 flex flex-col gap-3 sm:flex-row">
@@ -948,7 +1146,11 @@ export function PortalBlogsClient() {
               >
                 {(() => {
                   const p = openPostMenuPost;
-                  const livePath = siteHandle ? `/${siteHandle}/blogs/${p.slug}` : null;
+                  const livePath = site?.verifiedAt && site?.primaryDomain
+                    ? `https://${site.primaryDomain}/blogs/${p.slug}`
+                    : siteHandle
+                      ? `/${siteHandle}/blogs/${p.slug}`
+                      : null;
                   const canViewLive = Boolean(livePath) && p.status === "PUBLISHED" && !p.archivedAt;
 
                   return (
