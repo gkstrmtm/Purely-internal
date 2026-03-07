@@ -671,7 +671,7 @@ export function PortalAppointmentRemindersClient() {
                 <div className="flex items-center gap-2">
                   <button
                     type="button"
-                    className="rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm hover:bg-zinc-50 disabled:opacity-60"
+                    className="rounded-xl border border-zinc-200 bg-white px-3 py-1.5 text-xs font-semibold text-brand-ink hover:bg-zinc-50 disabled:opacity-60"
                     disabled={saving || draft.steps.length >= 8}
                     onClick={() => addStep("SMS")}
                   >
@@ -679,7 +679,7 @@ export function PortalAppointmentRemindersClient() {
                   </button>
                   <button
                     type="button"
-                    className="rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm hover:bg-zinc-50 disabled:opacity-60"
+                    className="rounded-xl border border-zinc-200 bg-white px-3 py-1.5 text-xs font-semibold text-brand-ink hover:bg-zinc-50 disabled:opacity-60"
                     disabled={saving || draft.steps.length >= 8}
                     onClick={() => addStep("EMAIL")}
                   >
@@ -687,7 +687,7 @@ export function PortalAppointmentRemindersClient() {
                   </button>
                   <button
                     type="button"
-                    className="rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm hover:bg-zinc-50 disabled:opacity-60"
+                    className="rounded-xl border border-zinc-200 bg-white px-3 py-1.5 text-xs font-semibold text-brand-ink hover:bg-zinc-50 disabled:opacity-60"
                     disabled={saving || draft.steps.length >= 8}
                     onClick={() => addStep("TAG")}
                   >
@@ -802,7 +802,7 @@ export function PortalAppointmentRemindersClient() {
                                   disabled={saving}
                                   className={
                                     "inline-flex items-center gap-2 rounded-xl px-2 py-1 text-xs font-semibold text-white shadow-sm transition hover:opacity-90 disabled:opacity-60 " +
-                                    "bg-linear-to-r from-red-600 via-rose-500 to-(--color-brand-pink)"
+                                    "bg-linear-to-r from-(--color-brand-blue) via-violet-500 to-(--color-brand-pink)"
                                   }
                                   onClick={() => {
                                     setAiDraftStepId(s.id);

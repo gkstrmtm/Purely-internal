@@ -1394,7 +1394,7 @@ export function PortalFollowUpClient({ embedded }: { embedded?: boolean } = {}) 
                                                 disabled={busy}
                                                 className={
                                                   "inline-flex items-center gap-2 rounded-xl px-2 py-1 text-xs font-semibold text-white shadow-sm transition hover:opacity-90 disabled:opacity-60 " +
-                                                  "bg-linear-to-r from-red-600 via-rose-500 to-(--color-brand-pink)"
+                                                  "bg-linear-to-r from-(--color-brand-blue) via-violet-500 to-(--color-brand-pink)"
                                                 }
                                                 onClick={() => {
                                                   setAiDraftError(null);
@@ -1459,7 +1459,7 @@ export function PortalFollowUpClient({ embedded }: { embedded?: boolean } = {}) 
                                               disabled={busy}
                                               className={
                                                 "inline-flex items-center gap-2 rounded-xl px-2 py-1 text-xs font-semibold text-white shadow-sm transition hover:opacity-90 disabled:opacity-60 " +
-                                                "bg-linear-to-r from-red-600 via-rose-500 to-(--color-brand-pink)"
+                                                "bg-linear-to-r from-(--color-brand-blue) via-violet-500 to-(--color-brand-pink)"
                                               }
                                               onClick={() => {
                                                 setAiDraftError(null);
