@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { createPortal } from "react-dom";
 import { PortalSettingsSection } from "@/components/PortalSettingsSection";
+import { PortalListboxDropdown, type PortalListboxOption } from "@/components/PortalListboxDropdown";
 import { useToast } from "@/components/ToastProvider";
 
 export type BlogsTab = "posts" | "automation" | "settings";
@@ -22,6 +23,12 @@ type Site = {
   primaryDomain: string | null;
   verificationToken: string;
   verifiedAt: string | null;
+};
+
+type FunnelBuilderDomain = {
+  id: string;
+  domain: string;
+  status: "PENDING" | "VERIFIED";
 };
 
 type PostRow = {
@@ -102,6 +109,9 @@ export function PortalBlogsClient({
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
+  const [funnelDomains, setFunnelDomains] = useState<FunnelBuilderDomain[] | null>(null);
+  const [funnelDomainsBusy, setFunnelDomainsBusy] = useState(false);
+
   useEffect(() => {
     if (error) toast.error(error);
   }, [error, toast]);
@@ -126,13 +136,22 @@ export function PortalBlogsClient({
   const [autoPublish, setAutoPublish] = useState(false);
   const [autoSaving, setAutoSaving] = useState(false);
 
-  const [domainVerifying, setDomainVerifying] = useState(false);
-  const [domainVerifyInfo, setDomainVerifyInfo] = useState<null | {
-    ok: boolean;
-    recordName?: string;
-    expected?: string;
-    found?: string[];
-  }>(null);
+  const domainStatus = useMemo(() => {
+    const d = String(siteDomain || "").trim().toLowerCase();
+    if (!d) return null as FunnelBuilderDomain["status"] | null;
+    const match = (funnelDomains || []).find((x) => String(x.domain || "").trim().toLowerCase() === d) ?? null;
+    return match?.status ?? null;
+  }, [funnelDomains, siteDomain]);
+
+  const domainOptions = useMemo(() => {
+    const base: PortalListboxOption<string>[] = [{ value: "", label: "No custom domain" }];
+    const items = (funnelDomains || []).map((d) => ({
+      value: d.domain,
+      label: d.domain,
+      hint: d.status === "PENDING" ? "Pending DNS verification" : undefined,
+    }));
+    return [...base, ...items];
+  }, [funnelDomains]);
 
   const entitled = Boolean(me?.entitlements?.blog);
 
@@ -146,9 +165,9 @@ export function PortalBlogsClient({
   }, [site?.primaryDomain]);
 
   const previewBlogsHref = useMemo(() => {
-    if (site?.verifiedAt && site?.primaryDomain) return `https://${site.primaryDomain}/blogs`;
+    if (site?.primaryDomain && domainStatus === "VERIFIED") return `https://${site.primaryDomain}/blogs`;
     return hostedBlogPath;
-  }, [hostedBlogPath, site?.primaryDomain, site?.verifiedAt]);
+  }, [domainStatus, hostedBlogPath, site?.primaryDomain]);
 
   const openPostMenuPost = useMemo(() => {
     if (!openPostMenu) return null;
@@ -179,79 +198,89 @@ export function PortalBlogsClient({
   const refreshAll = useCallback(async () => {
     setLoading(true);
     setError(null);
+    setFunnelDomainsBusy(true);
+    try {
+      const [meRes, siteRes, postsRes, autoRes, creditsRes, usageRes, domainsRes] = await Promise.all([
+        fetch("/api/customer/me", {
+          cache: "no-store",
+          headers: {
+            "x-pa-app": "portal",
+            "x-portal-variant": typeof window !== "undefined" && window.location.pathname.startsWith("/credit") ? "credit" : "portal",
+          },
+        }),
+        fetch("/api/portal/blogs/site", { cache: "no-store" }),
+        fetch("/api/portal/blogs/posts?take=100", { cache: "no-store" }),
+        fetch("/api/portal/blogs/automation/settings", { cache: "no-store" }),
+        fetch("/api/portal/credits", { cache: "no-store" }),
+        fetch("/api/portal/blogs/usage?range=30d", { cache: "no-store" }),
+        fetch("/api/portal/funnel-builder/domains", { cache: "no-store" }),
+      ]);
 
-    const [meRes, siteRes, postsRes, autoRes, creditsRes, usageRes] = await Promise.all([
-      fetch("/api/customer/me", {
-        cache: "no-store",
-        headers: {
-          "x-pa-app": "portal",
-          "x-portal-variant": typeof window !== "undefined" && window.location.pathname.startsWith("/credit") ? "credit" : "portal",
-        },
-      }),
-      fetch("/api/portal/blogs/site", { cache: "no-store" }),
-      fetch("/api/portal/blogs/posts?take=100", { cache: "no-store" }),
-      fetch("/api/portal/blogs/automation/settings", { cache: "no-store" }),
-      fetch("/api/portal/credits", { cache: "no-store" }),
-      fetch("/api/portal/blogs/usage?range=30d", { cache: "no-store" }),
-    ]);
+      const meJson = (await meRes.json().catch(() => ({}))) as Partial<Me>;
+      const siteJson = (await siteRes.json().catch(() => ({}))) as { site?: Site | null; error?: string };
+      const postsJson = (await postsRes.json().catch(() => ({}))) as { posts?: PostRow[]; error?: string };
+      const autoJson = (await autoRes.json().catch(() => ({}))) as { settings?: AutomationSettings; error?: string };
+      const creditsJson = (await creditsRes.json().catch(() => ({}))) as { credits?: number; billingPath?: string };
+      const usageJson = (await usageRes.json().catch(() => ({}))) as {
+        creditsUsed?: { range?: number };
+        generations?: { range?: number };
+      };
+      const domainsJson = (await domainsRes.json().catch(() => ({}))) as { domains?: FunnelBuilderDomain[] };
 
-    const meJson = (await meRes.json().catch(() => ({}))) as Partial<Me>;
-    const siteJson = (await siteRes.json().catch(() => ({}))) as { site?: Site | null; error?: string };
-    const postsJson = (await postsRes.json().catch(() => ({}))) as { posts?: PostRow[]; error?: string };
-    const autoJson = (await autoRes.json().catch(() => ({}))) as { settings?: AutomationSettings; error?: string };
-    const creditsJson = (await creditsRes.json().catch(() => ({}))) as { credits?: number; billingPath?: string };
-    const usageJson = (await usageRes.json().catch(() => ({}))) as {
-      creditsUsed?: { range?: number };
-      generations?: { range?: number };
-    };
+      if (!meRes.ok) {
+        setError((meJson as { error?: string })?.error ?? "Unable to load account");
+        return;
+      }
 
-    if (!meRes.ok) {
-      setError((meJson as { error?: string })?.error ?? "Unable to load account");
+      setMe(meJson as Me);
+
+      if (!siteRes.ok) {
+        setError(siteJson.error ?? "Unable to load blog settings");
+      }
+
+      const s = siteJson.site ?? null;
+      setSite(s);
+      setSiteName(s?.name ?? "");
+      setSiteSlug(s?.slug ?? "");
+      setSiteDomain(s?.primaryDomain ?? "");
+
+      if (domainsRes.ok) {
+        setFunnelDomains(Array.isArray(domainsJson.domains) ? (domainsJson.domains as FunnelBuilderDomain[]) : []);
+      } else {
+        setFunnelDomains([]);
+      }
+
+      setPosts(Array.isArray(postsJson.posts) ? postsJson.posts : []);
+
+      if (creditsRes.ok) {
+        setCredits(typeof creditsJson.credits === "number" && Number.isFinite(creditsJson.credits) ? creditsJson.credits : 0);
+        setBillingPath(
+          typeof creditsJson.billingPath === "string" && creditsJson.billingPath.trim()
+            ? creditsJson.billingPath
+            : "/portal/app/billing",
+        );
+      }
+
+      if (usageRes.ok) {
+        const used = usageJson?.creditsUsed?.range;
+        const gens = usageJson?.generations?.range;
+        setBlogCreditsUsed30d(typeof used === "number" && Number.isFinite(used) ? used : 0);
+        setBlogGenerations30d(typeof gens === "number" && Number.isFinite(gens) ? gens : 0);
+      }
+
+      if (autoRes.ok && autoJson.settings) {
+        setAutomation(autoJson.settings);
+        setAutoEnabled(Boolean(autoJson.settings.enabled));
+        const preset = inferFrequencyPreset(autoJson.settings.frequencyDays);
+        setAutoFrequencyUnit(preset.unit);
+        setAutoFrequencyCount(preset.count);
+        setAutoTopics(sanitizeTopics((autoJson.settings.topics ?? []) as any));
+        setAutoPublish(Boolean(autoJson.settings.autoPublish));
+      }
+    } finally {
+      setFunnelDomainsBusy(false);
       setLoading(false);
-      return;
     }
-
-    setMe(meJson as Me);
-
-    if (!siteRes.ok) {
-      setError(siteJson.error ?? "Unable to load blog settings");
-    }
-
-    const s = siteJson.site ?? null;
-    setSite(s);
-    setSiteName(s?.name ?? "");
-    setSiteSlug(s?.slug ?? "");
-    setSiteDomain(s?.primaryDomain ?? "");
-
-    setPosts(Array.isArray(postsJson.posts) ? postsJson.posts : []);
-
-    if (creditsRes.ok) {
-      setCredits(typeof creditsJson.credits === "number" && Number.isFinite(creditsJson.credits) ? creditsJson.credits : 0);
-      setBillingPath(
-        typeof creditsJson.billingPath === "string" && creditsJson.billingPath.trim()
-          ? creditsJson.billingPath
-          : "/portal/app/billing",
-      );
-    }
-
-    if (usageRes.ok) {
-      const used = usageJson?.creditsUsed?.range;
-      const gens = usageJson?.generations?.range;
-      setBlogCreditsUsed30d(typeof used === "number" && Number.isFinite(used) ? used : 0);
-      setBlogGenerations30d(typeof gens === "number" && Number.isFinite(gens) ? gens : 0);
-    }
-
-    if (autoRes.ok && autoJson.settings) {
-      setAutomation(autoJson.settings);
-      setAutoEnabled(Boolean(autoJson.settings.enabled));
-      const preset = inferFrequencyPreset(autoJson.settings.frequencyDays);
-      setAutoFrequencyUnit(preset.unit);
-      setAutoFrequencyCount(preset.count);
-      setAutoTopics(sanitizeTopics((autoJson.settings.topics ?? []) as any));
-      setAutoPublish(Boolean(autoJson.settings.autoPublish));
-    }
-
-    setLoading(false);
   }, []);
 
   useEffect(() => {
@@ -362,7 +391,7 @@ export function PortalBlogsClient({
   }
 
   async function saveSite() {
-    if (!siteName.trim()) return;
+    const nextName = siteName.trim() ? siteName : "My Blog";
 
     setSiteSaving(true);
     setError(null);
@@ -371,7 +400,7 @@ export function PortalBlogsClient({
       method: "PUT",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({
-        name: siteName,
+        name: nextName,
         slug: siteSlug,
         primaryDomain: siteDomain,
       }),
@@ -390,42 +419,6 @@ export function PortalBlogsClient({
     setSiteSlug(json.site.slug ?? "");
     setSiteDomain(json.site.primaryDomain ?? "");
     await refreshAll();
-  }
-
-  async function verifyDomain() {
-    if (!site) {
-      setError("Create your blog workspace first.");
-      onTabChange("settings");
-      return;
-    }
-
-    const d = String(siteDomain || "").trim();
-    if (!d) {
-      setError("Enter a domain first.");
-      return;
-    }
-
-    setDomainVerifying(true);
-    setDomainVerifyInfo(null);
-    setError(null);
-
-    const res = await fetch("/api/portal/blogs/site/verify", {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({ domain: d }),
-    });
-
-    const json = (await res.json().catch(() => ({}))) as any;
-    setDomainVerifying(false);
-
-    if (json?.ok && json?.verified) {
-      setDomainVerifyInfo({ ok: true, recordName: json?.recordName, expected: json?.expected });
-      await refreshAll();
-      return;
-    }
-
-    setDomainVerifyInfo({ ok: false, recordName: json?.recordName, expected: json?.expected, found: json?.found });
-    setError(json?.error ?? "Domain verification failed");
   }
 
   async function newDraft() {
@@ -549,10 +542,11 @@ export function PortalBlogsClient({
           <button
             type="button"
             onClick={newDraft}
-            aria-label="New draft"
-            className="inline-flex h-10 w-10 items-center justify-center rounded-2xl bg-brand-ink text-lg font-semibold text-white hover:opacity-95"
+            aria-label="New blog"
+            className="inline-flex items-center justify-center gap-2 rounded-2xl bg-brand-ink px-4 py-2 text-sm font-semibold text-white hover:opacity-95"
           >
-            +
+            <span className="text-lg leading-none">+</span>
+            <span>New blog</span>
           </button>
         </div>
       </div>
@@ -565,7 +559,7 @@ export function PortalBlogsClient({
           className={
             "flex-1 min-w-[140px] rounded-2xl border px-4 py-2.5 text-sm font-semibold transition focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-ink/60 " +
             (routeTab === "posts"
-              ? "border-zinc-900 bg-zinc-900 text-white shadow-sm"
+              ? "border-[color:var(--color-brand-blue)] bg-[color:var(--color-brand-blue)] text-white shadow-sm"
               : "border-zinc-200 bg-white text-zinc-700 hover:bg-zinc-50")
           }
         >
@@ -578,7 +572,7 @@ export function PortalBlogsClient({
           className={
             "flex-1 min-w-[140px] rounded-2xl border px-4 py-2.5 text-sm font-semibold transition focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-ink/60 " +
             (routeTab === "automation"
-              ? "border-zinc-900 bg-zinc-900 text-white shadow-sm"
+              ? "border-[color:var(--color-brand-pink)] bg-[color:var(--color-brand-pink)] text-white shadow-sm"
               : "border-zinc-200 bg-white text-zinc-700 hover:bg-zinc-50")
           }
         >
@@ -591,7 +585,7 @@ export function PortalBlogsClient({
           className={
             "flex-1 min-w-[140px] rounded-2xl border px-4 py-2.5 text-sm font-semibold transition focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-ink/60 " +
             (routeTab === "settings"
-              ? "border-zinc-900 bg-zinc-900 text-white shadow-sm"
+              ? "border-brand-ink bg-brand-ink text-white shadow-sm"
               : "border-zinc-200 bg-white text-zinc-700 hover:bg-zinc-50")
           }
         >
@@ -639,7 +633,7 @@ export function PortalBlogsClient({
                   {posts.length === 0 ? (
                     <tr>
                       <td className="px-4 py-4 text-zinc-600" colSpan={4}>
-                        No posts yet. Click “+” to start.
+                        No posts yet. Click “New blog” to start.
                       </td>
                     </tr>
                   ) : (
@@ -872,6 +866,7 @@ export function PortalBlogsClient({
             description="Configure your hosted blog link and workspace."
             accent="slate"
             defaultOpen={true}
+            collapsible={false}
           >
             <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
               <div>
@@ -945,17 +940,17 @@ export function PortalBlogsClient({
             <div className="mt-6">
               <div className="flex flex-col items-start justify-between gap-2 sm:flex-row sm:items-center">
                 <div>
-                  <div className="text-sm font-semibold text-zinc-900">Custom domain</div>
-                  <div className="mt-1 text-xs text-zinc-500">Optional. Verify a DNS TXT record to use your own domain.</div>
+                  <div className="text-sm font-semibold text-zinc-900">Custom domain (optional)</div>
+                  <div className="mt-1 text-xs text-zinc-500">Pulls from Funnel Builder → Settings → Custom domains.</div>
                 </div>
-                {site?.primaryDomain ? (
+                {siteDomain.trim() ? (
                   <span
                     className={
                       "inline-flex rounded-full px-2.5 py-1 text-xs font-semibold " +
-                      (site?.verifiedAt ? "bg-emerald-50 text-emerald-700" : "bg-zinc-100 text-zinc-700")
+                      (domainStatus === "VERIFIED" ? "bg-emerald-50 text-emerald-700" : "bg-zinc-100 text-zinc-700")
                     }
                   >
-                    {site?.verifiedAt ? "Verified" : "Not verified"}
+                    {domainStatus === "VERIFIED" ? "Verified" : domainStatus === "PENDING" ? "Pending" : "Not verified"}
                   </span>
                 ) : null}
               </div>
@@ -963,88 +958,58 @@ export function PortalBlogsClient({
               <div className="mt-3 grid grid-cols-1 gap-4 lg:grid-cols-2">
                 <div>
                   <label className="text-xs font-semibold text-zinc-600">Domain</label>
-                  <input
-                    value={siteDomain}
-                    onChange={(e) => setSiteDomain(e.target.value)}
-                    className="mt-1 w-full rounded-2xl border border-zinc-200 bg-white px-4 py-3 text-sm outline-none focus:border-zinc-300"
-                    placeholder="blog.yourdomain.com"
-                    disabled={!site}
-                  />
-                  <div className="mt-1 text-xs text-zinc-500">Example: blog.yourdomain.com (no http/https)</div>
+                  <div className="mt-1">
+                    <PortalListboxDropdown<string>
+                      value={siteDomain}
+                      disabled={siteSaving || !site || !funnelDomains || funnelDomainsBusy}
+                      options={domainOptions}
+                      onChange={(v) => setSiteDomain(String(v || ""))}
+                      placeholder={
+                        funnelDomainsBusy
+                          ? "Loading domains…"
+                          : (funnelDomains || []).length
+                            ? "Choose a domain"
+                            : "No domains yet"
+                      }
+                    />
+                  </div>
+
+                  <div className="mt-2 flex flex-col items-start justify-between gap-2 sm:flex-row sm:items-center">
+                    <div className="text-xs text-zinc-500">Manage domains in Funnel Builder.</div>
+                    <Link
+                      href="/portal/app/services/funnel-builder/settings"
+                      className="text-xs font-semibold text-(--color-brand-blue) hover:underline"
+                    >
+                      Add / manage domains
+                    </Link>
+                  </div>
                 </div>
 
                 <div>
                   <label className="text-xs font-semibold text-zinc-600">Custom domain preview</label>
                   <div className="mt-1 flex flex-col gap-2 sm:flex-row sm:items-center">
                     <div className="min-w-0 flex-1 rounded-2xl border border-zinc-200 bg-zinc-50 px-4 py-3 text-sm text-zinc-800">
-                      <div className="truncate">{customBlogUrl ?? "Save a domain to preview."}</div>
+                      <div className="truncate">{customBlogUrl ?? "Select a domain"}</div>
                     </div>
                     <a
-                      href={site?.primaryDomain && site?.verifiedAt ? customBlogUrl ?? undefined : undefined}
+                      href={site?.primaryDomain && domainStatus === "VERIFIED" ? customBlogUrl ?? undefined : undefined}
                       target="_blank"
                       rel="noreferrer"
                       className={
                         "inline-flex items-center justify-center rounded-2xl border border-zinc-200 bg-white px-4 py-3 text-sm font-semibold text-brand-ink hover:bg-zinc-50 " +
-                        (site?.primaryDomain && site?.verifiedAt ? "" : "pointer-events-none opacity-60")
+                        (site?.primaryDomain && domainStatus === "VERIFIED" ? "" : "pointer-events-none opacity-60")
                       }
                     >
                       Preview
                     </a>
                   </div>
+                  {site?.primaryDomain && domainStatus === "PENDING" ? (
+                    <div className="mt-2 rounded-2xl border border-amber-200 bg-amber-50 p-3 text-xs text-amber-800">
+                      This domain is pending verification in Funnel Builder.
+                    </div>
+                  ) : null}
                 </div>
               </div>
-
-              {site?.primaryDomain ? (
-                <div className="mt-4 rounded-2xl border border-zinc-200 bg-zinc-50 p-4 text-xs text-zinc-700">
-                  <div className="font-semibold text-zinc-900">DNS TXT record</div>
-                  <div className="mt-2">
-                    <div>
-                      <span className="text-zinc-600">Name:</span> <span className="font-mono">_purelyautomation.{site.primaryDomain}</span>
-                    </div>
-                    <div className="mt-1">
-                      <span className="text-zinc-600">Value:</span> <span className="font-mono">verify={site.verificationToken}</span>
-                    </div>
-                    {site.verifiedAt ? (
-                      <div className="mt-2 text-zinc-600">Verified at: {formatDate(site.verifiedAt)}</div>
-                    ) : (
-                      <div className="mt-2 text-zinc-600">After adding the TXT record, click Verify.</div>
-                    )}
-                  </div>
-                </div>
-              ) : null}
-
-              <div className="mt-4 flex flex-col gap-3 sm:flex-row">
-                <button
-                  type="button"
-                  onClick={() => void saveSite()}
-                  disabled={siteSaving || !site || !siteName.trim()}
-                  className="inline-flex items-center justify-center rounded-2xl bg-brand-ink px-5 py-3 text-sm font-semibold text-white hover:opacity-95 disabled:opacity-60"
-                >
-                  {siteSaving ? "Saving…" : "Save domain"}
-                </button>
-                <button
-                  type="button"
-                  onClick={() => void verifyDomain()}
-                  disabled={domainVerifying || !site || !site?.primaryDomain}
-                  className="inline-flex items-center justify-center rounded-2xl border border-zinc-200 bg-white px-5 py-3 text-sm font-semibold text-brand-ink hover:bg-zinc-50 disabled:opacity-60"
-                >
-                  {domainVerifying ? "Verifying…" : "Verify domain"}
-                </button>
-              </div>
-
-              {domainVerifyInfo && !domainVerifyInfo.ok ? (
-                <div className="mt-3 rounded-2xl border border-amber-200 bg-amber-50 p-4 text-xs text-amber-800">
-                  <div className="font-semibold">Verification not found yet</div>
-                  {domainVerifyInfo.recordName ? <div className="mt-1">Record: {domainVerifyInfo.recordName}</div> : null}
-                  {domainVerifyInfo.expected ? <div className="mt-1">Expected: {domainVerifyInfo.expected}</div> : null}
-                </div>
-              ) : null}
-
-              {domainVerifyInfo && domainVerifyInfo.ok ? (
-                <div className="mt-3 rounded-2xl border border-emerald-200 bg-emerald-50 p-4 text-xs text-emerald-800">
-                  Domain verified.
-                </div>
-              ) : null}
             </div>
 
             <div className="mt-6 flex flex-col gap-3 sm:flex-row">
@@ -1052,7 +1017,7 @@ export function PortalBlogsClient({
                 <button
                   type="button"
                   onClick={createSite}
-                  disabled={siteSaving || !siteName.trim()}
+                  disabled={siteSaving}
                   className="inline-flex items-center justify-center rounded-2xl bg-brand-ink px-5 py-3 text-sm font-semibold text-white hover:opacity-95 disabled:opacity-60"
                 >
                   {siteSaving ? "Creating…" : "Create blog workspace"}
@@ -1061,7 +1026,7 @@ export function PortalBlogsClient({
                 <button
                   type="button"
                   onClick={saveSite}
-                  disabled={siteSaving || !siteName.trim()}
+                  disabled={siteSaving}
                   className="inline-flex items-center justify-center rounded-2xl bg-brand-ink px-5 py-3 text-sm font-semibold text-white hover:opacity-95 disabled:opacity-60"
                 >
                   {siteSaving ? "Saving…" : "Save settings"}

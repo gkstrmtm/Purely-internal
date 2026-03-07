@@ -7,6 +7,7 @@ export function PortalSettingsSection({
   status,
   dotClassName,
   defaultOpen,
+  collapsible,
   children,
 }: {
   title: string;
@@ -15,6 +16,7 @@ export function PortalSettingsSection({
   status?: "on" | "off";
   dotClassName?: string;
   defaultOpen?: boolean;
+  collapsible?: boolean;
   children: React.ReactNode;
 }) {
   const accentDotClass =
@@ -35,6 +37,26 @@ export function PortalSettingsSection({
       : status === "off"
         ? "bg-red-500"
         : accentDotClass;
+
+  if (collapsible === false) {
+    return (
+      <div className="rounded-3xl border border-zinc-200 bg-zinc-50">
+        <div className="flex items-start justify-between gap-4 rounded-3xl px-5 py-4">
+          <div className="min-w-0">
+            <div className="flex items-center gap-3">
+              <span className={"h-2.5 w-2.5 shrink-0 rounded-full " + dotClass} />
+              <div className="text-sm font-semibold text-zinc-900">{title}</div>
+            </div>
+            {description ? <div className="mt-1 text-sm text-zinc-600">{description}</div> : null}
+          </div>
+        </div>
+
+        <div className="px-5 pb-5">
+          <div className="rounded-2xl border border-zinc-200 bg-white p-4">{children}</div>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <details className="group rounded-3xl border border-zinc-200 bg-zinc-50" open={defaultOpen ? true : undefined}>
