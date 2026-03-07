@@ -143,6 +143,13 @@ export function PortalBlogsClient({
     return match?.status ?? null;
   }, [funnelDomains, siteDomain]);
 
+  const savedDomainStatus = useMemo(() => {
+    const d = String(site?.primaryDomain || "").trim().toLowerCase();
+    if (!d) return null as FunnelBuilderDomain["status"] | null;
+    const match = (funnelDomains || []).find((x) => String(x.domain || "").trim().toLowerCase() === d) ?? null;
+    return match?.status ?? null;
+  }, [funnelDomains, site?.primaryDomain]);
+
   const domainOptions = useMemo(() => {
     const base: PortalListboxOption<string>[] = [{ value: "", label: "No custom domain" }];
     const items = (funnelDomains || []).map((d) => ({
@@ -159,15 +166,15 @@ export function PortalBlogsClient({
   const hostedBlogPath = siteHandle ? `/${siteHandle}/blogs` : null;
 
   const customBlogUrl = useMemo(() => {
-    const d = site?.primaryDomain ? String(site.primaryDomain).trim() : "";
+    const d = siteDomain ? String(siteDomain).trim() : "";
     if (!d) return null;
     return `https://${d}/blogs`;
-  }, [site?.primaryDomain]);
+  }, [siteDomain]);
 
   const previewBlogsHref = useMemo(() => {
-    if (site?.primaryDomain && domainStatus === "VERIFIED") return `https://${site.primaryDomain}/blogs`;
+    if (site?.primaryDomain && savedDomainStatus === "VERIFIED") return `https://${site.primaryDomain}/blogs`;
     return hostedBlogPath;
-  }, [domainStatus, hostedBlogPath, site?.primaryDomain]);
+  }, [hostedBlogPath, savedDomainStatus, site?.primaryDomain]);
 
   const openPostMenuPost = useMemo(() => {
     if (!openPostMenu) return null;
@@ -961,7 +968,7 @@ export function PortalBlogsClient({
                   <div className="mt-1">
                     <PortalListboxDropdown<string>
                       value={siteDomain}
-                      disabled={siteSaving || !site || !funnelDomains || funnelDomainsBusy}
+                      disabled={siteSaving || !funnelDomains || funnelDomainsBusy}
                       options={domainOptions}
                       onChange={(v) => setSiteDomain(String(v || ""))}
                       placeholder={
@@ -975,7 +982,9 @@ export function PortalBlogsClient({
                   </div>
 
                   <div className="mt-2 flex flex-col items-start justify-between gap-2 sm:flex-row sm:items-center">
-                    <div className="text-xs text-zinc-500">Manage domains in Funnel Builder.</div>
+                    <div className="text-xs text-zinc-500">
+                      {!site ? "Pick a domain now and it will be applied when you create your blog workspace." : "Manage domains in Funnel Builder."}
+                    </div>
                     <Link
                       href="/portal/app/services/funnel-builder/settings"
                       className="text-xs font-semibold text-(--color-brand-blue) hover:underline"
@@ -992,18 +1001,18 @@ export function PortalBlogsClient({
                       <div className="truncate">{customBlogUrl ?? "Select a domain"}</div>
                     </div>
                     <a
-                      href={site?.primaryDomain && domainStatus === "VERIFIED" ? customBlogUrl ?? undefined : undefined}
+                      href={site?.primaryDomain && savedDomainStatus === "VERIFIED" ? `https://${site.primaryDomain}/blogs` : undefined}
                       target="_blank"
                       rel="noreferrer"
                       className={
                         "inline-flex items-center justify-center rounded-2xl border border-zinc-200 bg-white px-4 py-3 text-sm font-semibold text-brand-ink hover:bg-zinc-50 " +
-                        (site?.primaryDomain && domainStatus === "VERIFIED" ? "" : "pointer-events-none opacity-60")
+                        (site?.primaryDomain && savedDomainStatus === "VERIFIED" ? "" : "pointer-events-none opacity-60")
                       }
                     >
                       Preview
                     </a>
                   </div>
-                  {site?.primaryDomain && domainStatus === "PENDING" ? (
+                  {site?.primaryDomain && savedDomainStatus === "PENDING" ? (
                     <div className="mt-2 rounded-2xl border border-amber-200 bg-amber-50 p-3 text-xs text-amber-800">
                       This domain is pending verification in Funnel Builder.
                     </div>
