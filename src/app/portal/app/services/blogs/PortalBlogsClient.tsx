@@ -127,6 +127,7 @@ export function PortalBlogsClient({
   const [siteDomain, setSiteDomain] = useState("");
   const [siteSaving, setSiteSaving] = useState(false);
   const [openPostMenu, setOpenPostMenu] = useState<null | { postId: string; left: number; top: number }>(null);
+  const [openPreviewMenu, setOpenPreviewMenu] = useState<null | { left: number; top: number }>(null);
   const [confirm, setConfirm] = useState<PostConfirm>(null);
 
   const [autoEnabled, setAutoEnabled] = useState(false);
@@ -326,6 +327,25 @@ export function PortalBlogsClient({
     };
   }, [openPostMenu]);
 
+  useEffect(() => {
+    if (!openPreviewMenu) return;
+
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setOpenPreviewMenu(null);
+    };
+
+    const onScrollOrResize = () => setOpenPreviewMenu(null);
+
+    window.addEventListener("keydown", onKey);
+    window.addEventListener("scroll", onScrollOrResize, true);
+    window.addEventListener("resize", onScrollOrResize);
+    return () => {
+      window.removeEventListener("keydown", onKey);
+      window.removeEventListener("scroll", onScrollOrResize, true);
+      window.removeEventListener("resize", onScrollOrResize);
+    };
+  }, [openPreviewMenu]);
+
   function togglePostMenu(postId: string, el: HTMLElement) {
     setOpenPostMenu((prev) => {
       if (prev?.postId === postId) return null;
@@ -335,6 +355,18 @@ export function PortalBlogsClient({
       const left = Math.max(padding, Math.min(window.innerWidth - menuWidth - padding, rect.right - menuWidth));
       const top = Math.max(padding, rect.bottom + 8);
       return { postId, left, top };
+    });
+  }
+
+  function togglePreviewMenu(el: HTMLElement) {
+    setOpenPreviewMenu((prev) => {
+      if (prev) return null;
+      const rect = el.getBoundingClientRect();
+      const menuWidth = 288; // w-72
+      const padding = 8;
+      const left = Math.max(padding, Math.min(window.innerWidth - menuWidth - padding, rect.right - menuWidth));
+      const top = Math.max(padding, rect.bottom + 8);
+      return { left, top };
     });
   }
 
@@ -927,17 +959,21 @@ export function PortalBlogsClient({
                 >
                   Copy
                 </button>
-                <a
-                  href={hostedBlogPath ?? undefined}
-                  target="_blank"
-                  rel="noreferrer"
+                <button
+                  type="button"
+                  onClick={(e) => togglePreviewMenu(e.currentTarget)}
+                  disabled={
+                    !hostedBlogPath &&
+                    !(site?.primaryDomain && savedDomainStatus === "VERIFIED") &&
+                    !(siteDomain.trim() && domainStatus === "VERIFIED")
+                  }
                   className={
-                    "inline-flex items-center justify-center rounded-2xl border border-zinc-200 bg-white px-4 py-3 text-sm font-semibold text-brand-ink hover:bg-zinc-50 " +
-                    (!hostedBlogPath ? "pointer-events-none opacity-60" : "")
+                    "inline-flex items-center justify-center gap-2 rounded-2xl border border-zinc-200 bg-white px-4 py-3 text-sm font-semibold text-brand-ink hover:bg-zinc-50 disabled:opacity-60"
                   }
                 >
-                  Preview blogs page
-                </a>
+                  Preview
+                  <span aria-hidden className="text-xs">▾</span>
+                </button>
               </div>
               <div className="mt-1 text-xs text-zinc-500">
                 This is your public blog hosted on Purely Automation. If you also want to publish elsewhere, use “Export Markdown”.
@@ -1183,6 +1219,90 @@ export function PortalBlogsClient({
                         Delete
                       </button>
                     </>
+                  );
+                })()}
+              </div>
+            </div>,
+            document.body,
+          )
+        : null}
+
+      {openPreviewMenu && typeof document !== "undefined"
+        ? createPortal(
+            <div className="fixed inset-0 z-50" aria-hidden>
+              <div className="absolute inset-0" onMouseDown={() => setOpenPreviewMenu(null)} onTouchStart={() => setOpenPreviewMenu(null)} />
+              <div
+                className="fixed z-[60] w-72 overflow-hidden rounded-2xl border border-zinc-200 bg-white shadow-lg"
+                style={{ left: openPreviewMenu.left, top: openPreviewMenu.top }}
+                onMouseDown={(e) => e.stopPropagation()}
+                onTouchStart={(e) => e.stopPropagation()}
+              >
+                {(() => {
+                  const items: Array<{
+                    label: string;
+                    href: string | null;
+                    hint?: string;
+                    disabled?: boolean;
+                  }> = [];
+
+                  items.push({
+                    label: "Hosted preview (Purely Automation)",
+                    href: hostedBlogPath,
+                    disabled: !hostedBlogPath,
+                    hint: hostedBlogPath ? hostedBlogPath : "Create your blog workspace to get a hosted link",
+                  });
+
+                  if (site?.primaryDomain) {
+                    items.push({
+                      label: `Custom domain (saved): ${site.primaryDomain}`,
+                      href: savedDomainStatus === "VERIFIED" ? `https://${site.primaryDomain}/blogs` : null,
+                      disabled: savedDomainStatus !== "VERIFIED",
+                      hint:
+                        savedDomainStatus === "VERIFIED"
+                          ? "Live"
+                          : savedDomainStatus === "PENDING"
+                            ? "Pending DNS verification"
+                            : "Not verified",
+                    });
+                  }
+
+                  const selected = siteDomain.trim();
+                  const selectedIsDifferent = selected && selected !== (site?.primaryDomain ?? "");
+                  if (selected && selectedIsDifferent) {
+                    items.push({
+                      label: `Custom domain (selected): ${selected}`,
+                      href: domainStatus === "VERIFIED" ? `https://${selected}/blogs` : null,
+                      disabled: domainStatus !== "VERIFIED",
+                      hint:
+                        domainStatus === "VERIFIED"
+                          ? "Selected (not saved)"
+                          : domainStatus === "PENDING"
+                            ? "Pending DNS verification"
+                            : "Not verified",
+                    });
+                  }
+
+                  return (
+                    <div className="py-1">
+                      {items.map((it) => (
+                        <button
+                          key={it.label}
+                          type="button"
+                          disabled={Boolean(it.disabled) || !it.href}
+                          className={
+                            "flex w-full flex-col gap-0.5 px-4 py-3 text-left text-sm hover:bg-zinc-50 disabled:cursor-not-allowed disabled:opacity-50"
+                          }
+                          onClick={() => {
+                            if (!it.href) return;
+                            setOpenPreviewMenu(null);
+                            window.open(it.href, "_blank", "noopener,noreferrer");
+                          }}
+                        >
+                          <div className="font-semibold text-zinc-900">{it.label}</div>
+                          {it.hint ? <div className="text-xs text-zinc-500">{it.hint}</div> : null}
+                        </button>
+                      ))}
+                    </div>
                   );
                 })()}
               </div>
