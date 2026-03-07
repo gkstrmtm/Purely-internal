@@ -9,6 +9,7 @@ import { PortalSettingsSection } from "@/components/PortalSettingsSection";
 import { PortalMediaPickerModal, type PortalMediaPickItem } from "@/components/PortalMediaPickerModal";
 import { PortalVariablePickerModal } from "@/components/PortalVariablePickerModal";
 import { useToast } from "@/components/ToastProvider";
+import { NURTURE_TEMPLATES, type NurtureTemplate } from "@/lib/portalNurtureTemplates";
 import {
   PORTAL_BOOKING_VARIABLES,
   PORTAL_MESSAGE_VARIABLES,
@@ -227,6 +228,13 @@ export function PortalFollowUpClient({ embedded }: { embedded?: boolean } = {}) 
     | { kind: "step"; stepId: string; field: "emailSubject" | "emailBody" | "smsBody" }
   >(null);
   const activeFieldElRef = useRef<HTMLInputElement | HTMLTextAreaElement | null>(null);
+
+  const [chainTemplatePicker, setChainTemplatePicker] = useState<
+    null | {
+      title: string;
+      apply: (t: NurtureTemplate) => void;
+    }
+  >(null);
 
   async function generateDraft(opts: {
     kind: "EMAIL" | "SMS";
@@ -1434,6 +1442,57 @@ export function PortalFollowUpClient({ embedded }: { embedded?: boolean } = {}) 
               <div className="text-sm font-semibold text-zinc-900">Follow-up chain</div>
               <div className="mt-2 text-xs text-zinc-600">Add as many steps as you want. Each step has its own delay, audience, and message.</div>
 
+              {chainTemplatePicker ? (
+                <div className="fixed inset-0 z-9998 flex items-end justify-center bg-black/30 p-3 sm:items-center">
+                  <div className="flex w-full max-w-2xl flex-col overflow-hidden rounded-3xl border border-zinc-200 bg-white p-5 shadow-xl sm:max-h-[calc(100vh-2rem)]">
+                    <div className="flex items-start justify-between gap-3">
+                      <div>
+                        <div className="text-base font-semibold text-zinc-900">Load a template</div>
+                        <div className="mt-1 text-sm text-zinc-600">Replaces the steps in “{chainTemplatePicker.title}”.</div>
+                      </div>
+                      <button
+                        type="button"
+                        className="rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-sm font-semibold text-zinc-700 hover:bg-zinc-50"
+                        onClick={() => setChainTemplatePicker(null)}
+                        disabled={busy}
+                      >
+                        Close
+                      </button>
+                    </div>
+
+                    <div className="mt-4 flex-1 space-y-2 overflow-auto pr-1">
+                      {NURTURE_TEMPLATES.map((t) => (
+                        <button
+                          key={t.id}
+                          type="button"
+                          disabled={busy}
+                          className="w-full rounded-3xl border border-zinc-200 bg-white p-4 text-left hover:bg-zinc-50 disabled:opacity-60"
+                          onClick={() => {
+                            chainTemplatePicker.apply(t);
+                            setChainTemplatePicker(null);
+                          }}
+                        >
+                          <div className="flex items-start justify-between gap-3">
+                            <div className="min-w-0">
+                              <div className="truncate text-sm font-semibold text-zinc-900">{t.title}</div>
+                              <div className="mt-1 text-sm text-zinc-600">{t.description}</div>
+                            </div>
+                            <div className="shrink-0 rounded-full border border-zinc-200 bg-zinc-50 px-2 py-1 text-[11px] font-semibold text-zinc-700">
+                              {(() => {
+                                const n = t.steps.filter((s) => s.kind === "SMS" || s.kind === "EMAIL").length;
+                                return `${n} step${n === 1 ? "" : "s"}`;
+                              })()}
+                            </div>
+                          </div>
+                        </button>
+                      ))}
+                    </div>
+
+                    <div className="mt-4 text-xs text-zinc-500">Tip: load a template, customize, then Save.</div>
+                  </div>
+                </div>
+              ) : null}
+
               {(() => {
                 if (!settings) return null;
 
@@ -1463,6 +1522,26 @@ export function PortalFollowUpClient({ embedded }: { embedded?: boolean } = {}) 
                     sms: { ...t.sms },
                     presetId: t.id,
                   };
+                };
+
+                const stepsFromNurtureTemplate = (t: NurtureTemplate): FollowUpStep[] => {
+                  const usable = t.steps.filter((s) => s.kind === "SMS" || s.kind === "EMAIL").slice(0, 30);
+                  return usable.map((s, idx) => {
+                    const kind = s.kind;
+                    const emailSubject = String(s.subject || "Follow up");
+                    const emailBody = String(s.body || "");
+                    const smsBody = String(s.body || "");
+                    return {
+                      id: randomStepId(),
+                      name: `${kind === "EMAIL" ? "Email" : "SMS"} step ${idx + 1}`,
+                      enabled: true,
+                      delayMinutes: clampDelayMinutes(s.delayMinutes),
+                      audience: "CONTACT",
+                      channels: { email: kind === "EMAIL", sms: kind === "SMS" },
+                      email: { subjectTemplate: emailSubject, bodyTemplate: emailBody },
+                      sms: { bodyTemplate: smsBody },
+                    };
+                  });
                 };
 
                 const renderChain = (opts: {
@@ -1547,7 +1626,26 @@ export function PortalFollowUpClient({ embedded }: { embedded?: boolean } = {}) 
 
                   return (
                     <div className="mt-4">
-                      <div className="text-xs font-semibold text-zinc-600">{opts.title}</div>
+                      <div className="flex flex-wrap items-center justify-between gap-2">
+                        <div className="text-xs font-semibold text-zinc-600">{opts.title}</div>
+                        <button
+                          type="button"
+                          disabled={busy}
+                          className="rounded-xl bg-brand-ink px-3 py-1.5 text-xs font-semibold text-white hover:opacity-95 disabled:opacity-60"
+                          onClick={() =>
+                            setChainTemplatePicker({
+                              title: opts.title,
+                              apply: (t) => {
+                                opts.setSteps(stepsFromNurtureTemplate(t));
+                                setExpandedStepId(null);
+                                setNotice("Loaded template (not saved yet)");
+                              },
+                            })
+                          }
+                        >
+                          Load template
+                        </button>
+                      </div>
                       <div className="mt-2 space-y-3">
                         {steps.length ? (
                           steps.map((s) => {

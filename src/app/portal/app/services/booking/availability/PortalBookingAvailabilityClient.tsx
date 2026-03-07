@@ -109,6 +109,7 @@ export function PortalBookingAvailabilityClient({ variant = "page" }: { variant?
     for (let m = START_HOUR * 60; m < END_HOUR * 60; m += SLOT_MINUTES) rows.push(m);
     return rows;
   }, []);
+  const todayYmd = useMemo(() => formatYmd(new Date()), []);
 
   async function refresh() {
     const res = await fetch("/api/availability", { cache: "no-store" });
@@ -151,6 +152,7 @@ export function PortalBookingAvailabilityClient({ variant = "page" }: { variant?
   }, [blocks, weekStart, weekEnd]);
 
   function applySlot(ymd: string, minutesFromMidnight: number) {
+    if (ymd < todayYmd) return;
     const k = keyForSlot(ymd, minutesFromMidnight);
     setSelectedSlots((prev) => {
       const next = new Set(prev);
@@ -302,23 +304,37 @@ export function PortalBookingAvailabilityClient({ variant = "page" }: { variant?
                   const ymd = formatYmd(d);
                   const k = keyForSlot(ymd, mins);
                   const active = selectedSlots.has(k);
+                  const isPastDay = ymd < todayYmd;
                   return (
                     <button
                       key={k}
                       type="button"
+                      disabled={isPastDay}
                       className={
                         "border-t border-l border-zinc-100 p-2 transition-colors " +
-                        (active ? "bg-emerald-200 hover:bg-emerald-300" : "bg-white hover:bg-zinc-50")
+                        (isPastDay
+                          ? "bg-zinc-100"
+                          : active
+                            ? "bg-emerald-200 hover:bg-emerald-300"
+                            : "bg-white hover:bg-zinc-50")
                       }
-                      onMouseDown={() => {
-                        isDraggingRef.current = true;
-                        dragModeRef.current = active ? "remove" : "add";
-                        applySlot(ymd, mins);
-                      }}
-                      onMouseEnter={() => {
-                        if (!isDraggingRef.current) return;
-                        applySlot(ymd, mins);
-                      }}
+                      onMouseDown={
+                        isPastDay
+                          ? undefined
+                          : () => {
+                              isDraggingRef.current = true;
+                              dragModeRef.current = active ? "remove" : "add";
+                              applySlot(ymd, mins);
+                            }
+                      }
+                      onMouseEnter={
+                        isPastDay
+                          ? undefined
+                          : () => {
+                              if (!isDraggingRef.current) return;
+                              applySlot(ymd, mins);
+                            }
+                      }
                     />
                   );
                 })}

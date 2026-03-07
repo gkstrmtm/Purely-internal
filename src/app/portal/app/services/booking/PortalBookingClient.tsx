@@ -13,6 +13,7 @@ import { PortalSettingsSection } from "@/components/PortalSettingsSection";
 import { ContactTagsEditor, type ContactTag } from "@/components/ContactTagsEditor";
 import { LocalDateTimePicker } from "@/components/LocalDateTimePicker";
 import { useToast } from "@/components/ToastProvider";
+import { NURTURE_TEMPLATES, type NurtureTemplate } from "@/lib/portalNurtureTemplates";
 
 type BookingFormConfig = {
   version: 1;
@@ -374,6 +375,7 @@ export function PortalBookingClient() {
   const [reminderEvents, setReminderEvents] = useState<AppointmentReminderEvent[]>([]);
   const [reminderSaving, setReminderSaving] = useState(false);
   const [reminderGeneratingStepId, setReminderGeneratingStepId] = useState<string | null>(null);
+  const [reminderTemplateOpen, setReminderTemplateOpen] = useState(false);
 
   const [reminderCalendarId, setReminderCalendarId] = useState<string | null>(null);
   const reminderCalendarIdRef = useRef<string | null>(null);
@@ -435,6 +437,51 @@ export function PortalBookingClient() {
 
   function minValueForUnit(unit: AppointmentReminderSettings["steps"][number]["leadTime"]["unit"]) {
     return unit === "minutes" ? 5 : 1;
+  }
+
+  function bestLeadTimeForMinutes(minutes: number): { value: number; unit: "minutes" | "hours" | "days" | "weeks" } {
+    const m = Math.max(0, Math.floor(Number(minutes) || 0));
+    const units: Array<{ unit: "weeks" | "days" | "hours" | "minutes"; factor: number }> = [
+      { unit: "weeks", factor: 60 * 24 * 7 },
+      { unit: "days", factor: 60 * 24 },
+      { unit: "hours", factor: 60 },
+      { unit: "minutes", factor: 1 },
+    ];
+
+    for (const { unit, factor } of units) {
+      if (factor !== 1 && m % factor !== 0) continue;
+      const raw = Math.floor(m / factor);
+      const value = Math.max(minValueForUnit(unit), Math.min(maxValueForUnit(unit), raw));
+      return { unit, value };
+    }
+
+    return { unit: "minutes", value: Math.max(minValueForUnit("minutes"), Math.min(maxValueForUnit("minutes"), m)) };
+  }
+
+  function applyReminderTemplate(t: NurtureTemplate) {
+    if (!reminderDraft) return;
+    const channel = reminderDraft.channel;
+    const relevant = t.steps.filter((s) => s.kind === channel).slice(0, 8);
+    if (!relevant.length) {
+      toast.error(`This template has no ${channel} steps.`);
+      return;
+    }
+
+    const next: AppointmentReminderSettings = {
+      ...reminderDraft,
+      version: 3,
+      steps: relevant.map((s) => ({
+        id: makeClientId("rem_"),
+        enabled: true,
+        leadTime: bestLeadTimeForMinutes(s.delayMinutes),
+        subjectTemplate: channel === "EMAIL" ? String(s.subject || "Appointment reminder") : undefined,
+        messageBody: String(s.body || ""),
+      })),
+    };
+
+    setReminderDraft(next);
+    setStatus("Loaded template (not saved yet)");
+    window.setTimeout(() => setStatus(null), 1500);
   }
 
   const remindersUrl = useCallback((calendarId: string | null) => {
@@ -1478,15 +1525,76 @@ export function PortalBookingClient() {
               <>
                 <div className="mt-5 flex items-center justify-between gap-3">
                   <div className="text-xs font-semibold text-zinc-600">Reminder steps</div>
-                  <button
-                    type="button"
-                    className="rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm hover:bg-zinc-50 disabled:opacity-60"
-                    disabled={reminderSaving || reminderDraft.steps.length >= 8}
-                    onClick={() => addReminderStep()}
-                  >
-                    Add step
-                  </button>
+                  <div className="flex items-center gap-2">
+                    <button
+                      type="button"
+                      className="rounded-xl bg-brand-ink px-3 py-2 text-sm font-semibold text-white hover:opacity-95 disabled:opacity-60"
+                      disabled={reminderSaving}
+                      onClick={() => setReminderTemplateOpen(true)}
+                    >
+                      Load template
+                    </button>
+                    <button
+                      type="button"
+                      className="rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm hover:bg-zinc-50 disabled:opacity-60"
+                      disabled={reminderSaving || reminderDraft.steps.length >= 8}
+                      onClick={() => addReminderStep()}
+                    >
+                      Add step
+                    </button>
+                  </div>
                 </div>
+
+                {reminderTemplateOpen ? (
+                  <div className="fixed inset-0 z-9998 flex items-end justify-center bg-black/30 p-3 sm:items-center">
+                    <div className="flex w-full max-w-2xl flex-col overflow-hidden rounded-3xl border border-zinc-200 bg-white p-5 shadow-xl sm:max-h-[calc(100vh-2rem)]">
+                      <div className="flex items-start justify-between gap-3">
+                        <div>
+                          <div className="text-base font-semibold text-zinc-900">Load a template</div>
+                          <div className="mt-1 text-sm text-zinc-600">Replaces your current reminder steps.</div>
+                        </div>
+                        <button
+                          type="button"
+                          className="rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-sm font-semibold text-zinc-700 hover:bg-zinc-50"
+                          onClick={() => setReminderTemplateOpen(false)}
+                          disabled={reminderSaving}
+                        >
+                          Close
+                        </button>
+                      </div>
+
+                      <div className="mt-4 flex-1 space-y-2 overflow-auto pr-1">
+                        {NURTURE_TEMPLATES.map((t) => {
+                          const countForChannel = t.steps.filter((s) => s.kind === reminderDraft.channel).length;
+                          return (
+                            <button
+                              key={t.id}
+                              type="button"
+                              disabled={reminderSaving || countForChannel === 0}
+                              className="w-full rounded-3xl border border-zinc-200 bg-white p-4 text-left hover:bg-zinc-50 disabled:opacity-60"
+                              onClick={() => {
+                                applyReminderTemplate(t);
+                                setReminderTemplateOpen(false);
+                              }}
+                            >
+                              <div className="flex items-start justify-between gap-3">
+                                <div className="min-w-0">
+                                  <div className="truncate text-sm font-semibold text-zinc-900">{t.title}</div>
+                                  <div className="mt-1 text-sm text-zinc-600">{t.description}</div>
+                                </div>
+                                <div className="shrink-0 rounded-full border border-zinc-200 bg-zinc-50 px-2 py-1 text-[11px] font-semibold text-zinc-700">
+                                  {countForChannel} {reminderDraft.channel} step{countForChannel === 1 ? "" : "s"}
+                                </div>
+                              </div>
+                            </button>
+                          );
+                        })}
+                      </div>
+
+                      <div className="mt-4 text-xs text-zinc-500">Tip: load a template, then customize the copy and click Save.</div>
+                    </div>
+                  </div>
+                ) : null}
 
                 <div className="mt-3 space-y-3">
                   {reminderDraft.steps.map((s, idx) => (
