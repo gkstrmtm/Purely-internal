@@ -50,6 +50,9 @@
 # local-only Copilot context (do not commit)
 /newchathistory.md
 
+# local-only Copilot context (do not commit)
+/newnewchathistory
+
 # debug
 npm-debug.log*
 yarn-debug.log*

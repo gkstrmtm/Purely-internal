@@ -208,7 +208,7 @@ export const PORTAL_SERVICES: PortalService[] = [
   },
   {
     slug: "reviews",
-    title: "Review Requests",
+    title: "Reviews",
     description: "Get more reviews consistently without chasing customers.",
     highlights: [
       "Automatically request reviews at the right time",

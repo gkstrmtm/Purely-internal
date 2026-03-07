@@ -11,6 +11,39 @@ import type { TemplateVariable } from "@/lib/portalTemplateVars";
 
 type ReviewDelayUnit = "minutes" | "hours" | "days" | "weeks";
 
+function ToggleSwitch({
+  checked,
+  onChange,
+  disabled,
+  accent = "blue",
+}: {
+  checked: boolean;
+  onChange: (checked: boolean) => void;
+  disabled?: boolean;
+  accent?: "blue" | "pink" | "ink";
+}) {
+  const checkedBgClass =
+    accent === "pink"
+      ? "peer-checked:bg-(--color-brand-pink)"
+      : accent === "ink"
+        ? "peer-checked:bg-brand-ink"
+        : "peer-checked:bg-(--color-brand-blue)";
+
+  return (
+    <span className="relative inline-flex h-6 w-11 shrink-0 items-center">
+      <input
+        type="checkbox"
+        className="peer absolute inset-0 h-full w-full cursor-pointer opacity-0"
+        checked={checked}
+        disabled={disabled}
+        onChange={(e) => onChange(e.target.checked)}
+      />
+      <span className={"absolute inset-0 rounded-full bg-zinc-200 transition " + checkedBgClass + " peer-disabled:opacity-60"} />
+      <span className="absolute left-0.5 top-0.5 h-5 w-5 rounded-full bg-white shadow-sm transition peer-checked:translate-x-5 peer-disabled:opacity-60" />
+    </span>
+  );
+}
+
 const REVIEW_TEMPLATE_VARIABLES: TemplateVariable[] = [
   { key: "name", label: "Contact name", group: "Contact", appliesTo: "Booking contact" },
   { key: "business", label: "Your business name", group: "Business", appliesTo: "Your business" },
@@ -239,19 +272,6 @@ export default function PortalReviewsClient() {
 
   const [bookingsLoading, setBookingsLoading] = useState(false);
   const [bookingsLoadedOnce, setBookingsLoadedOnce] = useState(false);
-  const [upcomingBookings, setUpcomingBookings] = useState<
-    Array<{
-      id: string;
-      startAt: string;
-      endAt: string;
-      status: "SCHEDULED" | "CANCELED";
-      calendarId?: string | null;
-      contactName: string;
-      contactEmail: string;
-      contactPhone: string | null;
-      canceledAt: string | null;
-    }>
-  >([]);
   const [recentBookings, setRecentBookings] = useState<
     Array<{
       id: string;
@@ -396,10 +416,7 @@ export default function PortalReviewsClient() {
       if (!parsed.ok) throw new Error(parsed.error || "Failed to load bookings");
       const res = parsed.data;
       if (!res?.ok) throw new Error(res?.error || "Failed to load bookings");
-
-      const upcoming = Array.isArray(res.upcoming) ? res.upcoming : [];
       const recent = Array.isArray(res.recent) ? res.recent : [];
-      setUpcomingBookings(upcoming);
       setRecentBookings(recent);
       setBookingsLoadedOnce(true);
     } catch (err) {
@@ -725,15 +742,6 @@ export default function PortalReviewsClient() {
     }
   }
 
-  const filteredUpcoming = useMemo(() => {
-    const q = bookingQuery.trim().toLowerCase();
-    if (!q) return upcomingBookings;
-    return upcomingBookings.filter((b) => {
-      const hay = `${b.contactName} ${b.contactEmail} ${b.contactPhone || ""} ${b.id}`.toLowerCase();
-      return hay.includes(q);
-    });
-  }, [bookingQuery, upcomingBookings]);
-
   const filteredRecent = useMemo(() => {
     const q = bookingQuery.trim().toLowerCase();
     if (!q) return recentBookings;
@@ -782,7 +790,7 @@ export default function PortalReviewsClient() {
       />
 
       <div className="flex flex-col gap-1">
-        <div className="text-2xl font-semibold">Review Requests</div>
+        <div className="text-2xl font-semibold">Reviews</div>
         <div className="text-sm text-neutral-600">
           Send a review link after an appointment, and optionally host a public Reviews page.
         </div>
@@ -794,9 +802,9 @@ export default function PortalReviewsClient() {
           onClick={() => setTabWithUrl("reviews")}
           aria-current={tab === "reviews" ? "page" : undefined}
           className={
-            "flex-1 min-w-[160px] rounded-2xl border px-4 py-2.5 text-sm font-semibold transition focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-ink/60 " +
+            "flex-1 min-w-40 rounded-2xl border px-4 py-2.5 text-sm font-semibold transition focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-ink/60 " +
             (tab === "reviews"
-              ? "border-zinc-900 bg-zinc-900 text-white shadow-sm"
+              ? "border-(--color-brand-blue) bg-(--color-brand-blue) text-white shadow-sm"
               : "border-zinc-200 bg-white text-zinc-700 hover:bg-zinc-50")
           }
         >
@@ -807,13 +815,13 @@ export default function PortalReviewsClient() {
           onClick={() => setTabWithUrl("settings")}
           aria-current={tab === "settings" ? "page" : undefined}
           className={
-            "flex-1 min-w-[200px] rounded-2xl border px-4 py-2.5 text-sm font-semibold transition focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-ink/60 " +
+            "flex-1 min-w-50 rounded-2xl border px-4 py-2.5 text-sm font-semibold transition focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-ink/60 " +
             (tab === "settings"
-              ? "border-zinc-900 bg-zinc-900 text-white shadow-sm"
+              ? "border-(--color-brand-pink) bg-(--color-brand-pink) text-white shadow-sm"
               : "border-zinc-200 bg-white text-zinc-700 hover:bg-zinc-50")
           }
         >
-          Requests / Settings
+          Requests
         </button>
       </div>
 
@@ -821,39 +829,23 @@ export default function PortalReviewsClient() {
         <div className={tab === "settings" ? "" : "hidden"}>
           <div className="rounded-3xl border border-zinc-200 bg-white p-6">
             <div className="flex flex-col gap-1">
-              <div className="text-lg font-semibold text-zinc-900">Requests / Settings</div>
+              <div className="text-lg font-semibold text-zinc-900">Requests</div>
               <div className="text-sm text-zinc-600">Automation, public reviews page, message template, and destinations.</div>
             </div>
 
             <div className="mt-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-              <div className="inline-flex overflow-hidden rounded-2xl border border-zinc-200 bg-white">
-                <button
-                  type="button"
-                  className={
-                    (settings.enabled
-                      ? "bg-white text-brand-ink hover:bg-zinc-50"
-                      : "bg-brand-ink text-white") +
-                    " px-4 py-2 text-sm font-semibold disabled:opacity-60"
-                  }
+              <label className="flex items-center justify-between gap-4 rounded-2xl border border-zinc-200 bg-white px-4 py-3">
+                <div>
+                  <div className="text-sm font-semibold text-zinc-800">Enabled</div>
+                  <div className="mt-1 text-xs text-zinc-500">Runs on schedule when enabled.</div>
+                </div>
+                <ToggleSwitch
+                  checked={Boolean(settings.enabled)}
                   disabled={saving}
-                  onClick={() => setSettings({ ...settings, enabled: false })}
-                >
-                  Off
-                </button>
-                <button
-                  type="button"
-                  className={
-                    (settings.enabled
-                      ? "bg-brand-ink text-white"
-                      : "bg-white text-brand-ink hover:bg-zinc-50") +
-                    " px-4 py-2 text-sm font-semibold disabled:opacity-60"
-                  }
-                  disabled={saving}
-                  onClick={() => setSettings({ ...settings, enabled: true })}
-                >
-                  On
-                </button>
-              </div>
+                  accent="pink"
+                  onChange={(checked) => setSettings({ ...settings, enabled: checked })}
+                />
+              </label>
 
               {(() => {
                 const canPreview = Boolean(settings.publicPage.enabled && publicSiteSlug);
@@ -883,28 +875,28 @@ export default function PortalReviewsClient() {
                 status={settings.enabled ? "on" : "off"}
                 defaultOpen
               >
-                <div className="mt-2 flex flex-col gap-2">
-                  <label className="flex items-center justify-between gap-3 text-sm">
-                    <span>
-                      <span className="font-medium">Auto-send after appointments</span>
-                      <span className="mt-0.5 block text-xs text-neutral-600">When on, the scheduler sends automatically after the delay.</span>
-                    </span>
-                    <input
-                      type="checkbox"
-                      checked={settings.automation.autoSend}
-                      onChange={(e) => setSettings({ ...settings, automation: { ...settings.automation, autoSend: e.target.checked } })}
+                <div className="mt-2 grid grid-cols-1 gap-2">
+                  <label className="flex items-center justify-between gap-4 rounded-2xl border border-zinc-200 bg-white px-4 py-3">
+                    <div className="min-w-0">
+                      <div className="text-sm font-semibold text-zinc-800">Auto-send after appointments</div>
+                      <div className="mt-1 text-xs text-zinc-500">When on, the scheduler sends automatically after the delay.</div>
+                    </div>
+                    <ToggleSwitch
+                      checked={Boolean(settings.automation.autoSend)}
+                      accent="pink"
+                      onChange={(checked) => setSettings({ ...settings, automation: { ...settings.automation, autoSend: checked } })}
                     />
                   </label>
 
-                  <label className="flex items-center justify-between gap-3 text-sm">
-                    <span>
-                      <span className="font-medium">Allow manual sends</span>
-                      <span className="mt-0.5 block text-xs text-neutral-600">When off, you can’t use the Reviews tab to send manually.</span>
-                    </span>
-                    <input
-                      type="checkbox"
-                      checked={settings.automation.manualSend}
-                      onChange={(e) => setSettings({ ...settings, automation: { ...settings.automation, manualSend: e.target.checked } })}
+                  <label className="flex items-center justify-between gap-4 rounded-2xl border border-zinc-200 bg-white px-4 py-3">
+                    <div className="min-w-0">
+                      <div className="text-sm font-semibold text-zinc-800">Allow manual sends</div>
+                      <div className="mt-1 text-xs text-zinc-500">When off, you can’t use the Reviews tab to send manually.</div>
+                    </div>
+                    <ToggleSwitch
+                      checked={Boolean(settings.automation.manualSend)}
+                      accent="pink"
+                      onChange={(checked) => setSettings({ ...settings, automation: { ...settings.automation, manualSend: checked } })}
                     />
                   </label>
                 </div>
@@ -916,13 +908,16 @@ export default function PortalReviewsClient() {
                   </div>
 
                   <div className="mt-3 flex flex-col gap-2">
-                    <label className="flex items-center justify-between gap-3 text-sm">
-                      <span className="font-medium">All calendars</span>
-                      <input
-                        type="checkbox"
+                    <label className="flex items-center justify-between gap-4 rounded-2xl border border-zinc-200 bg-white px-4 py-3">
+                      <div className="min-w-0">
+                        <div className="text-sm font-semibold text-zinc-800">All calendars</div>
+                        <div className="mt-1 text-xs text-zinc-500">When on, calendar selection is cleared.</div>
+                      </div>
+                      <ToggleSwitch
                         checked={settings.automation.calendarIds.length === 0}
-                        onChange={(e) => {
-                          if (e.target.checked) {
+                        accent="pink"
+                        onChange={(checked) => {
+                          if (checked) {
                             setSettings({ ...settings, automation: { ...settings.automation, calendarIds: [] } });
                           } else {
                             const enabled = calendars.filter((c) => c.enabled !== false);
@@ -943,13 +938,13 @@ export default function PortalReviewsClient() {
                             .map((c) => {
                               const checked = settings.automation.calendarIds.includes(c.id);
                               return (
-                                <label key={c.id} className="flex items-center justify-between gap-3 text-sm">
-                                  <span className="truncate">{c.title}</span>
-                                  <input
-                                    type="checkbox"
+                                <label key={c.id} className="flex items-center justify-between gap-4 rounded-xl border border-zinc-200 bg-white px-3 py-2">
+                                  <span className="min-w-0 truncate text-sm font-medium text-zinc-900">{c.title}</span>
+                                  <ToggleSwitch
                                     checked={checked}
-                                    onChange={(e) => {
-                                      const next = e.target.checked
+                                    accent="pink"
+                                    onChange={(nextChecked) => {
+                                      const next = nextChecked
                                         ? Array.from(new Set([...settings.automation.calendarIds, c.id]))
                                         : settings.automation.calendarIds.filter((id) => id !== c.id);
                                       setSettings({ ...settings, automation: { ...settings.automation, calendarIds: next } });
@@ -995,7 +990,7 @@ export default function PortalReviewsClient() {
                               </button>
                             </div>
                             <textarea
-                              className="mt-2 min-h-[96px] w-full rounded-lg border border-zinc-200 bg-white px-3 py-2 text-sm"
+                              className="mt-2 min-h-24 w-full rounded-lg border border-zinc-200 bg-white px-3 py-2 text-sm"
                               placeholder="Leave blank to use the default template"
                               value={getCalendarTemplate(calendarId)}
                               onChange={(e) => setCalendarTemplate(calendarId, e.target.value)}
@@ -1015,37 +1010,40 @@ export default function PortalReviewsClient() {
                 </div>
               </PortalSettingsSection>
 
-              <PortalSettingsSection title="Timing" description="Send after appointment ends." accent="slate" defaultOpen={false}>
+              <PortalSettingsSection title="Timing" description="Send after appointment ends." accent="slate" collapsible={false}>
+                <div className="text-xs font-semibold uppercase tracking-wide text-zinc-500">Delay</div>
                 <div className="mt-2 flex flex-wrap items-center gap-2">
                   <input
-                    className="h-10 w-24 rounded-lg border border-zinc-200 bg-white px-3 text-sm"
+                    className="h-10 w-28 rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm"
                     value={settings.sendAfter.value}
                     onChange={(e) => setSendAfter({ value: clampInt(Number(e.target.value), 0, maxValue) })}
                     type="number"
                     min={0}
                     max={maxValue}
                   />
-                  <PortalListboxDropdown
-                    value={settings.sendAfter.unit}
-                    onChange={(unit) => {
-                      const nextMax = unit === "weeks" ? 2 : unit === "days" ? 14 : unit === "hours" ? 24 * 14 : 60 * 24 * 14;
-                      const nextValue = clampInt(settings.sendAfter.value, 0, nextMax);
-                      setSendAfter({ unit, value: nextValue });
-                    }}
-                    options={[
-                      { value: "minutes", label: "minutes" },
-                      { value: "hours", label: "hours" },
-                      { value: "days", label: "days" },
-                      { value: "weeks", label: "weeks" },
-                    ]}
-                    className="w-32"
-                    buttonClassName="flex h-10 w-full items-center justify-between gap-2 rounded-lg border border-zinc-200 bg-white px-3 text-sm hover:bg-zinc-50 focus-visible:ring-2 focus-visible:ring-zinc-300"
-                  />
-                  <div className="text-xs text-neutral-500">Max 2 weeks.</div>
+                  <div className="min-w-42.5 flex-1">
+                    <PortalListboxDropdown
+                      value={settings.sendAfter.unit}
+                      onChange={(unit) => {
+                        const nextMax = unit === "weeks" ? 2 : unit === "days" ? 14 : unit === "hours" ? 24 * 14 : 60 * 24 * 14;
+                        const nextValue = clampInt(settings.sendAfter.value, 0, nextMax);
+                        setSendAfter({ unit, value: nextValue });
+                      }}
+                      options={[
+                        { value: "minutes", label: "minutes" },
+                        { value: "hours", label: "hours" },
+                        { value: "days", label: "days" },
+                        { value: "weeks", label: "weeks" },
+                      ]}
+                      placeholder="Unit"
+                      buttonClassName="flex h-10 w-full items-center justify-between gap-2 rounded-xl border border-zinc-200 bg-white px-3 text-sm hover:bg-zinc-50 focus-visible:ring-2 focus-visible:ring-zinc-300"
+                    />
+                  </div>
+                  <div className="text-xs text-zinc-500">Max 2 weeks total.</div>
                 </div>
               </PortalSettingsSection>
 
-              <PortalSettingsSection title="Review destinations" description="Where the review link goes (Google, Yelp, etc)." accent="slate" defaultOpen={false}>
+              <PortalSettingsSection title="Review destinations" description="Where the review link goes (Google, Yelp, etc)." accent="slate" collapsible={false}>
                 <div className="mt-2 space-y-2">
                   {settings.destinations.length === 0 ? (
                     <div className="text-sm text-zinc-600">
@@ -1091,7 +1089,7 @@ export default function PortalReviewsClient() {
                     onChange={(e) => setNewDestLabel(e.target.value)}
                   />
                   <input
-                    className="h-10 flex-[2] rounded-lg border border-zinc-200 bg-white px-3 text-sm"
+                    className="h-10 flex-2 rounded-lg border border-zinc-200 bg-white px-3 text-sm"
                     placeholder="https://..."
                     value={newDestUrl}
                     onChange={(e) => setNewDestUrl(e.target.value)}
@@ -1121,7 +1119,7 @@ export default function PortalReviewsClient() {
                   </button>
                 </div>
                 <textarea
-                  className="mt-2 min-h-[120px] w-full rounded-lg border border-zinc-200 bg-white px-3 py-2 text-sm"
+                  className="mt-2 min-h-30 w-full rounded-lg border border-zinc-200 bg-white px-3 py-2 text-sm"
                   value={settings.messageTemplate}
                   onChange={(e) => setSettings({ ...settings, messageTemplate: e.target.value })}
                   onFocus={(e) => {
@@ -1141,28 +1139,34 @@ export default function PortalReviewsClient() {
                   </div>
                 ) : null}
 
-                <div className="mt-2 flex flex-wrap items-center gap-3">
-                  <label className="flex items-center gap-2 text-sm">
-                    <input
-                      type="checkbox"
-                      checked={settings.publicPage.enabled}
-                      onChange={(e) => setSettings({ ...settings, publicPage: { ...settings.publicPage, enabled: e.target.checked } })}
+                <div className="mt-2 grid grid-cols-1 gap-2 sm:grid-cols-2">
+                  <label className="flex items-center justify-between gap-4 rounded-2xl border border-zinc-200 bg-white px-4 py-3">
+                    <div className="min-w-0">
+                      <div className="text-sm font-semibold text-zinc-800">Enable public page</div>
+                      <div className="mt-1 text-xs text-zinc-500">Turns on your hosted reviews page.</div>
+                    </div>
+                    <ToggleSwitch
+                      checked={Boolean(settings.publicPage.enabled)}
+                      accent="pink"
+                      onChange={(checked) => setSettings({ ...settings, publicPage: { ...settings.publicPage, enabled: checked } })}
                     />
-                    Enable public page
                   </label>
 
-                  <label className="flex items-center gap-2 text-sm">
-                    <input
-                      type="checkbox"
-                      checked={settings.publicPage.galleryEnabled}
-                      onChange={(e) =>
+                  <label className="flex items-center justify-between gap-4 rounded-2xl border border-zinc-200 bg-white px-4 py-3">
+                    <div className="min-w-0">
+                      <div className="text-sm font-semibold text-zinc-800">Show photo gallery</div>
+                      <div className="mt-1 text-xs text-zinc-500">Displays customer photos on the page.</div>
+                    </div>
+                    <ToggleSwitch
+                      checked={Boolean(settings.publicPage.galleryEnabled)}
+                      accent="pink"
+                      onChange={(checked) =>
                         setSettings({
                           ...settings,
-                          publicPage: { ...settings.publicPage, galleryEnabled: e.target.checked },
+                          publicPage: { ...settings.publicPage, galleryEnabled: checked },
                         })
                       }
                     />
-                    Show photo gallery
                   </label>
                 </div>
 
@@ -1264,7 +1268,7 @@ export default function PortalReviewsClient() {
                 <div className="mt-3">
                   <div className="text-xs font-semibold text-zinc-700">Hero subtitle</div>
                   <textarea
-                    className="mt-1 min-h-[80px] w-full rounded-lg border border-zinc-200 bg-white px-3 py-2 text-sm"
+                    className="mt-1 min-h-20 w-full rounded-lg border border-zinc-200 bg-white px-3 py-2 text-sm"
                     placeholder="e.g. We’d love to hear about your experience."
                     value={settings.publicPage.description}
                     onChange={(e) => setSettings({ ...settings, publicPage: { ...settings.publicPage, description: e.target.value } })}
@@ -1275,7 +1279,7 @@ export default function PortalReviewsClient() {
                   <div className="text-xs font-semibold text-zinc-700">Thank you message</div>
                   <div className="mt-1 text-xs text-zinc-500">Shown after someone submits a review on your public page.</div>
                   <textarea
-                    className="mt-2 min-h-[70px] w-full rounded-lg border border-zinc-200 bg-white px-3 py-2 text-sm"
+                    className="mt-2 min-h-17.5 w-full rounded-lg border border-zinc-200 bg-white px-3 py-2 text-sm"
                     placeholder="e.g. Thanks! We appreciate you."
                     value={settings.publicPage.thankYouMessage}
                     onChange={(e) =>
@@ -1294,97 +1298,93 @@ export default function PortalReviewsClient() {
                   <div className="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-2">
                     <div className="rounded-xl border border-zinc-200 bg-white p-3">
                       <div className="flex items-center justify-between gap-3">
-                        <label className="flex items-center gap-2 text-sm font-medium text-zinc-900">
-                          <input
-                            type="checkbox"
-                            checked={settings.publicPage.form.email.enabled}
-                            onChange={(e) =>
-                              setSettings({
-                                ...settings,
-                                publicPage: {
-                                  ...settings.publicPage,
-                                  form: {
-                                    ...settings.publicPage.form,
-                                    email: {
-                                      ...settings.publicPage.form.email,
-                                      enabled: e.target.checked,
-                                      required: e.target.checked ? settings.publicPage.form.email.required : false,
-                                    },
+                        <div className="text-sm font-semibold text-zinc-900">Collect email</div>
+                        <ToggleSwitch
+                          checked={Boolean(settings.publicPage.form.email.enabled)}
+                          accent="pink"
+                          onChange={(checked) =>
+                            setSettings({
+                              ...settings,
+                              publicPage: {
+                                ...settings.publicPage,
+                                form: {
+                                  ...settings.publicPage.form,
+                                  email: {
+                                    ...settings.publicPage.form.email,
+                                    enabled: checked,
+                                    required: checked ? settings.publicPage.form.email.required : false,
                                   },
                                 },
-                              })
-                            }
-                          />
-                          Collect email
-                        </label>
-                        <label className="flex items-center gap-2 text-xs text-zinc-700">
-                          <input
-                            type="checkbox"
-                            checked={settings.publicPage.form.email.enabled && settings.publicPage.form.email.required}
-                            disabled={!settings.publicPage.form.email.enabled}
-                            onChange={(e) =>
-                              setSettings({
-                                ...settings,
-                                publicPage: {
-                                  ...settings.publicPage,
-                                  form: {
-                                    ...settings.publicPage.form,
-                                    email: { ...settings.publicPage.form.email, required: e.target.checked },
-                                  },
+                              },
+                            })
+                          }
+                        />
+                      </div>
+                      <div className="mt-2 flex items-center justify-between gap-3">
+                        <div className="text-xs font-semibold text-zinc-700">Required</div>
+                        <ToggleSwitch
+                          checked={Boolean(settings.publicPage.form.email.enabled && settings.publicPage.form.email.required)}
+                          disabled={!settings.publicPage.form.email.enabled}
+                          accent="pink"
+                          onChange={(checked) =>
+                            setSettings({
+                              ...settings,
+                              publicPage: {
+                                ...settings.publicPage,
+                                form: {
+                                  ...settings.publicPage.form,
+                                  email: { ...settings.publicPage.form.email, required: checked },
                                 },
-                              })
-                            }
-                          />
-                          Required
-                        </label>
+                              },
+                            })
+                          }
+                        />
                       </div>
                     </div>
 
                     <div className="rounded-xl border border-zinc-200 bg-white p-3">
                       <div className="flex items-center justify-between gap-3">
-                        <label className="flex items-center gap-2 text-sm font-medium text-zinc-900">
-                          <input
-                            type="checkbox"
-                            checked={settings.publicPage.form.phone.enabled}
-                            onChange={(e) =>
-                              setSettings({
-                                ...settings,
-                                publicPage: {
-                                  ...settings.publicPage,
-                                  form: {
-                                    ...settings.publicPage.form,
-                                    phone: {
-                                      ...settings.publicPage.form.phone,
-                                      enabled: e.target.checked,
-                                      required: e.target.checked ? settings.publicPage.form.phone.required : false,
-                                    },
+                        <div className="text-sm font-semibold text-zinc-900">Collect phone (SMS)</div>
+                        <ToggleSwitch
+                          checked={Boolean(settings.publicPage.form.phone.enabled)}
+                          accent="pink"
+                          onChange={(checked) =>
+                            setSettings({
+                              ...settings,
+                              publicPage: {
+                                ...settings.publicPage,
+                                form: {
+                                  ...settings.publicPage.form,
+                                  phone: {
+                                    ...settings.publicPage.form.phone,
+                                    enabled: checked,
+                                    required: checked ? settings.publicPage.form.phone.required : false,
                                   },
                                 },
-                              })
-                            }
-                          />
-                          Collect phone (SMS)
-                        </label>
-                        <label className="flex items-center gap-2 text-xs text-zinc-700">
-                          <input
-                            type="checkbox"
-                            checked={settings.publicPage.form.phone.enabled && settings.publicPage.form.phone.required}
-                            disabled={!settings.publicPage.form.phone.enabled}
-                            onChange={(e) =>
-                              setSettings({
-                                ...settings,
-                                publicPage: {
-                                  ...settings.publicPage,
-                                  form: {
-                                    ...settings.publicPage.form,
-                                    phone: { ...settings.publicPage.form.phone, required: e.target.checked },
-                                  },
+                              },
+                            })
+                          }
+                        />
+                      </div>
+                      <div className="mt-2 flex items-center justify-between gap-3">
+                        <div className="text-xs font-semibold text-zinc-700">Required</div>
+                        <ToggleSwitch
+                          checked={Boolean(settings.publicPage.form.phone.enabled && settings.publicPage.form.phone.required)}
+                          disabled={!settings.publicPage.form.phone.enabled}
+                          accent="pink"
+                          onChange={(checked) =>
+                            setSettings({
+                              ...settings,
+                              publicPage: {
+                                ...settings.publicPage,
+                                form: {
+                                  ...settings.publicPage.form,
+                                  phone: { ...settings.publicPage.form.phone, required: checked },
                                 },
-                              })
-                            }
-                          />
-                          Required
-                        </label>
+                              },
+                            })
+                          }
+                        />
                       </div>
                     </div>
                   </div>
@@ -1478,13 +1478,14 @@ export default function PortalReviewsClient() {
                                   Down
                                 </button>
 
-                                <label className="flex items-center gap-2 text-xs font-semibold text-zinc-700">
-                                  <input
-                                    type="checkbox"
-                                    checked={q.required}
-                                    onChange={(e) => {
+                                <label className="flex items-center gap-3 rounded-xl border border-zinc-200 bg-white px-3 py-2 text-xs font-semibold text-zinc-700">
+                                  <span className="min-w-0">Required</span>
+                                  <ToggleSwitch
+                                    checked={Boolean(q.required)}
+                                    accent="pink"
+                                    onChange={(checked) => {
                                       const nextQs = (settings.publicPage.form.questions || []).map((x) =>
-                                        x.id === q.id ? { ...x, required: e.target.checked } : x,
+                                        x.id === q.id ? { ...x, required: checked } : x,
                                       );
                                       setSettings({
                                         ...settings,
@@ -1492,7 +1493,6 @@ export default function PortalReviewsClient() {
                                       });
                                     }}
                                   />
-                                  Required
                                 </label>
 
                                 <PortalListboxDropdown
@@ -1518,7 +1518,7 @@ export default function PortalReviewsClient() {
                                     { value: "single_choice", label: "Single choice" },
                                     { value: "multiple_choice", label: "Multiple choice" },
                                   ]}
-                                  className="min-w-[170px]"
+                                  className="min-w-42.5"
                                   buttonClassName="flex h-9 w-full items-center justify-between gap-2 rounded-xl border border-zinc-200 bg-white px-3 text-sm hover:bg-zinc-50 focus-visible:ring-2 focus-visible:ring-zinc-300"
                                 />
 
@@ -1542,7 +1542,7 @@ export default function PortalReviewsClient() {
                               <div className="mt-3">
                                 <div className="text-xs font-semibold text-zinc-600">Options (one per line)</div>
                                 <textarea
-                                  className="mt-1 min-h-[90px] w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm"
+                                  className="mt-1 min-h-22.5 w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm"
                                   value={(q.options || []).join("\n")}
                                   onChange={(e) => {
                                     const options = e.target.value
@@ -1620,7 +1620,7 @@ export default function PortalReviewsClient() {
             <div className="text-sm font-medium">Recent bookings</div>
             <div className="mt-2 overflow-hidden rounded-lg border border-zinc-200 bg-white">
               <div className="grid grid-cols-1 gap-0">
-                {(filteredRecent.length === 0 && filteredUpcoming.length === 0) ? (
+                {filteredRecent.length === 0 ? (
                   <div className="p-4 text-sm text-neutral-600">No bookings found.</div>
                 ) : null}
 
@@ -1656,30 +1656,6 @@ export default function PortalReviewsClient() {
                 })}
               </div>
             </div>
-
-            {filteredUpcoming.length ? (
-              <div className="mt-4">
-                <div className="text-sm font-medium">Upcoming bookings</div>
-                <div className="mt-2 overflow-hidden rounded-lg border border-zinc-200 bg-white">
-                  {filteredUpcoming.slice(0, 10).map((b) => (
-                    <div key={b.id} className="flex flex-col gap-1 border-b border-zinc-200 p-4 sm:flex-row sm:items-center sm:justify-between">
-                      <div className="min-w-0">
-                        <div className="truncate text-sm font-medium">{b.contactName}</div>
-                        <div className="mt-0.5 flex flex-wrap gap-x-3 gap-y-1 text-xs text-neutral-600">
-                          <span>{new Date(b.startAt).toLocaleString()}</span>
-                          <span className="truncate">{b.contactPhone || "(no phone)"}</span>
-                          <span>{b.status}</span>
-                          <span className="truncate">{calendarLabel(b.calendarId)}</span>
-                        </div>
-                      </div>
-                      <div className="text-xs text-amber-700">
-                        {!isCalendarAllowedForBooking(b.calendarId) ? "Calendar is off" : "Can’t send until it ends"}
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            ) : null}
           </div>
 
           <div className="mt-6">
@@ -1877,7 +1853,7 @@ export default function PortalReviewsClient() {
                         <div className="rounded-2xl border border-zinc-200 bg-zinc-50 p-3">
                           <div className="text-xs font-semibold text-zinc-700">Public reply (shows on your reviews page)</div>
                           <textarea
-                            className="mt-2 min-h-[80px] w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm"
+                            className="mt-2 min-h-20 w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm"
                             value={replyDrafts[r.id] ?? ""}
                             onChange={(e) => setReplyDrafts((prev) => ({ ...prev, [r.id]: e.target.value }))}
                             placeholder="Write a response…"
@@ -1996,7 +1972,7 @@ export default function PortalReviewsClient() {
                       <div className="rounded-2xl border border-zinc-200 bg-zinc-50 p-3">
                         <div className="text-xs font-semibold text-zinc-700">Answer</div>
                         <textarea
-                          className="mt-2 min-h-[80px] w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm"
+                          className="mt-2 min-h-20 w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm"
                           value={qaAnswerDrafts[q.id] ?? ""}
                           onChange={(e) => setQaAnswerDrafts((prev) => ({ ...prev, [q.id]: e.target.value }))}
                           placeholder="Write an answer…"

@@ -749,7 +749,7 @@ export function PortalBillingClient() {
                   const mod = purchaseModal.module;
                   await purchaseModule(mod);
                 }}
-                className="rounded-2xl bg-[color:var(--color-brand-blue)] px-5 py-3 text-sm font-semibold text-white hover:opacity-95 disabled:opacity-60"
+                className="rounded-2xl bg-(--color-brand-blue) px-5 py-3 text-sm font-semibold text-white hover:opacity-95 disabled:opacity-60"
               >
                 {actionBusy?.startsWith("module:") ? "Opening…" : "Buy & enable"}
               </button>
@@ -821,7 +821,7 @@ export function PortalBillingClient() {
           </div>
 
           {accessBreakdownRows.length ? (
-            <div className="mt-3 max-h-[260px] overflow-auto pr-1 sm:max-h-[320px]">
+            <div className="mt-3 max-h-65 overflow-auto pr-1 sm:max-h-80">
               <div className="grid gap-2">
                 {accessBreakdownRows.map((x) => (
                   <div key={x.slug} className="flex items-center justify-between gap-3 rounded-2xl border border-zinc-200 bg-white px-3 py-2">
@@ -1002,7 +1002,7 @@ export function PortalBillingClient() {
 
               <button
                 type="button"
-                className="rounded-2xl bg-[color:var(--color-brand-blue)] px-4 py-2 text-sm font-semibold text-white hover:opacity-95 disabled:opacity-60"
+                className="rounded-2xl bg-(--color-brand-blue) px-4 py-2 text-sm font-semibold text-white hover:opacity-95 disabled:opacity-60"
                 disabled={actionBusy !== null}
                 onClick={() => void topUp()}
               >
@@ -1018,7 +1018,7 @@ export function PortalBillingClient() {
 
       {cancelModal ? (
         <div
-          className="fixed inset-0 z-[9999] overflow-y-auto bg-black/40 p-4"
+          className="fixed inset-0 z-9999 overflow-y-auto bg-black/40 p-4"
           onMouseDown={() => setCancelModal(null)}
         >
           <div className="mx-auto w-full max-w-xl" onMouseDown={(e) => e.stopPropagation()}>
@@ -1130,7 +1130,7 @@ export function PortalBillingClient() {
                 { module: "blog", serviceSlug: "blogs", title: "Automated Blogs", desc: "Enable blogging automation." },
                 { module: "booking", serviceSlug: "booking", title: "Booking Automation", desc: "Enable booking and reminders." },
                 { module: "automations", serviceSlug: "automations", title: "Automation Builder", desc: "Build workflows across your enabled services." },
-                { module: "reviews", serviceSlug: "reviews", title: "Review Requests", desc: "Automate requests and track responses." },
+                { module: "reviews", serviceSlug: "reviews", title: "Reviews", desc: "Automate requests and track responses." },
                 { module: "newsletter", serviceSlug: "newsletter", title: "Newsletter", desc: "Send newsletters to your contacts." },
                 { module: "aiReceptionist", serviceSlug: "ai-receptionist", title: "AI Receptionist", desc: "Inbound answers + routing." },
                 { module: "leadOutbound", serviceSlug: "ai-outbound-calls", title: "AI Outbound", desc: "Outbound calls + follow-up messaging." },
@@ -1345,7 +1345,7 @@ export function PortalBillingClient() {
           })()}
         </div>
 
-        <div className="mt-6 rounded-2xl border border-brand-ink/10 bg-gradient-to-br from-[color:var(--color-brand-blue)]/10 to-white p-4 text-sm text-zinc-800">
+        <div className="mt-6 rounded-2xl border border-brand-ink/10 bg-linear-to-br from-brand-blue/10 to-white p-4 text-sm text-zinc-800">
           <div className="font-semibold text-zinc-900">Want to add more?</div>
           <div className="mt-1 text-sm text-zinc-700">
             {creditsOnly

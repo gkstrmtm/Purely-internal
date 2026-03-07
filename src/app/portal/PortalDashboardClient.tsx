@@ -659,7 +659,7 @@ export function PortalDashboardClient() {
       case "perfLeadScraping":
         return "Lead Scraping performance";
       case "perfReviews":
-        return "Review Requests performance";
+        return "Reviews performance";
       default:
         return "Widget";
     }
@@ -1341,7 +1341,7 @@ export function PortalDashboardClient() {
             </div>
             <div className="mt-3">
               <Link href="/portal/app/services/reviews" className="text-sm font-semibold text-brand-ink hover:underline">
-                Go to Review Requests
+                Go to Reviews
               </Link>
             </div>
           </AccentCard>
@@ -1397,7 +1397,7 @@ export function PortalDashboardClient() {
             ) : (
               <button
                 type="button"
-                className="rounded-2xl bg-[color:var(--color-brand-blue)] px-4 py-2 text-sm font-semibold text-white hover:opacity-95"
+                className="rounded-2xl bg-(--color-brand-blue) px-4 py-2 text-sm font-semibold text-white hover:opacity-95"
                 onClick={beginEdit}
               >
                 Edit

@@ -52,7 +52,7 @@ export const PORTAL_MODULE_CATALOG: Record<PortalModuleKey, PortalModuleCatalogI
   },
   reviews: {
     key: "reviews",
-    title: "Review Requests",
+    title: "Reviews",
     description: "Verified listing + hosted Q&A page + automated review request flows.",
     monthlyUsd: 79,
     setupUsd: 0,

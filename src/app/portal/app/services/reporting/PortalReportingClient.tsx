@@ -141,7 +141,7 @@ const SERVICE_INFOS: ServiceInfo[] = [
   { key: "nurtureCampaigns", name: "Nurture Campaigns", href: "/portal/app/services/nurture-campaigns" },
   { key: "tasks", name: "Tasks", href: "/portal/app/services/tasks" },
   { key: "inbox", name: "Inbox / Outbox", href: "/portal/app/services/inbox/email" },
-  { key: "reviews", name: "Review Requests", href: "/portal/app/services/reviews" },
+  { key: "reviews", name: "Reviews", href: "/portal/app/services/reviews" },
   { key: "leadScraping", name: "Lead Scraping", href: "/portal/app/services/lead-scraping" },
 ];
 
@@ -1673,7 +1673,7 @@ export function PortalReportingClient() {
                   />
 
                   <ServicePerfCard
-                    title="Review Requests"
+                    title="Reviews"
                     tone="violet"
                     href="/portal/app/services/reviews"
                     menu={

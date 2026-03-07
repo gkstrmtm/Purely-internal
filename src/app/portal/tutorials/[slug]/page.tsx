@@ -428,18 +428,18 @@ const TUTORIALS: Record<string, TutorialConfig> = {
     ],
   },
   reviews: {
-    intro: "Review Requests help you ask at the right time and track responses.",
+    intro: "Reviews help you ask at the right time and track responses.",
     sections: [
       {
         title: "How it should feel",
         body: "Requests go out right after good work is delivered, and you can see who responded and where.",
       },
       {
-        title: "Set up Review Requests (Requests / Settings tab)",
+        title: "Set up Reviews (Requests tab)",
         body: "Configure the automation, timing, message template, and (optional) public reviews page.",
         steps: [
-          "Open Services → Review Requests.",
-          "Click the Requests / Settings tab.",
+          "Open Services → Reviews.",
+          "Click the Requests tab.",
           "Turn the main toggle to On.",
           "In Send mode, keep Auto-send after appointments enabled if you want requests to go out automatically.",
           "If you want to send requests manually, ensure Allow manual sends is enabled.",
@@ -453,8 +453,8 @@ const TUTORIALS: Record<string, TutorialConfig> = {
         title: "Send a manual request (Reviews tab)",
         body: "Use manual sends to handle exceptions (VIP customers, resends, or jobs that didn’t come through booking).",
         steps: [
-          "In Review Requests, click the Reviews tab.",
-          "If you see the message that manual sends are off, go back to Requests / Settings and enable Allow manual sends.",
+          "In Reviews, click the Reviews tab.",
+          "If you see the message that manual sends are off, go back to Requests and enable Allow manual sends.",
           "Use the search box to find a recent booking by name, email, phone, or booking ID.",
           "Pick the correct booking, confirm the calendar is allowed (if you enabled calendar filtering), then send the request.",
           "Watch for the status/result message at the top of the page so you know it was queued/sent.",
@@ -464,7 +464,7 @@ const TUTORIALS: Record<string, TutorialConfig> = {
         title: "Host a public reviews page (optional)",
         body: "Turn on a public page to collect reviews and optionally show a photo gallery.",
         steps: [
-          "In Requests / Settings, open Hosted reviews page.",
+          "In Requests, open Hosted reviews page.",
           "Enable public page.",
           "Set Hero title, subtitle, and Thank you message.",
           "Optional: toggle Show photo gallery and upload photos or Choose from media library.",
@@ -518,7 +518,7 @@ const TUTORIALS: Record<string, TutorialConfig> = {
           "Open Services → Reporting.",
           "Use the range buttons (Today / 7d / 30d / 90d / All) to switch the reporting window.",
           "Use the Search box to find a metric by keyword (for example “credits”, “missed”, “reviews”, “bookings”).",
-          "Use the Service dropdown to filter to one service (AI Receptionist, Lead Scraping, Review Requests, etc.).",
+          "Use the Service dropdown to filter to one service (AI Receptionist, Lead Scraping, Reviews, etc.).",
           "If you only want to see services that are active/configured, keep Active only enabled.",
         ],
       },
@@ -537,7 +537,7 @@ const TUTORIALS: Record<string, TutorialConfig> = {
         body: "Use the performance widgets to spot failures before customers feel them.",
         steps: [
           "Scroll to Automation performance (by service).",
-          "If Success rate is low or Failures is high, use the ⋯ menu to jump to the related service (Go to AI Receptionist / Missed-Call Text Back / Lead Scraping / Review Requests).",
+          "If Success rate is low or Failures is high, use the ⋯ menu to jump to the related service (Go to AI Receptionist / Missed-Call Text Back / Lead Scraping / Reviews).",
           "Use Daily activity to see whether the issue is isolated to a specific day or ongoing.",
         ],
       },
@@ -838,9 +838,9 @@ export default async function PortalTutorialDetailPage(props: { params: Promise<
             <span
               className={
                 service.accent === "blue"
-                  ? "text-[color:var(--color-brand-blue)]"
+                  ? "text-(--color-brand-blue)"
                   : service.accent === "coral"
-                    ? "text-[color:var(--color-brand-pink)]"
+                    ? "text-(--color-brand-pink)"
                     : "text-zinc-700"
               }
             >

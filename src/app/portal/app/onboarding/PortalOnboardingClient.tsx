@@ -104,7 +104,7 @@ export function PortalOnboardingClient() {
           })}
 
           {stepRow({
-            label: "4) Turn on Reviews + Review Requests",
+            label: "4) Turn on Reviews",
             status: "Optional",
             href: "/portal/app/services/reviews",
             detail: "Send review requests automatically after bookings or manually from contacts.",
