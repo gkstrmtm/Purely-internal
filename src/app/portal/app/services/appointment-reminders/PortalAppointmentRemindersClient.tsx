@@ -701,29 +701,12 @@ export function PortalAppointmentRemindersClient() {
                   <div key={s.id} className="rounded-2xl border border-zinc-200 p-4">
                     <div className="flex items-start justify-between gap-3">
                       <div className="min-w-0 flex-1">
-                        <div className="flex items-start gap-3">
-                          <span className="mt-0.5 inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-2xl bg-linear-to-r from-(--color-brand-blue) via-violet-500 to-(--color-brand-pink) text-white">
-                            <svg
-                              aria-hidden="true"
-                              viewBox="0 0 24 24"
-                              className="h-4 w-4"
-                              fill="none"
-                              stroke="currentColor"
-                              strokeWidth="2"
-                              strokeLinecap="round"
-                              strokeLinejoin="round"
-                            >
-                              <path d="M12 2l1.5 5.5L19 9l-5.5 1.5L12 16l-1.5-5.5L5 9l5.5-1.5L12 2z" />
-                              <path d="M19 14l.8 2.6L22 17l-2.2.4L19 20l-.8-2.6L16 17l2.2-.4L19 14z" />
-                            </svg>
-                          </span>
-                          <div className="min-w-0">
-                            <div className="text-sm font-semibold text-zinc-900">
-                              {s.kind === "EMAIL" ? "Email" : s.kind === "TAG" ? "Tag" : "SMS"} step {idx + 1}
-                            </div>
-                            <div className="mt-1 text-xs text-zinc-600">{s.leadTime.value} {s.leadTime.unit} before</div>
-                            <div className="mt-1 text-xs text-zinc-600">Variables: {"{name}"}, {"{when}"}</div>
+                        <div className="min-w-0">
+                          <div className="text-sm font-semibold text-zinc-900">
+                            {s.kind === "EMAIL" ? "Email" : s.kind === "TAG" ? "Tag" : "SMS"} step {idx + 1}
                           </div>
+                          <div className="mt-1 text-xs text-zinc-600">{s.leadTime.value} {s.leadTime.unit} before</div>
+                          <div className="mt-1 text-xs text-zinc-600">Variables: {"{name}"}, {"{when}"}</div>
                         </div>
                       </div>
 
@@ -759,7 +742,7 @@ export function PortalAppointmentRemindersClient() {
                         </label>
                         <button
                           type="button"
-                          className="rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm hover:bg-zinc-50 disabled:opacity-60"
+                          className="rounded-xl border border-red-200 bg-white px-3 py-2 text-sm font-semibold text-red-700 hover:bg-red-50 disabled:opacity-60"
                           disabled={saving || draft.steps.length <= 1}
                           onClick={() => deleteStep(s.id)}
                         >
@@ -819,7 +802,7 @@ export function PortalAppointmentRemindersClient() {
                                   disabled={saving}
                                   className={
                                     "inline-flex items-center gap-2 rounded-xl px-2 py-1 text-xs font-semibold text-white shadow-sm transition hover:opacity-90 disabled:opacity-60 " +
-                                    "bg-linear-to-r from-(--color-brand-blue) via-violet-500 to-(--color-brand-pink)"
+                                    "bg-linear-to-r from-red-600 via-rose-500 to-(--color-brand-pink)"
                                   }
                                   onClick={() => {
                                     setAiDraftStepId(s.id);
