@@ -1609,7 +1609,7 @@ export function PortalBookingClient() {
                   <div className="flex items-center gap-2">
                     <button
                       type="button"
-                      className="rounded-xl bg-brand-ink px-3 py-2 text-sm font-semibold text-white hover:opacity-95 disabled:opacity-60"
+                      className="rounded-xl border border-zinc-200 bg-white px-3 py-1.5 text-xs font-semibold text-brand-ink hover:bg-zinc-50 disabled:opacity-60"
                       disabled={reminderSaving}
                       onClick={() => setReminderTemplateOpen(true)}
                     >
@@ -1617,7 +1617,7 @@ export function PortalBookingClient() {
                     </button>
                     <button
                       type="button"
-                      className="rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm hover:bg-zinc-50 disabled:opacity-60"
+                      className="rounded-xl border border-zinc-200 bg-white px-3 py-1.5 text-xs font-semibold text-brand-ink hover:bg-zinc-50 disabled:opacity-60"
                       disabled={reminderSaving || reminderDraft.steps.length >= 8}
                       onClick={() => addReminderStep("SMS")}
                     >
@@ -1625,7 +1625,7 @@ export function PortalBookingClient() {
                     </button>
                     <button
                       type="button"
-                      className="rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm hover:bg-zinc-50 disabled:opacity-60"
+                      className="rounded-xl border border-zinc-200 bg-white px-3 py-1.5 text-xs font-semibold text-brand-ink hover:bg-zinc-50 disabled:opacity-60"
                       disabled={reminderSaving || reminderDraft.steps.length >= 8}
                       onClick={() => addReminderStep("EMAIL")}
                     >
@@ -1633,7 +1633,7 @@ export function PortalBookingClient() {
                     </button>
                     <button
                       type="button"
-                      className="rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm hover:bg-zinc-50 disabled:opacity-60"
+                      className="rounded-xl border border-zinc-200 bg-white px-3 py-1.5 text-xs font-semibold text-brand-ink hover:bg-zinc-50 disabled:opacity-60"
                       disabled={reminderSaving || reminderDraft.steps.length >= 8}
                       onClick={() => addReminderStep("TAG")}
                     >
@@ -1798,10 +1798,26 @@ export function PortalBookingClient() {
                                   <button
                                     type="button"
                                     disabled={reminderSaving || reminderGeneratingStepId === s.id}
-                                    className="rounded-xl border border-zinc-200 bg-white px-3 py-1.5 text-xs font-semibold text-brand-ink hover:bg-zinc-50 disabled:opacity-60"
+                                    className={
+                                      "inline-flex items-center gap-2 rounded-xl px-2 py-1 text-xs font-semibold text-white shadow-sm transition hover:opacity-90 disabled:opacity-60 " +
+                                      "bg-linear-to-r from-(--color-brand-blue) via-violet-500 to-(--color-brand-pink)"
+                                    }
                                     onClick={() => void generateReminderStep(s.id)}
                                   >
-                                    {reminderGeneratingStepId === s.id ? "Drafting…" : "AI draft"}
+                                    <svg
+                                      aria-hidden="true"
+                                      viewBox="0 0 24 24"
+                                      className="h-3.5 w-3.5"
+                                      fill="none"
+                                      stroke="currentColor"
+                                      strokeWidth="2"
+                                      strokeLinecap="round"
+                                      strokeLinejoin="round"
+                                    >
+                                      <path d="M12 2l1.5 5.5L19 9l-5.5 1.5L12 16l-1.5-5.5L5 9l5.5-1.5L12 2z" />
+                                      <path d="M19 14l.8 2.6L22 17l-2.2.4L19 20l-.8-2.6L16 17l2.2-.4L19 14z" />
+                                    </svg>
+                                    <span>{reminderGeneratingStepId === s.id ? "Drafting…" : "AI draft"}</span>
                                   </button>
                                   <label className="rounded-xl border border-zinc-200 bg-white px-3 py-1.5 text-xs font-semibold text-zinc-700 hover:bg-zinc-50 disabled:opacity-60">
                                     {reminderUploadBusyStepId === s.id ? "Uploading…" : "Upload file"}
