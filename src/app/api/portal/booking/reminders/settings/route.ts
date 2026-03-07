@@ -31,6 +31,19 @@ export async function GET(req: Request) {
     listAppointmentReminderEvents(ownerId, 50),
   ]);
 
+  const builtinVariables = [
+    "contactName",
+    "contactEmail",
+    "contactPhone",
+    "businessName",
+    "bookingTitle",
+    "calendarTitle",
+    "when",
+    "timeZone",
+    "startAt",
+    "endAt",
+  ];
+
   return NextResponse.json({
     ok: true,
     settings: selected.settings,
@@ -38,6 +51,7 @@ export async function GET(req: Request) {
     isOverride: selected.isOverride,
     twilio,
     events,
+    builtinVariables,
   });
 }
 
@@ -64,5 +78,18 @@ export async function PUT(req: Request) {
     listAppointmentReminderEvents(ownerId, 50),
   ]);
 
-  return NextResponse.json({ ok: true, settings: next, calendarId: calendarId ?? null, twilio, events });
+  const builtinVariables = [
+    "contactName",
+    "contactEmail",
+    "contactPhone",
+    "businessName",
+    "bookingTitle",
+    "calendarTitle",
+    "when",
+    "timeZone",
+    "startAt",
+    "endAt",
+  ];
+
+  return NextResponse.json({ ok: true, settings: next, calendarId: calendarId ?? null, twilio, events, builtinVariables });
 }

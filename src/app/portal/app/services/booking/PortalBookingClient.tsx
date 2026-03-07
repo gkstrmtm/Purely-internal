@@ -10,10 +10,12 @@ import { PortalListboxDropdown } from "@/components/PortalListboxDropdown";
 import { PortalMediaPickerModal, type PortalMediaPickItem } from "@/components/PortalMediaPickerModal";
 import { PortalSelectDropdown } from "@/components/PortalSelectDropdown";
 import { PortalSettingsSection } from "@/components/PortalSettingsSection";
+import { PortalVariablePickerModal } from "@/components/PortalVariablePickerModal";
 import { ContactTagsEditor, type ContactTag } from "@/components/ContactTagsEditor";
 import { LocalDateTimePicker } from "@/components/LocalDateTimePicker";
 import { useToast } from "@/components/ToastProvider";
 import { REMINDER_TEMPLATES, type ReminderTemplate } from "@/lib/portalReminderTemplates";
+import { PORTAL_BOOKING_VARIABLES, PORTAL_MESSAGE_VARIABLES } from "@/lib/portalTemplateVars";
 
 type BookingFormConfig = {
   version: 1;
@@ -79,6 +81,7 @@ type TwilioMasked = {
 type AppointmentReminderSettings = {
   version: 4;
   enabled: boolean;
+  customVariables: Record<string, string>;
   steps: {
     id: string;
     enabled: boolean;
@@ -380,6 +383,50 @@ export function PortalBookingClient() {
   const [reminderGeneratingStepId, setReminderGeneratingStepId] = useState<string | null>(null);
   const [reminderTemplateOpen, setReminderTemplateOpen] = useState(false);
 
+  const [reminderVarPickerOpen, setReminderVarPickerOpen] = useState(false);
+  const [reminderVarPickerTarget, setReminderVarPickerTarget] = useState<null | { stepId: string; field: "subject" | "body" }>(null);
+  const reminderActiveFieldElRef = useRef<HTMLInputElement | HTMLTextAreaElement | null>(null);
+
+  const [reminderBuiltinVariables, setReminderBuiltinVariables] = useState<string[]>([]);
+
+  function insertAtCursor(current: string, insert: string, el: HTMLInputElement | HTMLTextAreaElement | null) {
+    const start = el?.selectionStart ?? current.length;
+    const end = el?.selectionEnd ?? current.length;
+    const next = `${current.slice(0, start)}${insert}${current.slice(end)}`;
+    return { next, cursor: start + insert.length };
+  }
+
+  const reminderTemplateVariables = useMemo(() => {
+    const custom = reminderDraft?.customVariables && typeof reminderDraft.customVariables === "object" ? reminderDraft.customVariables : {};
+    const customVars = Object.keys(custom)
+      .filter((k) => typeof k === "string" && k.trim())
+      .slice(0, 100)
+      .map((k) => ({ key: k, label: `Custom: ${k}`, group: "Custom" as const, appliesTo: "Custom variable" }));
+
+    const builtinVars = (Array.isArray(reminderBuiltinVariables) ? reminderBuiltinVariables : [])
+      .filter((k) => typeof k === "string" && k.trim())
+      .slice(0, 100)
+      .map((k) => ({ key: k, label: k, group: "Custom" as const, appliesTo: "Built-in" }));
+
+    const merged = [...PORTAL_MESSAGE_VARIABLES, ...PORTAL_BOOKING_VARIABLES, ...builtinVars, ...customVars];
+    const seen = new Set<string>();
+    return merged.filter((v) => {
+      const key = `${v.group}:${v.key}`;
+      if (seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    });
+  }, [reminderDraft?.customVariables, reminderBuiltinVariables]);
+
+  const allReminderVariableKeys = useMemo(() => {
+    const custom = reminderDraft?.customVariables && typeof reminderDraft.customVariables === "object" ? reminderDraft.customVariables : {};
+    const customKeys = Object.keys(custom).filter((k) => typeof k === "string" && k.trim());
+    const builtinKeys = (Array.isArray(reminderBuiltinVariables) ? reminderBuiltinVariables : []).filter((k) => typeof k === "string" && k.trim());
+    const defaultKeys = [...PORTAL_MESSAGE_VARIABLES, ...PORTAL_BOOKING_VARIABLES].map((v) => v.key);
+    const merged = [...defaultKeys, ...builtinKeys, ...customKeys];
+    return Array.from(new Set(merged)).slice(0, 500);
+  }, [reminderDraft?.customVariables, reminderBuiltinVariables]);
+
   const [reminderOwnerTags, setReminderOwnerTags] = useState<ContactTag[]>([]);
   const [reminderTagsLoading, setReminderTagsLoading] = useState(false);
   const [reminderCreateTagOpen, setReminderCreateTagOpen] = useState(false);
@@ -474,6 +521,7 @@ export function PortalBookingClient() {
     const next: AppointmentReminderSettings = {
       ...reminderDraft,
       version: 4,
+      customVariables: reminderDraft.customVariables ?? {},
       steps: t.steps.slice(0, 8).map((s) => ({
         id: makeClientId("rem_"),
         enabled: true,
@@ -506,6 +554,7 @@ export function PortalBookingClient() {
     setReminderDraft(settings);
     setReminderTwilio(((remindersJson as any)?.twilio as TwilioMasked) ?? null);
     setReminderEvents((((remindersJson as any)?.events as AppointmentReminderEvent[]) ?? []).slice(0, 50));
+    setReminderBuiltinVariables((((remindersJson as any)?.builtinVariables as string[]) ?? []).slice(0, 50));
   }
 
   const bookingUrl = useMemo(() => {
@@ -577,6 +626,7 @@ export function PortalBookingClient() {
       setReminderDraft(settings);
       setReminderTwilio(((remindersJson as any)?.twilio as TwilioMasked) ?? null);
       setReminderEvents((((remindersJson as any)?.events as AppointmentReminderEvent[]) ?? []).slice(0, 50));
+      setReminderBuiltinVariables((((remindersJson as any)?.builtinVariables as string[]) ?? []).slice(0, 50));
     }
 
     if (!meRes.ok || !settingsRes.ok || !bookingsRes.ok || !formRes.ok || !calendarsRes.ok || !blocksRes.ok || !remindersRes.ok) {
@@ -1819,6 +1869,17 @@ export function PortalBookingClient() {
                                     </svg>
                                     <span>{reminderGeneratingStepId === s.id ? "Drafting…" : "AI draft"}</span>
                                   </button>
+                                  <button
+                                    type="button"
+                                    disabled={reminderSaving}
+                                    className="rounded-xl border border-zinc-200 bg-white px-3 py-1.5 text-xs font-semibold text-brand-ink hover:bg-zinc-50 disabled:opacity-60"
+                                    onClick={() => {
+                                      setReminderVarPickerTarget({ stepId: s.id, field: "body" });
+                                      setReminderVarPickerOpen(true);
+                                    }}
+                                  >
+                                    Insert variable
+                                  </button>
                                   <label className="rounded-xl border border-zinc-200 bg-white px-3 py-1.5 text-xs font-semibold text-zinc-700 hover:bg-zinc-50 disabled:opacity-60">
                                     {reminderUploadBusyStepId === s.id ? "Uploading…" : "Upload file"}
                                     <input
@@ -1881,11 +1942,25 @@ export function PortalBookingClient() {
                             <div className="mt-3">
                               <div className="flex items-center justify-between gap-3">
                                 <div className="text-xs font-semibold text-zinc-600">Subject</div>
+                                <button
+                                  type="button"
+                                  className="rounded-xl border border-zinc-200 bg-white px-3 py-1.5 text-xs font-semibold text-brand-ink hover:bg-zinc-50 disabled:opacity-60"
+                                  disabled={reminderSaving}
+                                  onClick={() => {
+                                    setReminderVarPickerTarget({ stepId: s.id, field: "subject" });
+                                    setReminderVarPickerOpen(true);
+                                  }}
+                                >
+                                  Insert variable
+                                </button>
                               </div>
                               <input
                                 className="mt-2 h-10 w-full rounded-xl border border-zinc-200 bg-white px-3 text-sm"
                                 value={String(s.subjectTemplate ?? "")}
                                 onChange={(e) => updateReminderStep(s.id, { subjectTemplate: e.target.value })}
+                                onFocus={(e) => {
+                                  reminderActiveFieldElRef.current = e.currentTarget;
+                                }}
                                 disabled={reminderSaving}
                               />
                             </div>
@@ -1896,6 +1971,9 @@ export function PortalBookingClient() {
                               className="mt-2 min-h-[90px] w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm"
                               value={String(s.messageBody ?? "")}
                               onChange={(e) => updateReminderStep(s.id, { messageBody: e.target.value })}
+                              onFocus={(e) => {
+                                reminderActiveFieldElRef.current = e.currentTarget;
+                              }}
                               disabled={reminderSaving}
                             />
                           ) : null}
@@ -2003,6 +2081,60 @@ export function PortalBookingClient() {
           </div>
         </div>
       ) : null}
+
+      <PortalVariablePickerModal
+        open={reminderVarPickerOpen}
+        onClose={() => {
+          setReminderVarPickerOpen(false);
+          setReminderVarPickerTarget(null);
+        }}
+        variables={reminderTemplateVariables}
+        createCustom={{
+          enabled: true,
+          existingKeys: allReminderVariableKeys,
+          onCreate: (key, value) => {
+            setReminderDraft((prev) => {
+              if (!prev) return prev;
+              return {
+                ...prev,
+                customVariables: { ...(prev.customVariables ?? {}), [key]: value },
+              };
+            });
+          },
+        }}
+        onPick={(variableKey) => {
+          if (!reminderDraft || !reminderVarPickerTarget) return;
+          const step = reminderDraft.steps.find((x) => x.id === reminderVarPickerTarget.stepId);
+          if (!step) return;
+
+          const insert = `{${variableKey}}`;
+
+          if (reminderVarPickerTarget.field === "subject") {
+            if (step.kind !== "EMAIL") return;
+            const current = String(step.subjectTemplate ?? "");
+            const { next, cursor } = insertAtCursor(current, insert, reminderActiveFieldElRef.current);
+            updateReminderStep(step.id, { subjectTemplate: next });
+            requestAnimationFrame(() => {
+              const el = reminderActiveFieldElRef.current;
+              if (!el) return;
+              el.focus();
+              el.setSelectionRange(cursor, cursor);
+            });
+            return;
+          }
+
+          if (step.kind === "TAG") return;
+          const current = String(step.messageBody ?? "");
+          const { next, cursor } = insertAtCursor(current, insert, reminderActiveFieldElRef.current);
+          updateReminderStep(step.id, { messageBody: next });
+          requestAnimationFrame(() => {
+            const el = reminderActiveFieldElRef.current;
+            if (!el) return;
+            el.focus();
+            el.setSelectionRange(cursor, cursor);
+          });
+        }}
+      />
 
       <AppModal
         open={reminderCreateTagOpen}

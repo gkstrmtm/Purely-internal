@@ -27,6 +27,7 @@ export type AppointmentReminderLeadTime = {
 export type AppointmentReminderSettings = {
   version: 4;
   enabled: boolean;
+  customVariables: Record<string, string>;
   steps: AppointmentReminderStep[];
 };
 
@@ -141,7 +142,23 @@ export function parseAppointmentReminderSettings(raw: unknown): AppointmentRemin
   const base: AppointmentReminderSettings = {
     version: 4,
     enabled: false,
+    customVariables: {},
     steps: [baseStep],
+  };
+
+  const normalizeCustomVariables = (value: unknown): Record<string, string> => {
+    if (!value || typeof value !== "object" || Array.isArray(value)) return {};
+    const rec = value as Record<string, unknown>;
+    const out: Record<string, string> = {};
+    const keyOk = /^[a-zA-Z][a-zA-Z0-9_]*$/;
+    for (const [k, v] of Object.entries(rec).slice(0, 200)) {
+      const key = String(k || "").trim();
+      if (!key || key.length > 64) continue;
+      if (!keyOk.test(key)) continue;
+      const val = typeof v === "string" ? v : v == null ? "" : String(v);
+      out[key] = val.slice(0, 500);
+    }
+    return out;
   };
 
   if (!raw || typeof raw !== "object" || Array.isArray(raw)) return base;
@@ -163,6 +180,7 @@ export function parseAppointmentReminderSettings(raw: unknown): AppointmentRemin
     return {
       version: 4,
       enabled,
+      customVariables: {},
       steps: [
         {
           id: "step_1",
@@ -211,7 +229,7 @@ export function parseAppointmentReminderSettings(raw: unknown): AppointmentRemin
           .slice(0, 8)
       : [];
 
-    return { version: 4, enabled, steps: steps.length ? steps : [baseStep] };
+    return { version: 4, enabled, customVariables: {}, steps: steps.length ? steps : [baseStep] };
   }
 
   // Back-compat: v3 had a global channel applying to all steps.
@@ -252,7 +270,7 @@ export function parseAppointmentReminderSettings(raw: unknown): AppointmentRemin
           .slice(0, 8)
       : [];
 
-    return { version: 4, enabled, steps: steps.length ? steps : [baseStep] };
+    return { version: 4, enabled, customVariables: {}, steps: steps.length ? steps : [baseStep] };
   }
 
   const enabled = typeof rec.enabled === "boolean" ? rec.enabled : base.enabled;
@@ -307,9 +325,12 @@ export function parseAppointmentReminderSettings(raw: unknown): AppointmentRemin
         .slice(0, 8)
     : [];
 
+  const customVariables = normalizeCustomVariables((rec as any).customVariables);
+
   return {
     version: 4,
     enabled,
+    customVariables,
     steps: steps.length ? steps : [baseStep],
   };
 }
@@ -724,6 +745,7 @@ export async function processDueAppointmentReminders(opts?: { ownersLimit?: numb
                 },
                 business: { name: site.title ?? null },
               }),
+              ...(effective.customVariables ?? {}),
               when,
               timeZone: site.timeZone,
               bookingTitle: site.title ?? "",
