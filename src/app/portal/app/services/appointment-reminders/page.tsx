@@ -18,5 +18,5 @@ async function AppointmentRemindersRedirect(): Promise<ReactElement | null> {
   const h = await headers();
   const variant = normalizePortalVariant(h.get(PORTAL_VARIANT_HEADER)) || "portal";
   const base = portalBasePath(variant);
-  redirect(`${base}/app/services/booking`);
+  redirect(`${base}/app/services/booking?tab=reminders`);
 }

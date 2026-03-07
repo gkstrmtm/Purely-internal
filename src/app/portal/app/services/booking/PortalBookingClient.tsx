@@ -1609,7 +1609,7 @@ export function PortalBookingClient() {
                   <div className="flex items-center gap-2">
                     <button
                       type="button"
-                      className="rounded-xl border border-zinc-200 bg-white px-3 py-1.5 text-xs font-semibold text-brand-ink hover:bg-zinc-50 disabled:opacity-60"
+                      className="rounded-xl bg-brand-ink px-3 py-1.5 text-xs font-semibold text-white hover:opacity-95 disabled:opacity-60"
                       disabled={reminderSaving}
                       onClick={() => setReminderTemplateOpen(true)}
                     >
