@@ -126,6 +126,7 @@ export function PortalNurtureCampaignsClient() {
   const [ownerTags, setOwnerTags] = useState<ContactTag[]>([]);
   const [loadingTags, setLoadingTags] = useState(false);
   const [createTagBusy, setCreateTagBusy] = useState(false);
+  const [createTagOpen, setCreateTagOpen] = useState(false);
   const [createTagName, setCreateTagName] = useState("");
   const [createTagColor, setCreateTagColor] = useState<(typeof DEFAULT_TAG_COLORS)[number]>("#2563EB");
   const createTagNameRef = useRef<HTMLInputElement | null>(null);
@@ -633,13 +634,16 @@ export function PortalNurtureCampaignsClient() {
                     selectedTags.map((t) => (
                       <span
                         key={t.id}
-                        className="inline-flex items-center gap-2 rounded-full border border-zinc-200 bg-white px-3 py-1.5 text-xs font-semibold text-zinc-700"
+                        className="inline-flex max-w-full items-center gap-2 rounded-full border border-zinc-200 bg-white px-3 py-1.5 text-xs font-semibold text-zinc-700"
                       >
-                        <span className="inline-flex h-2.5 w-2.5 rounded-full" style={{ backgroundColor: t.color || "#a1a1aa" }} />
-                        <span className="max-w-60 truncate">{t.name}</span>
+                        <span
+                          className="inline-flex h-2.5 w-2.5 shrink-0 rounded-full"
+                          style={{ backgroundColor: t.color || "#a1a1aa" }}
+                        />
+                        <span className="min-w-0 truncate">{t.name}</span>
                         <button
                           type="button"
-                          className="rounded-full px-1 text-zinc-500 hover:bg-zinc-100 hover:text-zinc-800"
+                          className="shrink-0 rounded-full px-1 text-zinc-500 hover:bg-zinc-100 hover:text-zinc-800"
                           onClick={() => {
                             setDetail((p) => {
                               if (!p) return p;
@@ -659,7 +663,12 @@ export function PortalNurtureCampaignsClient() {
                   )}
                 </div>
 
-                <div className="mt-4 grid grid-cols-1 gap-3 lg:grid-cols-2">
+                <div
+                  className={classNames(
+                    "mt-4 grid grid-cols-1 gap-3",
+                    createTagOpen ? "lg:grid-cols-2" : "lg:grid-cols-1",
+                  )}
+                >
                   <div>
                     <label className="text-xs font-semibold text-zinc-600">Add tags</label>
                     <div className="mt-2 max-w-sm">
@@ -676,6 +685,7 @@ export function PortalNurtureCampaignsClient() {
                           onChange={(tagId) => {
                             if (tagId === "__create__") {
                               setAddTagValue("__none__");
+                              setCreateTagOpen(true);
                               requestAnimationFrame(() => createTagNameRef.current?.focus());
                               return;
                             }
@@ -696,76 +706,89 @@ export function PortalNurtureCampaignsClient() {
                     </div>
                   </div>
 
-                  <div className="rounded-2xl border border-zinc-200 bg-white p-3">
-                    <div className="text-xs font-semibold text-zinc-600">Create new tag</div>
-                    <div className="mt-2 flex flex-wrap items-center gap-2">
-                      <input
-                        ref={createTagNameRef}
-                        className="min-w-55 flex-1 rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-sm"
-                        placeholder="Tag name (e.g., Hot lead)"
-                        value={createTagName}
-                        onChange={(e) => setCreateTagName(e.target.value)}
-                      />
-                      <div className="flex items-center gap-1.5">
-                        {DEFAULT_TAG_COLORS.slice(0, 10).map((c) => {
-                          const selected = c === createTagColor;
-                          return (
-                            <button
-                              key={c}
-                              type="button"
-                              className={classNames(
-                                "h-7 w-7 rounded-full border",
-                                selected ? "border-zinc-900 ring-2 ring-zinc-900/20" : "border-zinc-200",
-                              )}
-                              style={{ backgroundColor: c }}
-                              onClick={() => setCreateTagColor(c)}
-                              title={c}
-                            />
-                          );
-                        })}
+                  {createTagOpen ? (
+                    <div className="rounded-2xl border border-zinc-200 bg-white p-3">
+                      <div className="flex items-center justify-between gap-2">
+                        <div className="text-xs font-semibold text-zinc-600">Create new tag</div>
+                        <button
+                          type="button"
+                          className="rounded-xl border border-zinc-200 bg-white px-2 py-1 text-xs font-semibold text-zinc-700 hover:bg-zinc-50"
+                          onClick={() => setCreateTagOpen(false)}
+                          disabled={createTagBusy}
+                        >
+                          Close
+                        </button>
                       </div>
-                      <button
-                        type="button"
-                        className="rounded-2xl bg-(--color-brand-blue) px-3 py-2 text-xs font-semibold text-white shadow-sm hover:opacity-90 disabled:opacity-60"
-                        disabled={createTagBusy}
-                        onClick={() => {
-                          const name = createTagName.trim().slice(0, 60);
-                          if (!name) return;
-                          void (async () => {
-                            setCreateTagBusy(true);
-                            try {
-                              const res = await fetch("/api/portal/contact-tags", {
-                                method: "POST",
-                                headers: { "content-type": "application/json" },
-                                body: JSON.stringify({ name, color: createTagColor }),
-                              });
-                              const json = (await res.json().catch(() => ({}))) as any;
-                              if (!res.ok || !json?.ok || !json?.tag?.id) {
-                                throw new Error(String(json?.error || "Failed to create tag"));
+                      <div className="mt-2 flex flex-wrap items-center gap-2">
+                        <input
+                          ref={createTagNameRef}
+                          className="min-w-55 flex-1 rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-sm"
+                          placeholder="Tag name (e.g., Hot lead)"
+                          value={createTagName}
+                          onChange={(e) => setCreateTagName(e.target.value)}
+                        />
+                        <div className="flex items-center gap-1.5">
+                          {DEFAULT_TAG_COLORS.slice(0, 10).map((c) => {
+                            const selected = c === createTagColor;
+                            return (
+                              <button
+                                key={c}
+                                type="button"
+                                className={classNames(
+                                  "h-7 w-7 rounded-full border",
+                                  selected ? "border-zinc-900 ring-2 ring-zinc-900/20" : "border-zinc-200",
+                                )}
+                                style={{ backgroundColor: c }}
+                                onClick={() => setCreateTagColor(c)}
+                                title={c}
+                              />
+                            );
+                          })}
+                        </div>
+                        <button
+                          type="button"
+                          className="rounded-2xl bg-(--color-brand-blue) px-3 py-2 text-xs font-semibold text-white shadow-sm hover:opacity-90 disabled:opacity-60"
+                          disabled={createTagBusy}
+                          onClick={() => {
+                            const name = createTagName.trim().slice(0, 60);
+                            if (!name) return;
+                            void (async () => {
+                              setCreateTagBusy(true);
+                              try {
+                                const res = await fetch("/api/portal/contact-tags", {
+                                  method: "POST",
+                                  headers: { "content-type": "application/json" },
+                                  body: JSON.stringify({ name, color: createTagColor }),
+                                });
+                                const json = (await res.json().catch(() => ({}))) as any;
+                                if (!res.ok || !json?.ok || !json?.tag?.id) {
+                                  throw new Error(String(json?.error || "Failed to create tag"));
+                                }
+                                const tagId = String(json.tag.id);
+                                setCreateTagName("");
+                                setCreateTagOpen(false);
+                                await refreshTags();
+                                setDetail((p) => {
+                                  if (!p) return p;
+                                  const set = new Set(p.audienceTagIds);
+                                  set.add(tagId);
+                                  return { ...p, audienceTagIds: Array.from(set).slice(0, 100) };
+                                });
+                                setCampaignDirty(true);
+                                toast.success("Tag created");
+                              } catch (e: any) {
+                                toast.error(String(e?.message || "Failed to create tag"));
+                              } finally {
+                                setCreateTagBusy(false);
                               }
-                              const tagId = String(json.tag.id);
-                              setCreateTagName("");
-                              await refreshTags();
-                              setDetail((p) => {
-                                if (!p) return p;
-                                const set = new Set(p.audienceTagIds);
-                                set.add(tagId);
-                                return { ...p, audienceTagIds: Array.from(set).slice(0, 100) };
-                              });
-                              setCampaignDirty(true);
-                              toast.success("Tag created");
-                            } catch (e: any) {
-                              toast.error(String(e?.message || "Failed to create tag"));
-                            } finally {
-                              setCreateTagBusy(false);
-                            }
-                          })();
-                        }}
-                      >
-                        Add
-                      </button>
+                            })();
+                          }}
+                        >
+                          Add
+                        </button>
+                      </div>
                     </div>
-                  </div>
+                  ) : null}
                 </div>
               </div>
 

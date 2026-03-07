@@ -13,7 +13,7 @@ import { PortalSettingsSection } from "@/components/PortalSettingsSection";
 import { ContactTagsEditor, type ContactTag } from "@/components/ContactTagsEditor";
 import { LocalDateTimePicker } from "@/components/LocalDateTimePicker";
 import { useToast } from "@/components/ToastProvider";
-import { NURTURE_TEMPLATES, type NurtureTemplate } from "@/lib/portalNurtureTemplates";
+import { REMINDER_TEMPLATES, type ReminderTemplate } from "@/lib/portalReminderTemplates";
 
 type BookingFormConfig = {
   version: 1;
@@ -458,7 +458,7 @@ export function PortalBookingClient() {
     return { unit: "minutes", value: Math.max(minValueForUnit("minutes"), Math.min(maxValueForUnit("minutes"), m)) };
   }
 
-  function applyReminderTemplate(t: NurtureTemplate) {
+  function applyReminderTemplate(t: ReminderTemplate) {
     if (!reminderDraft) return;
     const channel = reminderDraft.channel;
     const relevant = t.steps.filter((s) => s.kind === channel).slice(0, 8);
@@ -473,7 +473,7 @@ export function PortalBookingClient() {
       steps: relevant.map((s) => ({
         id: makeClientId("rem_"),
         enabled: true,
-        leadTime: bestLeadTimeForMinutes(s.delayMinutes),
+        leadTime: bestLeadTimeForMinutes(s.leadMinutes),
         subjectTemplate: channel === "EMAIL" ? String(s.subject || "Appointment reminder") : undefined,
         messageBody: String(s.body || ""),
       })),
@@ -1479,7 +1479,7 @@ export function PortalBookingClient() {
               <div>
                 <div className="text-sm font-semibold text-zinc-900">Appointment reminders</div>
                 <div className="mt-2 text-sm text-zinc-600">
-                  Automatically send reminders before appointments. Each step can be SMS or email.
+                  Automatically send reminders before appointments. Choose SMS or email for the sequence.
                 </div>
               </div>
 
@@ -1523,6 +1523,24 @@ export function PortalBookingClient() {
 
             {reminderDraft ? (
               <>
+                <div className="mt-4">
+                  <label className="block text-xs font-semibold text-zinc-600">Channel</label>
+                  <div className="mt-2 flex flex-col gap-2 sm:flex-row sm:items-center">
+                    <PortalListboxDropdown
+                      value={reminderDraft.channel}
+                      onChange={(v) => void setReminderChannel(v as "SMS" | "EMAIL")}
+                      disabled={reminderSaving}
+                      options={[
+                        { value: "EMAIL", label: "Email" },
+                        { value: "SMS", label: "SMS" },
+                      ]}
+                      className="w-full max-w-56"
+                      buttonClassName="flex w-full items-center justify-between gap-2 rounded-2xl border border-zinc-200 bg-white px-4 py-3 text-sm hover:bg-zinc-50 focus-visible:ring-2 focus-visible:ring-zinc-300"
+                    />
+                    <div className="text-xs text-zinc-500">Applies to all reminder steps.</div>
+                  </div>
+                </div>
+
                 <div className="mt-5 flex items-center justify-between gap-3">
                   <div className="text-xs font-semibold text-zinc-600">Reminder steps</div>
                   <div className="flex items-center gap-2">
@@ -1564,7 +1582,7 @@ export function PortalBookingClient() {
                       </div>
 
                       <div className="mt-4 flex-1 space-y-2 overflow-auto pr-1">
-                        {NURTURE_TEMPLATES.map((t) => {
+                        {REMINDER_TEMPLATES.map((t) => {
                           const countForChannel = t.steps.filter((s) => s.kind === reminderDraft.channel).length;
                           return (
                             <button

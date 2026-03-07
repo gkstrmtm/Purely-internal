@@ -6,10 +6,9 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { PORTAL_SERVICES } from "@/app/portal/services/catalog";
 import { PortalListboxDropdown } from "@/components/PortalListboxDropdown";
 import { PortalSettingsSection } from "@/components/PortalSettingsSection";
-import { PortalMediaPickerModal, type PortalMediaPickItem } from "@/components/PortalMediaPickerModal";
 import { PortalVariablePickerModal } from "@/components/PortalVariablePickerModal";
 import { useToast } from "@/components/ToastProvider";
-import { NURTURE_TEMPLATES, type NurtureTemplate } from "@/lib/portalNurtureTemplates";
+import { FOLLOW_UP_TEMPLATES, type FollowUpTemplate } from "@/lib/portalFollowUpTemplates";
 import {
   PORTAL_BOOKING_VARIABLES,
   PORTAL_MESSAGE_VARIABLES,
@@ -40,6 +39,11 @@ type Settings = {
     channels: { email: boolean; sms: boolean };
     email: { subjectTemplate: string; bodyTemplate: string };
     sms: { bodyTemplate: string };
+  }[];
+  chainTemplates: {
+    id: string;
+    name: string;
+    steps: FollowUpStep[];
   }[];
   assignments: {
     defaultSteps: FollowUpStep[];
@@ -189,7 +193,6 @@ export function PortalFollowUpClient({ embedded }: { embedded?: boolean } = {}) 
   const [calendars, setCalendars] = useState<Calendar[]>([]);
   const [siteNotificationEmails, setSiteNotificationEmails] = useState<string[]>([]);
   const [builtinVariables, setBuiltinVariables] = useState<string[]>([]);
-  const [selectedTemplateId, setSelectedTemplateId] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
@@ -198,43 +201,31 @@ export function PortalFollowUpClient({ embedded }: { embedded?: boolean } = {}) 
     if (error) toast.error(error);
   }, [error, toast]);
 
-  const [mediaPicker, setMediaPicker] = useState<null | { templateId: string; field: "email" | "sms" }>(null);
-  const [attachUploadBusy, setAttachUploadBusy] = useState<null | { templateId: string; field: "email" | "sms" }>(null);
-
   const [expandedStepId, setExpandedStepId] = useState<string | null>(null);
   const [stepEmailDrafts, setStepEmailDrafts] = useState<Record<string, string>>({});
   const [stepPhoneDrafts, setStepPhoneDrafts] = useState<Record<string, string>>({});
-
-  const [newVarKey, setNewVarKey] = useState("");
-  const [newVarValue, setNewVarValue] = useState("");
-  const [varError, setVarError] = useState<string | null>(null);
 
   const [testEmail, setTestEmail] = useState("");
   const [testPhone, setTestPhone] = useState("");
   const [testMessage, setTestMessage] = useState("Just testing follow-up automation.");
   const [testBusy, setTestBusy] = useState(false);
 
-  const [generateBusy, setGenerateBusy] = useState<null | { kind: "preset" | "step"; id: string; channel: "EMAIL" | "SMS" }>(
-    null,
-  );
-
-  const [internalEmailDraft, setInternalEmailDraft] = useState("");
-  const [internalPhoneDraft, setInternalPhoneDraft] = useState("");
+  const [generateBusy, setGenerateBusy] = useState<null | { id: string; channel: "EMAIL" | "SMS" }>(null);
 
   const [varPickerOpen, setVarPickerOpen] = useState(false);
   const [varPickerTarget, setVarPickerTarget] = useState<
-    | null
-    | { kind: "preset"; templateId: string; field: "emailSubject" | "emailBody" | "smsBody" }
-    | { kind: "step"; stepId: string; field: "emailSubject" | "emailBody" | "smsBody" }
+    null | { kind: "step"; stepId: string; field: "emailSubject" | "emailBody" | "smsBody" }
   >(null);
   const activeFieldElRef = useRef<HTMLInputElement | HTMLTextAreaElement | null>(null);
 
   const [chainTemplatePicker, setChainTemplatePicker] = useState<
     null | {
       title: string;
-      apply: (t: NurtureTemplate) => void;
+      stepsSnapshot: FollowUpStep[];
+      setSteps: (next: FollowUpStep[]) => void;
     }
   >(null);
+  const [chainTemplateDraftName, setChainTemplateDraftName] = useState("");
 
   async function generateDraft(opts: {
     kind: "EMAIL" | "SMS";
@@ -306,11 +297,6 @@ export function PortalFollowUpClient({ embedded }: { embedded?: boolean } = {}) 
   }, [settings?.customVariables, builtinVariables]);
 
   useEffect(() => {
-    setInternalEmailDraft("");
-    setInternalPhoneDraft("");
-  }, [selectedTemplateId]);
-
-  useEffect(() => {
     let mounted = true;
     (async () => {
       const [meRes, settingsRes] = await Promise.all([
@@ -343,7 +329,6 @@ export function PortalFollowUpClient({ embedded }: { embedded?: boolean } = {}) 
           setCalendars(Array.isArray(json.calendars) ? json.calendars : []);
           setSiteNotificationEmails(Array.isArray(json.siteNotificationEmails) ? json.siteNotificationEmails : []);
           setBuiltinVariables(Array.isArray(json.builtinVariables) ? json.builtinVariables : []);
-          setSelectedTemplateId(json.settings.templates?.[0]?.id ?? null);
         } else {
           setError(json.error ?? "Unable to load follow-up settings");
         }
@@ -364,7 +349,6 @@ export function PortalFollowUpClient({ embedded }: { embedded?: boolean } = {}) 
 
   const canSave = useMemo(() => {
     if (!settings) return false;
-    if (!Array.isArray(settings.templates) || settings.templates.length < 1) return false;
 
     const validateMessage = (m: {
       enabled: boolean;
@@ -400,11 +384,6 @@ export function PortalFollowUpClient({ embedded }: { embedded?: boolean } = {}) 
       return true;
     };
 
-    for (const t of settings.templates) {
-      if (!t.id.trim() || !t.name.trim()) return false;
-      if (!validateMessage(t)) return false;
-    }
-
     const chains: FollowUpStep[][] = [settings.assignments.defaultSteps ?? []];
     for (const steps of Object.values(settings.assignments.calendarSteps ?? {})) chains.push(steps ?? []);
     for (const steps of chains) {
@@ -416,22 +395,6 @@ export function PortalFollowUpClient({ embedded }: { embedded?: boolean } = {}) 
 
     return true;
   }, [settings]);
-
-  const selectedTemplate = useMemo(() => {
-    if (!settings || !selectedTemplateId) return null;
-    return settings.templates.find((t) => t.id === selectedTemplateId) ?? null;
-  }, [settings, selectedTemplateId]);
-
-  const selectedTemplateBest = useMemo(() => {
-    if (!selectedTemplate) return null;
-    return delayToBestUnit(selectedTemplate.delayMinutes);
-  }, [selectedTemplate]);
-
-  function updateTemplate(templateId: string, patch: Partial<Settings["templates"][number]>) {
-    if (!settings) return;
-    const next = settings.templates.map((t) => (t.id === templateId ? { ...t, ...patch } : t));
-    setSettings({ ...settings, templates: next });
-  }
 
   function patchStepById(stepId: string, patch: Partial<FollowUpStep>) {
     if (!settings) return;
@@ -454,178 +417,69 @@ export function PortalFollowUpClient({ embedded }: { embedded?: boolean } = {}) 
     });
   }
 
-  async function addMediaLinkToTemplate(item: PortalMediaPickItem) {
-    if (!settings || !mediaPicker) return;
-    const t = settings.templates.find((x) => x.id === mediaPicker.templateId);
-    if (!t) return;
-
-    const link = window.location.origin + item.shareUrl;
-    const nextText = (prev: string) => {
-      const base = String(prev || "");
-      const sep = base.trim().length ? "\n\n" : "";
-      return base + sep + link;
-    };
-
-    if (mediaPicker.field === "email") {
-      updateTemplate(t.id, { email: { ...t.email, bodyTemplate: nextText(t.email.bodyTemplate) } });
-    } else {
-      updateTemplate(t.id, { sms: { ...t.sms, bodyTemplate: nextText(t.sms.bodyTemplate) } });
-    }
-
-    setMediaPicker(null);
-  }
-
-  async function uploadFileToTemplate(opts: { templateId: string; field: "email" | "sms"; file: File }) {
-    if (!settings) return;
-    const t = settings.templates.find((x) => x.id === opts.templateId);
-    if (!t) return;
-
-    setAttachUploadBusy({ templateId: opts.templateId, field: opts.field });
-    setError(null);
-    setNotice(null);
-
-    try {
-      const fd = new FormData();
-      fd.set("file", opts.file);
-      const res = await fetch("/api/uploads", { method: "POST", body: fd });
-      const body = (await res.json().catch(() => ({}))) as any;
-      if (!res.ok) {
-        setError((typeof body?.error === "string" ? body.error : null) ?? "Upload failed");
-        return;
-      }
-      const rawUrl = typeof body?.url === "string" ? body.url : "";
-      if (!rawUrl) {
-        setError("Upload did not return a URL");
-        return;
-      }
-
-      const link = rawUrl.startsWith("/") ? window.location.origin + rawUrl : rawUrl;
-      const nextText = (prev: string) => {
-        const base = String(prev || "");
-        const sep = base.trim().length ? "\n\n" : "";
-        return base + sep + link;
-      };
-
-      if (opts.field === "email") {
-        updateTemplate(t.id, { email: { ...t.email, bodyTemplate: nextText(t.email.bodyTemplate) } });
-      } else {
-        updateTemplate(t.id, { sms: { ...t.sms, bodyTemplate: nextText(t.sms.bodyTemplate) } });
-      }
-
-      setNotice("Attached");
-      window.setTimeout(() => setNotice(null), 1200);
-    } finally {
-      setAttachUploadBusy((prev) =>
-        prev && prev.templateId === opts.templateId && prev.field === opts.field ? null : prev,
-      );
-    }
-  }
-
-  function addTemplate() {
-    if (!settings) return;
-    const baseId = `tpl${settings.templates.length + 1}`;
-    let id = baseId;
-    let n = 2;
-    while (settings.templates.some((t) => t.id === id)) {
-      id = `${baseId}_${n}`;
-      n += 1;
-    }
-
-    const nextTemplate: Settings["templates"][number] = {
-      id,
-      name: "New template",
-      enabled: false,
-      delayMinutes: 60,
-      audience: "CONTACT",
-      channels: { email: true, sms: false },
-      email: {
-        subjectTemplate: "Thanks, {contactName}",
-        bodyTemplate: "Hi {contactName},\n\nThanks again, {businessName}",
-      },
-      sms: { bodyTemplate: "Thanks again, {businessName}" },
-    };
-
-    setSettings({ ...settings, templates: [...settings.templates, nextTemplate].slice(0, 20) });
-    setSelectedTemplateId(id);
-  }
-
-  function removeTemplate(templateId: string) {
-    if (!settings) return;
-    const nextTemplates = settings.templates.filter((t) => t.id !== templateId);
-    if (!nextTemplates.length) return;
-
-    setSettings({ ...settings, templates: nextTemplates });
-    setSelectedTemplateId((prev) => (prev === templateId ? nextTemplates[0]!.id : prev));
-  }
-
-  function addInternalEmail(templateId: string, overrideEmail?: string) {
-    if (!settings) return;
-    const email = (overrideEmail ?? internalEmailDraft).trim().toLowerCase();
-    if (!email) return;
-    const emailLike = /^[^@\s]+@[^@\s]+\.[^@\s]+$/;
-    if (!emailLike.test(email)) {
-      setNotice("Invalid email.");
-      return;
-    }
-    const tpl = settings.templates.find((t) => t.id === templateId);
-    if (!tpl) return;
-    const current = tpl.internalRecipients?.mode === "CUSTOM" && Array.isArray(tpl.internalRecipients.emails) ? tpl.internalRecipients.emails : [];
-    if (current.includes(email)) return;
-    updateTemplate(templateId, {
-      internalRecipients: {
-        mode: "CUSTOM",
-        emails: [...current, email].slice(0, 20),
-        phones:
-          tpl.internalRecipients?.mode === "CUSTOM" && Array.isArray(tpl.internalRecipients.phones)
-            ? tpl.internalRecipients.phones
-            : [],
-      },
-    });
-    if (!overrideEmail) setInternalEmailDraft("");
-  }
-
-  function addInternalPhone(templateId: string) {
-    if (!settings) return;
-    const phone = internalPhoneDraft.trim();
-    if (!phone) return;
-    if (!/^[0-9+()\- .]*$/.test(phone) || phone.replace(/\D/g, "").length < 10) {
-      setNotice("Invalid phone.");
-      return;
-    }
-    const tpl = settings.templates.find((t) => t.id === templateId);
-    if (!tpl) return;
-    const current = tpl.internalRecipients?.mode === "CUSTOM" && Array.isArray(tpl.internalRecipients.phones) ? tpl.internalRecipients.phones : [];
-    if (current.includes(phone)) return;
-    updateTemplate(templateId, {
-      internalRecipients: {
-        mode: "CUSTOM",
-        emails:
-          tpl.internalRecipients?.mode === "CUSTOM" && Array.isArray(tpl.internalRecipients.emails)
-            ? tpl.internalRecipients.emails
-            : [],
-        phones: [...current, phone].slice(0, 20),
-      },
-    });
-    setInternalPhoneDraft("");
-  }
-
-  function removeInternalRecipient(templateId: string, kind: "email" | "phone", value: string) {
-    if (!settings) return;
-    const tpl = settings.templates.find((t) => t.id === templateId);
-    if (!tpl) return;
-    const emails =
-      tpl.internalRecipients?.mode === "CUSTOM" && Array.isArray(tpl.internalRecipients.emails) ? tpl.internalRecipients.emails : [];
-    const phones =
-      tpl.internalRecipients?.mode === "CUSTOM" && Array.isArray(tpl.internalRecipients.phones) ? tpl.internalRecipients.phones : [];
-    const nextEmails = kind === "email" ? emails.filter((x) => x !== value) : emails;
-    const nextPhones = kind === "phone" ? phones.filter((x) => x !== value) : phones;
-    updateTemplate(templateId, {
-      internalRecipients: { mode: "CUSTOM", emails: nextEmails, phones: nextPhones },
-    });
-  }
-
   function randomStepId() {
     return `step_${Math.random().toString(36).slice(2, 9)}${Date.now().toString(36)}`;
+  }
+
+  function stepsFromBuiltInTemplate(t: FollowUpTemplate): FollowUpStep[] {
+    const usable = t.steps.filter((s) => s.kind === "SMS" || s.kind === "EMAIL").slice(0, 30);
+    return usable.map((s, idx) => {
+      const kind = s.kind;
+      const emailSubject = String(s.subject || "Follow up");
+      const body = String(s.body || "");
+      return {
+        id: randomStepId(),
+        name: `${kind === "EMAIL" ? "Email" : "SMS"} step ${idx + 1}`,
+        enabled: true,
+        delayMinutes: clampDelayMinutes(s.delayMinutes),
+        audience: "CONTACT",
+        channels: { email: kind === "EMAIL", sms: kind === "SMS" },
+        email: { subjectTemplate: emailSubject, bodyTemplate: body },
+        sms: { bodyTemplate: body },
+      };
+    });
+  }
+
+  function cloneStepsForLoad(rawSteps: FollowUpStep[]): FollowUpStep[] {
+    const steps = Array.isArray(rawSteps) ? rawSteps.slice(0, 30) : [];
+    return steps.map((s) => ({
+      ...s,
+      id: randomStepId(),
+      channels: { ...s.channels },
+      email: { ...s.email },
+      sms: { ...s.sms },
+      internalRecipients:
+        (s.audience ?? "CONTACT") === "INTERNAL"
+          ? s.internalRecipients?.mode === "CUSTOM"
+            ? {
+                mode: "CUSTOM",
+                emails: Array.isArray(s.internalRecipients.emails) ? [...s.internalRecipients.emails] : [],
+                phones: Array.isArray(s.internalRecipients.phones) ? [...s.internalRecipients.phones] : [],
+              }
+            : { mode: "BOOKING_NOTIFICATION_EMAILS" }
+          : undefined,
+    }));
+  }
+
+  function serializeStepsForChainTemplate(rawSteps: FollowUpStep[]): FollowUpStep[] {
+    const steps = Array.isArray(rawSteps) ? rawSteps.slice(0, 30) : [];
+    return steps.map((s, idx) => ({
+      ...s,
+      id: `step${idx + 1}`,
+      channels: { ...s.channels },
+      email: { ...s.email },
+      sms: { ...s.sms },
+      internalRecipients:
+        (s.audience ?? "CONTACT") === "INTERNAL"
+          ? s.internalRecipients?.mode === "CUSTOM"
+            ? {
+                mode: "CUSTOM",
+                emails: Array.isArray(s.internalRecipients.emails) ? [...s.internalRecipients.emails] : [],
+                phones: Array.isArray(s.internalRecipients.phones) ? [...s.internalRecipients.phones] : [],
+              }
+            : { mode: "BOOKING_NOTIFICATION_EMAILS" }
+          : undefined,
+    }));
   }
 
   const allVariableKeys = useMemo(() => {
@@ -654,7 +508,6 @@ export function PortalFollowUpClient({ embedded }: { embedded?: boolean } = {}) 
     setCalendars(Array.isArray(json.calendars) ? json.calendars : []);
     setSiteNotificationEmails(Array.isArray(json.siteNotificationEmails) ? json.siteNotificationEmails : []);
     setBuiltinVariables(Array.isArray(json.builtinVariables) ? json.builtinVariables : []);
-    setSelectedTemplateId((prev) => prev ?? json.settings?.templates?.[0]?.id ?? null);
   }
 
   async function save() {
@@ -687,30 +540,6 @@ export function PortalFollowUpClient({ embedded }: { embedded?: boolean } = {}) 
     setSiteNotificationEmails(Array.isArray(json.siteNotificationEmails) ? json.siteNotificationEmails : []);
     setBuiltinVariables(Array.isArray(json.builtinVariables) ? json.builtinVariables : []);
     setNotice("Saved.");
-  }
-
-  function addCustomVariable() {
-    if (!settings) return;
-    setVarError(null);
-
-    const key = newVarKey.trim();
-    const keyOk = /^[a-zA-Z][a-zA-Z0-9_]*$/;
-    const reserved = new Set(builtinVariables);
-    if (!key || !keyOk.test(key) || reserved.has(key)) {
-      setVarError("Invalid variable name.");
-      return;
-    }
-    if (Object.prototype.hasOwnProperty.call(settings.customVariables || {}, key)) {
-      setVarError("That variable already exists.");
-      return;
-    }
-
-    setSettings({
-      ...settings,
-      customVariables: { ...settings.customVariables, [key]: newVarValue },
-    });
-    setNewVarKey("");
-    setNewVarValue("");
   }
 
   function fmtDelay(minutes: number) {
@@ -897,547 +726,6 @@ export function PortalFollowUpClient({ embedded }: { embedded?: boolean } = {}) 
               />
             </div>
 
-            <div className="mt-6 rounded-2xl border border-zinc-200 bg-zinc-50 p-4">
-              <div className="text-sm font-semibold text-zinc-900">Variables</div>
-              <div className="mt-2 text-xs text-zinc-600">
-                Use placeholders like <span className="font-mono">{"{contactName}"}</span> inside templates.
-              </div>
-              <div className="mt-2 text-xs text-zinc-600">
-                Tip: Use <span className="font-mono">{"{location}"}</span> to insert the meeting location (Purely Connect link when enabled),
-                or <span className="font-mono">{"{meetingLink}"}</span> for just the link.
-              </div>
-              <div className="mt-2 text-xs text-zinc-600 break-words whitespace-normal">
-                Available: <span className="font-mono break-words whitespace-normal">{allVariableKeys.map((k) => `{${k}}`).join(" ")}</span>
-              </div>
-
-              <div className="mt-4">
-                <div className="text-xs font-semibold text-zinc-600">Custom variables</div>
-                <div className="mt-2 space-y-2">
-                  {(settings ? Object.entries(settings.customVariables || {}) : []).map(([k, v]) => (
-                    <div key={k} className="grid grid-cols-1 gap-2 sm:grid-cols-12">
-                      <input
-                        value={k}
-                        disabled
-                        className="sm:col-span-4 rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm outline-none"
-                      />
-                      <input
-                        value={v}
-                        onChange={(e) =>
-                          settings &&
-                          setSettings({
-                            ...settings,
-                            customVariables: { ...settings.customVariables, [k]: e.target.value },
-                          })
-                        }
-                        className="sm:col-span-7 rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm outline-none focus:border-zinc-300"
-                        placeholder="Value"
-                      />
-                      <button
-                        type="button"
-                        onClick={() => {
-                          if (!settings) return;
-                          const next = { ...settings.customVariables };
-                          delete next[k];
-                          setSettings({ ...settings, customVariables: next });
-                        }}
-                        className="sm:col-span-1 rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-sm font-semibold text-brand-ink hover:bg-zinc-100"
-                      >
-                        ✕
-                      </button>
-                    </div>
-                  ))}
-
-                  <div className="mt-3 grid grid-cols-1 gap-2 sm:grid-cols-12">
-                    <div className="sm:col-span-4">
-                      <input
-                        value={newVarKey}
-                        onChange={(e) => setNewVarKey(e.target.value)}
-                        className="w-full rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm outline-none focus:border-zinc-300"
-                        placeholder="Variable name (e.g. referralSource)"
-                      />
-                    </div>
-                    <div className="sm:col-span-7">
-                      <input
-                        value={newVarValue}
-                        onChange={(e) => setNewVarValue(e.target.value)}
-                        className="w-full rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm outline-none focus:border-zinc-300"
-                        placeholder="Value"
-                      />
-                    </div>
-                    <button
-                      type="button"
-                      onClick={addCustomVariable}
-                      className="sm:col-span-1 rounded-2xl bg-brand-ink px-3 py-2 text-sm font-semibold text-white hover:opacity-95"
-                    >
-                      +
-                    </button>
-                  </div>
-                  {varError ? <div className="mt-2 text-xs font-semibold text-red-700">{varError}</div> : null}
-                </div>
-              </div>
-            </div>
-
-            <div className="mt-6 rounded-2xl border border-zinc-200 bg-zinc-50 p-4">
-              <div className="text-sm font-semibold text-zinc-900">Templates</div>
-              <div className="mt-2 text-xs text-zinc-600">Create multiple follow-ups and attach them to specific calendars.</div>
-
-              <div className="mt-4 flex flex-wrap gap-2">
-                {(settings?.templates ?? []).map((t) => (
-                  <button
-                    key={t.id}
-                    type="button"
-                    onClick={() => setSelectedTemplateId(t.id)}
-                    className={
-                      selectedTemplateId === t.id
-                        ? "rounded-full bg-brand-ink px-3 py-1.5 text-xs font-semibold text-white"
-                        : "rounded-full border border-zinc-200 bg-white px-3 py-1.5 text-xs font-semibold text-brand-ink hover:bg-zinc-50"
-                    }
-                  >
-                    {t.name}
-                  </button>
-                ))}
-
-                <button
-                  type="button"
-                  onClick={addTemplate}
-                  className="rounded-full border border-zinc-200 bg-white px-3 py-1.5 text-xs font-semibold text-brand-ink hover:bg-zinc-50"
-                >
-                  + Add template
-                </button>
-              </div>
-
-              {selectedTemplate ? (
-                <div className="mt-4 grid grid-cols-1 gap-4">
-                  <div className="grid grid-cols-1 gap-3 sm:grid-cols-12">
-                    <div className="sm:col-span-6">
-                      <label className="text-xs font-semibold text-zinc-600">Template name</label>
-                      <input
-                        value={selectedTemplate.name}
-                        onChange={(e) => updateTemplate(selectedTemplate.id, { name: e.target.value })}
-                        className="mt-1 w-full rounded-2xl border border-zinc-200 bg-white px-4 py-3 text-sm outline-none focus:border-zinc-300"
-                      />
-                    </div>
-                    <div className="sm:col-span-3">
-                      <label className="text-xs font-semibold text-zinc-600">Delay</label>
-                      <div className="mt-1 grid grid-cols-12 gap-2">
-                        <input
-                          type="number"
-                          min={0}
-                          step={1}
-                          value={selectedTemplateBest?.value ?? 0}
-                          onChange={(e) => {
-                            const v = Number(e.target.value);
-                            updateTemplate(selectedTemplate.id, {
-                              delayMinutes: valueUnitToMinutes(Number.isFinite(v) ? v : 0, selectedTemplateBest?.unit ?? "minutes"),
-                            });
-                          }}
-                          className="col-span-7 rounded-2xl border border-zinc-200 bg-white px-4 py-3 text-sm outline-none focus:border-zinc-300"
-                        />
-                        <PortalListboxDropdown
-                          value={selectedTemplateBest?.unit ?? "minutes"}
-                          onChange={(unit) =>
-                            updateTemplate(selectedTemplate.id, {
-                              delayMinutes: valueUnitToMinutes(selectedTemplateBest?.value ?? 0, unit),
-                            })
-                          }
-                          options={DELAY_UNITS.map((u) => ({ value: u.id, label: u.label }))}
-                          className="col-span-5"
-                          buttonClassName="flex w-full items-center justify-between gap-2 rounded-2xl border border-zinc-200 bg-white px-4 py-3 text-sm hover:bg-zinc-50 focus-visible:ring-2 focus-visible:ring-zinc-300"
-                        />
-                      </div>
-                      <div className="mt-1 text-xs text-zinc-500">Up to 10 years.</div>
-                    </div>
-                    <div className="sm:col-span-3 flex flex-wrap items-end gap-2">
-                      <div className="inline-flex items-center gap-2 rounded-2xl border border-zinc-200 bg-white px-4 py-3 text-sm text-zinc-800">
-                        <span className="text-xs text-zinc-600">On</span>
-                        <ToggleSwitch
-                          checked={Boolean(selectedTemplate.enabled)}
-                          disabled={busy}
-                          accent="ink"
-                          onChange={(checked) => updateTemplate(selectedTemplate.id, { enabled: checked })}
-                        />
-                      </div>
-                      <button
-                        type="button"
-                        onClick={() => removeTemplate(selectedTemplate.id)}
-                        className="rounded-2xl border border-zinc-200 bg-white px-4 py-3 text-sm font-semibold text-brand-ink hover:bg-zinc-50"
-                      >
-                        Remove
-                      </button>
-                    </div>
-                  </div>
-
-                  <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-                    <div>
-                      <label className="text-xs font-semibold text-zinc-600">Audience</label>
-                      <PortalListboxDropdown
-                        value={selectedTemplate.audience ?? "CONTACT"}
-                        onChange={(audience) =>
-                          updateTemplate(selectedTemplate.id, {
-                            audience,
-                            internalRecipients:
-                              audience === "INTERNAL"
-                                ? (selectedTemplate.internalRecipients ?? { mode: "BOOKING_NOTIFICATION_EMAILS" })
-                                : undefined,
-                          })
-                        }
-                        options={[
-                          { value: "CONTACT", label: "Client (booking contact)" },
-                          { value: "INTERNAL", label: "Internal (your team)" },
-                        ]}
-                        className="mt-1 w-full"
-                        buttonClassName="flex w-full items-center justify-between gap-2 rounded-2xl border border-zinc-200 bg-white px-4 py-3 text-sm hover:bg-zinc-50 focus-visible:ring-2 focus-visible:ring-zinc-300"
-                      />
-                      <div className="mt-1 text-xs text-zinc-500">
-                        Internal steps can send to booking notification emails, or to custom recipients.
-                      </div>
-                    </div>
-
-                    {((selectedTemplate.audience ?? "CONTACT") === "INTERNAL") ? (
-                      <div>
-                        <label className="text-xs font-semibold text-zinc-600">Internal recipients</label>
-                        <PortalListboxDropdown
-                          value={selectedTemplate.internalRecipients?.mode ?? "BOOKING_NOTIFICATION_EMAILS"}
-                          onChange={(mode) =>
-                            updateTemplate(selectedTemplate.id, {
-                              internalRecipients:
-                                mode === "CUSTOM"
-                                  ? {
-                                      mode: "CUSTOM",
-                                      emails: selectedTemplate.internalRecipients?.emails ?? [],
-                                      phones: selectedTemplate.internalRecipients?.phones ?? [],
-                                    }
-                                  : { mode: "BOOKING_NOTIFICATION_EMAILS" },
-                            })
-                          }
-                          options={[
-                            { value: "BOOKING_NOTIFICATION_EMAILS", label: "Use booking notification emails" },
-                            { value: "CUSTOM", label: "Use custom recipients" },
-                          ]}
-                          className="mt-1 w-full"
-                          buttonClassName="flex w-full items-center justify-between gap-2 rounded-2xl border border-zinc-200 bg-white px-4 py-3 text-sm hover:bg-zinc-50 focus-visible:ring-2 focus-visible:ring-zinc-300"
-                        />
-                        {selectedTemplate.internalRecipients?.mode === "CUSTOM" ? (
-                          <div className="mt-3 space-y-3">
-                            <div>
-                              <div className="text-xs font-semibold text-zinc-600">Emails</div>
-                              <div className="mt-2 space-y-2">
-                                {(selectedTemplate.internalRecipients?.emails ?? []).map((email) => (
-                                  <div key={email} className="flex items-center justify-between gap-2 rounded-2xl border border-zinc-200 bg-white px-3 py-2">
-                                    <div className="truncate text-sm text-zinc-800">{email}</div>
-                                    <button
-                                      type="button"
-                                      onClick={() => removeInternalRecipient(selectedTemplate.id, "email", email)}
-                                      className="rounded-xl border border-zinc-200 bg-zinc-50 px-2 py-1 text-xs font-semibold text-brand-ink hover:bg-zinc-100"
-                                    >
-                                      Remove
-                                    </button>
-                                  </div>
-                                ))}
-                                <div className="flex flex-col gap-2 sm:flex-row">
-                                  <input
-                                    value={internalEmailDraft}
-                                    onChange={(e) => setInternalEmailDraft(e.target.value)}
-                                    className="w-full rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm outline-none focus:border-zinc-300"
-                                    placeholder="team@example.com"
-                                  />
-                                  <button
-                                    type="button"
-                                      onClick={() => addInternalEmail(selectedTemplate.id)}
-                                    className="rounded-2xl bg-brand-ink px-4 py-2 text-sm font-semibold text-white hover:opacity-95"
-                                  >
-                                    Add
-                                  </button>
-                                </div>
-
-                                {(() => {
-                                  const picks = Array.from(
-                                    new Set([
-                                      ...(siteNotificationEmails || []),
-                                      ...calendars.flatMap((c) => c.notificationEmails ?? []),
-                                    ]),
-                                  ).slice(0, 12);
-                                  if (!picks.length) return null;
-                                  return (
-                                    <div className="pt-1">
-                                      <div className="text-xs text-zinc-500">Quick add:</div>
-                                      <div className="mt-1 flex flex-wrap gap-2">
-                                        {picks.map((email) => (
-                                          <button
-                                            key={email}
-                                            type="button"
-                                            onClick={() => {
-                                              addInternalEmail(selectedTemplate.id, email);
-                                            }}
-                                            className="rounded-full border border-zinc-200 bg-zinc-50 px-3 py-1 text-xs font-semibold text-brand-ink hover:bg-zinc-100"
-                                          >
-                                            {email}
-                                          </button>
-                                        ))}
-                                      </div>
-                                    </div>
-                                  );
-                                })()}
-                              </div>
-                            </div>
-
-                            <div>
-                              <div className="text-xs font-semibold text-zinc-600">Phones (SMS)</div>
-                              <div className="mt-2 space-y-2">
-                                {(selectedTemplate.internalRecipients?.phones ?? []).map((phone) => (
-                                  <div key={phone} className="flex items-center justify-between gap-2 rounded-2xl border border-zinc-200 bg-white px-3 py-2">
-                                    <div className="truncate text-sm text-zinc-800">{phone}</div>
-                                    <button
-                                      type="button"
-                                      onClick={() => removeInternalRecipient(selectedTemplate.id, "phone", phone)}
-                                      className="rounded-xl border border-zinc-200 bg-zinc-50 px-2 py-1 text-xs font-semibold text-brand-ink hover:bg-zinc-100"
-                                    >
-                                      Remove
-                                    </button>
-                                  </div>
-                                ))}
-                                <div className="flex flex-col gap-2 sm:flex-row">
-                                  <input
-                                    value={internalPhoneDraft}
-                                    onChange={(e) => setInternalPhoneDraft(e.target.value)}
-                                    className="w-full rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm outline-none focus:border-zinc-300"
-                                    placeholder="+15551234567"
-                                  />
-                                  <button
-                                    type="button"
-                                    onClick={() => addInternalPhone(selectedTemplate.id)}
-                                    className="rounded-2xl bg-brand-ink px-4 py-2 text-sm font-semibold text-white hover:opacity-95"
-                                  >
-                                    Add
-                                  </button>
-                                </div>
-                              </div>
-                            </div>
-                          </div>
-                        ) : (
-                          <div className="mt-2 text-xs text-zinc-500 break-words">
-                            Will send to: {(Array.from(new Set([...(siteNotificationEmails || []), ...calendars.flatMap((c) => c.notificationEmails ?? [])]))).join(", ") || "(no notification emails configured)"}
-                          </div>
-                        )}
-                      </div>
-                    ) : null}
-                  </div>
-
-                  <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-                    <div className="flex items-center justify-between gap-3 rounded-2xl border border-zinc-200 bg-white px-4 py-3 text-sm text-zinc-800">
-                      <div>Email</div>
-                      <ToggleSwitch
-                        checked={Boolean(selectedTemplate.channels.email)}
-                        disabled={busy}
-                        accent="blue"
-                        onChange={(checked) =>
-                          updateTemplate(selectedTemplate.id, {
-                            channels: { ...selectedTemplate.channels, email: checked },
-                          })
-                        }
-                      />
-                    </div>
-                    <div className="flex items-center justify-between gap-3 rounded-2xl border border-zinc-200 bg-white px-4 py-3 text-sm text-zinc-800">
-                      <div>Text (SMS)</div>
-                      <ToggleSwitch
-                        checked={Boolean(selectedTemplate.channels.sms)}
-                        disabled={busy}
-                        accent="blue"
-                        onChange={(checked) =>
-                          updateTemplate(selectedTemplate.id, {
-                            channels: { ...selectedTemplate.channels, sms: checked },
-                          })
-                        }
-                      />
-                    </div>
-                  </div>
-
-                  <div>
-                    <div className="flex items-center justify-between gap-3">
-                      <label className="text-xs font-semibold text-zinc-600">Email subject</label>
-                      <button
-                        type="button"
-                        className="rounded-xl border border-zinc-200 bg-white px-3 py-1.5 text-xs font-semibold text-brand-ink hover:bg-zinc-50"
-                        onClick={() => {
-                          setVarPickerTarget({ kind: "preset", templateId: selectedTemplate.id, field: "emailSubject" });
-                          setVarPickerOpen(true);
-                        }}
-                      >
-                        Insert variable
-                      </button>
-                    </div>
-                    <input
-                      value={selectedTemplate.email.subjectTemplate}
-                      onChange={(e) =>
-                        updateTemplate(selectedTemplate.id, {
-                          email: { ...selectedTemplate.email, subjectTemplate: e.target.value },
-                        })
-                      }
-                      onFocus={(e) => {
-                        activeFieldElRef.current = e.currentTarget;
-                      }}
-                      className="mt-1 w-full rounded-2xl border border-zinc-200 bg-white px-4 py-3 text-sm outline-none focus:border-zinc-300"
-                    />
-                  </div>
-                  <div>
-                    <div className="flex items-center justify-between gap-3">
-                      <label className="text-xs font-semibold text-zinc-600">Email body</label>
-                      <div className="flex items-center gap-2">
-                        <button
-                          type="button"
-                          disabled={Boolean(generateBusy) || busy}
-                          className="rounded-xl border border-zinc-200 bg-white px-3 py-1.5 text-xs font-semibold text-brand-ink hover:bg-zinc-50 disabled:opacity-60"
-                          onClick={async () => {
-                            setGenerateBusy({ kind: "preset", id: selectedTemplate.id, channel: "EMAIL" });
-                            try {
-                              const draft = await generateDraft({
-                                kind: "EMAIL",
-                                stepName: selectedTemplate.name,
-                                existingSubject: selectedTemplate.email.subjectTemplate,
-                                existingBody: selectedTemplate.email.bodyTemplate,
-                              });
-                              if (!draft) return;
-                              updateTemplate(selectedTemplate.id, {
-                                email: {
-                                  ...selectedTemplate.email,
-                                  subjectTemplate: (draft.subject ?? selectedTemplate.email.subjectTemplate) || "",
-                                  bodyTemplate: draft.body || "",
-                                },
-                              });
-                            } finally {
-                              setGenerateBusy(null);
-                            }
-                          }}
-                        >
-                          {generateBusy?.kind === "preset" && generateBusy.id === selectedTemplate.id && generateBusy.channel === "EMAIL"
-                            ? "Generating…"
-                            : "Generate"}
-                        </button>
-                        <button
-                          type="button"
-                          className="rounded-xl border border-zinc-200 bg-white px-3 py-1.5 text-xs font-semibold text-brand-ink hover:bg-zinc-50"
-                          onClick={() => {
-                            setVarPickerTarget({ kind: "preset", templateId: selectedTemplate.id, field: "emailBody" });
-                            setVarPickerOpen(true);
-                          }}
-                        >
-                          Insert variable
-                        </button>
-                        <label className="rounded-xl border border-zinc-200 bg-white px-3 py-1.5 text-xs font-semibold text-zinc-700 hover:bg-zinc-50">
-                          {attachUploadBusy?.templateId === selectedTemplate.id && attachUploadBusy.field === "email" ? "Uploading…" : "Upload file"}
-                          <input
-                            type="file"
-                            className="hidden"
-                            disabled={Boolean(attachUploadBusy)}
-                            onChange={(e) => {
-                              const f = e.target.files?.[0];
-                              if (f) void uploadFileToTemplate({ templateId: selectedTemplate.id, field: "email", file: f });
-                              e.currentTarget.value = "";
-                            }}
-                          />
-                        </label>
-                        <button
-                          type="button"
-                          className="rounded-xl border border-zinc-200 bg-white px-3 py-1.5 text-xs font-semibold text-zinc-700 hover:bg-zinc-50"
-                          onClick={() => setMediaPicker({ templateId: selectedTemplate.id, field: "email" })}
-                        >
-                          Attach files
-                        </button>
-                      </div>
-                    </div>
-                    <textarea
-                      value={selectedTemplate.email.bodyTemplate}
-                      onChange={(e) =>
-                        updateTemplate(selectedTemplate.id, {
-                          email: { ...selectedTemplate.email, bodyTemplate: e.target.value },
-                        })
-                      }
-                      onFocus={(e) => {
-                        activeFieldElRef.current = e.currentTarget;
-                      }}
-                      rows={8}
-                      className="mt-1 w-full rounded-2xl border border-zinc-200 bg-white px-4 py-3 text-sm outline-none focus:border-zinc-300"
-                    />
-                  </div>
-                  <div>
-                    <div className="flex items-center justify-between gap-3">
-                      <label className="text-xs font-semibold text-zinc-600">SMS body</label>
-                      <div className="flex items-center gap-2">
-                        <button
-                          type="button"
-                          disabled={Boolean(generateBusy) || busy}
-                          className="rounded-xl border border-zinc-200 bg-white px-3 py-1.5 text-xs font-semibold text-brand-ink hover:bg-zinc-50 disabled:opacity-60"
-                          onClick={async () => {
-                            setGenerateBusy({ kind: "preset", id: selectedTemplate.id, channel: "SMS" });
-                            try {
-                              const draft = await generateDraft({
-                                kind: "SMS",
-                                stepName: selectedTemplate.name,
-                                existingBody: selectedTemplate.sms.bodyTemplate,
-                              });
-                              if (!draft) return;
-                              updateTemplate(selectedTemplate.id, {
-                                sms: { ...selectedTemplate.sms, bodyTemplate: draft.body || "" },
-                              });
-                            } finally {
-                              setGenerateBusy(null);
-                            }
-                          }}
-                        >
-                          {generateBusy?.kind === "preset" && generateBusy.id === selectedTemplate.id && generateBusy.channel === "SMS"
-                            ? "Generating…"
-                            : "Generate"}
-                        </button>
-                        <button
-                          type="button"
-                          className="rounded-xl border border-zinc-200 bg-white px-3 py-1.5 text-xs font-semibold text-brand-ink hover:bg-zinc-50"
-                          onClick={() => {
-                            setVarPickerTarget({ kind: "preset", templateId: selectedTemplate.id, field: "smsBody" });
-                            setVarPickerOpen(true);
-                          }}
-                        >
-                          Insert variable
-                        </button>
-                        <label className="rounded-xl border border-zinc-200 bg-white px-3 py-1.5 text-xs font-semibold text-zinc-700 hover:bg-zinc-50">
-                          {attachUploadBusy?.templateId === selectedTemplate.id && attachUploadBusy.field === "sms" ? "Uploading…" : "Upload file"}
-                          <input
-                            type="file"
-                            className="hidden"
-                            disabled={Boolean(attachUploadBusy)}
-                            onChange={(e) => {
-                              const f = e.target.files?.[0];
-                              if (f) void uploadFileToTemplate({ templateId: selectedTemplate.id, field: "sms", file: f });
-                              e.currentTarget.value = "";
-                            }}
-                          />
-                        </label>
-                        <button
-                          type="button"
-                          className="rounded-xl border border-zinc-200 bg-white px-3 py-1.5 text-xs font-semibold text-zinc-700 hover:bg-zinc-50"
-                          onClick={() => setMediaPicker({ templateId: selectedTemplate.id, field: "sms" })}
-                        >
-                          Attach files
-                        </button>
-                      </div>
-                    </div>
-                    <textarea
-                      value={selectedTemplate.sms.bodyTemplate}
-                      onChange={(e) =>
-                        updateTemplate(selectedTemplate.id, {
-                          sms: { ...selectedTemplate.sms, bodyTemplate: e.target.value },
-                        })
-                      }
-                      onFocus={(e) => {
-                        activeFieldElRef.current = e.currentTarget;
-                      }}
-                      rows={3}
-                      className="mt-1 w-full rounded-2xl border border-zinc-200 bg-white px-4 py-3 text-sm outline-none focus:border-zinc-300"
-                    />
-                  </div>
-                </div>
-              ) : null}
-            </div>
-
             <div className="mt-6 rounded-2xl border border-zinc-200 bg-white p-4">
               <div className="text-sm font-semibold text-zinc-900">Follow-up chain</div>
               <div className="mt-2 text-xs text-zinc-600">Add as many steps as you want. Each step has its own delay, audience, and message.</div>
@@ -1460,35 +748,124 @@ export function PortalFollowUpClient({ embedded }: { embedded?: boolean } = {}) 
                       </button>
                     </div>
 
-                    <div className="mt-4 flex-1 space-y-2 overflow-auto pr-1">
-                      {NURTURE_TEMPLATES.map((t) => (
+                    <div className="mt-4 rounded-2xl border border-zinc-200 bg-zinc-50 p-4">
+                      <div className="text-xs font-semibold text-zinc-700">Save current chain as a template</div>
+                      <div className="mt-2 flex flex-col gap-2 sm:flex-row sm:items-center">
+                        <input
+                          value={chainTemplateDraftName}
+                          onChange={(e) => setChainTemplateDraftName(e.target.value)}
+                          placeholder="Template name"
+                          className="w-full rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm outline-none focus:border-zinc-300"
+                        />
                         <button
-                          key={t.id}
                           type="button"
-                          disabled={busy}
-                          className="w-full rounded-3xl border border-zinc-200 bg-white p-4 text-left hover:bg-zinc-50 disabled:opacity-60"
+                          disabled={busy || !settings || chainTemplateDraftName.trim().length < 2 || chainTemplatePicker.stepsSnapshot.length < 1}
+                          className="inline-flex items-center justify-center rounded-2xl bg-brand-ink px-4 py-2 text-sm font-semibold text-white hover:opacity-95 disabled:opacity-60"
                           onClick={() => {
-                            chainTemplatePicker.apply(t);
-                            setChainTemplatePicker(null);
+                            if (!settings) return;
+                            const name = chainTemplateDraftName.trim().slice(0, 80);
+                            if (name.length < 2) return;
+                            const id = `chain_${Math.random().toString(36).slice(2, 8)}${Date.now().toString(36)}`;
+                            const next = {
+                              id,
+                              name,
+                              steps: serializeStepsForChainTemplate(chainTemplatePicker.stepsSnapshot),
+                            };
+                            setSettings({
+                              ...settings,
+                              chainTemplates: [...(settings.chainTemplates ?? []), next].slice(0, 50),
+                            });
+                            setChainTemplateDraftName("");
+                            setNotice("Saved template (remember to Save settings)");
                           }}
                         >
-                          <div className="flex items-start justify-between gap-3">
-                            <div className="min-w-0">
-                              <div className="truncate text-sm font-semibold text-zinc-900">{t.title}</div>
-                              <div className="mt-1 text-sm text-zinc-600">{t.description}</div>
-                            </div>
-                            <div className="shrink-0 rounded-full border border-zinc-200 bg-zinc-50 px-2 py-1 text-[11px] font-semibold text-zinc-700">
-                              {(() => {
-                                const n = t.steps.filter((s) => s.kind === "SMS" || s.kind === "EMAIL").length;
-                                return `${n} step${n === 1 ? "" : "s"}`;
-                              })()}
-                            </div>
-                          </div>
+                          Save template
                         </button>
-                      ))}
+                      </div>
+                      <div className="mt-2 text-xs text-zinc-500">Templates are saved when you click “Save settings”.</div>
                     </div>
 
-                    <div className="mt-4 text-xs text-zinc-500">Tip: load a template, customize, then Save.</div>
+                    <div className="mt-4 flex-1 overflow-auto pr-1">
+                      <div className="text-xs font-semibold text-zinc-600">Built-in templates</div>
+                      <div className="mt-2 space-y-2">
+                        {FOLLOW_UP_TEMPLATES.map((t) => (
+                          <button
+                            key={t.id}
+                            type="button"
+                            disabled={busy}
+                            className="w-full rounded-3xl border border-zinc-200 bg-white p-4 text-left hover:bg-zinc-50 disabled:opacity-60"
+                            onClick={() => {
+                              chainTemplatePicker.setSteps(stepsFromBuiltInTemplate(t));
+                              setExpandedStepId(null);
+                              setNotice("Loaded template (not saved yet)");
+                              setChainTemplatePicker(null);
+                            }}
+                          >
+                            <div className="flex items-start justify-between gap-3">
+                              <div className="min-w-0">
+                                <div className="truncate text-sm font-semibold text-zinc-900">{t.title}</div>
+                                <div className="mt-1 text-sm text-zinc-600">{t.description}</div>
+                              </div>
+                              <div className="shrink-0 rounded-full border border-zinc-200 bg-zinc-50 px-2 py-1 text-[11px] font-semibold text-zinc-700">
+                                {(() => {
+                                  const n = t.steps.filter((s) => s.kind === "SMS" || s.kind === "EMAIL").length;
+                                  return `${n} step${n === 1 ? "" : "s"}`;
+                                })()}
+                              </div>
+                            </div>
+                          </button>
+                        ))}
+                      </div>
+
+                      <div className="mt-5 text-xs font-semibold text-zinc-600">Your templates</div>
+                      <div className="mt-2 space-y-2">
+                        {(settings?.chainTemplates ?? []).length ? (
+                          (settings?.chainTemplates ?? []).map((t) => (
+                            <button
+                              key={t.id}
+                              type="button"
+                              disabled={busy}
+                              className="w-full rounded-3xl border border-zinc-200 bg-white p-4 text-left hover:bg-zinc-50 disabled:opacity-60"
+                              onClick={() => {
+                                chainTemplatePicker.setSteps(cloneStepsForLoad(t.steps));
+                                setExpandedStepId(null);
+                                setNotice("Loaded template (not saved yet)");
+                                setChainTemplatePicker(null);
+                              }}
+                            >
+                              <div className="flex items-start justify-between gap-3">
+                                <div className="min-w-0">
+                                  <div className="truncate text-sm font-semibold text-zinc-900">{t.name}</div>
+                                  <div className="mt-1 text-sm text-zinc-600">{t.steps.length} step{t.steps.length === 1 ? "" : "s"}</div>
+                                </div>
+                                <button
+                                  type="button"
+                                  disabled={busy}
+                                  className="shrink-0 rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-xs font-semibold text-brand-ink hover:bg-zinc-50 disabled:opacity-60"
+                                  onClick={(e) => {
+                                    e.preventDefault();
+                                    e.stopPropagation();
+                                    if (!settings) return;
+                                    if (!window.confirm(`Delete template “${t.name}”?`)) return;
+                                    setSettings({
+                                      ...settings,
+                                      chainTemplates: (settings.chainTemplates ?? []).filter((x) => x.id !== t.id),
+                                    });
+                                    setNotice("Deleted template (remember to Save settings)");
+                                  }}
+                                >
+                                  Delete
+                                </button>
+                              </div>
+                            </button>
+                          ))
+                        ) : (
+                          <div className="rounded-2xl border border-zinc-200 bg-zinc-50 p-4 text-sm text-zinc-600">
+                            No saved templates yet.
+                          </div>
+                        )}
+                      </div>
+                    </div>
                   </div>
                 </div>
               ) : null}
@@ -1496,13 +873,13 @@ export function PortalFollowUpClient({ embedded }: { embedded?: boolean } = {}) 
               {(() => {
                 if (!settings) return null;
 
-                const makeBlankStep = (): FollowUpStep => ({
+                const makeBlankStep = (kind: "EMAIL" | "SMS"): FollowUpStep => ({
                   id: randomStepId(),
-                  name: "New step",
+                  name: kind === "EMAIL" ? "Email step" : "SMS step",
                   enabled: true,
                   delayMinutes: 60,
                   audience: "CONTACT",
-                  channels: { email: true, sms: false },
+                  channels: { email: kind === "EMAIL", sms: kind === "SMS" },
                   email: { subjectTemplate: "Thanks, {contactName}", bodyTemplate: "Hi {contactName},\n\nThanks again, {businessName}" },
                   sms: { bodyTemplate: "Thanks again, {businessName}" },
                 });
@@ -1522,26 +899,6 @@ export function PortalFollowUpClient({ embedded }: { embedded?: boolean } = {}) 
                     sms: { ...t.sms },
                     presetId: t.id,
                   };
-                };
-
-                const stepsFromNurtureTemplate = (t: NurtureTemplate): FollowUpStep[] => {
-                  const usable = t.steps.filter((s) => s.kind === "SMS" || s.kind === "EMAIL").slice(0, 30);
-                  return usable.map((s, idx) => {
-                    const kind = s.kind;
-                    const emailSubject = String(s.subject || "Follow up");
-                    const emailBody = String(s.body || "");
-                    const smsBody = String(s.body || "");
-                    return {
-                      id: randomStepId(),
-                      name: `${kind === "EMAIL" ? "Email" : "SMS"} step ${idx + 1}`,
-                      enabled: true,
-                      delayMinutes: clampDelayMinutes(s.delayMinutes),
-                      audience: "CONTACT",
-                      channels: { email: kind === "EMAIL", sms: kind === "SMS" },
-                      email: { subjectTemplate: emailSubject, bodyTemplate: emailBody },
-                      sms: { bodyTemplate: smsBody },
-                    };
-                  });
                 };
 
                 const renderChain = (opts: {
@@ -1632,16 +989,14 @@ export function PortalFollowUpClient({ embedded }: { embedded?: boolean } = {}) 
                           type="button"
                           disabled={busy}
                           className="rounded-xl bg-brand-ink px-3 py-1.5 text-xs font-semibold text-white hover:opacity-95 disabled:opacity-60"
-                          onClick={() =>
+                          onClick={() => {
+                            setChainTemplateDraftName("");
                             setChainTemplatePicker({
                               title: opts.title,
-                              apply: (t) => {
-                                opts.setSteps(stepsFromNurtureTemplate(t));
-                                setExpandedStepId(null);
-                                setNotice("Loaded template (not saved yet)");
-                              },
-                            })
-                          }
+                              stepsSnapshot: steps,
+                              setSteps: opts.setSteps,
+                            });
+                          }}
                         >
                           Load template
                         </button>
@@ -1751,7 +1106,6 @@ export function PortalFollowUpClient({ embedded }: { embedded?: boolean } = {}) 
                                             buttonClassName="flex w-full items-center justify-between gap-2 rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm hover:bg-zinc-50 focus-visible:ring-2 focus-visible:ring-zinc-300"
                                           />
                                         </div>
-                                        <div className="mt-1 text-xs text-zinc-500">Up to 10 years.</div>
                                       </div>
 
                                       <div>
@@ -1956,7 +1310,7 @@ export function PortalFollowUpClient({ embedded }: { embedded?: boolean } = {}) 
                                                 disabled={Boolean(generateBusy) || busy}
                                                 className="rounded-xl border border-zinc-200 bg-white px-3 py-1.5 text-xs font-semibold text-brand-ink hover:bg-zinc-50 disabled:opacity-60"
                                                 onClick={async () => {
-                                                  setGenerateBusy({ kind: "step", id: s.id, channel: "EMAIL" });
+                                                  setGenerateBusy({ id: s.id, channel: "EMAIL" });
                                                   try {
                                                     const draft = await generateDraft({
                                                       kind: "EMAIL",
@@ -1977,7 +1331,7 @@ export function PortalFollowUpClient({ embedded }: { embedded?: boolean } = {}) 
                                                   }
                                                 }}
                                               >
-                                                {generateBusy?.kind === "step" && generateBusy.id === s.id && generateBusy.channel === "EMAIL"
+                                                {generateBusy?.id === s.id && generateBusy.channel === "EMAIL"
                                                   ? "Generating…"
                                                   : "Generate"}
                                               </button>
@@ -2016,7 +1370,7 @@ export function PortalFollowUpClient({ embedded }: { embedded?: boolean } = {}) 
                                                 disabled={Boolean(generateBusy) || busy}
                                                 className="rounded-xl border border-zinc-200 bg-white px-3 py-1.5 text-xs font-semibold text-brand-ink hover:bg-zinc-50 disabled:opacity-60"
                                                 onClick={async () => {
-                                                  setGenerateBusy({ kind: "step", id: s.id, channel: "SMS" });
+                                                  setGenerateBusy({ id: s.id, channel: "SMS" });
                                                   try {
                                                     const draft = await generateDraft({
                                                       kind: "SMS",
@@ -2030,7 +1384,7 @@ export function PortalFollowUpClient({ embedded }: { embedded?: boolean } = {}) 
                                                   }
                                                 }}
                                               >
-                                                {generateBusy?.kind === "step" && generateBusy.id === s.id && generateBusy.channel === "SMS"
+                                                {generateBusy?.id === s.id && generateBusy.channel === "SMS"
                                                   ? "Generating…"
                                                   : "Generate"}
                                               </button>
@@ -2067,13 +1421,22 @@ export function PortalFollowUpClient({ embedded }: { embedded?: boolean } = {}) 
                         )}
 
                         <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
-                          <button
-                            type="button"
-                            onClick={() => addStep(makeBlankStep())}
-                            className="inline-flex items-center justify-center rounded-2xl bg-brand-ink px-4 py-2 text-sm font-semibold text-white hover:opacity-95"
-                          >
-                            Add custom step
-                          </button>
+                          <div className="grid w-full grid-cols-1 gap-2 sm:w-auto sm:grid-cols-2">
+                            <button
+                              type="button"
+                              onClick={() => addStep(makeBlankStep("EMAIL"))}
+                              className="inline-flex items-center justify-center rounded-2xl bg-[color:var(--color-brand-blue)] px-4 py-2 text-sm font-semibold text-white hover:opacity-95"
+                            >
+                              Add email step
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => addStep(makeBlankStep("SMS"))}
+                              className="inline-flex items-center justify-center rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm font-semibold text-brand-ink hover:bg-zinc-50"
+                            >
+                              Add SMS step
+                            </button>
+                          </div>
 
                           <PortalListboxDropdown
                             value={""}
@@ -2281,15 +1644,6 @@ export function PortalFollowUpClient({ embedded }: { embedded?: boolean } = {}) 
           </div>
         </div>
       )}
-
-      <PortalMediaPickerModal
-        open={Boolean(mediaPicker)}
-        onClose={() => setMediaPicker(null)}
-        onPick={addMediaLinkToTemplate}
-        confirmLabel="Attach"
-        title="Attach from media library"
-      />
-
       <PortalVariablePickerModal
         open={varPickerOpen}
         onClose={() => {
@@ -2312,45 +1666,6 @@ export function PortalFollowUpClient({ embedded }: { embedded?: boolean } = {}) 
           if (!settings || !varPickerTarget) return;
 
           const insert = `{${variableKey}}`;
-
-          if (varPickerTarget.kind === "preset") {
-            const t = settings.templates.find((x) => x.id === varPickerTarget.templateId);
-            if (!t) return;
-
-            if (varPickerTarget.field === "emailSubject") {
-              const { next, cursor } = insertAtCursor(t.email.subjectTemplate, insert, activeFieldElRef.current);
-              updateTemplate(t.id, { email: { ...t.email, subjectTemplate: next } });
-              requestAnimationFrame(() => {
-                const el = activeFieldElRef.current;
-                if (!el) return;
-                el.focus();
-                el.setSelectionRange(cursor, cursor);
-              });
-              return;
-            }
-
-            if (varPickerTarget.field === "emailBody") {
-              const { next, cursor } = insertAtCursor(t.email.bodyTemplate, insert, activeFieldElRef.current);
-              updateTemplate(t.id, { email: { ...t.email, bodyTemplate: next } });
-              requestAnimationFrame(() => {
-                const el = activeFieldElRef.current;
-                if (!el) return;
-                el.focus();
-                el.setSelectionRange(cursor, cursor);
-              });
-              return;
-            }
-
-            const { next, cursor } = insertAtCursor(t.sms.bodyTemplate, insert, activeFieldElRef.current);
-            updateTemplate(t.id, { sms: { ...t.sms, bodyTemplate: next } });
-            requestAnimationFrame(() => {
-              const el = activeFieldElRef.current;
-              if (!el) return;
-              el.focus();
-              el.setSelectionRange(cursor, cursor);
-            });
-            return;
-          }
 
           const findStep = (): FollowUpStep | null => {
             const inDefault = (settings.assignments.defaultSteps ?? []).find((s) => s.id === varPickerTarget.stepId);

@@ -45,16 +45,28 @@ export function PortalVariablePickerModal(props: {
 }) {
   const { open, title, variables, onPick, onClose, createCustom } = props;
   const [query, setQuery] = useState("");
+  const [mode, setMode] = useState<"pick" | "create">("pick");
   const [newKey, setNewKey] = useState("");
   const [newValue, setNewValue] = useState("");
   const [createError, setCreateError] = useState<string | null>(null);
 
   useEffect(() => {
     if (!open) return;
+    setQuery("");
+    setMode("pick");
     setCreateError(null);
     setNewKey("");
     setNewValue("");
   }, [open]);
+
+  useEffect(() => {
+    if (!open) return;
+    setCreateError(null);
+    if (mode === "pick") {
+      setNewKey("");
+      setNewValue("");
+    }
+  }, [mode, open]);
 
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
@@ -112,65 +124,41 @@ export function PortalVariablePickerModal(props: {
               <div className="truncate text-sm font-semibold text-zinc-900">{title || "Insert variable"}</div>
               <div className="mt-1 text-xs text-zinc-500">Click to insert into your message.</div>
             </div>
-            <button
-              type="button"
-              className="rounded-xl border border-zinc-200 bg-white px-3 py-2 text-xs font-semibold text-zinc-700 hover:bg-zinc-50"
-              onClick={onClose}
-            >
-              Close
-            </button>
+            <div className="flex items-center gap-2">
+              {canCreateCustom ? (
+                mode === "pick" ? (
+                  <button
+                    type="button"
+                    className="rounded-xl bg-brand-ink px-3 py-2 text-xs font-semibold text-white hover:opacity-95"
+                    onClick={() => setMode("create")}
+                  >
+                    New
+                  </button>
+                ) : (
+                  <button
+                    type="button"
+                    className="rounded-xl border border-zinc-200 bg-white px-3 py-2 text-xs font-semibold text-zinc-700 hover:bg-zinc-50"
+                    onClick={() => setMode("pick")}
+                  >
+                    Back
+                  </button>
+                )
+              ) : null}
+              <button
+                type="button"
+                className="rounded-xl border border-zinc-200 bg-white px-3 py-2 text-xs font-semibold text-zinc-700 hover:bg-zinc-50"
+                onClick={onClose}
+              >
+                Close
+              </button>
+            </div>
           </div>
 
           <div className="p-4">
-            <input
-              value={query}
-              onChange={(e) => setQuery(e.target.value)}
-              placeholder="Search variables…"
-              className="w-full rounded-2xl border border-zinc-200 bg-white px-4 py-3 text-sm outline-none focus:border-zinc-300"
-              autoFocus
-            />
-
-            <div className="mt-3 max-h-[50vh] overflow-y-auto rounded-2xl border border-zinc-100">
-              {filtered.length ? (
-                filtered.map((v) => (
-                  <button
-                    key={`${v.group}:${v.key}`}
-                    type="button"
-                    onClick={() => {
-                      onPick(v.key);
-                      onClose();
-                    }}
-                    className={classNames(
-                      "flex w-full items-start justify-between gap-3 px-4 py-3 text-left",
-                      "hover:bg-zinc-50",
-                    )}
-                  >
-                    <div className="min-w-0">
-                      <div className="truncate text-sm font-semibold text-zinc-900">{v.label}</div>
-                      <div className="mt-0.5 truncate text-xs text-zinc-500">
-                        <span className="font-mono">{`{${v.key}}`}</span>
-                        <span className="mx-2">·</span>
-                        <span>{v.appliesTo}</span>
-                      </div>
-                    </div>
-                    <div className="shrink-0 rounded-full border border-zinc-200 bg-zinc-50 px-2 py-1 text-[10px] font-semibold text-zinc-700">
-                      {v.group}
-                    </div>
-                  </button>
-                ))
-              ) : (
-                <div className="px-4 py-6 text-sm text-zinc-600">No variables found.</div>
-              )}
-            </div>
-
-            <div className="mt-3 text-xs text-zinc-500">
-              Works in SMS, email, and task text. Unknown variables stay unchanged.
-            </div>
-
-            {canCreateCustom ? (
-              <div className="mt-4 rounded-2xl border border-zinc-200 bg-zinc-50 p-4">
-                <div className="text-sm font-semibold text-zinc-900">Create custom variable</div>
-                <div className="mt-1 text-xs text-zinc-600">Create a variable and insert it immediately.</div>
+            {mode === "create" && canCreateCustom ? (
+              <div className="rounded-2xl border border-zinc-200 bg-zinc-50 p-4">
+                <div className="text-sm font-semibold text-zinc-900">New variable</div>
+                <div className="mt-1 text-xs text-zinc-600">Create a custom variable and insert it immediately.</div>
 
                 <div className="mt-3 grid grid-cols-1 gap-2 sm:grid-cols-12 sm:items-end">
                   <div className="sm:col-span-5">
@@ -181,6 +169,7 @@ export function PortalVariablePickerModal(props: {
                       className="mt-1 w-full rounded-2xl border border-zinc-200 bg-white px-4 py-3 text-sm outline-none focus:border-zinc-300"
                       placeholder="e.g. referralName"
                       autoComplete="off"
+                      autoFocus
                     />
                     <div className="mt-1 text-[11px] text-zinc-500">
                       Inserts as <span className="font-mono">{`{${newKey.trim() || "variable"}}`}</span>
@@ -210,7 +199,54 @@ export function PortalVariablePickerModal(props: {
 
                 {createError ? <div className="mt-2 text-xs font-semibold text-red-700">{createError}</div> : null}
               </div>
-            ) : null}
+            ) : (
+              <>
+                <input
+                  value={query}
+                  onChange={(e) => setQuery(e.target.value)}
+                  placeholder="Search variables…"
+                  className="w-full rounded-2xl border border-zinc-200 bg-white px-4 py-3 text-sm outline-none focus:border-zinc-300"
+                  autoFocus
+                />
+
+                <div className="mt-3 max-h-[50vh] overflow-y-auto rounded-2xl border border-zinc-100">
+                  {filtered.length ? (
+                    filtered.map((v) => (
+                      <button
+                        key={`${v.group}:${v.key}`}
+                        type="button"
+                        onClick={() => {
+                          onPick(v.key);
+                          onClose();
+                        }}
+                        className={classNames(
+                          "flex w-full items-start justify-between gap-3 px-4 py-3 text-left",
+                          "hover:bg-zinc-50",
+                        )}
+                      >
+                        <div className="min-w-0">
+                          <div className="truncate text-sm font-semibold text-zinc-900">{v.label}</div>
+                          <div className="mt-0.5 truncate text-xs text-zinc-500">
+                            <span className="font-mono">{`{${v.key}}`}</span>
+                            <span className="mx-2">·</span>
+                            <span>{v.appliesTo}</span>
+                          </div>
+                        </div>
+                        <div className="shrink-0 rounded-full border border-zinc-200 bg-zinc-50 px-2 py-1 text-[10px] font-semibold text-zinc-700">
+                          {v.group}
+                        </div>
+                      </button>
+                    ))
+                  ) : (
+                    <div className="px-4 py-6 text-sm text-zinc-600">No variables found.</div>
+                  )}
+                </div>
+
+                <div className="mt-3 text-xs text-zinc-500">
+                  Works in SMS, email, and task text. Unknown variables stay unchanged.
+                </div>
+              </>
+            )}
           </div>
         </div>
       </div>

@@ -63,11 +63,19 @@ export type FollowUpStep = {
   presetId?: string;
 };
 
+export type FollowUpChainTemplate = {
+  id: string;
+  name: string;
+  steps: FollowUpStep[];
+};
+
 export type FollowUpSettings = {
   version: 3;
   enabled: boolean;
   /** Optional preset library. Steps copy from presets; presets do not run by themselves. */
   templates: FollowUpTemplate[];
+  /** Saved multi-step chains that can be loaded into the chain editor. */
+  chainTemplates: FollowUpChainTemplate[];
   assignments: {
     defaultSteps: FollowUpStep[];
     calendarSteps: Record<string, FollowUpStep[]>;
@@ -334,6 +342,7 @@ export function defaultFollowUpSettings(): FollowUpSettings {
     version: 3,
     enabled: false,
     templates,
+    chainTemplates: [],
     assignments: {
       defaultSteps: [defaultStep],
       calendarSteps: {},
@@ -478,6 +487,7 @@ export function parseFollowUpSettings(value: unknown): FollowUpSettings {
       version: 3,
       enabled: normalizeBool(settingsRaw.enabled, defaults.enabled),
       templates,
+      chainTemplates: [],
       assignments: {
         defaultSteps: [step],
         calendarSteps: {},
@@ -617,6 +627,7 @@ export function parseFollowUpSettings(value: unknown): FollowUpSettings {
       version: 3,
       enabled: normalizeBool(v2.enabled, defaults.enabled),
       templates: templatesNormalized,
+      chainTemplates: [],
       assignments: {
         defaultSteps: defaultSteps.length ? defaultSteps : defaults.assignments.defaultSteps,
         calendarSteps,
@@ -694,6 +705,44 @@ export function parseFollowUpSettings(value: unknown): FollowUpSettings {
     if (templates.length >= 20) break;
   }
 
+  const chainTemplatesRaw = Array.isArray((settingsRaw as any).chainTemplates)
+    ? (((settingsRaw as any).chainTemplates as unknown[]) ?? [])
+    : [];
+  const chainTemplates: FollowUpChainTemplate[] = [];
+  {
+    const seenTpl = new Set<string>();
+    for (let i = 0; i < chainTemplatesRaw.length; i += 1) {
+      const item =
+        chainTemplatesRaw[i] && typeof chainTemplatesRaw[i] === "object" && !Array.isArray(chainTemplatesRaw[i])
+          ? (chainTemplatesRaw[i] as Record<string, unknown>)
+          : null;
+      if (!item) continue;
+
+      const id = normalizeId(item.id, `chain${i + 1}`).slice(0, 50);
+      if (seenTpl.has(id)) continue;
+      seenTpl.add(id);
+
+      const name = normalizeString(item.name, "Template", 80).trim();
+      if (!name) continue;
+
+      const stepsRaw = Array.isArray(item.steps) ? item.steps : [];
+      const steps: FollowUpStep[] = [];
+      const seenStep = new Set<string>();
+      for (let j = 0; j < stepsRaw.length; j += 1) {
+        const step = normalizeStep(stepsRaw[j], `step${j + 1}`);
+        if (!step) continue;
+        if (seenStep.has(step.id)) continue;
+        seenStep.add(step.id);
+        steps.push(step);
+        if (steps.length >= 30) break;
+      }
+      if (!steps.length) continue;
+
+      chainTemplates.push({ id, name, steps });
+      if (chainTemplates.length >= 50) break;
+    }
+  }
+
   const assignmentsRaw =
     settingsRaw.assignments && typeof settingsRaw.assignments === "object" && !Array.isArray(settingsRaw.assignments)
       ? (settingsRaw.assignments as Record<string, unknown>)
@@ -741,6 +790,7 @@ export function parseFollowUpSettings(value: unknown): FollowUpSettings {
     version: 3,
     enabled: normalizeBool(settingsRaw.enabled, defaults.enabled),
     templates: templates.length ? templates : defaults.templates,
+    chainTemplates,
     assignments: {
       defaultSteps: defaultSteps.length ? defaultSteps : defaults.assignments.defaultSteps,
       calendarSteps,
