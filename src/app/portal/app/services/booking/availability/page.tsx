@@ -1,10 +1,10 @@
 import { PortalServiceGate } from "@/app/portal/app/services/PortalServiceGate";
-import { PortalBookingAvailabilityClient } from "@/app/portal/app/services/booking/availability/PortalBookingAvailabilityClient";
+import { PortalBookingClient } from "@/app/portal/app/services/booking/PortalBookingClient";
 
 export default async function PortalBookingAvailabilityPage() {
   return (
     <PortalServiceGate slug="booking">
-      <PortalBookingAvailabilityClient />
+      <PortalBookingClient />
     </PortalServiceGate>
   );
 }

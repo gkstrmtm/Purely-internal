@@ -10,6 +10,7 @@ const SERVICE_SLUG = "appointment-reminders";
 const MAX_EVENTS = 200;
 const MAX_SENT_KEYS = 4000;
 const MAX_BODY_LEN = 900;
+const MAX_SUBJECT_LEN = 200;
 
 export type AppointmentReminderLeadTimeUnit = "minutes" | "hours" | "days" | "weeks";
 
@@ -31,6 +32,7 @@ export type AppointmentReminderStep = {
   id: string;
   enabled: boolean;
   leadTime: AppointmentReminderLeadTime;
+  subjectTemplate?: string;
   messageBody: string;
 };
 
@@ -125,6 +127,7 @@ export function parseAppointmentReminderSettings(raw: unknown): AppointmentRemin
     id: "step_1",
     enabled: true,
     leadTime: { value: 1, unit: "hours" },
+    subjectTemplate: "Appointment reminder: {when}",
     messageBody: "Reminder: your appointment is scheduled for {when}.",
   };
 
@@ -160,6 +163,7 @@ export function parseAppointmentReminderSettings(raw: unknown): AppointmentRemin
           id: "step_1",
           enabled: true,
           leadTime: normalizeLeadTime(null, leadTimeMinutes),
+          subjectTemplate: baseStep.subjectTemplate,
           messageBody: messageBody || baseStep.messageBody,
         },
       ],
@@ -177,6 +181,8 @@ export function parseAppointmentReminderSettings(raw: unknown): AppointmentRemin
             const id = typeof r.id === "string" ? r.id.trim() : "";
             const stepEnabled = typeof r.enabled === "boolean" ? r.enabled : true;
             const leadTimeMinutes = clampInt(typeof r.leadTimeMinutes === "number" ? r.leadTimeMinutes : 60, 5, 60 * 24 * 14);
+            const subjectTemplate =
+              typeof r.subjectTemplate === "string" ? r.subjectTemplate.slice(0, MAX_SUBJECT_LEN).trim() : baseStep.subjectTemplate;
             const messageBody =
               typeof r.messageBody === "string" ? r.messageBody.slice(0, MAX_BODY_LEN).trim() : baseStep.messageBody;
             if (!id) return [] as AppointmentReminderStep[];
@@ -186,6 +192,7 @@ export function parseAppointmentReminderSettings(raw: unknown): AppointmentRemin
                 id: id.slice(0, 40),
                 enabled: stepEnabled,
                 leadTime: normalizeLeadTime(null, leadTimeMinutes),
+                subjectTemplate: subjectTemplate || baseStep.subjectTemplate,
                 messageBody: messageBody.trim(),
               },
             ];
@@ -209,6 +216,8 @@ export function parseAppointmentReminderSettings(raw: unknown): AppointmentRemin
           const id = typeof r.id === "string" ? r.id.trim() : "";
           const stepEnabled = typeof r.enabled === "boolean" ? r.enabled : true;
           const leadTime = normalizeLeadTime(r.leadTime, 60);
+          const subjectTemplate =
+            typeof r.subjectTemplate === "string" ? r.subjectTemplate.slice(0, MAX_SUBJECT_LEN).trim() : baseStep.subjectTemplate;
           const messageBody =
             typeof r.messageBody === "string" ? r.messageBody.slice(0, MAX_BODY_LEN).trim() : baseStep.messageBody;
           if (!id) return [] as AppointmentReminderStep[];
@@ -218,6 +227,7 @@ export function parseAppointmentReminderSettings(raw: unknown): AppointmentRemin
               id: id.slice(0, 40),
               enabled: stepEnabled,
               leadTime,
+              subjectTemplate: subjectTemplate || baseStep.subjectTemplate,
               messageBody: messageBody.trim(),
             },
           ];
@@ -479,6 +489,14 @@ export function renderAppointmentReminderBody(template: string, vars: Record<str
   return renderTextTemplate(safe, vars).trim();
 }
 
+export function renderAppointmentReminderSubject(template: string | undefined, vars: Record<string, string>) {
+  const safe = String(template || "").slice(0, MAX_SUBJECT_LEN);
+  const rendered = renderTextTemplate(safe, vars).trim();
+  if (rendered) return rendered;
+  const when = String(vars.when || "").trim();
+  return (when ? `Appointment reminder: ${when}` : "Appointment reminder").trim();
+}
+
 export async function processDueAppointmentReminders(opts?: { ownersLimit?: number; perOwnerLimit?: number; windowMinutes?: number }) {
   const ownersLimit = clampInt(opts?.ownersLimit ?? 1000, 1, 5000);
   const perOwnerLimit = clampInt(opts?.perOwnerLimit ?? 25, 1, 100);
@@ -622,6 +640,7 @@ export async function processDueAppointmentReminders(opts?: { ownersLimit?: numb
             };
 
             const body = renderAppointmentReminderBody(step.messageBody, vars);
+            const subject = renderAppointmentReminderSubject(step.subjectTemplate, { ...vars, when });
 
             if (channel === "EMAIL") {
               const to = String(booking.contactEmail || "").trim();
@@ -659,7 +678,7 @@ export async function processDueAppointmentReminders(opts?: { ownersLimit?: numb
               try {
                 await sendAppointmentReminderEmail({
                   to,
-                  subject: `Appointment reminder: ${when}`,
+                  subject,
                   text: body,
                   fromName: site.title?.trim() || "Purely Automation",
                 });

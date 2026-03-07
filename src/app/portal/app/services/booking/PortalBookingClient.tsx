@@ -4,6 +4,8 @@ import Link from "next/link";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { PortalFollowUpClient } from "@/app/portal/app/services/follow-up/PortalFollowUpClient";
+import { PortalBookingAvailabilityClient } from "@/app/portal/app/services/booking/availability/PortalBookingAvailabilityClient";
+import { AppModal } from "@/components/AppModal";
 import { PortalListboxDropdown } from "@/components/PortalListboxDropdown";
 import { PortalMediaPickerModal, type PortalMediaPickItem } from "@/components/PortalMediaPickerModal";
 import { PortalSelectDropdown } from "@/components/PortalSelectDropdown";
@@ -83,6 +85,7 @@ type AppointmentReminderSettings = {
     id: string;
     enabled: boolean;
     leadTime: { value: number; unit: "minutes" | "hours" | "days" | "weeks" };
+    subjectTemplate?: string;
     messageBody: string;
   }[];
 };
@@ -218,6 +221,64 @@ function getApiError(body: unknown): string | undefined {
   return typeof rec.error === "string" ? rec.error : undefined;
 }
 
+function ToggleSwitch({
+  checked,
+  onChange,
+  disabled,
+  accent = "blue",
+}: {
+  checked: boolean;
+  onChange: (checked: boolean) => void;
+  disabled?: boolean;
+  accent?: "blue" | "pink" | "ink";
+}) {
+  const checkedBgClass =
+    accent === "pink"
+      ? "peer-checked:bg-(--color-brand-pink)"
+      : accent === "ink"
+        ? "peer-checked:bg-brand-ink"
+        : "peer-checked:bg-(--color-brand-blue)";
+
+  return (
+    <span className="relative inline-flex h-6 w-11 shrink-0 items-center">
+      <input
+        type="checkbox"
+        className="peer absolute inset-0 z-10 h-full w-full cursor-pointer opacity-0"
+        checked={checked}
+        disabled={disabled}
+        onChange={(e) => onChange(e.target.checked)}
+      />
+      <span
+        aria-hidden="true"
+        className={
+          "pointer-events-none absolute inset-0 rounded-full bg-zinc-200 transition " +
+          checkedBgClass +
+          " peer-disabled:opacity-60"
+        }
+      />
+      <span
+        aria-hidden="true"
+        className="pointer-events-none absolute left-0.5 top-0.5 h-5 w-5 rounded-full bg-white shadow-sm transition peer-checked:translate-x-5 peer-disabled:opacity-60"
+      />
+    </span>
+  );
+}
+
+const BOOKING_PATH_SUFFIX = "/app/services/booking";
+const AVAILABILITY_PATH_SUFFIX = "/app/services/booking/availability";
+
+function portalBasePrefixFromPathname(pathname: string): "/portal" | "/credit" {
+  return pathname.startsWith("/credit/") ? "/credit" : "/portal";
+}
+
+function toBookingPathname(pathname: string) {
+  return `${portalBasePrefixFromPathname(pathname)}${BOOKING_PATH_SUFFIX}`;
+}
+
+function toAvailabilityPathname(pathname: string) {
+  return `${portalBasePrefixFromPathname(pathname)}${AVAILABILITY_PATH_SUFFIX}`;
+}
+
 export function PortalBookingClient() {
   const toast = useToast();
   const [me, setMe] = useState<Me | null>(null);
@@ -255,6 +316,44 @@ export function PortalBookingClient() {
   const [topTab, setTopTab] = useState<"settings" | "appointments" | "reminders" | "follow-up">("appointments");
   const [appointmentsView, setAppointmentsView] = useState<"week" | "month">("week");
 
+  const [availabilityOpen, setAvailabilityOpen] = useState(false);
+  const availabilityReturnHrefRef = useRef<string | null>(null);
+
+  const syncAvailabilityFromUrl = useCallback(() => {
+    if (typeof window === "undefined") return;
+    const isAvail = window.location.pathname === toAvailabilityPathname(window.location.pathname);
+    setAvailabilityOpen(isAvail);
+    if (!isAvail) availabilityReturnHrefRef.current = null;
+  }, []);
+
+  const openAvailability = useCallback(() => {
+    if (typeof window === "undefined") return;
+    if (!availabilityReturnHrefRef.current) {
+      availabilityReturnHrefRef.current = `${window.location.pathname}${window.location.search}${window.location.hash}`;
+    }
+    setAvailabilityOpen(true);
+
+    try {
+      const url = new URL(window.location.href);
+      url.pathname = toAvailabilityPathname(url.pathname);
+      window.history.pushState({ modal: "availability" }, "", url.toString());
+    } catch {
+      // ignore
+    }
+  }, []);
+
+  const closeAvailability = useCallback(() => {
+    setAvailabilityOpen(false);
+    if (typeof window === "undefined") return;
+    const target = availabilityReturnHrefRef.current || toBookingPathname(window.location.pathname);
+    availabilityReturnHrefRef.current = null;
+    try {
+      window.history.replaceState({}, "", target);
+    } catch {
+      // ignore
+    }
+  }, []);
+
   const [contactOpen, setContactOpen] = useState(false);
   const [contactBooking, setContactBooking] = useState<Booking | null>(null);
   const [contactSubject, setContactSubject] = useState("");
@@ -276,6 +375,7 @@ export function PortalBookingClient() {
   const [reminderTwilio, setReminderTwilio] = useState<TwilioMasked | null>(null);
   const [reminderEvents, setReminderEvents] = useState<AppointmentReminderEvent[]>([]);
   const [reminderSaving, setReminderSaving] = useState(false);
+  const [reminderGeneratingStepId, setReminderGeneratingStepId] = useState<string | null>(null);
 
   const [reminderCalendarId, setReminderCalendarId] = useState<string | null>(null);
   const reminderCalendarIdRef = useRef<string | null>(null);
@@ -291,7 +391,7 @@ export function PortalBookingClient() {
   const [varPickerTarget, setVarPickerTarget] = useState<
     | null
     | { kind: "contact"; field: "subject" | "message" }
-    | { kind: "reminder"; stepId: string }
+    | { kind: "reminder"; stepId: string; field: "subjectTemplate" | "messageBody" }
   >(null);
   const activeFieldElRef = useRef<HTMLInputElement | HTMLTextAreaElement | null>(null);
 
@@ -346,6 +446,13 @@ export function PortalBookingClient() {
       // ignore
     }
   }, []);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    syncAvailabilityFromUrl();
+    window.addEventListener("popstate", syncAvailabilityFromUrl);
+    return () => window.removeEventListener("popstate", syncAvailabilityFromUrl);
+  }, [syncAvailabilityFromUrl]);
 
   function maxValueForUnit(unit: AppointmentReminderSettings["steps"][number]["leadTime"]["unit"]) {
     if (unit === "weeks") return 2;
@@ -566,6 +673,56 @@ export function PortalBookingClient() {
     await saveReminders(next);
   }
 
+  async function generateReminderStep(stepId: string) {
+    if (!reminderDraft) return;
+    const step = reminderDraft.steps.find((s) => s.id === stepId);
+    if (!step) return;
+
+    setReminderGeneratingStepId(stepId);
+    setError(null);
+    setStatus(null);
+
+    try {
+      const kind: "SMS" | "EMAIL" = reminderDraft.channel;
+      const res = await fetch("/api/portal/booking/reminders/ai/generate-step", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          kind,
+          prompt: "",
+          existingSubject: kind === "EMAIL" ? String(step.subjectTemplate || "") : undefined,
+          existingBody: String(step.messageBody || ""),
+        }),
+      });
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        const code = (json as any)?.code;
+        if (res.status === 402 && code === "INSUFFICIENT_CREDITS") {
+          setError("Insufficient credits to generate.");
+          return;
+        }
+        setError(getApiError(json) ?? (json as any)?.error ?? "Failed to generate reminder step");
+        return;
+      }
+
+      if (kind === "EMAIL") {
+        updateReminderStep(stepId, {
+          subjectTemplate: String((json as any)?.subject ?? "").slice(0, 200),
+          messageBody: String((json as any)?.body ?? "").slice(0, 8000),
+        });
+      } else {
+        updateReminderStep(stepId, {
+          messageBody: String((json as any)?.body ?? "").slice(0, 8000),
+        });
+      }
+
+      setStatus("Generated");
+      window.setTimeout(() => setStatus(null), 1200);
+    } finally {
+      setReminderGeneratingStepId((prev) => (prev === stepId ? null : prev));
+    }
+  }
+
   async function addMediaLinkToReminderStep(item: PortalMediaPickItem) {
     const stepId = reminderMediaPickerStepId;
     if (!stepId) return;
@@ -625,6 +782,7 @@ export function PortalBookingClient() {
 
   function addReminderStep() {
     const defaultBody = "Reminder: your appointment is scheduled for {when}.";
+    const defaultSubject = "Appointment reminder: {when}";
     setReminderDraft((prev) => {
       if (!prev) return prev;
       const steps = Array.isArray(prev.steps) ? prev.steps.slice() : [];
@@ -633,6 +791,7 @@ export function PortalBookingClient() {
         id: makeClientId("rem_"),
         enabled: true,
         leadTime: { value: 1, unit: "hours" as const },
+        subjectTemplate: defaultSubject,
         messageBody: defaultBody,
       };
       return { ...prev, version: 3, steps: [...steps, nextStep] };
@@ -903,7 +1062,7 @@ export function PortalBookingClient() {
           className={
             "flex-1 min-w-[160px] rounded-2xl border px-4 py-2.5 text-sm font-semibold transition focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-ink/60 " +
             (topTab === "appointments"
-              ? "border-zinc-900 bg-zinc-900 text-white shadow-sm"
+              ? "border-brand-blue bg-brand-blue text-white shadow-sm focus-visible:ring-brand-blue/40"
               : "border-zinc-200 bg-white text-zinc-700 hover:bg-zinc-50")
           }
         >
@@ -916,7 +1075,7 @@ export function PortalBookingClient() {
           className={
             "flex-1 min-w-[160px] rounded-2xl border px-4 py-2.5 text-sm font-semibold transition focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-ink/60 " +
             (topTab === "reminders"
-              ? "border-zinc-900 bg-zinc-900 text-white shadow-sm"
+              ? "border-brand-pink bg-brand-pink text-white shadow-sm focus-visible:ring-brand-pink/40"
               : "border-zinc-200 bg-white text-zinc-700 hover:bg-zinc-50")
           }
         >
@@ -929,7 +1088,7 @@ export function PortalBookingClient() {
           className={
             "flex-1 min-w-[160px] rounded-2xl border px-4 py-2.5 text-sm font-semibold transition focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-ink/60 " +
             (topTab === "follow-up"
-              ? "border-zinc-900 bg-zinc-900 text-white shadow-sm"
+              ? "border-brand-ink bg-brand-ink text-white shadow-sm focus-visible:ring-brand-ink/40"
               : "border-zinc-200 bg-white text-zinc-700 hover:bg-zinc-50")
           }
         >
@@ -1184,12 +1343,13 @@ export function PortalBookingClient() {
                 </div>
               </div>
 
-              <Link
-                href="/portal/app/services/booking/availability"
+              <button
+                type="button"
                 className="inline-flex items-center justify-center rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm font-semibold text-brand-ink hover:bg-zinc-50"
+                onClick={openAvailability}
               >
                 Edit availability
-              </Link>
+              </button>
             </div>
 
             <div className="mt-4 space-y-3">
@@ -1428,15 +1588,15 @@ export function PortalBookingClient() {
                         </div>
 
                         <div className="flex items-center gap-2">
-                          <label className="flex items-center gap-2 text-sm">
+                          <div className="flex items-center gap-2 text-sm">
                             <span className="text-xs text-zinc-600">On</span>
-                            <input
-                              type="checkbox"
+                            <ToggleSwitch
                               checked={Boolean(s.enabled)}
                               disabled={reminderSaving}
-                              onChange={(e) => updateReminderStep(s.id, { enabled: e.target.checked })}
+                              accent="pink"
+                              onChange={(checked) => updateReminderStep(s.id, { enabled: checked })}
                             />
-                          </label>
+                          </div>
                           <button
                             type="button"
                             className="rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm hover:bg-zinc-50 disabled:opacity-60"
@@ -1491,14 +1651,24 @@ export function PortalBookingClient() {
 
                         <label className="rounded-2xl border border-zinc-200 bg-zinc-50 px-4 py-3 text-sm sm:col-span-2">
                           <div className="flex items-center justify-between gap-3">
-                            <div className="font-medium text-zinc-800">Message</div>
+                            <div className="font-medium text-zinc-800">
+                              {reminderDraft.channel === "EMAIL" ? "Email" : "SMS"} message
+                            </div>
                             <div className="flex items-center gap-2">
+                              <button
+                                type="button"
+                                disabled={reminderSaving || reminderGeneratingStepId === s.id}
+                                className="rounded-xl border border-zinc-200 bg-white px-3 py-1.5 text-xs font-semibold text-brand-ink hover:bg-zinc-50 disabled:opacity-60"
+                                onClick={() => void generateReminderStep(s.id)}
+                              >
+                                {reminderGeneratingStepId === s.id ? "Generating…" : "Generate"}
+                              </button>
                               <button
                                 type="button"
                                 disabled={reminderSaving}
                                 className="rounded-xl border border-zinc-200 bg-white px-3 py-1.5 text-xs font-semibold text-brand-ink hover:bg-zinc-50 disabled:opacity-60"
                                 onClick={() => {
-                                  setVarPickerTarget({ kind: "reminder", stepId: s.id });
+                                  setVarPickerTarget({ kind: "reminder", stepId: s.id, field: "messageBody" });
                                   setVarPickerOpen(true);
                                 }}
                               >
@@ -1527,6 +1697,35 @@ export function PortalBookingClient() {
                               </button>
                             </div>
                           </div>
+
+                          {reminderDraft.channel === "EMAIL" ? (
+                            <div className="mt-3">
+                              <div className="flex items-center justify-between gap-3">
+                                <div className="text-xs font-semibold text-zinc-600">Subject</div>
+                                <button
+                                  type="button"
+                                  disabled={reminderSaving}
+                                  className="rounded-xl border border-zinc-200 bg-white px-3 py-1.5 text-xs font-semibold text-brand-ink hover:bg-zinc-50 disabled:opacity-60"
+                                  onClick={() => {
+                                    setVarPickerTarget({ kind: "reminder", stepId: s.id, field: "subjectTemplate" });
+                                    setVarPickerOpen(true);
+                                  }}
+                                >
+                                  Insert variable
+                                </button>
+                              </div>
+                              <input
+                                className="mt-2 h-10 w-full rounded-xl border border-zinc-200 bg-white px-3 text-sm"
+                                value={String(s.subjectTemplate ?? "")}
+                                onChange={(e) => updateReminderStep(s.id, { subjectTemplate: e.target.value })}
+                                onFocus={(e) => {
+                                  activeFieldElRef.current = e.currentTarget;
+                                }}
+                                disabled={reminderSaving}
+                              />
+                            </div>
+                          ) : null}
+
                           <textarea
                             className="mt-2 min-h-[90px] w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm"
                             value={s.messageBody}
@@ -1581,27 +1780,59 @@ export function PortalBookingClient() {
                 </div>
               ) : (
                 filteredReminderEvents.slice(0, 12).map((e) => (
-                  <div key={e.id} className="rounded-2xl border border-zinc-200 bg-zinc-50 px-4 py-3 text-sm">
-                    <div className="flex items-center justify-between gap-3">
-                      <div className="font-medium text-zinc-800">{e.contactName || "(unknown)"}</div>
-                      <div
-                        className={`text-xs font-semibold ${
-                          e.status === "SENT"
-                            ? "text-emerald-700"
-                            : e.status === "FAILED"
-                              ? "text-red-700"
-                              : "text-zinc-600"
-                        }`}
+                  (() => {
+                    const inboxHref =
+                      e.channel === "EMAIL" && e.to
+                        ? `/portal/app/services/inbox/email?to=${encodeURIComponent(e.to)}`
+                        : e.smsTo
+                          ? `/portal/app/services/inbox/sms?to=${encodeURIComponent(e.smsTo)}`
+                          : e.contactPhoneRaw
+                            ? `/portal/app/services/inbox/sms?to=${encodeURIComponent(e.contactPhoneRaw)}`
+                            : null;
+
+                    const Card = (
+                      <>
+                        <div className="flex items-center justify-between gap-3">
+                          <div className="font-medium text-zinc-800">{e.contactName || "(unknown)"}</div>
+                          <div
+                            className={`text-xs font-semibold ${
+                              e.status === "SENT"
+                                ? "text-emerald-700"
+                                : e.status === "FAILED"
+                                  ? "text-red-700"
+                                  : "text-zinc-600"
+                            }`}
+                          >
+                            {e.status.toLowerCase()}
+                          </div>
+                        </div>
+                        <div className="mt-1 text-xs text-zinc-600">
+                          Step: {e.stepLeadTimeMinutes}m before · Appt: {new Date(e.bookingStartAtIso).toLocaleString()}
+                        </div>
+                        {e.reason ? <div className="mt-1 text-xs text-zinc-600">{e.reason}</div> : null}
+                        {e.error ? <div className="mt-1 text-xs text-red-700">{e.error}</div> : null}
+                        {inboxHref ? <div className="mt-2 text-xs font-semibold text-brand-ink">Open thread →</div> : null}
+                      </>
+                    );
+
+                    if (!inboxHref) {
+                      return (
+                        <div key={e.id} className="rounded-2xl border border-zinc-200 bg-zinc-50 px-4 py-3 text-sm">
+                          {Card}
+                        </div>
+                      );
+                    }
+
+                    return (
+                      <a
+                        key={e.id}
+                        href={inboxHref}
+                        className="block rounded-2xl border border-zinc-200 bg-zinc-50 px-4 py-3 text-sm hover:bg-zinc-100"
                       >
-                        {e.status.toLowerCase()}
-                      </div>
-                    </div>
-                    <div className="mt-1 text-xs text-zinc-600">
-                      Step: {e.stepLeadTimeMinutes}m before · Appt: {new Date(e.bookingStartAtIso).toLocaleString()}
-                    </div>
-                    {e.reason ? <div className="mt-1 text-xs text-zinc-600">{e.reason}</div> : null}
-                    {e.error ? <div className="mt-1 text-xs text-red-700">{e.error}</div> : null}
-                  </div>
+                        {Card}
+                      </a>
+                    );
+                  })()
                 ))
               )}
             </div>
@@ -1632,7 +1863,8 @@ export function PortalBookingClient() {
             description="Share this link anywhere. Only times you mark as available will show."
             accent="slate"
             status={site ? (site.enabled ? "on" : "off") : undefined}
-            defaultOpen={false}
+            collapsible={false}
+            dotClassName="hidden"
           >
 
           <div className="mt-4 flex flex-col gap-3 sm:flex-row sm:items-center">
@@ -1654,14 +1886,15 @@ export function PortalBookingClient() {
           </div>
 
           <div className="mt-6 grid grid-cols-1 gap-4 sm:grid-cols-2">
-            <label className="flex items-center justify-between gap-3 rounded-2xl border border-zinc-200 bg-zinc-50 px-4 py-3 text-sm">
+            <div className="flex items-center justify-between gap-3 rounded-2xl border border-zinc-200 bg-zinc-50 px-4 py-3 text-sm">
               <span className="font-medium text-zinc-800">Booking</span>
-              <input
-                type="checkbox"
+              <ToggleSwitch
                 checked={Boolean(site?.enabled)}
-                onChange={(e) => save({ enabled: e.target.checked })}
+                disabled={!site}
+                accent="blue"
+                onChange={(checked) => save({ enabled: checked })}
               />
-            </label>
+            </div>
 
             <label className="rounded-2xl border border-zinc-200 bg-zinc-50 px-4 py-3 text-sm">
               <div className="font-medium text-zinc-800">Meeting length</div>
@@ -1697,12 +1930,13 @@ export function PortalBookingClient() {
           </div>
 
           <div className="mt-6 flex flex-col gap-3 sm:flex-row">
-            <Link
-              href="/portal/app/services/booking/availability"
+            <button
+              type="button"
               className="inline-flex items-center justify-center rounded-2xl border border-zinc-200 bg-white px-5 py-3 text-sm font-semibold text-brand-ink hover:bg-zinc-50"
+              onClick={openAvailability}
             >
               Edit availability
-            </Link>
+            </button>
             {site?.enabled ? (
               <a
                 href={bookingUrl ?? "#"}
@@ -1788,18 +2022,18 @@ export function PortalBookingClient() {
                       ) : null}
                     </div>
 
-                    <label className="flex items-center gap-2 text-sm">
+                    <div className="flex items-center gap-2 text-sm">
                       <span className="text-xs text-zinc-600">On</span>
-                      <input
-                        type="checkbox"
+                      <ToggleSwitch
                         checked={Boolean(c.enabled)}
                         disabled={calSaving}
-                        onChange={(e) => {
-                          const next = calendars.map((x) => (x.id === c.id ? { ...x, enabled: e.target.checked } : x));
+                        accent="ink"
+                        onChange={(checked) => {
+                          const next = calendars.map((x) => (x.id === c.id ? { ...x, enabled: checked } : x));
                           void saveCalendars(next);
                         }}
                       />
-                    </label>
+                    </div>
                   </div>
 
                   <div className="mt-3 flex flex-wrap justify-end gap-2">
@@ -1886,7 +2120,8 @@ export function PortalBookingClient() {
             title="Customization & notifications"
             description="Add an optional header photo, meeting info, and who gets notified when someone books."
             accent="slate"
-            defaultOpen={false}
+            collapsible={false}
+            dotClassName="hidden"
           >
 
           <div className="mt-4 rounded-2xl border border-zinc-200 bg-zinc-50 p-4">
@@ -2150,49 +2385,49 @@ export function PortalBookingClient() {
             <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
               <label className="flex items-center justify-between gap-3 rounded-2xl border border-zinc-200 bg-zinc-50 px-4 py-3 text-sm">
                 <span className="font-medium text-zinc-800">Ask for phone</span>
-                <input
-                  type="checkbox"
+                <ToggleSwitch
                   checked={form.phone.enabled}
                   disabled={formSaving}
-                  onChange={(e) =>
+                  accent="ink"
+                  onChange={(checked) =>
                     void saveForm({
                       ...form,
-                      phone: { enabled: e.target.checked, required: e.target.checked ? form.phone.required : false },
+                      phone: { enabled: checked, required: checked ? form.phone.required : false },
                     })
                   }
                 />
               </label>
               <label className="flex items-center justify-between gap-3 rounded-2xl border border-zinc-200 bg-zinc-50 px-4 py-3 text-sm">
                 <span className="font-medium text-zinc-800">Phone required</span>
-                <input
-                  type="checkbox"
+                <ToggleSwitch
                   checked={form.phone.required}
                   disabled={formSaving || !form.phone.enabled}
-                  onChange={(e) => void saveForm({ ...form, phone: { ...form.phone, required: e.target.checked } })}
+                  accent="ink"
+                  onChange={(checked) => void saveForm({ ...form, phone: { ...form.phone, required: checked } })}
                 />
               </label>
 
               <label className="flex items-center justify-between gap-3 rounded-2xl border border-zinc-200 bg-zinc-50 px-4 py-3 text-sm">
                 <span className="font-medium text-zinc-800">Ask for notes</span>
-                <input
-                  type="checkbox"
+                <ToggleSwitch
                   checked={form.notes.enabled}
                   disabled={formSaving}
-                  onChange={(e) =>
+                  accent="ink"
+                  onChange={(checked) =>
                     void saveForm({
                       ...form,
-                      notes: { enabled: e.target.checked, required: e.target.checked ? form.notes.required : false },
+                      notes: { enabled: checked, required: checked ? form.notes.required : false },
                     })
                   }
                 />
               </label>
               <label className="flex items-center justify-between gap-3 rounded-2xl border border-zinc-200 bg-zinc-50 px-4 py-3 text-sm">
                 <span className="font-medium text-zinc-800">Notes required</span>
-                <input
-                  type="checkbox"
+                <ToggleSwitch
                   checked={form.notes.required}
                   disabled={formSaving || !form.notes.enabled}
-                  onChange={(e) => void saveForm({ ...form, notes: { ...form.notes, required: e.target.checked } })}
+                  accent="ink"
+                  onChange={(checked) => void saveForm({ ...form, notes: { ...form.notes, required: checked } })}
                 />
               </label>
             </div>
@@ -2251,13 +2486,13 @@ export function PortalBookingClient() {
 
                       <label className="flex items-center justify-between gap-2 text-sm text-zinc-700">
                         <span>Required</span>
-                        <input
-                          type="checkbox"
+                        <ToggleSwitch
                           checked={q.required}
                           disabled={formSaving}
-                          onChange={(e) => {
+                          accent="ink"
+                          onChange={(checked) => {
                             const next = [...form.questions];
-                            next[idx] = { ...q, required: e.target.checked };
+                            next[idx] = { ...q, required: checked };
                             void saveForm({ ...form, questions: next });
                           }}
                         />
@@ -2385,20 +2620,20 @@ export function PortalBookingClient() {
             <div className="mt-4 grid grid-cols-1 gap-3 sm:grid-cols-2">
               <label className="flex items-center justify-between gap-3 rounded-2xl border border-zinc-200 bg-zinc-50 px-4 py-3 text-sm">
                 <span className="font-medium text-zinc-800">Email</span>
-                <input
-                  type="checkbox"
+                <ToggleSwitch
                   checked={contactSendEmail}
                   disabled={contactBusy}
-                  onChange={(e) => setContactSendEmail(e.target.checked)}
+                  accent="ink"
+                  onChange={(checked) => setContactSendEmail(checked)}
                 />
               </label>
               <label className="flex items-center justify-between gap-3 rounded-2xl border border-zinc-200 bg-zinc-50 px-4 py-3 text-sm">
                 <span className="font-medium text-zinc-800">Text</span>
-                <input
-                  type="checkbox"
+                <ToggleSwitch
                   checked={contactSendSms}
                   disabled={contactBusy || !contactBooking.contactPhone}
-                  onChange={(e) => setContactSendSms(e.target.checked)}
+                  accent="ink"
+                  onChange={(checked) => setContactSendSms(checked)}
                 />
               </label>
             </div>
@@ -2511,12 +2746,7 @@ export function PortalBookingClient() {
 
             <label className="mt-4 flex items-center justify-between gap-3 rounded-2xl border border-zinc-200 bg-zinc-50 px-4 py-3 text-sm">
               <span className="font-medium text-zinc-800">Force availability</span>
-              <input
-                type="checkbox"
-                checked={reschedForce}
-                disabled={reschedBusy}
-                onChange={(e) => setReschedForce(e.target.checked)}
-              />
+              <ToggleSwitch checked={reschedForce} disabled={reschedBusy} accent="ink" onChange={setReschedForce} />
             </label>
             <div className="mt-2 text-xs text-zinc-500">
               If there’s no availability block covering this time, we’ll create one.
@@ -2570,6 +2800,27 @@ export function PortalBookingClient() {
         </div>
       ) : null}
 
+      <AppModal
+        open={availabilityOpen}
+        title="Availability"
+        description="Select times you’re available for bookings."
+        onClose={closeAvailability}
+        widthClassName="w-[min(1100px,calc(100vw-32px))]"
+        footer={
+          <div className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
+            <button
+              type="button"
+              className="rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm font-semibold text-zinc-800 hover:bg-zinc-50"
+              onClick={closeAvailability}
+            >
+              Done
+            </button>
+          </div>
+        }
+      >
+        <PortalBookingAvailabilityClient variant="modal" />
+      </AppModal>
+
       <PortalVariablePickerModal
         open={varPickerOpen}
         variables={bookingTemplateVariables}
@@ -2608,9 +2859,9 @@ export function PortalBookingClient() {
           }
 
           const step = reminderDraft?.steps?.find((s) => s.id === varPickerTarget.stepId);
-          const current = String(step?.messageBody ?? "");
+          const current = String(step?.[varPickerTarget.field] ?? "");
           const { next, cursor } = insertAtCursor(current, insert, el);
-          updateReminderStep(varPickerTarget.stepId, { messageBody: next });
+          updateReminderStep(varPickerTarget.stepId, { [varPickerTarget.field]: next } as any);
           requestAnimationFrame(() => {
             const node = activeFieldElRef.current;
             if (!node) return;

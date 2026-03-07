@@ -769,7 +769,6 @@ export function PortalNewsletterClient({ initialAudience }: { initialAudience: A
           hint: selected.has(t.id) ? "Already added" : undefined,
           disabled: selected.has(t.id),
         })),
-      { value: "__create__", label: "Create new tag…" },
     ];
 
     return out as any;
@@ -1507,7 +1506,7 @@ export function PortalNewsletterClient({ initialAudience }: { initialAudience: A
 
               {aiStep === "delivery" ? (
                 <div className="mt-4 grid gap-4 sm:grid-cols-2">
-                  <div className="rounded-2xl border border-(--color-brand-blue)/20 bg-(--color-brand-blue)/5 px-4 py-3 sm:col-span-2">
+                  <div className="rounded-2xl border border-brand-blue/20 bg-brand-blue/5 px-4 py-3 sm:col-span-2">
                     <div className="flex flex-col items-start justify-between gap-2 sm:flex-row sm:items-center">
                       <div>
                         <div className="text-sm font-semibold text-zinc-800">Skip to the end</div>
@@ -1930,11 +1929,6 @@ export function PortalNewsletterClient({ initialAudience }: { initialAudience: A
                         setAddTagValue("");
                         return;
                       }
-                      if (id === "__create__") {
-                        setAddTagValue("");
-                        setShowCreateTag(true);
-                        return;
-                      }
                       setAddTagValue("");
                       setSettings((prev) => {
                         if (!prev) return prev;
@@ -1946,6 +1940,20 @@ export function PortalNewsletterClient({ initialAudience }: { initialAudience: A
                     placeholder="Add tag…"
                   />
                 </div>
+
+                {!showCreateTag ? (
+                  <button
+                    type="button"
+                    className="mt-2 text-xs font-semibold text-(--color-brand-blue) hover:underline"
+                    onClick={() => {
+                      const suggestion = tagSearch.trim().slice(0, 60);
+                      if (suggestion && !createTagName.trim()) setCreateTagName(suggestion);
+                      setShowCreateTag(true);
+                    }}
+                  >
+                    Create new tag…
+                  </button>
+                ) : null}
               </div>
 
               <div className="mt-3 flex flex-wrap gap-2">

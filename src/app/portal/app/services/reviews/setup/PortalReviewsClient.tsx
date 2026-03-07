@@ -478,7 +478,6 @@ export default function PortalReviewsClient() {
     return [
       { value: "", label: "No tag" },
       ...filtered.slice(0, 120).map((t) => ({ value: t.id, label: t.name })),
-      { value: "__create__", label: "Create new tag…" },
     ];
   }, [contactTags, tagSearch]);
 
@@ -1061,11 +1060,6 @@ export default function PortalReviewsClient() {
                               value={settings.tagAfterSend.tagId || ""}
                               onChange={(v) => {
                                 const id = String(v || "");
-                                if (id === "__create__") {
-                                  setShowCreateTag(true);
-                                  return;
-                                }
-                                setShowCreateTag(false);
                                 setSettings({
                                   ...settings,
                                   tagAfterSend: { ...settings.tagAfterSend, tagId: id ? id : null },
@@ -1076,6 +1070,20 @@ export default function PortalReviewsClient() {
                               buttonClassName="flex h-10 w-full items-center justify-between gap-2 rounded-xl border border-zinc-200 bg-white px-3 text-sm hover:bg-zinc-50 focus-visible:ring-2 focus-visible:ring-zinc-300"
                             />
                           </div>
+
+                          {!showCreateTag ? (
+                            <button
+                              type="button"
+                              className="mt-2 text-xs font-semibold text-(--color-brand-blue) hover:underline"
+                              onClick={() => {
+                                const suggestion = tagSearch.trim().slice(0, 60);
+                                if (suggestion && !createTagName.trim()) setCreateTagName(suggestion);
+                                setShowCreateTag(true);
+                              }}
+                            >
+                              Create new tag…
+                            </button>
+                          ) : null}
                         </div>
                         {contactTags.length === 0 ? (
                           <div className="mt-2 text-xs text-zinc-500">No tags found yet. Create one in People → Tags.</div>

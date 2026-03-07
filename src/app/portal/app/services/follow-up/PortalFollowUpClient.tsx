@@ -131,6 +131,49 @@ function fmtWhen(iso: string) {
   }).format(d);
 }
 
+function ToggleSwitch({
+  checked,
+  onChange,
+  disabled,
+  accent = "blue",
+}: {
+  checked: boolean;
+  onChange: (checked: boolean) => void;
+  disabled?: boolean;
+  accent?: "blue" | "pink" | "ink";
+}) {
+  const checkedBgClass =
+    accent === "pink"
+      ? "peer-checked:bg-(--color-brand-pink)"
+      : accent === "ink"
+        ? "peer-checked:bg-brand-ink"
+        : "peer-checked:bg-(--color-brand-blue)";
+
+  return (
+    <span className="relative inline-flex h-6 w-11 shrink-0 items-center">
+      <input
+        type="checkbox"
+        className="peer absolute inset-0 z-10 h-full w-full cursor-pointer opacity-0"
+        checked={checked}
+        disabled={disabled}
+        onChange={(e) => onChange(e.target.checked)}
+      />
+      <span
+        aria-hidden="true"
+        className={
+          "pointer-events-none absolute inset-0 rounded-full bg-zinc-200 transition " +
+          checkedBgClass +
+          " peer-disabled:opacity-60"
+        }
+      />
+      <span
+        aria-hidden="true"
+        className="pointer-events-none absolute left-0.5 top-0.5 h-5 w-5 rounded-full bg-white shadow-sm transition peer-checked:translate-x-5 peer-disabled:opacity-60"
+      />
+    </span>
+  );
+}
+
 export function PortalFollowUpClient({ embedded }: { embedded?: boolean } = {}) {
   const toast = useToast();
   const isEmbedded = Boolean(embedded);
@@ -170,6 +213,10 @@ export function PortalFollowUpClient({ embedded }: { embedded?: boolean } = {}) 
   const [testMessage, setTestMessage] = useState("Just testing follow-up automation.");
   const [testBusy, setTestBusy] = useState(false);
 
+  const [generateBusy, setGenerateBusy] = useState<null | { kind: "preset" | "step"; id: string; channel: "EMAIL" | "SMS" }>(
+    null,
+  );
+
   const [internalEmailDraft, setInternalEmailDraft] = useState("");
   const [internalPhoneDraft, setInternalPhoneDraft] = useState("");
 
@@ -180,6 +227,46 @@ export function PortalFollowUpClient({ embedded }: { embedded?: boolean } = {}) 
     | { kind: "step"; stepId: string; field: "emailSubject" | "emailBody" | "smsBody" }
   >(null);
   const activeFieldElRef = useRef<HTMLInputElement | HTMLTextAreaElement | null>(null);
+
+  async function generateDraft(opts: {
+    kind: "EMAIL" | "SMS";
+    stepName?: string;
+    prompt?: string;
+    existingSubject?: string;
+    existingBody?: string;
+  }): Promise<{ subject?: string; body: string } | null> {
+    const res = await fetch("/api/portal/follow-up/ai/generate-step", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        kind: opts.kind,
+        stepName: opts.stepName,
+        prompt: opts.prompt,
+        existingSubject: opts.existingSubject,
+        existingBody: opts.existingBody,
+      }),
+    });
+
+    const json = await res.json().catch(() => ({}));
+    if (!res.ok) {
+      const code = (json as any)?.code;
+      if (res.status === 402 && code === "INSUFFICIENT_CREDITS") {
+        toast.error("Insufficient credits to generate.");
+        return null;
+      }
+      toast.error((json as any)?.error || "Failed to generate step");
+      return null;
+    }
+
+    if (opts.kind === "EMAIL") {
+      return {
+        subject: String((json as any)?.subject ?? "").slice(0, 200),
+        body: String((json as any)?.body ?? "").slice(0, 8000),
+      };
+    }
+
+    return { body: String((json as any)?.body ?? "").slice(0, 8000) };
+  }
 
   function insertAtCursor(current: string, insert: string, el: HTMLInputElement | HTMLTextAreaElement | null) {
     const start = el?.selectionStart ?? current.length;
@@ -326,6 +413,11 @@ export function PortalFollowUpClient({ embedded }: { embedded?: boolean } = {}) 
     if (!settings || !selectedTemplateId) return null;
     return settings.templates.find((t) => t.id === selectedTemplateId) ?? null;
   }, [settings, selectedTemplateId]);
+
+  const selectedTemplateBest = useMemo(() => {
+    if (!selectedTemplate) return null;
+    return delayToBestUnit(selectedTemplate.delayMinutes);
+  }, [selectedTemplate]);
 
   function updateTemplate(templateId: string, patch: Partial<Settings["templates"][number]>) {
     if (!settings) return;
@@ -780,18 +872,21 @@ export function PortalFollowUpClient({ embedded }: { embedded?: boolean } = {}) 
               description="Send follow-ups automatically after a booked appointment ends."
               accent="slate"
               status={settings ? (settings.enabled ? "on" : "off") : undefined}
-              defaultOpen={false}
+              collapsible={false}
+              dotClassName="hidden"
             >
 
-            <div className="mt-5 grid grid-cols-1 gap-4 sm:grid-cols-2">
-              <label className="inline-flex items-center gap-3 rounded-2xl border border-zinc-200 bg-zinc-50 px-4 py-3 text-sm text-zinc-800">
-                <input
-                  type="checkbox"
-                  checked={Boolean(settings?.enabled)}
-                  onChange={(e) => settings && setSettings({ ...settings, enabled: e.target.checked })}
-                />
-                On
-              </label>
+            <div className="mt-5 flex items-center justify-between gap-3 rounded-2xl border border-zinc-200 bg-zinc-50 px-4 py-3 text-sm">
+              <div className="min-w-0">
+                <div className="font-medium text-zinc-800">Enabled</div>
+                <div className="mt-0.5 text-xs text-zinc-500">Turn follow-up automation on/off.</div>
+              </div>
+              <ToggleSwitch
+                checked={Boolean(settings?.enabled)}
+                disabled={!settings}
+                accent="ink"
+                onChange={(checked) => settings && setSettings({ ...settings, enabled: checked })}
+              />
             </div>
 
             <div className="mt-6 rounded-2xl border border-zinc-200 bg-zinc-50 p-4">
@@ -915,23 +1010,45 @@ export function PortalFollowUpClient({ embedded }: { embedded?: boolean } = {}) 
                       />
                     </div>
                     <div className="sm:col-span-3">
-                      <label className="text-xs font-semibold text-zinc-600">Delay (minutes)</label>
-                      <input
-                        type="number"
-                        value={selectedTemplate.delayMinutes}
-                        onChange={(e) => updateTemplate(selectedTemplate.id, { delayMinutes: Number(e.target.value || 0) })}
-                        className="mt-1 w-full rounded-2xl border border-zinc-200 bg-white px-4 py-3 text-sm outline-none focus:border-zinc-300"
-                      />
+                      <label className="text-xs font-semibold text-zinc-600">Delay</label>
+                      <div className="mt-1 grid grid-cols-12 gap-2">
+                        <input
+                          type="number"
+                          min={0}
+                          step={1}
+                          value={selectedTemplateBest?.value ?? 0}
+                          onChange={(e) => {
+                            const v = Number(e.target.value);
+                            updateTemplate(selectedTemplate.id, {
+                              delayMinutes: valueUnitToMinutes(Number.isFinite(v) ? v : 0, selectedTemplateBest?.unit ?? "minutes"),
+                            });
+                          }}
+                          className="col-span-7 rounded-2xl border border-zinc-200 bg-white px-4 py-3 text-sm outline-none focus:border-zinc-300"
+                        />
+                        <PortalListboxDropdown
+                          value={selectedTemplateBest?.unit ?? "minutes"}
+                          onChange={(unit) =>
+                            updateTemplate(selectedTemplate.id, {
+                              delayMinutes: valueUnitToMinutes(selectedTemplateBest?.value ?? 0, unit),
+                            })
+                          }
+                          options={DELAY_UNITS.map((u) => ({ value: u.id, label: u.label }))}
+                          className="col-span-5"
+                          buttonClassName="flex w-full items-center justify-between gap-2 rounded-2xl border border-zinc-200 bg-white px-4 py-3 text-sm hover:bg-zinc-50 focus-visible:ring-2 focus-visible:ring-zinc-300"
+                        />
+                      </div>
+                      <div className="mt-1 text-xs text-zinc-500">Up to 10 years.</div>
                     </div>
                     <div className="sm:col-span-3 flex flex-wrap items-end gap-2">
-                      <label className="inline-flex items-center gap-2 rounded-2xl border border-zinc-200 bg-white px-4 py-3 text-sm text-zinc-800">
-                        <input
-                          type="checkbox"
+                      <div className="inline-flex items-center gap-2 rounded-2xl border border-zinc-200 bg-white px-4 py-3 text-sm text-zinc-800">
+                        <span className="text-xs text-zinc-600">On</span>
+                        <ToggleSwitch
                           checked={Boolean(selectedTemplate.enabled)}
-                          onChange={(e) => updateTemplate(selectedTemplate.id, { enabled: e.target.checked })}
+                          disabled={busy}
+                          accent="ink"
+                          onChange={(checked) => updateTemplate(selectedTemplate.id, { enabled: checked })}
                         />
-                        On
-                      </label>
+                      </div>
                       <button
                         type="button"
                         onClick={() => removeTemplate(selectedTemplate.id)}
@@ -1099,30 +1216,32 @@ export function PortalFollowUpClient({ embedded }: { embedded?: boolean } = {}) 
                   </div>
 
                   <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-                    <label className="inline-flex items-center gap-3 rounded-2xl border border-zinc-200 bg-white px-4 py-3 text-sm text-zinc-800">
-                      <input
-                        type="checkbox"
+                    <div className="flex items-center justify-between gap-3 rounded-2xl border border-zinc-200 bg-white px-4 py-3 text-sm text-zinc-800">
+                      <div>Email</div>
+                      <ToggleSwitch
                         checked={Boolean(selectedTemplate.channels.email)}
-                        onChange={(e) =>
+                        disabled={busy}
+                        accent="blue"
+                        onChange={(checked) =>
                           updateTemplate(selectedTemplate.id, {
-                            channels: { ...selectedTemplate.channels, email: e.target.checked },
+                            channels: { ...selectedTemplate.channels, email: checked },
                           })
                         }
                       />
-                      Email
-                    </label>
-                    <label className="inline-flex items-center gap-3 rounded-2xl border border-zinc-200 bg-white px-4 py-3 text-sm text-zinc-800">
-                      <input
-                        type="checkbox"
+                    </div>
+                    <div className="flex items-center justify-between gap-3 rounded-2xl border border-zinc-200 bg-white px-4 py-3 text-sm text-zinc-800">
+                      <div>Text (SMS)</div>
+                      <ToggleSwitch
                         checked={Boolean(selectedTemplate.channels.sms)}
-                        onChange={(e) =>
+                        disabled={busy}
+                        accent="blue"
+                        onChange={(checked) =>
                           updateTemplate(selectedTemplate.id, {
-                            channels: { ...selectedTemplate.channels, sms: e.target.checked },
+                            channels: { ...selectedTemplate.channels, sms: checked },
                           })
                         }
                       />
-                      Text (SMS)
-                    </label>
+                    </div>
                   </div>
 
                   <div>
@@ -1156,6 +1275,36 @@ export function PortalFollowUpClient({ embedded }: { embedded?: boolean } = {}) 
                     <div className="flex items-center justify-between gap-3">
                       <label className="text-xs font-semibold text-zinc-600">Email body</label>
                       <div className="flex items-center gap-2">
+                        <button
+                          type="button"
+                          disabled={Boolean(generateBusy) || busy}
+                          className="rounded-xl border border-zinc-200 bg-white px-3 py-1.5 text-xs font-semibold text-brand-ink hover:bg-zinc-50 disabled:opacity-60"
+                          onClick={async () => {
+                            setGenerateBusy({ kind: "preset", id: selectedTemplate.id, channel: "EMAIL" });
+                            try {
+                              const draft = await generateDraft({
+                                kind: "EMAIL",
+                                stepName: selectedTemplate.name,
+                                existingSubject: selectedTemplate.email.subjectTemplate,
+                                existingBody: selectedTemplate.email.bodyTemplate,
+                              });
+                              if (!draft) return;
+                              updateTemplate(selectedTemplate.id, {
+                                email: {
+                                  ...selectedTemplate.email,
+                                  subjectTemplate: (draft.subject ?? selectedTemplate.email.subjectTemplate) || "",
+                                  bodyTemplate: draft.body || "",
+                                },
+                              });
+                            } finally {
+                              setGenerateBusy(null);
+                            }
+                          }}
+                        >
+                          {generateBusy?.kind === "preset" && generateBusy.id === selectedTemplate.id && generateBusy.channel === "EMAIL"
+                            ? "Generating…"
+                            : "Generate"}
+                        </button>
                         <button
                           type="button"
                           className="rounded-xl border border-zinc-200 bg-white px-3 py-1.5 text-xs font-semibold text-brand-ink hover:bg-zinc-50"
@@ -1206,6 +1355,31 @@ export function PortalFollowUpClient({ embedded }: { embedded?: boolean } = {}) 
                     <div className="flex items-center justify-between gap-3">
                       <label className="text-xs font-semibold text-zinc-600">SMS body</label>
                       <div className="flex items-center gap-2">
+                        <button
+                          type="button"
+                          disabled={Boolean(generateBusy) || busy}
+                          className="rounded-xl border border-zinc-200 bg-white px-3 py-1.5 text-xs font-semibold text-brand-ink hover:bg-zinc-50 disabled:opacity-60"
+                          onClick={async () => {
+                            setGenerateBusy({ kind: "preset", id: selectedTemplate.id, channel: "SMS" });
+                            try {
+                              const draft = await generateDraft({
+                                kind: "SMS",
+                                stepName: selectedTemplate.name,
+                                existingBody: selectedTemplate.sms.bodyTemplate,
+                              });
+                              if (!draft) return;
+                              updateTemplate(selectedTemplate.id, {
+                                sms: { ...selectedTemplate.sms, bodyTemplate: draft.body || "" },
+                              });
+                            } finally {
+                              setGenerateBusy(null);
+                            }
+                          }}
+                        >
+                          {generateBusy?.kind === "preset" && generateBusy.id === selectedTemplate.id && generateBusy.channel === "SMS"
+                            ? "Generating…"
+                            : "Generate"}
+                        </button>
                         <button
                           type="button"
                           className="rounded-xl border border-zinc-200 bg-white px-3 py-1.5 text-xs font-semibold text-brand-ink hover:bg-zinc-50"
@@ -1420,14 +1594,15 @@ export function PortalFollowUpClient({ embedded }: { embedded?: boolean } = {}) 
                                   </div>
 
                                   <div className="flex flex-wrap items-center gap-2">
-                                    <label className="inline-flex items-center gap-2 rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-xs font-semibold text-zinc-800">
-                                      <input
-                                        type="checkbox"
+                                    <div className="inline-flex items-center gap-2 rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-xs font-semibold text-zinc-800">
+                                      <span className="text-xs text-zinc-600">On</span>
+                                      <ToggleSwitch
                                         checked={Boolean(s.enabled)}
-                                        onChange={(e) => updateStep(s.id, { enabled: e.target.checked })}
+                                        disabled={busy}
+                                        accent="ink"
+                                        onChange={(checked) => updateStep(s.id, { enabled: checked })}
                                       />
-                                      On
-                                    </label>
+                                    </div>
 
                                     <button
                                       type="button"
@@ -1629,22 +1804,24 @@ export function PortalFollowUpClient({ embedded }: { embedded?: boolean } = {}) 
                                     ) : null}
 
                                     <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-                                      <label className="inline-flex items-center gap-3 rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm text-zinc-800">
-                                        <input
-                                          type="checkbox"
+                                      <div className="flex items-center justify-between gap-3 rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm text-zinc-800">
+                                        <div>Email</div>
+                                        <ToggleSwitch
                                           checked={Boolean(s.channels.email)}
-                                          onChange={(e) => updateStep(s.id, { channels: { ...s.channels, email: e.target.checked } })}
+                                          disabled={busy}
+                                          accent="blue"
+                                          onChange={(checked) => updateStep(s.id, { channels: { ...s.channels, email: checked } })}
                                         />
-                                        Email
-                                      </label>
-                                      <label className="inline-flex items-center gap-3 rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm text-zinc-800">
-                                        <input
-                                          type="checkbox"
+                                      </div>
+                                      <div className="flex items-center justify-between gap-3 rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm text-zinc-800">
+                                        <div>Text (SMS)</div>
+                                        <ToggleSwitch
                                           checked={Boolean(s.channels.sms)}
-                                          onChange={(e) => updateStep(s.id, { channels: { ...s.channels, sms: e.target.checked } })}
+                                          disabled={busy}
+                                          accent="blue"
+                                          onChange={(checked) => updateStep(s.id, { channels: { ...s.channels, sms: checked } })}
                                         />
-                                        Text (SMS)
-                                      </label>
+                                      </div>
                                     </div>
 
                                     {s.channels.email ? (
@@ -1675,16 +1852,48 @@ export function PortalFollowUpClient({ embedded }: { embedded?: boolean } = {}) 
                                         <div>
                                           <div className="flex items-center justify-between gap-3">
                                             <label className="text-xs font-semibold text-zinc-600">Email body</label>
-                                            <button
-                                              type="button"
-                                              className="rounded-xl border border-zinc-200 bg-white px-3 py-1.5 text-xs font-semibold text-brand-ink hover:bg-zinc-50"
-                                              onClick={() => {
-                                                setVarPickerTarget({ kind: "step", stepId: s.id, field: "emailBody" });
-                                                setVarPickerOpen(true);
-                                              }}
-                                            >
-                                              Insert variable
-                                            </button>
+                                            <div className="flex items-center gap-2">
+                                              <button
+                                                type="button"
+                                                disabled={Boolean(generateBusy) || busy}
+                                                className="rounded-xl border border-zinc-200 bg-white px-3 py-1.5 text-xs font-semibold text-brand-ink hover:bg-zinc-50 disabled:opacity-60"
+                                                onClick={async () => {
+                                                  setGenerateBusy({ kind: "step", id: s.id, channel: "EMAIL" });
+                                                  try {
+                                                    const draft = await generateDraft({
+                                                      kind: "EMAIL",
+                                                      stepName: s.name,
+                                                      existingSubject: s.email.subjectTemplate,
+                                                      existingBody: s.email.bodyTemplate,
+                                                    });
+                                                    if (!draft) return;
+                                                    updateStep(s.id, {
+                                                      email: {
+                                                        ...s.email,
+                                                        subjectTemplate: (draft.subject ?? s.email.subjectTemplate) || "",
+                                                        bodyTemplate: draft.body || "",
+                                                      },
+                                                    });
+                                                  } finally {
+                                                    setGenerateBusy(null);
+                                                  }
+                                                }}
+                                              >
+                                                {generateBusy?.kind === "step" && generateBusy.id === s.id && generateBusy.channel === "EMAIL"
+                                                  ? "Generating…"
+                                                  : "Generate"}
+                                              </button>
+                                              <button
+                                                type="button"
+                                                className="rounded-xl border border-zinc-200 bg-white px-3 py-1.5 text-xs font-semibold text-brand-ink hover:bg-zinc-50"
+                                                onClick={() => {
+                                                  setVarPickerTarget({ kind: "step", stepId: s.id, field: "emailBody" });
+                                                  setVarPickerOpen(true);
+                                                }}
+                                              >
+                                                Insert variable
+                                              </button>
+                                            </div>
                                           </div>
                                           <textarea
                                             value={s.email.bodyTemplate}
@@ -1703,16 +1912,41 @@ export function PortalFollowUpClient({ embedded }: { embedded?: boolean } = {}) 
                                       <div>
                                         <div className="flex items-center justify-between gap-3">
                                           <label className="text-xs font-semibold text-zinc-600">SMS body</label>
-                                          <button
-                                            type="button"
-                                            className="rounded-xl border border-zinc-200 bg-white px-3 py-1.5 text-xs font-semibold text-brand-ink hover:bg-zinc-50"
-                                            onClick={() => {
-                                              setVarPickerTarget({ kind: "step", stepId: s.id, field: "smsBody" });
-                                              setVarPickerOpen(true);
-                                            }}
-                                          >
-                                            Insert variable
-                                          </button>
+                                            <div className="flex items-center gap-2">
+                                              <button
+                                                type="button"
+                                                disabled={Boolean(generateBusy) || busy}
+                                                className="rounded-xl border border-zinc-200 bg-white px-3 py-1.5 text-xs font-semibold text-brand-ink hover:bg-zinc-50 disabled:opacity-60"
+                                                onClick={async () => {
+                                                  setGenerateBusy({ kind: "step", id: s.id, channel: "SMS" });
+                                                  try {
+                                                    const draft = await generateDraft({
+                                                      kind: "SMS",
+                                                      stepName: s.name,
+                                                      existingBody: s.sms.bodyTemplate,
+                                                    });
+                                                    if (!draft) return;
+                                                    updateStep(s.id, { sms: { ...s.sms, bodyTemplate: draft.body || "" } });
+                                                  } finally {
+                                                    setGenerateBusy(null);
+                                                  }
+                                                }}
+                                              >
+                                                {generateBusy?.kind === "step" && generateBusy.id === s.id && generateBusy.channel === "SMS"
+                                                  ? "Generating…"
+                                                  : "Generate"}
+                                              </button>
+                                              <button
+                                                type="button"
+                                                className="rounded-xl border border-zinc-200 bg-white px-3 py-1.5 text-xs font-semibold text-brand-ink hover:bg-zinc-50"
+                                                onClick={() => {
+                                                  setVarPickerTarget({ kind: "step", stepId: s.id, field: "smsBody" });
+                                                  setVarPickerOpen(true);
+                                                }}
+                                              >
+                                                Insert variable
+                                              </button>
+                                            </div>
                                         </div>
                                         <textarea
                                           value={s.sms.bodyTemplate}
@@ -1828,7 +2062,8 @@ export function PortalFollowUpClient({ embedded }: { embedded?: boolean } = {}) 
               title="Send a test"
               description="Sends immediately. Emails send from Purely Automation with your business name as the sender name."
               accent="slate"
-              defaultOpen={false}
+              collapsible={false}
+              dotClassName="hidden"
             >
 
             <div className="mt-4 space-y-3">
@@ -1899,11 +2134,16 @@ export function PortalFollowUpClient({ embedded }: { embedded?: boolean } = {}) 
               <div className="divide-y divide-zinc-200">
                 {queue.length ? (
                   queue.slice(0, 60).map((q) => (
-                    <div key={q.id} className="grid grid-cols-12 gap-2 px-4 py-3 text-sm">
+                    <a
+                      key={q.id}
+                      href={`/portal/app/services/inbox/${q.channel === "SMS" ? "sms" : "email"}?to=${encodeURIComponent(q.to)}`}
+                      className="grid grid-cols-12 gap-2 px-4 py-3 text-sm hover:bg-zinc-50"
+                      title="Open thread in Inbox"
+                    >
                       <div className="col-span-2 text-zinc-700">{fmtWhen(q.sendAtIso)}</div>
                       <div className="col-span-3 truncate text-zinc-700">{q.stepName}</div>
                       <div className="col-span-2 text-zinc-700">{q.channel}</div>
-                      <div className="col-span-3 truncate text-zinc-700">{q.to}</div>
+                      <div className="col-span-3 truncate font-medium text-brand-ink">{q.to}</div>
                       <div className="col-span-2 text-zinc-600">
                         {q.status === "FAILED" ? (
                           <span className="text-red-700">FAILED</span>
@@ -1916,7 +2156,7 @@ export function PortalFollowUpClient({ embedded }: { embedded?: boolean } = {}) 
                         )}
                         {q.lastError ? <div className="mt-1 text-xs text-red-700">{q.lastError}</div> : null}
                       </div>
-                    </div>
+                    </a>
                   ))
                 ) : (
                   <div className="px-4 py-6 text-sm text-zinc-600">No follow-ups queued yet.</div>
@@ -1959,6 +2199,17 @@ export function PortalFollowUpClient({ embedded }: { embedded?: boolean } = {}) 
           setVarPickerTarget(null);
         }}
         variables={followUpTemplateVariables}
+        createCustom={{
+          enabled: true,
+          existingKeys: allVariableKeys,
+          onCreate: (key, value) => {
+            if (!settings) return;
+            setSettings({
+              ...settings,
+              customVariables: { ...settings.customVariables, [key]: value },
+            });
+          },
+        }}
         onPick={(variableKey) => {
           if (!settings || !varPickerTarget) return;
 

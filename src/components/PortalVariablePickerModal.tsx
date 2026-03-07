@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 
 import type { TemplateVariable } from "@/lib/portalTemplateVars";
 
@@ -37,9 +37,24 @@ export function PortalVariablePickerModal(props: {
   variables: TemplateVariable[];
   onPick: (variableKey: string) => void;
   onClose: () => void;
+  createCustom?: {
+    enabled?: boolean;
+    existingKeys?: string[];
+    onCreate: (key: string, value: string) => void;
+  };
 }) {
-  const { open, title, variables, onPick, onClose } = props;
+  const { open, title, variables, onPick, onClose, createCustom } = props;
   const [query, setQuery] = useState("");
+  const [newKey, setNewKey] = useState("");
+  const [newValue, setNewValue] = useState("");
+  const [createError, setCreateError] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!open) return;
+    setCreateError(null);
+    setNewKey("");
+    setNewValue("");
+  }, [open]);
 
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
@@ -56,6 +71,36 @@ export function PortalVariablePickerModal(props: {
   }, [variables, query]);
 
   if (!open) return null;
+
+  const canCreateCustom = Boolean(createCustom?.enabled);
+  const existingKeys = new Set(
+    (createCustom?.existingKeys ?? [])
+      .filter((k) => typeof k === "string")
+      .map((k) => k.trim())
+      .filter(Boolean),
+  );
+
+  function tryCreateCustom() {
+    if (!createCustom) return;
+    setCreateError(null);
+
+    const key = newKey.trim();
+    const value = String(newValue ?? "");
+
+    const keyOk = /^[a-zA-Z][a-zA-Z0-9_]*$/;
+    if (!key || !keyOk.test(key)) {
+      setCreateError("Variable name must start with a letter and contain only letters, numbers, and underscores.");
+      return;
+    }
+    if (existingKeys.has(key)) {
+      setCreateError("That variable already exists.");
+      return;
+    }
+
+    createCustom.onCreate(key, value);
+    onPick(key);
+    onClose();
+  }
 
   return (
     <>
@@ -121,6 +166,51 @@ export function PortalVariablePickerModal(props: {
             <div className="mt-3 text-xs text-zinc-500">
               Works in SMS, email, and task text. Unknown variables stay unchanged.
             </div>
+
+            {canCreateCustom ? (
+              <div className="mt-4 rounded-2xl border border-zinc-200 bg-zinc-50 p-4">
+                <div className="text-sm font-semibold text-zinc-900">Create custom variable</div>
+                <div className="mt-1 text-xs text-zinc-600">Create a variable and insert it immediately.</div>
+
+                <div className="mt-3 grid grid-cols-1 gap-2 sm:grid-cols-12 sm:items-end">
+                  <div className="sm:col-span-5">
+                    <label className="text-xs font-semibold text-zinc-600">Name</label>
+                    <input
+                      value={newKey}
+                      onChange={(e) => setNewKey(e.target.value)}
+                      className="mt-1 w-full rounded-2xl border border-zinc-200 bg-white px-4 py-3 text-sm outline-none focus:border-zinc-300"
+                      placeholder="e.g. referralName"
+                      autoComplete="off"
+                    />
+                    <div className="mt-1 text-[11px] text-zinc-500">
+                      Inserts as <span className="font-mono">{`{${newKey.trim() || "variable"}}`}</span>
+                    </div>
+                  </div>
+
+                  <div className="sm:col-span-6">
+                    <label className="text-xs font-semibold text-zinc-600">Value</label>
+                    <input
+                      value={newValue}
+                      onChange={(e) => setNewValue(e.target.value)}
+                      className="mt-1 w-full rounded-2xl border border-zinc-200 bg-white px-4 py-3 text-sm outline-none focus:border-zinc-300"
+                      placeholder="Value"
+                    />
+                  </div>
+
+                  <div className="sm:col-span-1">
+                    <button
+                      type="button"
+                      onClick={tryCreateCustom}
+                      className="w-full rounded-2xl bg-brand-ink px-3 py-3 text-sm font-semibold text-white hover:opacity-95"
+                    >
+                      +
+                    </button>
+                  </div>
+                </div>
+
+                {createError ? <div className="mt-2 text-xs font-semibold text-red-700">{createError}</div> : null}
+              </div>
+            ) : null}
           </div>
         </div>
       </div>

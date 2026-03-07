@@ -83,7 +83,7 @@ function buildBlocksFromSlots(slotKeys: string[]) {
   return blocks;
 }
 
-export function PortalBookingAvailabilityClient() {
+export function PortalBookingAvailabilityClient({ variant = "page" }: { variant?: "page" | "modal" } = {}) {
   const toast = useToast();
   const [blocks, setBlocks] = useState<Block[]>([]);
   const [error, setError] = useState<string | null>(null);
@@ -219,23 +219,25 @@ export function PortalBookingAvailabilityClient() {
   }, []);
 
   return (
-    <div className="mx-auto w-full max-w-6xl">
-      <div className="flex items-start justify-between gap-4">
-        <div>
-          <h1 className="text-2xl font-bold text-brand-ink sm:text-3xl">Availability</h1>
-          <p className="mt-2 text-sm text-zinc-600">
-            Select times you’re available for bookings. These slots show up on your public booking page.
-          </p>
+    <div className={variant === "modal" ? "w-full" : "mx-auto w-full max-w-6xl"}>
+      {variant === "page" ? (
+        <div className="flex items-start justify-between gap-4">
+          <div>
+            <h1 className="text-2xl font-bold text-brand-ink sm:text-3xl">Availability</h1>
+            <p className="mt-2 text-sm text-zinc-600">
+              Select times you’re available for bookings. These slots show up on your public booking page.
+            </p>
+          </div>
+          <Link
+            href="/portal/app/services/booking"
+            className="inline-flex items-center justify-center rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm font-semibold text-brand-ink hover:bg-zinc-50"
+          >
+            Back
+          </Link>
         </div>
-        <Link
-          href="/portal/app/services/booking"
-          className="inline-flex items-center justify-center rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm font-semibold text-brand-ink hover:bg-zinc-50"
-        >
-          Back
-        </Link>
-      </div>
+      ) : null}
 
-      <div className="mt-6 rounded-3xl border border-zinc-200 bg-white p-6">
+      <div className={variant === "modal" ? "rounded-3xl border border-zinc-200 bg-white p-4" : "mt-6 rounded-3xl border border-zinc-200 bg-white p-6"}>
         <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
           <div className="flex flex-wrap items-center gap-2 text-sm">
             <button
