@@ -1088,7 +1088,7 @@ export function PortalBookingClient() {
           className={
             "flex-1 min-w-[160px] rounded-2xl border px-4 py-2.5 text-sm font-semibold transition focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-ink/60 " +
             (topTab === "follow-up"
-              ? "border-brand-ink bg-brand-ink text-white shadow-sm focus-visible:ring-brand-ink/40"
+              ? "border-brand-blue bg-brand-blue text-white shadow-sm focus-visible:ring-brand-blue/40"
               : "border-zinc-200 bg-white text-zinc-700 hover:bg-zinc-50")
           }
         >
@@ -1124,7 +1124,7 @@ export function PortalBookingClient() {
                     type="button"
                     className={
                       appointmentsView === "week"
-                        ? "rounded-2xl bg-zinc-900 px-3 py-2 text-sm font-semibold text-white"
+                        ? "rounded-2xl bg-brand-blue px-3 py-2 text-sm font-semibold text-white"
                         : "rounded-2xl px-3 py-2 text-sm font-semibold text-zinc-700 hover:bg-zinc-50"
                     }
                     onClick={() => setAppointmentsView("week")}
@@ -1135,7 +1135,7 @@ export function PortalBookingClient() {
                     type="button"
                     className={
                       appointmentsView === "month"
-                        ? "rounded-2xl bg-zinc-900 px-3 py-2 text-sm font-semibold text-white"
+                        ? "rounded-2xl bg-brand-blue px-3 py-2 text-sm font-semibold text-white"
                         : "rounded-2xl px-3 py-2 text-sm font-semibold text-zinc-700 hover:bg-zinc-50"
                     }
                     onClick={() => setAppointmentsView("month")}
@@ -1460,84 +1460,22 @@ export function PortalBookingClient() {
               <div>
                 <div className="text-sm font-semibold text-zinc-900">Appointment reminders</div>
                 <div className="mt-2 text-sm text-zinc-600">
-                  Automatically text people before their appointment. Works like follow-up automation steps.
+                  Automatically send reminders before appointments. Each step can be SMS or email.
                 </div>
               </div>
 
-              <div className="inline-flex overflow-hidden rounded-2xl border border-zinc-200">
-                <button
-                  type="button"
-                  className={`px-4 py-2 text-sm font-semibold ${
-                    reminderDraft && !reminderDraft.enabled
-                      ? "bg-zinc-900 text-white"
-                      : "bg-white text-zinc-700 hover:bg-zinc-50"
-                  }`}
+              <div className="flex items-center gap-2">
+                <span className="text-sm text-zinc-600">Off</span>
+                <ToggleSwitch
+                  checked={Boolean(reminderDraft?.enabled)}
                   disabled={reminderSaving || !reminderDraft}
-                  onClick={() => void setReminderEnabled(false)}
-                >
-                  Off
-                </button>
-                <button
-                  type="button"
-                  className={`px-4 py-2 text-sm font-semibold ${
-                    reminderDraft && reminderDraft.enabled
-                      ? "bg-zinc-900 text-white"
-                      : "bg-white text-zinc-700 hover:bg-zinc-50"
-                  }`}
-                  disabled={reminderSaving || !reminderDraft}
-                  onClick={() => void setReminderEnabled(true)}
-                >
-                  On
-                </button>
+                  accent="pink"
+                  onChange={(checked) => void setReminderEnabled(checked)}
+                />
+                <span className="text-sm text-zinc-600">On</span>
               </div>
             </div>
 
-            <div className="mt-4 rounded-2xl border border-zinc-200 bg-zinc-50 p-4 text-sm">
-              <div className="flex items-center justify-between gap-3">
-                <div className="font-medium text-zinc-800">Twilio</div>
-                <div className={`text-xs font-semibold ${reminderTwilio?.configured ? "text-emerald-700" : "text-amber-700"}`}>
-                  {reminderTwilio?.configured ? "Configured" : "Not configured"}
-                </div>
-              </div>
-              <div className="mt-2 text-xs text-zinc-600">
-                {reminderTwilio?.configured
-                  ? `From: ${reminderTwilio.fromNumberE164 ?? ""}`
-                  : (
-                      <>
-                        Add your Twilio credentials in{" "}
-                        <Link href="/portal/app/profile" className="font-semibold text-brand-ink underline hover:no-underline">
-                          Profile
-                        </Link>
-                        {" "}→ Twilio to enable SMS reminders.
-                      </>
-                    )}
-              </div>
-            </div>
-
-            <div className="mt-4">
-              <label className="block text-xs font-semibold text-zinc-600">Delivery</label>
-              <div className="mt-2 inline-flex overflow-hidden rounded-2xl border border-zinc-200">
-                <button
-                  type="button"
-                  className={`px-4 py-2 text-sm font-semibold ${reminderDraft?.channel === "SMS" ? "bg-zinc-900 text-white" : "bg-white text-zinc-700 hover:bg-zinc-50"}`}
-                  disabled={reminderSaving || !reminderDraft}
-                  onClick={() => void setReminderChannel("SMS")}
-                >
-                  Text (SMS)
-                </button>
-                <button
-                  type="button"
-                  className={`px-4 py-2 text-sm font-semibold ${reminderDraft?.channel === "EMAIL" ? "bg-zinc-900 text-white" : "bg-white text-zinc-700 hover:bg-zinc-50"}`}
-                  disabled={reminderSaving || !reminderDraft}
-                  onClick={() => void setReminderChannel("EMAIL")}
-                >
-                  Email
-                </button>
-              </div>
-              <div className="mt-2 text-xs text-zinc-500">
-                {reminderDraft?.channel === "EMAIL" ? "Email reminders send to the booking’s email address." : "SMS reminders send to the booking’s phone number."}
-              </div>
-            </div>
 
             <div className="mt-4">
               <label className="block text-xs font-semibold text-zinc-600">Calendar</label>
@@ -1957,7 +1895,7 @@ export function PortalBookingClient() {
           title="Calendars"
           description="Create multiple booking links (different appointment types) with their own title and duration."
           accent="slate"
-          defaultOpen={false}
+          collapsible={false}
         >
 
           <div className="mt-4 rounded-2xl border border-zinc-200 bg-zinc-50 p-4">
