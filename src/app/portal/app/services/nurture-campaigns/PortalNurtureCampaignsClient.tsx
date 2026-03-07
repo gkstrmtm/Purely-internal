@@ -63,15 +63,19 @@ function formatDate(iso: string | null | undefined) {
   return Number.isFinite(d.getTime()) ? d.toLocaleString() : "";
 }
 
-function bestUnit(minutes: number): { unit: "minutes" | "hours" | "days"; value: number } {
+function bestUnit(minutes: number): { unit: "minutes" | "hours" | "days" | "weeks" | "months"; value: number } {
   const m = Math.max(0, Number(minutes) || 0);
+  if (m % (60 * 24 * 30) === 0) return { unit: "months", value: m / (60 * 24 * 30) };
+  if (m % (60 * 24 * 7) === 0) return { unit: "weeks", value: m / (60 * 24 * 7) };
   if (m % (60 * 24) === 0) return { unit: "days", value: m / (60 * 24) };
   if (m % 60 === 0) return { unit: "hours", value: m / 60 };
   return { unit: "minutes", value: m };
 }
 
-function toMinutes(value: number, unit: "minutes" | "hours" | "days") {
+function toMinutes(value: number, unit: "minutes" | "hours" | "days" | "weeks" | "months") {
   const v = Math.max(0, Math.floor(Number(value) || 0));
+  if (unit === "months") return v * 60 * 24 * 30;
+  if (unit === "weeks") return v * 60 * 24 * 7;
   if (unit === "days") return v * 60 * 24;
   if (unit === "hours") return v * 60;
   return v;
@@ -298,6 +302,277 @@ const NURTURE_TEMPLATES: NurtureTemplate[] = [
       },
     ],
   },
+  {
+    id: "lead-warming-7",
+    title: "Lead warming (7 steps)",
+    description: "A longer SMS + email sequence that warms the lead up over ~2 weeks.",
+    steps: [
+      {
+        kind: "EMAIL",
+        delayMinutes: 0,
+        subject: "Quick intro + next steps",
+        body: "Hi {contact.firstName},\n\nThanks for reaching out — happy to help.\n\nWhat outcome are you aiming for this month? If you reply with 1 sentence, I’ll recommend the best next step.\n\n- {business.name}",
+      },
+      {
+        kind: "SMS",
+        delayMinutes: 60 * 6,
+        body: "Hey {contact.firstName} — quick question: what are you trying to accomplish right now?",
+      },
+      {
+        kind: "SMS",
+        delayMinutes: 60 * 24,
+        body: "If I could help with just one thing this week, what would it be?",
+      },
+      {
+        kind: "EMAIL",
+        delayMinutes: 60 * 24 * 2,
+        subject: "Two quick options",
+        body: "Hi {contact.firstName},\n\nIf it helps, here are two common paths:\n\nA) Fast setup (quick win this week)\nB) Full workflow (best long-term)\n\nWhich one sounds closer to what you want?\n\n- {business.name}",
+      },
+      {
+        kind: "SMS",
+        delayMinutes: 60 * 24 * 2,
+        body: "Want me to send a 60-second walkthrough for option A vs B?",
+      },
+      {
+        kind: "EMAIL",
+        delayMinutes: 60 * 24 * 3,
+        subject: "Should I keep this open?",
+        body: "Hi {contact.firstName},\n\nTotally fine if timing isn’t right. Should I keep this open for you, or pause for now?\n\nReply with ‘pause’ and I’ll stop following up.\n\n- {business.name}",
+      },
+      {
+        kind: "SMS",
+        delayMinutes: 60 * 24 * 4,
+        body: "Last check-in from me, {contact.firstName}. Want help moving forward or should I pause this?",
+      },
+    ],
+  },
+  {
+    id: "booking-push-10",
+    title: "Book the call (10 steps)",
+    description: "More persistent booking cadence: mixes value + clear next step (book 10 minutes).",
+    steps: [
+      {
+        kind: "SMS",
+        delayMinutes: 0,
+        body: "Hey {contact.firstName} — want to book 10 minutes so I can get this set up for you?",
+      },
+      {
+        kind: "EMAIL",
+        delayMinutes: 60 * 12,
+        subject: "10 minutes to get you set up",
+        body: "Hi {contact.firstName},\n\nIf you’re open to it, let’s do a quick 10-minute call so I can set this up for you.\n\nReply with two times that work today/tomorrow.\n\n- {business.name}",
+      },
+      {
+        kind: "SMS",
+        delayMinutes: 60 * 24,
+        body: "What’s better — today or tomorrow? I can make time.",
+      },
+      {
+        kind: "EMAIL",
+        delayMinutes: 60 * 24 * 2,
+        subject: "Before we meet (2 questions)",
+        body: "Hi {contact.firstName},\n\nIf we do a quick call, I’ll come prepared. Two questions:\n\n1) What’s the goal?\n2) What’s the deadline?\n\nReply here and I’ll tailor the setup.\n\n- {business.name}",
+      },
+      {
+        kind: "SMS",
+        delayMinutes: 60 * 24 * 2,
+        body: "If a call is annoying, no worries — want me to just send the fastest path in 2-3 bullets?",
+      },
+      {
+        kind: "EMAIL",
+        delayMinutes: 60 * 24 * 3,
+        subject: "Common question",
+        body: "Hi {contact.firstName},\n\nMost people ask: ‘How long does setup take?’\n\nUsually we can get a first version running same week, then improve from there.\n\nWant to do the quick 10 minutes?\n\n- {business.name}",
+      },
+      {
+        kind: "SMS",
+        delayMinutes: 60 * 24 * 4,
+        body: "Still want to get this done, {contact.firstName}?",
+      },
+      {
+        kind: "EMAIL",
+        delayMinutes: 60 * 24 * 5,
+        subject: "Should I close this out?",
+        body: "Hi {contact.firstName},\n\nShould I close this out for now? If you still want help, reply with ‘yes’ and I’ll send the next step.\n\n- {business.name}",
+      },
+      {
+        kind: "SMS",
+        delayMinutes: 60 * 24 * 7,
+        body: "Closing the loop — if you want help later, just reply here anytime.",
+      },
+      {
+        kind: "EMAIL",
+        delayMinutes: 60 * 24 * 14,
+        subject: "Last note",
+        body: "Hi {contact.firstName},\n\nLast note from me. If you want to revisit this later, hit reply and I’ll jump back in.\n\n- {business.name}",
+      },
+    ],
+  },
+  {
+    id: "winback-12",
+    title: "Win-back / reactivation (12 steps)",
+    description: "A longer win-back sequence for older leads over ~45 days.",
+    steps: [
+      {
+        kind: "SMS",
+        delayMinutes: 0,
+        body: "Hey {contact.firstName} — should I keep this open, or is it not a priority right now?",
+      },
+      {
+        kind: "EMAIL",
+        delayMinutes: 60 * 24,
+        subject: "Still want help?",
+        body: "Hi {contact.firstName},\n\nJust checking in — do you still want help with this?\n\nIf not, no worries at all. Reply ‘pause’ and I’ll stop.\n\n- {business.name}",
+      },
+      {
+        kind: "SMS",
+        delayMinutes: 60 * 24 * 2,
+        body: "If you reply with your #1 goal, I’ll send the fastest path.",
+      },
+      {
+        kind: "EMAIL",
+        delayMinutes: 60 * 24 * 3,
+        subject: "One idea for you",
+        body: "Hi {contact.firstName},\n\nOne quick idea: we can start with a small quick-win and expand from there.\n\nWant me to outline it in 3 bullets?\n\n- {business.name}",
+      },
+      {
+        kind: "SMS",
+        delayMinutes: 60 * 24 * 4,
+        body: "Would a 10-minute call be helpful, or do you prefer async?",
+      },
+      {
+        kind: "EMAIL",
+        delayMinutes: 60 * 24 * 7,
+        subject: "Close this out?",
+        body: "Hi {contact.firstName},\n\nShould I close this out for now? If you still want help, reply ‘yes’ and I’ll jump in.\n\n- {business.name}",
+      },
+      {
+        kind: "SMS",
+        delayMinutes: 60 * 24 * 7,
+        body: "Last check-in — want me to help, or should I pause?",
+      },
+      {
+        kind: "EMAIL",
+        delayMinutes: 60 * 24 * 10,
+        subject: "Still here if you want this",
+        body: "Hi {contact.firstName},\n\nStill here if you want this handled. Reply with a deadline and I’ll propose the simplest plan.\n\n- {business.name}",
+      },
+      {
+        kind: "SMS",
+        delayMinutes: 60 * 24 * 10,
+        body: "If you want to revisit later, just reply with ‘later’ and I’ll check back next month.",
+      },
+      {
+        kind: "EMAIL",
+        delayMinutes: 60 * 24 * 14,
+        subject: "Checking one last time",
+        body: "Hi {contact.firstName},\n\nChecking one last time — should I close this out?\n\n- {business.name}",
+      },
+      {
+        kind: "SMS",
+        delayMinutes: 60 * 24 * 14,
+        body: "Closing this out. If you want help later, just reply here anytime.",
+      },
+      {
+        kind: "EMAIL",
+        delayMinutes: 60 * 24 * 7,
+        subject: "Always happy to help",
+        body: "Hi {contact.firstName},\n\nAlways happy to help when timing is better. If you reply in the future, this thread comes right back to me.\n\n- {business.name}",
+      },
+    ],
+  },
+  {
+    id: "education-drip-15",
+    title: "Education drip (15 steps)",
+    description: "A longer, gentle education drip with weekly emails + occasional SMS check-ins.",
+    steps: [
+      {
+        kind: "EMAIL",
+        delayMinutes: 0,
+        subject: "Getting started",
+        body: "Hi {contact.firstName},\n\nQuick note to get you started: what’s the main thing you want to improve first?\n\nReply with one sentence and I’ll tailor recommendations.\n\n- {business.name}",
+      },
+      {
+        kind: "SMS",
+        delayMinutes: 60 * 24,
+        body: "Hey {contact.firstName} — did you see my email? What’s your top goal right now?",
+      },
+      {
+        kind: "EMAIL",
+        delayMinutes: 60 * 24 * 2,
+        subject: "Quick win idea",
+        body: "Hi {contact.firstName},\n\nQuick win idea: start with one simple automation that saves time immediately.\n\nWant me to suggest the best one for your situation?\n\n- {business.name}",
+      },
+      {
+        kind: "EMAIL",
+        delayMinutes: 60 * 24 * 3,
+        subject: "How we usually approach this",
+        body: "Hi {contact.firstName},\n\nWe usually approach this in 3 phases: quick win → stabilize → scale.\n\nIf you tell me your deadline, I can recommend the right phase to start with.\n\n- {business.name}",
+      },
+      {
+        kind: "SMS",
+        delayMinutes: 60 * 24 * 4,
+        body: "If it’s easier, reply with just a deadline (e.g. ‘by end of month’) and I’ll propose the simplest plan.",
+      },
+      {
+        kind: "EMAIL",
+        delayMinutes: 60 * 24 * 7,
+        subject: "Common mistake to avoid",
+        body: "Hi {contact.firstName},\n\nCommon mistake: trying to automate everything at once.\n\nIt’s almost always better to automate one flow, measure, then expand.\n\nWant me to recommend the best first flow?\n\n- {business.name}",
+      },
+      {
+        kind: "EMAIL",
+        delayMinutes: 60 * 24 * 7,
+        subject: "Simple checklist",
+        body: "Hi {contact.firstName},\n\nHere’s a simple checklist:\n\n1) Choose one goal\n2) Pick one channel\n3) Measure outcomes\n\nIf you reply with (1) goal and (2) channel, I’ll suggest an outline.\n\n- {business.name}",
+      },
+      {
+        kind: "SMS",
+        delayMinutes: 60 * 24 * 7,
+        body: "Quick check-in — should I keep sending these tips, or pause?",
+      },
+      {
+        kind: "EMAIL",
+        delayMinutes: 60 * 24 * 7,
+        subject: "Two paths",
+        body: "Hi {contact.firstName},\n\nTwo paths from here:\n\nA) DIY (I send a simple template)\nB) Done-for-you (we set it up together)\n\nWhich do you prefer?\n\n- {business.name}",
+      },
+      {
+        kind: "EMAIL",
+        delayMinutes: 60 * 24 * 7,
+        subject: "What would make this a win?",
+        body: "Hi {contact.firstName},\n\nWhat would make this a win for you?\n\nIf you reply with one metric (time saved, bookings, revenue, etc.), I’ll tailor the plan.\n\n- {business.name}",
+      },
+      {
+        kind: "SMS",
+        delayMinutes: 60 * 24 * 7,
+        body: "Want to do a quick 10-minute call, {contact.firstName}, or keep this async?",
+      },
+      {
+        kind: "EMAIL",
+        delayMinutes: 60 * 24 * 14,
+        subject: "Close the loop",
+        body: "Hi {contact.firstName},\n\nShould I close this out for now? If you still want help, reply with ‘yes’ and I’ll jump back in.\n\n- {business.name}",
+      },
+      {
+        kind: "SMS",
+        delayMinutes: 60 * 24 * 14,
+        body: "Closing the loop — if you want help later, just reply here anytime.",
+      },
+      {
+        kind: "EMAIL",
+        delayMinutes: 60 * 24 * 30,
+        subject: "Still here if you want to revisit",
+        body: "Hi {contact.firstName},\n\nStill here if you want to revisit this. If you reply in the future, this thread comes right back.\n\n- {business.name}",
+      },
+      {
+        kind: "SMS",
+        delayMinutes: 60 * 24 * 30,
+        body: "Final note — if you want to revisit, reply with what changed and I’ll suggest the next step.",
+      },
+    ],
+  },
 ];
 
 export function PortalNurtureCampaignsClient() {
@@ -358,6 +633,14 @@ export function PortalNurtureCampaignsClient() {
 
   const [templateOpen, setTemplateOpen] = useState(false);
   const [templateBusy, setTemplateBusy] = useState(false);
+
+  type NurtureConfirm =
+    | { kind: "deleteCampaign"; campaignId: string; name: string }
+    | { kind: "deleteStep"; stepId: string }
+    | { kind: "applyTemplate"; template: NurtureTemplate }
+    | null;
+
+  const [confirm, setConfirm] = useState<NurtureConfirm>(null);
 
   const selected = useMemo(() => campaigns.find((c) => c.id === selectedId) ?? null, [campaigns, selectedId]);
   const selectedTagIds = useMemo(() => new Set(detail?.audienceTagIds || []), [detail?.audienceTagIds]);
@@ -473,23 +756,24 @@ export function PortalNurtureCampaignsClient() {
     }
   }, [refreshList, toast]);
 
-  const deleteCampaign = useCallback(async () => {
-    if (!detail) return;
-    const ok = window.confirm("Delete this campaign? This cannot be undone.");
-    if (!ok) return;
-
+  const deleteCampaignNow = useCallback(async (campaignId: string) => {
     try {
-      const res = await fetch(`/api/portal/nurture/campaigns/${encodeURIComponent(detail.id)}`, { method: "DELETE" });
+      const res = await fetch(`/api/portal/nurture/campaigns/${encodeURIComponent(campaignId)}`, { method: "DELETE" });
       const json = (await res.json().catch(() => ({}))) as any;
       if (!res.ok || !json?.ok) throw new Error(String(json?.error || "Failed to delete"));
       toast.success("Campaign deleted");
-      setDetail(null);
-      setSelectedId(null);
+      setDetail((prev) => (prev?.id === campaignId ? null : prev));
+      setSelectedId((prev) => (prev === campaignId ? null : prev));
       await refreshList();
     } catch (e: any) {
       toast.error(String(e?.message || "Failed to delete campaign"));
     }
-  }, [detail, refreshList, toast]);
+  }, [refreshList, toast]);
+
+  const requestDeleteCampaign = useCallback(() => {
+    if (!detail) return;
+    setConfirm({ kind: "deleteCampaign", campaignId: detail.id, name: detail.name });
+  }, [detail]);
 
   const saveCampaign = useCallback(async () => {
     if (!detail) return;
@@ -568,12 +852,9 @@ export function PortalNurtureCampaignsClient() {
     [detail, refreshDetail, refreshList, toast],
   );
 
-  const deleteStep = useCallback(
+  const deleteStepNow = useCallback(
     async (stepId: string) => {
       if (!detail) return;
-      const ok = window.confirm("Delete this step?");
-      if (!ok) return;
-
       try {
         const res = await fetch(`/api/portal/nurture/steps/${encodeURIComponent(stepId)}`, { method: "DELETE" });
         const json = (await res.json().catch(() => ({}))) as any;
@@ -583,6 +864,57 @@ export function PortalNurtureCampaignsClient() {
         await refreshList({ keepSelected: true });
       } catch (e: any) {
         toast.error(String(e?.message || "Failed to delete step"));
+      }
+    },
+    [detail, refreshDetail, refreshList, toast],
+  );
+
+  const requestDeleteStep = useCallback((stepId: string) => {
+    setConfirm({ kind: "deleteStep", stepId });
+  }, []);
+
+  const applyTemplateNow = useCallback(
+    async (t: NurtureTemplate) => {
+      if (!detail) return;
+      setTemplateBusy(true);
+      try {
+        const campaignId = detail.id;
+
+        // Delete existing steps.
+        for (const s of detail.steps.slice().sort((a, b) => a.ord - b.ord)) {
+          await fetch(`/api/portal/nurture/steps/${encodeURIComponent(s.id)}`, { method: "DELETE" });
+        }
+
+        // Create new steps then patch contents.
+        for (const s of t.steps) {
+          const res = await fetch(`/api/portal/nurture/campaigns/${encodeURIComponent(campaignId)}/steps`, {
+            method: "POST",
+            headers: { "content-type": "application/json" },
+            body: JSON.stringify({ kind: s.kind }),
+          });
+          const json = (await res.json().catch(() => ({}))) as any;
+          if (!res.ok || !json?.ok || !json?.id) throw new Error(String(json?.error || "Failed to create step"));
+          const stepId = String(json.id);
+
+          await fetch(`/api/portal/nurture/steps/${encodeURIComponent(stepId)}`, {
+            method: "PATCH",
+            headers: { "content-type": "application/json" },
+            body: JSON.stringify({
+              delayMinutes: s.delayMinutes,
+              subject: s.kind === "EMAIL" ? String(s.subject || "Quick question") : null,
+              body: String(s.body || "").slice(0, 8000),
+            }),
+          });
+        }
+
+        toast.success("Template applied");
+        await refreshDetail(campaignId);
+        await refreshList({ keepSelected: true });
+        setTemplateOpen(false);
+      } catch (e: any) {
+        toast.error(String(e?.message || "Failed to apply template"));
+      } finally {
+        setTemplateBusy(false);
       }
     },
     [detail, refreshDetail, refreshList, toast],
@@ -740,7 +1072,7 @@ export function PortalNurtureCampaignsClient() {
                   <button
                     type="button"
                     className="rounded-2xl border border-red-200 bg-white px-4 py-2 text-sm font-semibold text-red-700 hover:bg-red-50"
-                    onClick={() => void deleteCampaign()}
+                    onClick={requestDeleteCampaign}
                   >
                     Delete
                   </button>
@@ -1000,7 +1332,7 @@ export function PortalNurtureCampaignsClient() {
 
                 {templateOpen ? (
                   <div className="fixed inset-0 z-9998 flex items-end justify-center bg-black/30 p-3 sm:items-center">
-                    <div className="w-full max-w-2xl rounded-3xl border border-zinc-200 bg-white p-5 shadow-xl">
+                    <div className="flex w-full max-w-2xl flex-col overflow-hidden rounded-3xl border border-zinc-200 bg-white p-5 shadow-xl sm:max-h-[calc(100vh-2rem)]">
                       <div className="flex items-start justify-between gap-3">
                         <div>
                           <div className="text-base font-semibold text-zinc-900">Load a template</div>
@@ -1016,7 +1348,7 @@ export function PortalNurtureCampaignsClient() {
                         </button>
                       </div>
 
-                      <div className="mt-4 space-y-2">
+                      <div className="mt-4 flex-1 space-y-2 overflow-auto pr-1">
                         {NURTURE_TEMPLATES.map((t) => (
                           <button
                             key={t.id}
@@ -1025,51 +1357,7 @@ export function PortalNurtureCampaignsClient() {
                             className="w-full rounded-3xl border border-zinc-200 bg-white p-4 text-left hover:bg-zinc-50 disabled:opacity-60"
                             onClick={() => {
                               if (!detail) return;
-                              const ok = window.confirm("Replace your current steps with this template? This will delete existing steps.");
-                              if (!ok) return;
-
-                              void (async () => {
-                                setTemplateBusy(true);
-                                try {
-                                  const campaignId = detail.id;
-
-                                  // Delete existing steps.
-                                  for (const s of detail.steps.slice().sort((a, b) => a.ord - b.ord)) {
-                                    await fetch(`/api/portal/nurture/steps/${encodeURIComponent(s.id)}`, { method: "DELETE" });
-                                  }
-
-                                  // Create new steps then patch contents.
-                                  for (const s of t.steps) {
-                                    const res = await fetch(`/api/portal/nurture/campaigns/${encodeURIComponent(campaignId)}/steps`, {
-                                      method: "POST",
-                                      headers: { "content-type": "application/json" },
-                                      body: JSON.stringify({ kind: s.kind }),
-                                    });
-                                    const json = (await res.json().catch(() => ({}))) as any;
-                                    if (!res.ok || !json?.ok || !json?.id) throw new Error(String(json?.error || "Failed to create step"));
-                                    const stepId = String(json.id);
-
-                                    await fetch(`/api/portal/nurture/steps/${encodeURIComponent(stepId)}`, {
-                                      method: "PATCH",
-                                      headers: { "content-type": "application/json" },
-                                      body: JSON.stringify({
-                                        delayMinutes: s.delayMinutes,
-                                        subject: s.kind === "EMAIL" ? String(s.subject || "Quick question") : null,
-                                        body: String(s.body || "").slice(0, 8000),
-                                      }),
-                                    });
-                                  }
-
-                                  toast.success("Template applied");
-                                  await refreshDetail(campaignId);
-                                  await refreshList({ keepSelected: true });
-                                  setTemplateOpen(false);
-                                } catch (e: any) {
-                                  toast.error(String(e?.message || "Failed to apply template"));
-                                } finally {
-                                  setTemplateBusy(false);
-                                }
-                              })();
+                              setConfirm({ kind: "applyTemplate", template: t });
                             }}
                           >
                             <div className="flex items-start justify-between gap-3">
@@ -1108,7 +1396,7 @@ export function PortalNurtureCampaignsClient() {
                           onSave={(patch) => void updateStep(s.id, patch)}
                           onMoveUp={() => void moveStep(s, -1)}
                           onMoveDown={() => void moveStep(s, 1)}
-                          onDelete={() => void deleteStep(s.id)}
+                          onDelete={() => requestDeleteStep(s.id)}
                         />
                       ))
                   ) : (
@@ -1116,6 +1404,87 @@ export function PortalNurtureCampaignsClient() {
                   )}
                 </div>
               </div>
+
+              {confirm ? (
+                <div
+                  className="fixed inset-0 z-9999 flex items-start justify-center bg-black/20 px-4 pt-8"
+                  role="dialog"
+                  aria-modal="true"
+                  onMouseDown={() => setConfirm(null)}
+                >
+                  <div
+                    className="w-full max-w-lg rounded-3xl border border-zinc-200 bg-white p-5 shadow-xl"
+                    onMouseDown={(e) => e.stopPropagation()}
+                  >
+                    <div className="text-sm font-semibold text-zinc-900">
+                      {confirm.kind === "deleteCampaign"
+                        ? "Delete campaign permanently?"
+                        : confirm.kind === "deleteStep"
+                          ? "Delete this step?"
+                          : "Replace steps with template?"}
+                    </div>
+                    <div className="mt-2 text-sm text-zinc-600">
+                      {confirm.kind === "deleteCampaign"
+                        ? `This will permanently delete “${confirm.name}”.`
+                        : confirm.kind === "deleteStep"
+                          ? "This cannot be undone."
+                          : `This will delete your existing steps and replace them with “${confirm.template.title}”.`}
+                    </div>
+
+                    <div className="mt-4 flex flex-col gap-2 sm:flex-row sm:justify-end">
+                      <button
+                        type="button"
+                        className="inline-flex items-center justify-center rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm font-semibold text-brand-ink hover:bg-zinc-50 disabled:opacity-60"
+                        onClick={() => setConfirm(null)}
+                        disabled={templateBusy}
+                      >
+                        Cancel
+                      </button>
+
+                      {confirm.kind === "deleteCampaign" ? (
+                        <button
+                          type="button"
+                          className="inline-flex items-center justify-center rounded-2xl bg-red-600 px-4 py-2 text-sm font-semibold text-white hover:bg-red-700 disabled:opacity-60"
+                          onClick={() => {
+                            const campaignId = confirm.campaignId;
+                            setConfirm(null);
+                            void deleteCampaignNow(campaignId);
+                          }}
+                          disabled={templateBusy}
+                        >
+                          Delete
+                        </button>
+                      ) : confirm.kind === "deleteStep" ? (
+                        <button
+                          type="button"
+                          className="inline-flex items-center justify-center rounded-2xl bg-red-600 px-4 py-2 text-sm font-semibold text-white hover:bg-red-700 disabled:opacity-60"
+                          onClick={() => {
+                            const stepId = confirm.stepId;
+                            setConfirm(null);
+                            void deleteStepNow(stepId);
+                          }}
+                          disabled={templateBusy}
+                        >
+                          Delete
+                        </button>
+                      ) : (
+                        <button
+                          type="button"
+                          className="inline-flex items-center justify-center rounded-2xl bg-(--color-brand-blue) px-4 py-2 text-sm font-semibold text-white shadow-sm hover:opacity-90 disabled:opacity-60"
+                          onClick={() => {
+                            const t = confirm.template;
+                            setConfirm(null);
+                            void applyTemplateNow(t);
+                          }}
+                          disabled={templateBusy}
+                        >
+                          Replace steps
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                </div>
+              ) : null}
 
               <div className="mt-6 rounded-3xl border border-zinc-200 bg-zinc-50 p-4">
                 <div className="flex flex-wrap items-start justify-between gap-3">
@@ -1328,6 +1697,8 @@ function StepCard(props: {
                   { value: "minutes", label: "minutes after" },
                   { value: "hours", label: "hours after" },
                   { value: "days", label: "days after" },
+                  { value: "weeks", label: "weeks after" },
+                  { value: "months", label: "months after" },
                 ]}
                 onChange={(next) => {
                   setDelayUnit(next);

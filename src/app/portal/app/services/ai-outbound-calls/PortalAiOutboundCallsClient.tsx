@@ -1547,8 +1547,10 @@ export function PortalAiOutboundCallsClient(props: { initialTab?: OutboundTabKey
                 setCreateOpen(true);
               }}
               className={classNames(
-                "inline-flex h-9 w-9 items-center justify-center rounded-xl border text-base font-semibold",
-                busy ? "border-zinc-200 bg-zinc-100 text-zinc-500" : "border-zinc-200 bg-white text-zinc-900 hover:bg-zinc-50",
+                "inline-flex h-9 w-9 items-center justify-center rounded-xl text-base font-semibold",
+                busy
+                  ? "border border-zinc-200 bg-zinc-100 text-zinc-500"
+                  : "bg-(--color-brand-blue) text-white shadow-sm hover:opacity-90",
               )}
               title="Create campaign"
               aria-label="Create campaign"

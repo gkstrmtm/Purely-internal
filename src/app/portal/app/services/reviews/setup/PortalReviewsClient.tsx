@@ -7,6 +7,7 @@ import { Lightbox, type LightboxImage } from "@/components/Lightbox";
 import { PortalSettingsSection } from "@/components/PortalSettingsSection";
 import { PortalVariablePickerModal } from "@/components/PortalVariablePickerModal";
 import { useToast } from "@/components/ToastProvider";
+import { DEFAULT_TAG_COLORS } from "@/lib/tagColors.shared";
 import type { TemplateVariable } from "@/lib/portalTemplateVars";
 
 type ReviewDelayUnit = "minutes" | "hours" | "days" | "weeks";
@@ -241,6 +242,11 @@ export default function PortalReviewsClient() {
   const [settings, setSettings] = useState<ReviewRequestsSettings>(DEFAULT_SETTINGS);
 
   const [contactTags, setContactTags] = useState<ContactTag[]>([]);
+  const [tagSearch, setTagSearch] = useState("");
+  const [showCreateTag, setShowCreateTag] = useState(false);
+  const [createTagName, setCreateTagName] = useState("");
+  const [createTagColor, setCreateTagColor] = useState<(typeof DEFAULT_TAG_COLORS)[number]>("#2563EB");
+  const [createTagBusy, setCreateTagBusy] = useState(false);
 
   useEffect(() => {
     if (error) toast.error(error);
@@ -284,6 +290,13 @@ export default function PortalReviewsClient() {
   const [qaSavingId, setQaSavingId] = useState<string | null>(null);
   const [qaEditingId, setQaEditingId] = useState<string | null>(null);
   const [qaAnswerDrafts, setQaAnswerDrafts] = useState<Record<string, string>>({});
+
+  type ConfirmState =
+    | { kind: "deleteReply"; reviewId: string }
+    | { kind: "deleteAnswer"; questionId: string }
+    | null;
+
+  const [confirm, setConfirm] = useState<ConfirmState>(null);
 
   const [varPickerOpen, setVarPickerOpen] = useState(false);
   const [varPickerTarget, setVarPickerTarget] = useState<null | { kind: "default" } | { kind: "calendar"; calendarId: string }>(null);
@@ -460,8 +473,61 @@ export default function PortalReviewsClient() {
   }, [readJsonSafe]);
 
   const contactTagOptions = useMemo(() => {
-    return [{ value: "", label: "No tag" }, ...contactTags.map((t) => ({ value: t.id, label: t.name }))];
-  }, [contactTags]);
+    const q = tagSearch.trim().toLowerCase();
+    const filtered = q ? contactTags.filter((t) => t.name.toLowerCase().includes(q)) : contactTags;
+    return [
+      { value: "", label: "No tag" },
+      ...filtered.slice(0, 120).map((t) => ({ value: t.id, label: t.name })),
+      { value: "__create__", label: "Create new tag…" },
+    ];
+  }, [contactTags, tagSearch]);
+
+  const createOwnerTag = useCallback(async () => {
+    const name = createTagName.trim().slice(0, 60);
+    if (!name) {
+      toast.error("Enter a tag name");
+      return;
+    }
+
+    setCreateTagBusy(true);
+    try {
+      const res = await fetch("/api/portal/contact-tags", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ name, color: createTagColor }),
+      });
+      const json = (await res.json().catch(() => ({}))) as any;
+      if (!res.ok || !json?.ok || !json?.tag?.id) {
+        toast.error(String(json?.error || "Failed to create tag"));
+        return;
+      }
+
+      const created: ContactTag = {
+        id: String(json.tag.id),
+        name: String(json.tag.name || name).slice(0, 60),
+        color: typeof json.tag.color === "string" ? String(json.tag.color) : null,
+      };
+
+      setContactTags((prev) => {
+        const next = [...prev.filter((t) => t.id !== created.id), created];
+        next.sort((a, b) => a.name.localeCompare(b.name));
+        return next;
+      });
+
+      setSettings((prev) => ({
+        ...prev,
+        tagAfterSend: { ...prev.tagAfterSend, enabled: true, tagId: created.id },
+      }));
+
+      setCreateTagName("");
+      setCreateTagColor("#2563EB");
+      setShowCreateTag(false);
+      setTagSearch("");
+      toast.success("Tag created");
+    } finally {
+      setCreateTagBusy(false);
+    }
+  }, [createTagColor, createTagName, toast]);
 
   const loadBookings = useCallback(async () => {
     setBookingsLoading(true);
@@ -984,21 +1050,88 @@ export default function PortalReviewsClient() {
                       <div className="rounded-2xl border border-zinc-200 bg-white px-4 py-3">
                         <div className="text-xs font-semibold uppercase tracking-wide text-zinc-500">Tag</div>
                         <div className="mt-2 max-w-sm">
-                          <PortalListboxDropdown
-                            value={settings.tagAfterSend.tagId || ""}
-                            onChange={(tagId) =>
-                              setSettings({
-                                ...settings,
-                                tagAfterSend: { ...settings.tagAfterSend, tagId: tagId ? String(tagId) : null },
-                              })
-                            }
-                            options={contactTagOptions}
-                            placeholder="Select a tag"
-                            buttonClassName="flex h-10 w-full items-center justify-between gap-2 rounded-xl border border-zinc-200 bg-white px-3 text-sm hover:bg-zinc-50 focus-visible:ring-2 focus-visible:ring-zinc-300"
+                          <input
+                            value={tagSearch}
+                            onChange={(e) => setTagSearch(e.target.value)}
+                            placeholder="Search tags…"
+                            className="w-full rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-sm"
                           />
+                          <div className="mt-2">
+                            <PortalListboxDropdown
+                              value={settings.tagAfterSend.tagId || ""}
+                              onChange={(v) => {
+                                const id = String(v || "");
+                                if (id === "__create__") {
+                                  setShowCreateTag(true);
+                                  return;
+                                }
+                                setShowCreateTag(false);
+                                setSettings({
+                                  ...settings,
+                                  tagAfterSend: { ...settings.tagAfterSend, tagId: id ? id : null },
+                                });
+                              }}
+                              options={contactTagOptions as any}
+                              placeholder="Select a tag"
+                              buttonClassName="flex h-10 w-full items-center justify-between gap-2 rounded-xl border border-zinc-200 bg-white px-3 text-sm hover:bg-zinc-50 focus-visible:ring-2 focus-visible:ring-zinc-300"
+                            />
+                          </div>
                         </div>
                         {contactTags.length === 0 ? (
                           <div className="mt-2 text-xs text-zinc-500">No tags found yet. Create one in People → Tags.</div>
+                        ) : null}
+
+                        {showCreateTag ? (
+                          <div className="mt-3 rounded-2xl border border-zinc-200 bg-zinc-50 p-3">
+                            <div className="flex items-center justify-between gap-3">
+                              <div className="text-xs font-semibold text-zinc-700">Create tag</div>
+                              <button
+                                type="button"
+                                className="rounded-xl border border-zinc-200 bg-white px-3 py-2 text-xs font-semibold text-zinc-700 hover:bg-zinc-50"
+                                onClick={() => setShowCreateTag(false)}
+                                disabled={createTagBusy}
+                              >
+                                Cancel
+                              </button>
+                            </div>
+                            <div className="mt-2 grid grid-cols-1 gap-2 sm:grid-cols-3">
+                              <input
+                                className="sm:col-span-2 w-full rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-sm"
+                                placeholder="Tag name"
+                                value={createTagName}
+                                onChange={(e) => setCreateTagName(e.target.value)}
+                              />
+                              <div className="flex flex-wrap items-center gap-1.5 rounded-2xl border border-zinc-200 bg-white px-2 py-2">
+                                {DEFAULT_TAG_COLORS.slice(0, 10).map((c) => {
+                                  const selected = c === createTagColor;
+                                  return (
+                                    <button
+                                      key={c}
+                                      type="button"
+                                      className={
+                                        "h-7 w-7 rounded-full border " +
+                                        (selected ? "border-zinc-900 ring-2 ring-zinc-900/20" : "border-zinc-200")
+                                      }
+                                      style={{ backgroundColor: c }}
+                                      onClick={() => setCreateTagColor(c)}
+                                      title={c}
+                                    />
+                                  );
+                                })}
+                              </div>
+                            </div>
+                            <div className="mt-2 flex items-center justify-between gap-3">
+                              <div className="text-xs text-zinc-500">Pick a default color.</div>
+                              <button
+                                type="button"
+                                className="rounded-xl bg-zinc-900 px-3 py-2 text-xs font-semibold text-white hover:bg-zinc-800 disabled:opacity-60"
+                                onClick={() => void createOwnerTag()}
+                                disabled={createTagBusy}
+                              >
+                                {createTagBusy ? "Creating…" : "Create"}
+                              </button>
+                            </div>
+                          </div>
                         ) : null}
                       </div>
                     ) : null}
@@ -1923,9 +2056,7 @@ export default function PortalReviewsClient() {
                                 className="rounded-xl border border-zinc-200 bg-white px-3 py-2 text-xs font-semibold text-red-700 hover:bg-zinc-50"
                                 disabled={replySavingId === r.id}
                                 onClick={() => {
-                                  if (!window.confirm("Delete this public response?")) return;
-                                  setReplyDrafts((prev) => ({ ...prev, [r.id]: "" }));
-                                  void saveReviewReply(r.id, "");
+                                  setConfirm({ kind: "deleteReply", reviewId: r.id });
                                 }}
                               >
                                 Delete
@@ -2043,9 +2174,7 @@ export default function PortalReviewsClient() {
                               className="rounded-xl border border-zinc-200 bg-white px-3 py-2 text-xs font-semibold text-red-700 hover:bg-zinc-50"
                               disabled={qaSavingId === q.id}
                               onClick={() => {
-                                if (!window.confirm("Delete this answer?")) return;
-                                setQaAnswerDrafts((prev) => ({ ...prev, [q.id]: "" }));
-                                void saveQaAnswer(q.id, "");
+                                setConfirm({ kind: "deleteAnswer", questionId: q.id });
                               }}
                             >
                               Delete
@@ -2159,6 +2288,63 @@ export default function PortalReviewsClient() {
           });
         }}
       />
+
+      {confirm ? (
+        <div
+          className="fixed inset-0 z-50 flex items-start justify-center bg-black/20 px-4 pt-8"
+          role="dialog"
+          aria-modal="true"
+          onMouseDown={() => setConfirm(null)}
+        >
+          <div
+            className="w-full max-w-lg rounded-3xl border border-zinc-200 bg-white p-5 shadow-xl"
+            onMouseDown={(e) => e.stopPropagation()}
+          >
+            <div className="text-sm font-semibold text-zinc-900">
+              {confirm.kind === "deleteReply" ? "Delete this public response?" : "Delete this answer?"}
+            </div>
+            <div className="mt-2 text-sm text-zinc-600">
+              {confirm.kind === "deleteReply"
+                ? "This removes your business reply from the public Reviews page."
+                : "This removes the answer from the public Q&A section."}
+            </div>
+
+            <div className="mt-4 flex flex-col gap-2 sm:flex-row sm:justify-end">
+              <button
+                type="button"
+                className="inline-flex items-center justify-center rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm font-semibold text-brand-ink hover:bg-zinc-50"
+                onClick={() => setConfirm(null)}
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                className="inline-flex items-center justify-center rounded-2xl bg-red-600 px-4 py-2 text-sm font-semibold text-white hover:bg-red-700 disabled:opacity-60"
+                disabled={
+                  (confirm.kind === "deleteReply" && replySavingId === confirm.reviewId) ||
+                  (confirm.kind === "deleteAnswer" && qaSavingId === confirm.questionId)
+                }
+                onClick={() => {
+                  if (confirm.kind === "deleteReply") {
+                    const reviewId = confirm.reviewId;
+                    setConfirm(null);
+                    setReplyDrafts((prev) => ({ ...prev, [reviewId]: "" }));
+                    void saveReviewReply(reviewId, "");
+                    return;
+                  }
+
+                  const questionId = confirm.questionId;
+                  setConfirm(null);
+                  setQaAnswerDrafts((prev) => ({ ...prev, [questionId]: "" }));
+                  void saveQaAnswer(questionId, "");
+                }}
+              >
+                Delete
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
     </div>
   );
 }
