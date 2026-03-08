@@ -48,52 +48,16 @@ function isUniqueViolation(e: unknown) {
   return msg.includes("Unique constraint") || msg.includes("unique constraint") || msg.includes("P2002");
 }
 
-async function insertLegacyPortalLead(data: PortalLeadCreateCompatInput): Promise<PortalLeadCreateCompatResult | null> {
-  const id = crypto.randomUUID();
-  const dataJsonString = data.dataJson ? JSON.stringify(data.dataJson) : null;
-
-  const rows = await prisma.$queryRaw<PortalLeadCreateCompatResult[]>`
-    INSERT INTO "PortalLead" (
-      "id",
-      "ownerId",
-      "source",
-      "kind",
-      "businessName",
-      "phone",
-      "website",
-      "address",
-      "niche",
-      "placeId",
-      "dataJson",
-      "createdAt"
-    )
-    VALUES (
-      ${id},
-      ${data.ownerId},
-      ${data.source},
-      ${data.kind},
-      ${data.businessName},
-      ${data.phone},
-      ${data.website},
-      ${data.address},
-      ${data.niche},
-      ${data.placeId},
-      ${dataJsonString}::jsonb,
-      NOW()
-    )
-    ON CONFLICT DO NOTHING
-    RETURNING "id", "businessName", "phone", "website", "address", "niche";
-  `;
-
-  return rows[0] ?? null;
+function isMissingEnumTypeError(e: unknown, enumTypeName: string) {
+  const anyErr = e as any;
+  const code = typeof anyErr?.code === "string" ? anyErr.code : "";
+  const msg = e instanceof Error ? e.message : String(e ?? "");
+  // Postgres: undefined_object
+  if (code === "42704" && msg.includes(enumTypeName)) return true;
+  return msg.includes("does not exist") && msg.includes(enumTypeName);
 }
 
-async function insertLegacyPortalLeadWithContactId(
-  data: PortalLeadCreateCompatInput,
-  contactId: string | null,
-): Promise<PortalLeadCreateCompatResult | null> {
-  if (!contactId) return await insertLegacyPortalLead(data);
-
+async function insertLegacyPortalLead(data: PortalLeadCreateCompatInput): Promise<PortalLeadCreateCompatResult | null> {
   const id = crypto.randomUUID();
   const dataJsonString = data.dataJson ? JSON.stringify(data.dataJson) : null;
 
@@ -111,7 +75,43 @@ async function insertLegacyPortalLeadWithContactId(
         "niche",
         "placeId",
         "dataJson",
-        "contactId",
+        "createdAt"
+      )
+      VALUES (
+        ${id},
+        ${data.ownerId},
+        ${data.source}::"PortalLeadSource",
+        ${data.kind},
+        ${data.businessName},
+        ${data.phone},
+        ${data.website},
+        ${data.address},
+        ${data.niche},
+        ${data.placeId},
+        ${dataJsonString}::jsonb,
+        NOW()
+      )
+      ON CONFLICT DO NOTHING
+      RETURNING "id", "businessName", "phone", "website", "address", "niche";
+    `;
+    return rows[0] ?? null;
+  } catch (e) {
+    // Older DBs may not have the enum type; retry without the cast.
+    if (!isMissingEnumTypeError(e, "PortalLeadSource")) throw e;
+
+    const rows = await prisma.$queryRaw<PortalLeadCreateCompatResult[]>`
+      INSERT INTO "PortalLead" (
+        "id",
+        "ownerId",
+        "source",
+        "kind",
+        "businessName",
+        "phone",
+        "website",
+        "address",
+        "niche",
+        "placeId",
+        "dataJson",
         "createdAt"
       )
       VALUES (
@@ -126,13 +126,102 @@ async function insertLegacyPortalLeadWithContactId(
         ${data.niche},
         ${data.placeId},
         ${dataJsonString}::jsonb,
-        ${contactId},
         NOW()
       )
       ON CONFLICT DO NOTHING
       RETURNING "id", "businessName", "phone", "website", "address", "niche";
     `;
+
     return rows[0] ?? null;
+  }
+}
+
+async function insertLegacyPortalLeadWithContactId(
+  data: PortalLeadCreateCompatInput,
+  contactId: string | null,
+): Promise<PortalLeadCreateCompatResult | null> {
+  if (!contactId) return await insertLegacyPortalLead(data);
+
+  const id = crypto.randomUUID();
+  const dataJsonString = data.dataJson ? JSON.stringify(data.dataJson) : null;
+
+  try {
+    try {
+      const rows = await prisma.$queryRaw<PortalLeadCreateCompatResult[]>`
+        INSERT INTO "PortalLead" (
+          "id",
+          "ownerId",
+          "source",
+          "kind",
+          "businessName",
+          "phone",
+          "website",
+          "address",
+          "niche",
+          "placeId",
+          "dataJson",
+          "contactId",
+          "createdAt"
+        )
+        VALUES (
+          ${id},
+          ${data.ownerId},
+          ${data.source}::"PortalLeadSource",
+          ${data.kind},
+          ${data.businessName},
+          ${data.phone},
+          ${data.website},
+          ${data.address},
+          ${data.niche},
+          ${data.placeId},
+          ${dataJsonString}::jsonb,
+          ${contactId},
+          NOW()
+        )
+        ON CONFLICT DO NOTHING
+        RETURNING "id", "businessName", "phone", "website", "address", "niche";
+      `;
+      return rows[0] ?? null;
+    } catch (e) {
+      // Older DBs may not have the enum type; retry without the cast.
+      if (!isMissingEnumTypeError(e, "PortalLeadSource")) throw e;
+
+      const rows = await prisma.$queryRaw<PortalLeadCreateCompatResult[]>`
+        INSERT INTO "PortalLead" (
+          "id",
+          "ownerId",
+          "source",
+          "kind",
+          "businessName",
+          "phone",
+          "website",
+          "address",
+          "niche",
+          "placeId",
+          "dataJson",
+          "contactId",
+          "createdAt"
+        )
+        VALUES (
+          ${id},
+          ${data.ownerId},
+          ${data.source},
+          ${data.kind},
+          ${data.businessName},
+          ${data.phone},
+          ${data.website},
+          ${data.address},
+          ${data.niche},
+          ${data.placeId},
+          ${dataJsonString}::jsonb,
+          ${contactId},
+          NOW()
+        )
+        ON CONFLICT DO NOTHING
+        RETURNING "id", "businessName", "phone", "website", "address", "niche";
+      `;
+      return rows[0] ?? null;
+    }
   } catch (e) {
     if (isMissingContactIdColumnError(e)) {
       return await insertLegacyPortalLead(data);
