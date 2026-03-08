@@ -88,6 +88,7 @@ export function PortalBillingClient() {
   const [summary, setSummary] = useState<BillingSummary | null>(null);
   const [pricing, setPricing] = useState<PortalPricing | null>(null);
   const [credits, setCredits] = useState<number | null>(null);
+  const [creditsLifecycle, setCreditsLifecycle] = useState<null | { state: "active" | "canceled"; reason?: string; updatedAtIso?: string }>(null);
   const [creditUsdValue, setCreditUsdValue] = useState<number | null>(null);
   const [autoTopUp, setAutoTopUp] = useState(false);
   const [purchaseAvailable, setPurchaseAvailable] = useState(false);
@@ -129,10 +130,20 @@ export function PortalBillingClient() {
       credits?: number;
       autoTopUp?: boolean;
       purchaseAvailable?: boolean;
+      lifecycle?: { state?: "active" | "canceled"; reason?: string; updatedAtIso?: string };
     };
     setCredits(typeof c.credits === "number" && Number.isFinite(c.credits) ? c.credits : 0);
     setAutoTopUp(Boolean(c.autoTopUp));
     setPurchaseAvailable(Boolean(c.purchaseAvailable));
+    setCreditsLifecycle(
+      c.lifecycle
+        ? {
+            state: c.lifecycle.state === "canceled" ? "canceled" : "active",
+            ...(typeof c.lifecycle.reason === "string" && c.lifecycle.reason.trim() ? { reason: c.lifecycle.reason.trim().slice(0, 120) } : {}),
+            ...(typeof c.lifecycle.updatedAtIso === "string" && c.lifecycle.updatedAtIso.trim() ? { updatedAtIso: c.lifecycle.updatedAtIso.trim().slice(0, 40) } : {}),
+          }
+        : null,
+    );
   }, []);
 
 
@@ -169,16 +180,31 @@ export function PortalBillingClient() {
           autoTopUp?: boolean;
           purchaseAvailable?: boolean;
           creditUsdValue?: number;
+          lifecycle?: { state?: "active" | "canceled"; reason?: string; updatedAtIso?: string };
         };
         setCredits(typeof c.credits === "number" && Number.isFinite(c.credits) ? c.credits : 0);
         setAutoTopUp(Boolean(c.autoTopUp));
         setPurchaseAvailable(Boolean(c.purchaseAvailable));
         setCreditUsdValue(typeof c.creditUsdValue === "number" && Number.isFinite(c.creditUsdValue) ? c.creditUsdValue : null);
+        setCreditsLifecycle(
+          c.lifecycle
+            ? {
+                state: c.lifecycle.state === "canceled" ? "canceled" : "active",
+                ...(typeof c.lifecycle.reason === "string" && c.lifecycle.reason.trim()
+                  ? { reason: c.lifecycle.reason.trim().slice(0, 120) }
+                  : {}),
+                ...(typeof c.lifecycle.updatedAtIso === "string" && c.lifecycle.updatedAtIso.trim()
+                  ? { updatedAtIso: c.lifecycle.updatedAtIso.trim().slice(0, 40) }
+                  : {}),
+              }
+            : null,
+        );
       } else {
         setCredits(0);
         setAutoTopUp(false);
         setPurchaseAvailable(false);
         setCreditUsdValue(null);
+        setCreditsLifecycle(null);
       }
 
       if (servicesRes.ok) {
@@ -414,6 +440,30 @@ export function PortalBillingClient() {
     await Promise.all([refreshServices(), refreshSummary(), refreshSubscriptions()]);
   }
 
+  async function setCreditsOnlyLifecycle(action: "cancel" | "resume") {
+    setError(null);
+    setActionBusy(`credits-only:${action}`);
+
+    const res = await fetch("/api/portal/billing/credits-only-cancel", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ action }),
+    });
+
+    const body = await res.json().catch(() => ({}));
+
+    if (!res.ok || !body?.ok) {
+      setActionBusy(null);
+      setError(body?.error ?? "Unable to update credits-only billing");
+      return;
+    }
+
+    toast.success(action === "cancel" ? "Credits billing canceled." : "Credits billing resumed.");
+    await Promise.all([refreshServices(), refreshCredits(), refreshSummary(), refreshSubscriptions()]);
+    setActionBusy(null);
+    router.refresh();
+  }
+
   async function saveAutoTopUp(next: boolean) {
     setError(null);
     setActionBusy("auto-topup");
@@ -549,6 +599,8 @@ export function PortalBillingClient() {
     (internalMonthlyBreakdown[0]?.currency || summaryCurrency || "usd");
 
   const monthlyText = creditsOnly ? "No subscription" : status?.configured ? formatMoney(displayMonthlyCents, displayCurrency) : "N/A";
+
+  const creditsCanceled = creditsOnly && creditsLifecycle?.state === "canceled";
 
   const sub = summary && "ok" in summary && summary.ok === true && summary.configured ? summary.subscription : undefined;
   const hasActiveSub = creditsOnly ? false : Boolean(sub?.id && ["active", "trialing", "past_due"].includes(String(sub.status)));
@@ -769,6 +821,52 @@ export function PortalBillingClient() {
             {creditsOnly ? (
               <div className="mt-2 inline-flex items-center rounded-full bg-emerald-100 px-2 py-0.5 text-xs font-semibold text-emerald-900">
                 Credits-only billing
+              </div>
+            ) : null}
+
+            {creditsOnly ? (
+              <div
+                className={`mt-4 rounded-2xl border p-4 ${
+                  creditsCanceled ? "border-red-200 bg-red-50" : "border-zinc-200 bg-zinc-50"
+                }`}
+              >
+                <div className="text-sm font-semibold text-zinc-900">Credits-only cancellation</div>
+                <div className="mt-1 text-sm text-zinc-700">
+                  {creditsCanceled
+                    ? "Canceled: all portal services are disabled until you resume. Billing and Profile stay accessible."
+                    : "Canceling credits-only billing disables all portal services immediately and stops any credit-charging actions."}
+                </div>
+
+                {creditsLifecycle?.updatedAtIso ? (
+                  <div className="mt-1 text-xs text-zinc-500">Last change: {new Date(creditsLifecycle.updatedAtIso).toLocaleString()}</div>
+                ) : null}
+
+                <div className="mt-3 flex flex-col gap-2 sm:flex-row">
+                  {creditsCanceled ? (
+                    <button
+                      type="button"
+                      disabled={actionBusy !== null}
+                      onClick={() => {
+                        void setCreditsOnlyLifecycle("resume");
+                      }}
+                      className="rounded-2xl bg-(--color-brand-blue) px-4 py-2 text-sm font-semibold text-white hover:opacity-95 disabled:opacity-60"
+                    >
+                      {actionBusy === "credits-only:resume" ? "Resuming…" : "Resume services"}
+                    </button>
+                  ) : (
+                    <button
+                      type="button"
+                      disabled={actionBusy !== null}
+                      onClick={() => {
+                        if (!window.confirm("Cancel credits-only billing? This will immediately disable all services.")) return;
+                        void setCreditsOnlyLifecycle("cancel");
+                      }}
+                      className="rounded-2xl border border-red-200 bg-white px-4 py-2 text-sm font-semibold text-red-700 hover:bg-red-50 disabled:opacity-60"
+                    >
+                      {actionBusy === "credits-only:cancel" ? "Canceling…" : "Cancel (disable services)"}
+                    </button>
+                  )}
+                </div>
               </div>
             ) : null}
           </div>

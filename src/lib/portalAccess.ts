@@ -8,6 +8,7 @@ import { resolveEntitlements } from "@/lib/entitlements";
 import { isStripeConfigured } from "@/lib/stripeFetch";
 import { isCreditsOnlyBilling } from "@/lib/portalBillingModel";
 import { getPortalBillingModelForOwner } from "@/lib/portalBillingModel.server";
+import { isCreditsCanceledForOwner } from "@/lib/credits";
 import type { PortalVariant } from "@/lib/portalVariant";
 
 function serviceSlugForKey(key: PortalServiceKey): string | null {
@@ -141,6 +142,17 @@ export async function requireClientSessionForService(
   const ownerId = auth.session.user.id;
   const memberId = (auth.session.user as any).memberId || ownerId;
   const portalVariant = ((auth.session.user as any).portalVariant as PortalVariant | undefined) ?? undefined;
+
+  // Global credits-only cancel: disable everything except Billing/Profile so users can manage/reactivate.
+  if (service !== "billing" && service !== "profile") {
+    if (await isCreditsCanceledForOwner(ownerId).catch(() => false)) {
+      return {
+        ok: false as const,
+        status: 403 as const,
+        session: auth.session,
+      };
+    }
+  }
 
   // Paused/canceled services are disabled for everyone (including owner).
   if (await isServiceLifecycleDisabled(ownerId, service).catch(() => false)) {

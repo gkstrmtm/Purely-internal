@@ -9,6 +9,14 @@ export type CreditsState = {
   autoTopUp: boolean;
 };
 
+export type CreditsLifecycleState = "active" | "canceled";
+
+export type CreditsLifecycle = {
+  state: CreditsLifecycleState;
+  reason?: string;
+  updatedAtIso?: string;
+};
+
 type CreditsSpendLedgerEntry = {
   id: string;
   amount: number;
@@ -63,6 +71,20 @@ function parseCreditsJson(value: unknown): CreditsState {
   return { balance, autoTopUp };
 }
 
+function parseCreditsLifecycle(value: unknown): CreditsLifecycle {
+  const rec = value && typeof value === "object" && !Array.isArray(value) ? (value as Record<string, unknown>) : null;
+  const lifecycle =
+    rec?.lifecycle && typeof rec.lifecycle === "object" && !Array.isArray(rec.lifecycle)
+      ? (rec.lifecycle as Record<string, unknown>)
+      : null;
+
+  const stateRaw = typeof lifecycle?.state === "string" ? lifecycle.state.toLowerCase().trim() : "";
+  const state: CreditsLifecycleState = stateRaw === "canceled" ? "canceled" : "active";
+  const reason = typeof lifecycle?.reason === "string" ? lifecycle.reason.trim().slice(0, 120) : undefined;
+  const updatedAtIso = typeof lifecycle?.updatedAtIso === "string" ? lifecycle.updatedAtIso.trim().slice(0, 40) : undefined;
+  return { state, ...(reason ? { reason } : {}), ...(updatedAtIso ? { updatedAtIso } : {}) };
+}
+
 function parseSpendLedger(value: unknown): CreditsSpendLedgerEntry[] {
   const rec = value && typeof value === "object" && !Array.isArray(value) ? (value as Record<string, unknown>) : null;
   const raw = rec?.spendLedger;
@@ -89,6 +111,101 @@ function advisoryLockKey(ownerId: string, idempotencyKey: string): bigint {
   return BigInt(`0x${hex}`);
 }
 
+export async function isCreditsCanceledForOwner(ownerId: string): Promise<boolean> {
+  const row = await prisma.portalServiceSetup
+    .findUnique({ where: { ownerId_serviceSlug: { ownerId, serviceSlug: SERVICE_SLUG } }, select: { dataJson: true } })
+    .catch(() => null);
+  const lifecycle = parseCreditsLifecycle(row?.dataJson);
+  return lifecycle.state === "canceled";
+}
+
+export async function getCreditsLifecycleForOwner(ownerId: string): Promise<CreditsLifecycle> {
+  const row = await prisma.portalServiceSetup
+    .findUnique({ where: { ownerId_serviceSlug: { ownerId, serviceSlug: SERVICE_SLUG } }, select: { dataJson: true } })
+    .catch(() => null);
+  return parseCreditsLifecycle(row?.dataJson);
+}
+
+async function performAutoTopUpIfPossible(opts: { ownerId: string; needCredits: number; prev: CreditsState }) {
+  const need = Math.max(0, Math.floor(opts.needCredits));
+  if (need === 0) return { ok: true as const, state: opts.prev };
+  if (!opts.prev.autoTopUp) return { ok: false as const, state: opts.prev };
+
+  const priceId = (process.env.STRIPE_PRICE_CREDITS_TOPUP ?? "").trim();
+  if (!isStripeConfigured() || !priceId) return { ok: false as const, state: opts.prev };
+
+  const user = await prisma.user.findUnique({ where: { id: opts.ownerId }, select: { email: true } }).catch(() => null);
+  const email = normalizeEmail(user?.email);
+  if (!email) return { ok: false as const, state: opts.prev };
+
+  const creditsPerPackage = creditsPerTopUpPackage();
+  const shortfall = Math.max(0, need - opts.prev.balance);
+  const packages = Math.max(1, Math.min(20, Math.ceil(shortfall / creditsPerPackage)));
+
+  try {
+    const customerId = await getOrCreateStripeCustomerId(email);
+    const customer = await stripeGet<any>(`/v1/customers/${customerId}`);
+
+    const paymentMethod =
+      typeof customer?.invoice_settings?.default_payment_method === "string"
+        ? customer.invoice_settings.default_payment_method
+        : typeof customer?.default_source === "string"
+          ? customer.default_source
+          : "";
+    if (!paymentMethod) return { ok: false as const, state: opts.prev };
+
+    const price = await stripeGet<any>(`/v1/prices/${priceId}`);
+    const unitAmount = typeof price?.unit_amount === "number" ? price.unit_amount : NaN;
+    const currency = typeof price?.currency === "string" ? price.currency : "usd";
+    if (!Number.isFinite(unitAmount) || unitAmount <= 0) return { ok: false as const, state: opts.prev };
+
+    const amountCents = Math.floor(unitAmount) * packages;
+    if (!Number.isFinite(amountCents) || amountCents <= 0) return { ok: false as const, state: opts.prev };
+
+    await stripePost<any>("/v1/payment_intents", {
+      amount: amountCents,
+      currency,
+      customer: customerId,
+      payment_method: paymentMethod,
+      off_session: true,
+      confirm: true,
+      description: `Purely Automation credits auto top-up (${packages} package${packages === 1 ? "" : "s"})`,
+      "metadata[kind]": "credits_auto_topup",
+      "metadata[ownerId]": opts.ownerId,
+      "metadata[packages]": String(packages),
+    });
+
+    const credited = packages * creditsPerPackage;
+    const state = await addCredits(opts.ownerId, credited);
+    return { ok: true as const, state };
+  } catch {
+    return { ok: false as const, state: opts.prev };
+  }
+}
+
+export async function ensureCreditsBalance(ownerId: string, minBalance: number): Promise<CreditsState> {
+  const need = Math.max(0, Math.floor(minBalance));
+  if (need === 0) return await getCreditsState(ownerId);
+
+  // Demo accounts should never be blocked or charged.
+  if (await isFreeCreditsOwner(ownerId).catch(() => false)) {
+    return await getCreditsState(ownerId);
+  }
+
+  const row = await prisma.portalServiceSetup
+    .findUnique({ where: { ownerId_serviceSlug: { ownerId, serviceSlug: SERVICE_SLUG } }, select: { dataJson: true } })
+    .catch(() => null);
+
+  const lifecycle = parseCreditsLifecycle(row?.dataJson);
+  if (lifecycle.state === "canceled") return parseCreditsJson(row?.dataJson);
+
+  const current = parseCreditsJson(row?.dataJson);
+  if (current.balance >= need) return current;
+
+  const topped = await performAutoTopUpIfPossible({ ownerId, needCredits: need, prev: current });
+  return topped.state;
+}
+
 export async function consumeCreditsOnce(
   ownerId: string,
   amount: number,
@@ -112,66 +229,16 @@ export async function consumeCreditsOnce(
     return { ok: true, state: await getCreditsState(ownerId), chargedAmount: 0, alreadyConsumed: false };
   }
 
-  // If auto top-up is enabled, try topping up once before failing.
-  const maybeAutoTopUp = async (prev: CreditsState) => {
-    if (!prev.autoTopUp) return { ok: false as const, state: prev };
-
-    const priceId = (process.env.STRIPE_PRICE_CREDITS_TOPUP ?? "").trim();
-    if (!isStripeConfigured() || !priceId) return { ok: false as const, state: prev };
-
-    const user = await prisma.user.findUnique({ where: { id: ownerId }, select: { email: true } }).catch(() => null);
-    const email = normalizeEmail(user?.email);
-    if (!email) return { ok: false as const, state: prev };
-
-    const creditsPerPackage = creditsPerTopUpPackage();
-    const shortfall = Math.max(0, need - prev.balance);
-    const packages = Math.max(1, Math.min(20, Math.ceil(shortfall / creditsPerPackage)));
-
-    try {
-      const customerId = await getOrCreateStripeCustomerId(email);
-      const customer = await stripeGet<any>(`/v1/customers/${customerId}`);
-
-      const paymentMethod =
-        typeof customer?.invoice_settings?.default_payment_method === "string"
-          ? customer.invoice_settings.default_payment_method
-          : typeof customer?.default_source === "string"
-            ? customer.default_source
-            : "";
-      if (!paymentMethod) return { ok: false as const, state: prev };
-
-      const price = await stripeGet<any>(`/v1/prices/${priceId}`);
-      const unitAmount = typeof price?.unit_amount === "number" ? price.unit_amount : NaN;
-      const currency = typeof price?.currency === "string" ? price.currency : "usd";
-      if (!Number.isFinite(unitAmount) || unitAmount <= 0) return { ok: false as const, state: prev };
-
-      const amountCents = Math.floor(unitAmount) * packages;
-      if (!Number.isFinite(amountCents) || amountCents <= 0) return { ok: false as const, state: prev };
-
-      await stripePost<any>("/v1/payment_intents", {
-        amount: amountCents,
-        currency,
-        customer: customerId,
-        payment_method: paymentMethod,
-        off_session: true,
-        confirm: true,
-        description: `Purely Automation credits auto top-up (${packages} package${packages === 1 ? "" : "s"})`,
-        "metadata[kind]": "credits_auto_topup",
-        "metadata[ownerId]": ownerId,
-        "metadata[packages]": String(packages),
-      });
-
-      const credited = packages * creditsPerPackage;
-      const state = await addCredits(ownerId, credited);
-      return { ok: true as const, state };
-    } catch {
-      return { ok: false as const, state: prev };
-    }
-  };
-
   const currentRow = await prisma.portalServiceSetup.findUnique({
     where: { ownerId_serviceSlug: { ownerId, serviceSlug: SERVICE_SLUG } },
     select: { dataJson: true },
   });
+
+  const lifecycle = parseCreditsLifecycle(currentRow?.dataJson);
+  if (lifecycle.state === "canceled") {
+    return { ok: false as const, state: parseCreditsJson(currentRow?.dataJson), chargedAmount: 0, alreadyConsumed: false };
+  }
+
   const currentState = parseCreditsJson(currentRow?.dataJson);
   const currentLedger = parseSpendLedger(currentRow?.dataJson);
   const currentExisting = currentLedger.find((e) => e.id === key);
@@ -180,8 +247,8 @@ export async function consumeCreditsOnce(
     return { ok: true as const, state: currentState, chargedAmount: alreadyAmount, alreadyConsumed: true };
   }
   if (currentState.balance < need) {
-    const topped = await maybeAutoTopUp(currentState);
-    if (!topped.ok) {
+    const topped = await performAutoTopUpIfPossible({ ownerId, needCredits: need, prev: currentState });
+    if (!topped.ok || topped.state.balance < need) {
       return { ok: false as const, state: topped.state, chargedAmount: 0, alreadyConsumed: false };
     }
   }
@@ -289,66 +356,19 @@ export async function consumeCredits(
     return { ok: true, state: await getCreditsState(ownerId) };
   }
 
-  const maybeAutoTopUp = async (prev: CreditsState) => {
-    if (!prev.autoTopUp) return { ok: false as const, state: prev };
+  const row = await prisma.portalServiceSetup
+    .findUnique({ where: { ownerId_serviceSlug: { ownerId, serviceSlug: SERVICE_SLUG } }, select: { dataJson: true } })
+    .catch(() => null);
+  const lifecycle = parseCreditsLifecycle(row?.dataJson);
+  if (lifecycle.state === "canceled") return { ok: false as const, state: parseCreditsJson(row?.dataJson) };
 
-    const priceId = (process.env.STRIPE_PRICE_CREDITS_TOPUP ?? "").trim();
-    if (!isStripeConfigured() || !priceId) return { ok: false as const, state: prev };
-
-    const user = await prisma.user.findUnique({ where: { id: ownerId }, select: { email: true } }).catch(() => null);
-    const email = normalizeEmail(user?.email);
-    if (!email) return { ok: false as const, state: prev };
-
-    const creditsPerPackage = creditsPerTopUpPackage();
-    const shortfall = Math.max(0, need - prev.balance);
-    const packages = Math.max(1, Math.min(20, Math.ceil(shortfall / creditsPerPackage)));
-
-    try {
-      const customerId = await getOrCreateStripeCustomerId(email);
-      const customer = await stripeGet<any>(`/v1/customers/${customerId}`);
-
-      const paymentMethod =
-        typeof customer?.invoice_settings?.default_payment_method === "string"
-          ? customer.invoice_settings.default_payment_method
-          : typeof customer?.default_source === "string"
-            ? customer.default_source
-            : "";
-      if (!paymentMethod) return { ok: false as const, state: prev };
-
-      const price = await stripeGet<any>(`/v1/prices/${priceId}`);
-      const unitAmount = typeof price?.unit_amount === "number" ? price.unit_amount : NaN;
-      const currency = typeof price?.currency === "string" ? price.currency : "usd";
-      if (!Number.isFinite(unitAmount) || unitAmount <= 0) return { ok: false as const, state: prev };
-
-      const amountCents = Math.floor(unitAmount) * packages;
-      if (!Number.isFinite(amountCents) || amountCents <= 0) return { ok: false as const, state: prev };
-
-      await stripePost<any>("/v1/payment_intents", {
-        amount: amountCents,
-        currency,
-        customer: customerId,
-        payment_method: paymentMethod,
-        off_session: true,
-        confirm: true,
-        description: `Purely Automation credits auto top-up (${packages} package${packages === 1 ? "" : "s"})`,
-        "metadata[kind]": "credits_auto_topup",
-        "metadata[ownerId]": ownerId,
-        "metadata[packages]": String(packages),
-      });
-
-      const credited = packages * creditsPerPackage;
-      const state = await addCredits(ownerId, credited);
-      return { ok: true as const, state };
-    } catch {
-      return { ok: false as const, state: prev };
-    }
-  };
+  const maybeAutoTopUp = async (prev: CreditsState) => performAutoTopUpIfPossible({ ownerId, needCredits: need, prev });
 
   // If auto top-up is enabled, try topping up once before failing.
   const current = await getCreditsState(ownerId);
   if (current.balance < need) {
     const topped = await maybeAutoTopUp(current);
-    if (!topped.ok) return { ok: false as const, state: topped.state };
+    if (!topped.ok || topped.state.balance < need) return { ok: false as const, state: topped.state };
   }
 
   return await prisma.$transaction(async (tx) => {

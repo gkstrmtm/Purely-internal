@@ -3,7 +3,7 @@ import { z } from "zod";
 
 import { requireClientSessionForService } from "@/lib/portalAccess";
 import { prisma } from "@/lib/db";
-import { getCreditsState, isFreeCreditsOwner, setAutoTopUp } from "@/lib/credits";
+import { getCreditsLifecycleForOwner, getCreditsState, isFreeCreditsOwner, setAutoTopUp } from "@/lib/credits";
 import { creditsPerTopUpPackage } from "@/lib/creditsTopup";
 import { isStripeConfigured } from "@/lib/stripeFetch";
 import { getUsdPerCreditForOwner } from "@/lib/creditsPricing.server";
@@ -33,6 +33,7 @@ export async function GET() {
   const ownerId = auth.session.user.id;
   const portalVariant = ((auth.session.user as any).portalVariant as PortalVariant | undefined) ?? "portal";
   let state = await getCreditsState(ownerId);
+  let lifecycle = await getCreditsLifecycleForOwner(ownerId);
   const free = await isFreeCreditsOwner(ownerId).catch(() => false);
 
   // Demo safety net: ensure the demo-full account always has credits to test with,
@@ -54,23 +55,42 @@ export async function GET() {
     (sessionEmail === demoFullFromEnv || sessionEmail === demoFullHardcoded);
 
   if (isDemoFull && state.balance < demoMinBalance) {
-    const next = { balance: demoMinBalance, autoTopUp: state.autoTopUp };
-    const row = await prisma.portalServiceSetup.upsert({
-      where: { ownerId_serviceSlug: { ownerId, serviceSlug: "credits" } },
-      create: { ownerId, serviceSlug: "credits", status: "COMPLETE", dataJson: next },
-      update: { dataJson: next, status: "COMPLETE" },
-      select: { dataJson: true },
-    });
-    const rec = row.dataJson && typeof row.dataJson === "object" ? (row.dataJson as Record<string, unknown>) : {};
-    const balance = typeof rec.balance === "number" ? rec.balance : demoMinBalance;
-    const autoTopUp = Boolean(rec.autoTopUp);
-    state = { balance: Math.max(0, Math.floor(balance)), autoTopUp };
+    const existing = await prisma.portalServiceSetup
+      .findUnique({
+        where: { ownerId_serviceSlug: { ownerId, serviceSlug: "credits" } },
+        select: { dataJson: true, status: true },
+      })
+      .catch(() => null);
+
+    const prevJson =
+      existing?.dataJson && typeof existing.dataJson === "object" && !Array.isArray(existing.dataJson)
+        ? (existing.dataJson as Record<string, unknown>)
+        : {};
+
+    const nextJson = { ...prevJson, balance: demoMinBalance, autoTopUp: Boolean(prevJson.autoTopUp ?? state.autoTopUp) };
+
+    if (existing) {
+      await prisma.portalServiceSetup.update({
+        where: { ownerId_serviceSlug: { ownerId, serviceSlug: "credits" } },
+        data: { dataJson: nextJson, status: existing.status ?? "COMPLETE" },
+        select: { id: true },
+      });
+    } else {
+      await prisma.portalServiceSetup.create({
+        data: { ownerId, serviceSlug: "credits", status: "COMPLETE", dataJson: nextJson },
+        select: { id: true },
+      });
+    }
+
+    state = await getCreditsState(ownerId);
+    lifecycle = await getCreditsLifecycleForOwner(ownerId);
   }
 
   return NextResponse.json({
     ok: true,
     credits: state.balance,
     autoTopUp: state.autoTopUp,
+    lifecycle,
     purchaseAvailable: purchaseAvailable(),
     billingPath: "/portal/app/billing",
     creditUsdValue: await getUsdPerCreditForOwner({ ownerId, portalVariant }),
