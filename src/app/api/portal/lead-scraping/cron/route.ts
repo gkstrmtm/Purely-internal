@@ -9,6 +9,7 @@ import { draftLeadOutboundEmail, draftLeadOutboundSms } from "@/lib/leadOutbound
 import { createPortalLeadCompat } from "@/lib/portalLeadCompat";
 import { runOwnerAutomationsForEvent } from "@/lib/portalAutomationsRunner";
 import { enqueueOutboundCallForContact } from "@/lib/portalAiOutboundCalls";
+import { enqueueOutboundMessageForContact } from "@/lib/portalAiOutboundMessages";
 import { ensurePortalContactsSchema } from "@/lib/portalContactsSchema";
 import { findOrCreatePortalContact } from "@/lib/portalContacts";
 import { tryNotifyPortalAccountUsers } from "@/lib/portalNotifications";
@@ -61,6 +62,7 @@ type Settings = {
   outbound: {
     enabled: boolean;
     aiDraftAndSend?: boolean;
+    aiCampaignId?: string | null;
     aiPrompt?: string;
     email: {
       enabled: boolean;
@@ -146,6 +148,7 @@ function normalizeOutbound(value: unknown): Settings["outbound"] {
     return {
       enabled,
       aiDraftAndSend: false,
+      aiCampaignId: null,
       aiPrompt: "",
       email: {
         enabled: enabled && sendEmail,
@@ -173,6 +176,7 @@ function normalizeOutbound(value: unknown): Settings["outbound"] {
   return {
     enabled: Boolean((rec as any).enabled),
     aiDraftAndSend: Boolean((rec as any).aiDraftAndSend),
+    aiCampaignId: (typeof (rec as any).aiCampaignId === "string" ? String((rec as any).aiCampaignId).trim().slice(0, 120) : null) || null,
     aiPrompt: (typeof (rec as any).aiPrompt === "string" ? ((rec as any).aiPrompt as string) : "").slice(0, 4000),
     email: {
       enabled: Boolean((emailRec as any).enabled),
@@ -597,6 +601,9 @@ async function runB2BForOwner(ownerId: string, settingsJson: unknown, baseUrl: s
     settings.outbound.calls.trigger === "ON_SCRAPE";
 
   if ((shouldSendEmail || shouldSendSms || shouldPlaceCalls) && createdLeads.length) {
+    const campaignId = settings.outbound.aiCampaignId || null;
+    const useAiCampaign = Boolean(campaignId) && Boolean(settings.outbound.aiDraftAndSend);
+
     for (const lead of createdLeads) {
       try {
         let didSend = false;
@@ -607,11 +614,59 @@ async function runB2BForOwner(ownerId: string, settingsJson: unknown, baseUrl: s
           }))
           .filter((r) => Boolean(r.url));
 
+        const canEmail = shouldSendEmail && Boolean(lead.email);
+        const canSms = shouldSendSms && Boolean(lead.phone);
+        const canCall = shouldPlaceCalls && Boolean(lead.phone);
+
+        if (useAiCampaign && (canEmail || canSms || canCall)) {
+          let contactId = (lead as any).contactId ? String((lead as any).contactId).trim() : "";
+          if (!contactId) {
+            try {
+              await ensurePortalContactsSchema().catch(() => null);
+              contactId =
+                (await findOrCreatePortalContact({
+                  ownerId,
+                  name: String((lead as any).contactName || lead.businessName || lead.phone || lead.email || "Contact"),
+                  email: lead.email || null,
+                  phone: lead.phone || null,
+                }).catch(() => "")) || "";
+            } catch {
+              contactId = "";
+            }
+          }
+
+          if (contactId) {
+            const channelPolicy = canEmail && canSms ? "BOTH" : canSms ? "SMS" : canEmail ? "EMAIL" : null;
+            if (channelPolicy) {
+              const enqMsg = await enqueueOutboundMessageForContact({
+                ownerId,
+                contactId,
+                campaignId: campaignId || undefined,
+                channelPolicy,
+                source: "MANUAL",
+              }).catch(() => null);
+              if (enqMsg && enqMsg.ok) didSend = true;
+            }
+
+            if (canCall) {
+              const enqCall = await enqueueOutboundCallForContact({
+                ownerId,
+                contactId,
+                campaignId: campaignId || undefined,
+              }).catch(() => null);
+              if (enqCall && enqCall.ok) didSend = true;
+            }
+          }
+
+          if (didSend) nextSentAtByLeadId[lead.id] = nowIso;
+          continue;
+        }
+
         if (shouldSendEmail && lead.email) {
           let subject = renderTemplate(settings.outbound.email.subject, lead).slice(0, 120);
           let textBase = renderTemplate(settings.outbound.email.text, lead);
 
-          if (settings.outbound.aiDraftAndSend) {
+          if (settings.outbound.aiDraftAndSend && settings.outbound.aiPrompt?.trim()) {
             try {
               const draft = await draftLeadOutboundEmail({ lead, resources, fromName, prompt: settings.outbound.aiPrompt });
               if (draft?.subject) subject = draft.subject.slice(0, 120);
@@ -640,7 +695,7 @@ async function runB2BForOwner(ownerId: string, settingsJson: unknown, baseUrl: s
         if (shouldSendSms && lead.phone) {
           let smsBodyBase = renderTemplate(settings.outbound.sms.text, lead).slice(0, 900);
 
-          if (settings.outbound.aiDraftAndSend) {
+          if (settings.outbound.aiDraftAndSend && settings.outbound.aiPrompt?.trim()) {
             try {
               const draft = await draftLeadOutboundSms({ lead, resources, fromName, prompt: settings.outbound.aiPrompt });
               if (draft) smsBodyBase = draft.slice(0, 900);
@@ -695,7 +750,7 @@ async function runB2BForOwner(ownerId: string, settingsJson: unknown, baseUrl: s
           }
 
           if (contactId) {
-            const enq = await enqueueOutboundCallForContact({ ownerId, contactId }).catch(() => null);
+            const enq = await enqueueOutboundCallForContact({ ownerId, contactId, campaignId: settings.outbound.aiCampaignId || undefined }).catch(() => null);
             if (enq && enq.ok) didSend = true;
           }
         }

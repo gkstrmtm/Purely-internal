@@ -5,6 +5,7 @@ import { PortalMediaPickerModal } from "@/components/PortalMediaPickerModal";
 import { ContactTagsEditor, type ContactTag } from "@/components/ContactTagsEditor";
 import { PortalVariablePickerModal } from "@/components/PortalVariablePickerModal";
 import { PortalListboxDropdown, type PortalListboxOption } from "@/components/PortalListboxDropdown";
+import { AppModal } from "@/components/AppModal";
 import { useToast } from "@/components/ToastProvider";
 import { LEAD_OUTBOUND_VARIABLES } from "@/lib/portalTemplateVars";
 
@@ -72,6 +73,7 @@ type LeadScrapingSettings = {
   outbound: {
     enabled: boolean;
     aiDraftAndSend?: boolean;
+    aiCampaignId?: string | null;
     aiPrompt?: string;
     email: {
       enabled: boolean;
@@ -273,23 +275,11 @@ function SettingsSection({
   accent: "blue" | "pink" | "amber" | "emerald" | "slate";
   children: React.ReactNode;
 }) {
-  const accentDotClass =
-    accent === "blue"
-      ? "bg-[color:var(--color-brand-blue)]"
-      : accent === "pink"
-        ? "bg-[color:var(--color-brand-pink)]"
-        : accent === "amber"
-          ? "bg-amber-500"
-          : accent === "emerald"
-            ? "bg-emerald-500"
-            : "bg-slate-500";
-
   return (
     <div className="rounded-3xl border border-zinc-200 bg-white p-5">
       <div className="flex items-start justify-between gap-4">
         <div className="min-w-0">
           <div className="flex items-center gap-3">
-            <span className={"h-2.5 w-2.5 shrink-0 rounded-full " + accentDotClass} />
             <div className="text-sm font-semibold text-zinc-900">{title}</div>
           </div>
           {description ? <div className="mt-1 text-sm text-zinc-600">{description}</div> : null}
@@ -474,6 +464,39 @@ export function PortalLeadScrapingClient() {
   const [outboundNewResourceUrl, setOutboundNewResourceUrl] = useState("");
   const [outboundResourcesPickerOpen, setOutboundResourcesPickerOpen] = useState(false);
 
+  const [excludeNameDraft, setExcludeNameDraft] = useState("");
+  const [excludeDomainDraft, setExcludeDomainDraft] = useState("");
+  const [excludePhoneDraft, setExcludePhoneDraft] = useState("");
+
+  const [b2bFrequencyCount, setB2bFrequencyCount] = useState<number>(1);
+  const [b2bFrequencyUnit, setB2bFrequencyUnit] = useState<"days" | "weeks" | "months">("weeks");
+
+  const [outboundVarPickerOpen, setOutboundVarPickerOpen] = useState(false);
+  const [outboundVarTarget, setOutboundVarTarget] = useState<
+    null | "emailSubject" | "emailMessage" | "smsMessage" | "aiDraftInstruction"
+  >(null);
+  const outboundActiveFieldElRef = useRef<HTMLInputElement | HTMLTextAreaElement | null>(null);
+  const outboundEmailSubjectRef = useRef<HTMLInputElement | null>(null);
+  const outboundEmailMessageRef = useRef<HTMLTextAreaElement | null>(null);
+  const outboundSmsMessageRef = useRef<HTMLTextAreaElement | null>(null);
+  const outboundAiDraftInstructionRef = useRef<HTMLTextAreaElement | null>(null);
+
+  const [outboundAiDraftBusy, setOutboundAiDraftBusy] = useState(false);
+  const [outboundAiDraftError, setOutboundAiDraftError] = useState<string | null>(null);
+  const [outboundAiDraftInstruction, setOutboundAiDraftInstruction] = useState("");
+  const [outboundAiDraftModal, setOutboundAiDraftModal] = useState<
+    | null
+    | {
+        kind: "EMAIL" | "SMS";
+        existingSubject?: string;
+        existingBody?: string;
+        apply: (draft: { subject?: string; body: string }) => void;
+      }
+  >(null);
+
+  const [aiCampaigns, setAiCampaigns] = useState<Array<{ id: string; name: string; status: string }> | null>(null);
+  const [aiCampaignsBusy, setAiCampaignsBusy] = useState(false);
+
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [running, setRunning] = useState(false);
@@ -581,6 +604,58 @@ export function PortalLeadScrapingClient() {
   }, [load]);
 
   useEffect(() => {
+    const days = Math.max(1, Math.floor(Number(settings?.b2b?.frequencyDays) || 7));
+    if (days % 30 === 0) {
+      setB2bFrequencyUnit("months");
+      setB2bFrequencyCount(Math.max(1, Math.floor(days / 30)));
+      return;
+    }
+    if (days % 7 === 0) {
+      setB2bFrequencyUnit("weeks");
+      setB2bFrequencyCount(Math.max(1, Math.floor(days / 7)));
+      return;
+    }
+    setB2bFrequencyUnit("days");
+    setB2bFrequencyCount(days);
+  }, [settings?.b2b?.frequencyDays]);
+
+  useEffect(() => {
+    if (!aiCallsUnlocked) return;
+    if (aiCampaignsBusy) return;
+    if (aiCampaigns) return;
+    let mounted = true;
+
+    (async () => {
+      setAiCampaignsBusy(true);
+      try {
+        const res = await fetch("/api/portal/ai-outbound-calls/campaigns", { cache: "no-store" });
+        const json = (await res.json().catch(() => ({}))) as any;
+        if (!mounted) return;
+        if (!res.ok || json?.ok !== true || !Array.isArray(json?.campaigns)) {
+          setAiCampaigns([]);
+          return;
+        }
+        setAiCampaigns(
+          (json.campaigns as any[])
+            .map((c) => ({ id: String(c?.id || ""), name: String(c?.name || ""), status: String(c?.status || "") }))
+            .filter((c) => c.id && c.name)
+            .slice(0, 200),
+        );
+      } catch {
+        if (!mounted) return;
+        setAiCampaigns([]);
+      } finally {
+        if (!mounted) return;
+        setAiCampaignsBusy(false);
+      }
+    })();
+
+    return () => {
+      mounted = false;
+    };
+  }, [aiCallsUnlocked, aiCampaigns, aiCampaignsBusy]);
+
+  useEffect(() => {
     if (loading) return;
     if (tab !== "b2b") return;
     void loadLeads(leadQueryDebounced);
@@ -592,10 +667,23 @@ export function PortalLeadScrapingClient() {
     setError(null);
     setStatus(null);
 
+    const outboundEnabled = Boolean(
+      settings.outbound?.email?.enabled ||
+        settings.outbound?.sms?.enabled ||
+        Boolean((settings.outbound as any)?.aiDraftAndSend),
+    );
+    const normalizedSettings: LeadScrapingSettings = {
+      ...settings,
+      outbound: {
+        ...settings.outbound,
+        enabled: outboundEnabled,
+      },
+    };
+
     const res = await fetch("/api/portal/lead-scraping/settings", {
       method: "PUT",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ settings }),
+      body: JSON.stringify({ settings: normalizedSettings }),
     });
 
     const body = (await res.json().catch(() => ({}))) as SettingsResponse;
@@ -730,6 +818,162 @@ export function PortalLeadScrapingClient() {
     });
     setOutboundNewResourceLabel("");
     setOutboundNewResourceUrl("");
+  }
+
+  function openOutboundVarPicker(target: NonNullable<typeof outboundVarTarget>) {
+    setOutboundVarTarget(target);
+    setOutboundVarPickerOpen(true);
+  }
+
+  function applyOutboundVariable(variableKey: string) {
+    const token = `{${variableKey}}`;
+
+    const setCaretSoon = (el: HTMLInputElement | HTMLTextAreaElement | null, caret: number) => {
+      if (!el) return;
+      requestAnimationFrame(() => {
+        try {
+          el.focus();
+          el.setSelectionRange(caret, caret);
+        } catch {
+          // ignore
+        }
+      });
+    };
+
+    if (outboundVarTarget === "emailSubject") {
+      const el = outboundEmailSubjectRef.current;
+      let nextCaret = 0;
+      setSettings((prev) => {
+        if (!prev) return prev;
+        const current = prev.outbound.email.subject;
+        const { next, caret } = insertAtCursor(current, token, el);
+        nextCaret = caret;
+        return {
+          ...prev,
+          outbound: { ...prev.outbound, email: { ...prev.outbound.email, subject: next } },
+        };
+      });
+      setCaretSoon(el, nextCaret);
+      return;
+    }
+
+    if (outboundVarTarget === "emailMessage") {
+      const el = outboundEmailMessageRef.current;
+      let nextCaret = 0;
+      setSettings((prev) => {
+        if (!prev) return prev;
+        const current = prev.outbound.email.text;
+        const { next, caret } = insertAtCursor(current, token, el);
+        nextCaret = caret;
+        return {
+          ...prev,
+          outbound: { ...prev.outbound, email: { ...prev.outbound.email, text: next } },
+        };
+      });
+      setCaretSoon(el, nextCaret);
+      return;
+    }
+
+    if (outboundVarTarget === "smsMessage") {
+      const el = outboundSmsMessageRef.current;
+      let nextCaret = 0;
+      setSettings((prev) => {
+        if (!prev) return prev;
+        const current = prev.outbound.sms.text;
+        const { next, caret } = insertAtCursor(current, token, el);
+        nextCaret = caret;
+        return {
+          ...prev,
+          outbound: { ...prev.outbound, sms: { ...prev.outbound.sms, text: next } },
+        };
+      });
+      setCaretSoon(el, nextCaret);
+      return;
+    }
+
+    if (outboundVarTarget === "aiDraftInstruction") {
+      const el = outboundAiDraftInstructionRef.current;
+      const { next, caret } = insertAtCursor(outboundAiDraftInstruction, token, el);
+      setOutboundAiDraftInstruction(next);
+      setCaretSoon(el, caret);
+    }
+  }
+
+  async function generateOutboundTemplateDraft(opts: {
+    kind: "EMAIL" | "SMS";
+    prompt?: string;
+    existingSubject?: string;
+    existingBody?: string;
+  }): Promise<{ subject?: string; body: string } | null> {
+    const res = await fetch("/api/portal/lead-scraping/outbound/ai/draft-template", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        kind: opts.kind,
+        prompt: opts.prompt,
+        existingSubject: opts.existingSubject,
+        existingBody: opts.existingBody,
+      }),
+    });
+
+    const json = await res.json().catch(() => ({}));
+    if (!res.ok) {
+      const code = (json as any)?.code;
+      if (res.status === 402 && code === "INSUFFICIENT_CREDITS") {
+        toast.error("Insufficient credits to generate.");
+        return null;
+      }
+      toast.error((json as any)?.error || "Failed to generate");
+      return null;
+    }
+
+    const rawSubject = String((json as any)?.subject ?? "");
+    const rawBody = String((json as any)?.body ?? "");
+
+    const stripCodeFence = (s: string) => {
+      const t = s.trim();
+      if (!t.startsWith("```")) return s;
+      const lines = t.split("\n");
+      if (lines.length < 3) return s;
+      if (!lines[0].startsWith("```")) return s;
+      let endIdx = -1;
+      for (let i = lines.length - 1; i >= 0; i -= 1) {
+        if (lines[i]?.trim().startsWith("```")) {
+          endIdx = i;
+          break;
+        }
+      }
+      if (endIdx <= 0) return s;
+      return lines.slice(1, endIdx).join("\n").trim();
+    };
+
+    const tryParseDraftJson = (s: string): { subject?: unknown; body?: unknown } | null => {
+      const t = stripCodeFence(String(s ?? "")).trim();
+      if (!t.startsWith("{") || !t.endsWith("}")) return null;
+      try {
+        const parsed = JSON.parse(t);
+        if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return null;
+        return parsed as any;
+      } catch {
+        return null;
+      }
+    };
+
+    const parsedFromBody = tryParseDraftJson(rawBody);
+    const parsedFromSubject = tryParseDraftJson(rawSubject);
+    const parsed = parsedFromBody ?? parsedFromSubject;
+
+    const subjectCoerced = parsed && "subject" in parsed ? String((parsed as any).subject ?? "") : rawSubject;
+    const bodyCoerced = parsed && "body" in parsed ? String((parsed as any).body ?? "") : rawBody;
+
+    if (opts.kind === "EMAIL") {
+      return {
+        subject: subjectCoerced.slice(0, 200),
+        body: bodyCoerced.slice(0, 8000),
+      };
+    }
+
+    return { body: bodyCoerced.slice(0, 8000) };
   }
 
   async function sendDefaultOutbound(leadId: string) {
@@ -991,108 +1235,317 @@ export function PortalLeadScrapingClient() {
 
     const toggleAccent = opts?.accent ?? "blue";
 
-    const outerClassName = opts?.outerClassName ?? "mt-6";
-
     if (!leadOutboundEntitled) {
       return (
-        <div className={outerClassName + " rounded-3xl border border-zinc-200 bg-white p-6"}>
-          <div className="text-base font-semibold text-brand-ink">Auto-outbound (add-on)</div>
-          <div className="mt-2 text-sm text-zinc-600">
-            This feature is gated separately from Lead Scraping. Contact support to enable it on your account.
-          </div>
+        <div className="rounded-2xl border border-zinc-200 bg-zinc-50 px-4 py-3 text-sm text-zinc-700">
+          Auto-outbound is gated separately from Lead Scraping. Contact support to enable it on your account.
         </div>
       );
     }
 
-    return (
-      <div className={outerClassName + " rounded-3xl border border-zinc-200 bg-white p-6"}>
-        <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-          <div>
-            <div className="text-base font-semibold text-brand-ink">Auto-outbound</div>
-            <div className="mt-1 text-sm text-zinc-600">
-              Templates support {"{businessName}"}, {"{phone}"}, {"{website}"}, {"{address}"}, {"{niche}"}.
-            </div>
-          </div>
-          <div className="flex items-center gap-2">
-            <div className="text-sm font-semibold text-zinc-700">On</div>
-            <ToggleSwitch
-              checked={settings.outbound.enabled}
-              accent={toggleAccent}
-              onChange={(checked) =>
-                setSettings((prev) => (prev ? { ...prev, outbound: { ...prev.outbound, enabled: checked } } : prev))
-              }
-            />
-          </div>
+    const aiEnabled = Boolean(settings.outbound.aiDraftAndSend);
+    const selectedCampaignId = String(settings.outbound.aiCampaignId ?? "").trim();
+
+    const attachmentsEditor = (disabled: boolean) => (
+      <div
+        className={
+          "mt-4 rounded-2xl border border-zinc-200 bg-white p-4 " +
+          (disabled ? "pointer-events-none opacity-60" : "")
+        }
+      >
+        <div className="text-xs font-semibold text-zinc-800">Resources / attachments</div>
+        <div className="mt-1 text-[11px] text-zinc-500">Uploaded files become links in your outbound message.</div>
+
+        <div className="mt-3 flex flex-col gap-2 sm:flex-row">
+          <input
+            className="flex-1 rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm"
+            value={outboundNewResourceLabel}
+            onChange={(e) => setOutboundNewResourceLabel(e.target.value)}
+            placeholder="Label"
+          />
+          <input
+            className="flex-2 rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm"
+            value={outboundNewResourceUrl}
+            onChange={(e) => setOutboundNewResourceUrl(e.target.value)}
+            placeholder="https://… or /uploads/…"
+          />
+          <button
+            type="button"
+            onClick={addOutboundResource}
+            className="rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm font-semibold text-brand-ink hover:bg-zinc-50"
+          >
+            Add
+          </button>
         </div>
 
-        <div className="mt-4 grid grid-cols-1 gap-4 sm:grid-cols-2">
-          <div className="rounded-2xl border border-zinc-200 bg-[linear-gradient(90deg,rgba(29,78,216,0.10),rgba(236,72,153,0.10),rgba(255,255,255,0.85))] p-4 sm:col-span-2">
-            <div className="flex items-center justify-between gap-3">
-              <div>
-                <div className="flex items-center gap-2 text-sm font-semibold text-zinc-900">
-                  <svg
-                    aria-hidden="true"
-                    viewBox="0 0 24 24"
-                    className="h-4 w-4 text-[color:var(--color-brand-pink)]"
-                    fill="currentColor"
-                  >
-                    <path d="M12 2l1.2 4.2L17 7.4l-3.8 1.2L12 13l-1.2-4.4L7 7.4l3.8-1.2L12 2zm7 7l.8 2.8 2.2.7-2.2.7L19 16l-.8-2.8-2.2-.7 2.2-.7L19 9zm-14 3l.8 2.8 2.2.7-2.2.7L5 19l-.8-2.8-2.2-.7 2.2-.7L5 12z" />
-                  </svg>
-                  AI draft + send
-                </div>
-                <div className="mt-1 text-xs text-zinc-500">
-                  When enabled, outbound messages are drafted by AI (uses your existing AI env vars) instead of the templates below.
-                </div>
-              </div>
-              <div className="flex items-center gap-2">
-                <div className="text-sm font-semibold text-zinc-700">On</div>
-                <ToggleSwitch
-                  checked={Boolean((settings.outbound as any).aiDraftAndSend)}
-                  accent={toggleAccent}
-                  onChange={(checked) =>
-                    setSettings((prev) =>
-                      prev
-                        ? {
-                            ...prev,
-                            outbound: {
-                              ...prev.outbound,
-                              enabled: checked ? true : prev.outbound.enabled,
-                              aiDraftAndSend: checked,
-                            },
-                          }
-                        : prev,
-                    )
-                  }
-                />
-              </div>
-            </div>
+        <div className="mt-3 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+          <label className="inline-flex items-center justify-center gap-2 rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm font-semibold text-brand-ink hover:bg-zinc-50">
+            <input
+              type="file"
+              onChange={(e) => {
+                const f = e.target.files?.[0];
+                if (f) void uploadOutboundFile(f);
+                e.currentTarget.value = "";
+              }}
+              disabled={outboundUploadBusy}
+              className="hidden"
+            />
+            Upload
+          </label>
 
-            {Boolean((settings.outbound as any).aiDraftAndSend) ? (
-              <div className="mt-3">
-                <div className="text-xs font-semibold text-zinc-600">AI goals (prompt)</div>
-                <textarea
-                  value={String((settings.outbound as any).aiPrompt || "")}
-                  onChange={(e) =>
+          <button
+            type="button"
+            disabled={outboundUploadBusy}
+            onClick={() => setOutboundResourcesPickerOpen(true)}
+            className="rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm font-semibold text-brand-ink hover:bg-zinc-50 disabled:opacity-60"
+          >
+            Attach from media library
+          </button>
+
+          {outboundUploadBusy ? <span className="text-xs text-zinc-500">Uploading…</span> : null}
+        </div>
+
+        {settings.outbound.resources.length ? (
+          <div className="mt-4 space-y-2">
+            {settings.outbound.resources.map((r, idx) => (
+              <div
+                key={`${r.url}-${idx}`}
+                className="flex items-center justify-between gap-3 rounded-xl border border-zinc-200 bg-white px-3 py-2"
+              >
+                <a
+                  href={r.url}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="min-w-0 flex-1 truncate text-sm font-semibold text-(--color-brand-blue) hover:underline"
+                >
+                  {r.label}
+                </a>
+                <button
+                  type="button"
+                  onClick={() =>
                     setSettings((prev) =>
                       prev
                         ? {
                             ...prev,
                             outbound: {
                               ...prev.outbound,
-                              aiPrompt: e.target.value,
+                              resources: prev.outbound.resources.filter((_, i) => i !== idx),
                             },
                           }
                         : prev,
                     )
                   }
-                  rows={4}
-                  placeholder="Example: Write friendly, concise outreach. Offer a quick call. Mention their business name and website if available. Avoid spammy language."
-                  className="mt-1 w-full resize-y rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-sm text-zinc-900 placeholder:text-zinc-400"
-                />
-                <div className="mt-1 text-[11px] text-zinc-500">This prompt guides the AI when drafting outbound email/SMS.</div>
+                  className="rounded-xl border border-zinc-200 bg-white px-3 py-1 text-xs font-semibold text-zinc-700 hover:bg-zinc-50"
+                >
+                  Remove
+                </button>
+              </div>
+            ))}
+          </div>
+        ) : (
+          <div className="mt-3 text-xs text-zinc-500">No resources yet.</div>
+        )}
+      </div>
+    );
+
+    const sparkleIcon = (
+      <svg aria-hidden="true" viewBox="0 0 24 24" className="h-4 w-4" fill="currentColor">
+        <path d="M12 2l1.2 4.2L17 7.4l-3.8 1.2L12 13l-1.2-4.4L7 7.4l3.8-1.2L12 2zm7 7l.8 2.8 2.2.7-2.2.7L19 16l-.8-2.8-2.2-.7 2.2-.7L19 9zm-14 3l.8 2.8 2.2.7-2.2.7L5 19l-.8-2.8-2.2-.7 2.2-.7L5 12z" />
+      </svg>
+    );
+
+    return (
+      <div>
+        <PortalVariablePickerModal
+          open={outboundVarPickerOpen}
+          variables={LEAD_OUTBOUND_VARIABLES}
+          title="Insert variable"
+          onPick={applyOutboundVariable}
+          onClose={() => {
+            setOutboundVarPickerOpen(false);
+            setOutboundVarTarget(null);
+          }}
+        />
+
+        <AppModal
+          open={Boolean(outboundAiDraftModal)}
+          title="AI draft"
+          description="Describe what you want this template to say."
+          onClose={() => {
+            if (outboundAiDraftBusy) return;
+            setOutboundAiDraftModal(null);
+            setOutboundAiDraftError(null);
+          }}
+          widthClassName="w-[min(640px,calc(100vw-32px))]"
+          footer={
+            <div className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
+              <button
+                type="button"
+                className="rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm font-semibold text-zinc-800 hover:bg-zinc-50 disabled:opacity-60"
+                disabled={outboundAiDraftBusy}
+                onClick={() => {
+                  setOutboundAiDraftModal(null);
+                  setOutboundAiDraftError(null);
+                }}
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                className="rounded-2xl bg-brand-ink px-4 py-2 text-sm font-semibold text-white hover:opacity-95 disabled:opacity-60"
+                disabled={outboundAiDraftBusy || !outboundAiDraftModal}
+                onClick={async () => {
+                  if (!outboundAiDraftModal) return;
+                  setOutboundAiDraftBusy(true);
+                  setOutboundAiDraftError(null);
+                  try {
+                    const draft = await generateOutboundTemplateDraft({
+                      kind: outboundAiDraftModal.kind,
+                      prompt: outboundAiDraftInstruction.trim() || undefined,
+                      existingSubject: outboundAiDraftModal.kind === "EMAIL" ? outboundAiDraftModal.existingSubject : undefined,
+                      existingBody: outboundAiDraftModal.existingBody,
+                    });
+                    if (!draft) return;
+                    outboundAiDraftModal.apply(draft);
+                    setOutboundAiDraftModal(null);
+                    setOutboundAiDraftInstruction("");
+                  } catch (e: any) {
+                    setOutboundAiDraftError(String(e?.message || "Failed to generate"));
+                  } finally {
+                    setOutboundAiDraftBusy(false);
+                  }
+                }}
+              >
+                {outboundAiDraftBusy ? "Drafting…" : "Generate"}
+              </button>
+            </div>
+          }
+        >
+          <div className="space-y-3">
+            <label className="block">
+              <div className="flex items-center justify-between gap-3">
+                <div className="text-xs font-semibold text-zinc-600">Instructions</div>
+                <button
+                  type="button"
+                  className="rounded-xl border border-zinc-200 bg-white px-3 py-1.5 text-xs font-semibold text-brand-ink hover:bg-zinc-50 disabled:opacity-60"
+                  disabled={outboundAiDraftBusy}
+                  onClick={() => openOutboundVarPicker("aiDraftInstruction")}
+                >
+                  Insert variable
+                </button>
+              </div>
+              <textarea
+                ref={outboundAiDraftInstructionRef}
+                className="mt-2 min-h-24 w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm text-zinc-900 placeholder:text-zinc-400"
+                value={outboundAiDraftInstruction}
+                onChange={(e) => setOutboundAiDraftInstruction(e.target.value)}
+                onFocus={(e) => {
+                  outboundActiveFieldElRef.current = e.currentTarget;
+                }}
+                disabled={outboundAiDraftBusy}
+                placeholder="e.g. Friendly, short, and ask them to reply with any questions."
+              />
+            </label>
+
+            {outboundAiDraftError ? (
+              <div className="rounded-2xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-800">
+                {outboundAiDraftError}
               </div>
             ) : null}
+
+            <div className="text-xs text-zinc-500">Tip: you can reference variables like {"{businessName}"} and {"{website}"}.</div>
           </div>
+        </AppModal>
+
+        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+          {aiCallsUnlocked ? (
+            <div className="rounded-2xl border border-zinc-200 bg-[linear-gradient(90deg,rgba(29,78,216,0.12),rgba(236,72,153,0.12),rgba(255,255,255,0.92))] p-4 sm:col-span-2">
+              <div className="flex items-center justify-between gap-3">
+                <div>
+                  <div className="flex items-center gap-2 text-sm font-semibold text-zinc-900">
+                    <span className="text-(--color-brand-pink)">{sparkleIcon}</span>
+                    AI outbound agent
+                  </div>
+                  <div className="mt-1 text-xs text-zinc-600">
+                    When enabled, your AI outbound agent will automatically reach out to these leads.
+                  </div>
+                </div>
+
+                <div className="flex items-center gap-2">
+                  <div className="text-sm font-semibold text-zinc-700">On</div>
+                  <ToggleSwitch
+                    checked={aiEnabled}
+                    accent={toggleAccent}
+                    onChange={(checked) =>
+                      setSettings((prev) => {
+                        if (!prev) return prev;
+                        const existingCalls = prev.outbound.calls ?? { enabled: false, trigger: "MANUAL" as const };
+                        const defaultCampaignId =
+                          checked && !String(prev.outbound.aiCampaignId ?? "").trim() && aiCampaigns?.length
+                            ? String(aiCampaigns[0]?.id || "")
+                            : String(prev.outbound.aiCampaignId ?? "");
+
+                        return {
+                          ...prev,
+                          outbound: {
+                            ...prev.outbound,
+                            enabled: checked ? true : prev.outbound.enabled,
+                            aiDraftAndSend: checked,
+                            aiCampaignId: defaultCampaignId || null,
+                            calls: { ...existingCalls, enabled: checked },
+                          },
+                        };
+                      })
+                    }
+                  />
+                </div>
+              </div>
+
+              {aiEnabled ? (
+                <div className="mt-4">
+                  <label className="block">
+                    <div className="text-xs font-semibold text-zinc-700">Campaign</div>
+                    <select
+                      className="mt-2 h-10 w-full rounded-xl border border-zinc-200 bg-white px-3 text-sm"
+                      value={selectedCampaignId}
+                      onChange={(e) =>
+                        setSettings((prev) =>
+                          prev
+                            ? {
+                                ...prev,
+                                outbound: {
+                                  ...prev.outbound,
+                                  aiCampaignId: e.target.value || null,
+                                },
+                              }
+                            : prev,
+                        )
+                      }
+                      disabled={aiCampaignsBusy}
+                    >
+                      <option value="">Select a campaign…</option>
+                      {(aiCampaigns ?? []).map((c) => (
+                        <option key={c.id} value={c.id}>
+                          {c.name}
+                        </option>
+                      ))}
+                    </select>
+
+                    {!aiCampaignsBusy && aiCampaigns && aiCampaigns.length === 0 ? (
+                      <div className="mt-2 text-xs text-zinc-500">No campaigns found.</div>
+                    ) : null}
+                  </label>
+                </div>
+              ) : null}
+            </div>
+          ) : (
+            <div className="rounded-2xl border border-zinc-200 bg-zinc-50 p-4 sm:col-span-2">
+              <div className="text-sm font-semibold text-zinc-900">AI outbound agent</div>
+              <div className="mt-1 text-xs text-zinc-600">
+                This requires the AI outbound calls service to be enabled on your account.
+              </div>
+            </div>
+          )}
 
           <div className="rounded-2xl border border-zinc-200 bg-zinc-50 p-4">
             <div className="flex items-center justify-between gap-3">
@@ -1121,78 +1574,144 @@ export function PortalLeadScrapingClient() {
             </div>
 
             <div className="mt-3 grid grid-cols-1 gap-3">
-              <label className="block">
-                <div className="text-xs font-semibold text-zinc-600">Trigger</div>
-                <div className="mt-1">
-                  <PortalListboxDropdown
-                    value={settings.outbound.email.trigger}
-                    options={OUTBOUND_TRIGGER_OPTIONS}
-                    onChange={(v) =>
+              <div className={!settings.outbound.email.enabled ? "pointer-events-none opacity-60" : ""}>
+                <label className="block">
+                  <div className="text-xs font-semibold text-zinc-600">Trigger</div>
+                  <div className="mt-1">
+                    <PortalListboxDropdown
+                      value={settings.outbound.email.trigger}
+                      options={OUTBOUND_TRIGGER_OPTIONS}
+                      onChange={(v) =>
+                        setSettings((prev) =>
+                          prev
+                            ? {
+                                ...prev,
+                                outbound: {
+                                  ...prev.outbound,
+                                  email: { ...prev.outbound.email, trigger: v },
+                                },
+                              }
+                            : prev,
+                        )
+                      }
+                    />
+                  </div>
+                </label>
+
+                <div className="mt-2 flex flex-wrap items-center justify-between gap-2">
+                  <button
+                    type="button"
+                    className="inline-flex items-center gap-2 rounded-2xl bg-[linear-gradient(90deg,rgba(29,78,216,0.95),rgba(236,72,153,0.95))] px-4 py-2 text-sm font-semibold text-white hover:opacity-95"
+                    onClick={() => {
+                      if (!settings) return;
+                      setOutboundAiDraftError(null);
+                      setOutboundAiDraftModal({
+                        kind: "EMAIL",
+                        existingSubject: settings.outbound.email.subject,
+                        existingBody: settings.outbound.email.text,
+                        apply: (draft) => {
+                          setSettings((prev) => {
+                            if (!prev) return prev;
+                            const subject = (draft.subject ?? prev.outbound.email.subject ?? "").trim().slice(0, 120);
+                            const body = String(draft.body || "");
+                            return {
+                              ...prev,
+                              outbound: {
+                                ...prev.outbound,
+                                email: {
+                                  ...prev.outbound.email,
+                                  subject: subject || "Quick question",
+                                  text: body,
+                                },
+                              },
+                            };
+                          });
+                        },
+                      });
+                    }}
+                  >
+                    <span className="text-white">{sparkleIcon}</span>
+                    <span>AI draft</span>
+                  </button>
+
+                  <button
+                    type="button"
+                    className="rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm font-semibold text-brand-ink hover:bg-zinc-50"
+                    onClick={() => openOutboundVarPicker("emailSubject")}
+                  >
+                    Insert variable
+                  </button>
+                </div>
+
+                <label className="block">
+                  <div className="mt-3 flex items-center justify-between gap-3">
+                    <div className="text-xs font-semibold text-zinc-600">Subject</div>
+                    <button
+                      type="button"
+                      className="rounded-xl border border-zinc-200 bg-white px-3 py-1.5 text-xs font-semibold text-brand-ink hover:bg-zinc-50"
+                      onClick={() => openOutboundVarPicker("emailSubject")}
+                    >
+                      Insert variable
+                    </button>
+                  </div>
+                  <input
+                    ref={outboundEmailSubjectRef}
+                    className="mt-2 h-10 w-full rounded-xl border border-zinc-200 bg-white px-3 text-sm"
+                    value={settings.outbound.email.subject}
+                    onChange={(e) =>
                       setSettings((prev) =>
                         prev
                           ? {
                               ...prev,
-                              outbound: {
-                                ...prev.outbound,
-                                email: { ...prev.outbound.email, trigger: v },
-                              },
+                              outbound: { ...prev.outbound, email: { ...prev.outbound.email, subject: e.target.value } },
                             }
                           : prev,
                       )
                     }
-                    className={!settings.outbound.email.enabled ? "pointer-events-none opacity-60" : ""}
+                    onFocus={(e) => {
+                      outboundActiveFieldElRef.current = e.currentTarget;
+                    }}
+                    autoComplete="off"
                   />
+                </label>
+
+                <label className="block">
+                  <div className="mt-3 flex items-center justify-between gap-3">
+                    <div className="text-xs font-semibold text-zinc-600">Message</div>
+                    <button
+                      type="button"
+                      className="rounded-xl border border-zinc-200 bg-white px-3 py-1.5 text-xs font-semibold text-brand-ink hover:bg-zinc-50"
+                      onClick={() => openOutboundVarPicker("emailMessage")}
+                    >
+                      Insert variable
+                    </button>
+                  </div>
+                  <textarea
+                    ref={outboundEmailMessageRef}
+                    className="mt-2 w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm"
+                    rows={6}
+                    value={settings.outbound.email.text}
+                    onChange={(e) =>
+                      setSettings((prev) =>
+                        prev
+                          ? {
+                              ...prev,
+                              outbound: { ...prev.outbound, email: { ...prev.outbound.email, text: e.target.value } },
+                            }
+                          : prev,
+                      )
+                    }
+                    onFocus={(e) => {
+                      outboundActiveFieldElRef.current = e.currentTarget;
+                    }}
+                  />
+                </label>
+
+                {attachmentsEditor(false)}
+
+                <div className="text-xs text-zinc-500">
+                  Email only sends to leads that have an email address. A copy is sent to your profile email.
                 </div>
-              </label>
-
-              <label className="block">
-                <div className="text-xs font-semibold text-zinc-600">Subject</div>
-                <input
-                  className="mt-1 w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm"
-                  value={settings.outbound.email.subject}
-                  onChange={(e) =>
-                    setSettings((prev) =>
-                      prev
-                        ? {
-                            ...prev,
-                            outbound: {
-                              ...prev.outbound,
-                              email: { ...prev.outbound.email, subject: e.target.value },
-                            },
-                          }
-                        : prev,
-                    )
-                  }
-                  disabled={!settings.outbound.email.enabled}
-                  autoComplete="off"
-                />
-              </label>
-
-              <label className="block">
-                <div className="text-xs font-semibold text-zinc-600">Message (plain text)</div>
-                <textarea
-                  className="mt-1 w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm"
-                  rows={5}
-                  value={settings.outbound.email.text}
-                  onChange={(e) =>
-                    setSettings((prev) =>
-                      prev
-                        ? {
-                            ...prev,
-                            outbound: {
-                              ...prev.outbound,
-                              email: { ...prev.outbound.email, text: e.target.value },
-                            },
-                          }
-                        : prev,
-                    )
-                  }
-                  disabled={!settings.outbound.email.enabled}
-                />
-              </label>
-
-              <div className="text-xs text-zinc-500">
-                Email only sends to leads that have an email address. A copy is sent to your profile email.
               </div>
             </div>
           </div>
@@ -1224,237 +1743,131 @@ export function PortalLeadScrapingClient() {
             </div>
 
             <div className="mt-3 grid grid-cols-1 gap-3">
-              <label className="block">
-                <div className="text-xs font-semibold text-zinc-600">Trigger</div>
-                <div className="mt-1">
-                  <PortalListboxDropdown
-                    value={settings.outbound.sms.trigger}
-                    options={OUTBOUND_TRIGGER_OPTIONS}
-                    onChange={(v) =>
-                      setSettings((prev) =>
-                        prev
-                          ? {
-                              ...prev,
-                              outbound: {
-                                ...prev.outbound,
-                                sms: { ...prev.outbound.sms, trigger: v },
-                              },
-                            }
-                          : prev,
-                      )
-                    }
-                    className={!settings.outbound.sms.enabled ? "pointer-events-none opacity-60" : ""}
-                  />
-                </div>
-              </label>
-
-              <label className="block">
-                <div className="text-xs font-semibold text-zinc-600">Message</div>
-                <textarea
-                  className="mt-1 w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm"
-                  rows={5}
-                  value={settings.outbound.sms.text}
-                  onChange={(e) =>
-                    setSettings((prev) =>
-                      prev
-                        ? {
-                            ...prev,
-                            outbound: {
-                              ...prev.outbound,
-                              sms: { ...prev.outbound.sms, text: e.target.value },
-                            },
-                          }
-                        : prev,
-                    )
-                  }
-                  disabled={!settings.outbound.sms.enabled}
-                />
-              </label>
-
-              <div className="text-xs text-zinc-500">Texts only send when the lead has a phone number.</div>
-            </div>
-          </div>
-
-          {aiCallsUnlocked ? (
-            <div className="rounded-2xl border border-zinc-200 bg-zinc-50 p-4 sm:col-span-2">
-              <div className="flex items-center justify-between gap-3">
-                <div>
-                  <div className="text-sm font-semibold text-zinc-900">AI calls</div>
-                  <div className="mt-1 text-xs text-zinc-500">Calls are queued into your active AI outbound campaign.</div>
-                </div>
-                <label className="inline-flex items-center gap-2 text-sm text-zinc-700">
-                  <div className="text-sm font-semibold text-zinc-700">On</div>
-                  <ToggleSwitch
-                    checked={Boolean(settings.outbound.calls?.enabled)}
-                    accent={toggleAccent}
-                    onChange={(checked) =>
-                      setSettings((prev) => {
-                        if (!prev) return prev;
-                        const calls = prev.outbound.calls ?? {
-                          enabled: false,
-                          trigger: "MANUAL" as const,
-                        };
-                        return {
-                          ...prev,
-                          outbound: {
-                            ...prev.outbound,
-                            enabled: checked ? true : prev.outbound.enabled,
-                            calls: { ...calls, enabled: checked },
-                          },
-                        };
-                      })
-                    }
-                  />
-                </label>
-              </div>
-
-              <div className="mt-3 grid grid-cols-1 gap-3">
+              <div className={!settings.outbound.sms.enabled ? "pointer-events-none opacity-60" : ""}>
                 <label className="block">
                   <div className="text-xs font-semibold text-zinc-600">Trigger</div>
                   <div className="mt-1">
                     <PortalListboxDropdown
-                      value={settings.outbound.calls?.trigger ?? "MANUAL"}
+                      value={settings.outbound.sms.trigger}
                       options={OUTBOUND_TRIGGER_OPTIONS}
                       onChange={(v) =>
-                        setSettings((prev) => {
-                          if (!prev) return prev;
-                          const calls = prev.outbound.calls ?? {
-                            enabled: false,
-                            trigger: "MANUAL" as const,
-                          };
-                          return {
-                            ...prev,
-                            outbound: {
-                              ...prev.outbound,
-                              calls: { ...calls, trigger: v },
-                            },
-                          };
-                        })
+                        setSettings((prev) =>
+                          prev
+                            ? {
+                                ...prev,
+                                outbound: {
+                                  ...prev.outbound,
+                                  sms: { ...prev.outbound.sms, trigger: v },
+                                },
+                              }
+                            : prev,
+                        )
                       }
-                      className={!settings.outbound.calls?.enabled ? "pointer-events-none opacity-60" : ""}
                     />
                   </div>
                 </label>
 
-                <div className="text-xs text-zinc-500">
-                  Calls only queue when the lead has a valid phone number. Configure the call prompt/script in your AI outbound campaign.
-                </div>
-              </div>
-            </div>
-          ) : null}
-        </div>
-
-        <div className="mt-5 rounded-2xl border border-zinc-200 bg-zinc-50 p-4">
-          <div className="text-sm font-semibold text-zinc-800">Resources / attachments</div>
-          <div className="mt-1 text-xs text-zinc-500">Uploaded files become links in your outbound message.</div>
-
-          <div className="mt-3 flex flex-col gap-2 sm:flex-row">
-            <input
-              className="flex-1 rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm"
-              value={outboundNewResourceLabel}
-              onChange={(e) => setOutboundNewResourceLabel(e.target.value)}
-              placeholder="Label"
-            />
-            <input
-              className="flex-[2] rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm"
-              value={outboundNewResourceUrl}
-              onChange={(e) => setOutboundNewResourceUrl(e.target.value)}
-              placeholder="https://… or /uploads/…"
-            />
-            <button
-              type="button"
-              onClick={addOutboundResource}
-              className="rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm font-semibold text-brand-ink hover:bg-zinc-50"
-            >
-              Add
-            </button>
-          </div>
-
-          <div className="mt-3 flex items-center gap-3">
-            <input
-              type="file"
-              onChange={(e) => {
-                const f = e.target.files?.[0];
-                if (f) void uploadOutboundFile(f);
-                e.currentTarget.value = "";
-              }}
-              disabled={outboundUploadBusy}
-              className="text-sm"
-            />
-            {outboundUploadBusy ? <span className="text-xs text-zinc-500">Uploading…</span> : null}
-
-            <button
-              type="button"
-              disabled={outboundUploadBusy}
-              onClick={() => setOutboundResourcesPickerOpen(true)}
-              className="rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm font-semibold text-brand-ink hover:bg-zinc-50 disabled:opacity-60"
-            >
-              Attach from media library
-            </button>
-          </div>
-
-          <PortalMediaPickerModal
-            open={outboundResourcesPickerOpen}
-            title="Attach a resource"
-            confirmLabel="Attach"
-            onClose={() => setOutboundResourcesPickerOpen(false)}
-            onPick={(item) => {
-              setSettings((prev) =>
-                prev
-                  ? {
-                      ...prev,
-                      outbound: {
-                        ...prev.outbound,
-                        resources: [{ label: item.fileName.slice(0, 120), url: item.shareUrl }, ...prev.outbound.resources].slice(0, 30),
-                      },
-                    }
-                  : prev,
-              );
-              setOutboundResourcesPickerOpen(false);
-            }}
-          />
-
-          {settings.outbound.resources.length ? (
-            <div className="mt-4 space-y-2">
-              {settings.outbound.resources.map((r, idx) => (
-                <div
-                  key={`${r.url}-${idx}`}
-                  className="flex items-center justify-between gap-3 rounded-xl border border-zinc-200 bg-white px-3 py-2"
-                >
-                  <a
-                    href={r.url}
-                    target="_blank"
-                    rel="noreferrer"
-                    className="min-w-0 flex-1 truncate text-sm font-semibold text-[color:var(--color-brand-blue)] hover:underline"
-                  >
-                    {r.label}
-                  </a>
+                <div className="mt-2 flex flex-wrap items-center justify-between gap-2">
                   <button
                     type="button"
-                    onClick={() =>
+                    className="inline-flex items-center gap-2 rounded-2xl bg-[linear-gradient(90deg,rgba(29,78,216,0.95),rgba(236,72,153,0.95))] px-4 py-2 text-sm font-semibold text-white hover:opacity-95"
+                    onClick={() => {
+                      if (!settings) return;
+                      setOutboundAiDraftError(null);
+                      setOutboundAiDraftModal({
+                        kind: "SMS",
+                        existingBody: settings.outbound.sms.text,
+                        apply: (draft) => {
+                          setSettings((prev) => {
+                            if (!prev) return prev;
+                            return {
+                              ...prev,
+                              outbound: {
+                                ...prev.outbound,
+                                sms: {
+                                  ...prev.outbound.sms,
+                                  text: String(draft.body || "").slice(0, 900),
+                                },
+                              },
+                            };
+                          });
+                        },
+                      });
+                    }}
+                  >
+                    <span className="text-white">{sparkleIcon}</span>
+                    <span>AI draft</span>
+                  </button>
+
+                  <button
+                    type="button"
+                    className="rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm font-semibold text-brand-ink hover:bg-zinc-50"
+                    onClick={() => openOutboundVarPicker("smsMessage")}
+                  >
+                    Insert variable
+                  </button>
+                </div>
+
+                <label className="block">
+                  <div className="mt-3 flex items-center justify-between gap-3">
+                    <div className="text-xs font-semibold text-zinc-600">Message</div>
+                    <button
+                      type="button"
+                      className="rounded-xl border border-zinc-200 bg-white px-3 py-1.5 text-xs font-semibold text-brand-ink hover:bg-zinc-50"
+                      onClick={() => openOutboundVarPicker("smsMessage")}
+                    >
+                      Insert variable
+                    </button>
+                  </div>
+                  <textarea
+                    ref={outboundSmsMessageRef}
+                    className="mt-2 w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm"
+                    rows={6}
+                    value={settings.outbound.sms.text}
+                    onChange={(e) =>
                       setSettings((prev) =>
                         prev
                           ? {
                               ...prev,
-                              outbound: {
-                                ...prev.outbound,
-                                resources: prev.outbound.resources.filter((_, i) => i !== idx),
-                              },
+                              outbound: { ...prev.outbound, sms: { ...prev.outbound.sms, text: e.target.value } },
                             }
                           : prev,
                       )
                     }
-                    className="rounded-xl border border-zinc-200 bg-white px-3 py-1 text-xs font-semibold text-zinc-700 hover:bg-zinc-50"
-                  >
-                    Remove
-                  </button>
-                </div>
-              ))}
+                    onFocus={(e) => {
+                      outboundActiveFieldElRef.current = e.currentTarget;
+                    }}
+                  />
+                </label>
+
+                {attachmentsEditor(false)}
+
+                <div className="text-xs text-zinc-500">Texts only send when the lead has a phone number.</div>
+              </div>
             </div>
-          ) : (
-            <div className="mt-3 text-xs text-zinc-500">No resources yet.</div>
-          )}
+          </div>
         </div>
+
+        <PortalMediaPickerModal
+          open={outboundResourcesPickerOpen}
+          title="Attach a resource"
+          confirmLabel="Attach"
+          onClose={() => setOutboundResourcesPickerOpen(false)}
+          onPick={(item) => {
+            setSettings((prev) =>
+              prev
+                ? {
+                    ...prev,
+                    outbound: {
+                      ...prev.outbound,
+                      resources: [{ label: item.fileName.slice(0, 120), url: item.shareUrl }, ...prev.outbound.resources].slice(0, 30),
+                    },
+                  }
+                : prev,
+            );
+            setOutboundResourcesPickerOpen(false);
+          }}
+        />
       </div>
     );
   }
@@ -1501,7 +1914,7 @@ export function PortalLeadScrapingClient() {
           onClick={() => setTab("b2b")}
           aria-current={tab === "b2b" ? "page" : undefined}
           className={
-            "flex-1 min-w-[220px] rounded-2xl border px-4 py-2.5 text-sm font-semibold transition focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-ink/60 " +
+            "flex-1 min-w-55 rounded-2xl border px-4 py-2.5 text-sm font-semibold transition focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-ink/60 " +
             (tab === "b2b"
               ? "border-(--color-brand-blue) bg-(--color-brand-blue) text-white shadow-sm"
               : "border-zinc-200 bg-white text-zinc-700 hover:bg-zinc-50")
@@ -1514,7 +1927,7 @@ export function PortalLeadScrapingClient() {
           onClick={() => setTab("b2c")}
           aria-current={tab === "b2c" ? "page" : undefined}
           className={
-            "flex-1 min-w-[220px] rounded-2xl border px-4 py-2.5 text-sm font-semibold transition focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-ink/60 " +
+            "flex-1 min-w-55 rounded-2xl border px-4 py-2.5 text-sm font-semibold transition focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-ink/60 " +
             (tab === "b2c"
               ? "border-(--color-brand-pink) bg-(--color-brand-pink) text-white shadow-sm"
               : "border-zinc-200 bg-white text-zinc-700 hover:bg-zinc-50")
@@ -1599,7 +2012,7 @@ export function PortalLeadScrapingClient() {
                     <div className="mt-3">
                       <div className="text-xs font-semibold text-zinc-600">Fallback niches / keywords (one per line)</div>
                       <textarea
-                        className="mt-2 min-h-[90px] w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm"
+                        className="mt-2 min-h-22.5 w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm"
                         value={(settings.b2b.fallbackNiches ?? []).join("\n")}
                         onChange={(e) =>
                           setSettings((prev) => {
@@ -1672,7 +2085,7 @@ export function PortalLeadScrapingClient() {
                     <div className="mt-3">
                       <div className="text-xs font-semibold text-zinc-600">Fallback locations (one per line)</div>
                       <textarea
-                        className="mt-2 min-h-[90px] w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm"
+                        className="mt-2 min-h-22.5 w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm"
                         value={((settings.b2b as any).fallbackLocations ?? []).join("\n")}
                         onChange={(e) =>
                           setSettings((prev) => {
@@ -1821,7 +2234,7 @@ export function PortalLeadScrapingClient() {
                   />
                 </div>
 
-                <div className="mt-3 max-h-[70vh] min-h-[240px] space-y-3 overflow-y-auto pr-2 lg:max-h-none lg:min-h-0 lg:flex-1">
+                <div className="mt-3 max-h-[70vh] min-h-60 space-y-3 overflow-y-auto pr-2 lg:max-h-none lg:min-h-0 lg:flex-1">
                   {leads.length ? (
                     leads.map((l, idx) => (
                       <button
@@ -1922,72 +2335,211 @@ export function PortalLeadScrapingClient() {
                     description="Keep junk out of your pulls (names, domains, phones)."
                     accent="slate"
                   >
-                    <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
-                      <label className="block">
-                        <div className="text-sm font-medium text-zinc-800">Exclude business names (one per line)</div>
-                        <textarea
-                          className="mt-2 min-h-[110px] w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm"
-                          value={settings.b2b.excludeNameContains.join("\n")}
-                          onChange={(e) =>
-                            setSettings((prev) => {
-                              if (!prev) return prev;
-                              const next = e.target.value
-                                .split("\n")
-                                .map((x) => x.trim())
-                                .filter(Boolean)
-                                .slice(0, 200);
-                              return { ...prev, b2b: { ...prev.b2b, excludeNameContains: next } };
-                            })
-                          }
-                          placeholder="e.g. walmart\nverizon"
-                        />
-                      </label>
+                    <div className="text-xs text-zinc-500">
+                      Previously pulled leads will never be repeated. Exclude business names, domains, and phones.
+                    </div>
 
-                      <label className="block">
-                        <div className="text-sm font-medium text-zinc-800">Exclude domains (one per line)</div>
-                        <textarea
-                          className="mt-2 min-h-[110px] w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm"
-                          value={settings.b2b.excludeDomains.join("\n")}
-                          onChange={(e) =>
-                            setSettings((prev) => {
-                              if (!prev) return prev;
-                              const next = e.target.value
-                                .split("\n")
-                                .map((x) => x.trim().toLowerCase())
-                                .filter(Boolean)
-                                .slice(0, 200);
-                              return { ...prev, b2b: { ...prev.b2b, excludeDomains: next } };
-                            })
-                          }
-                          placeholder="e.g. yelp.com\nfacebook.com"
-                        />
-                      </label>
+                    <div className="mt-4 grid grid-cols-1 gap-4 sm:grid-cols-3">
+                      <div className="rounded-2xl border border-zinc-200 bg-zinc-50 p-4">
+                        <div className="text-sm font-semibold text-zinc-900">Exclude business names</div>
 
-                      <label className="block">
-                        <div className="text-sm font-medium text-zinc-800">Exclude phones (one per line)</div>
-                        <textarea
-                          className="mt-2 min-h-[110px] w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm"
-                          value={settings.b2b.excludePhones.join("\n")}
-                          onChange={(e) =>
-                            setSettings((prev) => {
-                              if (!prev) return prev;
-                              const next = e.target.value
-                                .split("\n")
-                                .map((x) => x.trim())
-                                .filter(Boolean)
-                                .slice(0, 200);
-                              return { ...prev, b2b: { ...prev.b2b, excludePhones: next } };
-                            })
-                          }
-                          placeholder="e.g. +15551234567"
-                        />
-                      </label>
+                        {settings.b2b.excludeNameContains.length ? (
+                          <div className="mt-3 flex flex-wrap gap-2">
+                            {settings.b2b.excludeNameContains.slice(0, 200).map((v) => (
+                              <span
+                                key={v}
+                                className="inline-flex items-center gap-2 rounded-full border border-zinc-200 bg-white px-3 py-1 text-xs font-semibold text-zinc-800"
+                              >
+                                <span className="max-w-45 truncate">{v}</span>
+                                <button
+                                  type="button"
+                                  className="rounded-full border border-zinc-200 bg-white px-2 py-0.5 text-[11px] font-semibold text-zinc-700 hover:bg-zinc-50"
+                                  onClick={() =>
+                                    setSettings((prev) =>
+                                      prev
+                                        ? {
+                                            ...prev,
+                                            b2b: {
+                                              ...prev.b2b,
+                                              excludeNameContains: prev.b2b.excludeNameContains.filter((x) => x !== v),
+                                            },
+                                          }
+                                        : prev,
+                                    )
+                                  }
+                                >
+                                  ×
+                                </button>
+                              </span>
+                            ))}
+                          </div>
+                        ) : (
+                          <div className="mt-3 text-xs text-zinc-500">None</div>
+                        )}
+
+                        <div className="mt-3 flex gap-2">
+                          <input
+                            className="h-10 flex-1 rounded-xl border border-zinc-200 bg-white px-3 text-sm"
+                            placeholder="e.g. walmart"
+                            value={excludeNameDraft}
+                            onChange={(e) => setExcludeNameDraft(e.target.value)}
+                          />
+                          <button
+                            type="button"
+                            className="inline-flex h-10 items-center justify-center gap-2 rounded-xl bg-(--color-brand-blue) px-4 text-sm font-semibold text-white hover:opacity-95"
+                            onClick={() => {
+                              const nextValue = excludeNameDraft.trim();
+                              if (!nextValue) return;
+                              setSettings((prev) => {
+                                if (!prev) return prev;
+                                const existing = prev.b2b.excludeNameContains;
+                                const next = Array.from(new Set([nextValue, ...existing])).slice(0, 200);
+                                return { ...prev, b2b: { ...prev.b2b, excludeNameContains: next } };
+                              });
+                              setExcludeNameDraft("");
+                            }}
+                          >
+                            <span className="text-base leading-none">+</span>
+                            <span>Add</span>
+                          </button>
+                        </div>
+                      </div>
+
+                      <div className="rounded-2xl border border-zinc-200 bg-zinc-50 p-4">
+                        <div className="text-sm font-semibold text-zinc-900">Exclude domains</div>
+
+                        {settings.b2b.excludeDomains.length ? (
+                          <div className="mt-3 flex flex-wrap gap-2">
+                            {settings.b2b.excludeDomains.slice(0, 200).map((v) => (
+                              <span
+                                key={v}
+                                className="inline-flex items-center gap-2 rounded-full border border-zinc-200 bg-white px-3 py-1 text-xs font-semibold text-zinc-800"
+                              >
+                                <span className="max-w-45 truncate">{v}</span>
+                                <button
+                                  type="button"
+                                  className="rounded-full border border-zinc-200 bg-white px-2 py-0.5 text-[11px] font-semibold text-zinc-700 hover:bg-zinc-50"
+                                  onClick={() =>
+                                    setSettings((prev) =>
+                                      prev
+                                        ? {
+                                            ...prev,
+                                            b2b: {
+                                              ...prev.b2b,
+                                              excludeDomains: prev.b2b.excludeDomains.filter((x) => x !== v),
+                                            },
+                                          }
+                                        : prev,
+                                    )
+                                  }
+                                >
+                                  ×
+                                </button>
+                              </span>
+                            ))}
+                          </div>
+                        ) : (
+                          <div className="mt-3 text-xs text-zinc-500">None</div>
+                        )}
+
+                        <div className="mt-3 flex gap-2">
+                          <input
+                            className="h-10 flex-1 rounded-xl border border-zinc-200 bg-white px-3 text-sm"
+                            placeholder="e.g. facebook.com"
+                            value={excludeDomainDraft}
+                            onChange={(e) => setExcludeDomainDraft(e.target.value)}
+                          />
+                          <button
+                            type="button"
+                            className="inline-flex h-10 items-center justify-center gap-2 rounded-xl bg-(--color-brand-blue) px-4 text-sm font-semibold text-white hover:opacity-95"
+                            onClick={() => {
+                              const nextValue = excludeDomainDraft.trim().toLowerCase();
+                              if (!nextValue) return;
+                              setSettings((prev) => {
+                                if (!prev) return prev;
+                                const existing = prev.b2b.excludeDomains;
+                                const next = Array.from(new Set([nextValue, ...existing.map((x) => x.toLowerCase())])).slice(0, 200);
+                                return { ...prev, b2b: { ...prev.b2b, excludeDomains: next } };
+                              });
+                              setExcludeDomainDraft("");
+                            }}
+                          >
+                            <span className="text-base leading-none">+</span>
+                            <span>Add</span>
+                          </button>
+                        </div>
+                      </div>
+
+                      <div className="rounded-2xl border border-zinc-200 bg-zinc-50 p-4">
+                        <div className="text-sm font-semibold text-zinc-900">Exclude phones</div>
+
+                        {settings.b2b.excludePhones.length ? (
+                          <div className="mt-3 flex flex-wrap gap-2">
+                            {settings.b2b.excludePhones.slice(0, 200).map((v) => (
+                              <span
+                                key={v}
+                                className="inline-flex items-center gap-2 rounded-full border border-zinc-200 bg-white px-3 py-1 text-xs font-semibold text-zinc-800"
+                              >
+                                <span className="max-w-45 truncate">{v}</span>
+                                <button
+                                  type="button"
+                                  className="rounded-full border border-zinc-200 bg-white px-2 py-0.5 text-[11px] font-semibold text-zinc-700 hover:bg-zinc-50"
+                                  onClick={() =>
+                                    setSettings((prev) =>
+                                      prev
+                                        ? {
+                                            ...prev,
+                                            b2b: {
+                                              ...prev.b2b,
+                                              excludePhones: prev.b2b.excludePhones.filter((x) => x !== v),
+                                            },
+                                          }
+                                        : prev,
+                                    )
+                                  }
+                                >
+                                  ×
+                                </button>
+                              </span>
+                            ))}
+                          </div>
+                        ) : (
+                          <div className="mt-3 text-xs text-zinc-500">None</div>
+                        )}
+
+                        <div className="mt-3 flex gap-2">
+                          <input
+                            className="h-10 flex-1 rounded-xl border border-zinc-200 bg-white px-3 text-sm"
+                            placeholder="e.g. +15551234567"
+                            value={excludePhoneDraft}
+                            onChange={(e) => setExcludePhoneDraft(e.target.value)}
+                          />
+                          <button
+                            type="button"
+                            className="inline-flex h-10 items-center justify-center gap-2 rounded-xl bg-(--color-brand-blue) px-4 text-sm font-semibold text-white hover:opacity-95"
+                            onClick={() => {
+                              const nextValue = excludePhoneDraft.trim();
+                              if (!nextValue) return;
+                              setSettings((prev) => {
+                                if (!prev) return prev;
+                                const existing = prev.b2b.excludePhones;
+                                const next = Array.from(new Set([nextValue, ...existing])).slice(0, 200);
+                                return { ...prev, b2b: { ...prev.b2b, excludePhones: next } };
+                              });
+                              setExcludePhoneDraft("");
+                            }}
+                          >
+                            <span className="text-base leading-none">+</span>
+                            <span>Add</span>
+                          </button>
+                        </div>
+                      </div>
                     </div>
                   </SettingsSection>
 
                   <SettingsSection
                     title="Scheduling"
-                    description="Runs via a secure cron endpoint (server-side). You can still run manually any time."
+                    description="Scrape leads automatically on a schedule. You can still run manually anytime."
                     accent="amber"
                   >
                     <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
@@ -2005,27 +2557,78 @@ export function PortalLeadScrapingClient() {
                       </div>
 
                       <label className="block sm:col-span-2">
-                        <div className="text-sm font-medium text-zinc-800">Frequency (days)</div>
-                        <input
-                          className="mt-2 w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm"
-                          type="number"
-                          min={1}
-                          max={60}
-                          value={settings.b2b.frequencyDays}
-                          onChange={(e) =>
-                            setSettings((prev) =>
-                              prev
-                                ? {
-                                    ...prev,
-                                    b2b: {
-                                      ...prev.b2b,
-                                      frequencyDays: clampInt(Number(e.target.value), 1, 60),
-                                    },
-                                  }
-                                : prev,
-                            )
-                          }
-                        />
+                          <div className="text-sm font-medium text-zinc-800">Frequency</div>
+
+                          <div className="mt-2 flex gap-2">
+                            <input
+                              className="h-10 w-32 rounded-xl border border-zinc-200 bg-white px-3 text-sm"
+                              type="number"
+                              min={1}
+                              max={b2bFrequencyUnit === "days" ? 60 : b2bFrequencyUnit === "weeks" ? 8 : 2}
+                              value={b2bFrequencyCount}
+                              onChange={(e) => {
+                                const nextCount = clampInt(
+                                  Number(e.target.value),
+                                  1,
+                                  b2bFrequencyUnit === "days" ? 60 : b2bFrequencyUnit === "weeks" ? 8 : 2,
+                                );
+                                setB2bFrequencyCount(nextCount);
+
+                                const nextDays =
+                                  b2bFrequencyUnit === "days"
+                                    ? nextCount
+                                    : b2bFrequencyUnit === "weeks"
+                                      ? nextCount * 7
+                                      : nextCount * 30;
+
+                                setSettings((prev) =>
+                                  prev
+                                    ? {
+                                        ...prev,
+                                        b2b: { ...prev.b2b, frequencyDays: clampInt(nextDays, 1, 60) },
+                                      }
+                                    : prev,
+                                );
+                              }}
+                            />
+
+                            <select
+                              className="h-10 flex-1 rounded-xl border border-zinc-200 bg-white px-3 text-sm"
+                              value={b2bFrequencyUnit}
+                              onChange={(e) => {
+                                const nextUnit = e.target.value as "days" | "weeks" | "months";
+                                setB2bFrequencyUnit(nextUnit);
+
+                                const normalizedCount = clampInt(
+                                  b2bFrequencyCount,
+                                  1,
+                                  nextUnit === "days" ? 60 : nextUnit === "weeks" ? 8 : 2,
+                                );
+                                setB2bFrequencyCount(normalizedCount);
+
+                                const nextDays =
+                                  nextUnit === "days"
+                                    ? normalizedCount
+                                    : nextUnit === "weeks"
+                                      ? normalizedCount * 7
+                                      : normalizedCount * 30;
+
+                                setSettings((prev) =>
+                                  prev
+                                    ? {
+                                        ...prev,
+                                        b2b: { ...prev.b2b, frequencyDays: clampInt(nextDays, 1, 60) },
+                                      }
+                                    : prev,
+                                );
+                              }}
+                            >
+                              <option value="days">Days</option>
+                              <option value="weeks">Weeks</option>
+                              <option value="months">Months</option>
+                            </select>
+                          </div>
+
                         <div className="mt-1 text-xs text-zinc-500">
                           Last run: {settings.b2b.lastRunAtIso ? new Date(settings.b2b.lastRunAtIso).toLocaleString() : "Never"}
                         </div>
@@ -2034,8 +2637,8 @@ export function PortalLeadScrapingClient() {
                   </SettingsSection>
 
                   <SettingsSection
-                    title="Auto-outbound"
-                    description="Optional email/text templates that can send automatically."
+                    title="Outbound"
+                    description="Enable channels individually and configure your templates (or use an AI outbound campaign)."
                     accent="emerald"
                   >
                     {renderOutboundEditor({ outerClassName: "", accent: "blue" })}
@@ -2160,13 +2763,13 @@ export function PortalLeadScrapingClient() {
                 </div>
                 <div className="rounded-2xl border border-zinc-200 bg-zinc-50 p-4">
                   <div className="text-xs font-semibold text-zinc-600">Website</div>
-                  <div className="mt-1 break-words text-sm text-zinc-900">
+                  <div className="mt-1 wrap-break-word text-sm text-zinc-900">
                     {activeLead.website ? (
                       <a
                         href={activeLead.website}
                         target="_blank"
                         rel="noreferrer"
-                        className="font-semibold text-[color:var(--color-brand-blue)] hover:underline"
+                        className="font-semibold text-(--color-brand-blue) hover:underline"
                         onClick={(e) => e.stopPropagation()}
                       >
                         {activeLead.website}
@@ -2280,7 +2883,7 @@ export function PortalLeadScrapingClient() {
                     type="button"
                     onClick={() => sendDefaultOutbound(activeLead.id)}
                     disabled={outboundBusy}
-                    className="inline-flex items-center justify-center rounded-2xl bg-[color:var(--color-brand-blue)] px-5 py-3 text-sm font-semibold text-white hover:opacity-95 disabled:opacity-60"
+                    className="inline-flex items-center justify-center rounded-2xl bg-(--color-brand-blue) px-5 py-3 text-sm font-semibold text-white hover:opacity-95 disabled:opacity-60"
                   >
                     {outboundBusy ? "Working…" : "Send default"}
                   </button>
@@ -2462,8 +3065,8 @@ export function PortalLeadScrapingClient() {
                       disabled={composeBusy}
                       className={
                         composeBusy
-                          ? "inline-flex items-center justify-center rounded-2xl bg-[color:var(--color-brand-blue)] px-5 py-3 text-sm font-semibold text-white opacity-70"
-                          : "inline-flex items-center justify-center rounded-2xl bg-[color:var(--color-brand-blue)] px-5 py-3 text-sm font-semibold text-white hover:opacity-95"
+                          ? "inline-flex items-center justify-center rounded-2xl bg-(--color-brand-blue) px-5 py-3 text-sm font-semibold text-white opacity-70"
+                          : "inline-flex items-center justify-center rounded-2xl bg-(--color-brand-blue) px-5 py-3 text-sm font-semibold text-white hover:opacity-95"
                       }
                     >
                       {composeBusy ? "Sending…" : "Send"}

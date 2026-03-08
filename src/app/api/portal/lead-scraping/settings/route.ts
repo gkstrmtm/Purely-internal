@@ -74,6 +74,7 @@ const settingsSchema = z.object({
     .object({
       enabled: z.boolean(),
       aiDraftAndSend: z.boolean().optional(),
+      aiCampaignId: z.string().trim().max(120).nullable().optional(),
       aiPrompt: z.string().max(4000).optional(),
       email: z.object({
         enabled: z.boolean(),
@@ -216,6 +217,7 @@ function normalizeOutbound(value: unknown): OutboundSettings {
     return {
       enabled,
       aiDraftAndSend: false,
+      aiCampaignId: null,
       aiPrompt: "",
       email: {
         enabled: enabled && sendEmail,
@@ -239,6 +241,7 @@ function normalizeOutbound(value: unknown): OutboundSettings {
   return {
     enabled: Boolean((rec as any).enabled),
     aiDraftAndSend: Boolean((rec as any).aiDraftAndSend),
+    aiCampaignId: (typeof (rec as any).aiCampaignId === "string" ? String((rec as any).aiCampaignId).trim().slice(0, 120) : "") || null,
     aiPrompt: (typeof (rec as any).aiPrompt === "string" ? ((rec as any).aiPrompt as string) : "").slice(0, 4000),
     email: {
       enabled: Boolean(emailRec.enabled),
@@ -306,6 +309,7 @@ function normalizeSettings(value: unknown): NormalizedLeadScrapingSettings {
   const defaultOutbound: OutboundSettings = {
     enabled: false,
     aiDraftAndSend: false,
+    aiCampaignId: null,
     aiPrompt: "",
     email: {
       enabled: true,

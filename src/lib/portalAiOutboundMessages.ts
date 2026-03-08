@@ -7,6 +7,117 @@ import { listContactTagsForContact } from "@/lib/portalContactTags";
 import { ensurePortalInboxSchema } from "@/lib/portalInboxSchema";
 import { recordPortalContactServiceTrigger } from "@/lib/portalContactServiceTriggers";
 
+type MessageEnrollmentChannelPolicy = "SMS" | "EMAIL" | "BOTH";
+type MessageEnrollmentSource = "TAG" | "MANUAL" | "INBOUND";
+
+export async function enqueueOutboundMessageForContact(opts: {
+  ownerId: string;
+  contactId: string;
+  campaignId?: string;
+  channelPolicy?: MessageEnrollmentChannelPolicy;
+  source?: MessageEnrollmentSource;
+}): Promise<
+  | { ok: true; enrollmentId?: string; activatedCampaign?: boolean }
+  | { ok: false; error: string }
+> {
+  const ownerId = String(opts.ownerId || "").trim();
+  const contactId = String(opts.contactId || "").trim();
+  const campaignIdRaw = String(opts.campaignId || "").trim();
+  if (!ownerId || !contactId) return { ok: false, error: "Missing owner/contact" };
+
+  await ensurePortalAiOutboundCallsSchema();
+
+  const campaign = campaignIdRaw
+    ? await prisma.portalAiOutboundCallCampaign.findFirst({
+        where: { ownerId, id: campaignIdRaw },
+        select: { id: true, status: true, messageChannelPolicy: true },
+      })
+    : await prisma.portalAiOutboundCallCampaign.findFirst({
+        where: { ownerId, status: "ACTIVE" },
+        select: { id: true, status: true, messageChannelPolicy: true },
+        orderBy: [{ updatedAt: "desc" }],
+      });
+
+  if (!campaign?.id) return { ok: false, error: "No campaign found" };
+  if (campaign.status === "ARCHIVED") return { ok: false, error: "Campaign is archived" };
+
+  const now = new Date();
+  let activatedCampaign = false;
+  if (campaign.status !== "ACTIVE") {
+    activatedCampaign = true;
+    await prisma.portalAiOutboundCallCampaign
+      .update({ where: { id: campaign.id }, data: { status: "ACTIVE", updatedAt: now }, select: { id: true } })
+      .catch(() => null);
+  }
+
+  const channelPolicy = (opts.channelPolicy || (campaign as any).messageChannelPolicy || "BOTH") as MessageEnrollmentChannelPolicy;
+  const source = (opts.source || "MANUAL") as MessageEnrollmentSource;
+
+  const existing = await prisma.portalAiOutboundMessageEnrollment
+    .findUnique({
+      where: { campaignId_contactId: { campaignId: campaign.id, contactId } },
+      select: { id: true, sentFirstMessageAt: true },
+    })
+    .catch(() => null);
+
+  if (existing?.id && existing.sentFirstMessageAt) {
+    await prisma.portalAiOutboundMessageEnrollment
+      .update({
+        where: { id: existing.id },
+        data: { status: "ACTIVE", source, channelPolicy, lastError: null },
+        select: { id: true },
+      })
+      .catch(() => null);
+
+    await recordPortalContactServiceTrigger({ ownerId, contactId, serviceSlug: "ai-outbound-calls" }).catch(() => null);
+    return { ok: true, enrollmentId: existing.id, activatedCampaign };
+  }
+
+  const id = crypto.randomUUID();
+  await prisma.portalAiOutboundMessageEnrollment
+    .upsert({
+      where: { campaignId_contactId: { campaignId: campaign.id, contactId } },
+      create: {
+        id,
+        ownerId,
+        campaignId: campaign.id,
+        contactId,
+        status: "QUEUED",
+        source,
+        channelPolicy,
+        nextSendAt: now,
+        sentFirstMessageAt: null,
+        threadId: null,
+        attemptCount: 0,
+        lastError: null,
+        pendingReplyToMessageId: null,
+        nextReplyAt: null,
+        replyAttemptCount: 0,
+        replyLastError: null,
+        lastAutoRepliedMessageId: null,
+        lastAutoReplyAt: null,
+        updatedAt: now,
+        createdAt: now,
+      },
+      update: {
+        status: "QUEUED",
+        source,
+        channelPolicy,
+        nextSendAt: now,
+        attemptCount: 0,
+        lastError: null,
+        updatedAt: now,
+      },
+      select: { id: true },
+    })
+    .catch((e) => {
+      throw e;
+    });
+
+  await recordPortalContactServiceTrigger({ ownerId, contactId, serviceSlug: "ai-outbound-calls" }).catch(() => null);
+  return { ok: true, enrollmentId: id, activatedCampaign };
+}
+
 export async function enqueueOutboundMessageForTaggedContact(opts: {
   ownerId: string;
   contactId: string;

@@ -9,6 +9,7 @@ import { baseUrlFromRequest, renderTemplate, sendEmail, sendSms } from "@/lib/le
 import { draftLeadOutboundEmail, draftLeadOutboundSms } from "@/lib/leadOutboundAi";
 import { runOwnerAutomationsForEvent } from "@/lib/portalAutomationsRunner";
 import { enqueueOutboundCallForContact } from "@/lib/portalAiOutboundCalls";
+import { enqueueOutboundMessageForContact } from "@/lib/portalAiOutboundMessages";
 import { ensurePortalContactsSchema } from "@/lib/portalContactsSchema";
 import { findOrCreatePortalContact } from "@/lib/portalContacts";
 
@@ -28,6 +29,7 @@ type SettingsV3 = {
   outbound: {
     enabled: boolean;
     aiDraftAndSend: boolean;
+    aiCampaignId?: string | null;
     aiPrompt?: string;
     email: {
       enabled: boolean;
@@ -93,6 +95,7 @@ function normalizeSettings(value: unknown): SettingsV3 {
   const defaultOutbound: SettingsV3["outbound"] = {
     enabled: false,
     aiDraftAndSend: false,
+    aiCampaignId: null,
     aiPrompt: "",
     email: {
       enabled: true,
@@ -148,6 +151,7 @@ function normalizeSettings(value: unknown): SettingsV3 {
         ...defaultOutbound,
         enabled,
         aiDraftAndSend: false,
+        aiCampaignId: null,
         aiPrompt: "",
         email: {
           enabled: enabled && sendEmail,
@@ -176,6 +180,7 @@ function normalizeSettings(value: unknown): SettingsV3 {
       ...defaultOutbound,
       enabled: Boolean((outboundRaw as any).enabled),
       aiDraftAndSend: Boolean((outboundRaw as any).aiDraftAndSend),
+      aiCampaignId: (typeof (outboundRaw as any).aiCampaignId === "string" ? String((outboundRaw as any).aiCampaignId).trim().slice(0, 120) : null) || null,
       aiPrompt: (typeof (outboundRaw as any).aiPrompt === "string" ? ((outboundRaw as any).aiPrompt as string) : "").slice(0, 4000),
       email: {
         enabled: Boolean((emailRec as any).enabled),
@@ -321,6 +326,9 @@ export async function POST(req: Request) {
   if (shouldSendEmailOnApprove || shouldSendSmsOnApprove || shouldPlaceCallsOnApprove) {
     const base = baseUrlFromRequest(req);
 
+    const campaignId = settings.outbound.aiCampaignId || null;
+    const useAiCampaign = Boolean(campaignId) && Boolean(settings.outbound.aiDraftAndSend) && aiCallsUnlocked;
+
     const resources = settings.outbound.resources
       .map((r) => ({
         label: r.label,
@@ -331,7 +339,7 @@ export async function POST(req: Request) {
     let subject = renderTemplate(settings.outbound.email.subject, lead).slice(0, 120);
     let textBase = renderTemplate(settings.outbound.email.text, lead);
 
-    if (settings.outbound.aiDraftAndSend) {
+    if (!useAiCampaign && settings.outbound.aiDraftAndSend && settings.outbound.aiPrompt?.trim()) {
       try {
         const draft = await draftLeadOutboundEmail({ lead, resources, fromName, prompt: settings.outbound.aiPrompt });
         if (draft?.subject) subject = draft.subject.slice(0, 120);
@@ -350,7 +358,64 @@ export async function POST(req: Request) {
     const skippedNow: string[] = [];
 
     try {
+      if (useAiCampaign) {
+        const canEmail = shouldSendEmailOnApprove && Boolean(lead.email);
+        const canSms = shouldSendSmsOnApprove && Boolean(lead.phone);
+
+        let contactId = (lead as any).contactId ? String((lead as any).contactId).trim() : "";
+        if (!contactId) {
+          try {
+            await ensurePortalContactsSchema().catch(() => null);
+            contactId =
+              (await findOrCreatePortalContact({
+                ownerId,
+                name: String((lead as any).contactName || lead.businessName || lead.phone || lead.email || "Contact"),
+                email: lead.email || null,
+                phone: lead.phone || null,
+              }).catch(() => "")) || "";
+          } catch {
+            contactId = "";
+          }
+        }
+
+        if (!contactId) {
+          skippedNow.push("AI agent skipped: unable to resolve contact.");
+        } else {
+          const channelPolicy = canEmail && canSms ? "BOTH" : canSms ? "SMS" : canEmail ? "EMAIL" : null;
+          if (channelPolicy) {
+            const enqMsg = await enqueueOutboundMessageForContact({
+              ownerId,
+              contactId,
+              campaignId: campaignId || undefined,
+              channelPolicy,
+              source: "MANUAL",
+            });
+            if (!enqMsg.ok) {
+              skippedNow.push(`AI agent message skipped: ${enqMsg.error}`);
+            } else {
+              sentNow.email = canEmail;
+              sentNow.sms = canSms;
+            }
+          } else if (shouldSendEmailOnApprove || shouldSendSmsOnApprove) {
+            skippedNow.push("AI agent message skipped: no valid channel (missing email/phone).");
+          }
+
+          if (shouldPlaceCallsOnApprove) {
+            if (!lead.phone) {
+              skippedNow.push("Call skipped: lead has no phone.");
+            } else {
+              const enqCall = await enqueueOutboundCallForContact({ ownerId, contactId, campaignId: campaignId || undefined });
+              if (!enqCall.ok) skippedNow.push(`Call skipped: ${enqCall.error}`);
+              else sentNow.calls = true;
+            }
+          }
+        }
+      }
+
       if (shouldSendEmailOnApprove) {
+        if (useAiCampaign) {
+          if (!sentNow.email) skippedNow.push("Email skipped: AI outbound agent is enabled.");
+        } else {
         const to = (lead.email || "").trim();
         if (!to) {
           skippedNow.push("Email skipped: lead has no email.");
@@ -378,15 +443,19 @@ export async function POST(req: Request) {
             // ignore
           }
         }
+          }
       }
 
       if (shouldSendSmsOnApprove) {
+          if (useAiCampaign) {
+            if (!sentNow.sms) skippedNow.push("Text skipped: AI outbound agent is enabled.");
+          } else {
         if (!lead.phone) {
           skippedNow.push("Text skipped: lead has no phone.");
         } else {
           let smsBodyBase = renderTemplate(settings.outbound.sms.text, lead).slice(0, 900);
 
-          if (settings.outbound.aiDraftAndSend) {
+            if (settings.outbound.aiDraftAndSend && settings.outbound.aiPrompt?.trim()) {
             try {
               const draft = await draftLeadOutboundSms({ lead, resources, fromName, prompt: settings.outbound.aiPrompt });
               if (draft) smsBodyBase = draft.slice(0, 900);
@@ -439,9 +508,13 @@ export async function POST(req: Request) {
             }
           }
         }
+        }
       }
 
       if (shouldPlaceCallsOnApprove) {
+        if (useAiCampaign) {
+          if (!sentNow.calls) skippedNow.push("Call skipped: AI outbound agent is enabled.");
+        } else {
         if (!aiCallsUnlocked) {
           skippedNow.push("Call skipped: AI outbound calls service is not enabled.");
         } else if (!lead.phone) {
@@ -466,13 +539,14 @@ export async function POST(req: Request) {
           if (!contactId) {
             skippedNow.push("Call skipped: unable to resolve contact.");
           } else {
-            const enq = await enqueueOutboundCallForContact({ ownerId, contactId });
+            const enq = await enqueueOutboundCallForContact({ ownerId, contactId, campaignId: settings.outbound.aiCampaignId || undefined });
             if (!enq.ok) {
               skippedNow.push(`Call skipped: ${enq.error}`);
             } else {
               sentNow.calls = true;
             }
           }
+        }
         }
       }
     } catch (e) {
