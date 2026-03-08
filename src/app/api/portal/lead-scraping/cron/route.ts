@@ -21,6 +21,9 @@ export const revalidate = 0;
 
 const SERVICE_SLUG = "lead-scraping";
 
+const CLIENT_FRIENDLY_SCRAPE_FAILURE_MESSAGE =
+  "Sorry, the lead scraping didn't work. No credits were charged. Try again later.";
+
 const TAG_COLORS = [
   "#0EA5E9", // sky
   "#2563EB", // blue
@@ -407,6 +410,7 @@ async function runB2BForOwner(ownerId: string, settingsJson: unknown, baseUrl: s
 
   let createdCount = 0;
   let error: string | null = null;
+  let internalError: string | null = null;
   const maxPerPlacesBatch = 60;
   const baseBatches = Math.max(1, Math.ceil(requestedCount / maxPerPlacesBatch));
   const plannedPrimaryBatches = Math.min(10, baseBatches + (requestedCount >= 50 ? 1 : 0));
@@ -572,10 +576,23 @@ async function runB2BForOwner(ownerId: string, settingsJson: unknown, baseUrl: s
       }
     }
   } catch (e: any) {
-    error = typeof e?.message === "string" ? e.message : "Unknown error";
+    internalError = typeof e?.message === "string" ? e.message : "Unknown error";
+    error = CLIENT_FRIENDLY_SCRAPE_FAILURE_MESSAGE;
+
+    // Keep real error out of portal notifications; log it for debugging.
+    try {
+      // eslint-disable-next-line no-console
+      console.error("[portal][lead-scraping][cron][B2B] failed", {
+        ownerId,
+        runId: run.id,
+        error: internalError,
+      });
+    } catch {
+      // ignore
+    }
   }
 
-  const refundedCredits = Math.max(0, reservedCredits - createdCount);
+  const refundedCredits = error ? reservedCredits : Math.max(0, reservedCredits - createdCount);
   if (refundedCredits > 0) {
     await addCredits(ownerId, refundedCredits);
   }
