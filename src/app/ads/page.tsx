@@ -141,16 +141,16 @@ export default function AdsLandingPage() {
               ].map((c) => (
                 <div
                   key={c.title}
-                  className="relative overflow-hidden rounded-[1.75rem] border border-white/30 bg-gradient-to-r from-[color:var(--color-brand-blue)] to-[color:var(--color-brand-pink)] p-5 shadow-sm"
+                  className="relative overflow-hidden rounded-[1.75rem] border border-white/30 bg-(--color-brand-blue) bg-linear-to-r from-(--color-brand-blue) to-(--color-brand-pink) p-5 shadow-sm"
                 >
-                  <div className="pointer-events-none absolute inset-0 bg-white/10" />
+                  <div className="pointer-events-none absolute inset-0 bg-black/20" />
                   <div className="relative flex items-start gap-3">
-                    <div className="grid h-10 w-10 place-items-center rounded-2xl border border-white/20 bg-white/15 text-white">
+                    <div className="grid h-10 w-10 place-items-center rounded-2xl border border-white/25 bg-white/20 text-white">
                       <c.icon className="h-5 w-5" />
                     </div>
                     <div className="min-w-0">
-                      <div className="text-sm font-semibold text-white">{c.title}</div>
-                      <div className="mt-1 text-sm text-white/85">{c.body}</div>
+                      <div className="text-sm font-bold text-white drop-shadow-sm">{c.title}</div>
+                      <div className="mt-1 text-sm font-semibold text-white/90 drop-shadow-sm">{c.body}</div>
                     </div>
                   </div>
                 </div>
@@ -222,7 +222,7 @@ export default function AdsLandingPage() {
             <div>
               <div className="flex items-center gap-3">
                 <Image
-                  src="/brand/play_white_removed_everywhere_1.png"
+                  src="/brand/play_white_removed_everywhere%20(1).png"
                   alt=""
                   width={84}
                   height={56}
