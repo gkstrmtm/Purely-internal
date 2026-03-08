@@ -89,6 +89,22 @@ export async function ensurePortalAiOutboundCallsSchema(): Promise<void> {
     return;
   }
 
+  // Avoid request-path deadlocks: only one instance should run the DDL at a time,
+  // and it should fail fast if the database is locked.
+  const lockKey = 83422311;
+  const lockRows = await prisma.$queryRawUnsafe<Array<{ got: boolean }>>(
+    `SELECT pg_try_advisory_lock($1) AS got;`,
+    lockKey,
+  );
+  const gotLock = Boolean(lockRows?.[0]?.got);
+  if (!gotLock) {
+    // Someone else is ensuring; re-check presence and return.
+    if (await schemaLooksPresent().catch(() => false)) {
+      ensuredAt = Date.now();
+    }
+    return;
+  }
+
   const statements: string[] = [
     `
 DO $$
@@ -395,9 +411,20 @@ END $$;
     `.trim(),
   ];
 
-  for (const statement of statements) {
-    await prisma.$executeRawUnsafe(statement);
-  }
+  try {
+    await prisma.$transaction(async (tx) => {
+      // Keep this bounded; if it can't acquire locks quickly, we prefer failing
+      // rather than hanging API routes indefinitely.
+      await tx.$executeRawUnsafe(`SET LOCAL lock_timeout = '3s';`);
+      await tx.$executeRawUnsafe(`SET LOCAL statement_timeout = '20s';`);
 
-  ensuredAt = Date.now();
+      for (const statement of statements) {
+        await tx.$executeRawUnsafe(statement);
+      }
+    });
+
+    ensuredAt = Date.now();
+  } finally {
+    await prisma.$queryRawUnsafe(`SELECT pg_advisory_unlock($1);`, lockKey).catch(() => null);
+  }
 }

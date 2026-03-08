@@ -40,7 +40,7 @@ export function PortalVariablePickerModal(props: {
   createCustom?: {
     enabled?: boolean;
     existingKeys?: string[];
-    onCreate: (key: string, value: string) => void;
+    onCreate: (key: string, value: string) => void | Promise<void>;
   };
 }) {
   const { open, title, variables, onPick, onClose, createCustom } = props;
@@ -49,12 +49,14 @@ export function PortalVariablePickerModal(props: {
   const [newKey, setNewKey] = useState("");
   const [newValue, setNewValue] = useState("");
   const [createError, setCreateError] = useState<string | null>(null);
+  const [createBusy, setCreateBusy] = useState(false);
 
   useEffect(() => {
     if (!open) return;
     setQuery("");
     setMode("pick");
     setCreateError(null);
+    setCreateBusy(false);
     setNewKey("");
     setNewValue("");
   }, [open]);
@@ -92,8 +94,9 @@ export function PortalVariablePickerModal(props: {
       .filter(Boolean),
   );
 
-  function tryCreateCustom() {
+  async function tryCreateCustom() {
     if (!createCustom) return;
+    if (createBusy) return;
     setCreateError(null);
 
     const key = newKey.trim();
@@ -109,9 +112,17 @@ export function PortalVariablePickerModal(props: {
       return;
     }
 
-    createCustom.onCreate(key, value);
-    onPick(key);
-    onClose();
+    setCreateBusy(true);
+    try {
+      await createCustom.onCreate(key, value);
+      onPick(key);
+      onClose();
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : "Failed to create variable.";
+      setCreateError(msg || "Failed to create variable.");
+    } finally {
+      setCreateBusy(false);
+    }
   }
 
   return (
@@ -190,7 +201,8 @@ export function PortalVariablePickerModal(props: {
                     <button
                       type="button"
                       onClick={tryCreateCustom}
-                      className="w-full rounded-2xl bg-brand-ink px-3 py-3 text-sm font-semibold text-white hover:opacity-95"
+                      disabled={createBusy}
+                      className="w-full rounded-2xl bg-brand-ink px-3 py-3 text-sm font-semibold text-white hover:opacity-95 disabled:opacity-60"
                     >
                       +
                     </button>

@@ -43,7 +43,7 @@ function parseMessageOutcomeTagging(raw: unknown) {
   };
 }
 
-export async function GET() {
+export async function GET(req: Request) {
   const auth = await requireClientSessionForService("aiOutboundCalls");
   if (!auth.ok) {
     return NextResponse.json(
@@ -53,7 +53,11 @@ export async function GET() {
   }
 
   const ownerId = auth.session.user.id;
-  await ensurePortalAiOutboundCallsSchema();
+  // Ensure can be slow if the database is locked; schema existence is best-effort here.
+  await ensurePortalAiOutboundCallsSchema().catch(() => null);
+
+  const url = new URL(req.url);
+  const lite = url.searchParams.get("lite") === "1";
 
   const campaigns = await prisma.portalAiOutboundCallCampaign.findMany({
     where: { ownerId },
@@ -78,13 +82,20 @@ export async function GET() {
   });
 
   const campaignIds = campaigns.map((c) => c.id);
-  const enrollAgg = campaignIds.length
-    ? await prisma.portalAiOutboundCallEnrollment.groupBy({
-        by: ["campaignId", "status"],
-        where: { ownerId, campaignId: { in: campaignIds } },
-        _count: { _all: true },
-      })
-    : [];
+  const enrollAgg = lite
+    ? []
+    : await (async () => {
+        if (!campaignIds.length) return [];
+        try {
+          return await prisma.portalAiOutboundCallEnrollment.groupBy({
+            by: ["campaignId", "status"],
+            where: { ownerId, campaignId: { in: campaignIds } },
+            _count: { _all: true },
+          });
+        } catch {
+          return [];
+        }
+      })();
 
   const countsByCampaign = new Map<string, { queued: number; completed: number }>();
   for (const row of enrollAgg) {

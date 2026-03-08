@@ -12,6 +12,7 @@ import { enqueueOutboundCallForContact } from "@/lib/portalAiOutboundCalls";
 import { enqueueOutboundMessageForContact } from "@/lib/portalAiOutboundMessages";
 import { ensurePortalContactsSchema } from "@/lib/portalContactsSchema";
 import { findOrCreatePortalContact } from "@/lib/portalContacts";
+import { getFollowUpSettings } from "@/lib/followUpAutomation";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -256,6 +257,8 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: "Outbound is not enabled on your account." }, { status: 403 });
   }
 
+  const followUpCustomVariables = (await getFollowUpSettings(ownerId).catch(() => null))?.customVariables ?? {};
+
   const body = (await req.json().catch(() => null)) as unknown;
   const parsed = bodySchema.safeParse(body ?? {});
   if (!parsed.success) {
@@ -323,8 +326,8 @@ export async function POST(req: Request) {
   const campaignId = settings.outbound.aiCampaignId || null;
   const useAiCampaign = Boolean(campaignId) && Boolean(settings.outbound.aiDraftAndSend) && aiCallsUnlocked;
 
-  let subject = renderTemplate(settings.outbound.email.subject, lead).slice(0, 120);
-  let textBase = renderTemplate(settings.outbound.email.text, lead);
+  let subject = renderTemplate(settings.outbound.email.subject, lead, followUpCustomVariables).slice(0, 120);
+  let textBase = renderTemplate(settings.outbound.email.text, lead, followUpCustomVariables);
 
   if (!useAiCampaign && settings.outbound.aiDraftAndSend && settings.outbound.aiPrompt?.trim()) {
     try {
@@ -441,7 +444,7 @@ export async function POST(req: Request) {
       if (!lead.phone) {
         skipped.push("Text skipped: lead has no phone.");
       } else {
-        let smsBodyBase = renderTemplate(settings.outbound.sms.text, lead).slice(0, 900);
+        let smsBodyBase = renderTemplate(settings.outbound.sms.text, lead, followUpCustomVariables).slice(0, 900);
 
         if (settings.outbound.aiDraftAndSend && settings.outbound.aiPrompt?.trim()) {
           try {

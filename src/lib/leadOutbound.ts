@@ -10,15 +10,28 @@ export type LeadTemplateVars = {
   niche: string | null;
 };
 
-export function renderTemplate(raw: string, lead: LeadTemplateVars) {
-  const map: Record<string, string> = {
+export function renderTemplate(raw: string, lead: LeadTemplateVars, customVariables?: Record<string, string> | null) {
+  const leadMap: Record<string, string> = {
     businessName: lead.businessName,
     phone: lead.phone ?? "",
     website: lead.website ?? "",
     address: lead.address ?? "",
     niche: lead.niche ?? "",
   };
-  return raw.replace(/\{(businessName|phone|website|address|niche)\}/g, (_, k: string) => map[k] ?? "");
+
+  const custom =
+    customVariables && typeof customVariables === "object" && !Array.isArray(customVariables)
+      ? (customVariables as Record<string, string>)
+      : null;
+
+  return raw.replace(/\{([a-zA-Z][a-zA-Z0-9_]*)\}/g, (match, kRaw: string) => {
+    const k = String(kRaw || "").trim();
+    if (!k) return match;
+
+    if (Object.prototype.hasOwnProperty.call(leadMap, k)) return leadMap[k] ?? "";
+    if (custom && Object.prototype.hasOwnProperty.call(custom, k)) return String(custom[k] ?? "");
+    return match;
+  });
 }
 
 export function stripHtml(html: string) {

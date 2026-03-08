@@ -517,6 +517,8 @@ export function PortalLeadScrapingClient() {
   const [aiCampaigns, setAiCampaigns] = useState<Array<{ id: string; name: string; status: string }> | null>(null);
   const [aiCampaignsBusy, setAiCampaignsBusy] = useState(false);
 
+  const [templateCustomVariables, setTemplateCustomVariables] = useState<Record<string, string>>({});
+
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [running, setRunning] = useState(false);
@@ -587,7 +589,7 @@ export function PortalLeadScrapingClient() {
     setError(null);
     setStatus(null);
 
-    const [meRes, settingsRes, tagsRes] = await Promise.all([
+    const [meRes, settingsRes, tagsRes, customVarsRes] = await Promise.all([
       fetch("/api/customer/me", {
         cache: "no-store",
         headers: {
@@ -597,6 +599,7 @@ export function PortalLeadScrapingClient() {
       }),
       fetch("/api/portal/lead-scraping/settings", { cache: "no-store" }),
       fetch("/api/portal/contact-tags", { cache: "no-store" }).catch(() => null as any),
+      fetch("/api/portal/follow-up/custom-variables", { cache: "no-store" }).catch(() => null as any),
     ]);
 
     const meBody = (await meRes.json().catch(() => ({}))) as MeResponse;
@@ -609,6 +612,24 @@ export function PortalLeadScrapingClient() {
       setContactTagDefs(tagsBody.tags as ContactTag[]);
     } else {
       setContactTagDefs([]);
+    }
+
+    const customVarsBody = (await customVarsRes?.json().catch(() => ({}))) as any;
+    if (customVarsRes?.ok && customVarsBody && customVarsBody.ok === true) {
+      const raw =
+        customVarsBody.customVariables && typeof customVarsBody.customVariables === "object" && !Array.isArray(customVarsBody.customVariables)
+          ? (customVarsBody.customVariables as Record<string, unknown>)
+          : {};
+      const normalized = Object.fromEntries(
+        Object.entries(raw)
+          .filter(([k, v]) => typeof k === "string" && typeof v === "string")
+          .map(([k, v]) => [k.trim(), String(v)])
+          .filter(([k]) => Boolean(k))
+          .slice(0, 60),
+      ) as Record<string, string>;
+      setTemplateCustomVariables(normalized);
+    } else {
+      setTemplateCustomVariables({});
     }
 
     if (!settingsRes.ok) {
@@ -626,6 +647,32 @@ export function PortalLeadScrapingClient() {
 
     setLoading(false);
   }, [leadQueryDebounced, loadLeads]);
+
+  const leadOutboundTemplateVariables = useMemo(() => {
+    const custom = Object.keys(templateCustomVariables)
+      .map((key) => key.trim())
+      .filter(Boolean)
+      .sort((a, b) => a.localeCompare(b))
+      .slice(0, 60)
+      .map(
+        (key) =>
+          ({
+            key,
+            label: key,
+            group: "Custom",
+            appliesTo: "Custom",
+          }) as const,
+      );
+
+    return [...LEAD_OUTBOUND_VARIABLES, ...custom];
+  }, [templateCustomVariables]);
+
+  const leadOutboundExistingKeys = useMemo(() => {
+    const keys = new Set<string>();
+    for (const v of LEAD_OUTBOUND_VARIABLES) keys.add(v.key);
+    for (const k of Object.keys(templateCustomVariables ?? {})) keys.add(String(k || "").trim());
+    return [...keys].filter(Boolean);
+  }, [templateCustomVariables]);
 
   useEffect(() => {
     void load();
@@ -656,7 +703,22 @@ export function PortalLeadScrapingClient() {
     (async () => {
       setAiCampaignsBusy(true);
       try {
-        const res = await fetch("/api/portal/ai-outbound-calls/campaigns", { cache: "no-store" });
+        const controller = new AbortController();
+        const timeout = window.setTimeout(() => controller.abort(), 10000);
+
+        const variant =
+          typeof window !== "undefined" && window.location.pathname.startsWith("/credit") ? "credit" : "portal";
+
+        const res = await fetch("/api/portal/ai-outbound-calls/campaigns?lite=1", {
+          cache: "no-store",
+          signal: controller.signal,
+          headers: {
+            "x-pa-app": "portal",
+            "x-portal-variant": variant,
+          },
+        });
+        window.clearTimeout(timeout);
+
         const json = (await res.json().catch(() => ({}))) as any;
         if (!mounted) return;
         if (!res.ok || json?.ok !== true || !Array.isArray(json?.campaigns)) {
@@ -1358,8 +1420,35 @@ export function PortalLeadScrapingClient() {
       <div>
         <PortalVariablePickerModal
           open={outboundVarPickerOpen}
-          variables={LEAD_OUTBOUND_VARIABLES}
+          variables={leadOutboundTemplateVariables}
           title="Insert variable"
+          createCustom={{
+            enabled: true,
+            existingKeys: leadOutboundExistingKeys,
+            onCreate: async (key, value) => {
+              const res = await fetch("/api/portal/follow-up/custom-variables", {
+                method: "PUT",
+                headers: { "content-type": "application/json" },
+                body: JSON.stringify({ key, value }),
+              });
+              const body = (await res.json().catch(() => ({}))) as any;
+              if (!res.ok || body?.ok !== true) {
+                throw new Error(getApiError(body) ?? "Failed to create variable");
+              }
+              const raw =
+                body.customVariables && typeof body.customVariables === "object" && !Array.isArray(body.customVariables)
+                  ? (body.customVariables as Record<string, unknown>)
+                  : {};
+              const normalized = Object.fromEntries(
+                Object.entries(raw)
+                  .filter(([k, v]) => typeof k === "string" && typeof v === "string")
+                  .map(([k, v]) => [k.trim(), String(v)])
+                  .filter(([k]) => Boolean(k))
+                  .slice(0, 60),
+              ) as Record<string, string>;
+              setTemplateCustomVariables(normalized);
+            },
+          }}
           onPick={applyOutboundVariable}
           onClose={() => {
             setOutboundVarPickerOpen(false);
@@ -3030,7 +3119,34 @@ export function PortalLeadScrapingClient() {
                 <div className="mt-5 rounded-3xl border border-zinc-200 bg-white p-5">
                   <PortalVariablePickerModal
                     open={composeVarPickerOpen}
-                    variables={LEAD_OUTBOUND_VARIABLES}
+                    variables={leadOutboundTemplateVariables}
+                    createCustom={{
+                      enabled: true,
+                      existingKeys: leadOutboundExistingKeys,
+                      onCreate: async (key, value) => {
+                        const res = await fetch("/api/portal/follow-up/custom-variables", {
+                          method: "PUT",
+                          headers: { "content-type": "application/json" },
+                          body: JSON.stringify({ key, value }),
+                        });
+                        const body = (await res.json().catch(() => ({}))) as any;
+                        if (!res.ok || body?.ok !== true) {
+                          throw new Error(getApiError(body) ?? "Failed to create variable");
+                        }
+                        const raw =
+                          body.customVariables && typeof body.customVariables === "object" && !Array.isArray(body.customVariables)
+                            ? (body.customVariables as Record<string, unknown>)
+                            : {};
+                        const normalized = Object.fromEntries(
+                          Object.entries(raw)
+                            .filter(([k, v]) => typeof k === "string" && typeof v === "string")
+                            .map(([k, v]) => [k.trim(), String(v)])
+                            .filter(([k]) => Boolean(k))
+                            .slice(0, 60),
+                        ) as Record<string, string>;
+                        setTemplateCustomVariables(normalized);
+                      },
+                    }}
                     onPick={applyComposeVariable}
                     onClose={() => {
                       setComposeVarPickerOpen(false);

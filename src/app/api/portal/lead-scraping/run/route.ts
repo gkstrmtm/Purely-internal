@@ -18,6 +18,7 @@ import { ensurePortalContactsSchema } from "@/lib/portalContactsSchema";
 import { findOrCreatePortalContact } from "@/lib/portalContacts";
 import { sendTransactionalEmail } from "@/lib/emailSender";
 import { getAppBaseUrl, tryNotifyPortalAccountUsers } from "@/lib/portalNotifications";
+import { getFollowUpSettings } from "@/lib/followUpAutomation";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -358,15 +359,31 @@ function normalizeTagPresets(value: unknown): Settings["tagPresets"] {
   ];
 }
 
-function renderTemplate(raw: string, lead: { businessName: string; phone: string | null; website: string | null; address: string | null; niche: string | null }) {
-  const map: Record<string, string> = {
+function renderTemplate(
+  raw: string,
+  lead: { businessName: string; phone: string | null; website: string | null; address: string | null; niche: string | null },
+  customVariables?: Record<string, string> | null,
+) {
+  const leadMap: Record<string, string> = {
     businessName: lead.businessName,
     phone: lead.phone ?? "",
     website: lead.website ?? "",
     address: lead.address ?? "",
     niche: lead.niche ?? "",
   };
-  return raw.replace(/\{(businessName|phone|website|address|niche)\}/g, (_, k: string) => map[k] ?? "");
+
+  const custom =
+    customVariables && typeof customVariables === "object" && !Array.isArray(customVariables)
+      ? (customVariables as Record<string, string>)
+      : null;
+
+  return raw.replace(/\{([a-zA-Z][a-zA-Z0-9_]*)\}/g, (match, kRaw: string) => {
+    const k = String(kRaw || "").trim();
+    if (!k) return match;
+    if (Object.prototype.hasOwnProperty.call(leadMap, k)) return leadMap[k] ?? "";
+    if (custom && Object.prototype.hasOwnProperty.call(custom, k)) return String(custom[k] ?? "");
+    return match;
+  });
 }
 
 function stripHtml(html: string) {
@@ -629,6 +646,7 @@ export async function POST(req: Request) {
   const entitlements = await resolveEntitlementsForOwnerId(ownerId, auth.session.user.email);
   const outboundUnlocked = Boolean(entitlements.leadOutbound);
   const aiCallsUnlocked = (await requireClientSessionForService("aiOutboundCalls")).ok;
+  const followUpCustomVariables = (await getFollowUpSettings(ownerId).catch(() => null))?.customVariables ?? {};
   const profile = await prisma.businessProfile.findUnique({
     where: { ownerId },
     select: { businessName: true },
@@ -1199,8 +1217,8 @@ export async function POST(req: Request) {
         }
 
         if (shouldSendEmail && lead.email) {
-          let subject = renderTemplate(updatedSettings.outbound.email.subject, lead).slice(0, 120);
-          let textBase = renderTemplate(updatedSettings.outbound.email.text, lead);
+          let subject = renderTemplate(updatedSettings.outbound.email.subject, lead, followUpCustomVariables).slice(0, 120);
+          let textBase = renderTemplate(updatedSettings.outbound.email.text, lead, followUpCustomVariables);
 
           if (updatedSettings.outbound.aiDraftAndSend && updatedSettings.outbound.aiPrompt?.trim()) {
             try {
@@ -1228,7 +1246,7 @@ export async function POST(req: Request) {
         }
 
         if (shouldSendSms && lead.phone) {
-          let smsBodyBase = renderTemplate(updatedSettings.outbound.sms.text, lead).slice(0, 900);
+          let smsBodyBase = renderTemplate(updatedSettings.outbound.sms.text, lead, followUpCustomVariables).slice(0, 900);
 
           if (updatedSettings.outbound.aiDraftAndSend && updatedSettings.outbound.aiPrompt?.trim()) {
             try {

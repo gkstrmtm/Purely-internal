@@ -14,6 +14,7 @@ import { ensurePortalContactsSchema } from "@/lib/portalContactsSchema";
 import { findOrCreatePortalContact } from "@/lib/portalContacts";
 import { tryNotifyPortalAccountUsers } from "@/lib/portalNotifications";
 import { isVercelCronRequest } from "@/lib/cronAuth";
+import { getFollowUpSettings } from "@/lib/followUpAutomation";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -383,6 +384,7 @@ async function runB2BForOwner(ownerId: string, settingsJson: unknown, baseUrl: s
   const entitlements = await resolveEntitlements(owner?.email, { ownerId });
   const outboundUnlocked = Boolean(entitlements.leadOutbound);
   const fromName = profile?.businessName?.trim() || "Purely Automation";
+  const followUpCustomVariables = (await getFollowUpSettings(ownerId).catch(() => null))?.customVariables ?? {};
 
   if (!niche || !location) {
     return { ownerId, ok: false as const, code: "MISSING_REQUIRED" as const, createdCount: 0 };
@@ -680,8 +682,8 @@ async function runB2BForOwner(ownerId: string, settingsJson: unknown, baseUrl: s
         }
 
         if (shouldSendEmail && lead.email) {
-          let subject = renderTemplate(settings.outbound.email.subject, lead).slice(0, 120);
-          let textBase = renderTemplate(settings.outbound.email.text, lead);
+          let subject = renderTemplate(settings.outbound.email.subject, lead, followUpCustomVariables).slice(0, 120);
+          let textBase = renderTemplate(settings.outbound.email.text, lead, followUpCustomVariables);
 
           if (settings.outbound.aiDraftAndSend && settings.outbound.aiPrompt?.trim()) {
             try {
@@ -710,7 +712,7 @@ async function runB2BForOwner(ownerId: string, settingsJson: unknown, baseUrl: s
         }
 
         if (shouldSendSms && lead.phone) {
-          let smsBodyBase = renderTemplate(settings.outbound.sms.text, lead).slice(0, 900);
+          let smsBodyBase = renderTemplate(settings.outbound.sms.text, lead, followUpCustomVariables).slice(0, 900);
 
           if (settings.outbound.aiDraftAndSend && settings.outbound.aiPrompt?.trim()) {
             try {
