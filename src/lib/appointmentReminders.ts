@@ -3,7 +3,7 @@ import { normalizePhoneStrict } from "@/lib/phone";
 import { sendOwnerTwilioSms, getOwnerTwilioSmsConfig } from "@/lib/portalTwilio";
 import { buildPortalTemplateVars } from "@/lib/portalTemplateVars";
 import { renderTextTemplate } from "@/lib/textTemplate";
-import { sendTransactionalEmail } from "@/lib/emailSender";
+import { sendTransactionalEmail, type EmailAttachment } from "@/lib/emailSender";
 import { addContactTagAssignment } from "@/lib/portalContactTags";
 
 const SERVICE_SLUG = "appointment-reminders";
@@ -38,8 +38,29 @@ export type AppointmentReminderStep = {
   kind: AppointmentReminderStepKind;
   subjectTemplate?: string;
   messageBody?: string;
+  emailAttachments?: Array<{ mediaItemId: string; fileName: string; mimeType: string }>;
   tagId?: string;
 };
+
+function normalizeEmailAttachmentRefs(v: unknown, max = 10): Array<{ mediaItemId: string; fileName: string; mimeType: string }> {
+  const list = Array.isArray(v) ? v : [];
+  const out: Array<{ mediaItemId: string; fileName: string; mimeType: string }> = [];
+  const seen = new Set<string>();
+
+  for (const item of list) {
+    if (!item || typeof item !== "object" || Array.isArray(item)) continue;
+    const r = item as Record<string, unknown>;
+    const mediaItemId = typeof r.mediaItemId === "string" ? r.mediaItemId.trim().slice(0, 80) : "";
+    if (!mediaItemId) continue;
+    if (seen.has(mediaItemId)) continue;
+    seen.add(mediaItemId);
+    const fileName = typeof r.fileName === "string" ? r.fileName.slice(0, 200) : "attachment";
+    const mimeType = typeof r.mimeType === "string" ? r.mimeType.slice(0, 200) : "application/octet-stream";
+    out.push({ mediaItemId, fileName: fileName || "attachment", mimeType: mimeType || "application/octet-stream" });
+    if (out.length >= max) break;
+  }
+  return out;
+}
 
 export type AppointmentReminderEvent = {
   id: string;
@@ -319,6 +340,7 @@ export function parseAppointmentReminderSettings(raw: unknown): AppointmentRemin
               kind,
               subjectTemplate: subjectTemplate || baseStep.subjectTemplate,
               messageBody: messageBody.trim(),
+              ...(kind === "EMAIL" ? { emailAttachments: normalizeEmailAttachmentRefs((r as any).emailAttachments) } : {}),
             },
           ];
         })
@@ -340,7 +362,13 @@ function isEmailLike(raw: string) {
   return /^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(s);
 }
 
-async function sendAppointmentReminderEmail(opts: { to: string; subject: string; text: string; fromName?: string }) {
+async function sendAppointmentReminderEmail(opts: {
+  to: string;
+  subject: string;
+  text: string;
+  fromName?: string;
+  attachments?: EmailAttachment[];
+}) {
   const to = opts.to.trim();
   if (!isEmailLike(to)) throw new Error("Invalid email address");
 
@@ -352,6 +380,7 @@ async function sendAppointmentReminderEmail(opts: { to: string; subject: string;
     subject,
     text: text.slice(0, 20000),
     fromName: opts.fromName ?? "Purely Automation",
+    attachments: opts.attachments,
   });
 }
 
@@ -925,11 +954,39 @@ export async function processDueAppointmentReminders(opts?: { ownersLimit?: numb
               }
 
               try {
+                const attachmentRefs = normalizeEmailAttachmentRefs(step.emailAttachments);
+                let attachments: EmailAttachment[] | undefined;
+
+                if (attachmentRefs.length) {
+                  const ids = attachmentRefs.map((a) => a.mediaItemId).filter(Boolean).slice(0, 10);
+                  const media = await prisma.portalMediaItem.findMany({
+                    where: { ownerId, id: { in: ids } },
+                    select: { id: true, fileName: true, mimeType: true, bytes: true },
+                  });
+                  const byId = new Map(media.map((m) => [m.id, m] as const));
+                  const missing = ids.filter((id) => !byId.has(id));
+                  if (missing.length) {
+                    throw new Error(
+                      `Missing attachment(s): ${missing.slice(0, 3).join(", ")}${missing.length > 3 ? "…" : ""}`,
+                    );
+                  }
+
+                  attachments = attachmentRefs.map((ref) => {
+                    const m = byId.get(ref.mediaItemId)!;
+                    return {
+                      fileName: m.fileName,
+                      mimeType: m.mimeType,
+                      bytes: Buffer.from(m.bytes),
+                    };
+                  });
+                }
+
                 await sendAppointmentReminderEmail({
                   to,
                   subject,
                   text: body,
                   fromName: site.title?.trim() || "Purely Automation",
+                  attachments,
                 });
 
                 remindersSent += 1;

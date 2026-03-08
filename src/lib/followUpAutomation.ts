@@ -24,6 +24,12 @@ export type FollowUpInternalRecipients =
       phones?: string[];
     };
 
+export type FollowUpEmailAttachmentRef = {
+  mediaItemId: string;
+  fileName: string;
+  mimeType: string;
+};
+
 export type FollowUpTemplate = {
   id: string;
   name: string;
@@ -55,6 +61,7 @@ export type FollowUpStep = {
   email?: {
     subjectTemplate: string;
     bodyTemplate: string;
+    attachments?: FollowUpEmailAttachmentRef[];
   };
   sms?: {
     bodyTemplate: string;
@@ -97,6 +104,7 @@ export type FollowUpQueueItem = {
   tagId?: string;
   subject?: string;
   body?: string;
+  attachments?: FollowUpEmailAttachmentRef[];
   sendAtIso: string;
   status: "PENDING" | "SENT" | "FAILED" | "CANCELED";
   attempts: number;
@@ -167,6 +175,28 @@ function normalizeId(v: unknown, fallback: string) {
   const raw = typeof v === "string" ? v.trim() : "";
   const cleaned = raw.replace(/[^a-zA-Z0-9_-]+/g, "-").replace(/^-+|-+$/g, "");
   return cleaned || fallback;
+}
+
+function normalizeEmailAttachmentRefs(v: unknown, max = 10): FollowUpEmailAttachmentRef[] {
+  const list = Array.isArray(v) ? v : [];
+  const out: FollowUpEmailAttachmentRef[] = [];
+  const seen = new Set<string>();
+
+  for (const item of list) {
+    if (!item || typeof item !== "object" || Array.isArray(item)) continue;
+    const r = item as Record<string, unknown>;
+    const mediaItemId = normalizeId(r.mediaItemId, "").slice(0, 80);
+    if (!mediaItemId) continue;
+    if (seen.has(mediaItemId)) continue;
+    seen.add(mediaItemId);
+    out.push({
+      mediaItemId,
+      fileName: normalizeString(r.fileName, "attachment", 200) || "attachment",
+      mimeType: normalizeString(r.mimeType, "application/octet-stream", 200) || "application/octet-stream",
+    });
+    if (out.length >= max) break;
+  }
+  return out;
 }
 
 function normalizeStringRecord(v: unknown, maxEntries: number, maxKeyLen: number, maxValLen: number) {
@@ -515,6 +545,7 @@ export function parseFollowUpSettings(value: unknown): FollowUpSettings {
         email: {
           subjectTemplate: normalizeString(emailRaw.subjectTemplate, defaults.templates[0]!.email.subjectTemplate, 200),
           bodyTemplate: normalizeString(emailRaw.bodyTemplate, defaults.templates[0]!.email.bodyTemplate, 5000),
+          attachments: normalizeEmailAttachmentRefs((emailRaw as any).attachments),
         },
       };
     }
@@ -1062,6 +1093,7 @@ function parseServiceData(value: unknown): ServiceData {
     const attempts = clampInt(r.attempts, 0, 0, 20);
     const createdAtIso = typeof r.createdAtIso === "string" ? r.createdAtIso : nowIso();
     const subject = typeof r.subject === "string" ? r.subject : undefined;
+    const attachments = normalizeEmailAttachmentRefs(r.attachments);
     const lastError = typeof r.lastError === "string" ? r.lastError : undefined;
     const sentAtIso = typeof r.sentAtIso === "string" ? r.sentAtIso : undefined;
 
@@ -1081,6 +1113,7 @@ function parseServiceData(value: unknown): ServiceData {
       tagId,
       subject,
       body,
+      attachments: channel === "EMAIL" && attachments.length ? attachments : undefined,
       sendAtIso,
       status,
       attempts,
@@ -1262,7 +1295,15 @@ export async function scheduleFollowUpsForBooking(
     return `${q.bookingId}:${q.stepId}:${q.channel}:${String(q.to || "").trim().toLowerCase()}`;
   }
 
-  function upsertMessage(step: FollowUpStep, channel: "EMAIL" | "SMS", to: string, subject: string | undefined, body: string, sendAt: Date) {
+  function upsertMessage(
+    step: FollowUpStep,
+    channel: "EMAIL" | "SMS",
+    to: string,
+    subject: string | undefined,
+    body: string,
+    sendAt: Date,
+    attachments?: FollowUpEmailAttachmentRef[],
+  ) {
     const toKey = String(to || "").trim().toLowerCase();
     const desiredKey = `${bookingRow.id}:${step.id}:${channel}:${toKey}`;
     desiredKeys.add(desiredKey);
@@ -1287,6 +1328,7 @@ export async function scheduleFollowUpsForBooking(
       to,
       subject,
       body,
+      attachments: channel === "EMAIL" && attachments && attachments.length ? attachments.slice(0, 10) : undefined,
       sendAtIso: sendAt.toISOString(),
       status: "PENDING",
       attempts: existingIndex >= 0 ? nextQueue[existingIndex]!.attempts : 0,
@@ -1366,11 +1408,12 @@ export async function scheduleFollowUpsForBooking(
     if (step.kind === "EMAIL") {
       const subject = renderTemplate(step.email?.subjectTemplate || "Follow-up", vars).slice(0, 120);
       const body = renderTemplate(step.email?.bodyTemplate || "", vars).slice(0, 5000);
+      const attachments = normalizeEmailAttachmentRefs(step.email?.attachments);
       if (audience === "CONTACT") {
-        if (bookingRow.contactEmail) upsertMessage(step, "EMAIL", bookingRow.contactEmail, subject, body, sendAt);
+        if (bookingRow.contactEmail) upsertMessage(step, "EMAIL", bookingRow.contactEmail, subject, body, sendAt, attachments);
       } else {
         for (const email of internal.emails) {
-          upsertMessage(step, "EMAIL", email, subject, body, sendAt);
+          upsertMessage(step, "EMAIL", email, subject, body, sendAt, attachments);
         }
       }
     } else if (step.kind === "SMS") {
@@ -1509,6 +1552,55 @@ export async function processDueFollowUps(opts: { limit: number }): Promise<{ pr
           }
 
           const subject = (msg.subject || "Follow-up").slice(0, 120);
+          const attachmentRefs = normalizeEmailAttachmentRefs(msg.attachments);
+          if (attachmentRefs.length) {
+            const ids = attachmentRefs.map((a) => a.mediaItemId).filter(Boolean).slice(0, 10);
+            const media = await prisma.portalMediaItem.findMany({
+              where: { ownerId: row.ownerId, id: { in: ids } },
+              select: { id: true, fileName: true, mimeType: true, bytes: true },
+            });
+            const byId = new Map(media.map((m) => [m.id, m] as const));
+            const missing = ids.filter((id) => !byId.has(id));
+            if (missing.length) {
+              failed++;
+              nextQueue[idx] = {
+                ...nextQueue[idx]!,
+                status: "FAILED",
+                attempts: msg.attempts + 1,
+                lastError: `Missing attachment(s): ${missing.slice(0, 3).join(", ")}${missing.length > 3 ? "…" : ""}`,
+              };
+              changed = true;
+              continue;
+            }
+
+            const attachments = attachmentRefs
+              .map((ref) => byId.get(ref.mediaItemId)!)
+              .map((m) => ({
+                fileName: m.fileName,
+                mimeType: m.mimeType,
+                bytes: Buffer.from(m.bytes),
+              }));
+
+            try {
+              await sendTransactionalEmail({
+                to,
+                subject,
+                text: body,
+                fromName,
+                attachments,
+              });
+            } catch (err: any) {
+              failed++;
+              nextQueue[idx] = {
+                ...nextQueue[idx]!,
+                status: "FAILED",
+                attempts: msg.attempts + 1,
+                lastError: err?.message ? String(err.message).slice(0, 400) : "Email send failed",
+              };
+              changed = true;
+              continue;
+            }
+          } else {
           try {
             await sendTransactionalEmail({
               to,
@@ -1526,6 +1618,7 @@ export async function processDueFollowUps(opts: { limit: number }): Promise<{ pr
             };
             changed = true;
             continue;
+          }
           }
 
           sent++;

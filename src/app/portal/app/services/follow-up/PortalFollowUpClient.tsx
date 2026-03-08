@@ -68,10 +68,20 @@ type FollowUpStep = {
         phones?: string[];
       }
     | undefined;
-  email?: { subjectTemplate: string; bodyTemplate: string };
+  email?: {
+    subjectTemplate: string;
+    bodyTemplate: string;
+    attachments?: EmailAttachmentRef[];
+  };
   sms?: { bodyTemplate: string };
   tagId?: string;
   presetId?: string;
+};
+
+type EmailAttachmentRef = {
+  mediaItemId: string;
+  fileName: string;
+  mimeType: string;
 };
 
 type Calendar = { id: string; title: string; enabled: boolean; notificationEmails?: string[] };
@@ -90,6 +100,7 @@ type QueueItem = {
   tagId?: string;
   subject?: string;
   body?: string;
+  attachments?: EmailAttachmentRef[];
   sendAtIso: string;
   status: "PENDING" | "SENT" | "FAILED" | "CANCELED";
   attempts: number;
@@ -243,7 +254,9 @@ export function PortalFollowUpClient({ embedded }: { embedded?: boolean } = {}) 
 
   const [varPickerOpen, setVarPickerOpen] = useState(false);
   const [varPickerTarget, setVarPickerTarget] = useState<
-    null | { kind: "step"; stepId: string; field: "emailSubject" | "emailBody" | "smsBody" }
+    | null
+    | { kind: "step"; stepId: string; field: "emailSubject" | "emailBody" | "smsBody" }
+    | { kind: "aiDraft"; field: "instruction" }
   >(null);
   const activeFieldElRef = useRef<HTMLInputElement | HTMLTextAreaElement | null>(null);
 
@@ -256,15 +269,34 @@ export function PortalFollowUpClient({ embedded }: { embedded?: boolean } = {}) 
   >(null);
   const [chainTemplateDraftName, setChainTemplateDraftName] = useState("");
 
-  async function uploadFileAndGetLink(file: File): Promise<string> {
+  async function uploadFileAndGetEmailAttachment(file: File): Promise<EmailAttachmentRef> {
     const fd = new FormData();
     fd.set("file", file);
     const res = await fetch("/api/uploads", { method: "POST", body: fd });
     const body = (await res.json().catch(() => ({}))) as any;
     if (!res.ok) throw new Error((typeof body?.error === "string" ? body.error : null) ?? "Upload failed");
-    const rawUrl = typeof body?.url === "string" ? body.url : "";
-    if (!rawUrl) throw new Error("Upload did not return a URL");
-    return rawUrl.startsWith("/") ? window.location.origin + rawUrl : rawUrl;
+
+    const mediaItem = body?.mediaItem;
+    const mediaItemId = typeof mediaItem?.id === "string" ? mediaItem.id : "";
+    if (!mediaItemId) {
+      throw new Error("Upload succeeded, but this file couldn't be added to the media library for attachments.");
+    }
+
+    return {
+      mediaItemId,
+      fileName:
+        (typeof mediaItem?.fileName === "string" && mediaItem.fileName.trim())
+          ? mediaItem.fileName
+          : (typeof body?.fileName === "string" && body.fileName.trim())
+            ? body.fileName
+            : file.name || "attachment",
+      mimeType:
+        (typeof mediaItem?.mimeType === "string" && mediaItem.mimeType.trim())
+          ? mediaItem.mimeType
+          : (typeof body?.mimeType === "string" && body.mimeType.trim())
+            ? body.mimeType
+            : file.type || "application/octet-stream",
+    };
   }
 
   async function generateDraft(opts: {
@@ -297,14 +329,53 @@ export function PortalFollowUpClient({ embedded }: { embedded?: boolean } = {}) 
       return null;
     }
 
+    const rawSubject = String((json as any)?.subject ?? "");
+    const rawBody = String((json as any)?.body ?? "");
+
+    const stripCodeFence = (s: string) => {
+      const t = s.trim();
+      if (!t.startsWith("```")) return s;
+      const lines = t.split("\n");
+      if (lines.length < 3) return s;
+      if (!lines[0].startsWith("```")) return s;
+      let endIdx = -1;
+      for (let i = lines.length - 1; i >= 0; i -= 1) {
+        if (lines[i]?.trim().startsWith("```")) {
+          endIdx = i;
+          break;
+        }
+      }
+      if (endIdx <= 0) return s;
+      return lines.slice(1, endIdx).join("\n").trim();
+    };
+
+    const tryParseDraftJson = (s: string): { subject?: unknown; body?: unknown } | null => {
+      const t = stripCodeFence(String(s ?? "")).trim();
+      if (!t.startsWith("{") || !t.endsWith("}")) return null;
+      try {
+        const parsed = JSON.parse(t);
+        if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return null;
+        return parsed as any;
+      } catch {
+        return null;
+      }
+    };
+
+    const parsedFromBody = tryParseDraftJson(rawBody);
+    const parsedFromSubject = tryParseDraftJson(rawSubject);
+    const parsed = parsedFromBody ?? parsedFromSubject;
+
+    const subjectCoerced = parsed && "subject" in parsed ? String((parsed as any).subject ?? "") : rawSubject;
+    const bodyCoerced = parsed && "body" in parsed ? String((parsed as any).body ?? "") : rawBody;
+
     if (opts.kind === "EMAIL") {
       return {
-        subject: String((json as any)?.subject ?? "").slice(0, 200),
-        body: String((json as any)?.body ?? "").slice(0, 8000),
+        subject: subjectCoerced.slice(0, 200),
+        body: bodyCoerced.slice(0, 8000),
       };
     }
 
-    return { body: String((json as any)?.body ?? "").slice(0, 8000) };
+    return { body: bodyCoerced.slice(0, 8000) };
   }
 
   function insertAtCursor(current: string, insert: string, el: HTMLInputElement | HTMLTextAreaElement | null) {
@@ -1461,14 +1532,14 @@ export function PortalFollowUpClient({ embedded }: { embedded?: boolean } = {}) 
                                                     if (!f) return;
                                                     try {
                                                       setUploadBusyStepId(s.id);
-                                                      const link = await uploadFileAndGetLink(f);
+                                                      const attachment = await uploadFileAndGetEmailAttachment(f);
                                                       updateStep(s.id, {
                                                         email: {
                                                           ...(s.email ?? { subjectTemplate: "", bodyTemplate: "" }),
-                                                          bodyTemplate: (() => {
-                                                            const base = String(s.email?.bodyTemplate ?? "");
-                                                            const sep = base.trim().length ? "\n\n" : "";
-                                                            return (base + sep + link).slice(0, 8000);
+                                                          attachments: (() => {
+                                                            const prev = Array.isArray(s.email?.attachments) ? s.email!.attachments! : [];
+                                                            const next = [...prev.filter((a) => a.mediaItemId !== attachment.mediaItemId), attachment];
+                                                            return next.slice(0, 10);
                                                           })(),
                                                         },
                                                       });
@@ -1488,13 +1559,22 @@ export function PortalFollowUpClient({ embedded }: { embedded?: boolean } = {}) 
                                                   setMediaPicker({
                                                     title: "Attach from media library",
                                                     onPick: (item) => {
-                                                      const link = window.location.origin + item.shareUrl;
-                                                      const base = String(s.email?.bodyTemplate ?? "");
-                                                      const sep = base.trim().length ? "\n\n" : "";
                                                       updateStep(s.id, {
                                                         email: {
                                                           ...(s.email ?? { subjectTemplate: "", bodyTemplate: "" }),
-                                                          bodyTemplate: (base + sep + link).slice(0, 8000),
+                                                          attachments: (() => {
+                                                            const prev = Array.isArray(s.email?.attachments) ? s.email!.attachments! : [];
+                                                            const nextAttachment: EmailAttachmentRef = {
+                                                              mediaItemId: item.id,
+                                                              fileName: item.fileName,
+                                                              mimeType: item.mimeType,
+                                                            };
+                                                            const next = [
+                                                              ...prev.filter((a) => a.mediaItemId !== nextAttachment.mediaItemId),
+                                                              nextAttachment,
+                                                            ];
+                                                            return next.slice(0, 10);
+                                                          })(),
                                                         },
                                                       });
                                                     },
@@ -1505,6 +1585,37 @@ export function PortalFollowUpClient({ embedded }: { embedded?: boolean } = {}) 
                                               </button>
                                             </div>
                                           </div>
+
+                                          {Array.isArray(s.email?.attachments) && s.email!.attachments!.length ? (
+                                            <div className="mt-3 space-y-2">
+                                              {s.email!.attachments!.map((a, idx) => (
+                                                <div
+                                                  key={`${a.mediaItemId}-${idx}`}
+                                                  className="flex items-center justify-between gap-3 rounded-xl border border-zinc-200 bg-white px-3 py-2"
+                                                >
+                                                  <div className="min-w-0">
+                                                    <div className="truncate text-xs font-semibold text-zinc-800">{a.fileName}</div>
+                                                    <div className="mt-0.5 truncate text-[11px] text-zinc-500">{a.mimeType}</div>
+                                                  </div>
+                                                  <button
+                                                    type="button"
+                                                    disabled={busy}
+                                                    onClick={() => {
+                                                      updateStep(s.id, {
+                                                        email: {
+                                                          ...(s.email ?? { subjectTemplate: "", bodyTemplate: "" }),
+                                                          attachments: (s.email?.attachments ?? []).filter((_, i) => i !== idx),
+                                                        },
+                                                      });
+                                                    }}
+                                                    className="rounded-xl border border-zinc-200 bg-white px-3 py-1 text-xs font-semibold text-zinc-700 hover:bg-zinc-50 disabled:opacity-60"
+                                                  >
+                                                    Remove
+                                                  </button>
+                                                </div>
+                                              ))}
+                                            </div>
+                                          ) : null}
                                           <textarea
                                             value={s.email?.bodyTemplate ?? ""}
                                             onChange={(e) => updateStep(s.id, { email: { ...(s.email ?? { subjectTemplate: "", bodyTemplate: "" }), bodyTemplate: e.target.value } })}
@@ -1566,60 +1677,6 @@ export function PortalFollowUpClient({ embedded }: { embedded?: boolean } = {}) 
                                               }}
                                             >
                                               Insert variable
-                                            </button>
-                                            <label className="rounded-xl border border-zinc-200 bg-white px-3 py-1.5 text-xs font-semibold text-zinc-700 hover:bg-zinc-50 disabled:opacity-60">
-                                              {uploadBusyStepId === s.id ? "Uploading…" : "Upload file"}
-                                              <input
-                                                type="file"
-                                                className="hidden"
-                                                disabled={busy || uploadBusyStepId === s.id}
-                                                onChange={async (e) => {
-                                                  const f = e.target.files?.[0];
-                                                  e.currentTarget.value = "";
-                                                  if (!f) return;
-                                                  try {
-                                                    setUploadBusyStepId(s.id);
-                                                    const link = await uploadFileAndGetLink(f);
-                                                    updateStep(s.id, {
-                                                      sms: {
-                                                        ...(s.sms ?? { bodyTemplate: "" }),
-                                                        bodyTemplate: (() => {
-                                                          const base = String(s.sms?.bodyTemplate ?? "");
-                                                          const sep = base.trim().length ? "\n\n" : "";
-                                                          return (base + sep + link).slice(0, 2000);
-                                                        })(),
-                                                      },
-                                                    });
-                                                  } catch (err: any) {
-                                                    toast.error(String(err?.message || "Upload failed"));
-                                                  } finally {
-                                                    setUploadBusyStepId((prev) => (prev === s.id ? null : prev));
-                                                  }
-                                                }}
-                                              />
-                                            </label>
-                                            <button
-                                              type="button"
-                                              disabled={busy}
-                                              className="rounded-xl border border-zinc-200 bg-white px-3 py-1.5 text-xs font-semibold text-zinc-700 hover:bg-zinc-50 disabled:opacity-60"
-                                              onClick={() => {
-                                                setMediaPicker({
-                                                  title: "Attach from media library",
-                                                  onPick: (item) => {
-                                                    const link = window.location.origin + item.shareUrl;
-                                                    const base = String(s.sms?.bodyTemplate ?? "");
-                                                    const sep = base.trim().length ? "\n\n" : "";
-                                                    updateStep(s.id, {
-                                                      sms: {
-                                                        ...(s.sms ?? { bodyTemplate: "" }),
-                                                        bodyTemplate: (base + sep + link).slice(0, 2000),
-                                                      },
-                                                    });
-                                                  },
-                                                });
-                                              }}
-                                            >
-                                              Attach files
                                             </button>
                                           </div>
                                         </div>
@@ -1915,9 +1972,23 @@ export function PortalFollowUpClient({ embedded }: { embedded?: boolean } = {}) 
           },
         }}
         onPick={(variableKey) => {
-          if (!settings || !varPickerTarget) return;
+          if (!varPickerTarget) return;
 
           const insert = `{${variableKey}}`;
+
+          if (varPickerTarget.kind === "aiDraft") {
+            const { next, cursor } = insertAtCursor(aiDraftInstruction, insert, activeFieldElRef.current);
+            setAiDraftInstruction(next);
+            requestAnimationFrame(() => {
+              const el = activeFieldElRef.current;
+              if (!el) return;
+              el.focus();
+              el.setSelectionRange(cursor, cursor);
+            });
+            return;
+          }
+
+          if (!settings) return;
 
           const findStep = (): FollowUpStep | null => {
             const inDefault = (settings.assignments.defaultSteps ?? []).find((s) => s.id === varPickerTarget.stepId);
@@ -2102,11 +2173,27 @@ export function PortalFollowUpClient({ embedded }: { embedded?: boolean } = {}) 
       >
         <div className="space-y-3">
           <label className="block">
-            <div className="text-xs font-semibold text-zinc-600">Instructions</div>
+            <div className="flex items-center justify-between gap-3">
+              <div className="text-xs font-semibold text-zinc-600">Instructions</div>
+              <button
+                type="button"
+                className="rounded-xl border border-zinc-200 bg-white px-3 py-1.5 text-xs font-semibold text-brand-ink hover:bg-zinc-50 disabled:opacity-60"
+                disabled={aiDraftBusy}
+                onClick={() => {
+                  setVarPickerTarget({ kind: "aiDraft", field: "instruction" });
+                  setVarPickerOpen(true);
+                }}
+              >
+                Insert variable
+              </button>
+            </div>
             <textarea
-              className="mt-2 min-h-24 w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm"
+              className="mt-2 min-h-24 w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm text-zinc-900 placeholder:text-zinc-400"
               value={aiDraftInstruction}
               onChange={(e) => setAiDraftInstruction(e.target.value)}
+              onFocus={(e) => {
+                activeFieldElRef.current = e.currentTarget;
+              }}
               disabled={aiDraftBusy}
               placeholder="e.g. Friendly, short, and ask them to reply with any questions."
             />

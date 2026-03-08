@@ -348,14 +348,12 @@ export function PortalLeadScrapingClient() {
   const toast = useToast();
   const [tab, setTab] = useState<"b2b" | "b2c">("b2b");
   const [b2bSubTab, setB2bSubTab] = useState<"pull" | "settings">("pull");
-  const [b2cSubTab, setB2cSubTab] = useState<"pull" | "settings">("pull");
 
   const [leadOutboundEntitled, setLeadOutboundEntitled] = useState(false);
 
   const [settings, setSettings] = useState<LeadScrapingSettings | null>(null);
   const [credits, setCredits] = useState<number | null>(null);
   const [placesConfigured, setPlacesConfigured] = useState<boolean>(false);
-  const [b2cUnlocked, setB2cUnlocked] = useState<boolean>(false);
   const [aiCallsUnlocked, setAiCallsUnlocked] = useState<boolean>(false);
 
   const [leads, setLeads] = useState<LeadRow[]>([]);
@@ -512,27 +510,25 @@ export function PortalLeadScrapingClient() {
 
   const loadLeads = useCallback(
     async (q: string) => {
-    const qs = new URLSearchParams();
-    qs.set("take", String(leadsTake));
-    if (q) qs.set("q", q);
+      const qs = new URLSearchParams();
+      qs.set("take", String(leadsTake));
+      if (q) qs.set("q", q);
+      qs.set("kind", "B2B");
 
-    const kind = tab === "b2b" ? "B2B" : "B2C";
-    qs.set("kind", kind);
+      const leadsRes = await fetch(`/api/portal/lead-scraping/leads?${qs.toString()}`, { cache: "no-store" });
+      const leadsBody = (await leadsRes.json().catch(() => ({}))) as LeadsResponse;
 
-    const leadsRes = await fetch(`/api/portal/lead-scraping/leads?${qs.toString()}`, { cache: "no-store" });
-    const leadsBody = (await leadsRes.json().catch(() => ({}))) as LeadsResponse;
-
-    if (leadsRes.ok) {
-      setLeads(sortedLeads(Array.isArray(leadsBody.leads) ? leadsBody.leads : []));
-      setLeadTotalCount(typeof leadsBody.totalCount === "number" ? leadsBody.totalCount : null);
-      setLeadMatchedCount(typeof leadsBody.matchedCount === "number" ? leadsBody.matchedCount : null);
-    } else {
-      setLeads([]);
-      setLeadTotalCount(null);
-      setLeadMatchedCount(null);
-    }
+      if (leadsRes.ok) {
+        setLeads(sortedLeads(Array.isArray(leadsBody.leads) ? leadsBody.leads : []));
+        setLeadTotalCount(typeof leadsBody.totalCount === "number" ? leadsBody.totalCount : null);
+        setLeadMatchedCount(typeof leadsBody.matchedCount === "number" ? leadsBody.matchedCount : null);
+      } else {
+        setLeads([]);
+        setLeadTotalCount(null);
+        setLeadMatchedCount(null);
+      }
     },
-    [leadsTake, sortedLeads, tab],
+    [leadsTake, sortedLeads],
   );
   const pickTagTextColor = (hex: string) => {
     if (!isHexColor(hex)) return "text-white";
@@ -573,7 +569,6 @@ export function PortalLeadScrapingClient() {
     setSettings(settingsBody.settings ?? null);
     setCredits(typeof settingsBody.credits === "number" ? settingsBody.credits : null);
     setPlacesConfigured(Boolean(settingsBody.placesConfigured));
-    setB2cUnlocked(Boolean(settingsBody.b2cUnlocked));
     setAiCallsUnlocked(Boolean(settingsBody.aiCallsUnlocked));
 
     await loadLeads(leadQueryDebounced);
@@ -587,6 +582,7 @@ export function PortalLeadScrapingClient() {
 
   useEffect(() => {
     if (loading) return;
+    if (tab !== "b2b") return;
     void loadLeads(leadQueryDebounced);
   }, [leadQueryDebounced, loadLeads, loading, tab]);
 
@@ -675,54 +671,6 @@ export function PortalLeadScrapingClient() {
         created > 0
           ? `Added ${created} lead${created === 1 ? "" : "s"} • Charged ${charged} credit${charged === 1 ? "" : "s"}${refunded ? ` • Refunded ${refunded}` : ""}${fallbackNote}`
           : `No new leads matched${refunded ? ` (refunded ${refunded} credits)` : ""}${fallbackNote}`,
-      );
-    }
-
-    await load();
-  }
-
-  async function runB2cNow() {
-    if (!settings) return;
-
-    const saved = await save();
-    if (!saved) return;
-
-    setRunning(true);
-    setError(null);
-    setStatus(null);
-
-    const res = await fetch("/api/portal/lead-scraping/run", {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({ kind: "B2C" }),
-    });
-
-    const body = (await res.json().catch(() => ({}))) as RunResponse;
-    setRunning(false);
-
-    if (!res.ok) {
-      if (res.status === 402 && body?.code === "INSUFFICIENT_CREDITS") {
-        setError(body.error ?? "Not enough credits.");
-      } else {
-        setError(getApiError(body) ?? "Failed to run");
-      }
-      return;
-    }
-
-    const created = typeof body.createdCount === "number" ? body.createdCount : 0;
-    const charged = typeof body.chargedCredits === "number" ? body.chargedCredits : 0;
-    const refunded = typeof body.refundedCredits === "number" ? body.refundedCredits : 0;
-    const requested = typeof body.requestedCount === "number" ? body.requestedCount : (settings?.b2c?.count ?? 0);
-
-    if (requested > 0 && created < requested) {
-      setStatus(
-        `Found ${created} lead${created === 1 ? "" : "s"} within these constraints • Requested ${requested} • Charged ${charged} credit${charged === 1 ? "" : "s"}${refunded ? ` • Refunded ${refunded}` : ""}`,
-      );
-    } else {
-      setStatus(
-        created > 0
-          ? `Added ${created} lead${created === 1 ? "" : "s"} • Charged ${charged} credit${charged === 1 ? "" : "s"}${refunded ? ` • Refunded ${refunded}` : ""}`
-          : `No new leads matched${refunded ? ` (refunded ${refunded} credits)` : ""}`,
       );
     }
 
@@ -1542,7 +1490,7 @@ export function PortalLeadScrapingClient() {
         <div>
           <h1 className="text-2xl font-bold text-brand-ink sm:text-3xl">Lead Scraping</h1>
           <p className="mt-2 max-w-2xl text-sm text-zinc-600">
-            Pull hundreds of leads in any niche or area — and reach out instantly.
+            Pull hundreds of leads in any niche or area and reach out instantly.
           </p>
         </div>
       </div>
@@ -2109,308 +2057,22 @@ export function PortalLeadScrapingClient() {
           )}
         </>
       ) : (
-        <>
-          {b2cSubTab === "pull" ? (
-            <div className="mt-4 grid grid-cols-1 gap-4 lg:grid-cols-3">
-              <div className="lg:col-span-2">
-                <div className="flex justify-end pr-2">
-                  <div className="-mb-px flex items-end gap-1" role="tablist" aria-label="B2C view">
-                    <button
-                      type="button"
-                      onClick={() => setB2cSubTab("pull")}
-                      className={subTabButtonClass(true)}
-                      role="tab"
-                      aria-selected={true}
-                    >
-                      Pull
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => setB2cSubTab("settings")}
-                      className={subTabButtonClass(false)}
-                      role="tab"
-                      aria-selected={false}
-                    >
-                      Settings
-                    </button>
-                  </div>
-                </div>
-
-                <div className="rounded-3xl border border-zinc-200 bg-white p-6">
-                  <div className="flex items-start justify-between gap-4">
-                    <div>
-                      <div className="text-base font-semibold text-brand-ink">B2C pulls</div>
-                      <div className="mt-1 text-sm text-zinc-600">Pull consumer lead lists for a location.</div>
-                    </div>
-                  </div>
-
-                  {!b2cUnlocked ? (
-                    <div className="mt-4 rounded-2xl border border-zinc-200 bg-zinc-50 px-4 py-3 text-sm text-zinc-700">
-                      B2C lead pulling is currently locked. (We’re not selling this yet.)
-                    </div>
-                  ) : null}
-
-                  <fieldset
-                    disabled={!b2cUnlocked}
-                    className={
-                      "mt-5 grid grid-cols-1 gap-4 sm:grid-cols-2" + (!b2cUnlocked ? " opacity-60" : "")
-                    }
-                  >
-                    <label className="block">
-                      <div className="text-sm font-medium text-zinc-800">Source</div>
-                      <PortalListboxDropdown
-                        value={settings.b2c.source ?? "OSM_ADDRESS"}
-                        onChange={(source) =>
-                          setSettings((prev) =>
-                            prev
-                              ? {
-                                  ...prev,
-                                  b2c: {
-                                    ...prev.b2c,
-                                    source,
-                                  },
-                                }
-                              : prev,
-                          )
-                        }
-                        options={[
-                          { value: "OSM_ADDRESS", label: "Addresses" },
-                          { value: "OSM_POI_PHONE", label: "Phone, name, and address" },
-                        ]}
-                        className="mt-2 w-full"
-                        buttonClassName="flex w-full items-center justify-between gap-2 rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm hover:bg-zinc-50 focus-visible:ring-2 focus-visible:ring-zinc-300"
-                      />
-                      <div className="mt-1 text-xs text-zinc-500">
-                        Phone coverage varies by area. “Phone, name, and address” tends to return small lists.
-                      </div>
-                    </label>
-
-                    <label className="block sm:col-span-2">
-                      <div className="text-sm font-medium text-zinc-800">Location</div>
-                      <input
-                        className="mt-2 w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm"
-                        value={settings.b2c.location ?? ""}
-                        onChange={(e) =>
-                          setSettings((prev) =>
-                            prev ? { ...prev, b2c: { ...prev.b2c, location: e.target.value } } : prev,
-                          )
-                        }
-                        placeholder="e.g. Austin, TX or 94110 or Berlin"
-                      />
-                    </label>
-
-                    <label className="block">
-                      <div className="text-sm font-medium text-zinc-800">Country (optional)</div>
-                      <input
-                        className="mt-2 w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm"
-                        value={settings.b2c.country ?? ""}
-                        onChange={(e) =>
-                          setSettings((prev) =>
-                            prev ? { ...prev, b2c: { ...prev.b2c, country: e.target.value } } : prev,
-                          )
-                        }
-                        placeholder="e.g. US or Canada"
-                      />
-                      <div className="mt-1 text-xs text-zinc-500">Helps disambiguate geocoding.</div>
-                    </label>
-
-                    <label className="block">
-                      <div className="text-sm font-medium text-zinc-800">Count</div>
-                      <input
-                        className="mt-2 w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm"
-                        type="number"
-                        min={1}
-                        max={500}
-                        value={settings.b2c.count ?? 200}
-                        onChange={(e) =>
-                          setSettings((prev) =>
-                            prev
-                              ? {
-                                  ...prev,
-                                  b2c: {
-                                    ...prev.b2c,
-                                    count: clampInt(Number(e.target.value), 1, 500),
-                                  },
-                                }
-                              : prev,
-                          )
-                        }
-                      />
-                      <div className="mt-1 text-xs text-zinc-500">This reserves credits then refunds unused.</div>
-                    </label>
-
-                    <label className="block sm:col-span-2">
-                      <div className="text-sm font-medium text-zinc-800">Notes / requirements</div>
-                      <textarea
-                        className="mt-2 min-h-[140px] w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm"
-                        value={settings.b2c.notes}
-                        onChange={(e) =>
-                          setSettings((prev) =>
-                            prev ? { ...prev, b2c: { ...prev.b2c, notes: e.target.value } } : prev,
-                          )
-                        }
-                        placeholder="Describe what type of consumer list you want (geo, age, income, intent, etc.)"
-                      />
-                    </label>
-                  </fieldset>
-
-                  <div className="mt-6 flex flex-col gap-3 sm:flex-row sm:items-center">
-                    <button
-                      type="button"
-                      onClick={save}
-                      disabled={saving}
-                      className="inline-flex items-center justify-center rounded-2xl bg-brand-ink px-5 py-3 text-sm font-semibold text-white hover:opacity-95 disabled:opacity-60"
-                    >
-                      {saving ? "Saving…" : "Save"}
-                    </button>
-
-                    <button
-                      type="button"
-                      onClick={runB2cNow}
-                      disabled={!b2cUnlocked || running || !(settings.b2c.location ?? "").trim()}
-                      className="inline-flex items-center justify-center rounded-2xl border border-zinc-200 bg-white px-5 py-3 text-sm font-semibold text-brand-ink hover:bg-zinc-50 disabled:opacity-60"
-                      title={!(settings.b2c.location ?? "").trim() ? "Location is required" : undefined}
-                    >
-                      {running ? "Pulling…" : "Run now"}
-                    </button>
-
-                    <button
-                      type="button"
-                      onClick={() => downloadText(`leads_${new Date().toISOString().slice(0, 10)}.csv`, toCsv(leads))}
-                      disabled={!leads.length}
-                      className="inline-flex items-center justify-center rounded-2xl border border-zinc-200 bg-white px-5 py-3 text-sm font-semibold text-brand-ink hover:bg-zinc-50 disabled:opacity-60"
-                    >
-                      Export CSV
-                    </button>
-
-                    <div className="text-xs text-zinc-500 sm:ml-auto">
-                      {leads.length} lead{leads.length === 1 ? "" : "s"} shown
-                    </div>
-                  </div>
-                </div>
-              </div>
-
-              <div className="flex flex-col rounded-3xl border border-zinc-200 bg-white p-6 lg:sticky lg:top-8 lg:h-[calc(100vh-4rem)]">
-                <div className="flex items-start justify-between gap-4">
-                  <div>
-                    <div className="text-sm font-semibold text-zinc-900">Leads</div>
-                    <div className="mt-1 text-xs text-zinc-500">
-                      {typeof leadTotalCount === "number" ? (
-                        leadQueryDebounced
-                          ? `Showing ${leads.length} of ${leadMatchedCount ?? leads.length} matched • ${leadTotalCount} total`
-                          : `${leadTotalCount} total`
-                      ) : (
-                        `${leads.length} loaded`
-                      )}
-                      {typeof leadTotalCount === "number" && leadTotalCount > leadsTake ? ` • Loaded first ${leadsTake}` : ""}
-                    </div>
-                  </div>
-                </div>
-
-                <div className="mt-3">
-                  <input
-                    className="w-full rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm"
-                    value={leadQuery}
-                    onChange={(e) => setLeadQuery(e.target.value)}
-                    placeholder="Search leads (name, email, phone, website, address, niche…)"
-                  />
-                </div>
-
-                <div className="mt-3 max-h-[70vh] min-h-[240px] space-y-3 overflow-y-auto pr-2 lg:max-h-none lg:min-h-0 lg:flex-1">
-                  {leads.length ? (
-                    leads.map((l, idx) => (
-                      <button
-                        key={l.id}
-                        type="button"
-                        onClick={() => openLeadAtIndex(idx)}
-                        className="w-full rounded-2xl border border-zinc-200 p-3 text-left hover:bg-zinc-50"
-                      >
-                        <div className="flex items-start justify-between gap-3">
-                          <div className="min-w-0">
-                            <div className="text-sm font-semibold text-brand-ink">
-                              {l.starred ? <span className="mr-1 text-amber-500">★</span> : null}
-                              {l.businessName}
-                            </div>
-                          </div>
-                          {l.tag ? (
-                            <span
-                              className={`shrink-0 rounded-full px-2 py-0.5 text-[11px] font-semibold ${pickTagTextColor(
-                                isHexColor(l.tagColor || "") ? (l.tagColor as string) : "#111827",
-                              )}`}
-                              style={{
-                                backgroundColor: isHexColor(l.tagColor || "") ? (l.tagColor as string) : "#111827",
-                              }}
-                            >
-                              {l.tag}
-                            </span>
-                          ) : null}
-                        </div>
-                        <div className="mt-1 flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1 text-xs text-zinc-600">
-                          {l.phone ? <span className="whitespace-nowrap">{l.phone}</span> : null}
-                          {l.phone && l.website ? <span>•</span> : null}
-                          {l.website ? <span className="min-w-0 max-w-full truncate">{l.website}</span> : null}
-                        </div>
-                        <div className="mt-1 text-xs text-zinc-600">{[l.niche, l.address].filter(Boolean).join(" • ")}</div>
-                        <div className="mt-1 text-[11px] text-zinc-500">{safeFormatDateTime(l.createdAtIso)}</div>
-                      </button>
-                    ))
-                  ) : (
-                    <div className="rounded-2xl border border-dashed border-zinc-200 p-4 text-sm text-zinc-600">
-                      No leads yet. Run your first pull.
-                    </div>
-                  )}
-                </div>
-              </div>
+        <div className="mt-4">
+          <div className="rounded-3xl border border-[rgba(236,72,153,0.25)] bg-[linear-gradient(90deg,rgba(236,72,153,0.18),rgba(29,78,216,0.10),rgba(255,255,255,0.94))] p-8">
+            <div className="text-base font-semibold text-zinc-900">Want B2C leads?</div>
+            <div className="mt-2 max-w-2xl text-sm text-zinc-700">
+              Book a call and we’ll tailor sources, filters, and follow-up for your market.
             </div>
-          ) : (
-            <div className="mt-4">
-              <div className="flex justify-end pr-2">
-                <div className="-mb-px flex items-end gap-1" role="tablist" aria-label="B2C view">
-                  <button
-                    type="button"
-                    onClick={() => setB2cSubTab("pull")}
-                    className={subTabButtonClass(false)}
-                    role="tab"
-                    aria-selected={false}
-                  >
-                    Pull
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setB2cSubTab("settings")}
-                    className={subTabButtonClass(true)}
-                    role="tab"
-                    aria-selected={true}
-                  >
-                    Settings
-                  </button>
-                </div>
-              </div>
-
-              <div className="rounded-3xl border border-zinc-200 bg-white p-6">
-                <div className="text-base font-semibold text-brand-ink">B2C settings (coming soon)</div>
-                <div className="mt-1 text-sm text-zinc-600">
-                  B2C lead scraping isn’t live in the portal yet. If you want this built for your use case, book a call.
-                </div>
-
-                <div className="mt-6 rounded-3xl border border-[color:rgba(236,72,153,0.25)] bg-[linear-gradient(90deg,rgba(236,72,153,0.12),rgba(29,78,216,0.08),rgba(255,255,255,0.92))] p-6">
-                  <div className="text-sm font-semibold text-zinc-900">Want B2C leads?</div>
-                  <div className="mt-1 text-sm text-zinc-700">
-                    We’ll tailor the sources, filters, and follow-up flow for your market — and turn it on when the backend is ready.
-                  </div>
-                  <a
-                    href="/book-a-call"
-                    target="_blank"
-                    rel="noreferrer"
-                    className="mt-4 inline-flex items-center justify-center rounded-2xl bg-(--color-brand-pink) px-5 py-3 text-sm font-semibold text-white shadow-sm hover:opacity-95"
-                  >
-                    Book a call
-                  </a>
-                </div>
-              </div>
-            </div>
-          )}
-        </>
+            <a
+              href="/book-a-call"
+              target="_blank"
+              rel="noreferrer"
+              className="mt-5 inline-flex items-center justify-center rounded-2xl bg-(--color-brand-pink) px-5 py-3 text-sm font-semibold text-white shadow-sm hover:opacity-95"
+            >
+              Book a call
+            </a>
+          </div>
+        </div>
       )}
 
       {leadOpen && activeLead ? (

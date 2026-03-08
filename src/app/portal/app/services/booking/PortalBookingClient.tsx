@@ -78,6 +78,12 @@ type TwilioMasked = {
   updatedAtIso: string | null;
 };
 
+type EmailAttachmentRef = {
+  mediaItemId: string;
+  fileName: string;
+  mimeType: string;
+};
+
 type AppointmentReminderSettings = {
   version: 4;
   enabled: boolean;
@@ -89,6 +95,7 @@ type AppointmentReminderSettings = {
     leadTime: { value: number; unit: "minutes" | "hours" | "days" | "weeks" };
     subjectTemplate?: string;
     messageBody?: string;
+    emailAttachments?: EmailAttachmentRef[];
     tagId?: string;
   }[];
 };
@@ -380,11 +387,29 @@ export function PortalBookingClient() {
   const [reminderTwilio, setReminderTwilio] = useState<TwilioMasked | null>(null);
   const [reminderEvents, setReminderEvents] = useState<AppointmentReminderEvent[]>([]);
   const [reminderSaving, setReminderSaving] = useState(false);
-  const [reminderGeneratingStepId, setReminderGeneratingStepId] = useState<string | null>(null);
   const [reminderTemplateOpen, setReminderTemplateOpen] = useState(false);
 
+  type ReminderAiDraftModalState =
+    | null
+    | {
+        stepId: string;
+        kind: "EMAIL" | "SMS";
+        stepLabel: string;
+        existingSubject?: string;
+        existingBody: string;
+      };
+
+  const [reminderAiDraftModal, setReminderAiDraftModal] = useState<ReminderAiDraftModalState>(null);
+  const [reminderAiDraftInstruction, setReminderAiDraftInstruction] = useState("");
+  const [reminderAiDraftBusy, setReminderAiDraftBusy] = useState(false);
+  const [reminderAiDraftError, setReminderAiDraftError] = useState<string | null>(null);
+
   const [reminderVarPickerOpen, setReminderVarPickerOpen] = useState(false);
-  const [reminderVarPickerTarget, setReminderVarPickerTarget] = useState<null | { stepId: string; field: "subject" | "body" }>(null);
+  const [reminderVarPickerTarget, setReminderVarPickerTarget] = useState<
+    | null
+    | { kind: "step"; stepId: string; field: "subject" | "body" }
+    | { kind: "aiDraft"; field: "instruction" }
+  >(null);
   const reminderActiveFieldElRef = useRef<HTMLInputElement | HTMLTextAreaElement | null>(null);
 
   const [reminderBuiltinVariables, setReminderBuiltinVariables] = useState<string[]>([]);
@@ -394,6 +419,52 @@ export function PortalBookingClient() {
     const end = el?.selectionEnd ?? current.length;
     const next = `${current.slice(0, start)}${insert}${current.slice(end)}`;
     return { next, cursor: start + insert.length };
+  }
+
+  function coerceAiDraftText(raw: unknown): { subject?: string; body?: string } {
+    const stripCodeFence = (s: string) => {
+      const t = s.trim();
+      if (!t.startsWith("```")) return s;
+      const lines = t.split("\n");
+      if (lines.length < 3) return s;
+      if (!lines[0].startsWith("```")) return s;
+      let endIdx = -1;
+      for (let i = lines.length - 1; i >= 0; i -= 1) {
+        if (lines[i]?.trim().startsWith("```")) {
+          endIdx = i;
+          break;
+        }
+      }
+      if (endIdx <= 0) return s;
+      return lines.slice(1, endIdx).join("\n").trim();
+    };
+
+    const tryParseJsonObject = (s: string): any | null => {
+      const t = stripCodeFence(String(s ?? "")).trim();
+      if (!t.startsWith("{") || !t.endsWith("}")) return null;
+      try {
+        const parsed = JSON.parse(t);
+        if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return null;
+        return parsed;
+      } catch {
+        return null;
+      }
+    };
+
+    if (raw && typeof raw === "object" && !Array.isArray(raw)) {
+      const r = raw as any;
+      const rawSubject = String(r?.subject ?? "");
+      const rawBody = String(r?.body ?? "");
+      const parsed = tryParseJsonObject(rawBody) ?? tryParseJsonObject(rawSubject);
+      const subject = parsed && "subject" in parsed ? String(parsed.subject ?? "") : rawSubject;
+      const body = parsed && "body" in parsed ? String(parsed.body ?? "") : rawBody;
+      return { subject, body };
+    }
+
+    const s = String(raw ?? "");
+    const parsed = tryParseJsonObject(s);
+    if (parsed) return { subject: typeof parsed.subject === "string" ? parsed.subject : undefined, body: typeof parsed.body === "string" ? parsed.body : undefined };
+    return { body: s };
   }
 
   const reminderTemplateVariables = useMemo(() => {
@@ -805,67 +876,23 @@ export function PortalBookingClient() {
     }
   }
 
-  async function generateReminderStep(stepId: string) {
-    if (!reminderDraft) return;
-    const step = reminderDraft.steps.find((s) => s.id === stepId);
-    if (!step) return;
-    if (step.kind === "TAG") return;
-
-    setReminderGeneratingStepId(stepId);
-    setError(null);
-    setStatus(null);
-
-    try {
-      const kind: "SMS" | "EMAIL" = step.kind === "EMAIL" ? "EMAIL" : "SMS";
-      const res = await fetch("/api/portal/booking/reminders/ai/generate-step", {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({
-          kind,
-          prompt: "",
-          existingSubject: kind === "EMAIL" ? String(step.subjectTemplate || "") : undefined,
-          existingBody: String(step.messageBody || ""),
-        }),
-      });
-      const json = await res.json().catch(() => ({}));
-      if (!res.ok) {
-        const code = (json as any)?.code;
-        if (res.status === 402 && code === "INSUFFICIENT_CREDITS") {
-          setError("Insufficient credits to generate.");
-          return;
-        }
-        setError(getApiError(json) ?? (json as any)?.error ?? "Failed to generate reminder step");
-        return;
-      }
-
-      if (kind === "EMAIL") {
-        updateReminderStep(stepId, {
-          subjectTemplate: String((json as any)?.subject ?? "").slice(0, 200),
-          messageBody: String((json as any)?.body ?? "").slice(0, 8000),
-        });
-      } else {
-        updateReminderStep(stepId, {
-          messageBody: String((json as any)?.body ?? "").slice(0, 8000),
-        });
-      }
-
-      setStatus("Generated");
-      window.setTimeout(() => setStatus(null), 1200);
-    } finally {
-      setReminderGeneratingStepId((prev) => (prev === stepId ? null : prev));
-    }
-  }
-
-  async function addMediaLinkToReminderStep(item: PortalMediaPickItem) {
+  async function addEmailAttachmentToReminderStep(item: PortalMediaPickItem) {
     const stepId = reminderMediaPickerStepId;
     if (!stepId) return;
     const step = reminderDraft?.steps.find((s) => s.id === stepId);
     if (!step) return;
 
-    const link = window.location.origin + item.shareUrl;
-    const base = String(step.messageBody || "");
-    const sep = base.trim().length ? "\n\n" : "";
-    updateReminderStep(stepId, { messageBody: base + sep + link });
+    if (step.kind !== "EMAIL") return;
+    const prev = Array.isArray(step.emailAttachments) ? step.emailAttachments : [];
+    const next: EmailAttachmentRef[] = [
+      ...prev,
+      {
+        mediaItemId: String(item.id),
+        fileName: String(item.fileName || "Attachment"),
+        mimeType: String(item.mimeType || "application/octet-stream"),
+      },
+    ];
+    updateReminderStep(stepId, { emailAttachments: next });
     setReminderMediaPickerStepId(null);
   }
 
@@ -875,6 +902,13 @@ export function PortalBookingClient() {
     setStatus(null);
 
     try {
+      const step = reminderDraft?.steps.find((s) => s.id === stepId);
+      if (!step) return;
+      if (step.kind !== "EMAIL") {
+        setError("Attachments are only supported for email reminders");
+        return;
+      }
+
       const fd = new FormData();
       fd.set("file", file);
       const res = await fetch("/api/uploads", { method: "POST", body: fd });
@@ -884,17 +918,22 @@ export function PortalBookingClient() {
         return;
       }
 
-      const rawUrl = typeof body?.url === "string" ? body.url : "";
-      if (!rawUrl) {
-        setError("Upload did not return a URL");
+      const mediaItemId = typeof body?.mediaItem?.id === "string" ? body.mediaItem.id : "";
+      if (!mediaItemId) {
+        setError("Upload did not return a media item");
         return;
       }
 
-      const link = rawUrl.startsWith("/") ? window.location.origin + rawUrl : rawUrl;
-      const step = reminderDraft?.steps.find((s) => s.id === stepId);
-      const base = String(step?.messageBody || "");
-      const sep = base.trim().length ? "\n\n" : "";
-      updateReminderStep(stepId, { messageBody: base + sep + link });
+      const prev = Array.isArray(step.emailAttachments) ? step.emailAttachments : [];
+      const next: EmailAttachmentRef[] = [
+        ...prev,
+        {
+          mediaItemId,
+          fileName: file.name || "Attachment",
+          mimeType: file.type || "application/octet-stream",
+        },
+      ];
+      updateReminderStep(stepId, { emailAttachments: next });
       setStatus("Attached");
       window.setTimeout(() => setStatus(null), 1200);
     } finally {
@@ -1847,12 +1886,24 @@ export function PortalBookingClient() {
                                 <>
                                   <button
                                     type="button"
-                                    disabled={reminderSaving || reminderGeneratingStepId === s.id}
+                                    disabled={reminderSaving}
                                     className={
                                       "inline-flex items-center gap-2 rounded-xl px-2 py-1 text-xs font-semibold text-white shadow-sm transition hover:opacity-90 disabled:opacity-60 " +
                                       "bg-linear-to-r from-(--color-brand-blue) via-violet-500 to-(--color-brand-pink)"
                                     }
-                                    onClick={() => void generateReminderStep(s.id)}
+                                    onClick={() => {
+                                      if (!reminderDraft) return;
+                                      if (s.kind === "TAG") return;
+                                      setReminderAiDraftError(null);
+                                      setReminderAiDraftInstruction("");
+                                      setReminderAiDraftModal({
+                                        stepId: s.id,
+                                        kind: s.kind === "EMAIL" ? "EMAIL" : "SMS",
+                                        stepLabel: `${s.kind === "EMAIL" ? "Email" : "SMS"} step ${idx + 1}`,
+                                        existingSubject: s.kind === "EMAIL" ? String(s.subjectTemplate ?? "") : undefined,
+                                        existingBody: String(s.messageBody ?? ""),
+                                      });
+                                    }}
                                   >
                                     <svg
                                       aria-hidden="true"
@@ -1867,29 +1918,33 @@ export function PortalBookingClient() {
                                       <path d="M12 2l1.5 5.5L19 9l-5.5 1.5L12 16l-1.5-5.5L5 9l5.5-1.5L12 2z" />
                                       <path d="M19 14l.8 2.6L22 17l-2.2.4L19 20l-.8-2.6L16 17l2.2-.4L19 14z" />
                                     </svg>
-                                    <span>{reminderGeneratingStepId === s.id ? "Drafting…" : "AI draft"}</span>
+                                    <span>AI draft</span>
                                   </button>
-                                  <label className="rounded-xl border border-zinc-200 bg-white px-3 py-1.5 text-xs font-semibold text-zinc-700 hover:bg-zinc-50 disabled:opacity-60">
-                                    {reminderUploadBusyStepId === s.id ? "Uploading…" : "Upload file"}
-                                    <input
-                                      type="file"
-                                      className="hidden"
-                                      disabled={reminderSaving || reminderUploadBusyStepId === s.id}
-                                      onChange={(e) => {
-                                        const f = e.target.files?.[0];
-                                        if (f) void uploadFileForReminderStep(s.id, f);
-                                        e.currentTarget.value = "";
-                                      }}
-                                    />
-                                  </label>
-                                  <button
-                                    type="button"
-                                    disabled={reminderSaving}
-                                    className="rounded-xl border border-zinc-200 bg-white px-3 py-1.5 text-xs font-semibold text-zinc-700 hover:bg-zinc-50 disabled:opacity-60"
-                                    onClick={() => setReminderMediaPickerStepId(s.id)}
-                                  >
-                                    Attach files
-                                  </button>
+                                  {s.kind === "EMAIL" ? (
+                                    <>
+                                      <label className="rounded-xl border border-zinc-200 bg-white px-3 py-1.5 text-xs font-semibold text-zinc-700 hover:bg-zinc-50 disabled:opacity-60">
+                                        {reminderUploadBusyStepId === s.id ? "Uploading…" : "Upload file"}
+                                        <input
+                                          type="file"
+                                          className="hidden"
+                                          disabled={reminderSaving || reminderUploadBusyStepId === s.id}
+                                          onChange={(e) => {
+                                            const f = e.target.files?.[0];
+                                            if (f) void uploadFileForReminderStep(s.id, f);
+                                            e.currentTarget.value = "";
+                                          }}
+                                        />
+                                      </label>
+                                      <button
+                                        type="button"
+                                        disabled={reminderSaving}
+                                        className="rounded-xl border border-zinc-200 bg-white px-3 py-1.5 text-xs font-semibold text-zinc-700 hover:bg-zinc-50 disabled:opacity-60"
+                                        onClick={() => setReminderMediaPickerStepId(s.id)}
+                                      >
+                                        Attach files
+                                      </button>
+                                    </>
+                                  ) : null}
                                 </>
                               ) : null}
                             </div>
@@ -1936,7 +1991,7 @@ export function PortalBookingClient() {
                                   className="rounded-xl border border-zinc-200 bg-white px-3 py-1.5 text-xs font-semibold text-brand-ink hover:bg-zinc-50 disabled:opacity-60"
                                   disabled={reminderSaving}
                                   onClick={() => {
-                                    setReminderVarPickerTarget({ stepId: s.id, field: "subject" });
+                                    setReminderVarPickerTarget({ kind: "step", stepId: s.id, field: "subject" });
                                     setReminderVarPickerOpen(true);
                                   }}
                                 >
@@ -1952,6 +2007,38 @@ export function PortalBookingClient() {
                                 }}
                                 disabled={reminderSaving}
                               />
+
+                              <div className="mt-3">
+                                <div className="text-xs font-semibold text-zinc-600">Attachments</div>
+                                {Array.isArray(s.emailAttachments) && s.emailAttachments.length ? (
+                                  <div className="mt-2 space-y-2">
+                                    {s.emailAttachments.map((a) => (
+                                      <div
+                                        key={a.mediaItemId}
+                                        className="flex items-center justify-between gap-3 rounded-2xl border border-zinc-200 bg-white px-3 py-2"
+                                      >
+                                        <div className="min-w-0">
+                                          <div className="truncate text-sm font-medium text-zinc-800">{a.fileName}</div>
+                                          <div className="truncate text-xs text-zinc-500">{a.mimeType}</div>
+                                        </div>
+                                        <button
+                                          type="button"
+                                          className="rounded-xl border border-zinc-200 bg-white px-2 py-1 text-xs font-semibold text-zinc-700 hover:bg-zinc-50 disabled:opacity-60"
+                                          disabled={reminderSaving}
+                                          onClick={() => {
+                                            const prev = Array.isArray(s.emailAttachments) ? s.emailAttachments : [];
+                                            updateReminderStep(s.id, { emailAttachments: prev.filter((x) => x.mediaItemId !== a.mediaItemId) });
+                                          }}
+                                        >
+                                          Remove
+                                        </button>
+                                      </div>
+                                    ))}
+                                  </div>
+                                ) : (
+                                  <div className="mt-2 text-xs text-zinc-500">No attachments</div>
+                                )}
+                              </div>
                             </div>
                           ) : null}
 
@@ -2092,11 +2179,25 @@ export function PortalBookingClient() {
           },
         }}
         onPick={(variableKey) => {
-          if (!reminderDraft || !reminderVarPickerTarget) return;
+          const insert = `{${variableKey}}`;
+
+          if (!reminderVarPickerTarget) return;
+
+          if (reminderVarPickerTarget.kind === "aiDraft") {
+            const { next, cursor } = insertAtCursor(reminderAiDraftInstruction, insert, reminderActiveFieldElRef.current);
+            setReminderAiDraftInstruction(next);
+            requestAnimationFrame(() => {
+              const el = reminderActiveFieldElRef.current;
+              if (!el) return;
+              el.focus();
+              el.setSelectionRange(cursor, cursor);
+            });
+            return;
+          }
+
+          if (!reminderDraft) return;
           const step = reminderDraft.steps.find((x) => x.id === reminderVarPickerTarget.stepId);
           if (!step) return;
-
-          const insert = `{${variableKey}}`;
 
           if (reminderVarPickerTarget.field === "subject") {
             if (step.kind !== "EMAIL") return;
@@ -2124,6 +2225,127 @@ export function PortalBookingClient() {
           });
         }}
       />
+
+      <AppModal
+        open={Boolean(reminderAiDraftModal)}
+        title="AI draft"
+        description={reminderAiDraftModal ? `Describe what you want ${reminderAiDraftModal.stepLabel} to say.` : "Describe what you want this reminder to say."}
+        onClose={() => {
+          if (reminderAiDraftBusy) return;
+          setReminderAiDraftModal(null);
+          setReminderAiDraftError(null);
+        }}
+        widthClassName="w-[min(640px,calc(100vw-32px))]"
+        footer={
+          <div className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
+            <button
+              type="button"
+              className="rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm font-semibold text-zinc-800 hover:bg-zinc-50 disabled:opacity-60"
+              disabled={reminderAiDraftBusy}
+              onClick={() => {
+                setReminderAiDraftModal(null);
+                setReminderAiDraftError(null);
+              }}
+            >
+              Cancel
+            </button>
+            <button
+              type="button"
+              className="rounded-2xl bg-brand-ink px-4 py-2 text-sm font-semibold text-white hover:opacity-95 disabled:opacity-60"
+              disabled={reminderAiDraftBusy || !reminderAiDraftModal}
+              onClick={async () => {
+                if (!reminderAiDraftModal) return;
+                if (!reminderDraft) return;
+                setReminderAiDraftBusy(true);
+                setReminderAiDraftError(null);
+
+                try {
+                  const res = await fetch("/api/portal/booking/reminders/ai/generate-step", {
+                    method: "POST",
+                    headers: { "content-type": "application/json" },
+                    body: JSON.stringify({
+                      kind: reminderAiDraftModal.kind,
+                      prompt: reminderAiDraftInstruction.trim() || undefined,
+                      existingSubject: reminderAiDraftModal.kind === "EMAIL" ? reminderAiDraftModal.existingSubject : undefined,
+                      existingBody: reminderAiDraftModal.existingBody,
+                    }),
+                  });
+                  const json = await res.json().catch(() => ({}));
+                  if (!res.ok) {
+                    const code = (json as any)?.code;
+                    if (res.status === 402 && code === "INSUFFICIENT_CREDITS") {
+                      setReminderAiDraftError("Insufficient credits to generate.");
+                      return;
+                    }
+                    setReminderAiDraftError(getApiError(json) ?? (json as any)?.error ?? "Failed to generate reminder draft");
+                    return;
+                  }
+
+                  const coerced = coerceAiDraftText(json);
+
+                  if (reminderAiDraftModal.kind === "EMAIL") {
+                    const subjectRaw = String(coerced.subject ?? "").trim();
+                    const subject = (subjectRaw || String(reminderAiDraftModal.existingSubject ?? "").trim() || "Appointment reminder").slice(0, 200);
+                    const body = String(coerced.body ?? "").slice(0, 8000);
+                    updateReminderStep(reminderAiDraftModal.stepId, { subjectTemplate: subject, messageBody: body });
+                  } else {
+                    const body = String(coerced.body ?? "").slice(0, 8000);
+                    updateReminderStep(reminderAiDraftModal.stepId, { messageBody: body });
+                  }
+
+                  setStatus("Generated");
+                  window.setTimeout(() => setStatus(null), 1200);
+                  setReminderAiDraftModal(null);
+                  setReminderAiDraftInstruction("");
+                } catch (e: any) {
+                  setReminderAiDraftError(String(e?.message || "Failed to generate"));
+                } finally {
+                  setReminderAiDraftBusy(false);
+                }
+              }}
+            >
+              {reminderAiDraftBusy ? "Drafting…" : "Generate"}
+            </button>
+          </div>
+        }
+      >
+        <div className="space-y-3">
+          <label className="block">
+            <div className="flex items-center justify-between gap-3">
+              <div className="text-xs font-semibold text-zinc-600">Instructions</div>
+              <button
+                type="button"
+                className="rounded-xl border border-zinc-200 bg-white px-3 py-1.5 text-xs font-semibold text-brand-ink hover:bg-zinc-50 disabled:opacity-60"
+                disabled={reminderAiDraftBusy}
+                onClick={() => {
+                  setReminderVarPickerTarget({ kind: "aiDraft", field: "instruction" });
+                  setReminderVarPickerOpen(true);
+                }}
+              >
+                Insert variable
+              </button>
+            </div>
+            <textarea
+              className="mt-2 min-h-24 w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm text-zinc-900 placeholder:text-zinc-400"
+              value={reminderAiDraftInstruction}
+              onChange={(e) => setReminderAiDraftInstruction(e.target.value)}
+              onFocus={(e) => {
+                reminderActiveFieldElRef.current = e.currentTarget;
+              }}
+              disabled={reminderAiDraftBusy}
+              placeholder="e.g. Friendly, short, and include the appointment time and location."
+            />
+          </label>
+
+          {reminderAiDraftError ? (
+            <div className="rounded-2xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-800">{reminderAiDraftError}</div>
+          ) : null}
+
+          <div className="text-xs text-zinc-500">
+            Tip: you can reference variables like {"{contactName}"} and {"{when}"}.
+          </div>
+        </div>
+      </AppModal>
 
       <AppModal
         open={reminderCreateTagOpen}
@@ -2170,7 +2392,7 @@ export function PortalBookingClient() {
       <PortalMediaPickerModal
         open={Boolean(reminderMediaPickerStepId)}
         onClose={() => setReminderMediaPickerStepId(null)}
-        onPick={addMediaLinkToReminderStep}
+        onPick={addEmailAttachmentToReminderStep}
         confirmLabel="Attach"
         title="Attach from media library"
       />
