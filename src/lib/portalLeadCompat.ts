@@ -81,7 +81,7 @@ async function insertLegacyPortalLead(data: PortalLeadCreateCompatInput): Promis
         ${id},
         ${data.ownerId},
         ${data.source}::"PortalLeadSource",
-        ${data.kind},
+        ${data.kind}::"PortalLeadScrapeKind",
         ${data.businessName},
         ${data.phone},
         ${data.website},
@@ -96,43 +96,87 @@ async function insertLegacyPortalLead(data: PortalLeadCreateCompatInput): Promis
     `;
     return rows[0] ?? null;
   } catch (e) {
-    // Older DBs may not have the enum type; retry without the cast.
-    if (!isMissingEnumTypeError(e, "PortalLeadSource")) throw e;
+    const missingSourceEnum = isMissingEnumTypeError(e, "PortalLeadSource");
+    const missingKindEnum = isMissingEnumTypeError(e, "PortalLeadScrapeKind");
+    if (!missingSourceEnum && !missingKindEnum) throw e;
 
-    const rows = await prisma.$queryRaw<PortalLeadCreateCompatResult[]>`
-      INSERT INTO "PortalLead" (
-        "id",
-        "ownerId",
-        "source",
-        "kind",
-        "businessName",
-        "phone",
-        "website",
-        "address",
-        "niche",
-        "placeId",
-        "dataJson",
-        "createdAt"
-      )
-      VALUES (
-        ${id},
-        ${data.ownerId},
-        ${data.source},
-        ${data.kind},
-        ${data.businessName},
-        ${data.phone},
-        ${data.website},
-        ${data.address},
-        ${data.niche},
-        ${data.placeId},
-        ${dataJsonString}::jsonb,
-        NOW()
-      )
-      ON CONFLICT DO NOTHING
-      RETURNING "id", "businessName", "phone", "website", "address", "niche";
-    `;
+    const sourceSql = missingSourceEnum ? Prisma.sql`${data.source}` : Prisma.sql`${data.source}::"PortalLeadSource"`;
+    const kindSql = missingKindEnum ? Prisma.sql`${data.kind}` : Prisma.sql`${data.kind}::"PortalLeadScrapeKind"`;
 
-    return rows[0] ?? null;
+    try {
+      const rows = await prisma.$queryRaw<PortalLeadCreateCompatResult[]>`
+        INSERT INTO "PortalLead" (
+          "id",
+          "ownerId",
+          "source",
+          "kind",
+          "businessName",
+          "phone",
+          "website",
+          "address",
+          "niche",
+          "placeId",
+          "dataJson",
+          "createdAt"
+        )
+        VALUES (
+          ${id},
+          ${data.ownerId},
+          ${sourceSql},
+          ${kindSql},
+          ${data.businessName},
+          ${data.phone},
+          ${data.website},
+          ${data.address},
+          ${data.niche},
+          ${data.placeId},
+          ${dataJsonString}::jsonb,
+          NOW()
+        )
+        ON CONFLICT DO NOTHING
+        RETURNING "id", "businessName", "phone", "website", "address", "niche";
+      `;
+
+      return rows[0] ?? null;
+    } catch (e2) {
+      const stillMissingSourceEnum = isMissingEnumTypeError(e2, "PortalLeadSource");
+      const stillMissingKindEnum = isMissingEnumTypeError(e2, "PortalLeadScrapeKind");
+      if (!stillMissingSourceEnum && !stillMissingKindEnum) throw e2;
+
+      const rows = await prisma.$queryRaw<PortalLeadCreateCompatResult[]>`
+        INSERT INTO "PortalLead" (
+          "id",
+          "ownerId",
+          "source",
+          "kind",
+          "businessName",
+          "phone",
+          "website",
+          "address",
+          "niche",
+          "placeId",
+          "dataJson",
+          "createdAt"
+        )
+        VALUES (
+          ${id},
+          ${data.ownerId},
+          ${data.source},
+          ${data.kind},
+          ${data.businessName},
+          ${data.phone},
+          ${data.website},
+          ${data.address},
+          ${data.niche},
+          ${data.placeId},
+          ${dataJsonString}::jsonb,
+          NOW()
+        )
+        ON CONFLICT DO NOTHING
+        RETURNING "id", "businessName", "phone", "website", "address", "niche";
+      `;
+      return rows[0] ?? null;
+    }
   }
 }
 
@@ -167,7 +211,7 @@ async function insertLegacyPortalLeadWithContactId(
           ${id},
           ${data.ownerId},
           ${data.source}::"PortalLeadSource",
-          ${data.kind},
+          ${data.kind}::"PortalLeadScrapeKind",
           ${data.businessName},
           ${data.phone},
           ${data.website},
@@ -183,44 +227,90 @@ async function insertLegacyPortalLeadWithContactId(
       `;
       return rows[0] ?? null;
     } catch (e) {
-      // Older DBs may not have the enum type; retry without the cast.
-      if (!isMissingEnumTypeError(e, "PortalLeadSource")) throw e;
+      const missingSourceEnum = isMissingEnumTypeError(e, "PortalLeadSource");
+      const missingKindEnum = isMissingEnumTypeError(e, "PortalLeadScrapeKind");
+      if (!missingSourceEnum && !missingKindEnum) throw e;
 
-      const rows = await prisma.$queryRaw<PortalLeadCreateCompatResult[]>`
-        INSERT INTO "PortalLead" (
-          "id",
-          "ownerId",
-          "source",
-          "kind",
-          "businessName",
-          "phone",
-          "website",
-          "address",
-          "niche",
-          "placeId",
-          "dataJson",
-          "contactId",
-          "createdAt"
-        )
-        VALUES (
-          ${id},
-          ${data.ownerId},
-          ${data.source},
-          ${data.kind},
-          ${data.businessName},
-          ${data.phone},
-          ${data.website},
-          ${data.address},
-          ${data.niche},
-          ${data.placeId},
-          ${dataJsonString}::jsonb,
-          ${contactId},
-          NOW()
-        )
-        ON CONFLICT DO NOTHING
-        RETURNING "id", "businessName", "phone", "website", "address", "niche";
-      `;
-      return rows[0] ?? null;
+      const sourceSql = missingSourceEnum ? Prisma.sql`${data.source}` : Prisma.sql`${data.source}::"PortalLeadSource"`;
+      const kindSql = missingKindEnum ? Prisma.sql`${data.kind}` : Prisma.sql`${data.kind}::"PortalLeadScrapeKind"`;
+
+      try {
+        const rows = await prisma.$queryRaw<PortalLeadCreateCompatResult[]>`
+          INSERT INTO "PortalLead" (
+            "id",
+            "ownerId",
+            "source",
+            "kind",
+            "businessName",
+            "phone",
+            "website",
+            "address",
+            "niche",
+            "placeId",
+            "dataJson",
+            "contactId",
+            "createdAt"
+          )
+          VALUES (
+            ${id},
+            ${data.ownerId},
+            ${sourceSql},
+            ${kindSql},
+            ${data.businessName},
+            ${data.phone},
+            ${data.website},
+            ${data.address},
+            ${data.niche},
+            ${data.placeId},
+            ${dataJsonString}::jsonb,
+            ${contactId},
+            NOW()
+          )
+          ON CONFLICT DO NOTHING
+          RETURNING "id", "businessName", "phone", "website", "address", "niche";
+        `;
+        return rows[0] ?? null;
+      } catch (e2) {
+        const stillMissingSourceEnum = isMissingEnumTypeError(e2, "PortalLeadSource");
+        const stillMissingKindEnum = isMissingEnumTypeError(e2, "PortalLeadScrapeKind");
+        if (!stillMissingSourceEnum && !stillMissingKindEnum) throw e2;
+
+        const rows = await prisma.$queryRaw<PortalLeadCreateCompatResult[]>`
+          INSERT INTO "PortalLead" (
+            "id",
+            "ownerId",
+            "source",
+            "kind",
+            "businessName",
+            "phone",
+            "website",
+            "address",
+            "niche",
+            "placeId",
+            "dataJson",
+            "contactId",
+            "createdAt"
+          )
+          VALUES (
+            ${id},
+            ${data.ownerId},
+            ${data.source},
+            ${data.kind},
+            ${data.businessName},
+            ${data.phone},
+            ${data.website},
+            ${data.address},
+            ${data.niche},
+            ${data.placeId},
+            ${dataJsonString}::jsonb,
+            ${contactId},
+            NOW()
+          )
+          ON CONFLICT DO NOTHING
+          RETURNING "id", "businessName", "phone", "website", "address", "niche";
+        `;
+        return rows[0] ?? null;
+      }
     }
   } catch (e) {
     if (isMissingContactIdColumnError(e)) {
