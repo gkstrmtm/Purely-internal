@@ -112,6 +112,31 @@ function writeFunnelSeo(settingsJson: unknown, funnelId: string, seo: FunnelSeo 
   return base;
 }
 
+function removeFunnelFromDomainRedirects(settingsJson: unknown, funnelSlug: string) {
+  if (!settingsJson || typeof settingsJson !== "object" || Array.isArray(settingsJson)) return settingsJson;
+  const base: any = { ...(settingsJson as any) };
+  const customDomains =
+    base.customDomains && typeof base.customDomains === "object" && !Array.isArray(base.customDomains)
+      ? { ...(base.customDomains as any) }
+      : null;
+  if (!customDomains) return base;
+
+  let changed = false;
+  for (const [domain, row] of Object.entries(customDomains)) {
+    if (!row || typeof row !== "object" || Array.isArray(row)) continue;
+    const rootMode = typeof (row as any).rootMode === "string" ? String((row as any).rootMode).trim().toUpperCase() : "";
+    const rootFunnelSlug = typeof (row as any).rootFunnelSlug === "string" ? String((row as any).rootFunnelSlug).trim().toLowerCase() : "";
+    if (rootMode === "REDIRECT" && rootFunnelSlug && rootFunnelSlug === funnelSlug) {
+      customDomains[domain] = { ...(row as any), rootMode: "DIRECTORY", rootFunnelSlug: null };
+      changed = true;
+    }
+  }
+
+  if (!changed) return base;
+  base.customDomains = customDomains;
+  return base;
+}
+
 function normalizeSlug(raw: unknown) {
   const s = typeof raw === "string" ? raw.trim().toLowerCase() : "";
   const cleaned = s
@@ -272,4 +297,49 @@ export async function PATCH(req: Request, ctx: { params: Promise<{ funnelId: str
   }
 
   return NextResponse.json({ ok: true, funnel: { ...funnel, assignedDomain, seo } });
+}
+
+export async function DELETE(_req: Request, ctx: { params: Promise<{ funnelId: string }> }) {
+  const auth = await requireFunnelBuilderSession();
+  if (!auth.ok) {
+    return NextResponse.json(
+      { ok: false, error: auth.status === 401 ? "Unauthorized" : "Forbidden" },
+      { status: auth.status },
+    );
+  }
+
+  const { funnelId } = await ctx.params;
+  const id = String(funnelId || "").trim();
+  if (!id) return NextResponse.json({ ok: false, error: "Invalid id" }, { status: 400 });
+
+  const existing = await prisma.creditFunnel.findFirst({
+    where: { id, ownerId: auth.session.user.id },
+    select: { id: true, slug: true },
+  });
+  if (!existing) return NextResponse.json({ ok: false, error: "Not found" }, { status: 404 });
+
+  // Best-effort: clean up settings references (assigned domain + SEO + root redirect) before deleting.
+  try {
+    const settings = await prisma.creditFunnelBuilderSettings
+      .findUnique({ where: { ownerId: auth.session.user.id }, select: { dataJson: true } })
+      .catch(() => null);
+    const settingsJson = settings?.dataJson ?? null;
+    let nextJson: any = settingsJson;
+    nextJson = writeFunnelDomain(nextJson, existing.id, null);
+    nextJson = writeFunnelSeo(nextJson, existing.id, null);
+    nextJson = removeFunnelFromDomainRedirects(nextJson, existing.slug);
+
+    if (settingsJson != null) {
+      await prisma.creditFunnelBuilderSettings.update({
+        where: { ownerId: auth.session.user.id },
+        data: { dataJson: nextJson as any },
+        select: { ownerId: true },
+      });
+    }
+  } catch {
+    // ignore
+  }
+
+  await prisma.creditFunnel.delete({ where: { id: existing.id }, select: { id: true } });
+  return NextResponse.json({ ok: true });
 }

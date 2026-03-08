@@ -39,6 +39,8 @@ export function FormResponsesClient({ basePath, formId }: { basePath: string; fo
   const [form, setForm] = useState<CreditForm | null>(null);
   const [submissions, setSubmissions] = useState<Submission[]>([]);
   const [nextCursor, setNextCursor] = useState<string | null>(null);
+  const [cursor, setCursor] = useState<string | null>(null);
+  const [cursorStack, setCursorStack] = useState<string[]>([]);
 
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -51,7 +53,7 @@ export function FormResponsesClient({ basePath, formId }: { basePath: string; fo
   }, [formId]);
 
   const loadSubmissions = useCallback(
-    async (opts?: { cursor?: string | null; reset?: boolean }) => {
+    async (opts?: { cursor?: string | null }) => {
       const limit = 50;
       const url = new URL(`/api/portal/funnel-builder/forms/${encodeURIComponent(formId)}/submissions`, window.location.origin);
       url.searchParams.set("limit", String(limit));
@@ -62,7 +64,7 @@ export function FormResponsesClient({ basePath, formId }: { basePath: string; fo
       if (!res.ok || !json || json.ok !== true) throw new Error(json?.error || "Failed to load submissions");
 
       const page = Array.isArray(json.submissions) ? (json.submissions as Submission[]) : [];
-      setSubmissions((prev) => (opts?.reset ? page : [...prev, ...page]));
+      setSubmissions(page);
       setNextCursor(typeof json.nextCursor === "string" ? json.nextCursor : null);
     },
     [formId],
@@ -76,7 +78,9 @@ export function FormResponsesClient({ basePath, formId }: { basePath: string; fo
       try {
         await loadForm();
         if (!mounted) return;
-        await loadSubmissions({ reset: true });
+        setCursor(null);
+        setCursorStack([]);
+        await loadSubmissions({ cursor: null });
       } catch (e) {
         if (!mounted) return;
         setError((e as any)?.message ? String((e as any).message) : "Failed to load responses");
@@ -89,17 +93,30 @@ export function FormResponsesClient({ basePath, formId }: { basePath: string; fo
     };
   }, [loadForm, loadSubmissions]);
 
-  const loadMore = async () => {
-    if (!nextCursor) return;
+  const goTo = async (next: { cursor: string | null; stack: string[] }) => {
     setBusy(true);
     setError(null);
     try {
-      await loadSubmissions({ cursor: nextCursor });
+      setCursor(next.cursor);
+      setCursorStack(next.stack);
+      await loadSubmissions({ cursor: next.cursor });
     } catch (e) {
-      setError((e as any)?.message ? String((e as any).message) : "Failed to load more");
+      setError((e as any)?.message ? String((e as any).message) : "Failed to load page");
     } finally {
       setBusy(false);
     }
+  };
+
+  const goNext = async () => {
+    if (!nextCursor) return;
+    await goTo({ cursor: nextCursor, stack: [...cursorStack, cursor ?? ""] });
+  };
+
+  const goBack = async () => {
+    if (cursorStack.length === 0) return;
+    const stack = cursorStack.slice(0, -1);
+    const prev = cursorStack[cursorStack.length - 1];
+    await goTo({ cursor: prev === "" ? null : prev, stack });
   };
 
   const refresh = async () => {
@@ -107,7 +124,9 @@ export function FormResponsesClient({ basePath, formId }: { basePath: string; fo
     setError(null);
     try {
       await loadForm();
-      await loadSubmissions({ reset: true });
+      setCursor(null);
+      setCursorStack([]);
+      await loadSubmissions({ cursor: null });
     } catch (e) {
       setError((e as any)?.message ? String((e as any).message) : "Refresh failed");
     } finally {
@@ -196,18 +215,33 @@ export function FormResponsesClient({ basePath, formId }: { basePath: string; fo
         </div>
 
         <div className="flex items-center justify-between gap-3 border-t border-zinc-200 p-4">
-          <div className="text-xs text-zinc-600">{nextCursor ? "More available" : "End"}</div>
-          <button
-            type="button"
-            disabled={busy || !nextCursor}
-            onClick={loadMore}
-            className={classNames(
-              "rounded-2xl px-4 py-2 text-sm font-semibold text-white",
-              busy || !nextCursor ? "bg-zinc-400" : "bg-[color:var(--color-brand-blue)] hover:bg-blue-700",
-            )}
-          >
-            {busy ? "Loading…" : "Load more"}
-          </button>
+          <div className="text-xs text-zinc-600">
+            Page {cursorStack.length + 1} · {nextCursor ? "More available" : "End"}
+          </div>
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              disabled={busy || cursorStack.length === 0}
+              onClick={goBack}
+              className={classNames(
+                "rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm font-semibold text-brand-ink hover:bg-zinc-50",
+                busy || cursorStack.length === 0 ? "opacity-60" : "",
+              )}
+            >
+              Back
+            </button>
+            <button
+              type="button"
+              disabled={busy || !nextCursor}
+              onClick={goNext}
+              className={classNames(
+                "rounded-2xl px-4 py-2 text-sm font-semibold text-white",
+                busy || !nextCursor ? "bg-zinc-400" : "bg-[color:var(--color-brand-blue)] hover:bg-blue-700",
+              )}
+            >
+              Next
+            </button>
+          </div>
         </div>
       </div>
     </div>

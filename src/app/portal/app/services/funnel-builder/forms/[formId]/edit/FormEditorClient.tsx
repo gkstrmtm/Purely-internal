@@ -208,7 +208,14 @@ type FormEditorDialog =
   | { type: "slug-form"; value: string }
   | { type: "add-question"; label: string; name: string; fieldType: FieldType; required: boolean; optionsText: string; keyTouched: boolean }
   | { type: "delete-question"; idx: number; label: string }
+  | { type: "delete-form" }
   | null;
+
+function statusPill(label: "LIVE" | "DRAFT" | "ARCHIVED") {
+  if (label === "LIVE") return "border-green-200 bg-green-50 text-green-800";
+  if (label === "ARCHIVED") return "border-zinc-200 bg-zinc-50 text-zinc-500";
+  return "border-zinc-200 bg-zinc-50 text-zinc-700";
+}
 
 export function FormEditorClient({ basePath, formId }: { basePath: string; formId: string }) {
   const backHref = useMemo(() => `${basePath}/app/services/funnel-builder`, [basePath]);
@@ -297,6 +304,22 @@ export function FormEditorClient({ basePath, formId }: { basePath: string; formI
       setSavedAt(Date.now());
     } catch (e) {
       setError((e as any)?.message ? String((e as any).message) : "Failed to save");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const deleteForm = async () => {
+    if (!form) return;
+    setBusy(true);
+    setError(null);
+    try {
+      const res = await fetch(`/api/portal/funnel-builder/forms/${encodeURIComponent(formId)}`, { method: "DELETE" });
+      const json = (await res.json().catch(() => null)) as any;
+      if (!res.ok || !json || json.ok !== true) throw new Error(json?.error || "Failed to delete");
+      window.location.href = backHref;
+    } catch (e) {
+      setError((e as any)?.message ? String((e as any).message) : "Failed to delete");
     } finally {
       setBusy(false);
     }
@@ -635,6 +658,20 @@ export function FormEditorClient({ basePath, formId }: { basePath: string; formI
         }}
       />
 
+      <AppConfirmModal
+        open={dialog?.type === "delete-form"}
+        title="Delete form"
+        message={form ? `Delete form “${form.name}”? This will remove all submissions and cannot be undone.` : "Delete this form?"}
+        confirmLabel="Delete"
+        cancelLabel="Cancel"
+        destructive
+        onClose={closeDialog}
+        onConfirm={() => {
+          closeDialog();
+          void deleteForm();
+        }}
+      />
+
       <div className="flex flex-col items-start justify-between gap-3 sm:flex-row sm:items-end">
         <div>
           <Link href={backHref} className="text-sm font-semibold text-[color:var(--color-brand-blue)] hover:underline">
@@ -643,18 +680,59 @@ export function FormEditorClient({ basePath, formId }: { basePath: string; formI
           <div className="mt-2 text-xs font-semibold uppercase tracking-wide text-zinc-500">Form editor</div>
           <h1 className="mt-2 text-2xl font-bold text-brand-ink sm:text-3xl">{form?.name || "…"}</h1>
           <div className="mt-2 flex flex-wrap items-center gap-3 text-sm text-zinc-600">
+            {(() => {
+              const label = form?.status === "ACTIVE" ? "LIVE" : form?.status === "ARCHIVED" ? "ARCHIVED" : "DRAFT";
+              return (
+                <span
+                  className={classNames(
+                    "inline-flex items-center rounded-full border px-2.5 py-1 text-xs font-semibold",
+                    statusPill(label as any),
+                  )}
+                >
+                  {label}
+                </span>
+              );
+            })()}
             <Link
               href={hostedFormPath(form?.slug || "", form?.id || "") || `/forms/${encodeURIComponent(form?.slug || "")}`}
               target="_blank"
               className="font-semibold text-[color:var(--color-brand-blue)] hover:underline"
             >
-              View live
+              {form?.status === "ACTIVE" ? "View live" : "Preview"}
             </Link>
             {savedAt ? <div className="text-xs text-zinc-500">Saved</div> : null}
           </div>
         </div>
 
         <div className="flex flex-wrap gap-2">
+          <Link
+            href={`${basePath}/app/services/funnel-builder/forms/${encodeURIComponent(formId)}/responses`}
+            target="_blank"
+            className="rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm font-semibold text-brand-ink hover:bg-zinc-50"
+          >
+            Responses
+          </Link>
+
+          <button
+            type="button"
+            disabled={busy || !form || !fields || form.status === "ARCHIVED"}
+            onClick={() => {
+              if (!form) return;
+              void save({ status: form.status === "ACTIVE" ? "DRAFT" : "ACTIVE" });
+            }}
+            className={classNames(
+              "rounded-2xl px-4 py-2 text-sm font-semibold text-white",
+              busy || !form || !fields || form?.status === "ARCHIVED"
+                ? "bg-zinc-400"
+                : form?.status === "ACTIVE"
+                  ? "bg-zinc-700 hover:bg-zinc-800"
+                  : "bg-green-600 hover:bg-green-700",
+            )}
+            title={form?.status === "ACTIVE" ? "Set this form back to draft" : "Publish this form (make it live)"}
+          >
+            {form?.status === "ACTIVE" ? "Set draft" : "Publish"}
+          </button>
+
           <button
             type="button"
             disabled={busy}
@@ -704,6 +782,21 @@ export function FormEditorClient({ basePath, formId }: { basePath: string; formI
             )}
           >
             {busy ? "Saving…" : "Save"}
+          </button>
+
+          <button
+            type="button"
+            disabled={busy}
+            onClick={() => {
+              setDialogError(null);
+              setDialog({ type: "delete-form" });
+            }}
+            className={classNames(
+              "rounded-2xl border border-red-200 bg-red-50 px-4 py-2 text-sm font-semibold text-red-700 hover:bg-red-100",
+              busy ? "opacity-60" : "",
+            )}
+          >
+            Delete
           </button>
         </div>
       </div>

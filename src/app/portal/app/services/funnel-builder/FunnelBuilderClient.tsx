@@ -55,10 +55,18 @@ function funnelStatusLabel(
   f: { status: "DRAFT" | "ACTIVE" | "ARCHIVED"; assignedDomain?: string | null },
   assignedDomainStatus: "PENDING" | "VERIFIED" | null,
 ) {
-  if (f.status === "ARCHIVED") return "Archived";
-  if (f.assignedDomain) return assignedDomainStatus === "VERIFIED" ? "Live" : "Pending";
-  if (f.status === "ACTIVE") return "Live";
-  return "Draft";
+  if (f.status === "ARCHIVED") return "ARCHIVED";
+  if (f.assignedDomain) return assignedDomainStatus === "VERIFIED" ? "LIVE" : "PENDING";
+  if (f.status === "ACTIVE") return "LIVE";
+  return "DRAFT";
+}
+
+function statusPillClass(label: string) {
+  const s = String(label || "").trim().toUpperCase();
+  if (s === "LIVE" || s === "ACTIVE") return "border-green-200 bg-green-50 text-green-800";
+  if (s === "PENDING") return "border-amber-200 bg-amber-50 text-amber-900";
+  if (s === "ARCHIVED") return "border-zinc-200 bg-zinc-50 text-zinc-500";
+  return "border-zinc-200 bg-zinc-50 text-zinc-700";
 }
 
 function CopyIcon({ className }: { className?: string }) {
@@ -169,6 +177,9 @@ export function FunnelBuilderClient(props: { initialTab?: TabKey } = {}) {
   const [createSlug, setCreateSlug] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  const [funnelDeleteBusy, setFunnelDeleteBusy] = useState<Record<string, boolean>>({});
+  const [formDeleteBusy, setFormDeleteBusy] = useState<Record<string, boolean>>({});
 
   const [domainInput, setDomainInput] = useState("");
   const [domainBusy, setDomainBusy] = useState(false);
@@ -554,34 +565,43 @@ export function FunnelBuilderClient(props: { initialTab?: TabKey } = {}) {
         </div>
       </div>
 
-      <div className="mt-6 flex flex-wrap gap-2">
+      <div className="mt-6 flex w-full flex-wrap gap-2">
         <button
           type="button"
           onClick={() => setTab("funnels")}
-          className={classNames(
-            "rounded-full px-4 py-2 text-sm font-semibold",
-            tab === "funnels" ? "bg-brand-ink text-white" : "border border-zinc-200 bg-white text-brand-ink hover:bg-zinc-50",
-          )}
+          aria-current={tab === "funnels" ? "page" : undefined}
+          className={
+            "flex-1 min-w-[160px] rounded-2xl border px-4 py-2.5 text-sm font-semibold transition focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-ink/60 " +
+            (tab === "funnels"
+              ? "border-brand-blue bg-brand-blue text-white shadow-sm focus-visible:ring-brand-blue/40"
+              : "border-zinc-200 bg-white text-zinc-700 hover:bg-zinc-50")
+          }
         >
           Active Funnels
         </button>
         <button
           type="button"
           onClick={() => setTab("forms")}
-          className={classNames(
-            "rounded-full px-4 py-2 text-sm font-semibold",
-            tab === "forms" ? "bg-brand-ink text-white" : "border border-zinc-200 bg-white text-brand-ink hover:bg-zinc-50",
-          )}
+          aria-current={tab === "forms" ? "page" : undefined}
+          className={
+            "flex-1 min-w-[160px] rounded-2xl border px-4 py-2.5 text-sm font-semibold transition focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-ink/60 " +
+            (tab === "forms"
+              ? "border-brand-pink bg-brand-pink text-white shadow-sm focus-visible:ring-brand-pink/40"
+              : "border-zinc-200 bg-white text-zinc-700 hover:bg-zinc-50")
+          }
         >
           Forms
         </button>
         <button
           type="button"
           onClick={() => setTab("settings")}
-          className={classNames(
-            "rounded-full px-4 py-2 text-sm font-semibold",
-            tab === "settings" ? "bg-brand-ink text-white" : "border border-zinc-200 bg-white text-brand-ink hover:bg-zinc-50",
-          )}
+          aria-current={tab === "settings" ? "page" : undefined}
+          className={
+            "flex-1 min-w-[160px] rounded-2xl border px-4 py-2.5 text-sm font-semibold transition focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-ink/60 " +
+            (tab === "settings"
+              ? "border-brand-ink bg-brand-ink text-white shadow-sm focus-visible:ring-brand-ink/40"
+              : "border-zinc-200 bg-white text-zinc-700 hover:bg-zinc-50")
+          }
         >
           Settings
         </button>
@@ -663,9 +683,19 @@ export function FunnelBuilderClient(props: { initialTab?: TabKey } = {}) {
                 </div>
 
                   <div className="mt-4 flex items-center justify-between gap-3">
-                    <span className="inline-flex items-center rounded-full border border-zinc-200 bg-zinc-50 px-2.5 py-1 text-xs font-semibold text-zinc-700">
-                      {funnelStatusLabel(f, assignedDomainStatus)}
-                    </span>
+                    {(() => {
+                      const label = funnelStatusLabel(f, assignedDomainStatus);
+                      return (
+                        <span
+                          className={classNames(
+                            "inline-flex items-center rounded-full border px-2.5 py-1 text-xs font-semibold",
+                            statusPillClass(label),
+                          )}
+                        >
+                          {label}
+                        </span>
+                      );
+                    })()}
                     <div className="flex items-center gap-3">
                       <Link
                         href={`${basePath}/app/services/funnel-builder/funnels/${encodeURIComponent(f.id)}/edit`}
@@ -698,6 +728,42 @@ export function FunnelBuilderClient(props: { initialTab?: TabKey } = {}) {
                           Live
                         </span>
                       )}
+
+                      <button
+                        type="button"
+                        disabled={!!funnelDeleteBusy[f.id]}
+                        onClick={() =>
+                          void (async () => {
+                            if (funnelDeleteBusy[f.id]) return;
+                            const ok = window.confirm(
+                              `Delete funnel “${f.name}”? This will remove all pages and cannot be undone.`,
+                            );
+                            if (!ok) return;
+                            setFunnelDeleteBusy((m) => ({ ...m, [f.id]: true }));
+                            setError(null);
+                            try {
+                              const res = await fetch(`/api/portal/funnel-builder/funnels/${encodeURIComponent(f.id)}`, {
+                                method: "DELETE",
+                              });
+                              const json = (await res.json().catch(() => ({}))) as any;
+                              if (!res.ok || json?.ok !== true) throw new Error(json?.error || "Failed to delete funnel");
+                              setFunnels((prev) => (prev ? prev.filter((row) => row.id !== f.id) : prev));
+                              try {
+                                await loadDomains();
+                              } catch {
+                                // ignore
+                              }
+                            } catch (e) {
+                              setError((e as any)?.message ? String((e as any).message) : "Failed to delete funnel");
+                            } finally {
+                              setFunnelDeleteBusy((m) => ({ ...m, [f.id]: false }));
+                            }
+                          })()
+                        }
+                        className="text-sm font-semibold text-red-600 hover:underline disabled:opacity-60"
+                      >
+                        Delete
+                      </button>
                     </div>
                   </div>
                 </div>
@@ -733,9 +799,19 @@ export function FunnelBuilderClient(props: { initialTab?: TabKey } = {}) {
                 <div className="text-base font-semibold text-brand-ink">{f.name}</div>
                 <div className="mt-1 text-sm text-zinc-600">/{f.slug}</div>
                 <div className="mt-4 flex items-center justify-between gap-3">
-                  <span className="inline-flex items-center rounded-full border border-zinc-200 bg-zinc-50 px-2.5 py-1 text-xs font-semibold text-zinc-700">
-                    {f.status}
-                  </span>
+                  {(() => {
+                    const label = f.status === "ACTIVE" ? "LIVE" : f.status === "ARCHIVED" ? "ARCHIVED" : "DRAFT";
+                    return (
+                      <span
+                        className={classNames(
+                          "inline-flex items-center rounded-full border px-2.5 py-1 text-xs font-semibold",
+                          statusPillClass(label),
+                        )}
+                      >
+                        {label}
+                      </span>
+                    );
+                  })()}
                   <div className="flex items-center gap-3">
                     <Link
                       href={`${basePath}/app/services/funnel-builder/forms/${encodeURIComponent(f.id)}/edit`}
@@ -758,6 +834,37 @@ export function FunnelBuilderClient(props: { initialTab?: TabKey } = {}) {
                     >
                       Preview
                     </Link>
+
+                    <button
+                      type="button"
+                      disabled={!!formDeleteBusy[f.id]}
+                      onClick={() =>
+                        void (async () => {
+                          if (formDeleteBusy[f.id]) return;
+                          const ok = window.confirm(
+                            `Delete form “${f.name}”? This will remove all submissions and cannot be undone.`,
+                          );
+                          if (!ok) return;
+                          setFormDeleteBusy((m) => ({ ...m, [f.id]: true }));
+                          setError(null);
+                          try {
+                            const res = await fetch(`/api/portal/funnel-builder/forms/${encodeURIComponent(f.id)}`, {
+                              method: "DELETE",
+                            });
+                            const json = (await res.json().catch(() => ({}))) as any;
+                            if (!res.ok || json?.ok !== true) throw new Error(json?.error || "Failed to delete form");
+                            setForms((prev) => (prev ? prev.filter((row) => row.id !== f.id) : prev));
+                          } catch (e) {
+                            setError((e as any)?.message ? String((e as any).message) : "Failed to delete form");
+                          } finally {
+                            setFormDeleteBusy((m) => ({ ...m, [f.id]: false }));
+                          }
+                        })()
+                      }
+                      className="text-sm font-semibold text-red-600 hover:underline disabled:opacity-60"
+                    >
+                      Delete
+                    </button>
                   </div>
                 </div>
               </div>

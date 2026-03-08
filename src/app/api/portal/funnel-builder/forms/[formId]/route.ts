@@ -174,3 +174,23 @@ export async function PATCH(req: Request, ctx: { params: Promise<{ formId: strin
   if (!form) return NextResponse.json({ ok: false, error: "That slug is already taken" }, { status: 409 });
   return NextResponse.json({ ok: true, form });
 }
+
+export async function DELETE(_req: Request, ctx: { params: Promise<{ formId: string }> }) {
+  const auth = await requireFunnelBuilderSession();
+  if (!auth.ok) {
+    return NextResponse.json(
+      { ok: false, error: auth.status === 401 ? "Unauthorized" : "Forbidden" },
+      { status: auth.status },
+    );
+  }
+
+  const { formId } = await ctx.params;
+  const id = String(formId || "").trim();
+  if (!id) return NextResponse.json({ ok: false, error: "Invalid id" }, { status: 400 });
+
+  const existing = await prisma.creditForm.findFirst({ where: { id, ownerId: auth.session.user.id }, select: { id: true } });
+  if (!existing) return NextResponse.json({ ok: false, error: "Not found" }, { status: 404 });
+
+  await prisma.creditForm.delete({ where: { id: existing.id }, select: { id: true } });
+  return NextResponse.json({ ok: true });
+}
