@@ -3,7 +3,7 @@ import { getPortalBillingModelForOwner } from "@/lib/portalBillingModel.server";
 import { isCreditsOnlyBilling } from "@/lib/portalBillingModel";
 
 const DEFAULT_USD_PER_CREDIT_SUBSCRIPTION = 0.1;
-const DEFAULT_USD_PER_CREDIT_CREDITS_ONLY = 0.15;
+const DEFAULT_USD_PER_CREDIT_CREDITS_ONLY = 0.2;
 
 export async function getUsdPerCreditForOwner(opts: {
   ownerId: string;

@@ -19,14 +19,18 @@ export function PortalPeopleTabs() {
   return (
     <div className="mt-4 inline-flex overflow-hidden rounded-2xl border border-zinc-200 bg-white">
       {tabs.map((t) => {
-        const isActive = active === t.href;
+        const isActive = active === t.href || active.startsWith(t.href + "/");
+        const activeClass =
+          t.href === "/portal/app/people/contacts"
+            ? "bg-(--color-brand-blue) text-white"
+            : "bg-(--color-brand-pink) text-white";
         return (
           <Link
             key={t.href}
             href={t.href}
             className={classNames(
               "px-4 py-2 text-sm font-semibold",
-              isActive ? "bg-zinc-100 text-zinc-900" : "text-zinc-700 hover:bg-zinc-50",
+              isActive ? activeClass : "text-zinc-700 hover:bg-zinc-50",
             )}
           >
             {t.label}

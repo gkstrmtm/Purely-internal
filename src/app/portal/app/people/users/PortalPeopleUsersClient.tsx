@@ -13,6 +13,7 @@ import {
 import { PortalPeopleTabs } from "@/app/portal/app/people/PortalPeopleTabs";
 import { normalizePortalPermissions } from "@/lib/portalPermissions";
 import { PortalListboxDropdown } from "@/components/PortalListboxDropdown";
+import { AppModal } from "@/components/AppModal";
 import { useToast } from "@/components/ToastProvider";
 
 type MemberRow = {
@@ -61,6 +62,7 @@ export function PortalPeopleUsersClient() {
   const [invitePermissions, setInvitePermissions] = useState<PortalPermissions>(() =>
     defaultPortalPermissionsForRole("MEMBER"),
   );
+  const [inviteModalOpen, setInviteModalOpen] = useState(false);
   const [inviting, setInviting] = useState(false);
   const [permissionsOpen, setPermissionsOpen] = useState(false);
   const permissionsDropdownRef = useRef<HTMLDivElement | null>(null);
@@ -240,6 +242,7 @@ export function PortalPeopleUsersClient() {
       setInviteRole("MEMBER");
       setInvitePermissions(defaultPortalPermissionsForRole("MEMBER"));
       setPermissionsOpen(false);
+      setInviteModalOpen(false);
 
       const link = String(json.link || "");
       if (link) {
@@ -354,15 +357,39 @@ export function PortalPeopleUsersClient() {
           <div className="rounded-3xl border border-zinc-200 bg-white p-6">
             <div className="flex items-center justify-between gap-3">
               <div className="text-base font-semibold text-zinc-900">Invites</div>
-              {canInvite ? (
-                <div className="text-xs text-zinc-500">Create an invite link for a teammate.</div>
-              ) : (
-                <div className="text-xs text-zinc-500">Only admins can invite.</div>
-              )}
+              <div className="flex items-center gap-2">
+                {canInvite ? (
+                  <div className="hidden text-xs text-zinc-500 sm:block">Create an invite link for a teammate.</div>
+                ) : (
+                  <div className="text-xs text-zinc-500">Only admins can invite.</div>
+                )}
+                {canInvite ? (
+                  <button
+                    type="button"
+                    className="rounded-2xl bg-(--color-brand-pink) px-3 py-2 text-sm font-semibold text-white hover:opacity-95 disabled:opacity-60"
+                    onClick={() => {
+                      setInviteModalOpen(true);
+                      setPermissionsOpen(false);
+                    }}
+                    disabled={inviting}
+                  >
+                    New Invite
+                  </button>
+                ) : null}
+              </div>
             </div>
 
-            {canInvite ? (
-              <div className="mt-4 rounded-2xl border border-zinc-200 bg-zinc-50 p-4">
+            <AppModal
+              open={inviteModalOpen}
+              title="New invite"
+              description="Create an invite link for a teammate."
+              onClose={() => {
+                setInviteModalOpen(false);
+                setPermissionsOpen(false);
+              }}
+              widthClassName="w-[min(720px,calc(100vw-32px))]"
+            >
+              <div className="rounded-2xl border border-zinc-200 bg-zinc-50 p-4">
                 <div className="grid grid-cols-1 gap-3 sm:grid-cols-[1fr,180px]">
                   <div>
                     <div className="text-xs font-semibold text-zinc-700">Email</div>
@@ -370,7 +397,7 @@ export function PortalPeopleUsersClient() {
                       value={inviteEmail}
                       onChange={(e) => setInviteEmail(e.target.value)}
                       placeholder="teammate@company.com"
-                      className="mt-1 w-full rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-sm outline-none focus:border-[color:var(--color-brand-blue)]"
+                      className="mt-1 w-full rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-sm outline-none focus:border-(--color-brand-blue)"
                     />
                   </div>
                   <div>
@@ -396,78 +423,78 @@ export function PortalPeopleUsersClient() {
                       Admins have full access to all services.
                     </div>
                   ) : (
-                  <div className="relative mt-1" ref={permissionsDropdownRef}>
-                    <button
-                      type="button"
-                      onClick={() => setPermissionsOpen((v) => !v)}
-                      className="flex w-full items-center justify-between rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-sm text-zinc-800 hover:bg-zinc-50"
-                    >
-                      <span>
-                        {selectedServicesCount} of {PORTAL_SERVICE_KEYS.length} enabled
-                      </span>
-                      <span className="text-xs text-zinc-500">{permissionsOpen ? "Hide" : "Edit"}</span>
-                    </button>
+                    <div className="relative mt-1" ref={permissionsDropdownRef}>
+                      <button
+                        type="button"
+                        onClick={() => setPermissionsOpen((v) => !v)}
+                        className="flex w-full items-center justify-between rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-sm text-zinc-800 hover:bg-zinc-50"
+                      >
+                        <span>
+                          {selectedServicesCount} of {PORTAL_SERVICE_KEYS.length} enabled
+                        </span>
+                        <span className="text-xs text-zinc-500">{permissionsOpen ? "Hide" : "Edit"}</span>
+                      </button>
 
-                    {permissionsOpen ? (
-                      <div className="absolute z-20 mt-2 w-full overflow-hidden rounded-2xl border border-zinc-200 bg-white shadow-lg">
-                        <div className="flex items-center justify-between gap-2 border-b border-zinc-200 bg-zinc-50 px-3 py-2">
-                          <div className="text-xs font-semibold uppercase tracking-wide text-zinc-500">Services</div>
-                          <div className="flex items-center gap-2">
-                            <button
-                              type="button"
-                              onClick={() => setAllPermissions(true)}
-                              className="rounded-lg border border-zinc-200 bg-white px-2 py-1 text-xs font-semibold text-zinc-700 hover:bg-zinc-50"
-                            >
-                              All full
-                            </button>
-                            <button
-                              type="button"
-                              onClick={() => {
-                                const next = { ...invitePermissions };
-                                for (const k of PORTAL_SERVICE_KEYS) next[k] = { view: true, edit: false };
-                                setInvitePermissions(next);
-                              }}
-                              className="rounded-lg border border-zinc-200 bg-white px-2 py-1 text-xs font-semibold text-zinc-700 hover:bg-zinc-50"
-                            >
-                              All view
-                            </button>
-                            <button
-                              type="button"
-                              onClick={() => setAllPermissions(false)}
-                              className="rounded-lg border border-zinc-200 bg-white px-2 py-1 text-xs font-semibold text-zinc-700 hover:bg-zinc-50"
-                            >
-                              None
-                            </button>
+                      {permissionsOpen ? (
+                        <div className="absolute z-20 mt-2 w-full overflow-hidden rounded-2xl border border-zinc-200 bg-white shadow-lg">
+                          <div className="flex items-center justify-between gap-2 border-b border-zinc-200 bg-zinc-50 px-3 py-2">
+                            <div className="text-xs font-semibold uppercase tracking-wide text-zinc-500">Services</div>
+                            <div className="flex items-center gap-2">
+                              <button
+                                type="button"
+                                onClick={() => setAllPermissions(true)}
+                                className="rounded-lg border border-zinc-200 bg-white px-2 py-1 text-xs font-semibold text-zinc-700 hover:bg-zinc-50"
+                              >
+                                All full
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  const next = { ...invitePermissions };
+                                  for (const k of PORTAL_SERVICE_KEYS) next[k] = { view: true, edit: false };
+                                  setInvitePermissions(next);
+                                }}
+                                className="rounded-lg border border-zinc-200 bg-white px-2 py-1 text-xs font-semibold text-zinc-700 hover:bg-zinc-50"
+                              >
+                                All view
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => setAllPermissions(false)}
+                                className="rounded-lg border border-zinc-200 bg-white px-2 py-1 text-xs font-semibold text-zinc-700 hover:bg-zinc-50"
+                              >
+                                None
+                              </button>
+                            </div>
+                          </div>
+
+                          <div className="max-h-72 overflow-auto p-2">
+                            {PORTAL_SERVICE_KEYS.map((k) => (
+                              <div
+                                key={k}
+                                className="flex items-center justify-between gap-3 rounded-xl px-2 py-2 text-sm hover:bg-zinc-50"
+                              >
+                                <span className="text-zinc-800">{PORTAL_SERVICE_LABELS[k]}</span>
+                                <PortalListboxDropdown<PermissionLevel>
+                                  value={levelFor(k)}
+                                  onChange={(v) => setPermissionLevel(k, v || "none")}
+                                  options={[
+                                    { value: "none", label: "No access" },
+                                    { value: "view", label: "View only" },
+                                    { value: "full", label: "Full" },
+                                  ]}
+                                  buttonClassName="flex items-center justify-between gap-2 rounded-xl border border-zinc-200 bg-white px-2 py-1 text-xs font-semibold text-zinc-800 hover:bg-zinc-50"
+                                />
+                              </div>
+                            ))}
+                          </div>
+
+                          <div className="border-t border-zinc-200 bg-zinc-50 px-3 py-2 text-xs text-zinc-500">
+                            Defaults: Admin = all services, Member = limited.
                           </div>
                         </div>
-
-                        <div className="max-h-72 overflow-auto p-2">
-                          {PORTAL_SERVICE_KEYS.map((k) => (
-                            <div
-                              key={k}
-                              className="flex items-center justify-between gap-3 rounded-xl px-2 py-2 text-sm hover:bg-zinc-50"
-                            >
-                              <span className="text-zinc-800">{PORTAL_SERVICE_LABELS[k]}</span>
-                              <PortalListboxDropdown<PermissionLevel>
-                                value={levelFor(k)}
-                                onChange={(v) => setPermissionLevel(k, v || "none")}
-                                options={[
-                                  { value: "none", label: "No access" },
-                                  { value: "view", label: "View only" },
-                                  { value: "full", label: "Full" },
-                                ]}
-                                buttonClassName="flex items-center justify-between gap-2 rounded-xl border border-zinc-200 bg-white px-2 py-1 text-xs font-semibold text-zinc-800 hover:bg-zinc-50"
-                              />
-                            </div>
-                          ))}
-                        </div>
-
-                        <div className="border-t border-zinc-200 bg-zinc-50 px-3 py-2 text-xs text-zinc-500">
-                          Defaults: Admin = all services, Member = limited.
-                        </div>
-                      </div>
-                    ) : null}
-                  </div>
+                      ) : null}
+                    </div>
                   )}
                 </div>
 
@@ -481,14 +508,14 @@ export function PortalPeopleUsersClient() {
                       "rounded-2xl px-4 py-2 text-sm font-semibold",
                       inviting || !inviteEmail.trim()
                         ? "cursor-not-allowed bg-zinc-200 text-zinc-600"
-                        : "bg-[color:var(--color-brand-blue)] text-white hover:brightness-95",
+                        : "bg-(--color-brand-blue) text-white hover:opacity-95",
                     )}
                   >
                     {inviting ? "Inviting…" : "Send invite"}
                   </button>
                 </div>
               </div>
-            ) : null}
+            </AppModal>
 
             <div className="mt-4 max-h-[60vh] overflow-auto rounded-2xl border border-zinc-200">
               <table className="w-full text-left text-sm">

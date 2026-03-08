@@ -943,12 +943,21 @@ export function PortalBillingClient() {
                 When enabled, we’ll automatically charge your saved card and add credits when you run out.
               </div>
             </div>
-            <input
-              type="checkbox"
-              checked={autoTopUp}
-              disabled={actionBusy !== null}
-              onChange={(e) => void saveAutoTopUp(e.target.checked)}
-            />
+            <label className="flex items-center gap-3">
+              <span className="text-xs font-semibold text-zinc-600">Enabled</span>
+              <span className="relative inline-flex h-6 w-11 shrink-0 items-center">
+                <input
+                  type="checkbox"
+                  className="peer sr-only"
+                  checked={autoTopUp}
+                  disabled={actionBusy !== null}
+                  onChange={(e) => void saveAutoTopUp(e.target.checked)}
+                  aria-label="Enable auto top-up"
+                />
+                <span className="h-6 w-11 rounded-full bg-zinc-200 transition peer-checked:bg-(--color-brand-blue) peer-focus-visible:ring-2 peer-focus-visible:ring-brand-ink/40 peer-focus-visible:ring-offset-2 peer-focus-visible:ring-offset-zinc-50 peer-disabled:opacity-60" />
+                <span className="pointer-events-none absolute left-0.5 top-0.5 h-5 w-5 rounded-full bg-white shadow-sm transition peer-checked:translate-x-5 peer-disabled:opacity-60" />
+              </span>
+            </label>
           </div>
         </div>
 
@@ -1159,7 +1168,8 @@ export function PortalBillingClient() {
         <div className="text-sm font-semibold text-zinc-900">Services & status</div>
         <div className="mt-2 text-sm text-zinc-600">Live status from your account.</div>
 
-        <div className="mt-4 space-y-2 text-sm text-zinc-700">
+        <div className="mt-4 max-h-[60vh] overflow-auto pr-1">
+          <div className="space-y-2 text-sm text-zinc-700">
           {(() => {
             const servicesList = PORTAL_SERVICES.filter((s) => !s.hidden && (!s.variants || s.variants.includes("portal")));
             const rows = servicesList.map((s) => {
@@ -1343,6 +1353,7 @@ export function PortalBillingClient() {
               </>
             );
           })()}
+          </div>
         </div>
 
         <div className="mt-6 rounded-2xl border border-brand-ink/10 bg-linear-to-br from-brand-blue/10 to-white p-4 text-sm text-zinc-800">

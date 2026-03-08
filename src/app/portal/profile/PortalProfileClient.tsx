@@ -1,10 +1,11 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 
 import { useToast } from "@/components/ToastProvider";
 import { PortalListboxDropdown } from "@/components/PortalListboxDropdown";
+import { AppModal } from "@/components/AppModal";
 
 import { BusinessProfileForm } from "./BusinessProfileForm";
 import { formatPhoneForDisplay, normalizePhoneStrict } from "@/lib/phone";
@@ -224,6 +225,23 @@ export function PortalProfileClient() {
   const [pwNext, setPwNext] = useState("");
   const [pwConfirm, setPwConfirm] = useState("");
   const [savingPassword, setSavingPassword] = useState(false);
+
+  const [passwordModalOpen, setPasswordModalOpen] = useState(false);
+  const [advancedOpen, setAdvancedOpen] = useState(false);
+
+  const advancedRef = useRef<HTMLDivElement | null>(null);
+  const webhooksRef = useRef<HTMLDivElement | null>(null);
+  const twilioRef = useRef<HTMLDivElement | null>(null);
+  const salesReportingRef = useRef<HTMLDivElement | null>(null);
+  const businessEmailRef = useRef<HTMLDivElement | null>(null);
+  const businessInfoRef = useRef<HTMLDivElement | null>(null);
+
+  function openAdvancedAndScrollTo(ref: React.RefObject<HTMLDivElement | null>) {
+    setAdvancedOpen(true);
+    setTimeout(() => {
+      ref.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+    }, 50);
+  }
 
   const canSaveContact = useMemo(() => {
     if (!me) return false;
@@ -776,6 +794,7 @@ export function PortalProfileClient() {
     setPwCurrent("");
     setPwNext("");
     setPwConfirm("");
+    setPasswordModalOpen(false);
     setNotice(json.note ?? "Password updated.");
   }
 
@@ -798,7 +817,8 @@ export function PortalProfileClient() {
                 title="Contact info"
                 description="Name, email, phone, and password."
                 accent="blue"
-                defaultOpen
+                collapsible={false}
+                dotClassName="hidden"
               >
                 <div className="mt-1 grid grid-cols-1 gap-4 sm:grid-cols-2">
                   <div>
@@ -896,56 +916,14 @@ export function PortalProfileClient() {
                   >
                     {savingContact ? "Saving…" : "Save contact info"}
                   </button>
-                </div>
-
-                <div className="mt-6 rounded-2xl border border-zinc-200 bg-zinc-50 p-4">
-                  <div className="text-sm font-semibold text-zinc-900">Change password</div>
-                  <div className="mt-1 text-sm text-zinc-600">Update your password for this account.</div>
-
-                  <div className="mt-4 grid grid-cols-1 gap-3 sm:grid-cols-2">
-                    <div className="sm:col-span-2">
-                      <label className="text-xs font-semibold text-zinc-600">Current password</label>
-                      <input
-                        value={pwCurrent}
-                        onChange={(e) => setPwCurrent(e.target.value)}
-                        type="password"
-                        className="mt-1 w-full rounded-2xl border border-zinc-200 bg-white px-4 py-3 text-sm outline-none focus:border-zinc-300"
-                        placeholder="Current password"
-                      />
-                    </div>
-                    <div>
-                      <label className="text-xs font-semibold text-zinc-600">New password</label>
-                      <input
-                        value={pwNext}
-                        onChange={(e) => setPwNext(e.target.value)}
-                        type="password"
-                        className="mt-1 w-full rounded-2xl border border-zinc-200 bg-white px-4 py-3 text-sm outline-none focus:border-zinc-300"
-                        placeholder="At least 8 characters"
-                      />
-                    </div>
-                    <div>
-                      <label className="text-xs font-semibold text-zinc-600">Confirm new password</label>
-                      <input
-                        value={pwConfirm}
-                        onChange={(e) => setPwConfirm(e.target.value)}
-                        type="password"
-                        className="mt-1 w-full rounded-2xl border border-zinc-200 bg-white px-4 py-3 text-sm outline-none focus:border-zinc-300"
-                        placeholder="Repeat new password"
-                      />
-                    </div>
-                  </div>
-
-                  <div className="mt-4 flex flex-col gap-3 sm:flex-row">
-                    <button
-                      type="button"
-                      onClick={changePassword}
-                      disabled={!canSavePassword || savingPassword}
-                      className="inline-flex items-center justify-center rounded-2xl bg-[color:var(--color-brand-blue)] px-5 py-3 text-sm font-semibold text-white hover:opacity-95 disabled:opacity-60"
-                    >
-                      {savingPassword ? "Updating…" : "Update password"}
-                    </button>
-                    <div className="text-xs text-zinc-500 sm:self-center">After updating, sign out/in on other devices.</div>
-                  </div>
+                  <button
+                    type="button"
+                    className="inline-flex items-center justify-center rounded-2xl border border-zinc-200 bg-white px-5 py-3 text-sm font-semibold text-brand-ink hover:bg-zinc-50 disabled:opacity-60"
+                    onClick={() => setPasswordModalOpen(true)}
+                    disabled={!canEditProfile}
+                  >
+                    Change password
+                  </button>
                 </div>
               </PortalSettingsSection>
             </div>
@@ -955,148 +933,231 @@ export function PortalProfileClient() {
               <div className="mt-2 text-sm text-zinc-600">
                 Keep your account secure.
               </div>
-              <div className="mt-5 space-y-2 text-sm text-zinc-700">
-                <div>• Use a strong password</div>
-                <div>• Don’t share logins</div>
-                <div>• Sign out on shared devices</div>
+              <div className="mt-4 space-y-2">
+                <button
+                  type="button"
+                  onClick={() => openAdvancedAndScrollTo(advancedRef)}
+                  className="w-full rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm font-semibold text-brand-ink hover:bg-zinc-50"
+                >
+                  Open advanced
+                </button>
+
+                <div className="grid grid-cols-2 gap-2">
+                  {canViewTwilio ? (
+                    <button
+                      type="button"
+                      onClick={() => openAdvancedAndScrollTo(twilioRef)}
+                      className="rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-xs font-semibold text-zinc-800 hover:bg-zinc-50"
+                    >
+                      Twilio
+                    </button>
+                  ) : null}
+                  {canViewWebhooks ? (
+                    <button
+                      type="button"
+                      onClick={() => openAdvancedAndScrollTo(webhooksRef)}
+                      className="rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-xs font-semibold text-zinc-800 hover:bg-zinc-50"
+                    >
+                      Webhooks
+                    </button>
+                  ) : null}
+                  <button
+                    type="button"
+                    onClick={() => openAdvancedAndScrollTo(salesReportingRef)}
+                    className="rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-xs font-semibold text-zinc-800 hover:bg-zinc-50"
+                  >
+                    Sales reporting
+                  </button>
+                  {portalMe?.ok === true ? (
+                    <button
+                      type="button"
+                      onClick={() => openAdvancedAndScrollTo(businessEmailRef)}
+                      className="rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-xs font-semibold text-zinc-800 hover:bg-zinc-50"
+                    >
+                      Business email
+                    </button>
+                  ) : null}
+                  {canViewBusinessInfo ? (
+                    <button
+                      type="button"
+                      onClick={() => openAdvancedAndScrollTo(businessInfoRef)}
+                      className="col-span-2 rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-xs font-semibold text-zinc-800 hover:bg-zinc-50"
+                    >
+                      Business info
+                    </button>
+                  ) : null}
+                </div>
+
+                <div className="pt-2 text-xs text-zinc-500">
+                  Use these shortcuts to jump to integrations and advanced settings.
+                </div>
               </div>
             </div>
           </div>
 
-          {canViewWebhooks ? (
-            <PortalSettingsSection
-              title="Webhooks (copy/paste)"
-              description="Paste these into Twilio so calls flow into your AI Receptionist and Missed-Call Text Back."
-              accent="blue"
-            >
-              <div className="space-y-3">
-                <CopyRow label="Calls (Primary handler: AI Receptionist)" value={webhooks?.legacy?.aiReceptionistVoiceUrl ?? null} />
-                <CopyRow label="Calls (If primary handler fails: Missed Call Text Back)" value={webhooks?.legacy?.missedCallVoiceUrl ?? null} />
-
-                <div className="rounded-2xl border border-zinc-200 bg-white p-4 text-sm text-zinc-700">
-                  <div className="font-semibold text-zinc-900">Where do I paste these in Twilio?</div>
-                  <div className="mt-2 space-y-1">
-                    <div>1) Twilio Console → Phone Numbers → Manage → Active numbers → click your number</div>
-                    <div>2) For calls: Voice &amp; Fax → A CALL COMES IN → paste <span className="font-semibold">Calls (Primary handler: AI Receptionist)</span></div>
-                    <div>3) Still in Voice &amp; Fax → IF PRIMARY HANDLER FAILS → paste <span className="font-semibold">Calls (If primary handler fails: Missed Call Text Back)</span></div>
-                  </div>
-                  <div className="mt-2 text-xs text-zinc-500">SMS webhooks are configured automatically when you connect Twilio.</div>
-                </div>
-
-                {webhooks?.baseUrl ? (
-                  <div className="text-xs text-zinc-500">
-                    Webhook base: <span className="font-mono">{webhooks.baseUrl}</span>
-                  </div>
-                ) : null}
+          <div ref={advancedRef} className="rounded-3xl border border-zinc-200 bg-white p-6">
+            <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+              <div>
+                <div className="text-sm font-semibold text-zinc-900">Advanced</div>
+                <div className="mt-1 text-sm text-zinc-600">Integrations, webhooks, and business settings.</div>
               </div>
-            </PortalSettingsSection>
-          ) : null}
+              <button
+                type="button"
+                onClick={() => setAdvancedOpen((v) => !v)}
+                className="rounded-2xl bg-brand-ink px-4 py-2 text-sm font-semibold text-white hover:opacity-95"
+              >
+                {advancedOpen ? "Hide advanced" : "Show advanced"}
+              </button>
+            </div>
+          </div>
 
-          {canViewTwilio ? (
-            <PortalSettingsSection
-              title="Twilio"
-              description="Paste your Twilio Account SID, Auth Token, and From number. This powers Inbox (SMS) + AI Receptionist + Missed-Call Text Back."
-              accent="blue"
-            >
-              <div className="space-y-3">
-                {twilioNote ? (
-                  <div className="rounded-2xl border border-emerald-200 bg-emerald-50 p-4 text-sm text-emerald-800">{twilioNote}</div>
-                ) : null}
+          {advancedOpen ? (
+            <div className="space-y-4">
+              {canViewWebhooks ? (
+                <div ref={webhooksRef}>
+                  <PortalSettingsSection
+                    title="Webhooks (copy/paste)"
+                    description="Paste these into Twilio so calls flow into your AI Receptionist and Missed-Call Text Back."
+                    accent="blue"
+                    collapsible={false}
+                    dotClassName="hidden"
+                  >
+                    <div className="space-y-3">
+                      <CopyRow label="Calls (Primary handler: AI Receptionist)" value={webhooks?.legacy?.aiReceptionistVoiceUrl ?? null} />
+                      <CopyRow label="Calls (If primary handler fails: Missed Call Text Back)" value={webhooks?.legacy?.missedCallVoiceUrl ?? null} />
 
-                {!canEditTwilio ? (
-                  <div className="rounded-2xl border border-zinc-200 bg-zinc-50 p-4 text-sm text-zinc-600">
-                    You have view-only access.
-                  </div>
-                ) : null}
+                      <div className="rounded-2xl border border-zinc-200 bg-white p-4 text-sm text-zinc-700">
+                        <div className="font-semibold text-zinc-900">Where do I paste these in Twilio?</div>
+                        <div className="mt-2 space-y-1">
+                          <div>1) Twilio Console → Phone Numbers → Manage → Active numbers → click your number</div>
+                          <div>2) For calls: Voice &amp; Fax → A CALL COMES IN → paste <span className="font-semibold">Calls (Primary handler: AI Receptionist)</span></div>
+                          <div>3) Still in Voice &amp; Fax → IF PRIMARY HANDLER FAILS → paste <span className="font-semibold">Calls (If primary handler fails: Missed Call Text Back)</span></div>
+                        </div>
+                        <div className="mt-2 text-xs text-zinc-500">SMS webhooks are configured automatically when you connect Twilio.</div>
+                      </div>
 
-                <div className="rounded-2xl border border-zinc-200 bg-zinc-50 p-4 text-xs text-zinc-600">
-                  <div>
-                    Configured: <span className="font-semibold text-zinc-900">{twilioMasked?.configured ? "Yes" : "No"}</span>
-                  </div>
-                  <div className="mt-1">
-                    Account: <span className="font-mono">{twilioMasked?.accountSidMasked ?? "N/A"}</span>
-                  </div>
-                  <div className="mt-1">
-                    From: <span className="font-mono">{twilioMasked?.fromNumberE164 ?? "N/A"}</span>
-                  </div>
+                      {webhooks?.baseUrl ? (
+                        <div className="text-xs text-zinc-500">
+                          Webhook base: <span className="font-mono">{webhooks.baseUrl}</span>
+                        </div>
+                      ) : null}
+                    </div>
+                  </PortalSettingsSection>
                 </div>
-
-                <div className="rounded-2xl border border-zinc-200 bg-white p-4 text-sm text-zinc-700">
-                  <div className="font-semibold text-zinc-900">Where do I find these?</div>
-                  <div className="mt-2 space-y-1">
-                    <div>• Account SID + Auth Token: Twilio Console → Account → <span className="font-semibold">Account Info</span></div>
-                    <div>• From number: Twilio Console → Phone Numbers → <span className="font-semibold">Active numbers</span></div>
-                  </div>
-                  <div className="mt-2 text-xs text-zinc-500">Tip: paste the number in E.164 format (example: +15551234567).</div>
-                </div>
-
-                <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-                  <div className="sm:col-span-2">
-                    <label className="text-xs font-semibold text-zinc-700">Account SID</label>
-                    <input
-                      value={twilioAccountSid}
-                      onChange={(e) => setTwilioAccountSid(e.target.value)}
-                      placeholder={twilioMasked?.accountSidMasked ? `Current: ${twilioMasked.accountSidMasked}` : "AC…"}
-                      className="mt-2 w-full rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-sm"
-                      disabled={!canEditTwilio}
-                    />
-                  </div>
-                  <div>
-                    <label className="text-xs font-semibold text-zinc-700">Auth Token</label>
-                    <input
-                      value={twilioAuthToken}
-                      onChange={(e) => setTwilioAuthToken(e.target.value)}
-                      type="password"
-                      placeholder={twilioMasked?.configured ? "•••••• (leave blank to keep)" : ""}
-                      className="mt-2 w-full rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-sm"
-                      disabled={!canEditTwilio}
-                    />
-                  </div>
-                  <div>
-                    <label className="text-xs font-semibold text-zinc-700">From number</label>
-                    <input
-                      value={twilioFromNumber}
-                      onChange={(e) => setTwilioFromNumber(e.target.value)}
-                      placeholder={twilioMasked?.fromNumberE164 ?? "+1…"}
-                      className="mt-2 w-full rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-sm"
-                      disabled={!canEditTwilio}
-                    />
-                  </div>
-                </div>
-
-                {canEditTwilio ? (
-                  <div className="flex flex-col gap-2 sm:flex-row">
-                    <button
-                      type="button"
-                      onClick={() => void saveTwilio()}
-                      disabled={savingTwilio}
-                      className="inline-flex items-center justify-center rounded-2xl bg-[color:var(--color-brand-blue)] px-4 py-2 text-sm font-semibold text-white hover:opacity-95 disabled:opacity-60"
-                    >
-                      {savingTwilio ? "Saving…" : "Save Twilio"}
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => void clearTwilio()}
-                      disabled={savingTwilio}
-                      className="inline-flex items-center justify-center rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm font-semibold text-brand-ink hover:bg-zinc-50 disabled:opacity-60"
-                    >
-                      Clear
-                    </button>
-                  </div>
-                ) : null}
-              </div>
-            </PortalSettingsSection>
-          ) : null}
-
-          <PortalSettingsSection
-            title="Sales Reporting"
-            description="Connect your payment processor to unlock a sales dashboard."
-            accent="blue"
-          >
-            <div className="space-y-3">
-              {stripeNote ? (
-                <div className="rounded-2xl border border-emerald-200 bg-emerald-50 p-4 text-sm text-emerald-800">{stripeNote}</div>
               ) : null}
+
+              {canViewTwilio ? (
+                <div ref={twilioRef}>
+                  <PortalSettingsSection
+                    title="Twilio"
+                    description="Paste your Twilio Account SID, Auth Token, and From number. This powers Inbox (SMS) + AI Receptionist + Missed-Call Text Back."
+                    accent="blue"
+                    collapsible={false}
+                    dotClassName="hidden"
+                  >
+                    <div className="space-y-3">
+                      {twilioNote ? (
+                        <div className="rounded-2xl border border-emerald-200 bg-emerald-50 p-4 text-sm text-emerald-800">{twilioNote}</div>
+                      ) : null}
+
+                      {!canEditTwilio ? (
+                        <div className="rounded-2xl border border-zinc-200 bg-zinc-50 p-4 text-sm text-zinc-600">
+                          You have view-only access.
+                        </div>
+                      ) : null}
+
+                      <div className="rounded-2xl border border-zinc-200 bg-zinc-50 p-4 text-xs text-zinc-600">
+                        <div>
+                          Configured: <span className="font-semibold text-zinc-900">{twilioMasked?.configured ? "Yes" : "No"}</span>
+                        </div>
+                        <div className="mt-1">
+                          Account: <span className="font-mono">{twilioMasked?.accountSidMasked ?? "N/A"}</span>
+                        </div>
+                        <div className="mt-1">
+                          From: <span className="font-mono">{twilioMasked?.fromNumberE164 ?? "N/A"}</span>
+                        </div>
+                      </div>
+
+                      <div className="rounded-2xl border border-zinc-200 bg-white p-4 text-sm text-zinc-700">
+                        <div className="font-semibold text-zinc-900">Where do I find these?</div>
+                        <div className="mt-2 space-y-1">
+                          <div>• Account SID + Auth Token: Twilio Console → Account → <span className="font-semibold">Account Info</span></div>
+                          <div>• From number: Twilio Console → Phone Numbers → <span className="font-semibold">Active numbers</span></div>
+                        </div>
+                        <div className="mt-2 text-xs text-zinc-500">Tip: paste the number in E.164 format (example: +15551234567).</div>
+                      </div>
+
+                      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                        <div className="sm:col-span-2">
+                          <label className="text-xs font-semibold text-zinc-700">Account SID</label>
+                          <input
+                            value={twilioAccountSid}
+                            onChange={(e) => setTwilioAccountSid(e.target.value)}
+                            placeholder={twilioMasked?.accountSidMasked ? `Current: ${twilioMasked.accountSidMasked}` : "AC…"}
+                            className="mt-2 w-full rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-sm"
+                            disabled={!canEditTwilio}
+                          />
+                        </div>
+                        <div>
+                          <label className="text-xs font-semibold text-zinc-700">Auth Token</label>
+                          <input
+                            value={twilioAuthToken}
+                            onChange={(e) => setTwilioAuthToken(e.target.value)}
+                            type="password"
+                            placeholder={twilioMasked?.configured ? "•••••• (leave blank to keep)" : ""}
+                            className="mt-2 w-full rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-sm"
+                            disabled={!canEditTwilio}
+                          />
+                        </div>
+                        <div>
+                          <label className="text-xs font-semibold text-zinc-700">From number</label>
+                          <input
+                            value={twilioFromNumber}
+                            onChange={(e) => setTwilioFromNumber(e.target.value)}
+                            placeholder={twilioMasked?.fromNumberE164 ?? "+1…"}
+                            className="mt-2 w-full rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-sm"
+                            disabled={!canEditTwilio}
+                          />
+                        </div>
+                      </div>
+
+                      {canEditTwilio ? (
+                        <div className="flex flex-col gap-2 sm:flex-row">
+                          <button
+                            type="button"
+                            onClick={() => void saveTwilio()}
+                            disabled={savingTwilio}
+                            className="inline-flex items-center justify-center rounded-2xl bg-[color:var(--color-brand-blue)] px-4 py-2 text-sm font-semibold text-white hover:opacity-95 disabled:opacity-60"
+                          >
+                            {savingTwilio ? "Saving…" : "Save Twilio"}
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => void clearTwilio()}
+                            disabled={savingTwilio}
+                            className="inline-flex items-center justify-center rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm font-semibold text-brand-ink hover:bg-zinc-50 disabled:opacity-60"
+                          >
+                            Clear
+                          </button>
+                        </div>
+                      ) : null}
+                    </div>
+                  </PortalSettingsSection>
+                </div>
+              ) : null}
+
+              <div ref={salesReportingRef}>
+                <PortalSettingsSection
+                  title="Sales Reporting"
+                  description="Connect your payment processor to unlock a sales dashboard."
+                  accent="blue"
+                  collapsible={false}
+                  dotClassName="hidden"
+                >
+                  <div className="space-y-3">
+                    {stripeNote ? (
+                      <div className="rounded-2xl border border-emerald-200 bg-emerald-50 p-4 text-sm text-emerald-800">{stripeNote}</div>
+                    ) : null}
 
               {stripeError ? (
                 <div className="rounded-2xl border border-red-200 bg-red-50 p-4 text-sm text-red-800">{stripeError}</div>
@@ -1427,14 +1488,18 @@ export function PortalProfileClient() {
               </div>
             </div>
           </PortalSettingsSection>
+          </div>
 
           {portalMe?.ok === true ? (
-            <PortalSettingsSection
-              title="Business email"
-              description="Your managed @purelyautomation.com email address (used for inbox sending + receiving)."
-              accent="pink"
-            >
-              <div className="space-y-3">
+            <div ref={businessEmailRef}>
+              <PortalSettingsSection
+                title="Business email"
+                description="Your managed @purelyautomation.com email address (used for inbox sending + receiving)."
+                accent="pink"
+                collapsible={false}
+                dotClassName="hidden"
+              >
+                <div className="space-y-3">
                 {mailboxNote ? (
                   <div className="rounded-2xl border border-emerald-200 bg-emerald-50 p-4 text-sm text-emerald-800">{mailboxNote}</div>
                 ) : null}
@@ -1493,23 +1558,93 @@ export function PortalProfileClient() {
                     </div>
                   )
                 ) : null}
-              </div>
-            </PortalSettingsSection>
+                </div>
+              </PortalSettingsSection>
+            </div>
           ) : null}
 
           {canViewBusinessInfo ? (
-            <PortalSettingsSection
-              title="Business info"
-              description="Update your business details and branding anytime."
-              accent="pink"
-            >
-              <BusinessProfileForm
-                embedded
-                readOnly={!canEditBusinessInfo}
-                onSaved={() => setNotice("Business info saved.")}
-              />
-            </PortalSettingsSection>
+            <div ref={businessInfoRef}>
+              <PortalSettingsSection
+                title="Business info"
+                description="Update your business details and branding anytime."
+                accent="pink"
+                collapsible={false}
+                dotClassName="hidden"
+              >
+                <BusinessProfileForm
+                  embedded
+                  readOnly={!canEditBusinessInfo}
+                  onSaved={() => setNotice("Business info saved.")}
+                />
+              </PortalSettingsSection>
+            </div>
           ) : null}
+
+            </div>
+          ) : null}
+
+          <AppModal
+            open={passwordModalOpen}
+            title="Change password"
+            description="Update your password for this account."
+            onClose={() => setPasswordModalOpen(false)}
+            widthClassName="w-[min(640px,calc(100vw-32px))]"
+            footer={
+              <div className="flex flex-col-reverse gap-2 sm:flex-row sm:items-center sm:justify-end">
+                <div className="text-xs text-zinc-500 sm:mr-auto">After updating, sign out/in on other devices.</div>
+                <button
+                  type="button"
+                  className="rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm font-semibold text-zinc-800 hover:bg-zinc-50"
+                  onClick={() => setPasswordModalOpen(false)}
+                >
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  onClick={changePassword}
+                  disabled={!canSavePassword || savingPassword}
+                  className="rounded-2xl bg-[color:var(--color-brand-blue)] px-4 py-2 text-sm font-semibold text-white hover:opacity-95 disabled:opacity-60"
+                >
+                  {savingPassword ? "Updating…" : "Update password"}
+                </button>
+              </div>
+            }
+          >
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+              <div className="sm:col-span-2">
+                <label className="text-xs font-semibold text-zinc-600">Current password</label>
+                <input
+                  value={pwCurrent}
+                  onChange={(e) => setPwCurrent(e.target.value)}
+                  type="password"
+                  className="mt-1 w-full rounded-2xl border border-zinc-200 bg-white px-4 py-3 text-sm outline-none focus:border-zinc-300"
+                  placeholder="Current password"
+                />
+              </div>
+              <div>
+                <label className="text-xs font-semibold text-zinc-600">New password</label>
+                <input
+                  value={pwNext}
+                  onChange={(e) => setPwNext(e.target.value)}
+                  type="password"
+                  className="mt-1 w-full rounded-2xl border border-zinc-200 bg-white px-4 py-3 text-sm outline-none focus:border-zinc-300"
+                  placeholder="At least 8 characters"
+                />
+              </div>
+              <div>
+                <label className="text-xs font-semibold text-zinc-600">Confirm new password</label>
+                <input
+                  value={pwConfirm}
+                  onChange={(e) => setPwConfirm(e.target.value)}
+                  type="password"
+                  className="mt-1 w-full rounded-2xl border border-zinc-200 bg-white px-4 py-3 text-sm outline-none focus:border-zinc-300"
+                  placeholder="Repeat new password"
+                />
+              </div>
+            </div>
+          </AppModal>
+
         </div>
       )}
     </div>
