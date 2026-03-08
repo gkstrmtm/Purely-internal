@@ -3,7 +3,6 @@
 import Link from "next/link";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
-import { PortalSettingsSection } from "@/components/PortalSettingsSection";
 import { PortalMediaPickerModal, type PortalMediaPickItem } from "@/components/PortalMediaPickerModal";
 import { PortalVariablePickerModal } from "@/components/PortalVariablePickerModal";
 import { useToast } from "@/components/ToastProvider";
@@ -43,7 +42,6 @@ type ApiPayload = {
   twilioConfigured: boolean;
   twilioReason?: string;
   webhookUrl: string;
-  webhookUrlLegacy?: string;
   notes?: { variables?: string[] };
 };
 
@@ -124,7 +122,6 @@ export function PortalMissedCallTextBackClient({ embedded }: { embedded?: boolea
   const [profilePhone, setProfilePhone] = useState<string | null>(null);
   const [twilioConfigured, setTwilioConfigured] = useState<boolean>(false);
   const [twilioReason, setTwilioReason] = useState<string | undefined>(undefined);
-  const [webhookUrlLegacy, setWebhookUrlLegacy] = useState<string>("");
 
   const [replyDelayUnit, setReplyDelayUnit] = useState<"seconds" | "minutes">("seconds");
   const [replyDelayUnitTouched, setReplyDelayUnitTouched] = useState(false);
@@ -164,7 +161,6 @@ export function PortalMissedCallTextBackClient({ embedded }: { embedded?: boolea
     setProfilePhone(data.profilePhone ?? null);
     setTwilioConfigured(Boolean(data.twilioConfigured));
     setTwilioReason(data.twilioReason);
-    setWebhookUrlLegacy(data.webhookUrlLegacy || "");
     setReplyDelayUnitTouched(false);
 
     setLoading(false);
@@ -264,7 +260,6 @@ export function PortalMissedCallTextBackClient({ embedded }: { embedded?: boolea
     setProfilePhone(data.profilePhone ?? null);
     setTwilioConfigured(Boolean(data.twilioConfigured));
     setTwilioReason(data.twilioReason);
-    setWebhookUrlLegacy(data.webhookUrlLegacy || "");
     setReplyDelayUnitTouched(false);
     setSaving(false);
     setNote("Saved.");
@@ -272,52 +267,6 @@ export function PortalMissedCallTextBackClient({ embedded }: { embedded?: boolea
     window.setTimeout(() => setNote(null), 1800);
   }
 
-
-  async function regenerateToken() {
-    setSaving(true);
-    setError(null);
-    setNote(null);
-
-    const res = await fetch("/api/portal/missed-call-textback/settings", {
-      method: "PUT",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({ settings: settings, regenerateToken: true }),
-    });
-
-    if (!res.ok) {
-      const rawError = await readJsonError(res);
-      setSaving(false);
-      setError(friendlyApiError({ status: res.status, rawError, action: "regenerate" }));
-      return;
-    }
-
-    const data = (await res.json().catch(() => null)) as ApiPayload | null;
-    if (!data?.ok || !data.settings) {
-      setSaving(false);
-      setError(friendlyApiError({ status: res.status, rawError: (data as any)?.error ?? null, action: "regenerate" }));
-      return;
-    }
-    setSettings(data.settings);
-    setEvents(Array.isArray(data.events) ? data.events : []);
-    setProfilePhone(data.profilePhone ?? null);
-    setTwilioConfigured(Boolean(data.twilioConfigured));
-    setTwilioReason(data.twilioReason);
-    setWebhookUrlLegacy(data.webhookUrlLegacy || "");
-    setReplyDelayUnitTouched(false);
-    setSaving(false);
-    setNote("Webhook token regenerated.");
-    window.setTimeout(() => setNote(null), 2200);
-  }
-
-  async function copy(text: string) {
-    try {
-      await navigator.clipboard.writeText(text);
-      setNote("Copied.");
-      window.setTimeout(() => setNote(null), 1200);
-    } catch {
-      setError("Copy failed.");
-    }
-  }
 
   if (loading || !settings) {
     return (
@@ -373,8 +322,8 @@ export function PortalMissedCallTextBackClient({ embedded }: { embedded?: boolea
         </div>
       ) : null}
 
-      <div className="mt-6 grid grid-cols-1 gap-4 lg:grid-cols-3">
-        <div className="rounded-3xl border border-zinc-200 bg-white p-6 lg:col-span-2">
+      <div className="mt-6 grid grid-cols-1 gap-4">
+        <div className="rounded-3xl border border-zinc-200 bg-white p-6">
           <div className="flex items-start justify-between gap-4">
             <div>
               <div className="text-sm font-semibold text-zinc-900">Automation</div>
@@ -563,61 +512,6 @@ export function PortalMissedCallTextBackClient({ embedded }: { embedded?: boolea
             });
           }}
         />
-
-        <div className="space-y-4">
-          <PortalSettingsSection
-            title="Twilio"
-            description="Webhook URLs and setup steps for inbound calls."
-            accent="blue"
-            dotClassName={
-              twilioConfigured
-                ? "bg-[color:var(--color-brand-blue)]"
-                : "bg-zinc-400"
-            }
-          >
-            <div className="space-y-3">
-              <div
-                className={
-                  "rounded-2xl border p-4 " +
-                  (twilioConfigured
-                    ? "border-[color:rgba(29,78,216,0.18)] bg-[color:rgba(29,78,216,0.06)]"
-                    : "border-red-200 bg-red-50")
-                }
-              >
-                <div className="text-xs font-semibold text-zinc-600">Webhook URL (token-based)</div>
-                <div className="mt-2 break-all font-mono text-xs text-zinc-800">{webhookUrlLegacy || "N/A"}</div>
-                <div className="mt-3 flex items-center justify-between gap-2">
-                  <button
-                    type="button"
-                    className="rounded-xl border border-zinc-200 bg-white px-3 py-2 text-xs font-semibold hover:bg-zinc-50 disabled:opacity-60"
-                    disabled={!webhookUrlLegacy}
-                    onClick={() => void copy(webhookUrlLegacy)}
-                  >
-                    Copy
-                  </button>
-                  <button
-                    type="button"
-                    className="rounded-xl border border-zinc-200 bg-white px-3 py-2 text-xs font-semibold hover:bg-zinc-50 disabled:opacity-60"
-                    disabled={saving}
-                    onClick={() => void regenerateToken()}
-                    title="Regenerates the token in this URL"
-                  >
-                    Regenerate token
-                  </button>
-                </div>
-              </div>
-
-              <div className="rounded-2xl border border-zinc-200 bg-white p-4">
-                <div className="text-xs font-semibold text-zinc-600">Startup checklist</div>
-                <ol className="mt-2 list-decimal space-y-1 pl-4 text-xs text-zinc-600">
-                  <li>In Twilio Console, open your phone number.</li>
-                  <li>Under “Voice &amp; Fax”, set “A CALL COMES IN” → Webhook (POST).</li>
-                  <li>Paste the webhook URL above and save.</li>
-                </ol>
-              </div>
-            </div>
-          </PortalSettingsSection>
-        </div>
       </div>
 
       <PortalMediaPickerModal

@@ -737,7 +737,7 @@ export function PortalAiReceptionistClient() {
           <div className="min-w-0 rounded-3xl border border-zinc-200 bg-white p-6">
             <div className="text-sm font-semibold text-zinc-900">Core</div>
             <div className="mt-2 grid grid-cols-1 gap-4 sm:grid-cols-2">
-              <label className="flex items-center justify-between gap-4 rounded-2xl border border-zinc-200 bg-zinc-50 px-4 py-3 sm:col-span-2">
+              <label className="flex items-center justify-between gap-4 rounded-2xl border border-zinc-200 bg-white px-4 py-3 sm:col-span-2">
                 <div className="min-w-0">
                   <div className="text-sm font-semibold text-zinc-900">Enabled</div>
                   <div className="mt-0.5 text-xs text-zinc-600">Turns on AI Receptionist for inbound calls.</div>
@@ -755,12 +755,12 @@ export function PortalAiReceptionistClient() {
                       void saveEnabled(nextEnabled);
                     }}
                   />
-                  <span className="h-6 w-11 rounded-full bg-zinc-200 transition peer-checked:bg-(--color-brand-blue) peer-focus-visible:ring-2 peer-focus-visible:ring-brand-ink/40 peer-focus-visible:ring-offset-2 peer-focus-visible:ring-offset-zinc-50 peer-disabled:opacity-60" />
+                  <span className="h-6 w-11 rounded-full bg-zinc-200 transition peer-checked:bg-(--color-brand-blue) peer-focus-visible:ring-2 peer-focus-visible:ring-brand-ink/40 peer-focus-visible:ring-offset-2 peer-focus-visible:ring-offset-white peer-disabled:opacity-60" />
                   <span className="pointer-events-none absolute left-0.5 top-0.5 h-5 w-5 rounded-full bg-white shadow-sm transition peer-checked:translate-x-5" />
                 </span>
               </label>
 
-              <label className="rounded-2xl border border-zinc-200 bg-zinc-50 px-4 py-3 text-sm">
+              <label className="rounded-2xl border border-zinc-200 bg-white px-4 py-3 text-sm">
                 <div className="text-xs font-semibold text-zinc-600">Mode</div>
                 <PortalListboxDropdown
                   value={settings?.mode ?? "AI"}
@@ -775,7 +775,7 @@ export function PortalAiReceptionistClient() {
                 />
               </label>
 
-              <label className="rounded-2xl border border-zinc-200 bg-zinc-50 px-4 py-3 text-sm sm:col-span-2">
+              <label className="rounded-2xl border border-zinc-200 bg-white px-4 py-3 text-sm sm:col-span-2">
                 <div className="text-xs font-semibold text-zinc-600">Business name</div>
                 <input
                   className="mt-2 w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm"
@@ -785,7 +785,7 @@ export function PortalAiReceptionistClient() {
                 />
               </label>
 
-              <label className="rounded-2xl border border-zinc-200 bg-zinc-50 px-4 py-3 text-sm sm:col-span-2">
+              <label className="rounded-2xl border border-zinc-200 bg-white px-4 py-3 text-sm sm:col-span-2">
                 <div className="text-xs font-semibold text-zinc-600">Greeting</div>
                 <textarea
                   className="mt-2 min-h-[90px] w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm"
@@ -794,7 +794,7 @@ export function PortalAiReceptionistClient() {
                 />
               </label>
 
-              <label className="rounded-2xl border border-zinc-200 bg-zinc-50 px-4 py-3 text-sm sm:col-span-2">
+              <label className="rounded-2xl border border-zinc-200 bg-white px-4 py-3 text-sm sm:col-span-2">
                 <div className="text-xs font-semibold text-zinc-600">System prompt</div>
                 <textarea
                   className="mt-2 min-h-[160px] w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm"
@@ -805,7 +805,7 @@ export function PortalAiReceptionistClient() {
               </label>
 
               {settings?.mode === "AI" ? (
-                <label className="flex items-start justify-between gap-4 rounded-2xl border border-zinc-200 bg-zinc-50 px-4 py-3 sm:col-span-2">
+                <label className="flex items-start justify-between gap-4 rounded-2xl border border-zinc-200 bg-white px-4 py-3 sm:col-span-2">
                   <div className="min-w-0">
                     <div className="text-sm font-semibold text-zinc-900">Allow AI to transfer to a human</div>
                     <div className="mt-0.5 text-xs text-zinc-600">
@@ -820,14 +820,14 @@ export function PortalAiReceptionistClient() {
                       disabled={saving || savingEnabled || !settings}
                       onChange={(e) => settings && setSettings({ ...settings, aiCanTransferToHuman: e.target.checked })}
                     />
-                    <span className="h-6 w-11 rounded-full bg-zinc-200 transition peer-checked:bg-(--color-brand-blue) peer-focus-visible:ring-2 peer-focus-visible:ring-brand-ink/40 peer-focus-visible:ring-offset-2 peer-focus-visible:ring-offset-zinc-50 peer-disabled:opacity-60" />
+                    <span className="h-6 w-11 rounded-full bg-zinc-200 transition peer-checked:bg-(--color-brand-blue) peer-focus-visible:ring-2 peer-focus-visible:ring-brand-ink/40 peer-focus-visible:ring-offset-2 peer-focus-visible:ring-offset-white peer-disabled:opacity-60" />
                     <span className="pointer-events-none absolute left-0.5 top-0.5 h-5 w-5 rounded-full bg-white shadow-sm transition peer-checked:translate-x-5" />
                   </span>
                 </label>
               ) : null}
 
               {settings?.mode === "FORWARD" || (settings?.mode === "AI" && settings?.aiCanTransferToHuman) ? (
-                <label className="rounded-2xl border border-zinc-200 bg-zinc-50 px-4 py-3 text-sm sm:col-span-2">
+                <label className="rounded-2xl border border-zinc-200 bg-white px-4 py-3 text-sm sm:col-span-2">
                   <div className="text-xs font-semibold text-zinc-600">
                     {settings?.mode === "AI" ? "Transfer/forward to (E.164)" : "Forward to (E.164)"}
                   </div>
@@ -848,7 +848,7 @@ export function PortalAiReceptionistClient() {
 
             <div className="mt-8 text-sm font-semibold text-zinc-900">Voice agent (optional)</div>
             <div className="mt-2 grid grid-cols-1 gap-4 sm:grid-cols-2">
-              <label className="rounded-2xl border border-zinc-200 bg-zinc-50 px-4 py-3 text-sm">
+              <label className="rounded-2xl border border-zinc-200 bg-white px-4 py-3 text-sm">
                 <div className="text-xs font-semibold text-zinc-600">Agent ID</div>
                 <input
                   className="mt-2 w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm"
@@ -858,10 +858,15 @@ export function PortalAiReceptionistClient() {
                 />
               </label>
 
-              <div className="rounded-2xl border border-zinc-200 bg-zinc-50 px-4 py-3 text-sm">
+              <div className="rounded-2xl border border-zinc-200 bg-white px-4 py-3 text-sm">
                 <div className="flex items-center justify-between">
                   <div className="text-xs font-semibold text-zinc-600">API key</div>
-                  <div className="text-xs text-zinc-500">Set in Profile</div>
+                  <Link
+                    href="/portal/profile"
+                    className="rounded-lg border border-zinc-200 bg-white px-2 py-1 text-xs font-semibold text-brand-ink hover:bg-zinc-50"
+                  >
+                    Open Profile
+                  </Link>
                 </div>
                 <div className="mt-2 text-xs text-zinc-600">
                   This key is managed in your Profile settings so AI services can share it.
