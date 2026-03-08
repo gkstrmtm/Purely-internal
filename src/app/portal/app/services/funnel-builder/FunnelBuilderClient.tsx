@@ -5,6 +5,7 @@ import { usePathname } from "next/navigation";
 import { useCallback, useEffect, useMemo, useState } from "react";
 
 import { PortalListboxDropdown } from "@/components/PortalListboxDropdown";
+import { AppConfirmModal } from "@/components/AppModal";
 import { hostedFunnelPath, hostedFormPath } from "@/lib/publicHostedKeys";
 
 type CreditFunnel = {
@@ -181,6 +182,24 @@ export function FunnelBuilderClient(props: { initialTab?: TabKey } = {}) {
   const [funnelDeleteBusy, setFunnelDeleteBusy] = useState<Record<string, boolean>>({});
   const [formDeleteBusy, setFormDeleteBusy] = useState<Record<string, boolean>>({});
 
+  const [deleteDialog, setDeleteDialog] = useState<
+    | { type: "funnel"; id: string }
+    | { type: "form"; id: string }
+    | null
+  >(null);
+
+  const pendingDeleteFunnel = useMemo(() => {
+    if (!deleteDialog || deleteDialog.type !== "funnel") return null;
+    const id = deleteDialog.id;
+    return (funnels || []).find((f) => f.id === id) || null;
+  }, [deleteDialog, funnels]);
+
+  const pendingDeleteForm = useMemo(() => {
+    if (!deleteDialog || deleteDialog.type !== "form") return null;
+    const id = deleteDialog.id;
+    return (forms || []).find((f) => f.id === id) || null;
+  }, [deleteDialog, forms]);
+
   const [domainInput, setDomainInput] = useState("");
   const [domainBusy, setDomainBusy] = useState(false);
   const [domainVercelVerificationById, setDomainVercelVerificationById] = useState<Record<string, VercelVerificationRecord[]>>({});
@@ -276,6 +295,53 @@ export function FunnelBuilderClient(props: { initialTab?: TabKey } = {}) {
     if (!res.ok || !json || json.ok !== true) throw new Error(json?.error || "Failed to load domains");
     setDomains(Array.isArray(json.domains) ? json.domains : []);
   }, []);
+
+  const deleteFunnel = useCallback(
+    async (f: CreditFunnel) => {
+      if (funnelDeleteBusy[f.id]) return;
+      setFunnelDeleteBusy((m) => ({ ...m, [f.id]: true }));
+      setError(null);
+      try {
+        const res = await fetch(`/api/portal/funnel-builder/funnels/${encodeURIComponent(f.id)}`, {
+          method: "DELETE",
+        });
+        const json = (await res.json().catch(() => ({}))) as any;
+        if (!res.ok || json?.ok !== true) throw new Error(json?.error || "Failed to delete funnel");
+        setFunnels((prev) => (prev ? prev.filter((row) => row.id !== f.id) : prev));
+        try {
+          await loadDomains();
+        } catch {
+          // ignore
+        }
+      } catch (e) {
+        setError((e as any)?.message ? String((e as any).message) : "Failed to delete funnel");
+      } finally {
+        setFunnelDeleteBusy((m) => ({ ...m, [f.id]: false }));
+      }
+    },
+    [funnelDeleteBusy, loadDomains],
+  );
+
+  const deleteForm = useCallback(
+    async (f: CreditForm) => {
+      if (formDeleteBusy[f.id]) return;
+      setFormDeleteBusy((m) => ({ ...m, [f.id]: true }));
+      setError(null);
+      try {
+        const res = await fetch(`/api/portal/funnel-builder/forms/${encodeURIComponent(f.id)}`, {
+          method: "DELETE",
+        });
+        const json = (await res.json().catch(() => ({}))) as any;
+        if (!res.ok || json?.ok !== true) throw new Error(json?.error || "Failed to delete form");
+        setForms((prev) => (prev ? prev.filter((row) => row.id !== f.id) : prev));
+      } catch (e) {
+        setError((e as any)?.message ? String((e as any).message) : "Failed to delete form");
+      } finally {
+        setFormDeleteBusy((m) => ({ ...m, [f.id]: false }));
+      }
+    },
+    [formDeleteBusy],
+  );
 
   const copyText = useCallback(async (text: string) => {
     try {
@@ -558,6 +624,46 @@ export function FunnelBuilderClient(props: { initialTab?: TabKey } = {}) {
 
   return (
     <div className="mx-auto w-full max-w-6xl">
+      <AppConfirmModal
+        open={deleteDialog?.type === "funnel"}
+        title="Delete funnel"
+        message={
+          pendingDeleteFunnel
+            ? `Delete funnel “${pendingDeleteFunnel.name}”? This will remove all pages and cannot be undone.`
+            : "Delete this funnel?"
+        }
+        confirmLabel="Delete"
+        cancelLabel="Cancel"
+        destructive
+        onClose={() => setDeleteDialog(null)}
+        onConfirm={() => {
+          const f = pendingDeleteFunnel;
+          setDeleteDialog(null);
+          if (!f) return;
+          void deleteFunnel(f);
+        }}
+      />
+
+      <AppConfirmModal
+        open={deleteDialog?.type === "form"}
+        title="Delete form"
+        message={
+          pendingDeleteForm
+            ? `Delete form “${pendingDeleteForm.name}”? This will remove all submissions and cannot be undone.`
+            : "Delete this form?"
+        }
+        confirmLabel="Delete"
+        cancelLabel="Cancel"
+        destructive
+        onClose={() => setDeleteDialog(null)}
+        onConfirm={() => {
+          const f = pendingDeleteForm;
+          setDeleteDialog(null);
+          if (!f) return;
+          void deleteForm(f);
+        }}
+      />
+
       <div className="flex flex-col items-start justify-between gap-3 sm:flex-row sm:items-end">
         <div>
           <h1 className="text-2xl font-bold text-brand-ink sm:text-3xl">Funnel Builder</h1>
@@ -732,34 +838,10 @@ export function FunnelBuilderClient(props: { initialTab?: TabKey } = {}) {
                       <button
                         type="button"
                         disabled={!!funnelDeleteBusy[f.id]}
-                        onClick={() =>
-                          void (async () => {
-                            if (funnelDeleteBusy[f.id]) return;
-                            const ok = window.confirm(
-                              `Delete funnel “${f.name}”? This will remove all pages and cannot be undone.`,
-                            );
-                            if (!ok) return;
-                            setFunnelDeleteBusy((m) => ({ ...m, [f.id]: true }));
-                            setError(null);
-                            try {
-                              const res = await fetch(`/api/portal/funnel-builder/funnels/${encodeURIComponent(f.id)}`, {
-                                method: "DELETE",
-                              });
-                              const json = (await res.json().catch(() => ({}))) as any;
-                              if (!res.ok || json?.ok !== true) throw new Error(json?.error || "Failed to delete funnel");
-                              setFunnels((prev) => (prev ? prev.filter((row) => row.id !== f.id) : prev));
-                              try {
-                                await loadDomains();
-                              } catch {
-                                // ignore
-                              }
-                            } catch (e) {
-                              setError((e as any)?.message ? String((e as any).message) : "Failed to delete funnel");
-                            } finally {
-                              setFunnelDeleteBusy((m) => ({ ...m, [f.id]: false }));
-                            }
-                          })()
-                        }
+                        onClick={() => {
+                          if (funnelDeleteBusy[f.id]) return;
+                          setDeleteDialog({ type: "funnel", id: f.id });
+                        }}
                         className="text-sm font-semibold text-red-600 hover:underline disabled:opacity-60"
                       >
                         Delete
@@ -838,29 +920,10 @@ export function FunnelBuilderClient(props: { initialTab?: TabKey } = {}) {
                     <button
                       type="button"
                       disabled={!!formDeleteBusy[f.id]}
-                      onClick={() =>
-                        void (async () => {
-                          if (formDeleteBusy[f.id]) return;
-                          const ok = window.confirm(
-                            `Delete form “${f.name}”? This will remove all submissions and cannot be undone.`,
-                          );
-                          if (!ok) return;
-                          setFormDeleteBusy((m) => ({ ...m, [f.id]: true }));
-                          setError(null);
-                          try {
-                            const res = await fetch(`/api/portal/funnel-builder/forms/${encodeURIComponent(f.id)}`, {
-                              method: "DELETE",
-                            });
-                            const json = (await res.json().catch(() => ({}))) as any;
-                            if (!res.ok || json?.ok !== true) throw new Error(json?.error || "Failed to delete form");
-                            setForms((prev) => (prev ? prev.filter((row) => row.id !== f.id) : prev));
-                          } catch (e) {
-                            setError((e as any)?.message ? String((e as any).message) : "Failed to delete form");
-                          } finally {
-                            setFormDeleteBusy((m) => ({ ...m, [f.id]: false }));
-                          }
-                        })()
-                      }
+                      onClick={() => {
+                        if (formDeleteBusy[f.id]) return;
+                        setDeleteDialog({ type: "form", id: f.id });
+                      }}
                       className="text-sm font-semibold text-red-600 hover:underline disabled:opacity-60"
                     >
                       Delete

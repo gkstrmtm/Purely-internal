@@ -7,7 +7,6 @@ import { PortalMissedCallTextBackClient } from "@/app/portal/app/services/missed
 import { InlineElevenLabsAgentTester } from "@/components/InlineElevenLabsAgentTester";
 import { PortalListboxDropdown } from "@/components/PortalListboxDropdown";
 import { PortalSelectDropdown } from "@/components/PortalSelectDropdown";
-import { PortalSettingsSection } from "@/components/PortalSettingsSection";
 import { ContactTagsEditor, type ContactTag } from "@/components/ContactTagsEditor";
 import { useToast } from "@/components/ToastProvider";
 
@@ -324,7 +323,6 @@ export function PortalAiReceptionistClient() {
   const [settings, setSettings] = useState<Settings | null>(null);
   const [events, setEvents] = useState<EventRow[]>([]);
   const [webhookUrl, setWebhookUrl] = useState<string>("");
-  const [webhookUrlLegacy, setWebhookUrlLegacy] = useState<string>("");
   const [twilioConfigured, setTwilioConfigured] = useState<boolean>(false);
 
   const [selectedCallId, setSelectedCallId] = useState<string | null>(null);
@@ -381,7 +379,6 @@ export function PortalAiReceptionistClient() {
     setSettings(data.settings);
     setEvents(Array.isArray(data.events) ? data.events : []);
     setWebhookUrl(data.webhookUrl || "");
-    setWebhookUrlLegacy(typeof data.webhookUrlLegacy === "string" ? data.webhookUrlLegacy : "");
     setTwilioConfigured(Boolean(data.twilioConfigured ?? data.twilio?.configured));
     setLoading(false);
     return data;
@@ -595,7 +592,6 @@ export function PortalAiReceptionistClient() {
     setSettings(data.settings);
     setEvents(Array.isArray(data.events) ? data.events : []);
     setWebhookUrl(data.webhookUrl || webhookUrl);
-    setWebhookUrlLegacy(typeof data.webhookUrlLegacy === "string" ? data.webhookUrlLegacy : webhookUrlLegacy);
     setSaving(false);
     setNote("Saved.");
     window.setTimeout(() => setNote(null), 1800);
@@ -631,32 +627,6 @@ export function PortalAiReceptionistClient() {
     setSavingEnabled(false);
   }
 
-  async function regenerateToken() {
-    setSaving(true);
-    setError(null);
-    setNote(null);
-
-    const res = await fetch("/api/portal/ai-receptionist/settings", {
-      method: "PUT",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({ regenerateToken: true }),
-    });
-
-    const data = (await res.json().catch(() => null)) as ApiPayload | null;
-    if (!res.ok || !data?.ok) {
-      setSaving(false);
-      setError(friendlyApiError({ status: res.status, rawError: data?.error ?? null, action: "regenerate" }));
-      return;
-    }
-
-    setSettings(data.settings);
-    setEvents(Array.isArray(data.events) ? data.events : []);
-    setWebhookUrl(data.webhookUrl || webhookUrl);
-    setWebhookUrlLegacy(typeof data.webhookUrlLegacy === "string" ? data.webhookUrlLegacy : webhookUrlLegacy);
-    setSaving(false);
-    setNote("Regenerated webhook token.");
-    window.setTimeout(() => setNote(null), 2000);
-  }
 
   if (loading) {
     return (
@@ -699,7 +669,7 @@ export function PortalAiReceptionistClient() {
           className={
             "flex-1 min-w-[160px] rounded-2xl border px-4 py-2.5 text-sm font-semibold transition focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-ink/60 " +
             (tab === "activity"
-              ? "border-zinc-900 bg-zinc-900 text-white shadow-sm"
+              ? "border-brand-blue bg-brand-blue text-white shadow-sm focus-visible:ring-brand-blue/40"
               : "border-zinc-200 bg-white text-zinc-700 hover:bg-zinc-50")
           }
         >
@@ -712,7 +682,7 @@ export function PortalAiReceptionistClient() {
           className={
             "flex-1 min-w-[160px] rounded-2xl border px-4 py-2.5 text-sm font-semibold transition focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-ink/60 " +
             (tab === "testing"
-              ? "border-zinc-900 bg-zinc-900 text-white shadow-sm"
+              ? "border-brand-pink bg-brand-pink text-white shadow-sm focus-visible:ring-brand-pink/40"
               : "border-zinc-200 bg-white text-zinc-700 hover:bg-zinc-50")
           }
         >
@@ -725,7 +695,7 @@ export function PortalAiReceptionistClient() {
           className={
             "flex-1 min-w-[220px] rounded-2xl border px-4 py-2.5 text-sm font-semibold transition focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-ink/60 " +
             (tab === "missed-call-textback"
-              ? "border-zinc-900 bg-zinc-900 text-white shadow-sm"
+              ? "border-brand-blue bg-brand-blue text-white shadow-sm focus-visible:ring-brand-blue/40"
               : "border-zinc-200 bg-white text-zinc-700 hover:bg-zinc-50")
           }
         >
@@ -738,7 +708,7 @@ export function PortalAiReceptionistClient() {
           className={
             "flex-1 min-w-[160px] rounded-2xl border px-4 py-2.5 text-sm font-semibold transition focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-ink/60 " +
             (tab === "settings"
-              ? "border-zinc-900 bg-zinc-900 text-white shadow-sm"
+              ? "border-brand-ink bg-brand-ink text-white shadow-sm focus-visible:ring-brand-ink/40"
               : "border-zinc-200 bg-white text-zinc-700 hover:bg-zinc-50")
           }
         >
@@ -752,7 +722,7 @@ export function PortalAiReceptionistClient() {
         <div className="mt-4 rounded-2xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900">
           <div className="font-semibold">Connect Twilio to take calls</div>
           <div className="mt-1 text-amber-900/80">
-            Add your Twilio details in your Profile, then point your Twilio number’s Voice webhook to the URL in the Twilio tab.
+            Add your Twilio details in your Profile to enable inbound calls.
             <span className="ml-2">
               <Link href="/portal/profile" className="underline">
                 Open Profile
@@ -763,23 +733,31 @@ export function PortalAiReceptionistClient() {
       ) : null}
 
       {tab === "settings" ? (
-        <div className="mt-4 grid grid-cols-1 gap-6 lg:grid-cols-3">
-          <div className="min-w-0 rounded-3xl border border-zinc-200 bg-white p-6 lg:col-span-2">
+        <div className="mt-4">
+          <div className="min-w-0 rounded-3xl border border-zinc-200 bg-white p-6">
             <div className="text-sm font-semibold text-zinc-900">Core</div>
             <div className="mt-2 grid grid-cols-1 gap-4 sm:grid-cols-2">
-              <label className="inline-flex items-center gap-3 rounded-2xl border border-zinc-200 bg-zinc-50 px-4 py-3 text-sm text-zinc-800">
-                <input
-                  type="checkbox"
-                  checked={Boolean(settings?.enabled)}
-                  disabled={saving || savingEnabled || !settings}
-                  onChange={(e) => {
-                    if (!settings) return;
-                    const nextEnabled = e.target.checked;
-                    setSettings({ ...settings, enabled: nextEnabled });
-                    void saveEnabled(nextEnabled);
-                  }}
-                />
-                On
+              <label className="flex items-center justify-between gap-4 rounded-2xl border border-zinc-200 bg-zinc-50 px-4 py-3 sm:col-span-2">
+                <div className="min-w-0">
+                  <div className="text-sm font-semibold text-zinc-900">Enabled</div>
+                  <div className="mt-0.5 text-xs text-zinc-600">Turns on AI Receptionist for inbound calls.</div>
+                </div>
+                <span className="relative inline-flex h-6 w-11 shrink-0 items-center">
+                  <input
+                    type="checkbox"
+                    className="peer sr-only"
+                    checked={Boolean(settings?.enabled)}
+                    disabled={saving || savingEnabled || !settings}
+                    onChange={(e) => {
+                      if (!settings) return;
+                      const nextEnabled = e.target.checked;
+                      setSettings({ ...settings, enabled: nextEnabled });
+                      void saveEnabled(nextEnabled);
+                    }}
+                  />
+                  <span className="h-6 w-11 rounded-full bg-zinc-200 transition peer-checked:bg-(--color-brand-blue) peer-focus-visible:ring-2 peer-focus-visible:ring-brand-ink/40 peer-focus-visible:ring-offset-2 peer-focus-visible:ring-offset-zinc-50 peer-disabled:opacity-60" />
+                  <span className="pointer-events-none absolute left-0.5 top-0.5 h-5 w-5 rounded-full bg-white shadow-sm transition peer-checked:translate-x-5" />
+                </span>
               </label>
 
               <label className="rounded-2xl border border-zinc-200 bg-zinc-50 px-4 py-3 text-sm">
@@ -827,19 +805,24 @@ export function PortalAiReceptionistClient() {
               </label>
 
               {settings?.mode === "AI" ? (
-                <label className="inline-flex items-center gap-3 rounded-2xl border border-zinc-200 bg-zinc-50 px-4 py-3 text-sm sm:col-span-2">
-                  <input
-                    type="checkbox"
-                    checked={Boolean(settings?.aiCanTransferToHuman)}
-                    disabled={saving || savingEnabled || !settings}
-                    onChange={(e) => settings && setSettings({ ...settings, aiCanTransferToHuman: e.target.checked })}
-                  />
-                  <div>
+                <label className="flex items-start justify-between gap-4 rounded-2xl border border-zinc-200 bg-zinc-50 px-4 py-3 sm:col-span-2">
+                  <div className="min-w-0">
                     <div className="text-sm font-semibold text-zinc-900">Allow AI to transfer to a human</div>
                     <div className="mt-0.5 text-xs text-zinc-600">
                       If enabled, your AI receptionist can choose to forward the call when needed.
                     </div>
                   </div>
+                  <span className="relative mt-0.5 inline-flex h-6 w-11 shrink-0 items-center">
+                    <input
+                      type="checkbox"
+                      className="peer sr-only"
+                      checked={Boolean(settings?.aiCanTransferToHuman)}
+                      disabled={saving || savingEnabled || !settings}
+                      onChange={(e) => settings && setSettings({ ...settings, aiCanTransferToHuman: e.target.checked })}
+                    />
+                    <span className="h-6 w-11 rounded-full bg-zinc-200 transition peer-checked:bg-(--color-brand-blue) peer-focus-visible:ring-2 peer-focus-visible:ring-brand-ink/40 peer-focus-visible:ring-offset-2 peer-focus-visible:ring-offset-zinc-50 peer-disabled:opacity-60" />
+                    <span className="pointer-events-none absolute left-0.5 top-0.5 h-5 w-5 rounded-full bg-white shadow-sm transition peer-checked:translate-x-5" />
+                  </span>
                 </label>
               ) : null}
 
@@ -905,68 +888,6 @@ export function PortalAiReceptionistClient() {
               </button>
             </div>
           </div>
-
-          <PortalSettingsSection
-            title="Twilio"
-            description="Webhook URLs and setup steps for inbound calls."
-            accent="blue"
-            dotClassName={
-              twilioConfigured
-                ? "bg-[color:var(--color-brand-blue)]"
-                : "bg-zinc-400"
-            }
-          >
-            <div className="space-y-3">
-              <div
-                className={
-                  "rounded-2xl border p-4 " +
-                  (twilioConfigured
-                    ? "border-[color:rgba(29,78,216,0.18)] bg-[color:rgba(29,78,216,0.06)]"
-                    : "border-red-200 bg-red-50")
-                }
-              >
-                <div className="text-xs font-semibold text-zinc-600">Webhook URL (token-based)</div>
-                <div className="mt-2 break-all font-mono text-xs text-zinc-800">{webhookUrlLegacy || "N/A"}</div>
-                {!twilioConfigured ? (
-                  <div className="mt-2 text-xs text-red-700">
-                    Twilio isn’t connected yet. Add your Twilio credentials in{" "}
-                    <Link href="/portal/profile" className="underline">
-                      Profile
-                    </Link>
-                    , then paste this URL into your Twilio number’s Voice webhook.
-                  </div>
-                ) : null}
-                <div className="mt-3 flex items-center justify-between gap-2">
-                  <button
-                    type="button"
-                    className="rounded-xl border border-zinc-200 bg-white px-3 py-2 text-xs font-semibold hover:bg-zinc-50 disabled:opacity-60"
-                    disabled={!webhookUrlLegacy}
-                    onClick={async () => webhookUrlLegacy && navigator.clipboard.writeText(webhookUrlLegacy)}
-                  >
-                    Copy
-                  </button>
-                  <button
-                    type="button"
-                    className="rounded-xl border border-zinc-200 bg-white px-3 py-2 text-xs font-semibold hover:bg-zinc-50 disabled:opacity-60"
-                    disabled={saving}
-                    onClick={() => void regenerateToken()}
-                    title="Regenerates the token in this URL"
-                  >
-                    Regenerate token
-                  </button>
-                </div>
-              </div>
-
-              <div className="rounded-2xl border border-zinc-200 bg-white p-4">
-                <div className="text-xs font-semibold text-zinc-600">Startup checklist</div>
-                <ol className="mt-2 list-decimal space-y-1 pl-4 text-xs text-zinc-600">
-                  <li>In Twilio Console, open your phone number.</li>
-                  <li>Under “Voice &amp; Fax”, set “A CALL COMES IN” → Webhook (POST).</li>
-                  <li>Paste the webhook URL above and save.</li>
-                </ol>
-              </div>
-            </div>
-          </PortalSettingsSection>
         </div>
       ) : null}
 
@@ -1031,7 +952,7 @@ export function PortalAiReceptionistClient() {
                           onClick={() => setSelectedCallWithUrl(e.id)}
                           className={
                             "w-full rounded-2xl border px-4 py-3 text-left text-sm transition focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-ink/60 " +
-                            (isSelected ? "border-zinc-900 bg-zinc-900 text-white" : "border-zinc-200 bg-zinc-50 hover:bg-zinc-100")
+                            (isSelected ? "border-brand-blue bg-brand-blue text-white" : "border-zinc-200 bg-zinc-50 hover:bg-zinc-100")
                           }
                         >
                           <div className="flex items-center justify-between gap-3">

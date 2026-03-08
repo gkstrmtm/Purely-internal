@@ -126,6 +126,9 @@ export function PortalMissedCallTextBackClient({ embedded }: { embedded?: boolea
   const [twilioReason, setTwilioReason] = useState<string | undefined>(undefined);
   const [webhookUrlLegacy, setWebhookUrlLegacy] = useState<string>("");
 
+  const [replyDelayUnit, setReplyDelayUnit] = useState<"seconds" | "minutes">("seconds");
+  const [replyDelayUnitTouched, setReplyDelayUnitTouched] = useState(false);
+
   const [varPickerOpen, setVarPickerOpen] = useState(false);
   const replyBodyRef = useRef<HTMLTextAreaElement | null>(null);
 
@@ -162,6 +165,7 @@ export function PortalMissedCallTextBackClient({ embedded }: { embedded?: boolea
     setTwilioConfigured(Boolean(data.twilioConfigured));
     setTwilioReason(data.twilioReason);
     setWebhookUrlLegacy(data.webhookUrlLegacy || "");
+    setReplyDelayUnitTouched(false);
 
     setLoading(false);
   }, [friendlyApiError, readJsonError]);
@@ -175,9 +179,22 @@ export function PortalMissedCallTextBackClient({ embedded }: { embedded?: boolea
     [events],
   );
 
+  useEffect(() => {
+    if (!settings) return;
+    if (replyDelayUnitTouched) return;
+    setReplyDelayUnit(settings.replyDelaySeconds >= 60 && settings.replyDelaySeconds % 60 === 0 ? "minutes" : "seconds");
+  }, [replyDelayUnitTouched, settings]);
+
   const forwardPreview = settings?.forwardToPhoneE164 || profilePhone || "(not set)";
 
   const mediaUrls = useMemo(() => (Array.isArray(settings?.mediaUrls) ? settings.mediaUrls : []), [settings?.mediaUrls]);
+
+  const replyDelayAmount = useMemo(() => {
+    if (!settings) return 0;
+    return replyDelayUnit === "minutes" ? Math.round(settings.replyDelaySeconds / 60) : settings.replyDelaySeconds;
+  }, [replyDelayUnit, settings]);
+
+  const replyDelayMaxAmount = replyDelayUnit === "minutes" ? 10 : 600;
 
   function toAbsoluteUrl(pathOrUrl: string) {
     if (pathOrUrl.startsWith("http://") || pathOrUrl.startsWith("https://")) return pathOrUrl;
@@ -248,6 +265,7 @@ export function PortalMissedCallTextBackClient({ embedded }: { embedded?: boolea
     setTwilioConfigured(Boolean(data.twilioConfigured));
     setTwilioReason(data.twilioReason);
     setWebhookUrlLegacy(data.webhookUrlLegacy || "");
+    setReplyDelayUnitTouched(false);
     setSaving(false);
     setNote("Saved.");
 
@@ -285,6 +303,7 @@ export function PortalMissedCallTextBackClient({ embedded }: { embedded?: boolea
     setTwilioConfigured(Boolean(data.twilioConfigured));
     setTwilioReason(data.twilioReason);
     setWebhookUrlLegacy(data.webhookUrlLegacy || "");
+    setReplyDelayUnitTouched(false);
     setSaving(false);
     setNote("Webhook token regenerated.");
     window.setTimeout(() => setNote(null), 2200);
@@ -363,53 +382,57 @@ export function PortalMissedCallTextBackClient({ embedded }: { embedded?: boolea
                 Variables: {(settings ? ["{from}", "{to}"] : []).join(", ")}
               </div>
             </div>
-            <div className="inline-flex overflow-hidden rounded-2xl border border-zinc-200 bg-white">
-              <button
-                type="button"
-                onClick={() => void save({ ...settings, enabled: false })}
-                disabled={saving}
-                className={
-                  (settings.enabled
-                    ? "bg-white text-brand-ink hover:bg-zinc-50"
-                    : "bg-brand-ink text-white") +
-                  " px-4 py-2 text-sm font-semibold disabled:opacity-60"
-                }
-              >
-                Off
-              </button>
-              <button
-                type="button"
-                onClick={() => void save({ ...settings, enabled: true })}
-                disabled={saving}
-                className={
-                  (settings.enabled
-                    ? "bg-brand-ink text-white"
-                    : "bg-white text-brand-ink hover:bg-zinc-50") +
-                  " border-l border-zinc-200 px-4 py-2 text-sm font-semibold disabled:opacity-60"
-                }
-              >
-                On
-              </button>
-            </div>
+            <label className="flex items-center gap-3">
+              <span className="text-xs font-semibold text-zinc-600">Enabled</span>
+              <span className="relative inline-flex h-6 w-11 shrink-0 items-center">
+                <input
+                  type="checkbox"
+                  className="peer sr-only"
+                  checked={settings.enabled}
+                  disabled={saving}
+                  onChange={(e) => void save({ ...settings, enabled: e.target.checked })}
+                  aria-label="Enable Missed-Call Text Back"
+                />
+                <span className="h-6 w-11 rounded-full bg-zinc-200 transition peer-checked:bg-(--color-brand-blue) peer-focus-visible:ring-2 peer-focus-visible:ring-brand-ink/40 peer-focus-visible:ring-offset-2 peer-focus-visible:ring-offset-white peer-disabled:opacity-60" />
+                <span className="pointer-events-none absolute left-0.5 top-0.5 h-5 w-5 rounded-full bg-white shadow-sm transition peer-checked:translate-x-5" />
+              </span>
+            </label>
           </div>
 
           <div className="mt-5 grid grid-cols-1 gap-4 sm:grid-cols-2">
             <div>
-              <label className="text-xs font-semibold text-zinc-700">Reply delay (seconds)</label>
-              <input
-                value={settings.replyDelaySeconds}
-                onChange={(e) =>
-                  setSettings({
-                    ...settings,
-                    replyDelaySeconds: Math.max(0, Math.min(600, Math.round(Number(e.target.value || 0)))),
-                  })
-                }
-                type="number"
-                min={0}
-                max={600}
-                className="mt-2 w-full rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-sm"
-              />
-              <div className="mt-1 text-xs text-zinc-500">0-600 seconds.</div>
+              <label className="text-xs font-semibold text-zinc-700">Reply delay</label>
+              <div className="mt-2 flex gap-2">
+                <input
+                  value={replyDelayAmount}
+                  onChange={(e) => {
+                    const nextAmount = Math.max(0, Math.min(replyDelayMaxAmount, Math.round(Number(e.target.value || 0))));
+                    const seconds = replyDelayUnit === "minutes" ? nextAmount * 60 : nextAmount;
+                    setSettings({ ...settings, replyDelaySeconds: Math.max(0, Math.min(600, seconds)) });
+                  }}
+                  type="number"
+                  min={0}
+                  max={replyDelayMaxAmount}
+                  className="w-full rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-sm"
+                />
+                <select
+                  value={replyDelayUnit}
+                  onChange={(e) => {
+                    const nextUnit = e.target.value === "minutes" ? "minutes" : "seconds";
+                    setReplyDelayUnitTouched(true);
+                    setReplyDelayUnit(nextUnit);
+
+                    const currentAmount = replyDelayUnit === "minutes" ? Math.round(settings.replyDelaySeconds / 60) : settings.replyDelaySeconds;
+                    const seconds = nextUnit === "minutes" ? currentAmount * 60 : currentAmount;
+                    setSettings({ ...settings, replyDelaySeconds: Math.max(0, Math.min(600, seconds)) });
+                  }}
+                  className="shrink-0 rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-sm"
+                >
+                  <option value="seconds">Seconds</option>
+                  <option value="minutes">Minutes</option>
+                </select>
+              </div>
+              <div className="mt-1 text-xs text-zinc-500">Max 10 minutes (600 seconds).</div>
             </div>
 
             <div>
