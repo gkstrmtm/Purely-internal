@@ -24,7 +24,7 @@ const patchSchema = z
 
 export async function PATCH(req: Request, ctx: { params: Promise<{ tagId: string }> }) {
   const auth = await requireClientSessionForAnyService(
-    ["inbox", "people", "automations", "nurtureCampaigns", "aiOutboundCalls"],
+    ["inbox", "people", "automations", "nurtureCampaigns", "aiOutboundCalls", "leadScraping"],
     "edit",
   );
   if (!auth.ok) {
@@ -53,7 +53,7 @@ export async function PATCH(req: Request, ctx: { params: Promise<{ tagId: string
 
 export async function DELETE(_req: Request, ctx: { params: Promise<{ tagId: string }> }) {
   const auth = await requireClientSessionForAnyService(
-    ["inbox", "people", "automations", "nurtureCampaigns", "aiOutboundCalls"],
+    ["inbox", "people", "automations", "nurtureCampaigns", "aiOutboundCalls", "leadScraping"],
     "edit",
   );
   if (!auth.ok) {

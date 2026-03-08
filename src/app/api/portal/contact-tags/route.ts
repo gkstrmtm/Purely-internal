@@ -34,6 +34,7 @@ export async function GET() {
     "reviews",
     "booking",
     "followUp",
+    "leadScraping",
   ]);
   if (!auth.ok) {
     return NextResponse.json(
@@ -50,7 +51,18 @@ export async function GET() {
 
 export async function POST(req: Request) {
   const auth = await requireClientSessionForAnyService(
-    ["inbox", "people", "automations", "newsletter", "nurtureCampaigns", "aiOutboundCalls", "reviews", "booking", "followUp"],
+    [
+      "inbox",
+      "people",
+      "automations",
+      "newsletter",
+      "nurtureCampaigns",
+      "aiOutboundCalls",
+      "reviews",
+      "booking",
+      "followUp",
+      "leadScraping",
+    ],
     "edit",
   );
   if (!auth.ok) {

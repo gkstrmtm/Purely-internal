@@ -120,6 +120,8 @@ type LeadsResponse = {
   error?: string;
 };
 
+type ContactTagsResponse = { ok: true; tags: ContactTag[] } | { ok: false; error?: string };
+
 type RunResponse = {
   ok?: boolean;
   requestedCount?: number;
@@ -351,6 +353,7 @@ export function PortalLeadScrapingClient() {
   const [credits, setCredits] = useState<number | null>(null);
   const [placesConfigured, setPlacesConfigured] = useState<boolean>(false);
   const [aiCallsUnlocked, setAiCallsUnlocked] = useState<boolean>(false);
+  const [contactTagDefs, setContactTagDefs] = useState<ContactTag[]>([]);
 
   const [leads, setLeads] = useState<LeadRow[]>([]);
   const [leadTotalCount, setLeadTotalCount] = useState<number | null>(null);
@@ -376,6 +379,16 @@ export function PortalLeadScrapingClient() {
     const opts: Array<{ label: string; color: string }> = [];
     const seen = new Set<string>();
 
+    for (const t of contactTagDefs) {
+      const label = (t.name ?? "").trim();
+      const key = label.toLowerCase();
+      if (!key || seen.has(key)) continue;
+      const color = isHexColor(t.color || "") ? (t.color as string) : "#111827";
+      seen.add(key);
+      opts.push({ label, color });
+      if (opts.length >= 60) break;
+    }
+
     for (const l of leads) {
       const label = (l.tag ?? "").trim();
       const key = label.toLowerCase();
@@ -383,11 +396,11 @@ export function PortalLeadScrapingClient() {
       const color = isHexColor(l.tagColor || "") ? (l.tagColor as string) : "#111827";
       seen.add(key);
       opts.push({ label, color });
-      if (opts.length >= 50) break;
+      if (opts.length >= 80) break;
     }
 
     return opts;
-  }, [leads]);
+  }, [contactTagDefs, leads]);
 
   const [composeOpen, setComposeOpen] = useState(false);
   const [composeSubject, setComposeSubject] = useState("");
@@ -574,7 +587,7 @@ export function PortalLeadScrapingClient() {
     setError(null);
     setStatus(null);
 
-    const [meRes, settingsRes] = await Promise.all([
+    const [meRes, settingsRes, tagsRes] = await Promise.all([
       fetch("/api/customer/me", {
         cache: "no-store",
         headers: {
@@ -583,12 +596,20 @@ export function PortalLeadScrapingClient() {
         },
       }),
       fetch("/api/portal/lead-scraping/settings", { cache: "no-store" }),
+      fetch("/api/portal/contact-tags", { cache: "no-store" }).catch(() => null as any),
     ]);
 
     const meBody = (await meRes.json().catch(() => ({}))) as MeResponse;
     setLeadOutboundEntitled(Boolean(meBody.entitlements && (meBody.entitlements as any).leadOutbound));
 
     const settingsBody = (await settingsRes.json().catch(() => ({}))) as SettingsResponse;
+
+    const tagsBody = (await tagsRes?.json().catch(() => ({}))) as ContactTagsResponse | any;
+    if (tagsRes?.ok && tagsBody && tagsBody.ok === true && Array.isArray(tagsBody.tags)) {
+      setContactTagDefs(tagsBody.tags as ContactTag[]);
+    } else {
+      setContactTagDefs([]);
+    }
 
     if (!settingsRes.ok) {
       setLoading(false);
