@@ -163,6 +163,31 @@ export default function AdsAppHomePage() {
         </div>
       ) : null}
 
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
+        <div>
+          <div className="text-lg font-bold text-zinc-900">Ads Manager</div>
+          <div className="mt-1 text-sm text-zinc-600">Overview of balance, spend, clicks, and campaigns.</div>
+        </div>
+
+        <div className="w-full rounded-3xl border border-zinc-200 bg-white p-3 sm:w-auto">
+          <div className="text-xs font-semibold uppercase tracking-wide text-zinc-500">Quick actions</div>
+          <div className="mt-2 flex w-full flex-col gap-2 sm:w-auto sm:flex-row">
+            <Link
+              href="/ads/app/campaigns/new"
+              className="inline-flex items-center justify-center rounded-2xl bg-(--color-brand-blue) px-5 py-3 text-sm font-semibold text-white hover:opacity-95"
+            >
+              Create a campaign
+            </Link>
+            <Link
+              href="/ads/app/settings"
+              className="inline-flex items-center justify-center rounded-2xl border border-zinc-200 bg-white px-5 py-3 text-sm font-semibold text-zinc-700 hover:bg-zinc-50"
+            >
+              Settings
+            </Link>
+          </div>
+        </div>
+      </div>
+
       <div className="grid gap-4 lg:grid-cols-3">
         <div className="rounded-3xl border border-zinc-200 bg-white p-6">
           <div className="text-xs font-semibold uppercase tracking-wide text-zinc-500">Balance</div>
@@ -221,29 +246,6 @@ export default function AdsAppHomePage() {
           <div className="mt-2 text-2xl font-bold text-zinc-900">{stats ? stats.campaigns.total : campaigns ? campaigns.length : "…"}</div>
           <div className="mt-2 text-sm text-zinc-600">
             {stats ? `${stats.campaigns.enabled} enabled` : campaigns ? `${activeCount} enabled` : "Loading…"}
-          </div>
-        </div>
-      </div>
-
-      <div className="rounded-3xl border border-zinc-200 bg-white p-4">
-        <div className="flex flex-col items-start justify-between gap-3 sm:flex-row sm:items-center">
-          <div>
-            <div className="text-sm font-semibold text-zinc-900">Quick actions</div>
-            <div className="mt-1 text-sm text-zinc-600">Create a campaign, then request review when ready.</div>
-          </div>
-          <div className="flex w-full flex-col gap-2 sm:w-auto sm:flex-row">
-            <Link
-              href="/ads/app/campaigns/new"
-              className="inline-flex items-center justify-center rounded-2xl bg-(--color-brand-blue) px-5 py-3 text-sm font-semibold text-white hover:opacity-95"
-            >
-              Create a campaign
-            </Link>
-            <Link
-              href="/ads/app/settings"
-              className="inline-flex items-center justify-center rounded-2xl border border-zinc-200 bg-white px-5 py-3 text-sm font-semibold text-zinc-700 hover:bg-zinc-50"
-            >
-              Settings
-            </Link>
           </div>
         </div>
       </div>
