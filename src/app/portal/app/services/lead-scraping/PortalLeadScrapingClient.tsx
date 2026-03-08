@@ -225,6 +225,12 @@ const OUTBOUND_TRIGGER_OPTIONS: Array<PortalListboxOption<"MANUAL" | "ON_SCRAPE"
   { value: "ON_APPROVE", label: "On approve" },
 ];
 
+const B2B_FREQUENCY_UNIT_OPTIONS: Array<PortalListboxOption<"days" | "weeks" | "months">> = [
+  { value: "days", label: "Days" },
+  { value: "weeks", label: "Weeks" },
+  { value: "months", label: "Months" },
+];
+
 function ColorSwatches({
   value,
   onChange,
@@ -460,13 +466,14 @@ export function PortalLeadScrapingClient() {
 
   const [outboundBusy, setOutboundBusy] = useState(false);
   const [outboundUploadBusy, setOutboundUploadBusy] = useState(false);
-  const [outboundNewResourceLabel, setOutboundNewResourceLabel] = useState("");
-  const [outboundNewResourceUrl, setOutboundNewResourceUrl] = useState("");
   const [outboundResourcesPickerOpen, setOutboundResourcesPickerOpen] = useState(false);
 
   const [excludeNameDraft, setExcludeNameDraft] = useState("");
   const [excludeDomainDraft, setExcludeDomainDraft] = useState("");
   const [excludePhoneDraft, setExcludePhoneDraft] = useState("");
+
+  const [fallbackNicheDraft, setFallbackNicheDraft] = useState("");
+  const [fallbackLocationDraft, setFallbackLocationDraft] = useState("");
 
   const [b2bFrequencyCount, setB2bFrequencyCount] = useState<number>(1);
   const [b2bFrequencyUnit, setB2bFrequencyUnit] = useState<"days" | "weeks" | "months">("weeks");
@@ -801,23 +808,6 @@ export function PortalLeadScrapingClient() {
     );
     setStatus("Uploaded");
     window.setTimeout(() => setStatus(null), 1200);
-  }
-
-  function addOutboundResource() {
-    if (!settings) return;
-    const label = outboundNewResourceLabel.trim().slice(0, 120) || "Resource";
-    const url = outboundNewResourceUrl.trim().slice(0, 500);
-    if (!url) return;
-
-    setSettings({
-      ...settings,
-      outbound: {
-        ...settings.outbound,
-        resources: [{ label, url }, ...settings.outbound.resources].slice(0, 30),
-      },
-    });
-    setOutboundNewResourceLabel("");
-    setOutboundNewResourceUrl("");
   }
 
   function openOutboundVarPicker(target: NonNullable<typeof outboundVarTarget>) {
@@ -1246,6 +1236,19 @@ export function PortalLeadScrapingClient() {
     const aiEnabled = Boolean(settings.outbound.aiDraftAndSend);
     const selectedCampaignId = String(settings.outbound.aiCampaignId ?? "").trim();
 
+    const campaignOptions: Array<PortalListboxOption<string>> = [
+      {
+        value: "",
+        label: aiCampaignsBusy ? "Loading campaigns…" : "Select a campaign…",
+        disabled: aiCampaignsBusy,
+      },
+      ...(aiCampaigns ?? []).map((c) => ({
+        value: c.id,
+        label: c.name,
+        hint: c.status && c.status !== "ACTIVE" ? c.status.toLowerCase() : undefined,
+      })),
+    ];
+
     const attachmentsEditor = (disabled: boolean) => (
       <div
         className={
@@ -1256,29 +1259,7 @@ export function PortalLeadScrapingClient() {
         <div className="text-xs font-semibold text-zinc-800">Resources / attachments</div>
         <div className="mt-1 text-[11px] text-zinc-500">Uploaded files become links in your outbound message.</div>
 
-        <div className="mt-3 flex flex-col gap-2 sm:flex-row">
-          <input
-            className="flex-1 rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm"
-            value={outboundNewResourceLabel}
-            onChange={(e) => setOutboundNewResourceLabel(e.target.value)}
-            placeholder="Label"
-          />
-          <input
-            className="flex-2 rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm"
-            value={outboundNewResourceUrl}
-            onChange={(e) => setOutboundNewResourceUrl(e.target.value)}
-            placeholder="https://… or /uploads/…"
-          />
-          <button
-            type="button"
-            onClick={addOutboundResource}
-            className="rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm font-semibold text-brand-ink hover:bg-zinc-50"
-          >
-            Add
-          </button>
-        </div>
-
-        <div className="mt-3 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+        <div className="mt-3 flex flex-wrap items-center gap-2">
           <label className="inline-flex items-center justify-center gap-2 rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm font-semibold text-brand-ink hover:bg-zinc-50">
             <input
               type="file"
@@ -1292,7 +1273,6 @@ export function PortalLeadScrapingClient() {
             />
             Upload
           </label>
-
           <button
             type="button"
             disabled={outboundUploadBusy}
@@ -1301,7 +1281,6 @@ export function PortalLeadScrapingClient() {
           >
             Attach from media library
           </button>
-
           {outboundUploadBusy ? <span className="text-xs text-zinc-500">Uploading…</span> : null}
         </div>
 
@@ -1505,31 +1484,28 @@ export function PortalLeadScrapingClient() {
                 <div className="mt-4">
                   <label className="block">
                     <div className="text-xs font-semibold text-zinc-700">Campaign</div>
-                    <select
-                      className="mt-2 h-10 w-full rounded-xl border border-zinc-200 bg-white px-3 text-sm"
-                      value={selectedCampaignId}
-                      onChange={(e) =>
-                        setSettings((prev) =>
-                          prev
-                            ? {
-                                ...prev,
-                                outbound: {
-                                  ...prev.outbound,
-                                  aiCampaignId: e.target.value || null,
-                                },
-                              }
-                            : prev,
-                        )
-                      }
-                      disabled={aiCampaignsBusy}
-                    >
-                      <option value="">Select a campaign…</option>
-                      {(aiCampaigns ?? []).map((c) => (
-                        <option key={c.id} value={c.id}>
-                          {c.name}
-                        </option>
-                      ))}
-                    </select>
+                    <div className="mt-2">
+                      <PortalListboxDropdown
+                        value={selectedCampaignId}
+                        options={campaignOptions}
+                        disabled={aiCampaignsBusy}
+                        placeholder="Select a campaign…"
+                        buttonClassName="flex h-10 w-full items-center justify-between gap-2 rounded-xl border border-zinc-200 bg-white px-3 text-sm hover:bg-zinc-50"
+                        onChange={(v) =>
+                          setSettings((prev) =>
+                            prev
+                              ? {
+                                  ...prev,
+                                  outbound: {
+                                    ...prev.outbound,
+                                    aiCampaignId: v ? v : null,
+                                  },
+                                }
+                              : prev,
+                          )
+                        }
+                      />
+                    </div>
 
                     {!aiCampaignsBusy && aiCampaigns && aiCampaigns.length === 0 ? (
                       <div className="mt-2 text-xs text-zinc-500">No campaigns found.</div>
@@ -1632,14 +1608,6 @@ export function PortalLeadScrapingClient() {
                   >
                     <span className="text-white">{sparkleIcon}</span>
                     <span>AI draft</span>
-                  </button>
-
-                  <button
-                    type="button"
-                    className="rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm font-semibold text-brand-ink hover:bg-zinc-50"
-                    onClick={() => openOutboundVarPicker("emailSubject")}
-                  >
-                    Insert variable
                   </button>
                 </div>
 
@@ -1797,14 +1765,6 @@ export function PortalLeadScrapingClient() {
                   >
                     <span className="text-white">{sparkleIcon}</span>
                     <span>AI draft</span>
-                  </button>
-
-                  <button
-                    type="button"
-                    className="rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm font-semibold text-brand-ink hover:bg-zinc-50"
-                    onClick={() => openOutboundVarPicker("smsMessage")}
-                  >
-                    Insert variable
                   </button>
                 </div>
 
@@ -2009,32 +1969,73 @@ export function PortalLeadScrapingClient() {
                       placeholder="e.g. Roofing, Med Spa, Dentist"
                     />
 
-                    <div className="mt-3">
-                      <div className="text-xs font-semibold text-zinc-600">Fallback niches / keywords (one per line)</div>
-                      <textarea
-                        className="mt-2 min-h-22.5 w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm"
-                        value={(settings.b2b.fallbackNiches ?? []).join("\n")}
-                        onChange={(e) =>
-                          setSettings((prev) => {
-                            if (!prev) return prev;
-                            const next = e.target.value
-                              .split("\n")
-                              .map((x) => x.trim())
-                              .filter(Boolean)
-                              .slice(0, 20);
-                            return {
-                              ...prev,
-                              b2b: {
-                                ...prev.b2b,
-                                fallbackNiches: next,
-                              },
-                            };
-                          })
-                        }
-                        placeholder="e.g. Roofing contractor\nRoofing company\nCommercial roofing"
-                        disabled={!Boolean(settings.b2b.fallbackEnabled)}
-                      />
-                      <div className="mt-1 text-xs text-zinc-500">
+                    <div className="mt-4 rounded-2xl border border-zinc-200 bg-zinc-50 p-4">
+                      <div className="text-xs font-semibold text-zinc-700">Fallback niches / keywords</div>
+
+                      {(settings.b2b.fallbackNiches ?? []).length ? (
+                        <div className="mt-3 flex flex-wrap gap-2">
+                          {(settings.b2b.fallbackNiches ?? []).slice(0, 20).map((v) => (
+                            <span
+                              key={v}
+                              className="inline-flex items-center gap-2 rounded-full border border-zinc-200 bg-white px-3 py-1 text-xs font-semibold text-zinc-800"
+                            >
+                              <span className="max-w-45 truncate">{v}</span>
+                              <button
+                                type="button"
+                                className="rounded-full border border-zinc-200 bg-white px-2 py-0.5 text-[11px] font-semibold text-zinc-700 hover:bg-zinc-50"
+                                onClick={() =>
+                                  setSettings((prev) =>
+                                    prev
+                                      ? {
+                                          ...prev,
+                                          b2b: {
+                                            ...prev.b2b,
+                                            fallbackNiches: (prev.b2b.fallbackNiches ?? []).filter((x) => x !== v),
+                                          },
+                                        }
+                                      : prev,
+                                  )
+                                }
+                              >
+                                ×
+                              </button>
+                            </span>
+                          ))}
+                        </div>
+                      ) : (
+                        <div className="mt-3 text-xs text-zinc-500">None</div>
+                      )}
+
+                      <div className="mt-3 flex gap-2">
+                        <input
+                          className="h-10 flex-1 rounded-xl border border-zinc-200 bg-white px-3 text-sm"
+                          placeholder="e.g. Roofing contractor"
+                          value={fallbackNicheDraft}
+                          onChange={(e) => setFallbackNicheDraft(e.target.value)}
+                          disabled={!Boolean((settings.b2b as any).fallbackEnabled)}
+                        />
+                        <button
+                          type="button"
+                          className="inline-flex h-10 items-center justify-center gap-2 rounded-xl bg-(--color-brand-blue) px-4 text-sm font-semibold text-white hover:opacity-95 disabled:opacity-60"
+                          disabled={!Boolean((settings.b2b as any).fallbackEnabled)}
+                          onClick={() => {
+                            const nextValue = fallbackNicheDraft.trim();
+                            if (!nextValue) return;
+                            setSettings((prev) => {
+                              if (!prev) return prev;
+                              const existing = prev.b2b.fallbackNiches ?? [];
+                              const next = Array.from(new Set([nextValue, ...existing])).slice(0, 20);
+                              return { ...prev, b2b: { ...prev.b2b, fallbackNiches: next } };
+                            });
+                            setFallbackNicheDraft("");
+                          }}
+                        >
+                          <span className="text-base leading-none">+</span>
+                          <span>Add</span>
+                        </button>
+                      </div>
+
+                      <div className="mt-2 text-xs text-zinc-500">
                         If the main niche is too tight, we’ll keep trying these keywords (in your location + fallbacks) until we hit your requested count.
                       </div>
                     </div>
@@ -2061,51 +2062,77 @@ export function PortalLeadScrapingClient() {
                       placeholder="e.g. Austin TX"
                     />
 
-                    <div className="mt-3 flex items-center justify-between gap-3 rounded-2xl border border-zinc-200 bg-zinc-50 px-4 py-3 text-sm">
-                      <span className="text-zinc-800">Use fallbacks to reach count</span>
-                      <ToggleSwitch
-                        checked={Boolean((settings.b2b as any).fallbackEnabled)}
-                        accent="blue"
-                        onChange={(checked) =>
-                          setSettings((prev) =>
-                            prev
-                              ? {
-                                  ...prev,
-                                  b2b: {
-                                    ...prev.b2b,
-                                    fallbackEnabled: checked,
-                                  } as any,
-                                }
-                              : prev,
-                          )
-                        }
-                      />
-                    </div>
+                    <div className="mt-4 rounded-2xl border border-zinc-200 bg-zinc-50 p-4">
+                      <div className="text-xs font-semibold text-zinc-700">Fallback locations</div>
 
-                    <div className="mt-3">
-                      <div className="text-xs font-semibold text-zinc-600">Fallback locations (one per line)</div>
-                      <textarea
-                        className="mt-2 min-h-22.5 w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm"
-                        value={((settings.b2b as any).fallbackLocations ?? []).join("\n")}
-                        onChange={(e) =>
-                          setSettings((prev) => {
-                            if (!prev) return prev;
-                            const next = e.target.value
-                              .split("\n")
-                              .map((x) => x.trim())
-                              .filter(Boolean)
-                              .slice(0, 20);
-                            return {
-                              ...prev,
-                              b2b: {
-                                ...prev.b2b,
-                                fallbackLocations: next,
-                              } as any,
-                            };
-                          })
-                        }
-                        placeholder="e.g. Dallas TX\nSan Antonio TX"
-                      />
+                      {(((settings.b2b as any).fallbackLocations ?? []) as string[]).length ? (
+                        <div className="mt-3 flex flex-wrap gap-2">
+                          {(((settings.b2b as any).fallbackLocations ?? []) as string[]).slice(0, 20).map((v) => (
+                            <span
+                              key={v}
+                              className="inline-flex items-center gap-2 rounded-full border border-zinc-200 bg-white px-3 py-1 text-xs font-semibold text-zinc-800"
+                            >
+                              <span className="max-w-45 truncate">{v}</span>
+                              <button
+                                type="button"
+                                className="rounded-full border border-zinc-200 bg-white px-2 py-0.5 text-[11px] font-semibold text-zinc-700 hover:bg-zinc-50"
+                                onClick={() =>
+                                  setSettings((prev) =>
+                                    prev
+                                      ? {
+                                          ...prev,
+                                          b2b: {
+                                            ...prev.b2b,
+                                            fallbackLocations: (((prev.b2b as any).fallbackLocations ?? []) as string[]).filter(
+                                              (x) => x !== v,
+                                            ),
+                                          } as any,
+                                        }
+                                      : prev,
+                                  )
+                                }
+                              >
+                                ×
+                              </button>
+                            </span>
+                          ))}
+                        </div>
+                      ) : (
+                        <div className="mt-3 text-xs text-zinc-500">None</div>
+                      )}
+
+                      <div className="mt-3 flex gap-2">
+                        <input
+                          className="h-10 flex-1 rounded-xl border border-zinc-200 bg-white px-3 text-sm"
+                          placeholder="e.g. Dallas TX"
+                          value={fallbackLocationDraft}
+                          onChange={(e) => setFallbackLocationDraft(e.target.value)}
+                          disabled={!Boolean((settings.b2b as any).fallbackEnabled)}
+                        />
+                        <button
+                          type="button"
+                          className="inline-flex h-10 items-center justify-center gap-2 rounded-xl bg-(--color-brand-blue) px-4 text-sm font-semibold text-white hover:opacity-95 disabled:opacity-60"
+                          disabled={!Boolean((settings.b2b as any).fallbackEnabled)}
+                          onClick={() => {
+                            const nextValue = fallbackLocationDraft.trim();
+                            if (!nextValue) return;
+                            setSettings((prev) => {
+                              if (!prev) return prev;
+                              const existing = (((prev.b2b as any).fallbackLocations ?? []) as string[]).filter(Boolean);
+                              const next = Array.from(new Set([nextValue, ...existing])).slice(0, 20);
+                              return { ...prev, b2b: { ...prev.b2b, fallbackLocations: next } as any };
+                            });
+                            setFallbackLocationDraft("");
+                          }}
+                        >
+                          <span className="text-base leading-none">+</span>
+                          <span>Add</span>
+                        </button>
+                      </div>
+
+                      <div className="mt-2 text-xs text-zinc-500">
+                        Add nearby cities/areas to keep pulling until we hit your requested count.
+                      </div>
                     </div>
                   </label>
 
@@ -2166,6 +2193,30 @@ export function PortalLeadScrapingClient() {
                         }
                       />
                     </div>
+
+                    <div className="mt-3 flex items-center justify-between gap-3 text-sm">
+                      <span className="text-zinc-700">Use fallbacks to reach count</span>
+                      <ToggleSwitch
+                        checked={Boolean((settings.b2b as any).fallbackEnabled)}
+                        accent="blue"
+                        onChange={(checked) =>
+                          setSettings((prev) =>
+                            prev
+                              ? {
+                                  ...prev,
+                                  b2b: {
+                                    ...prev.b2b,
+                                    fallbackEnabled: checked,
+                                  } as any,
+                                }
+                              : prev,
+                          )
+                        }
+                      />
+                    </div>
+                    <div className="mt-1 text-xs text-zinc-500">
+                      When enabled, we’ll try fallback niches + locations until we reach your requested count.
+                    </div>
                   </div>
                 </div>
 
@@ -2183,7 +2234,7 @@ export function PortalLeadScrapingClient() {
                     type="button"
                     onClick={runB2bNow}
                     disabled={running || !placesConfigured}
-                    className="inline-flex items-center justify-center rounded-2xl border border-zinc-200 bg-white px-5 py-3 text-sm font-semibold text-brand-ink hover:bg-zinc-50 disabled:opacity-60"
+                    className="inline-flex items-center justify-center rounded-2xl bg-(--color-brand-blue) px-5 py-3 text-sm font-semibold text-white hover:opacity-95 disabled:opacity-60"
                   >
                     {running
                       ? plannedBatchesUi > 1
@@ -2592,11 +2643,11 @@ export function PortalLeadScrapingClient() {
                               }}
                             />
 
-                            <select
-                              className="h-10 flex-1 rounded-xl border border-zinc-200 bg-white px-3 text-sm"
+                            <PortalListboxDropdown
                               value={b2bFrequencyUnit}
-                              onChange={(e) => {
-                                const nextUnit = e.target.value as "days" | "weeks" | "months";
+                              options={B2B_FREQUENCY_UNIT_OPTIONS}
+                              buttonClassName="flex h-10 w-full flex-1 items-center justify-between gap-2 rounded-xl border border-zinc-200 bg-white px-3 text-sm hover:bg-zinc-50"
+                              onChange={(nextUnit) => {
                                 setB2bFrequencyUnit(nextUnit);
 
                                 const normalizedCount = clampInt(
@@ -2622,11 +2673,7 @@ export function PortalLeadScrapingClient() {
                                     : prev,
                                 );
                               }}
-                            >
-                              <option value="days">Days</option>
-                              <option value="weeks">Weeks</option>
-                              <option value="months">Months</option>
-                            </select>
+                            />
                           </div>
 
                         <div className="mt-1 text-xs text-zinc-500">
