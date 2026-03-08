@@ -3,9 +3,91 @@ import { prisma } from "@/lib/db";
 let ensuredAt = 0;
 const ENSURE_TTL_MS = 10 * 60 * 1000;
 
+type SchemaPresenceRow = {
+  hasCampaignTable: boolean;
+  hasCallEnrollmentTable: boolean;
+  hasMessageEnrollmentTable: boolean;
+  hasManualCallTable: boolean;
+  hasCampaignStatusType: boolean;
+  hasCallEnrollmentStatusType: boolean;
+  hasMessageEnrollmentStatusType: boolean;
+  hasMessageEnrollmentSourceType: boolean;
+  hasMessageChannelPolicyType: boolean;
+};
+
+async function schemaLooksPresent(): Promise<boolean> {
+  const presenceRows = await prisma.$queryRawUnsafe<SchemaPresenceRow[]>(
+    `
+SELECT
+  (to_regclass('"PortalAiOutboundCallCampaign"') IS NOT NULL) AS "hasCampaignTable",
+  (to_regclass('"PortalAiOutboundCallEnrollment"') IS NOT NULL) AS "hasCallEnrollmentTable",
+  (to_regclass('"PortalAiOutboundMessageEnrollment"') IS NOT NULL) AS "hasMessageEnrollmentTable",
+  (to_regclass('"PortalAiOutboundCallManualCall"') IS NOT NULL) AS "hasManualCallTable",
+  (to_regtype('"PortalAiOutboundCallCampaignStatus"') IS NOT NULL) AS "hasCampaignStatusType",
+  (to_regtype('"PortalAiOutboundCallEnrollmentStatus"') IS NOT NULL) AS "hasCallEnrollmentStatusType",
+  (to_regtype('"PortalAiOutboundMessageEnrollmentStatus"') IS NOT NULL) AS "hasMessageEnrollmentStatusType",
+  (to_regtype('"PortalAiOutboundMessageEnrollmentSource"') IS NOT NULL) AS "hasMessageEnrollmentSourceType",
+  (to_regtype('"PortalAiOutboundMessageChannelPolicy"') IS NOT NULL) AS "hasMessageChannelPolicyType";
+    `.trim(),
+  );
+
+  const presence = presenceRows?.[0];
+  if (!presence) return false;
+  if (
+    !presence.hasCampaignTable ||
+    !presence.hasCallEnrollmentTable ||
+    !presence.hasMessageEnrollmentTable ||
+    !presence.hasManualCallTable ||
+    !presence.hasCampaignStatusType ||
+    !presence.hasCallEnrollmentStatusType ||
+    !presence.hasMessageEnrollmentStatusType ||
+    !presence.hasMessageEnrollmentSourceType ||
+    !presence.hasMessageChannelPolicyType
+  ) {
+    return false;
+  }
+
+  const neededCampaignColumns = [
+    "audienceTagIdsJson",
+    "chatAudienceTagIdsJson",
+    "voiceAgentId",
+    "voiceAgentConfigJson",
+    "chatAgentId",
+    "chatAgentConfigJson",
+    "messageChannelPolicy",
+    "callOutcomeTaggingJson",
+    "messageOutcomeTaggingJson",
+  ];
+
+  const foundCampaignCols = await prisma.$queryRawUnsafe<Array<{ column_name: string }>>(
+    `
+SELECT column_name
+FROM information_schema.columns
+WHERE table_schema = 'public'
+  AND table_name = 'PortalAiOutboundCallCampaign'
+  AND column_name = ANY($1::text[]);
+    `.trim(),
+    neededCampaignColumns,
+  );
+
+  const found = new Set(foundCampaignCols.map((r) => String(r.column_name)));
+  for (const c of neededCampaignColumns) {
+    if (!found.has(c)) return false;
+  }
+
+  return true;
+}
+
 export async function ensurePortalAiOutboundCallsSchema(): Promise<void> {
   const now = Date.now();
   if (ensuredAt && now - ensuredAt < ENSURE_TTL_MS) return;
+
+  // Fast-path: in serverless/prod, module-level caches are not reliable across instances.
+  // Avoid running DDL on cold starts unless the schema is actually missing/incomplete.
+  if (await schemaLooksPresent().catch(() => false)) {
+    ensuredAt = Date.now();
+    return;
+  }
 
   const statements: string[] = [
     `
