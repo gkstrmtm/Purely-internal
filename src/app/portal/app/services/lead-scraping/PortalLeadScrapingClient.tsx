@@ -696,16 +696,16 @@ export function PortalLeadScrapingClient() {
 
   useEffect(() => {
     if (!aiCallsUnlocked) return;
-    if (aiCampaignsBusy) return;
     if (aiCampaigns) return;
-    let mounted = true;
+    if (aiCampaignsBusy) return;
+
+    let cancelled = false;
+    const controller = new AbortController();
+    const timeout = window.setTimeout(() => controller.abort(), 10000);
 
     (async () => {
       setAiCampaignsBusy(true);
       try {
-        const controller = new AbortController();
-        const timeout = window.setTimeout(() => controller.abort(), 10000);
-
         const variant =
           typeof window !== "undefined" && window.location.pathname.startsWith("/credit") ? "credit" : "portal";
 
@@ -717,10 +717,9 @@ export function PortalLeadScrapingClient() {
             "x-portal-variant": variant,
           },
         });
-        window.clearTimeout(timeout);
 
         const json = (await res.json().catch(() => ({}))) as any;
-        if (!mounted) return;
+        if (cancelled) return;
         if (!res.ok || json?.ok !== true || !Array.isArray(json?.campaigns)) {
           setAiCampaigns([]);
           return;
@@ -732,18 +731,21 @@ export function PortalLeadScrapingClient() {
             .slice(0, 200),
         );
       } catch {
-        if (!mounted) return;
+        if (cancelled) return;
         setAiCampaigns([]);
       } finally {
-        if (!mounted) return;
+        window.clearTimeout(timeout);
+        if (cancelled) return;
         setAiCampaignsBusy(false);
       }
     })();
 
     return () => {
-      mounted = false;
+      cancelled = true;
+      window.clearTimeout(timeout);
+      controller.abort();
     };
-  }, [aiCallsUnlocked, aiCampaigns, aiCampaignsBusy]);
+  }, [aiCallsUnlocked]);
 
   useEffect(() => {
     if (loading) return;
