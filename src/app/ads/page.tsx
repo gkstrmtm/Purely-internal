@@ -122,36 +122,35 @@ export default function AdsLandingPage() {
                   title: "High-intent reach",
                   body: "Show up at the moment buyers are deciding.",
                   icon: IconTarget,
-                  blob: "from-[color:var(--color-brand-blue)]/35 via-[color:var(--color-brand-pink)]/20 to-white/0",
                 },
                 {
                   title: "Pay-per-click",
                   body: "Only pay when someone clicks.",
                   icon: IconShield,
-                  blob: "from-[color:var(--color-brand-pink)]/35 via-[color:var(--color-brand-blue)]/15 to-white/0",
                 },
                 {
                   title: "Fast creative iterations",
                   body: "Generate, test, and refine in minutes.",
                   icon: IconSpark,
-                  blob: "from-[color:var(--color-brand-pink)]/25 via-[color:var(--color-brand-blue)]/25 to-white/0",
                 },
                 {
                   title: "Guardrails by default",
                   body: "Daily budgets keep spend predictable.",
                   icon: IconBolt,
-                  blob: "from-[color:var(--color-brand-blue)]/25 via-[color:var(--color-brand-pink)]/25 to-white/0",
                 },
               ].map((c) => (
-                <div key={c.title} className="relative overflow-hidden rounded-[1.75rem] border border-white/70 bg-white/70 p-5 shadow-sm backdrop-blur">
-                  <div className={`pointer-events-none absolute -right-10 -top-10 h-40 w-40 rounded-full bg-gradient-to-br ${c.blob} blur-2xl`} />
+                <div
+                  key={c.title}
+                  className="relative overflow-hidden rounded-[1.75rem] border border-white/30 bg-gradient-to-r from-[color:var(--color-brand-blue)] to-[color:var(--color-brand-pink)] p-5 shadow-sm"
+                >
+                  <div className="pointer-events-none absolute inset-0 bg-white/10" />
                   <div className="relative flex items-start gap-3">
-                    <div className="grid h-10 w-10 place-items-center rounded-2xl bg-brand-ink text-white">
+                    <div className="grid h-10 w-10 place-items-center rounded-2xl border border-white/20 bg-white/15 text-white">
                       <c.icon className="h-5 w-5" />
                     </div>
                     <div className="min-w-0">
-                      <div className="text-sm font-semibold text-zinc-900">{c.title}</div>
-                      <div className="mt-1 text-sm text-zinc-600">{c.body}</div>
+                      <div className="text-sm font-semibold text-white">{c.title}</div>
+                      <div className="mt-1 text-sm text-white/85">{c.body}</div>
                     </div>
                   </div>
                 </div>
@@ -222,7 +221,13 @@ export default function AdsLandingPage() {
           <div className="grid gap-8 md:grid-cols-3">
             <div>
               <div className="flex items-center gap-3">
-                <Image src="/brand/purity-5.png" alt="" width={56} height={56} className="h-14 w-14 object-contain" />
+                <Image
+                  src="/brand/play_white_removed_everywhere_1.png"
+                  alt=""
+                  width={84}
+                  height={56}
+                  className="h-10 w-auto object-contain"
+                />
                 <div>
                   <div className="text-sm font-semibold text-zinc-900">Contact</div>
                   <div className="mt-1 text-sm text-zinc-600">Questions, onboarding, or help.</div>
@@ -233,6 +238,22 @@ export default function AdsLandingPage() {
                 <a className="text-[color:var(--color-brand-blue)] hover:underline" href="mailto:support@purelyautomation.com">
                   support@purelyautomation.com
                 </a>
+              </div>
+
+              <div className="mt-4 text-sm text-zinc-700">
+                <div className="font-semibold text-zinc-900">Phone</div>
+                <a className="text-[color:var(--color-brand-blue)] hover:underline" href="tel:+19802383313">
+                  980-238-3313
+                </a>
+              </div>
+
+              <div className="mt-5">
+                <Link
+                  href="/book-a-call"
+                  className="inline-flex items-center justify-center rounded-2xl bg-brand-ink px-5 py-3 text-sm font-semibold text-white hover:opacity-95"
+                >
+                  Book a call
+                </Link>
               </div>
             </div>
 

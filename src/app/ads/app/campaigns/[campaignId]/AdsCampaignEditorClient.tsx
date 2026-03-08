@@ -233,6 +233,8 @@ export function AdsCampaignEditorClient(props: {
               <LocalDateTimePicker
                 value={startAt}
                 onChange={setStartAt}
+                disablePast
+                dateFirst
                 buttonClassName="mt-2 w-full rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-left text-sm hover:bg-zinc-50"
                 placeholder="Select start"
               />
@@ -242,6 +244,9 @@ export function AdsCampaignEditorClient(props: {
               <LocalDateTimePicker
                 value={endAt}
                 onChange={setEndAt}
+                disablePast
+                dateFirst
+                minDateTime={startAt ? new Date(startAt) : null}
                 buttonClassName="mt-2 w-full rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-left text-sm hover:bg-zinc-50"
                 placeholder="Select end"
               />

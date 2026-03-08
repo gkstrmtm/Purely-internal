@@ -25,6 +25,7 @@ const bodySchema = z
       .object({
         industries: z.array(z.string().trim().min(1).max(80)).max(50).optional(),
         businessModels: z.array(z.string().trim().min(1).max(80)).max(50).optional(),
+        locations: z.array(z.string().trim().min(1).max(80)).max(50).optional(),
       })
       .optional(),
   })
@@ -55,9 +56,11 @@ function tryParseJson(raw: string): null | { headline?: string; body?: string; c
 function fallbackCopy(input: z.infer<typeof bodySchema>) {
   const industries = (input.targeting?.industries || []).slice(0, 2);
   const businessModels = (input.targeting?.businessModels || []).slice(0, 2);
+  const locations = (input.targeting?.locations || []).slice(0, 2);
   const topic = [...industries, ...businessModels].filter(Boolean).join(" · ");
+  const locationSuffix = locations.length ? ` in ${locations.join(", ")}` : "";
 
-  const headline = topic ? `Get more ${topic} leads` : "Get more leads this week";
+  const headline = topic ? `Get more ${topic} leads${locationSuffix}` : `Get more leads${locationSuffix || " this week"}`;
   const body =
     input.placement === "TOP_BANNER"
       ? "Promote your offer to portal users actively browsing services."
@@ -110,6 +113,7 @@ export async function POST(req: Request) {
     input.targeting?.businessModels?.length
       ? `- Business models: ${input.targeting.businessModels.join(", ")}`
       : "- Business models: (none)",
+    input.targeting?.locations?.length ? `- Locations: ${input.targeting.locations.join(", ")}` : "- Locations: (none)",
     "",
     "Constraints:",
     "- headline <= 70 chars recommended (hard cap 160)",

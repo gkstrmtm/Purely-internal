@@ -34,6 +34,7 @@ const createSchema = z.object({
     .object({
       industries: z.array(z.string().min(1).max(80)).max(50).optional(),
       businessModels: z.array(z.string().min(1).max(80)).max(50).optional(),
+      locations: z.array(z.string().min(1).max(80)).max(50).optional(),
     })
     .optional(),
 
@@ -132,6 +133,7 @@ export async function POST(req: Request) {
 
   const industries = uniqStrings(parsed.data.targeting?.industries).slice(0, 50);
   const businessModels = uniqStrings(parsed.data.targeting?.businessModels).slice(0, 50);
+  const locations = uniqStrings(parsed.data.targeting?.locations).slice(0, 50);
 
   // Placement is internal; advertisers do not choose it.
   const placement = DEFAULT_PLACEMENT;
@@ -141,6 +143,7 @@ export async function POST(req: Request) {
   const targetJson = omitUndefinedDeep({
     industries: industries.length ? industries : undefined,
     businessModels: businessModels.length ? businessModels : undefined,
+    locations: locations.length ? locations : undefined,
     // Customer surface does not expose internal knobs.
     paths: undefined,
     includeOwnerIds: undefined,

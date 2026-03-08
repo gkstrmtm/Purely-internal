@@ -40,7 +40,7 @@ export default function AdsLoginPage() {
         </Link>
 
         <h1 className="mt-6 text-2xl font-bold">Ads Manager sign in</h1>
-        <p className="mt-2 text-sm text-zinc-600">Use the same credentials as your portal account.</p>
+        <p className="mt-2 text-sm text-zinc-600">Use the same credentials as your portal account. If you have one.</p>
 
         <form onSubmit={onSubmit} className="mt-6 rounded-3xl border border-zinc-200 bg-white p-6">
           <label className="block">

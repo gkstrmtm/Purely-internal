@@ -5,8 +5,10 @@ import Image from "next/image";
 import { useRouter } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
 
+import { AppConfirmModal } from "@/components/AppModal";
 import { LocalDateTimePicker } from "@/components/LocalDateTimePicker";
 import { PortalListboxDropdown } from "@/components/PortalListboxDropdown";
+import { PortalMultiSelectDropdown } from "@/components/PortalMultiSelectDropdown";
 import { BUSINESS_MODEL_SUGGESTIONS, INDUSTRY_SUGGESTIONS } from "@/lib/portalOnboardingWizardCatalog";
 
 type Audience = { id: string; name: string; targetingJson: any };
@@ -17,12 +19,6 @@ function usdToCents(v: string) {
   const n = Number(v);
   if (!Number.isFinite(n)) return NaN;
   return Math.max(0, Math.round(n * 100));
-}
-
-function toggle(list: string[], value: string) {
-  const v = value.trim();
-  if (!v) return list;
-  return list.includes(v) ? list.filter((x) => x !== v) : [...list, v];
 }
 
 function dedupe(list: string[]) {
@@ -54,9 +50,7 @@ export default function NewAdsCampaignPage() {
 
   const [industries, setIndustries] = useState<string[]>([]);
   const [businessModels, setBusinessModels] = useState<string[]>([]);
-
-  const [customIndustry, setCustomIndustry] = useState("");
-  const [customBusinessModel, setCustomBusinessModel] = useState("");
+  const [locations, setLocations] = useState<string[]>([]);
 
   const [headline, setHeadline] = useState("");
   const [body, setBody] = useState("");
@@ -82,6 +76,8 @@ export default function NewAdsCampaignPage() {
   const [audienceId, setAudienceId] = useState<string>("");
   const [audienceName, setAudienceName] = useState<string>("");
   const [audienceBusy, setAudienceBusy] = useState(false);
+
+  const [deleteAudienceModal, setDeleteAudienceModal] = useState<null | { id: string; name: string }>(null);
 
   const [me, setMe] = useState<any>(null);
   const [accountBusy, setAccountBusy] = useState(false);
@@ -131,6 +127,7 @@ export default function NewAdsCampaignPage() {
     const t = (a.targetingJson ?? {}) as any;
     setIndustries(dedupe(Array.isArray(t.industries) ? t.industries : []));
     setBusinessModels(dedupe(Array.isArray(t.businessModels) ? t.businessModels : []));
+    setLocations(dedupe(Array.isArray(t.locations) ? t.locations : []));
   }, [audienceId, audiences]);
 
   async function saveAudience() {
@@ -151,6 +148,7 @@ export default function NewAdsCampaignPage() {
           targeting: {
             industries: dedupe(industries),
             businessModels: dedupe(businessModels),
+            locations: dedupe(locations),
           },
         }),
       });
@@ -171,16 +169,23 @@ export default function NewAdsCampaignPage() {
     if (!audienceId) return;
     const a = audiences.find((x) => x.id === audienceId);
     if (!a) return;
-    if (!confirm(`Delete audience profile “${a.name}”?`)) return;
+    setDeleteAudienceModal({ id: audienceId, name: a.name });
+  }
+
+  async function confirmDeleteAudience() {
+    if (audienceBusy) return;
+    if (!deleteAudienceModal?.id) return;
 
     setAudienceBusy(true);
     setError(null);
     try {
-      const res = await fetch(`/ads/api/audiences/${audienceId}`, { method: "DELETE" });
+      const res = await fetch(`/ads/api/audiences/${deleteAudienceModal.id}`, { method: "DELETE" });
       const json = await res.json().catch(() => null);
       if (!res.ok || !json?.ok) throw new Error(String(json?.error || "Delete failed"));
-      setAudienceId("");
+
+      if (audienceId === deleteAudienceModal.id) setAudienceId("");
       await loadAudiences();
+      setDeleteAudienceModal(null);
     } catch (err: any) {
       setError(String(err?.message || "Delete failed"));
     } finally {
@@ -231,6 +236,7 @@ export default function NewAdsCampaignPage() {
           targeting: {
             industries: dedupe(industries),
             businessModels: dedupe(businessModels),
+            locations: dedupe(locations),
           },
         }),
       });
@@ -267,6 +273,7 @@ export default function NewAdsCampaignPage() {
           targeting: {
             industries: dedupe(industries),
             businessModels: dedupe(businessModels),
+            locations: dedupe(locations),
           },
           creative: {
             headline,
@@ -317,6 +324,8 @@ export default function NewAdsCampaignPage() {
                     <LocalDateTimePicker
                       value={startAt}
                       onChange={setStartAt}
+                      disablePast
+                      dateFirst
                       buttonClassName="mt-2 w-full rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-left text-sm hover:bg-zinc-50"
                       placeholder="Select start"
                     />
@@ -326,6 +335,9 @@ export default function NewAdsCampaignPage() {
                     <LocalDateTimePicker
                       value={endAt}
                       onChange={setEndAt}
+                      disablePast
+                      dateFirst
+                      minDateTime={startAt ? new Date(startAt) : null}
                       buttonClassName="mt-2 w-full rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-left text-sm hover:bg-zinc-50"
                       placeholder="Select end"
                     />
@@ -411,84 +423,48 @@ export default function NewAdsCampaignPage() {
                 </div>
                 <div>
                   <div className="text-xs font-semibold uppercase tracking-wide text-zinc-500">Industries</div>
-                  <div className="mt-3 flex flex-wrap gap-2">
-                    {INDUSTRY_SUGGESTIONS.map((x) => (
-                      <button
-                        key={x}
-                        type="button"
-                        onClick={() => setIndustries((cur) => toggle(cur, x))}
-                        className={
-                          industries.includes(x)
-                            ? "rounded-full border border-[color:var(--color-brand-blue)]/25 bg-[color:var(--color-brand-blue)]/10 px-3 py-1.5 text-xs font-semibold text-[color:var(--color-brand-blue)]"
-                            : "rounded-full border border-zinc-200 bg-white px-3 py-1.5 text-xs font-semibold text-zinc-700 hover:bg-zinc-50"
-                        }
-                      >
-                        {x}
-                      </button>
-                    ))}
-                  </div>
-
-                  <div className="mt-3 flex items-center gap-2">
-                    <input
-                      value={customIndustry}
-                      onChange={(e) => setCustomIndustry(e.target.value)}
-                      placeholder="Add industry…"
-                      className="w-full rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-sm outline-none focus:border-zinc-400"
+                  <div className="mt-2">
+                    <PortalMultiSelectDropdown
+                      label="Industries"
+                      value={industries}
+                      onChange={setIndustries}
+                      disabled={busy || audienceBusy}
+                      placeholder="Search industries…"
+                      options={INDUSTRY_SUGGESTIONS.map((x) => ({ value: x, label: x }))}
                     />
-                    <button
-                      type="button"
-                      onClick={() => {
-                        const v = customIndustry.trim();
-                        if (!v) return;
-                        setIndustries((cur) => dedupe([...cur, v]));
-                        setCustomIndustry("");
-                      }}
-                      className="shrink-0 rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm font-semibold text-zinc-900 hover:bg-zinc-50"
-                    >
-                      Add
-                    </button>
                   </div>
+                  <div className="mt-2 text-xs text-zinc-500">Optional. Add custom industries if needed.</div>
                 </div>
 
                 <div>
                   <div className="text-xs font-semibold uppercase tracking-wide text-zinc-500">Business models</div>
-                  <div className="mt-3 flex flex-wrap gap-2">
-                    {BUSINESS_MODEL_SUGGESTIONS.map((x) => (
-                      <button
-                        key={x}
-                        type="button"
-                        onClick={() => setBusinessModels((cur) => toggle(cur, x))}
-                        className={
-                          businessModels.includes(x)
-                            ? "rounded-full border border-[color:var(--color-brand-blue)]/25 bg-[color:var(--color-brand-blue)]/10 px-3 py-1.5 text-xs font-semibold text-[color:var(--color-brand-blue)]"
-                            : "rounded-full border border-zinc-200 bg-white px-3 py-1.5 text-xs font-semibold text-zinc-700 hover:bg-zinc-50"
-                        }
-                      >
-                        {x}
-                      </button>
-                    ))}
-                  </div>
-
-                  <div className="mt-3 flex items-center gap-2">
-                    <input
-                      value={customBusinessModel}
-                      onChange={(e) => setCustomBusinessModel(e.target.value)}
-                      placeholder="Add business model…"
-                      className="w-full rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-sm outline-none focus:border-zinc-400"
+                  <div className="mt-2">
+                    <PortalMultiSelectDropdown
+                      label="Business models"
+                      value={businessModels}
+                      onChange={setBusinessModels}
+                      disabled={busy || audienceBusy}
+                      placeholder="Search business models…"
+                      options={BUSINESS_MODEL_SUGGESTIONS.map((x) => ({ value: x, label: x }))}
                     />
-                    <button
-                      type="button"
-                      onClick={() => {
-                        const v = customBusinessModel.trim();
-                        if (!v) return;
-                        setBusinessModels((cur) => dedupe([...cur, v]));
-                        setCustomBusinessModel("");
-                      }}
-                      className="shrink-0 rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm font-semibold text-zinc-900 hover:bg-zinc-50"
-                    >
-                      Add
-                    </button>
                   </div>
+                  <div className="mt-2 text-xs text-zinc-500">Optional. Add custom business models if needed.</div>
+                </div>
+
+                <div>
+                  <div className="text-xs font-semibold uppercase tracking-wide text-zinc-500">Locations</div>
+                  <div className="mt-2">
+                    <PortalMultiSelectDropdown
+                      label="Locations"
+                      value={locations}
+                      onChange={setLocations}
+                      disabled={busy || audienceBusy}
+                      placeholder="Type a city, state, or region…"
+                      options={[]}
+                      allowCustom
+                    />
+                  </div>
+                  <div className="mt-2 text-xs text-zinc-500">Optional. Example: Charlotte, NC.</div>
                 </div>
               </div>
             </div>
@@ -525,31 +501,6 @@ export default function NewAdsCampaignPage() {
             <div className="flex items-center gap-2">
               <button
                 type="button"
-                onClick={() => setShowAllPreviews((v) => !v)}
-                disabled={busy}
-                className={
-                  "inline-flex h-10 w-10 items-center justify-center rounded-2xl border bg-white text-zinc-700 hover:bg-zinc-50 disabled:opacity-60 " +
-                  (showAllPreviews ? "border-[color:var(--color-brand-blue)]/30" : "border-zinc-200")
-                }
-                aria-label={showAllPreviews ? "Hide multi-format preview" : "Show multi-format preview"}
-                title={showAllPreviews ? "Hide multi-format preview" : "Show multi-format preview"}
-              >
-                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" aria-hidden="true">
-                  <path
-                    d="M1.5 12s4-7 10.5-7 10.5 7 10.5 7-4 7-10.5 7S1.5 12 1.5 12Z"
-                    stroke="currentColor"
-                    strokeWidth="1.8"
-                  />
-                  <path
-                    d="M12 15a3 3 0 1 0 0-6 3 3 0 0 0 0 6Z"
-                    stroke="currentColor"
-                    strokeWidth="1.8"
-                  />
-                </svg>
-              </button>
-
-              <button
-                type="button"
                 onClick={() => setShowHowItWorks((v) => !v)}
                 disabled={busy}
                 className={
@@ -574,21 +525,21 @@ export default function NewAdsCampaignPage() {
                 type="button"
                 onClick={() => void generateCreative()}
                 disabled={creativeBusy || busy}
-                  className="inline-flex items-center gap-2 rounded-2xl bg-[color:var(--color-brand-blue)] px-4 py-2 text-sm font-semibold text-white shadow-sm hover:opacity-95 disabled:opacity-60"
+                className="inline-flex items-center gap-2 rounded-2xl bg-gradient-to-r from-[color:var(--color-brand-blue)] to-[color:var(--color-brand-pink)] px-4 py-2 text-sm font-semibold text-white shadow-sm hover:opacity-95 disabled:opacity-60"
               >
-                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" aria-hidden="true">
-                    <path
-                      d="M12 2l1.2 5.1L18 9l-4.8 1.9L12 16l-1.2-5.1L6 9l4.8-1.9L12 2Z"
-                      fill="currentColor"
-                      opacity="0.95"
-                    />
-                    <path
-                      d="M19 13l.7 2.7L22 17l-2.3.9L19 20l-.7-2.1L16 17l2.3-1.3L19 13Z"
-                      fill="currentColor"
-                      opacity="0.75"
-                    />
-                  </svg>
-                  <span>{creativeBusy ? "Generating…" : "Generate"}</span>
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+                  <path
+                    d="M12 2l1.2 5.1L18 9l-4.8 1.9L12 16l-1.2-5.1L6 9l4.8-1.9L12 2Z"
+                    fill="currentColor"
+                    opacity="0.95"
+                  />
+                  <path
+                    d="M19 13l.7 2.7L22 17l-2.3.9L19 20l-.7-2.1L16 17l2.3-1.3L19 13Z"
+                    fill="currentColor"
+                    opacity="0.75"
+                  />
+                </svg>
+                <span>{creativeBusy ? "Generating…" : "Generate"}</span>
               </button>
               <button
                 type="button"
@@ -810,9 +761,39 @@ export default function NewAdsCampaignPage() {
         </div>
 
         <div className="rounded-3xl border border-zinc-200 bg-white p-6">
-          <div className="text-sm font-semibold text-zinc-900">Rendering</div>
-          <div className="mt-2 text-sm text-zinc-600">
-            Approximate examples (final styling can vary). {showAllPreviews ? "Showing multiple formats." : "Showing one format."}
+          <div className="flex flex-wrap items-start justify-between gap-3">
+            <div>
+              <div className="text-sm font-semibold text-zinc-900">Rendering</div>
+              <div className="mt-2 text-sm text-zinc-600">
+                Approximate examples (final styling can vary). {showAllPreviews ? "Showing multiple formats." : "Showing one format."}
+              </div>
+            </div>
+            <button
+              type="button"
+              onClick={() => setShowAllPreviews((v) => !v)}
+              disabled={busy}
+              className={
+                "inline-flex items-center gap-2 rounded-2xl border bg-white px-3 py-2 text-sm font-semibold text-zinc-700 hover:bg-zinc-50 disabled:opacity-60 " +
+                (showAllPreviews ? "border-[color:var(--color-brand-blue)]/30" : "border-zinc-200")
+              }
+              aria-pressed={showAllPreviews}
+              aria-label={showAllPreviews ? "Showing multiple formats" : "Showing one format"}
+              title={showAllPreviews ? "Showing multiple formats" : "Showing one format"}
+            >
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+                <path
+                  d="M1.5 12s4-7 10.5-7 10.5 7 10.5 7-4 7-10.5 7S1.5 12 1.5 12Z"
+                  stroke="currentColor"
+                  strokeWidth="1.8"
+                />
+                <path
+                  d="M12 15a3 3 0 1 0 0-6 3 3 0 0 0 0 6Z"
+                  stroke="currentColor"
+                  strokeWidth="1.8"
+                />
+              </svg>
+              <span>{showAllPreviews ? "Multiple formats" : "One format"}</span>
+            </button>
           </div>
 
           {(
@@ -887,6 +868,19 @@ export default function NewAdsCampaignPage() {
           })}
         </div>
       </div>
+
+      <AppConfirmModal
+        open={Boolean(deleteAudienceModal)}
+        title="Delete audience profile"
+        message={deleteAudienceModal ? `Delete “${deleteAudienceModal.name}”? This cannot be undone.` : ""}
+        destructive
+        confirmLabel={audienceBusy ? "Deleting…" : "Delete"}
+        onClose={() => {
+          if (audienceBusy) return;
+          setDeleteAudienceModal(null);
+        }}
+        onConfirm={() => void confirmDeleteAudience()}
+      />
     </div>
   );
 }

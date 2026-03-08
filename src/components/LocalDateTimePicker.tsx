@@ -97,8 +97,21 @@ export function LocalDateTimePicker(props: {
   buttonClassName?: string;
   popoverClassName?: string;
   placeholder?: string;
+  disablePast?: boolean;
+  dateFirst?: boolean;
+  minDateTime?: Date | null;
 }) {
-  const { value, onChange, disabled = false, buttonClassName, popoverClassName, placeholder } = props;
+  const {
+    value,
+    onChange,
+    disabled = false,
+    buttonClassName,
+    popoverClassName,
+    placeholder,
+    disablePast = false,
+    dateFirst = false,
+    minDateTime = null,
+  } = props;
 
   const rootRef = useRef<HTMLDivElement | null>(null);
   const buttonRef = useRef<HTMLButtonElement | null>(null);
@@ -113,6 +126,9 @@ export function LocalDateTimePicker(props: {
   }, [value]);
 
   const [open, setOpen] = useState(false);
+  const [nowSeed, setNowSeed] = useState(0);
+
+  const [step, setStep] = useState<"date" | "time">("date");
 
   const [draftYmd, setDraftYmd] = useState<string>(() => parsedValue?.ymd || formatYmd(new Date()));
   const [draftHm, setDraftHm] = useState<string>(() => parsedValue?.hm || "09:00");
@@ -123,7 +139,27 @@ export function LocalDateTimePicker(props: {
     setDraftYmd(parsedValue?.ymd || formatYmd(new Date()));
     setDraftHm(parsedValue?.hm || "09:00");
     setViewMonth(startOfMonth(parsedValue?.date || new Date()));
+    setStep("date");
   }, [open, parsedValue?.date, parsedValue?.hm, parsedValue?.ymd]);
+
+  useEffect(() => {
+    if (!open) return;
+    if (!disablePast) return;
+    setNowSeed(Date.now());
+  }, [disablePast, open]);
+
+  const effectiveMinDateTime = useMemo(() => {
+    let out: Date | null = null;
+    if (minDateTime instanceof Date && isValidDate(minDateTime)) out = new Date(minDateTime);
+    if (disablePast) {
+      const now = new Date(nowSeed || Date.now());
+      out = out ? (out > now ? out : now) : now;
+    }
+    return out;
+  }, [disablePast, minDateTime, nowSeed]);
+
+  const minYmd = effectiveMinDateTime ? formatYmd(effectiveMinDateTime) : null;
+  const minHm = effectiveMinDateTime ? formatHm(effectiveMinDateTime) : null;
 
   useEffect(() => {
     if (!open) return;
@@ -165,6 +201,7 @@ export function LocalDateTimePicker(props: {
   }, []);
 
   const draftDate = useMemo(() => dateFromParts(draftYmd, draftHm), [draftHm, draftYmd]);
+  const canSet = Boolean(draftDate && (!effectiveMinDateTime || draftDate >= effectiveMinDateTime));
 
   return (
     <div ref={rootRef} className="relative">
@@ -205,6 +242,7 @@ export function LocalDateTimePicker(props: {
               type="button"
               className="rounded-xl border border-zinc-200 bg-white px-2 py-1 text-xs font-semibold text-zinc-700 hover:bg-zinc-50"
               onClick={() => setViewMonth((m) => addMonths(m, -1))}
+              disabled={dateFirst && step === "time"}
             >
               Prev
             </button>
@@ -215,66 +253,103 @@ export function LocalDateTimePicker(props: {
               type="button"
               className="rounded-xl border border-zinc-200 bg-white px-2 py-1 text-xs font-semibold text-zinc-700 hover:bg-zinc-50"
               onClick={() => setViewMonth((m) => addMonths(m, 1))}
+              disabled={dateFirst && step === "time"}
             >
               Next
             </button>
           </div>
 
-          <div className="grid grid-cols-7 gap-1 p-3 text-center text-[11px] font-semibold text-zinc-500">
-            {["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"].map((d) => (
-              <div key={d}>{d}</div>
-            ))}
-          </div>
-
-          <div className="grid grid-cols-7 gap-1 px-3 pb-3">
-            {grid.map((d) => {
-              const ymd = formatYmd(d);
-              const inMonth = d.getMonth() === viewMonth.getMonth();
-              const selected = ymd === draftYmd;
-              const isToday = ymd === formatYmd(new Date());
-              return (
+          {dateFirst ? (
+            <div className="flex items-center justify-between gap-2 border-b border-zinc-200 bg-white px-3 py-2">
+              <div className="text-xs font-semibold text-zinc-600">{step === "date" ? "Select date" : "Select time"}</div>
+              {step === "time" ? (
                 <button
-                  key={ymd}
                   type="button"
-                  className={
-                    "h-9 rounded-xl border text-sm transition " +
-                    (selected
-                      ? "border-zinc-900 bg-zinc-900 text-white"
-                      : inMonth
-                        ? "border-zinc-200 bg-white text-zinc-900 hover:bg-zinc-50"
-                        : "border-zinc-200 bg-zinc-50 text-zinc-400 hover:bg-zinc-100")
-                  }
-                  onClick={() => {
-                    setDraftYmd(ymd);
-                    const next = dateFromParts(ymd, draftHm);
-                    if (next) setViewMonth(startOfMonth(next));
-                  }}
-                  title={d.toLocaleDateString()}
+                  className="rounded-xl border border-zinc-200 bg-white px-2 py-1 text-xs font-semibold text-zinc-700 hover:bg-zinc-50"
+                  onClick={() => setStep("date")}
                 >
-                  <div className="flex items-center justify-center gap-1">
-                    <span>{d.getDate()}</span>
-                    {isToday ? <span className={selected ? "text-white" : "text-emerald-600"}>•</span> : null}
-                  </div>
+                  Back
                 </button>
-              );
-            })}
-          </div>
+              ) : null}
+            </div>
+          ) : null}
 
-          <div className="border-t border-zinc-200 p-3">
+          {!dateFirst || step === "date" ? (
+            <>
+              <div className="grid grid-cols-7 gap-1 p-3 text-center text-[11px] font-semibold text-zinc-500">
+                {["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"].map((d) => (
+                  <div key={d}>{d}</div>
+                ))}
+              </div>
+
+              <div className="grid grid-cols-7 gap-1 px-3 pb-3">
+                {grid.map((d) => {
+                  const ymd = formatYmd(d);
+                  const inMonth = d.getMonth() === viewMonth.getMonth();
+                  const selected = ymd === draftYmd;
+                  const isToday = ymd === formatYmd(new Date());
+                  const disabledByMin = Boolean(minYmd && ymd < minYmd);
+
+                  return (
+                    <button
+                      key={ymd}
+                      type="button"
+                      disabled={disabledByMin}
+                      className={
+                        "h-9 rounded-xl border text-sm transition " +
+                        (disabledByMin
+                          ? "cursor-not-allowed border-zinc-200 bg-zinc-50 text-zinc-300"
+                          : selected
+                            ? "border-zinc-900 bg-zinc-900 text-white"
+                            : inMonth
+                              ? "border-zinc-200 bg-white text-zinc-900 hover:bg-zinc-50"
+                              : "border-zinc-200 bg-zinc-50 text-zinc-400 hover:bg-zinc-100")
+                      }
+                      onClick={() => {
+                        if (disabledByMin) return;
+                        setDraftYmd(ymd);
+                        const next = dateFromParts(ymd, draftHm);
+                        if (next) setViewMonth(startOfMonth(next));
+                        if (dateFirst) setStep("time");
+                      }}
+                      title={d.toLocaleDateString()}
+                    >
+                      <div className="flex items-center justify-center gap-1">
+                        <span>{d.getDate()}</span>
+                        {isToday ? <span className={selected ? "text-white" : "text-emerald-600"}>•</span> : null}
+                      </div>
+                    </button>
+                  );
+                })}
+              </div>
+            </>
+          ) : null}
+
+          {!dateFirst || step === "time" ? (
+          <div className={"border-t border-zinc-200 p-3" + (dateFirst ? " border-t-0" : "")}>
             <div className="text-xs font-semibold text-zinc-600">Time</div>
             <div className="mt-2 max-h-[160px] overflow-auto rounded-2xl border border-zinc-200 p-1">
               <div className="grid grid-cols-4 gap-1">
                 {timeOptions.map((hm) => {
                   const selected = hm === draftHm;
+                  const disabledByMin = Boolean(minYmd && minHm && draftYmd === minYmd && hm < minHm);
                   return (
                     <button
                       key={hm}
                       type="button"
+                      disabled={disabledByMin}
                       className={
                         "rounded-xl px-2 py-2 text-xs font-semibold transition " +
-                        (selected ? "bg-zinc-900 text-white" : "bg-white text-zinc-700 hover:bg-zinc-50")
+                        (disabledByMin
+                          ? "cursor-not-allowed bg-white text-zinc-300"
+                          : selected
+                            ? "bg-zinc-900 text-white"
+                            : "bg-white text-zinc-700 hover:bg-zinc-50")
                       }
-                      onClick={() => setDraftHm(hm)}
+                      onClick={() => {
+                        if (disabledByMin) return;
+                        setDraftHm(hm);
+                      }}
                     >
                       {hm}
                     </button>
@@ -289,9 +364,11 @@ export function LocalDateTimePicker(props: {
                 className="rounded-xl border border-zinc-200 bg-white px-3 py-2 text-xs font-semibold text-zinc-700 hover:bg-zinc-50"
                 onClick={() => {
                   const now = new Date();
-                  setDraftYmd(formatYmd(now));
-                  setDraftHm(formatHm(now));
-                  setViewMonth(startOfMonth(now));
+                  const next = effectiveMinDateTime && effectiveMinDateTime > now ? effectiveMinDateTime : now;
+                  setDraftYmd(formatYmd(next));
+                  setDraftHm(formatHm(next));
+                  setViewMonth(startOfMonth(next));
+                  if (dateFirst) setStep("time");
                 }}
               >
                 Now
@@ -301,9 +378,14 @@ export function LocalDateTimePicker(props: {
 
               <button
                 type="button"
-                className="rounded-xl bg-[color:var(--color-brand-blue)] px-4 py-2 text-xs font-semibold text-white hover:opacity-95"
+                disabled={!canSet}
+                className={
+                  "rounded-xl px-4 py-2 text-xs font-semibold text-white hover:opacity-95 disabled:cursor-not-allowed disabled:opacity-60 " +
+                  "bg-[color:var(--color-brand-blue)]"
+                }
                 onClick={() => {
                   if (!draftDate) return;
+                  if (effectiveMinDateTime && draftDate < effectiveMinDateTime) return;
                   onChange(toLocalDateTimeValue(draftDate));
                   setOpen(false);
                 }}
@@ -312,6 +394,7 @@ export function LocalDateTimePicker(props: {
               </button>
             </div>
           </div>
+          ) : null}
         </div>
       ) : null}
     </div>

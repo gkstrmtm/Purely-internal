@@ -69,6 +69,7 @@ const patchSchema = z
       .object({
         industries: z.array(z.string().min(1).max(80)).max(50).optional(),
         businessModels: z.array(z.string().min(1).max(80)).max(50).optional(),
+        locations: z.array(z.string().min(1).max(80)).max(50).optional(),
       })
       .optional(),
     budget: z
@@ -181,10 +182,15 @@ export async function PATCH(req: Request, ctx: { params: Promise<{ campaignId: s
       parsed.data.targeting?.businessModels === undefined
         ? uniqStrings(existingTarget?.businessModels).slice(0, 50)
         : uniqStrings(parsed.data.targeting.businessModels).slice(0, 50);
+    const locations =
+      parsed.data.targeting?.locations === undefined
+        ? uniqStrings(existingTarget?.locations).slice(0, 50)
+        : uniqStrings(parsed.data.targeting.locations).slice(0, 50);
 
     const targetJson = omitUndefinedDeep({
       industries: industries.length ? industries : undefined,
       businessModels: businessModels.length ? businessModels : undefined,
+      locations: locations.length ? locations : undefined,
       paths: undefined,
       includeOwnerIds: undefined,
       excludeOwnerIds: undefined,
