@@ -19,15 +19,15 @@ async function schemaLooksPresent(): Promise<boolean> {
   const presenceRows = await prisma.$queryRawUnsafe<SchemaPresenceRow[]>(
     `
 SELECT
-  (to_regclass('"PortalAiOutboundCallCampaign"') IS NOT NULL) AS "hasCampaignTable",
-  (to_regclass('"PortalAiOutboundCallEnrollment"') IS NOT NULL) AS "hasCallEnrollmentTable",
-  (to_regclass('"PortalAiOutboundMessageEnrollment"') IS NOT NULL) AS "hasMessageEnrollmentTable",
-  (to_regclass('"PortalAiOutboundCallManualCall"') IS NOT NULL) AS "hasManualCallTable",
-  (to_regtype('"PortalAiOutboundCallCampaignStatus"') IS NOT NULL) AS "hasCampaignStatusType",
-  (to_regtype('"PortalAiOutboundCallEnrollmentStatus"') IS NOT NULL) AS "hasCallEnrollmentStatusType",
-  (to_regtype('"PortalAiOutboundMessageEnrollmentStatus"') IS NOT NULL) AS "hasMessageEnrollmentStatusType",
-  (to_regtype('"PortalAiOutboundMessageEnrollmentSource"') IS NOT NULL) AS "hasMessageEnrollmentSourceType",
-  (to_regtype('"PortalAiOutboundMessageChannelPolicy"') IS NOT NULL) AS "hasMessageChannelPolicyType";
+    (to_regclass('public."PortalAiOutboundCallCampaign"') IS NOT NULL) AS "hasCampaignTable",
+    (to_regclass('public."PortalAiOutboundCallEnrollment"') IS NOT NULL) AS "hasCallEnrollmentTable",
+    (to_regclass('public."PortalAiOutboundMessageEnrollment"') IS NOT NULL) AS "hasMessageEnrollmentTable",
+    (to_regclass('public."PortalAiOutboundCallManualCall"') IS NOT NULL) AS "hasManualCallTable",
+    (to_regtype('"PortalAiOutboundCallCampaignStatus"') IS NOT NULL) AS "hasCampaignStatusType",
+    (to_regtype('"PortalAiOutboundCallEnrollmentStatus"') IS NOT NULL) AS "hasCallEnrollmentStatusType",
+    (to_regtype('"PortalAiOutboundMessageEnrollmentStatus"') IS NOT NULL) AS "hasMessageEnrollmentStatusType",
+    (to_regtype('"PortalAiOutboundMessageEnrollmentSource"') IS NOT NULL) AS "hasMessageEnrollmentSourceType",
+    (to_regtype('"PortalAiOutboundMessageChannelPolicy"') IS NOT NULL) AS "hasMessageChannelPolicyType";
     `.trim(),
   );
 
