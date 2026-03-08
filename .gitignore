@@ -38,11 +38,11 @@
 # local notes / chat transcripts
 /src/lib/notes/
 
+# local-only portal transcript (do not commit)
+/src/app/api/portal/funnel-builder/forms/\[formId\]/ourchat.md
+
 # local chat transcript at repo root
 /chathistory
-
-# additional local chat history file
-/chat history updated.md
 
 # additional local chat history file (copilot transcript)
 /User: can you stage commit and push the .md
