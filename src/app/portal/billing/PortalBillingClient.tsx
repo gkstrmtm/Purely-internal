@@ -1168,7 +1168,7 @@ export function PortalBillingClient() {
         <div className="text-sm font-semibold text-zinc-900">Services & status</div>
         <div className="mt-2 text-sm text-zinc-600">Live status from your account.</div>
 
-        <div className="mt-4 max-h-[60vh] overflow-auto pr-1">
+        <div className="mt-4 max-h-[30vh] overflow-auto pr-1">
           <div className="space-y-2 text-sm text-zinc-700">
           {(() => {
             const servicesList = PORTAL_SERVICES.filter((s) => !s.hidden && (!s.variants || s.variants.includes("portal")));

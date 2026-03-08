@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 
 import {
   defaultPortalPermissionsForRole,
@@ -65,7 +66,16 @@ export function PortalPeopleUsersClient() {
   const [inviteModalOpen, setInviteModalOpen] = useState(false);
   const [inviting, setInviting] = useState(false);
   const [permissionsOpen, setPermissionsOpen] = useState(false);
-  const permissionsDropdownRef = useRef<HTMLDivElement | null>(null);
+  const permissionsRootRef = useRef<HTMLDivElement | null>(null);
+  const permissionsButtonRef = useRef<HTMLButtonElement | null>(null);
+  const permissionsMenuRef = useRef<HTMLDivElement | null>(null);
+
+  const [permissionsMenuRect, setPermissionsMenuRect] = useState<null | {
+    left: number;
+    top: number;
+    width: number;
+    placement: "down" | "up";
+  }>(null);
 
   const [editingMember, setEditingMember] = useState<MemberRow | null>(null);
   const [memberPermissions, setMemberPermissions] = useState<PortalPermissions | null>(null);
@@ -85,15 +95,55 @@ export function PortalPeopleUsersClient() {
     if (!permissionsOpen) return;
 
     function onDown(e: MouseEvent) {
-      const el = permissionsDropdownRef.current;
-      if (!el) return;
-      if (el.contains(e.target as Node)) return;
+      const rootEl = permissionsRootRef.current;
+      const menuEl = permissionsMenuRef.current;
+      const target = e.target as Node;
+
+      if (rootEl && rootEl.contains(target)) return;
+      if (menuEl && menuEl.contains(target)) return;
       setPermissionsOpen(false);
     }
 
     window.addEventListener("mousedown", onDown);
     return () => window.removeEventListener("mousedown", onDown);
   }, [permissionsOpen]);
+
+  const updatePermissionsMenuRect = useCallback(() => {
+    const btn = permissionsButtonRef.current;
+    if (!btn) return;
+    const r = btn.getBoundingClientRect();
+    const vw = Math.max(0, window.innerWidth || 0);
+    const vh = Math.max(0, window.innerHeight || 0);
+
+    const width = Math.min(Math.max(260, r.width), Math.max(260, vw - 16));
+    const left = Math.min(Math.max(8, r.left), Math.max(8, vw - width - 8));
+
+    const spaceBelow = vh - r.bottom;
+    const placement: "down" | "up" = spaceBelow >= 360 ? "down" : "up";
+    const top = placement === "down" ? Math.min(r.bottom + 8, vh - 8) : Math.max(8, r.top - 8);
+
+    setPermissionsMenuRect({ left, top, width, placement });
+  }, []);
+
+  useEffect(() => {
+    if (!permissionsOpen) return;
+    updatePermissionsMenuRect();
+
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setPermissionsOpen(false);
+    };
+    const onResize = () => updatePermissionsMenuRect();
+    const onScroll = () => updatePermissionsMenuRect();
+
+    window.addEventListener("keydown", onKeyDown);
+    window.addEventListener("resize", onResize);
+    window.addEventListener("scroll", onScroll, true);
+    return () => {
+      window.removeEventListener("keydown", onKeyDown);
+      window.removeEventListener("resize", onResize);
+      window.removeEventListener("scroll", onScroll, true);
+    };
+  }, [permissionsOpen, updatePermissionsMenuRect]);
 
   const selectedServicesCount = useMemo(() => {
     return PORTAL_SERVICE_KEYS.reduce((acc, k) => acc + (invitePermissions?.[k]?.view ? 1 : 0), 0);
@@ -397,7 +447,7 @@ export function PortalPeopleUsersClient() {
                       value={inviteEmail}
                       onChange={(e) => setInviteEmail(e.target.value)}
                       placeholder="teammate@company.com"
-                      className="mt-1 w-full rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-sm outline-none focus:border-(--color-brand-blue)"
+                      className="mt-1 w-full rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-sm text-zinc-900 outline-none placeholder:text-zinc-500 focus:border-(--color-brand-blue)"
                     />
                   </div>
                   <div>
@@ -423,10 +473,11 @@ export function PortalPeopleUsersClient() {
                       Admins have full access to all services.
                     </div>
                   ) : (
-                    <div className="relative mt-1" ref={permissionsDropdownRef}>
+                    <div className="relative mt-1" ref={permissionsRootRef}>
                       <button
                         type="button"
                         onClick={() => setPermissionsOpen((v) => !v)}
+                        ref={permissionsButtonRef}
                         className="flex w-full items-center justify-between rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-sm text-zinc-800 hover:bg-zinc-50"
                       >
                         <span>
@@ -435,71 +486,86 @@ export function PortalPeopleUsersClient() {
                         <span className="text-xs text-zinc-500">{permissionsOpen ? "Hide" : "Edit"}</span>
                       </button>
 
-                      {permissionsOpen ? (
-                        <div className="absolute z-20 mt-2 w-full overflow-hidden rounded-2xl border border-zinc-200 bg-white shadow-lg">
-                          <div className="flex items-center justify-between gap-2 border-b border-zinc-200 bg-zinc-50 px-3 py-2">
-                            <div className="text-xs font-semibold uppercase tracking-wide text-zinc-500">Services</div>
-                            <div className="flex items-center gap-2">
-                              <button
-                                type="button"
-                                onClick={() => setAllPermissions(true)}
-                                className="rounded-lg border border-zinc-200 bg-white px-2 py-1 text-xs font-semibold text-zinc-700 hover:bg-zinc-50"
-                              >
-                                All full
-                              </button>
-                              <button
-                                type="button"
-                                onClick={() => {
-                                  const next = { ...invitePermissions };
-                                  for (const k of PORTAL_SERVICE_KEYS) next[k] = { view: true, edit: false };
-                                  setInvitePermissions(next);
-                                }}
-                                className="rounded-lg border border-zinc-200 bg-white px-2 py-1 text-xs font-semibold text-zinc-700 hover:bg-zinc-50"
-                              >
-                                All view
-                              </button>
-                              <button
-                                type="button"
-                                onClick={() => setAllPermissions(false)}
-                                className="rounded-lg border border-zinc-200 bg-white px-2 py-1 text-xs font-semibold text-zinc-700 hover:bg-zinc-50"
-                              >
-                                None
-                              </button>
-                            </div>
-                          </div>
-
-                          <div className="max-h-72 overflow-auto p-2">
-                            {PORTAL_SERVICE_KEYS.map((k) => (
-                              <div
-                                key={k}
-                                className="flex items-center justify-between gap-3 rounded-xl px-2 py-2 text-sm hover:bg-zinc-50"
-                              >
-                                <span className="text-zinc-800">{PORTAL_SERVICE_LABELS[k]}</span>
-                                <PortalListboxDropdown<PermissionLevel>
-                                  value={levelFor(k)}
-                                  onChange={(v) => setPermissionLevel(k, v || "none")}
-                                  options={[
-                                    { value: "none", label: "No access" },
-                                    { value: "view", label: "View only" },
-                                    { value: "full", label: "Full" },
-                                  ]}
-                                  buttonClassName="flex items-center justify-between gap-2 rounded-xl border border-zinc-200 bg-white px-2 py-1 text-xs font-semibold text-zinc-800 hover:bg-zinc-50"
-                                />
+                      {permissionsOpen && typeof document !== "undefined"
+                        ? createPortal(
+                            <div
+                              ref={permissionsMenuRef}
+                              className="rounded-2xl border border-zinc-200 bg-white shadow-lg"
+                              style={{
+                                position: "fixed",
+                                zIndex: 100000,
+                                left: permissionsMenuRect?.left ?? 0,
+                                top: permissionsMenuRect?.top ?? 0,
+                                width: permissionsMenuRect?.width ?? 320,
+                                transform: permissionsMenuRect?.placement === "up" ? "translateY(-100%)" : undefined,
+                              }}
+                              onMouseDown={(e) => e.stopPropagation()}
+                            >
+                              <div className="flex items-center justify-between gap-2 border-b border-zinc-200 bg-zinc-50 px-3 py-2">
+                                <div className="text-xs font-semibold uppercase tracking-wide text-zinc-600">Services</div>
+                                <div className="flex items-center gap-2">
+                                  <button
+                                    type="button"
+                                    onClick={() => setAllPermissions(true)}
+                                    className="rounded-lg border border-zinc-200 bg-white px-2 py-1 text-xs font-semibold text-zinc-800 hover:bg-zinc-50"
+                                  >
+                                    All full
+                                  </button>
+                                  <button
+                                    type="button"
+                                    onClick={() => {
+                                      const next = { ...invitePermissions };
+                                      for (const k of PORTAL_SERVICE_KEYS) next[k] = { view: true, edit: false };
+                                      setInvitePermissions(next);
+                                    }}
+                                    className="rounded-lg border border-zinc-200 bg-white px-2 py-1 text-xs font-semibold text-zinc-800 hover:bg-zinc-50"
+                                  >
+                                    All view
+                                  </button>
+                                  <button
+                                    type="button"
+                                    onClick={() => setAllPermissions(false)}
+                                    className="rounded-lg border border-zinc-200 bg-white px-2 py-1 text-xs font-semibold text-zinc-800 hover:bg-zinc-50"
+                                  >
+                                    None
+                                  </button>
+                                </div>
                               </div>
-                            ))}
-                          </div>
 
-                          <div className="border-t border-zinc-200 bg-zinc-50 px-3 py-2 text-xs text-zinc-500">
-                            Defaults: Admin = all services, Member = limited.
-                          </div>
-                        </div>
-                      ) : null}
+                              <div className="max-h-80 overflow-auto p-2">
+                                {PORTAL_SERVICE_KEYS.map((k) => (
+                                  <div
+                                    key={k}
+                                    className="flex items-center justify-between gap-3 rounded-xl px-2 py-2 text-sm hover:bg-zinc-50"
+                                  >
+                                    <span className="text-zinc-900">{PORTAL_SERVICE_LABELS[k]}</span>
+                                    <PortalListboxDropdown<PermissionLevel>
+                                      value={levelFor(k)}
+                                      onChange={(v) => setPermissionLevel(k, v || "none")}
+                                      options={[
+                                        { value: "none", label: "No access" },
+                                        { value: "view", label: "View only" },
+                                        { value: "full", label: "Full" },
+                                      ]}
+                                      buttonClassName="flex items-center justify-between gap-2 rounded-xl border border-zinc-200 bg-white px-2 py-1 text-xs font-semibold text-zinc-900 hover:bg-zinc-50"
+                                    />
+                                  </div>
+                                ))}
+                              </div>
+
+                              <div className="border-t border-zinc-200 bg-zinc-50 px-3 py-2 text-xs text-zinc-600">
+                                Defaults: Admin = all services, Member = limited.
+                              </div>
+                            </div>,
+                            document.body,
+                          )
+                        : null}
                     </div>
                   )}
                 </div>
 
                 <div className="mt-3 flex items-center justify-between gap-3">
-                  <div className="text-xs text-zinc-500">Invite link expires automatically.</div>
+                  <div className="text-xs text-zinc-600">Invite link expires automatically.</div>
                   <button
                     type="button"
                     disabled={inviting || !inviteEmail.trim()}

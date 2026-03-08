@@ -236,10 +236,22 @@ export function PortalProfileClient() {
   const businessEmailRef = useRef<HTMLDivElement | null>(null);
   const businessInfoRef = useRef<HTMLDivElement | null>(null);
 
-  function openAdvancedAndScrollTo(ref: React.RefObject<HTMLDivElement | null>) {
+  const ADVANCED_SCROLL_OFFSET_PX = 96;
+
+  function openAdvancedAndScrollToAdvanced() {
     setAdvancedOpen(true);
     setTimeout(() => {
-      ref.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+      advancedRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+    }, 0);
+  }
+
+  function openAdvancedAndScrollToSection(ref: React.RefObject<HTMLDivElement | null>) {
+    setAdvancedOpen(true);
+    setTimeout(() => {
+      const el = ref.current;
+      if (!el) return;
+      const top = window.scrollY + el.getBoundingClientRect().top - ADVANCED_SCROLL_OFFSET_PX;
+      window.scrollTo({ top: Math.max(0, top), behavior: "smooth" });
     }, 50);
   }
 
@@ -930,14 +942,19 @@ export function PortalProfileClient() {
 
             <div className="rounded-3xl border border-zinc-200 bg-white p-6">
               <div className="text-sm font-semibold text-zinc-900">Security</div>
-              <div className="mt-2 text-sm text-zinc-600">
-                Keep your account secure.
-              </div>
+              <div className="mt-2 text-sm text-zinc-600">Keep your account secure.</div>
+
+              <ul className="mt-3 space-y-1 pl-5 text-sm text-zinc-700" style={{ listStyleType: "disc" }}>
+                <li>Use a long, unique password.</li>
+                <li>Don’t share invite links (they grant access).</li>
+                <li>Rotate integration credentials if exposed.</li>
+              </ul>
+
               <div className="mt-4 space-y-2">
                 <button
                   type="button"
-                  onClick={() => openAdvancedAndScrollTo(advancedRef)}
-                  className="w-full rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm font-semibold text-brand-ink hover:bg-zinc-50"
+                  onClick={() => openAdvancedAndScrollToAdvanced()}
+                  className="w-full rounded-2xl border border-zinc-200 bg-zinc-50 px-4 py-2 text-sm font-semibold text-brand-ink hover:bg-zinc-100"
                 >
                   Open advanced
                 </button>
@@ -946,8 +963,8 @@ export function PortalProfileClient() {
                   {canViewTwilio ? (
                     <button
                       type="button"
-                      onClick={() => openAdvancedAndScrollTo(twilioRef)}
-                      className="rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-xs font-semibold text-zinc-800 hover:bg-zinc-50"
+                      onClick={() => openAdvancedAndScrollToSection(twilioRef)}
+                      className="rounded-2xl border border-zinc-200 bg-zinc-50 px-3 py-2 text-xs font-semibold text-brand-ink hover:bg-zinc-100"
                     >
                       Twilio
                     </button>
@@ -955,24 +972,24 @@ export function PortalProfileClient() {
                   {canViewWebhooks ? (
                     <button
                       type="button"
-                      onClick={() => openAdvancedAndScrollTo(webhooksRef)}
-                      className="rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-xs font-semibold text-zinc-800 hover:bg-zinc-50"
+                      onClick={() => openAdvancedAndScrollToSection(webhooksRef)}
+                      className="rounded-2xl border border-zinc-200 bg-zinc-50 px-3 py-2 text-xs font-semibold text-brand-ink hover:bg-zinc-100"
                     >
                       Webhooks
                     </button>
                   ) : null}
                   <button
                     type="button"
-                    onClick={() => openAdvancedAndScrollTo(salesReportingRef)}
-                    className="rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-xs font-semibold text-zinc-800 hover:bg-zinc-50"
+                    onClick={() => openAdvancedAndScrollToSection(salesReportingRef)}
+                    className="rounded-2xl border border-zinc-200 bg-zinc-50 px-3 py-2 text-xs font-semibold text-brand-ink hover:bg-zinc-100"
                   >
                     Sales reporting
                   </button>
                   {portalMe?.ok === true ? (
                     <button
                       type="button"
-                      onClick={() => openAdvancedAndScrollTo(businessEmailRef)}
-                      className="rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-xs font-semibold text-zinc-800 hover:bg-zinc-50"
+                      onClick={() => openAdvancedAndScrollToSection(businessEmailRef)}
+                      className="rounded-2xl border border-zinc-200 bg-zinc-50 px-3 py-2 text-xs font-semibold text-brand-ink hover:bg-zinc-100"
                     >
                       Business email
                     </button>
@@ -980,23 +997,19 @@ export function PortalProfileClient() {
                   {canViewBusinessInfo ? (
                     <button
                       type="button"
-                      onClick={() => openAdvancedAndScrollTo(businessInfoRef)}
-                      className="col-span-2 rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-xs font-semibold text-zinc-800 hover:bg-zinc-50"
+                      onClick={() => openAdvancedAndScrollToSection(businessInfoRef)}
+                      className="col-span-2 rounded-2xl border border-zinc-200 bg-zinc-50 px-3 py-2 text-xs font-semibold text-brand-ink hover:bg-zinc-100"
                     >
                       Business info
                     </button>
                   ) : null}
-                </div>
-
-                <div className="pt-2 text-xs text-zinc-500">
-                  Use these shortcuts to jump to integrations and advanced settings.
                 </div>
               </div>
             </div>
           </div>
 
           <div ref={advancedRef} className="rounded-3xl border border-zinc-200 bg-white p-6">
-            <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+            <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between sm:pr-16">
               <div>
                 <div className="text-sm font-semibold text-zinc-900">Advanced</div>
                 <div className="mt-1 text-sm text-zinc-600">Integrations, webhooks, and business settings.</div>
@@ -1004,7 +1017,7 @@ export function PortalProfileClient() {
               <button
                 type="button"
                 onClick={() => setAdvancedOpen((v) => !v)}
-                className="rounded-2xl bg-brand-ink px-4 py-2 text-sm font-semibold text-white hover:opacity-95"
+                className="w-full rounded-2xl bg-brand-ink px-4 py-2 text-sm font-semibold text-white hover:opacity-95 sm:w-auto"
               >
                 {advancedOpen ? "Hide advanced" : "Show advanced"}
               </button>
@@ -1592,7 +1605,7 @@ export function PortalProfileClient() {
             widthClassName="w-[min(640px,calc(100vw-32px))]"
             footer={
               <div className="flex flex-col-reverse gap-2 sm:flex-row sm:items-center sm:justify-end">
-                <div className="text-xs text-zinc-500 sm:mr-auto">After updating, sign out/in on other devices.</div>
+                <div className="text-xs text-zinc-600 sm:mr-auto">After updating, sign out/in on other devices.</div>
                 <button
                   type="button"
                   className="rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm font-semibold text-zinc-800 hover:bg-zinc-50"
@@ -1613,32 +1626,32 @@ export function PortalProfileClient() {
           >
             <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
               <div className="sm:col-span-2">
-                <label className="text-xs font-semibold text-zinc-600">Current password</label>
+                <label className="text-xs font-semibold text-zinc-700">Current password</label>
                 <input
                   value={pwCurrent}
                   onChange={(e) => setPwCurrent(e.target.value)}
                   type="password"
-                  className="mt-1 w-full rounded-2xl border border-zinc-200 bg-white px-4 py-3 text-sm outline-none focus:border-zinc-300"
+                  className="mt-1 w-full rounded-2xl border border-zinc-200 bg-white px-4 py-3 text-sm text-zinc-900 outline-none placeholder:text-zinc-500 focus:border-zinc-300"
                   placeholder="Current password"
                 />
               </div>
               <div>
-                <label className="text-xs font-semibold text-zinc-600">New password</label>
+                <label className="text-xs font-semibold text-zinc-700">New password</label>
                 <input
                   value={pwNext}
                   onChange={(e) => setPwNext(e.target.value)}
                   type="password"
-                  className="mt-1 w-full rounded-2xl border border-zinc-200 bg-white px-4 py-3 text-sm outline-none focus:border-zinc-300"
+                  className="mt-1 w-full rounded-2xl border border-zinc-200 bg-white px-4 py-3 text-sm text-zinc-900 outline-none placeholder:text-zinc-500 focus:border-zinc-300"
                   placeholder="At least 8 characters"
                 />
               </div>
               <div>
-                <label className="text-xs font-semibold text-zinc-600">Confirm new password</label>
+                <label className="text-xs font-semibold text-zinc-700">Confirm new password</label>
                 <input
                   value={pwConfirm}
                   onChange={(e) => setPwConfirm(e.target.value)}
                   type="password"
-                  className="mt-1 w-full rounded-2xl border border-zinc-200 bg-white px-4 py-3 text-sm outline-none focus:border-zinc-300"
+                  className="mt-1 w-full rounded-2xl border border-zinc-200 bg-white px-4 py-3 text-sm text-zinc-900 outline-none placeholder:text-zinc-500 focus:border-zinc-300"
                   placeholder="Repeat new password"
                 />
               </div>
