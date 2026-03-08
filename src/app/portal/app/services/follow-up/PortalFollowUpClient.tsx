@@ -8,6 +8,7 @@ import { AppModal } from "@/components/AppModal";
 import { PortalListboxDropdown } from "@/components/PortalListboxDropdown";
 import { PortalMediaPickerModal, type PortalMediaPickItem } from "@/components/PortalMediaPickerModal";
 import { PortalSettingsSection } from "@/components/PortalSettingsSection";
+import { PortalTypeaheadInput } from "@/components/PortalTypeaheadInput";
 import { PortalVariablePickerModal } from "@/components/PortalVariablePickerModal";
 import { useToast } from "@/components/ToastProvider";
 import { FOLLOW_UP_TEMPLATES, type FollowUpTemplate } from "@/lib/portalFollowUpTemplates";
@@ -210,6 +211,7 @@ export function PortalFollowUpClient({ embedded }: { embedded?: boolean } = {}) 
   const [queue, setQueue] = useState<QueueItem[]>([]);
   const [calendars, setCalendars] = useState<Calendar[]>([]);
   const [siteNotificationEmails, setSiteNotificationEmails] = useState<string[]>([]);
+  const [recipientEmailSuggestions, setRecipientEmailSuggestions] = useState<string[]>([]);
   const [builtinVariables, setBuiltinVariables] = useState<string[]>([]);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -217,6 +219,25 @@ export function PortalFollowUpClient({ embedded }: { embedded?: boolean } = {}) 
   useEffect(() => {
     if (error) toast.error(error);
   }, [error, toast]);
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      const res = await fetch("/api/portal/notifications/recipients").catch(() => null);
+      if (!res || !res.ok) return;
+      const json = (await res.json().catch(() => null)) as any;
+      const list = Array.isArray(json?.recipients) ? json.recipients : [];
+      const emails = list
+        .map((r: any) => (typeof r?.email === "string" ? r.email.trim() : ""))
+        .filter((e: string) => Boolean(e) && e.includes("@"))
+        .slice(0, 5000);
+      if (cancelled) return;
+      setRecipientEmailSuggestions(emails);
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   const [stepEmailDrafts, setStepEmailDrafts] = useState<Record<string, string>>({});
   const [stepPhoneDrafts, setStepPhoneDrafts] = useState<Record<string, string>>({});
@@ -1366,11 +1387,13 @@ export function PortalFollowUpClient({ embedded }: { embedded?: boolean } = {}) 
                                                 ))}
 
                                                 <div className="flex flex-col gap-2 sm:flex-row">
-                                                  <input
+                                                  <PortalTypeaheadInput
                                                     value={stepEmailDrafts[s.id] ?? ""}
-                                                    onChange={(e) => setStepEmailDrafts((prev) => ({ ...prev, [s.id]: e.target.value }))}
+                                                    onChange={(next) => setStepEmailDrafts((prev) => ({ ...prev, [s.id]: next }))}
                                                     className="w-full rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm outline-none focus:border-zinc-300"
                                                     placeholder="team@example.com"
+                                                    suggestions={recipientEmailSuggestions}
+                                                    maxSuggestions={8}
                                                   />
                                                   <button
                                                     type="button"

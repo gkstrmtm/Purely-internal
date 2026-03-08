@@ -10,6 +10,7 @@ import { PortalListboxDropdown } from "@/components/PortalListboxDropdown";
 import { PortalMediaPickerModal, type PortalMediaPickItem } from "@/components/PortalMediaPickerModal";
 import { PortalSelectDropdown } from "@/components/PortalSelectDropdown";
 import { PortalSettingsSection } from "@/components/PortalSettingsSection";
+import { PortalTypeaheadInput } from "@/components/PortalTypeaheadInput";
 import { PortalVariablePickerModal } from "@/components/PortalVariablePickerModal";
 import { ContactTagsEditor, type ContactTag } from "@/components/ContactTagsEditor";
 import { LocalDateTimePicker } from "@/components/LocalDateTimePicker";
@@ -310,6 +311,26 @@ export function PortalBookingClient() {
   const [photoBusy, setPhotoBusy] = useState(false);
   const [photoPickerOpen, setPhotoPickerOpen] = useState(false);
   const [notificationEmails, setNotificationEmails] = useState<string[]>([]);
+  const [notificationEmailSuggestions, setNotificationEmailSuggestions] = useState<string[]>([]);
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      const res = await fetch("/api/portal/notifications/recipients").catch(() => null);
+      if (!res || !res.ok) return;
+      const json = (await res.json().catch(() => null)) as any;
+      const list = Array.isArray(json?.recipients) ? json.recipients : [];
+      const emails = list
+        .map((r: any) => (typeof r?.email === "string" ? r.email.trim() : ""))
+        .filter((e: string) => Boolean(e) && e.includes("@"))
+        .slice(0, 5000);
+      if (cancelled) return;
+      setNotificationEmailSuggestions(emails);
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   const [form, setForm] = useState<BookingFormConfig | null>(null);
   const [formSaving, setFormSaving] = useState(false);
@@ -2861,13 +2882,15 @@ export function PortalBookingClient() {
 
                 {notificationEmails.map((email, idx) => (
                   <div key={idx} className="flex items-center gap-2">
-                    <input
+                    <PortalTypeaheadInput
+                      value={email}
+                      suggestions={notificationEmailSuggestions}
+                      disabled={saving}
                       className="w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm"
                       placeholder={idx === 0 ? "you@company.com" : "another@company.com"}
-                      value={email}
-                      onChange={(e) => {
+                      onChange={(nextEmail) => {
                         const next = [...notificationEmails];
-                        next[idx] = e.target.value;
+                        next[idx] = nextEmail;
                         setNotificationEmails(next);
                       }}
                       onBlur={() => save({ notificationEmails: sanitizeNotificationEmails(notificationEmails) })}

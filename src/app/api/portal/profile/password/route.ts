@@ -4,6 +4,7 @@ import { z } from "zod";
 import { prisma } from "@/lib/db";
 import { requireClientSessionForService } from "@/lib/portalAccess";
 import { hashPassword, verifyPassword } from "@/lib/password";
+import { getAppBaseUrl, tryNotifyPortalUserIds } from "@/lib/portalNotifications";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
@@ -43,6 +44,26 @@ export async function PUT(req: Request) {
 
   const nextHash = await hashPassword(parsed.data.newPassword);
   await prisma.user.update({ where: { id: userId }, data: { passwordHash: nextHash } });
+
+  try {
+    const baseUrl = getAppBaseUrl();
+    const ownerId = auth.session.user.id;
+
+    const recipients = Array.from(new Set([userId, ownerId].filter(Boolean)));
+    void tryNotifyPortalUserIds({
+      userIds: recipients,
+      subject: "Password changed",
+      text: [
+        "Your portal password was changed.",
+        "",
+        "If this wasn't you, please update it immediately and contact support.",
+        "",
+        `Open Profile: ${baseUrl}/portal/profile`,
+      ].join("\n"),
+    }).catch(() => null);
+  } catch {
+    // ignore
+  }
 
   return NextResponse.json({ ok: true, note: "Password updated. Sign out/in on other devices." });
 }

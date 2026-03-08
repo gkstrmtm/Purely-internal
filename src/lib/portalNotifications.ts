@@ -37,6 +37,7 @@ export function getAppBaseUrl() {
 
 export type PortalNotificationKind =
   | "credits_purchased"
+  | "password_changed"
   | "inbound_email"
   | "inbound_sms"
   | "blog_published"
@@ -46,6 +47,8 @@ export type PortalNotificationKind =
   | "newsletter_ready"
   | "newsletter_sent"
   | "ai_receptionist_call_completed"
+  | "ai_outbound_call_completed"
+  | "ai_outbound_call_failed"
   | "missed_call"
   | "lead_scrape_run_completed"
   | "automations_run"
@@ -60,6 +63,9 @@ export type PortalRecipientContact = { userId: string; email: string; phoneE164:
 
 function serviceForNotificationKind(kind: PortalNotificationKind): PortalServiceKey | null {
   switch (kind) {
+    case "password_changed":
+      return "profile";
+
     case "inbound_email":
     case "inbound_sms":
       return "inbox";
@@ -76,6 +82,10 @@ function serviceForNotificationKind(kind: PortalNotificationKind): PortalService
 
     case "ai_receptionist_call_completed":
       return "aiReceptionist";
+
+    case "ai_outbound_call_completed":
+    case "ai_outbound_call_failed":
+      return "aiOutboundCalls";
 
     case "missed_call":
       return "missedCallTextback";
@@ -99,6 +109,74 @@ function serviceForNotificationKind(kind: PortalNotificationKind): PortalService
     default:
       return null;
   }
+}
+
+export async function tryNotifyPortalUserIds(opts: {
+  userIds: string[];
+  subject: string;
+  text: string;
+  html?: string | null;
+  fromName?: string | null;
+  replyTo?: string | null;
+  smsMirror?: boolean;
+  smsFromNumberEnvKeys?: string[];
+}): Promise<{ ok: true; recipients: string[] } | { ok: false; reason: string }> {
+  const ids = Array.isArray(opts.userIds) ? opts.userIds.map((x) => String(x || "").trim()).filter(Boolean) : [];
+  const uniqueIds = Array.from(new Set(ids)).slice(0, 50);
+  if (!uniqueIds.length) return { ok: false, reason: "No recipients" };
+
+  const users = await prisma.user
+    .findMany({
+      where: { id: { in: uniqueIds }, active: true },
+      select: { id: true, email: true },
+      take: 60,
+    })
+    .catch(() => []);
+
+  const recipients = users
+    .map((u) => ({ userId: u.id, email: safeOneLine(u.email) }))
+    .filter((r) => r.email && r.email.includes("@"));
+
+  if (!recipients.length) return { ok: false, reason: "No recipients" };
+
+  const res = await trySendTransactionalEmail({
+    to: recipients.map((r) => r.email),
+    subject: opts.subject,
+    text: opts.text,
+    html: opts.html ?? null,
+    fromName: safeOneLine(opts.fromName || "") || "Purely Automation",
+    replyTo: opts.replyTo ?? null,
+  });
+
+  if (!res.ok) return { ok: false, reason: res.reason };
+
+  const smsMirror = opts.smsMirror !== false;
+  if (smsMirror) {
+    try {
+      const phones = await getRecipientPhones(recipients.map((r) => r.userId));
+      const smsBody = [safeOneLine(opts.subject), String(opts.text || "").trim()]
+        .filter(Boolean)
+        .join("\n\n")
+        .slice(0, 900);
+
+      await Promise.all(
+        recipients
+          .map((r) => ({ userId: r.userId, phone: phones.get(r.userId) || "" }))
+          .filter((r) => Boolean(r.phone))
+          .map((r) =>
+            sendTwilioEnvSms({
+              to: r.phone,
+              body: smsBody,
+              fromNumberEnvKeys: opts.smsFromNumberEnvKeys ?? ["TWILIO_FROM_NUMBER"],
+            }),
+          ),
+      );
+    } catch {
+      // ignore
+    }
+  }
+
+  return { ok: true, recipients: recipients.map((r) => r.email) };
 }
 
 async function getPortalAccountRecipients(opts: { ownerId: string; kind?: PortalNotificationKind }): Promise<PortalRecipient[]> {

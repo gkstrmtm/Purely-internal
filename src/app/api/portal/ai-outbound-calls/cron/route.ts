@@ -17,6 +17,7 @@ import { renderTextTemplate } from "@/lib/textTemplate";
 import { makeEmailThreadKey, makeSmsThreadKey, normalizeSubjectKey, upsertPortalInboxMessage } from "@/lib/portalInbox";
 import { getOrCreateOwnerMailboxAddress } from "@/lib/portalMailbox";
 import { sendEmail } from "@/lib/leadOutbound";
+import { getAppBaseUrl, tryNotifyPortalAccountUsers } from "@/lib/portalNotifications";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
@@ -249,6 +250,7 @@ export async function GET(req: Request) {
       contactId: true,
       callSid: true,
       campaign: { select: { callOutcomeTaggingJson: true } },
+      contact: { select: { id: true, name: true, email: true, phone: true } },
     },
     orderBy: [{ nextCallAt: "asc" }, { id: "asc" }],
     take: 60,
@@ -314,6 +316,34 @@ export async function GET(req: Request) {
         select: { id: true },
       });
 
+      try {
+        const baseUrl = getAppBaseUrl();
+        const contactName = (c as any)?.contact?.name ? String((c as any).contact.name).trim() : "";
+        const contactPhone = (c as any)?.contact?.phone ? String((c as any).contact.phone).trim() : "";
+        const contactEmail = (c as any)?.contact?.email ? String((c as any).contact.email).trim() : "";
+        const minutes = startedMinutesFromSeconds(tw.call.durationSec);
+
+        void tryNotifyPortalAccountUsers({
+          ownerId: c.ownerId,
+          kind: "ai_outbound_call_completed",
+          subject: contactName ? `Outbound call completed: ${contactName}` : "Outbound call completed",
+          text: [
+            "An AI outbound call completed.",
+            "",
+            contactName ? `Contact: ${contactName}` : null,
+            contactPhone ? `Phone: ${contactPhone}` : null,
+            contactEmail ? `Email: ${contactEmail}` : null,
+            minutes ? `Duration: ~${minutes} min` : null,
+            "",
+            `Open calls: ${baseUrl}/portal/app/services/ai-outbound-calls/calls`,
+          ]
+            .filter(Boolean)
+            .join("\n"),
+        }).catch(() => null);
+      } catch {
+        // ignore
+      }
+
       const cfg = parseCallOutcomeTagging((c as any)?.campaign?.callOutcomeTaggingJson);
       if (cfg.enabled && cfg.onCompletedTagIds.length) {
         await applyContactTags({ ownerId: c.ownerId, contactId: c.contactId, tagIds: cfg.onCompletedTagIds });
@@ -333,6 +363,33 @@ export async function GET(req: Request) {
       },
       select: { id: true },
     });
+
+    try {
+      const baseUrl = getAppBaseUrl();
+      const contactName = (c as any)?.contact?.name ? String((c as any).contact.name).trim() : "";
+      const contactPhone = (c as any)?.contact?.phone ? String((c as any).contact.phone).trim() : "";
+      const contactEmail = (c as any)?.contact?.email ? String((c as any).contact.email).trim() : "";
+
+      void tryNotifyPortalAccountUsers({
+        ownerId: c.ownerId,
+        kind: "ai_outbound_call_failed",
+        subject: contactName ? `Outbound call failed: ${contactName}` : "Outbound call failed",
+        text: [
+          "An AI outbound call failed.",
+          "",
+          contactName ? `Contact: ${contactName}` : null,
+          contactPhone ? `Phone: ${contactPhone}` : null,
+          contactEmail ? `Email: ${contactEmail}` : null,
+          status ? `Twilio status: ${status}` : null,
+          "",
+          `Open calls: ${baseUrl}/portal/app/services/ai-outbound-calls/calls`,
+        ]
+          .filter(Boolean)
+          .join("\n"),
+      }).catch(() => null);
+    } catch {
+      // ignore
+    }
 
     {
       const cfg = parseCallOutcomeTagging((c as any)?.campaign?.callOutcomeTaggingJson);

@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 
 import { processDueAppointmentReminders } from "@/lib/appointmentReminders";
+import { processDueBookingInternalReminders } from "@/lib/bookingInternalReminders";
 import { isVercelCronRequest, readCronAuthValue } from "@/lib/cronAuth";
 
 export const dynamic = "force-dynamic";
@@ -23,6 +24,10 @@ export async function GET(req: Request) {
     if (provided !== secret) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
-  const result = await processDueAppointmentReminders({ ownersLimit: 2000, perOwnerLimit: 25, windowMinutes: 5 });
-  return NextResponse.json(result);
+  const [customer, internal] = await Promise.all([
+    processDueAppointmentReminders({ ownersLimit: 2000, perOwnerLimit: 25, windowMinutes: 5 }),
+    processDueBookingInternalReminders({ ownersLimit: 2000, perOwnerLimit: 25, windowMinutes: 5 }),
+  ]);
+
+  return NextResponse.json({ ok: true, customer, internal });
 }
