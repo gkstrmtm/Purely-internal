@@ -29,6 +29,24 @@ function getPlacesKey() {
   return process.env.GOOGLE_PLACES_API_KEY || process.env.GOOGLE_MAPS_API_KEY || "";
 }
 
+function getRefererHintHeader(): Record<string, string> {
+  const raw =
+    process.env.NEXT_PUBLIC_APP_URL ||
+    process.env.NEXTAUTH_URL ||
+    (process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : "");
+
+  const value = String(raw || "").trim();
+  if (!value) return {};
+  return { Referer: value };
+}
+
+function normalizeNewPlaceId(placeId: string) {
+  const s = String(placeId || "").trim();
+  if (!s) return "";
+  if (s.startsWith("places/")) return s.slice("places/".length);
+  return s;
+}
+
 function isProbablyLegacyApiDisabledOrUnauthorized(message: string) {
   const m = message.toLowerCase();
   return (
@@ -62,7 +80,7 @@ async function legacyPlacesTextSearch(query: string, limit: number) {
     if (pageToken) url.searchParams.set("pagetoken", pageToken);
     url.searchParams.set("key", key);
 
-    const res = await fetch(url.toString(), { method: "GET" });
+    const res = await fetch(url.toString(), { method: "GET", headers: { ...getRefererHintHeader() } });
     const data = (await safeReadJson(res)) as PlacesTextSearchResponse | null;
 
     if (!res.ok) {
@@ -133,7 +151,8 @@ async function newPlacesTextSearch(query: string, limit: number) {
         "content-type": "application/json",
         "x-goog-api-key": key,
         // Only request what we use.
-        "x-goog-fieldmask": "places.id,places.displayName,places.formattedAddress,nextPageToken",
+        "x-goog-fieldmask": "places.id,places.name,places.displayName,places.formattedAddress,nextPageToken",
+        ...getRefererHintHeader(),
       },
       body: JSON.stringify({ textQuery: query, maxResultCount: Math.min(20, Math.max(1, target)), pageToken }),
     });
@@ -152,12 +171,11 @@ async function newPlacesTextSearch(query: string, limit: number) {
 
   let page = await fetchPage();
   for (const p of page.places ?? []) {
-    if (!p?.id) continue;
-    all.push({
-      place_id: p.id,
-      name: p.displayName?.text,
-      formatted_address: p.formattedAddress,
-    });
+    const rawId = (p as any)?.id || "";
+    const rawName = (p as any)?.name || "";
+    const placeId = normalizeNewPlaceId(rawId || rawName);
+    if (!placeId) continue;
+    all.push({ place_id: placeId, name: p.displayName?.text, formatted_address: p.formattedAddress });
   }
 
   // Best-effort pagination.
@@ -167,12 +185,11 @@ async function newPlacesTextSearch(query: string, limit: number) {
     await sleep(1500);
     page = await fetchPage(token);
     for (const p of page.places ?? []) {
-      if (!p?.id) continue;
-      all.push({
-        place_id: p.id,
-        name: p.displayName?.text,
-        formatted_address: p.formattedAddress,
-      });
+      const rawId = (p as any)?.id || "";
+      const rawName = (p as any)?.name || "";
+      const placeId = normalizeNewPlaceId(rawId || rawName);
+      if (!placeId) continue;
+      all.push({ place_id: placeId, name: p.displayName?.text, formatted_address: p.formattedAddress });
     }
   }
 
@@ -193,13 +210,17 @@ async function newPlaceDetails(placeId: string) {
   const key = getPlacesKey();
   if (!key) throw new Error("Missing GOOGLE_PLACES_API_KEY");
 
-  const url = new URL(`https://places.googleapis.com/v1/places/${encodeURIComponent(placeId)}`);
+  const normalizedPlaceId = normalizeNewPlaceId(placeId);
+  if (!normalizedPlaceId) throw new Error("Missing placeId");
+
+  const url = new URL(`https://places.googleapis.com/v1/places/${encodeURIComponent(normalizedPlaceId)}`);
   const res = await fetch(url.toString(), {
     method: "GET",
     headers: {
       "x-goog-api-key": key,
       "x-goog-fieldmask":
         "id,displayName,formattedPhoneNumber,internationalPhoneNumber,websiteUri,formattedAddress",
+      ...getRefererHintHeader(),
     },
   });
 
@@ -227,12 +248,13 @@ export function hasPlacesKey() {
 }
 
 export async function placesTextSearch(query: string, limit: number) {
+  // Prefer Places API (New) first since that's what Google is migrating toward.
   try {
-    return await legacyPlacesTextSearch(query, limit);
+    return await newPlacesTextSearch(query, limit);
   } catch (e: any) {
     const msg = typeof e?.message === "string" ? e.message : "";
     if (msg && !isProbablyLegacyApiDisabledOrUnauthorized(msg)) throw e;
-    return await newPlacesTextSearch(query, limit);
+    return await legacyPlacesTextSearch(query, limit);
   }
 }
 
@@ -241,9 +263,7 @@ export async function placeDetails(placeId: string) {
   if (!key) throw new Error("Missing GOOGLE_PLACES_API_KEY");
 
   // If placeId already looks like a new Places resource id, go straight to the new API.
-  if (placeId.startsWith("places/")) {
-    return await newPlaceDetails(placeId);
-  }
+  if (placeId.startsWith("places/")) return await newPlaceDetails(placeId);
 
   try {
     const url = new URL("https://maps.googleapis.com/maps/api/place/details/json");
@@ -260,7 +280,7 @@ export async function placeDetails(placeId: string) {
     );
     url.searchParams.set("key", key);
 
-    const res = await fetch(url.toString(), { method: "GET" });
+    const res = await fetch(url.toString(), { method: "GET", headers: { ...getRefererHintHeader() } });
     const data = (await safeReadJson(res)) as PlacesDetailsResponse | null;
 
     if (!res.ok) {
