@@ -1,6 +1,7 @@
 import type { Metadata, Viewport } from "next";
 import "./globals.css";
 import { ToastProvider } from "@/components/ToastProvider";
+import { AiReceptionistWidget } from "@/components/AiReceptionistWidget";
 
 export const metadata: Metadata = {
   title: "Purely Automation",
@@ -41,7 +42,10 @@ export default function RootLayout({
       <body
         className="min-h-[100dvh] overflow-x-hidden antialiased"
       >
-        <ToastProvider>{children}</ToastProvider>
+        <ToastProvider>
+          {children}
+          <AiReceptionistWidget />
+        </ToastProvider>
       </body>
     </html>
   );

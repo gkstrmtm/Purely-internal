@@ -168,6 +168,9 @@ function FeatureIcon({ name }: { name: "phone" | "message" | "calendar" | "dispa
 }
 
 function AutomationHighlights() {
+  const callPhone = process.env.NEXT_PUBLIC_AI_RECEPTIONIST_PHONE || "980-238-3381";
+  const callHref = "tel:+1" + String(callPhone).replace(/\D/g, "").slice(-10);
+
   const items: Array<{
     title: string;
     desc: string;
@@ -175,14 +178,20 @@ function AutomationHighlights() {
     ctaHref?: string;
     ctaLabel?: string;
   }> = [
-    { title: "Never miss a lead", desc: "Calls, texts, and emails get captured, tagged, and routed automatically.", icon: "phone" },
+    {
+      title: "Never miss a lead",
+      desc: "Calls, texts, and emails get captured, tagged, and routed automatically.",
+      icon: "phone",
+      ctaHref: callHref,
+      ctaLabel: "See how",
+    },
     { title: "Follow up without chasing", desc: "Automated reminders and sequences keep prospects moving to a booked call.", icon: "message" },
     { title: "Book and dispatch faster", desc: "Scheduling, assignments, and notifications happen without manual handoffs.", icon: "dispatch" },
     {
       title: "Stay top of mind",
       desc: "Simple marketing automations (like automated blogs) that keep your business visible, consistent, and SEO-friendly.",
       icon: "megaphone",
-      ctaHref: "/blogs",
+      ctaHref: callHref,
       ctaLabel: "See how",
     },
     { title: "Know what is working", desc: "Clear metrics so you can see volume, speed to lead, and conversion.", icon: "chart" },

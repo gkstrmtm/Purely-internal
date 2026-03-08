@@ -182,14 +182,14 @@ export default async function PortalDashboardPage() {
 
           <div className="mt-6 grid grid-cols-1 gap-4 lg:grid-cols-3">
             <div className="group flex min-h-[360px] flex-col rounded-3xl border border-zinc-200 bg-white p-6 transition hover:-translate-y-0.5 hover:border-zinc-300 hover:shadow-lg">
-              <div className="text-xs font-semibold uppercase tracking-wide text-zinc-500">More reach</div>
-              <div className="mt-2 text-lg font-semibold text-zinc-900">Content + SEO</div>
-              <div className="mt-2 text-sm text-zinc-600">Best for staying visible and generating inbound over time.</div>
-              <div className="mt-3 text-xs text-zinc-500">Recommended for: businesses that want steady inbound.</div>
+              <div className="text-xs font-semibold uppercase tracking-wide text-zinc-500">Build a real brand</div>
+              <div className="mt-2 text-lg font-semibold text-zinc-900">The Brand Builder</div>
+              <div className="mt-2 text-sm text-zinc-600">Look established, stay visible, and build trust without posting every day.</div>
+              <div className="mt-3 text-xs text-zinc-500">Recommended for: service businesses that want consistent inbound and stronger credibility.</div>
               <div className="mt-4 space-y-2 text-sm text-zinc-700">
-                <div>• Automated Blogs</div>
-                <div>• Newsletter</div>
-                <div>• Nurture Campaigns</div>
+                <div>• Automated blogs that keep you discoverable</div>
+                <div>• Newsletter and reviews that build proof</div>
+                <div>• Nurture campaigns that turn interest into booked calls</div>
               </div>
               <div className="mt-auto pt-6">
                 <Link
@@ -206,13 +206,14 @@ export default async function PortalDashboardPage() {
                 Most popular
               </div>
               <div className="text-xs font-semibold uppercase tracking-wide text-[color:rgba(29,78,216,0.78)]">Most popular</div>
-              <div className="mt-2 text-lg font-semibold text-zinc-900">Appointments + follow-up</div>
-              <div className="mt-2 text-sm text-zinc-600">Best for turning leads into booked calls and keeping momentum.</div>
-              <div className="mt-3 text-xs text-zinc-500">Recommended for: teams that want faster response and higher conversion.</div>
+              <div className="mt-2 text-lg font-semibold text-zinc-900">The Sales Loop</div>
+              <div className="mt-2 text-sm text-zinc-600">Make more money faster with less work. Respond faster, follow up automatically, and book more calls.</div>
+              <div className="mt-3 text-xs text-zinc-500">Recommended for: teams that want faster response, higher conversion, and less manual chasing.</div>
               <div className="mt-4 space-y-2 text-sm text-zinc-700">
-                <div>• Booking Automation</div>
-                <div>• AI Receptionist</div>
-                <div>• AI Outbound</div>
+                <div>• Booking automation that removes friction</div>
+                <div>• AI receptionist that answers and qualifies</div>
+                <div>• Lead scraping that fills your pipeline</div>
+                <div>• AI outbound that follows up consistently</div>
               </div>
               <div className="mt-auto pt-6">
                 <Link
@@ -225,14 +226,15 @@ export default async function PortalDashboardPage() {
             </div>
 
             <div className="group flex min-h-[360px] flex-col rounded-3xl border border-zinc-200 bg-white p-6 transition hover:-translate-y-0.5 hover:border-zinc-300 hover:shadow-lg">
-              <div className="text-xs font-semibold uppercase tracking-wide text-zinc-500">Build trust</div>
-              <div className="mt-2 text-lg font-semibold text-zinc-900">Reputation + trust</div>
-              <div className="mt-2 text-sm text-zinc-600">Best for improving conversion and closing more work.</div>
-              <div className="mt-3 text-xs text-zinc-500">Recommended for: businesses that win on reputation and proof.</div>
+              <div className="text-xs font-semibold uppercase tracking-wide text-zinc-500">Get established fast</div>
+              <div className="mt-2 text-lg font-semibold text-zinc-900">The Launch Kit</div>
+              <div className="mt-2 text-sm text-zinc-600">Get out there fast with a clean funnel, a strong foundation, and a simple path to bookings.</div>
+              <div className="mt-3 text-xs text-zinc-500">Recommended for: new offers, new markets, or businesses that want to look legit and start converting quickly.</div>
               <div className="mt-4 space-y-2 text-sm text-zinc-700">
-                <div>• Reviews + Verified Listing + Q&amp;A</div>
-                <div>• Newsletter</div>
-                <div>• Nurture Campaigns</div>
+                <div>• Funnel builder that makes your offer clear</div>
+                <div>• Automation builder that keeps delivery consistent</div>
+                <div>• AI receptionist that captures and books leads</div>
+                <div>• Automated blogs that keep you visible</div>
               </div>
               <div className="mt-auto pt-6">
                 <Link
