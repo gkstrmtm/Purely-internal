@@ -119,6 +119,13 @@ export function PortalBillingClient() {
     ack: boolean;
   }>(null);
 
+  const [creditsOnlyCancelModal, setCreditsOnlyCancelModal] = useState<null | {
+    typed: string;
+    ack: boolean;
+  }>(null);
+
+  const [servicesAdvancedOpen, setServicesAdvancedOpen] = useState(false);
+
   useEffect(() => {
     if (error) toast.error(error);
   }, [error, toast]);
@@ -823,52 +830,6 @@ export function PortalBillingClient() {
                 Credits-only billing
               </div>
             ) : null}
-
-            {creditsOnly ? (
-              <div
-                className={`mt-4 rounded-2xl border p-4 ${
-                  creditsCanceled ? "border-red-200 bg-red-50" : "border-zinc-200 bg-zinc-50"
-                }`}
-              >
-                <div className="text-sm font-semibold text-zinc-900">Credits-only cancellation</div>
-                <div className="mt-1 text-sm text-zinc-700">
-                  {creditsCanceled
-                    ? "Canceled: all portal services are disabled until you resume. Billing and Profile stay accessible."
-                    : "Canceling credits-only billing disables all portal services immediately and stops any credit-charging actions."}
-                </div>
-
-                {creditsLifecycle?.updatedAtIso ? (
-                  <div className="mt-1 text-xs text-zinc-500">Last change: {new Date(creditsLifecycle.updatedAtIso).toLocaleString()}</div>
-                ) : null}
-
-                <div className="mt-3 flex flex-col gap-2 sm:flex-row">
-                  {creditsCanceled ? (
-                    <button
-                      type="button"
-                      disabled={actionBusy !== null}
-                      onClick={() => {
-                        void setCreditsOnlyLifecycle("resume");
-                      }}
-                      className="rounded-2xl bg-(--color-brand-blue) px-4 py-2 text-sm font-semibold text-white hover:opacity-95 disabled:opacity-60"
-                    >
-                      {actionBusy === "credits-only:resume" ? "Resuming…" : "Resume services"}
-                    </button>
-                  ) : (
-                    <button
-                      type="button"
-                      disabled={actionBusy !== null}
-                      onClick={() => {
-                        if (!window.confirm("Cancel credits-only billing? This will immediately disable all services.")) return;
-                        void setCreditsOnlyLifecycle("cancel");
-                      }}
-                      className="rounded-2xl border border-red-200 bg-white px-4 py-2 text-sm font-semibold text-red-700 hover:bg-red-50 disabled:opacity-60"
-                    >
-                      {actionBusy === "credits-only:cancel" ? "Canceling…" : "Cancel (disable services)"}
-                    </button>
-                  )}
-                </div>
-              </div>
-            ) : null}
           </div>
           <div className="flex flex-col gap-2 sm:flex-row">
             <button
@@ -1215,6 +1176,65 @@ export function PortalBillingClient() {
         </div>
       ) : null}
 
+      {creditsOnlyCancelModal ? (
+        <div
+          className="fixed inset-0 z-9999 overflow-y-auto bg-black/40 p-4"
+          onMouseDown={() => setCreditsOnlyCancelModal(null)}
+        >
+          <div className="mx-auto w-full max-w-xl" onMouseDown={(e) => e.stopPropagation()}>
+            <div className="rounded-3xl border border-zinc-200 bg-white p-5 shadow-xl">
+              <div className="text-sm font-semibold text-zinc-900">Cancel credits-only billing</div>
+              <div className="mt-1 text-sm text-zinc-600">
+                This immediately disables all portal services and prevents any credit-charging actions.
+              </div>
+
+              <div className="mt-4 rounded-2xl border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900">
+                If you’re sure, type <span className="font-semibold">CANCEL</span> and confirm.
+              </div>
+
+              <div className="mt-3">
+                <input
+                  value={creditsOnlyCancelModal.typed}
+                  onChange={(e) => setCreditsOnlyCancelModal({ ...creditsOnlyCancelModal, typed: e.target.value })}
+                  className="w-full rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-sm outline-none focus:border-zinc-300"
+                  placeholder="Type CANCEL"
+                />
+              </div>
+
+              <label className="mt-3 flex items-start gap-2 text-sm text-zinc-700">
+                <input
+                  type="checkbox"
+                  checked={creditsOnlyCancelModal.ack}
+                  onChange={(e) => setCreditsOnlyCancelModal({ ...creditsOnlyCancelModal, ack: e.target.checked })}
+                />
+                <span>I understand this disables all services and I still want to proceed.</span>
+              </label>
+
+              <div className="mt-4 flex flex-col gap-2 sm:flex-row sm:justify-end">
+                <button
+                  type="button"
+                  className="rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm font-semibold text-brand-ink hover:bg-zinc-50"
+                  onClick={() => setCreditsOnlyCancelModal(null)}
+                >
+                  Go back
+                </button>
+                <button
+                  type="button"
+                  className="rounded-2xl border border-red-200 bg-red-600 px-4 py-2 text-sm font-semibold text-white hover:bg-red-700 disabled:opacity-60"
+                  disabled={creditsOnlyCancelModal.typed.trim().toUpperCase() !== "CANCEL" || !creditsOnlyCancelModal.ack || actionBusy !== null}
+                  onClick={async () => {
+                    setCreditsOnlyCancelModal(null);
+                    await setCreditsOnlyLifecycle("cancel");
+                  }}
+                >
+                  Yes, cancel
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      ) : null}
+
       {!creditsOnly ? (
         <div className="rounded-3xl border border-zinc-200 bg-white p-6 lg:col-span-2">
           <div className="text-sm font-semibold text-zinc-900">Add services</div>
@@ -1263,8 +1283,23 @@ export function PortalBillingClient() {
       ) : null}
 
       <div className="rounded-3xl border border-zinc-200 bg-white p-6">
-        <div className="text-sm font-semibold text-zinc-900">Services & status</div>
-        <div className="mt-2 text-sm text-zinc-600">Live status from your account.</div>
+        <div className="flex items-start justify-between gap-3">
+          <div>
+            <div className="text-sm font-semibold text-zinc-900">Services & status</div>
+            <div className="mt-2 text-sm text-zinc-600">Live status from your account.</div>
+          </div>
+
+          {creditsOnly ? (
+            <button
+              type="button"
+              disabled={actionBusy !== null}
+              onClick={() => setServicesAdvancedOpen((v) => !v)}
+              className="shrink-0 rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-sm font-semibold text-brand-ink hover:bg-zinc-50 disabled:opacity-60"
+            >
+              {servicesAdvancedOpen ? "Hide advanced" : "Advanced"}
+            </button>
+          ) : null}
+        </div>
 
         <div className="mt-4 max-h-[30vh] overflow-auto pr-1">
           <div className="space-y-2 text-sm text-zinc-700">
@@ -1453,6 +1488,49 @@ export function PortalBillingClient() {
           })()}
           </div>
         </div>
+
+        {creditsOnly && servicesAdvancedOpen ? (
+          <div
+            className={`mt-4 rounded-2xl border p-4 ${
+              creditsCanceled ? "border-red-200 bg-red-50" : "border-zinc-200 bg-zinc-50"
+            }`}
+          >
+            <div className="text-sm font-semibold text-zinc-900">Advanced: credits-only cancellation</div>
+            <div className="mt-1 text-sm text-zinc-700">
+              {creditsCanceled
+                ? "Canceled: all portal services are disabled until you resume. Billing and Profile stay accessible."
+                : "Canceling credits-only billing disables all portal services immediately and stops any credit-charging actions."}
+            </div>
+
+            {creditsLifecycle?.updatedAtIso ? (
+              <div className="mt-1 text-xs text-zinc-500">Last change: {new Date(creditsLifecycle.updatedAtIso).toLocaleString()}</div>
+            ) : null}
+
+            <div className="mt-3 flex flex-col gap-2 sm:flex-row">
+              {creditsCanceled ? (
+                <button
+                  type="button"
+                  disabled={actionBusy !== null}
+                  onClick={() => {
+                    void setCreditsOnlyLifecycle("resume");
+                  }}
+                  className="rounded-2xl bg-(--color-brand-blue) px-4 py-2 text-sm font-semibold text-white hover:opacity-95 disabled:opacity-60"
+                >
+                  {actionBusy === "credits-only:resume" ? "Resuming…" : "Resume services"}
+                </button>
+              ) : (
+                <button
+                  type="button"
+                  disabled={actionBusy !== null}
+                  onClick={() => setCreditsOnlyCancelModal({ typed: "", ack: false })}
+                  className="rounded-2xl border border-red-200 bg-white px-4 py-2 text-sm font-semibold text-red-700 hover:bg-red-50 disabled:opacity-60"
+                >
+                  {actionBusy === "credits-only:cancel" ? "Canceling…" : "Cancel (disable services)"}
+                </button>
+              )}
+            </div>
+          </div>
+        ) : null}
 
         <div className="mt-6 rounded-2xl border border-brand-ink/10 bg-linear-to-br from-brand-blue/10 to-white p-4 text-sm text-zinc-800">
           <div className="font-semibold text-zinc-900">Want to add more?</div>
