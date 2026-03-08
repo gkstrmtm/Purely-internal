@@ -152,11 +152,12 @@ export function LocalDateTimePicker(props: {
     let out: Date | null = null;
     if (minDateTime instanceof Date && isValidDate(minDateTime)) out = new Date(minDateTime);
     if (disablePast) {
-      const now = new Date(nowSeed || Date.now());
+      if (!open || !nowSeed) return out;
+      const now = new Date(nowSeed);
       out = out ? (out > now ? out : now) : now;
     }
     return out;
-  }, [disablePast, minDateTime, nowSeed]);
+  }, [disablePast, minDateTime, nowSeed, open]);
 
   const minYmd = effectiveMinDateTime ? formatYmd(effectiveMinDateTime) : null;
   const minHm = effectiveMinDateTime ? formatHm(effectiveMinDateTime) : null;
@@ -216,6 +217,7 @@ export function LocalDateTimePicker(props: {
         }
         onClick={() => {
           if (disabled) return;
+          if (!open && disablePast) setNowSeed(Date.now());
           setOpen((v) => !v);
         }}
         aria-haspopup="dialog"

@@ -163,9 +163,9 @@ export async function processDueBookingInternalReminders(opts?: {
 
       let mutated = false;
       const serviceData = parseServiceData(existing?.dataJson);
-      let sentKeys = serviceData.sentKeys.slice();
+      const sentKeys = serviceData.sentKeys.slice();
       const sentSet = new Set(sentKeys);
-      let events = serviceData.events.slice();
+      const events = serviceData.events.slice();
 
       const upsertServiceData = async () => {
         if (!mutated) return;
